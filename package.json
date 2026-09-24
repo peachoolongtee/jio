@@ -1,0 +1,15 @@
+{
+  "name": "jio",
+  "private": true,
+  "packageManager": "pnpm@12.4.1",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "dev:frontend": "pnpm --filter jio-frontend dev",
+    "dev:backend": "pnpm --filter jio-backend dev",
+    "build": "pnpm --filter jio-frontend build",
+    "test": "pnpm --filter jio-backend test",
+    "test:e2e": "pnpm --filter jio-frontend test:e2e"
+  }
+}
