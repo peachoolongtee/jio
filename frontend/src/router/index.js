@@ -1,25 +1,42 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth.js'
 
-// Routes from build spec v2 §9.6. `requiresAuth` is read by the auth guard,
-// which arrives with the auth ticket.
+// meta.tabs: show the mobile tab bar (top-level screens only; flow screens have a back arrow instead).
+// meta.nav: false hides all navigation (sign-up and the full-screen map).
+// meta.public: open without an account.
 const routes = [
-  { path: '/', name: 'landing', component: () => import('../views/LandingView.vue') },
-  { path: '/login', name: 'login', component: () => import('../views/AuthView.vue') },
-  { path: '/signup', name: 'signup', component: () => import('../views/AuthView.vue') },
-  // Public: holds the invite token through signup.
-  { path: '/join/:token', name: 'join', component: () => import('../views/JoinView.vue') },
-  { path: '/groups', name: 'groups', component: () => import('../views/GroupsView.vue'), meta: { requiresAuth: true } },
-  { path: '/groups/:id', name: 'group', component: () => import('../views/GroupDetailView.vue'), meta: { requiresAuth: true } },
-  { path: '/groups/:id/events/new', name: 'event-new', component: () => import('../views/CreateEventView.vue'), meta: { requiresAuth: true } },
-  { path: '/groups/:id/ledger', name: 'ledger', component: () => import('../views/LedgerView.vue'), meta: { requiresAuth: true } },
-  { path: '/events/:id/plan', name: 'planner', component: () => import('../views/PlannerView.vue'), meta: { requiresAuth: true } },
-  { path: '/events/:id/roam', name: 'roam', component: () => import('../views/RoamView.vue'), meta: { requiresAuth: true } },
-  { path: '/events/:id', name: 'event', component: () => import('../views/EventView.vue'), meta: { requiresAuth: true } },
-  { path: '/profile', name: 'profile', component: () => import('../views/ProfileView.vue'), meta: { requiresAuth: true } },
-  { path: '/:pathMatch(.*)*', redirect: '/' },
+  { path: '/signup', name: 'signup', component: () => import('@/views/AuthView.vue'), meta: { nav: false, public: true, title: 'Sign up' } },
+  { path: '/', name: 'home', component: () => import('@/views/LandingView.vue'), meta: { tabs: true, title: 'Home' } },
+  { path: '/sessions', name: 'sessions', component: () => import('@/views/GroupsView.vue'), meta: { tabs: true, title: 'Sessions' } },
+  { path: '/sessions/new', name: 'session-create', component: () => import('@/views/CreateEventView.vue'), meta: { title: 'Create session' } },
+  { path: '/sessions/:id', name: 'session', component: () => import('@/views/GroupDetailView.vue'), props: true, meta: { title: 'Session' } },
+  { path: '/sessions/:id/invite', name: 'session-invite', component: () => import('@/views/InviteView.vue'), props: true, meta: { title: 'Invite friends' } },
+  { path: '/sessions/:id/plan', name: 'session-plan', component: () => import('@/views/PlannerView.vue'), props: true, meta: { title: 'Activities' } },
+  { path: '/sessions/:id/itinerary', name: 'session-itinerary', component: () => import('@/views/EventView.vue'), props: true, meta: { title: 'Itinerary' } },
+  { path: '/sessions/:id/map', name: 'session-map', component: () => import('@/views/SessionMapView.vue'), props: true, meta: { nav: false, title: 'Map' } },
+  { path: '/leaderboard', name: 'leaderboard', component: () => import('@/views/LeaderboardView.vue'), meta: { tabs: true, title: 'Leaderboard' } },
+  { path: '/profile', name: 'profile', component: () => import('@/views/ProfileView.vue'), meta: { tabs: true, title: 'Profile' } },
+  { path: '/people/:id', name: 'person', component: () => import('@/views/ProfileView.vue'), props: true, meta: { title: 'Profile' } },
+  { path: '/design-system', name: 'design-system', component: () => import('@/views/DesignSystemView.vue'), meta: { public: true, title: 'Design system' } },
+  { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue'), meta: { public: true, title: 'Not found' } },
 ]
 
-export default createRouter({
-  history: createWebHistory(),
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes,
+  scrollBehavior: (to, from, saved) => saved || { top: 0 },
 })
+
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  await auth.init()
+  if (!to.meta.public && !auth.signedIn) return { name: 'signup' }
+  if (to.name === 'signup' && auth.signedIn) return { name: 'home' }
+  return true
+})
+
+router.afterEach((to) => {
+  document.title = to.meta.title ? `${to.meta.title} · Jio` : 'Jio'
+})
+
+export default router

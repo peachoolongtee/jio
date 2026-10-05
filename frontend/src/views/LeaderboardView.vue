@@ -1,0 +1,178 @@
+<script setup>
+// Leaderboard: one ranking, the number of successful meetups (sessions that reached Completed).
+// Ian's row is pinned at the bottom when he is outside the top 10.
+// Rewards: café vouchers bought with points. Redeeming shows a code and lowers the balance;
+// a voucher that costs more than the balance is disabled and says how many points are missing.
+import { computed, onMounted, ref } from 'vue'
+import AppButton from '@/components/ui/AppButton.vue'
+import AppIcon from '@/components/ui/AppIcon.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
+import ModalDialog from '@/components/ui/ModalDialog.vue'
+import SkeletonRow from '@/components/ui/SkeletonRow.vue'
+import StatTile from '@/components/ui/StatTile.vue'
+import UserAvatar from '@/components/ui/UserAvatar.vue'
+import { useGroupsStore } from '@/stores/groups.js'
+
+const TOP = 10
+
+const groups = useGroupsStore()
+const confirming = ref(null)
+const redeemed = ref(null)
+const busy = ref(false)
+const error = ref('')
+
+onMounted(() => Promise.all([groups.loadLeaderboard(), groups.loadRewards()]))
+
+const top = computed(() => groups.leaderboard.slice(0, TOP))
+const pinned = computed(() => {
+  const me = groups.me
+  return me && !top.value.some((r) => r.isMe) ? me : null
+})
+const points = computed(() => groups.me?.points ?? 0)
+const ordinal = (n) => {
+  const s = ['th', 'st', 'nd', 'rd']
+  const v = n % 100
+  return n + (s[(v - 20) % 10] || s[v] || s[0])
+}
+
+async function redeem() {
+  busy.value = true
+  error.value = ''
+  try {
+    redeemed.value = await groups.redeem(confirming.value.id)
+    confirming.value = null
+  } catch (e) {
+    error.value = e.message
+  }
+  busy.value = false
+}
+</script>
+
+<template>
+  <main class="screen">
+    <header class="screen__header">
+      <h1 class="display-xl">Leaderboard</h1>
+      <p class="body-sm text-muted">Successful meetups</p>
+    </header>
+
+    <div class="screen__body">
+      <div class="board-layout">
+        <section class="section" aria-labelledby="rank-head">
+          <h2 id="rank-head" class="sr-only">Ranking by successful meetups</h2>
+          <div v-if="groups.loading.leaderboard && !groups.leaderboard.length" class="stack">
+            <SkeletonRow v-for="n in 6" :key="n" avatar />
+          </div>
+          <ol v-else class="board">
+            <li v-for="row in top" :key="row.id" class="board__row" :class="{ 'is-me': row.isMe, 'is-podium': row.rank <= 3 }">
+              <span class="board__rank" :aria-label="`Rank ${row.rank}`">{{ row.rank }}</span>
+              <UserAvatar :name="row.name" :src="row.photo" :size="40" />
+              <RouterLink :to="row.isMe ? '/profile' : `/people/${row.id}`" class="board__name">
+                <span class="title-sm truncate">{{ row.name }}<template v-if="row.isMe"> (you)</template></span>
+                <span class="caption-sm text-muted">{{ row.homeArea }}</span>
+              </RouterLink>
+              <span class="board__count">
+                <span class="title-md">{{ row.meetups }}</span>
+                <span class="caption-sm text-muted">{{ row.meetups === 1 ? 'meetup' : 'meetups' }}</span>
+              </span>
+            </li>
+          </ol>
+          <div v-if="pinned" class="board__pinned">
+            <div class="board__row is-me">
+              <span class="board__rank" :aria-label="`Rank ${pinned.rank}`">{{ pinned.rank }}</span>
+              <UserAvatar :name="pinned.name" :src="pinned.photo" :size="40" />
+              <RouterLink to="/profile" class="board__name"><span class="title-sm truncate">{{ pinned.name }} (you)</span></RouterLink>
+              <span class="board__count"><span class="title-md">{{ pinned.meetups }}</span><span class="caption-sm text-muted">meetups</span></span>
+            </div>
+          </div>
+        </section>
+
+        <aside class="me-stats" aria-label="Your standing">
+          <StatTile label="Your rank" :value="groups.me ? ordinal(groups.me.rank) : '–'" icon="trophy" />
+          <StatTile label="Points" :value="points" icon="gift" tone="warm" />
+        </aside>
+      </div>
+
+      <section class="section" aria-labelledby="rewards-head">
+        <div class="section__head">
+          <h2 id="rewards-head" class="display-sm">Rewards</h2>
+          <span class="caption text-brand">{{ points }} points</span>
+        </div>
+        <p class="caption-sm text-muted">100 points per successful meetup</p>
+        <div v-if="groups.loading.rewards && !groups.rewards.length" class="grid-3">
+          <SkeletonRow v-for="n in 3" :key="n" />
+        </div>
+        <EmptyState v-else-if="!groups.rewards.length" title="No rewards right now" text="New café vouchers show up here." />
+        <ul v-else class="grid-3">
+          <li v-for="reward in groups.rewards" :key="reward.id" class="voucher" :class="{ 'is-short': reward.cost > points }">
+            <div class="voucher__top">
+              <span class="voucher__icon"><AppIcon name="drink" :size="20" /></span>
+              <span class="voucher__cost caption">{{ reward.cost }} pts</span>
+            </div>
+            <h3 class="title-md">{{ reward.offer }}</h3>
+            <p class="caption-sm text-muted">{{ reward.cafe }}</p>
+            <AppButton v-if="reward.cost <= points" variant="secondary" small @click="confirming = reward">Redeem</AppButton>
+            <AppButton v-else variant="secondary" small disabled>{{ reward.cost - points }} more points needed</AppButton>
+          </li>
+        </ul>
+      </section>
+
+      <section v-if="groups.redemptions.length" class="section" aria-labelledby="mine-head">
+        <h2 id="mine-head" class="display-sm">Your vouchers</h2>
+        <ul class="stack">
+          <li v-for="r in groups.redemptions" :key="r.id" class="code-row">
+            <span class="stack">
+              <span class="title-sm">{{ r.reward.offer }}</span>
+              <span class="caption-sm text-muted">{{ r.reward.cafe }}</span>
+            </span>
+            <code class="code">{{ r.code }}</code>
+          </li>
+        </ul>
+      </section>
+    </div>
+
+    <ModalDialog :open="!!confirming" :title="confirming ? `Redeem ${confirming.cost} points?` : ''" @update:open="(v) => !v && (confirming = null)">
+      <template #content>
+        <p v-if="confirming" class="body-md">{{ confirming.offer }} · {{ confirming.cafe }}</p>
+        <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
+      </template>
+      <AppButton block :disabled="busy" @click="redeem">Redeem</AppButton>
+      <AppButton block variant="secondary" @click="confirming = null">Not now</AppButton>
+    </ModalDialog>
+
+    <ModalDialog :open="!!redeemed" title="Voucher code" @update:open="(v) => !v && (redeemed = null)">
+      <template #content>
+        <div v-if="redeemed" class="stack gap-sm">
+          <span class="body-md">{{ redeemed.reward.offer }} · {{ redeemed.reward.cafe }}</span>
+          <code class="code code--big">{{ redeemed.code }}</code>
+          <span class="caption text-muted">Balance {{ redeemed.points }} points</span>
+        </div>
+      </template>
+      <AppButton block @click="redeemed = null">Done</AppButton>
+    </ModalDialog>
+  </main>
+</template>
+
+<style scoped>
+.board-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-lg); }
+@media (min-width: 1128px) { .board-layout { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; } }
+.me-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
+.board { display: flex; flex-direction: column; }
+.board__row { display: grid; grid-template-columns: 32px 40px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 64px; padding: 0 var(--spacing-sm); border-bottom: 1px solid var(--hairline-soft); }
+.board__row.is-me { border-radius: var(--rounded-sm); background: var(--primary-tint); }
+.board__rank { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--rounded-full); color: var(--muted); font: var(--text-caption); }
+.board__row.is-podium .board__rank { background: var(--primary); color: var(--on-primary); }
+.board__name { display: flex; flex-direction: column; min-width: 0; min-height: var(--tap-min); justify-content: center; color: var(--ink); text-decoration: none; }
+@media (hover: hover) { .board__name:hover .title-sm { text-decoration: underline; } }
+.board__count { display: flex; flex-direction: column; align-items: flex-end; }
+.board__pinned { position: sticky; bottom: var(--tabbar-height); margin-top: var(--spacing-sm); padding-top: var(--spacing-sm); border-top: 2px solid var(--primary); background: var(--canvas); }
+@media (min-width: 1128px) { .board__pinned { bottom: 0; } }
+.voucher { display: flex; flex-direction: column; gap: var(--spacing-sm); height: 100%; padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+.voucher > :last-child { margin-top: auto; align-self: flex-start; }
+.voucher__top { display: flex; align-items: center; justify-content: space-between; }
+.voucher__icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--rounded-full); background: var(--cat-drink-bg); color: var(--cat-drink-fg); }
+.voucher__cost { padding: var(--spacing-xxs) var(--spacing-sm); border-radius: var(--rounded-full); background: var(--primary-tint); color: var(--primary-active); }
+.voucher.is-short .voucher__cost { background: var(--surface-strong); color: var(--muted); }
+.code-row { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); min-height: 56px; border-bottom: 1px solid var(--hairline-soft); }
+.code { padding: var(--spacing-xs) var(--spacing-sm); border-radius: var(--rounded-xs); background: var(--surface-strong); font: var(--text-caption); letter-spacing: 1px; }
+.code--big { align-self: flex-start; padding: var(--spacing-sm) var(--spacing-base); font: var(--text-display-sm); }
+</style>
