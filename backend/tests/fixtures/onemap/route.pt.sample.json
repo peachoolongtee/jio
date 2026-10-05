@@ -1,0 +1,67 @@
+{
+  "requestParameters": {
+    "date": "11-10-2025",
+    "time": "11:19 AM",
+    "mode": "TRANSIT,WALK"
+  },
+  "plan": {
+    "date": 1762744740000,
+    "from": {
+      "name": "Origin",
+      "lat": 1.3081592,
+      "lon": 103.8551479
+    },
+    "to": {
+      "name": "Destination",
+      "lat": 1.2739864,
+      "lon": 103.8012642
+    },
+    "itineraries": [
+      {
+        "duration": 2238,
+        "startTime": 1762744991000,
+        "endTime": 1762747229000,
+        "walkTime": 1129,
+        "transitTime": 925,
+        "waitingTime": 184,
+        "walkDistance": 1197.74,
+        "transfers": 1,
+        "fare": "1.77",
+        "legs": [
+          {
+            "startTime": 1762744991000,
+            "endTime": 1762745620000,
+            "mode": "WALK",
+            "transitLeg": false,
+            "route": "",
+            "distance": 669.63,
+            "duration": 629,
+            "from": {
+              "name": "Origin",
+              "lat": 1.3081592,
+              "lon": 103.8551479,
+              "departure": 1762744991000
+            },
+            "to": {
+              "name": "FARRER PARK MRT STATION",
+              "stopCode": "NE8",
+              "arrival": 1762745620000,
+              "departure": 1762745620000
+            }
+          },
+          {
+            "startTime": 1762745620000,
+            "endTime": 1762746334000,
+            "mode": "SUBWAY",
+            "transitLeg": true,
+            "route": "NE",
+            "routeShortName": "NE",
+            "routeLongName": "NORTH EAST LINE",
+            "agencyName": "SBS Transit",
+            "duration": 714
+          }
+        ]
+      }
+    ]
+  }
+}

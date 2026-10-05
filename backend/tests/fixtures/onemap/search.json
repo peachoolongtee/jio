@@ -1,0 +1,19 @@
+{
+  "found": 1,
+  "totalNumPages": 1,
+  "pageNum": 1,
+  "results": [
+    {
+      "SEARCHVAL": "SUPREME COURT BUILDING",
+      "BLK_NO": "1",
+      "ROAD_NAME": "SUPREME COURT LANE",
+      "BUILDING": "SUPREME COURT BUILDING",
+      "ADDRESS": "1 SUPREME COURT LANE SUPREME COURT BUILDING SINGAPORE 178879",
+      "POSTAL": "178879",
+      "X": "29937.98302943818",
+      "Y": "30316.15881526656",
+      "LATITUDE": "1.290443022119456",
+      "LONGITUDE": "103.8507321636521"
+    }
+  ]
+}
