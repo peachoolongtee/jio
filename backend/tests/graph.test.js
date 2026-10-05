@@ -1,9 +1,8 @@
-'use strict';
-const test = require('node:test');
-const assert = require('node:assert');
-const net = require('./mrt-graph.json');
-const G = require('./graph');
-const { haversineKm } = require('./geo');
+import { test } from 'vitest';
+import assert from 'node:assert';
+import net from '../src/db/mock/mrt-graph.json';
+import * as G from '../src/planner/graph.js';
+import { haversineKm } from '../src/planner/geo.js';
 
 const graph = G.buildTransitGraph(net.edges, net.transferMinutes);
 const abs = (a, b) => Math.abs(a - b);

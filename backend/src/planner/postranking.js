@@ -1,8 +1,7 @@
-'use strict';
 // postranking.js: everything that happens AFTER the engine ranks venues.
 // Ledger, voting, vetoes, random picker, Rain Check and recalculation.
 
-const { converge } = require('./engine');
+import { converge } from './engine.js';
 
 // ---------------------------------------------------------------- commute ledger
 /**
@@ -150,6 +149,6 @@ function recalculate(input, change, data, deps) {
   };
 }
 
-module.exports = {
+export {
   updateLedger, decayLedger, bordaCount, applyVetoes, decideVote, mulberry32, randomPick, rainCheck, recalculate,
 };

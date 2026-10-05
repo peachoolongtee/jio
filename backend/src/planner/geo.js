@@ -1,4 +1,3 @@
-'use strict';
 // geo.js: geographic helpers shared by Converge and Roam.
 // Pure functions only: no API calls, no database, no console output.
 
@@ -139,4 +138,4 @@ function radiusSearch(venues, centre, opts = {}) {
   };
 }
 
-module.exports = { haversineKm, mockTravelMinutes, centroid, fairnessWeights, minimaxCenter, radiusSearch };
+export { haversineKm, mockTravelMinutes, centroid, fairnessWeights, minimaxCenter, radiusSearch };

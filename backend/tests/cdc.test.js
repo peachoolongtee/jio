@@ -1,12 +1,11 @@
-'use strict';
-const test = require('node:test');
-const assert = require('node:assert');
-const fs = require('node:fs');
-const mock = require('./mock-data.json');
-const A = require('./cdc-adapter');
-const { converge, roam } = require('./engine');
-const { filterByConstraints, needsVerification } = require('./filters');
-const S = require('./scoring');
+import { test } from 'vitest';
+import assert from 'node:assert';
+import fs from 'node:fs';
+import mock from '../src/db/mock/mock-data.json';
+import * as A from '../src/planner/cdc-adapter.js';
+import { converge, roam } from '../src/planner/engine.js';
+import { filterByConstraints, needsVerification } from '../src/planner/filters.js';
+import * as S from '../src/planner/scoring.js';
 
 const rec = (name, postal, lat, lng, bm = false, address = `1 Test Road, #01-01,  S${postal};`) => ({
   id: `m_${name}_${postal}`, name, address, postalCode: postal, type: 'HAWKER_HEARTLAND_MERCHANT', LAT: lat, LON: lng,
@@ -144,10 +143,12 @@ test('roam on CDC sites: a hawker area scores as cheap, CDC-accepting and explai
   assert.ok(r.results[0].explanation.includes('accepts CDC vouchers'));
 });
 
-// ---------------- real snapshot (skipped when the 11MB file is not next to the tests) ----------------
-const real = fs.existsSync('./CDC.json');
+// ---------------- real snapshot (skipped when the 11MB file is absent) ----------------
+// The raw snapshot is gitignored. Put it at backend/data/CDC.json to run this test.
+const CDC_PATH = new URL('../data/CDC.json', import.meta.url);
+const real = fs.existsSync(CDC_PATH);
 test('real CDC.json: counts, site grouping and data-quality flags', { skip: !real }, () => {
-  const r = JSON.parse(fs.readFileSync('./CDC.json', 'utf8'));
+  const r = JSON.parse(fs.readFileSync(CDC_PATH, 'utf8'));
   const { records, report } = A.cleanRecords(r);
   assert.strictEqual(report.invalidCoords.length, 4);
   assert.ok(records.length > 25000);

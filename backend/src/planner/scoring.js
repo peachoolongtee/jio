@@ -1,4 +1,3 @@
-'use strict';
 // scoring.js: turning a venue into numbers. Every factor is a PENALTY from 0 (best) to 100 (worst),
 // so the LOWEST weighted score ranks first.
 //
@@ -158,7 +157,7 @@ function paretoFront(items, keys) {
   return items.filter(x => !items.some(y => y !== x && dominates(y, x)));
 }
 
-module.exports = {
+export {
   DEFAULT_WEIGHTS, travelPenalty, normalizeMinMax, computeOccasionFit, cuisineMatch, healthMatch, preferencePenalty,
   pricePenalty, weatherPenalty, ratingPenalty, cdcPenalty, antiRepeatPenalty, combine, explain,
   regretCounterfactual, paretoFront,

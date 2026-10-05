@@ -1,4 +1,3 @@
-'use strict';
 // cdc-adapter.js: turns the CDC merchant snapshot (CDC.json) into venues the engine can rank.
 //
 // What the CDC file HAS:  name, address, postal code, lat/lng, budget-meal flag. All records are
@@ -9,8 +8,8 @@
 // 254 stalls on one pin must not become 254 venues), (3) guesses food vs not from names, (4) fills the missing
 // fields with clearly labelled ASSUMPTIONS ('unknown' / null / dataQuality flags) instead of pretending to know.
 
-const { haversineKm } = require('./geo');
-const { computeOccasionFit } = require('./scoring');
+import { haversineKm } from './geo.js';
+import { computeOccasionFit } from './scoring.js';
 
 // ---------------------------------------------------------------- name heuristics
 const rx = words => new RegExp(`\\b(?:${words.join('|')})\\b`, 'i');
@@ -246,7 +245,7 @@ function matchVenueToCdc(venue, cdcVenues, { maxMeters = 80, siteMeters = 150, m
   return best ? { cdcAccepted: best.match, ...best } : { cdcAccepted: false };
 }
 
-module.exports = {
+export {
   classifyStall, cuisineHint, dietHints, displayName, streetLabel, cleanRecords, buildCdcVenues, matchVenueToCdc,
   nearestArea, approxRegion, titleCase,
 };

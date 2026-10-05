@@ -1,13 +1,12 @@
-'use strict';
 // engine.js: converge() and roam(). Both are PURE: data in, ranked results out.
 // Routing is injected (deps.travelMinutes) so tests are deterministic and OneMap can be plugged in later.
 //
 // Pipeline (both engines):
 //   seed point -> hard filters -> expanding radius -> prune (cap routing cost) -> route -> score -> rank -> explain
 
-const { centroid, fairnessWeights, minimaxCenter, radiusSearch, mockTravelMinutes } = require('./geo');
-const { filterByConstraints, countReasons, relaxationHints, needsVerification } = require('./filters');
-const S = require('./scoring');
+import { centroid, fairnessWeights, minimaxCenter, radiusSearch, mockTravelMinutes } from './geo.js';
+import { filterByConstraints, countReasons, relaxationHints, needsVerification } from './filters.js';
+import * as S from './scoring.js';
 
 /** Apply per-plan overrides (start/end) and drop members who opted out. Default start and end = home. */
 function resolveMembers(members, overrides = {}, optedOut = []) {
@@ -215,4 +214,4 @@ function roam(input, data, deps = {}) {
   return { status: 'ok', centre: input.current, results, notice: fewOptions(rs), diagnostics };
 }
 
-module.exports = { converge, roam, resolveMembers, occasionWeights };
+export { converge, roam, resolveMembers, occasionWeights };

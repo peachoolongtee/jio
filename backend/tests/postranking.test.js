@@ -1,8 +1,9 @@
-'use strict';
-const test = require('node:test');
-const assert = require('node:assert');
-const data = require('./mock-data.json');
-const P = require('./postranking');
+import { test } from 'vitest';
+import assert from 'node:assert';
+import data from '../src/db/mock/mock-data.json';
+import * as P from '../src/planner/postranking.js';
+import { converge } from '../src/planner/engine.js';
+import { haversineKm } from '../src/planner/geo.js';
 
 const member = id => data.members.find(m => m.id === id);
 const sc = id => data.scenarios.find(s => s.id === id);
@@ -29,8 +30,6 @@ test('ledger: decay shrinks balances toward zero', () => {
   assert.deepStrictEqual(P.decayLedger({ a: 100, b: -50 }, 0.9), { a: 90, b: -45 });
 });
 test('ledger closes the loop: after Darius over-travels, the next midpoint moves toward him', () => {
-  const { haversineKm } = require('./geo');
-  const { converge } = require('./engine');
   const s = sc('S05');
   const zero = s.memberIds.map(id => ({ ...member(id), travelDebtMinutes: 0 }));
   const ledger = P.updateLedger({ darius: 0, jonathan: 0, nicole: 0 }, { darius: 70, jonathan: 40, nicole: 40 });

@@ -1,9 +1,8 @@
-'use strict';
-const test = require('node:test');
-const assert = require('node:assert');
-const data = require('./mock-data.json');
-const { haversineKm, centroid, fairnessWeights, minimaxCenter, radiusSearch } = require('./geo');
-const { filterByConstraints, countReasons, relaxationHints, mealPeriodAt, isOpenAt } = require('./filters');
+import { test } from 'vitest';
+import assert from 'node:assert';
+import data from '../src/db/mock/mock-data.json';
+import { haversineKm, centroid, fairnessWeights, minimaxCenter, radiusSearch } from '../src/planner/geo.js';
+import { filterByConstraints, countReasons, relaxationHints, mealPeriodAt, isOpenAt } from '../src/planner/filters.js';
 
 const member = id => data.members.find(m => m.id === id);
 const scenario = id => data.scenarios.find(s => s.id === id);

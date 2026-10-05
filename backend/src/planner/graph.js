@@ -1,4 +1,3 @@
-'use strict';
 // graph.js: graph algorithms. A graph is just "things" (nodes) joined by "links" (edges) that have a cost.
 // MRT stations are nodes and ride times are edge costs. Candidate venues in a multi-stop plan form layers.
 //
@@ -8,7 +7,7 @@
 //   planChain / chainGreedy           : pick one venue per stage (food -> activity -> food) with the lowest TOTAL cost
 //   clusterByDistance                 : group nearby venues (union-find) so results can be shown by area
 
-const { haversineKm } = require('./geo');
+import { haversineKm } from './geo.js';
 
 // ---------------------------------------------------------------- min-heap (priority queue)
 class MinHeap {
@@ -252,7 +251,7 @@ function clusterByDistance(items, thresholdKm, getPoint = x => x) {
   return [...groups.values()];
 }
 
-module.exports = {
+export {
   MinHeap, dijkstra, buildTransitGraph, rideMinutes, estimateTransitMinutes,
   orderGreedy, orderExact, twoOpt, planChain, chainGreedy, clusterByDistance,
 };

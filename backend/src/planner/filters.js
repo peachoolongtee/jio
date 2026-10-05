@@ -1,4 +1,3 @@
-'use strict';
 // filters.js: hard-constraint filtering shared by Converge and Roam.
 // A venue is ALLOWED or REJECTED here. No scoring happens in this file.
 
@@ -134,6 +133,6 @@ function relaxationHints(venues, ctx) {
   return hints.sort((a, b) => b.passes - a.passes);
 }
 
-module.exports = {
+export {
   filterByConstraints, countReasons, relaxationHints, needsVerification, isOpenAt, mealPeriodAt, minutesOfDay, toMinutes,
 };

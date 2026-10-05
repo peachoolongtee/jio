@@ -1,10 +1,9 @@
-'use strict';
-const test = require('node:test');
-const assert = require('node:assert');
-const data = require('./mock-data.json');
-const { converge, roam } = require('./engine');
-const { haversineKm, centroid, fairnessWeights } = require('./geo');
-const S = require('./scoring');
+import { test } from 'vitest';
+import assert from 'node:assert';
+import data from '../src/db/mock/mock-data.json';
+import { converge, roam, occasionWeights } from '../src/planner/engine.js';
+import { haversineKm, centroid, fairnessWeights } from '../src/planner/geo.js';
+import * as S from '../src/planner/scoring.js';
 
 const member = id => data.members.find(m => m.id === id);
 const sc = id => data.scenarios.find(s => s.id === id);
@@ -116,7 +115,6 @@ test('weights: raising the weather weight changes the rain ranking of the roofto
   assert.ok(pos(hv, 'v14') === -1 || pos(hv, 'v14') >= pos(base, 'v14'));
 });
 test('priceSensitivity: an expensive venue is punished less for a date than for a study session', () => {
-  const { occasionWeights } = require('./engine');
   const w = S.DEFAULT_WEIGHTS.converge;
   assert.ok(occasionWeights(w, data.occasionProfiles.date).price < occasionWeights(w, data.occasionProfiles.study).price);
   assert.strictEqual(occasionWeights(w, undefined).price, w.price);
