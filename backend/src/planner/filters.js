@@ -12,10 +12,17 @@ function minutesOfDay(dateTime) {
   return toMinutes(dateTime.slice(11, 16));
 }
 
-/** Open if the time falls in any range. Split hours (12:00-14:30 and 18:00-22:30) are normal. */
+/**
+ * Open if the time falls in any range. Split hours (12:00-14:30 and 18:00-22:30) are normal.
+ * A range whose close is not after its open (22:00-02:00) runs past midnight: open late at night
+ * OR early in the morning. Without this, supper places were always treated as closed.
+ */
 function isOpenAt(venue, dateTime) {
   const t = minutesOfDay(dateTime);
-  return venue.openingHours.some(([open, close]) => t >= toMinutes(open) && t < toMinutes(close));
+  return venue.openingHours.some(([open, close]) => {
+    const o = toMinutes(open), c = toMinutes(close);
+    return c > o ? t >= o && t < c : t >= o || t < c;
+  });
 }
 
 /** Which meal period is it? Used so we do not suggest a lunch-only place at 3pm. */

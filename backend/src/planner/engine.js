@@ -23,12 +23,41 @@ function occasionWeights(weights, profile) {
   return weights.price === undefined ? weights : { ...weights, price: weights.price * (profile?.priceSensitivity ?? 1) };
 }
 
+/**
+ * Fail early with a clear message on input the engine cannot score, instead of a TypeError deep inside.
+ * An unknown occasion or weather case is a caller bug (a typo or a missing profile), not an empty result.
+ */
+function validateInput(input, data) {
+  if (!data.occasionProfiles[input.occasion]) {
+    throw new Error(`unknown occasion "${input.occasion}" (known: ${Object.keys(data.occasionProfiles).join(', ')})`);
+  }
+  const weatherCase = input.weatherCase ?? 'clear';
+  if (!data.weatherCases[weatherCase]) {
+    throw new Error(`unknown weatherCase "${weatherCase}" (known: ${Object.keys(data.weatherCases).join(', ')})`);
+  }
+}
+
+/** Occasion fit 0-100: the precomputed value if the venue has one, otherwise computed from its attributes. */
+const occasionFitOf = (venue, occasion, profile) => venue.occasionFit?.[occasion] ?? S.computeOccasionFit(venue, profile);
+
+/**
+ * Travel time for one leg. Real routing can fail (OneMap down, no route found) and return null or NaN.
+ * Instead of crashing, fall back to the straight-line estimate and count the leg, so the UI can label
+ * the result "approximate".
+ */
+function routedMinutes(tm, from, to, diagnostics) {
+  const minutes = tm(from, to);
+  if (Number.isFinite(minutes) && minutes >= 0) return minutes;
+  diagnostics.approximateLegs = (diagnostics.approximateLegs ?? 0) + 1;
+  return mockTravelMinutes(from, to);
+}
+
 /** Penalties that do not depend on travel time. */
 function staticFactors(venue, c) {
   return {
     weather: S.weatherPenalty(venue, c.weatherByArea),
     preference: S.preferencePenalty(venue, c.members),
-    occasion: 100 - (venue.occasionFit?.[c.occasion] ?? S.computeOccasionFit(venue, c.profile)),
+    occasion: 100 - occasionFitOf(venue, c.occasion, c.profile),
     rating: S.ratingPenalty(venue),
     price: S.pricePenalty(venue, c.members),
     cdc: S.cdcPenalty(venue),
@@ -40,12 +69,14 @@ function staticFactors(venue, c) {
  * Cheap pre-score using straight-line distance only (no routing). Keeps the best N so we make
  * at most N x members routing calls. It uses fit and rating as well as distance, so a close but
  * poor-fit venue cannot push a much better one out of the shortlist.
+ * Occasion fit is computed the same way as in the final score, so a venue without a precomputed
+ * occasionFit is not mistaken for a zero fit and cut here.
  */
 function prune(candidates, c, keep) {
   if (candidates.length <= keep) return candidates;
   const dn = S.normalizeMinMax(candidates.map(x => x.distanceKm));
   return candidates
-    .map((x, i) => ({ x, pre: 0.5 * dn[i] + 0.3 * (100 - (x.venue.occasionFit?.[c.occasion] ?? 0)) + 0.2 * S.ratingPenalty(x.venue) }))
+    .map((x, i) => ({ x, pre: 0.5 * dn[i] + 0.3 * (100 - occasionFitOf(x.venue, c.occasion, c.profile)) + 0.2 * S.ratingPenalty(x.venue) }))
     .sort((a, b) => a.pre - b.pre)
     .slice(0, keep)
     .map(o => o.x);
@@ -81,6 +112,7 @@ function emptyResult(reason, extra) {
  */
 function converge(input, data, deps = {}) {
   const tm = deps.travelMinutes ?? mockTravelMinutes;
+  validateInput(input, data);
   const members = resolveMembers(input.members, input.overrides, input.optedOut);
   if (members.length === 0) throw new Error('converge: no active members');
   const { seed = 'weighted_centroid', pruneTo = 10, topN = 5 } = input;
@@ -115,14 +147,15 @@ function converge(input, data, deps = {}) {
   }
 
   // 4. prune, then route
-  const pruned = prune(rs.candidates, { occasion: input.occasion }, pruneTo);
+  const pruned = prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion] }, pruneTo);
   diagnostics.routingCalls = pruned.length * members.length * 2;
   const c = context(input, data, members);
   const weights = occasionWeights(baseWeights, c.profile);
 
   let rows = pruned.map(({ venue, distanceKm }) => {
-    const travel = members.map(m => tm(m.start, venue));
-    const back = members.map(m => tm(venue, m.end));
+    const fallbacksBefore = diagnostics.approximateLegs ?? 0;
+    const travel = members.map(m => routedMinutes(tm, m.start, venue, diagnostics));
+    const back = members.map(m => routedMinutes(tm, venue, m.end, diagnostics));
     const worstIdx = travel.indexOf(Math.max(...travel));
     const wSum = fw.reduce((a, b) => a + b, 0);
     return {
@@ -133,6 +166,7 @@ function converge(input, data, deps = {}) {
       meanRaw: travel.reduce((a, b) => a + b, 0) / travel.length,
       meanFair: travel.reduce((s, t, i) => s + fw[i] * t, 0) / wSum, // fairness-weighted mean
       factors: staticFactors(venue, c),
+      approximate: (diagnostics.approximateLegs ?? 0) > fallbacksBefore,
     };
   });
 
@@ -161,6 +195,7 @@ function converge(input, data, deps = {}) {
     worstMinutes: r.worstMinutes, worstMember: names[r.worstMemberId], meanMinutes: r.meanRaw,
     travelByMember: r.travelByMember, returnByMember: r.returnByMember, distanceFromCentreKm: r.distanceKm,
     breakdown: r.breakdown, explanation: S.explain(r, label), verify: needsVerification(r.venue, members),
+    approximate: r.approximate,
   }));
   return { status: 'ok', centre, results, regret: S.regretCounterfactual(rows, names), notice: fewOptions(rs), diagnostics };
 }
@@ -172,6 +207,7 @@ function converge(input, data, deps = {}) {
  */
 function roam(input, data, deps = {}) {
   const tm = deps.travelMinutes ?? mockTravelMinutes;
+  validateInput(input, data);
   const members = input.members.map(m => ({ ...m }));
   const { pruneTo = 10, topN = 5 } = input;
   const baseWeights = input.weights ?? S.DEFAULT_WEIGHTS.roam;
@@ -190,14 +226,16 @@ function roam(input, data, deps = {}) {
   if (rs.candidates.length === 0) {
     return emptyResult('outside_max_radius', { hints: { nearestKm: rs.nearestKm, widenToKm: Math.ceil(rs.nearestKm) }, diagnostics });
   }
-  const pruned = prune(rs.candidates, { occasion: input.occasion }, pruneTo);
+  const pruned = prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion] }, pruneTo);
   diagnostics.routingCalls = pruned.length;
   const c = context(input, data, members);
   const weights = occasionWeights(baseWeights, c.profile);
 
-  const rows = pruned.map(({ venue, distanceKm }) => ({
-    venue, distanceKm, travelMinutes: tm(input.current, venue), factors: staticFactors(venue, c),
-  }));
+  const rows = pruned.map(({ venue, distanceKm }) => {
+    const fallbacksBefore = diagnostics.approximateLegs ?? 0;
+    const travelMinutes = routedMinutes(tm, input.current, venue, diagnostics);
+    return { venue, distanceKm, travelMinutes, factors: staticFactors(venue, c), approximate: (diagnostics.approximateLegs ?? 0) > fallbacksBefore };
+  });
   const ceiling = input.travelCeilingMinutes ?? 30; // Roam is "nearby", so a tighter ceiling than Converge
   rows.forEach(r => {
     r.factors.distance = S.travelPenalty(r.travelMinutes, ceiling);
@@ -209,7 +247,7 @@ function roam(input, data, deps = {}) {
   const results = rows.slice(0, topN).map((r, i) => ({
     rank: i + 1, venueId: r.venue.id, name: r.venue.name, venue: r.venue, score: r.score,
     travelMinutes: r.travelMinutes, distanceKm: r.distanceKm, breakdown: r.breakdown, explanation: S.explain(r, label),
-    verify: needsVerification(r.venue, members),
+    verify: needsVerification(r.venue, members), approximate: r.approximate,
   }));
   return { status: 'ok', centre: input.current, results, notice: fewOptions(rs), diagnostics };
 }

@@ -49,9 +49,15 @@ function preferencePenalty(venue, members) {
   return 100 * (1 - (0.7 * cuisineMatch(venue, members) + 0.3 * healthMatch(venue, members)));
 }
 
-/** 0 if the price is within the group's average budget, rising as it goes over. */
+/**
+ * 0 if the price is within the group's average budget, rising as it goes over.
+ * Members with no budget set (missing or 0) are left out of the average; if nobody set one,
+ * price is not a concern (0). Without this, one missing budget made every score NaN.
+ */
 function pricePenalty(venue, members) {
-  const budget = mean(members.map(m => m.budgetMaxPerPerson));
+  const budgets = members.map(m => m.budgetMaxPerPerson).filter(b => Number.isFinite(b) && b > 0);
+  if (budgets.length === 0) return 0;
+  const budget = mean(budgets);
   return clamp(((venue.avgPricePerPerson - budget) / budget) * 100, 0, 100);
 }
 
