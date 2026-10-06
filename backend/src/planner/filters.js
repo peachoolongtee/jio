@@ -25,6 +25,20 @@ function isOpenAt(venue, dateTime) {
   });
 }
 
+/**
+ * Open for the WHOLE visit, from dateTime for `minutes`? Used for itinerary slots ("eat 12:00 to 13:30"):
+ * a place that closes at 13:00 must not be suggested even though it is open at 12:00.
+ * Ranges past midnight (18:00-03:00) work, and so does an early-morning visit inside last night's
+ * late opening (01:00 to 02:00 at an 18:00-03:00 place). Same rule as isOpenDuring in the frontend planner.
+ */
+function isOpenFor(venue, dateTime, minutes) {
+  const start = minutesOfDay(dateTime), end = start + minutes;
+  return venue.openingHours.some(([open, close]) => {
+    const o = toMinutes(open), c = toMinutes(close) > o ? toMinutes(close) : toMinutes(close) + 1440;
+    return [0, 1440].some(shift => start + shift >= o && end + shift <= c);
+  });
+}
+
 /** Which meal period is it? Used so we do not suggest a lunch-only place at 3pm. */
 function mealPeriodAt(dateTime) {
   const t = minutesOfDay(dateTime);
@@ -55,6 +69,16 @@ function needsVerification(venue, members) {
   return needs.filter(n => venue.diet[n] === 'likely');
 }
 
+/**
+ * Which dietary needs we have NO data on for this venue. Only lenient mode lets these through, and then
+ * the UI must say so ("halal status not known"), otherwise lenient silently looks like a yes.
+ */
+function unknownDietNeeds(venue, members) {
+  if (venue.diet === null) return [];
+  const needs = [...new Set(members.flatMap(m => m.dietary ?? []))];
+  return needs.filter(n => venue.diet[n] === 'unknown');
+}
+
 // null = unknown. Strict (default): unknown fails a hard constraint. Lenient: unknown passes.
 const SIMPLE_CONSTRAINTS = {
   step_free: (v, lenient) => (v.stepFree === null || v.stepFree === undefined ? lenient : v.stepFree === true),
@@ -70,7 +94,7 @@ const SIMPLE_CONSTRAINTS = {
 function rejectionReasons(venue, ctx) {
   const {
     members, groupConstraints = [], dateTime, categories = ['eat', 'drink'],
-    excludeVenueIds = [], enforceMealPeriod = true, unknownPolicy = 'strict',
+    excludeVenueIds = [], enforceMealPeriod = true, unknownPolicy = 'strict', durationMinutes = 0,
   } = ctx;
   const reasons = [];
 
@@ -83,6 +107,12 @@ function rejectionReasons(venue, ctx) {
   for (const c of groupConstraints) {
     if (c.startsWith('max_price_pp:')) {
       if (venue.avgPricePerPerson > Number(c.split(':')[1])) reasons.push('max_price');
+    } else if (c.startsWith('near_mrt:')) {
+      // within N minutes' walk of an MRT station (the frontend's rule for the last stop of the day).
+      // Unknown walk time follows the unknown-data policy, like step_free.
+      const walk = venue.mrtWalkMinutes;
+      const ok = walk === null || walk === undefined ? unknownPolicy === 'lenient' : walk <= Number(c.split(':')[1]);
+      if (!ok) reasons.push('near_mrt');
     } else if (SIMPLE_CONSTRAINTS[c]) {
       if (!SIMPLE_CONSTRAINTS[c](venue, unknownPolicy === 'lenient')) reasons.push(c);
     } else {
@@ -91,7 +121,8 @@ function rejectionReasons(venue, ctx) {
   }
 
   if (venue.maxGroupSize < members.length) reasons.push('capacity');
-  if (!isOpenAt(venue, dateTime)) reasons.push('closed');
+  // With a duration (an itinerary slot), the venue must stay open for all of it, not just at the start.
+  if (!(durationMinutes > 0 ? isOpenFor(venue, dateTime, durationMinutes) : isOpenAt(venue, dateTime))) reasons.push('closed');
   if (enforceMealPeriod && venue.category === 'eat' && venue.mealPeriods.length > 0 &&
       !venue.mealPeriods.includes(mealPeriodAt(dateTime))) reasons.push('meal_period');
 
@@ -101,7 +132,8 @@ function rejectionReasons(venue, ctx) {
 /**
  * @param {object[]} venues
  * @param {{members:object[], groupConstraints?:string[], dateTime:string, categories?:string[],
- *          excludeVenueIds?:string[], enforceMealPeriod?:boolean, unknownPolicy?:'strict'|'lenient'}} ctx  members = ACTIVE members only
+ *          excludeVenueIds?:string[], enforceMealPeriod?:boolean, unknownPolicy?:'strict'|'lenient',
+ *          durationMinutes?:number}} ctx  members = ACTIVE members only
  * @returns {{passed:object[], rejected:{venue:object, reasons:string[]}[]}}
  */
 function filterByConstraints(venues, ctx) {
@@ -141,5 +173,5 @@ function relaxationHints(venues, ctx) {
 }
 
 export {
-  filterByConstraints, countReasons, relaxationHints, needsVerification, isOpenAt, mealPeriodAt, minutesOfDay, toMinutes,
+  filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds, isOpenAt, isOpenFor, mealPeriodAt, minutesOfDay, toMinutes,
 };

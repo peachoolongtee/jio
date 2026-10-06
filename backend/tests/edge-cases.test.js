@@ -85,3 +85,11 @@ test('prune computes occasion fit for venues without a precomputed value instead
   const out = converge({ ...dinner, pruneTo: 1, members: [{ ...member('faith'), dietary: [], home: orchard }] }, { ...data, venues: [A, B, far] });
   assert.strictEqual(out.results[0].venueId, 'B');
 });
+
+// ---------------- 6. regret line rounding (found while writing the API docs)
+test('regret line: a gap under one minute is not shown as "would add 0 minutes"', () => {
+  const row = (id, ian, mean) => ({ venue: { id, name: id }, travelByMember: { ian }, meanRaw: mean });
+  assert.strictEqual(S.regretCounterfactual([row('rec', 45.1, 40), row('popular', 45.4, 30)], { ian: 'Ian' }), null);
+  const r = S.regretCounterfactual([row('rec', 45, 40), row('popular', 46, 30)], { ian: 'Ian' });
+  assert.strictEqual(r.text, "Picking popular instead would add 1 minute to Ian's journey.");
+});

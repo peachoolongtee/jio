@@ -4,8 +4,8 @@
 // Pipeline (both engines):
 //   seed point -> hard filters -> expanding radius -> prune (cap routing cost) -> route -> score -> rank -> explain
 
-import { centroid, fairnessWeights, minimaxCenter, radiusSearch, mockTravelMinutes } from './geo.js';
-import { filterByConstraints, countReasons, relaxationHints, needsVerification } from './filters.js';
+import { centroid, fairnessWeights, minimaxCenter, radiusSearch, mockTravelMinutes, haversineKm, walkMinutes } from './geo.js';
+import { filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds } from './filters.js';
 import * as S from './scoring.js';
 
 /** Apply per-plan overrides (start/end) and drop members who opted out. Default start and end = home. */
@@ -62,6 +62,7 @@ function staticFactors(venue, c) {
     price: S.pricePenalty(venue, c.members),
     cdc: S.cdcPenalty(venue),
     antiRepeat: S.antiRepeatPenalty(venue.id, c.history, { today: c.today, groupId: c.groupId }),
+    crowd: S.crowdPenalty(venue, c.hour),
   };
 }
 
@@ -87,6 +88,59 @@ function context(input, data, members) {
     members, occasion: input.occasion, profile: data.occasionProfiles[input.occasion],
     weatherByArea: data.weatherCases[input.weatherCase ?? 'clear'],
     history: data.visitHistory ?? [], today: input.today ?? data._meta.today, groupId: input.groupId ?? null,
+    hour: Number(input.dateTime.slice(11, 13)), time: input.dateTime.slice(11, 16),
+  };
+}
+
+/**
+ * What the UI shows under each option, matching the frontend planner so nothing is lost when it switches over:
+ *   walkMinutes  from the meeting point (Converge) or the current point (Roam)
+ *   crowd        'quiet' | 'moderate' | 'busy' | 'unknown', always shown as an estimate
+ *   reasons      up to two short tags ("Near MRT", "Budget friendly"...)
+ *   warnings     ['rain'] when rain is likely and the venue is exposed
+ *   swap         for a rain warning, the indoor alternative from indoorSwap() below
+ */
+function optionLabels(r, from, c, swap, homeMaxMinutes = null) {
+  const walk = walkMinutes(from, r.venue);
+  const crowd = S.crowdLevel(r.venue, c.hour);
+  const warnings = S.rainWarning(r.venue, c.weatherByArea) ? ['rain'] : [];
+  return {
+    walkMinutes: walk, crowd, warnings, swap: warnings.length ? swap : null,
+    reasons: S.reasonTags({ venue: r.venue, walkMinutes: walk, crowd, rainy: S.rainLikelyAt(r.venue, c.weatherByArea), homeMaxMinutes, time: c.time }),
+  };
+}
+
+/**
+ * The indoor venue a rain warning suggests instead (the frontend's indoorSwap). It must not be shown already or
+ * already be an option the group is voting on (input.currentOptionIds).
+ *   1. the best-ranked indoor venue on the scored shortlist;
+ *   2. if there is none (the radius search stops once it has 3 venues, so indoor places just further out are
+ *      never scored), the nearest indoor venue that passed the hard filters, within the 3 km cap;
+ *   3. otherwise null.
+ */
+function indoorSwap(rows, shownRows, passed, from, input) {
+  const taken = new Set([...shownRows.map(r => r.venue.id), ...(input.currentOptionIds ?? [])]);
+  const ranked = rows.find(x => x.venue.setting === 'indoor' && !taken.has(x.venue.id));
+  if (ranked) return { venueId: ranked.venue.id, name: ranked.venue.name };
+  let nearest = null, nearestKm = 3;
+  for (const v of passed) {
+    if (v.setting !== 'indoor' || taken.has(v.id)) continue;
+    const km = haversineKm(from, v);
+    if (km <= nearestKm) [nearest, nearestKm] = [v, km];
+  }
+  return nearest ? { venueId: nearest.id, name: nearest.name } : null;
+}
+
+/**
+ * Last stop of the day (the frontend's rule): it must be near an MRT station, and the trip HOME counts.
+ * Adds a near_mrt constraint and gives returnWorst (longest trip home) a weight, unless the caller set one.
+ */
+function lastStopRules(input, weights) {
+  if (!input.lastStop) return { constraints: input.groupConstraints ?? [], weights };
+  const walk = input.lastStopMrtWalkMinutes ?? 10;
+  return {
+    constraints: [...(input.groupConstraints ?? []).filter(c => !c.startsWith('near_mrt:')), `near_mrt:${walk}`],
+    weights: { returnWorst: 15, ...weights },
   };
 }
 
@@ -116,24 +170,30 @@ function converge(input, data, deps = {}) {
   const members = resolveMembers(input.members, input.overrides, input.optedOut);
   if (members.length === 0) throw new Error('converge: no active members');
   const { seed = 'weighted_centroid', pruneTo = 10, topN = 5 } = input;
-  const baseWeights = input.weights ?? S.DEFAULT_WEIGHTS.converge;
+  const last = lastStopRules(input, input.weights ?? S.DEFAULT_WEIGHTS.converge);
+  const baseWeights = last.weights;
 
-  // 1. seed point
+  // 1. seed point. input.centre skips this: the itinerary flow picks the meeting area ONCE (meetingArea below)
+  //    and then ranks every slot around that same point.
   const starts = members.map(m => m.start);
   const fw = fairnessWeights(members, input.fairnessScaleMinutes ?? 60);
   const centre =
+    input.centre ? { lat: input.centre.lat, lng: input.centre.lng } :
     seed === 'minimax' ? minimaxCenter(starts).center :
     seed === 'centroid' ? centroid(starts) :
     centroid(starts, fw);
 
   // 2. hard filters
   const ctx = {
-    members, groupConstraints: input.groupConstraints ?? [], dateTime: input.dateTime,
+    members, groupConstraints: last.constraints, dateTime: input.dateTime,
     categories: input.categories ?? ['eat', 'drink'], excludeVenueIds: input.excludeVenueIds ?? [],
-    unknownPolicy: input.unknownPolicy ?? 'strict',
+    unknownPolicy: input.unknownPolicy ?? 'strict', durationMinutes: input.durationMinutes ?? 0,
   };
   const filt = filterByConstraints(data.venues, ctx);
-  const diagnostics = { rejectedCounts: countReasons(filt.rejected), passedFilters: filt.passed.length, seed, activeMembers: members.map(m => m.id) };
+  const diagnostics = {
+    rejectedCounts: countReasons(filt.rejected), passedFilters: filt.passed.length,
+    seed: input.centre ? 'given' : seed, activeMembers: members.map(m => m.id),
+  };
   if (filt.passed.length === 0) {
     return emptyResult('no_venue_passes_constraints', { centre, hints: relaxationHints(data.venues, ctx), diagnostics });
   }
@@ -181,6 +241,7 @@ function converge(input, data, deps = {}) {
   rows.forEach(r => {
     r.factors.worst = S.travelPenalty(r.worstMinutes, ceiling);
     r.factors.mean = S.travelPenalty(r.meanFair, ceiling);
+    r.factors.returnWorst = S.travelPenalty(Math.max(...r.back), ceiling);
     const { score, breakdown } = S.combine(r.factors, weights);
     r.score = score; r.breakdown = breakdown; r.weights = weights;
     r.hasHistory = c.history.length > 0;
@@ -190,12 +251,14 @@ function converge(input, data, deps = {}) {
   // 7. explain
   const names = Object.fromEntries(members.map(m => [m.id, m.name]));
   const label = c.profile?.label ?? 'meetup';
-  const results = rows.slice(0, topN).map((r, i) => ({
+  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, centre, input);
+  const results = shown.map((r, i) => ({
     rank: i + 1, venueId: r.venue.id, name: r.venue.name, venue: r.venue, score: r.score,
     worstMinutes: r.worstMinutes, worstMember: names[r.worstMemberId], meanMinutes: r.meanRaw,
     travelByMember: r.travelByMember, returnByMember: r.returnByMember, distanceFromCentreKm: r.distanceKm,
     breakdown: r.breakdown, explanation: S.explain(r, label), verify: needsVerification(r.venue, members),
-    approximate: r.approximate,
+    approximate: r.approximate, dietUnknown: unknownDietNeeds(r.venue, members),
+    ...optionLabels(r, centre, c, swap, input.lastStop ? Math.max(...r.back) : null),
   }));
   return { status: 'ok', centre, results, regret: S.regretCounterfactual(rows, names), notice: fewOptions(rs), diagnostics };
 }
@@ -214,7 +277,7 @@ function roam(input, data, deps = {}) {
   const ctx = {
     members, groupConstraints: input.groupConstraints ?? [], dateTime: input.dateTime,
     categories: input.categories ?? ['eat', 'drink', 'activity'], excludeVenueIds: input.excludeVenueIds ?? [],
-    unknownPolicy: input.unknownPolicy ?? 'strict',
+    unknownPolicy: input.unknownPolicy ?? 'strict', durationMinutes: input.durationMinutes ?? 0,
   };
   const filt = filterByConstraints(data.venues, ctx);
   const diagnostics = { rejectedCounts: countReasons(filt.rejected), passedFilters: filt.passed.length };
@@ -244,12 +307,122 @@ function roam(input, data, deps = {}) {
   });
   rows.sort((a, b) => a.score - b.score);
   const label = c.profile?.label ?? 'meetup';
-  const results = rows.slice(0, topN).map((r, i) => ({
+  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, input.current, input);
+  const results = shown.map((r, i) => ({
     rank: i + 1, venueId: r.venue.id, name: r.venue.name, venue: r.venue, score: r.score,
     travelMinutes: r.travelMinutes, distanceKm: r.distanceKm, breakdown: r.breakdown, explanation: S.explain(r, label),
-    verify: needsVerification(r.venue, members), approximate: r.approximate,
+    verify: needsVerification(r.venue, members), approximate: r.approximate, dietUnknown: unknownDietNeeds(r.venue, members),
+    ...optionLabels(r, input.current, c, swap),
   }));
   return { status: 'ok', centre: input.current, results, notice: fewOptions(rs), diagnostics };
 }
 
-export { converge, roam, resolveMembers, occasionWeights };
+/**
+ * Where should the group meet? Always answers with a NAMED place (MRT station or neighbourhood) for the UI,
+ * plus each person's travel time to it. Then pass result.centre to converge() as input.centre for every slot.
+ *
+ * method:
+ *   'station' (default, the frontend team's rule): try candidate areas and pick the one where the LONGEST
+ *     journey is shortest; a tie goes to the lower fairness-weighted average, so travel debt only breaks ties.
+ *     By default EVERY area is tried (exact). That is members x areas routing calls (37 areas today), so with real
+ *     OneMap routing pass maxCandidates to try only the areas nearest the minimax centre. Measured on 2,000 random
+ *     groups: 8 candidates missed the fairest area 3.4% of the time (up to 7.5 min worse); 16 never did.
+ *   'weighted_centroid' | 'centroid' | 'minimax': the engine's own seed points (debt pulls the weighted centroid
+ *     toward people who travelled more), then named after the nearest area. The meeting point is the exact centre.
+ *
+ * @param input { members, overrides?, optedOut?, method?, maxCandidates?, fairnessScaleMinutes? }
+ * @param data  { areas: [{ id, name, lat, lng }] }
+ */
+function meetingArea(input, data, deps = {}) {
+  const tm = deps.travelMinutes ?? mockTravelMinutes;
+  const members = resolveMembers(input.members, input.overrides, input.optedOut);
+  if (members.length === 0) throw new Error('meetingArea: no active members');
+  if (!data.areas?.length) throw new Error('meetingArea: data.areas is empty');
+  const method = input.method ?? 'station';
+  const starts = members.map(m => m.start);
+  const fw = fairnessWeights(members, input.fairnessScaleMinutes ?? 60);
+  const wSum = fw.reduce((a, b) => a + b, 0);
+  const nearestArea = p => data.areas.reduce((best, a) => (haversineKm(p, a) < haversineKm(p, best) ? a : best));
+
+  const diagnostics = { routingCalls: 0 };
+  const journeys = point => {
+    const travel = members.map(m => routedMinutes(tm, m.start, point, diagnostics));
+    diagnostics.routingCalls += travel.length;
+    return { travel, worst: Math.max(...travel), fairMean: travel.reduce((s, t, i) => s + fw[i] * t, 0) / wSum };
+  };
+
+  let area, centre, best;
+  if (method === 'station') {
+    const fairest = starts.length <= 12 ? minimaxCenter(starts).center : centroid(starts);
+    const candidates = [...data.areas]
+      .sort((a, b) => haversineKm(fairest, a) - haversineKm(fairest, b))
+      .slice(0, input.maxCandidates ?? data.areas.length);
+    for (const a of candidates) {
+      const j = journeys(a);
+      if (!best || j.worst < best.j.worst || (j.worst === best.j.worst && j.fairMean < best.j.fairMean)) best = { a, j };
+    }
+    area = best.a;
+    centre = { lat: area.lat, lng: area.lng };
+  } else {
+    centre =
+      method === 'minimax' ? minimaxCenter(starts).center :
+      method === 'centroid' ? centroid(starts) :
+      method === 'weighted_centroid' ? centroid(starts, fw) :
+      null;
+    if (!centre) throw new Error(`meetingArea: unknown method "${method}"`);
+    area = nearestArea(centre);
+    best = { j: journeys(centre) };
+  }
+
+  const { travel, worst } = best.j;
+  const worstIdx = travel.indexOf(worst);
+  return {
+    method,
+    area: { id: area.id, name: area.name, lat: area.lat, lng: area.lng },
+    centre,
+    distanceFromAreaKm: haversineKm(centre, area),
+    worstMinutes: worst, worstMember: members[worstIdx].name ?? members[worstIdx].id,
+    meanMinutes: travel.reduce((a, b) => a + b, 0) / travel.length,
+    travelByMember: Object.fromEntries(members.map((m, i) => [m.id, travel[i]])),
+    approximate: (diagnostics.approximateLegs ?? 0) > 0,
+    diagnostics: { ...diagnostics, activeMembers: members.map(m => m.id) },
+  };
+}
+
+/**
+ * Search by name, to add an option by hand (the frontend's searchVenuesForSlot). Matches the venue name, its
+ * area, or the name of a stall at a CDC site. Every match says whether it fits the slot and, if not, why:
+ * the hard-filter reasons ('closed', 'diet:halal', 'category', 'near_mrt'...) plus 'far' when it is more than
+ * maxKm (default 3, the engine's cap) from the meeting point. Fitting places first, then by walking time.
+ * @param input { query, centre, dateTime, members?, durationMinutes?, categories?, lastStop?, groupConstraints?,
+ *                unknownPolicy?, maxKm?, limit? (default 12) }
+ */
+function searchVenues(input, data) {
+  const q = input.query.trim().toLowerCase();
+  if (!q) return [];
+  const matches = data.venues
+    .map(v => ({ v, stall: v.stalls?.find(st => st.name.toLowerCase().includes(q))?.name ?? null }))
+    .filter(({ v, stall }) => v.name.toLowerCase().includes(q) || (v.area ?? '').toLowerCase().includes(q) || stall);
+
+  const ctx = {
+    members: input.members ?? [], groupConstraints: lastStopRules(input, {}).constraints, dateTime: input.dateTime,
+    categories: input.categories ?? ['eat', 'drink', 'shop', 'activity'],
+    unknownPolicy: input.unknownPolicy ?? 'strict', durationMinutes: input.durationMinutes ?? 0,
+  };
+  const reasonsById = new Map(filterByConstraints(matches.map(m => m.v), ctx).rejected.map(r => [r.venue.id, r.reasons]));
+  const maxKm = input.maxKm ?? 3;
+
+  return matches
+    .map(({ v, stall }) => {
+      const distanceKm = haversineKm(input.centre, v);
+      const unfit = [...(reasonsById.get(v.id) ?? []), ...(distanceKm > maxKm ? ['far'] : [])];
+      return {
+        venueId: v.id, name: v.name, area: v.area, category: v.category, source: v.source, matchedStall: stall,
+        walkMinutes: walkMinutes(input.centre, v), distanceKm, fits: unfit.length === 0, unfit,
+      };
+    })
+    .sort((a, b) => Number(!a.fits) - Number(!b.fits) || a.walkMinutes - b.walkMinutes)
+    .slice(0, input.limit ?? 12);
+}
+
+export { converge, roam, meetingArea, searchVenues, resolveMembers, occasionWeights };
