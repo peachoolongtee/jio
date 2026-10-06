@@ -26,7 +26,7 @@ pnpm dev:backend    # http://localhost:3000/healthz
 pnpm dev:frontend   # http://localhost:5173
 ```
 
-The backend serves the planner at `POST /api/meeting-area`, `/api/converge`, `/api/roam` and `/api/search`. Requests and responses are in [backend/docs/planner-api.md](backend/docs/planner-api.md); how the engine and the venue data fit together is in [backend/docs/engine-integration.md](backend/docs/engine-integration.md).
+The backend serves the planner at `POST /api/meeting-area`, `/api/converge`, `/api/roam` and `/api/search`. Requests and responses are in [backend/docs/planner-api.md](backend/docs/planner-api.md); how the engine and the venue data fit together is in [backend/docs/engine-integration.md](backend/docs/engine-integration.md). Every change on the engine branch, and how to switch the frontend over to the API, is in [backend/docs/changes-and-frontend-guide.md](backend/docs/changes-and-frontend-guide.md).
 
 ## Test
 

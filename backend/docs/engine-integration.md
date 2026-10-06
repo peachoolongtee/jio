@@ -1,6 +1,41 @@
 # Engine integration: joined venue data, itinerary slots and the planner API
 
-Changes made on 6 Oct 2026 on `feature/backend-engines`, so the frontend can use the backend engine instead of its in-browser planner. This explains what changed and why, so whoever is asked about it can explain it. The request and response formats are in [planner-api.md](planner-api.md).
+Changes made on 5–6 Oct 2026 on `feature/backend-engines`, so the frontend can use the backend engine instead of its in-browser planner. This explains what changed and why, so whoever is asked about it can explain it.
+
+- Request and response formats: [planner-api.md](planner-api.md)
+- Every change in one list, plus the step-by-step frontend switch-over: [changes-and-frontend-guide.md](changes-and-frontend-guide.md)
+
+## Before this: test setup and five engine bugs
+
+Two earlier commits on this branch.
+
+**`61e65fb` Planner on `import`/`export`, tests in Vitest.**
+- `backend/package.json` is `"type": "module"`, but the planner used `require` and the engine tests used `node:test`, so 7 of 8 test files couldn't run.
+- The planner now uses `import`/`export`. Only how files load each other changed.
+- The engine tests run in Vitest and read data from `src/db/mock/`.
+- `build-cdc.js` moved from `tests/` to `scripts/` (`pnpm --filter jio-backend build:cdc`). It's a build script, and it couldn't run from `tests/`.
+- The raw `CDC.json` goes in `backend/data/` (gitignored).
+
+**`3944775` A stress test, and the five bugs it found.**
+
+`tests/stress.test.js` runs about 1,500 seeded random groups, venues, times and constraints. It checks rules that must hold for every input:
+- sorted results, hard filters respected, inside 3 km, return-trip limits
+- scores 0–100 and no NaN
+- the same input gives the same output, and member order doesn't matter
+- fairness pulls toward the person owed; minimax beats the centroid on the worst trip
+- the ledger sums to zero; strict results are a subset of lenient; Borda conserves points
+
+Each fix has a test in `tests/edge-cases.test.js` that fails on the old code:
+
+| Bug | Fix | Where |
+|---|---|---|
+| Routing returning `null` or `NaN` crashed the engine | Falls back to the estimate and marks the result `approximate` | `engine.js` `routedMinutes()` |
+| A member with no budget made every score NaN | Members with no budget are left out of the price average | `scoring.js` `pricePenalty()` |
+| Unknown occasion or weather case gave an unclear `TypeError` | A clear error listing the valid values | `engine.js` `validateInput()` |
+| Hours past midnight (`22:00-02:00`) counted as always closed | Open late at night and early morning | `filters.js` `isOpenAt()` |
+| A venue with no precomputed occasion fit was cut from the shortlist as "fit 0" | Its fit is calculated, as in the final score | `engine.js` `prune()` |
+
+The stress test also showed that in strict mode, 13 of 57 groups of our mock members got no results for a 7pm dinner, mostly because of unknown diet data. That's a decision for the team (section 7), not a bug.
 
 ## The decision this implements
 
@@ -137,7 +172,7 @@ In stub mode, the existing `x-jio-scenario` header also drives the planner: `rai
 
 ## 6. Tests
 
-`pnpm test`: 14 files, **183 passing** (was 132), 1 skipped (needs the raw `CDC.json`).
+`pnpm test`: 14 files, **183 passing**, 1 skipped (needs the raw `CDC.json`). Before this branch, 19 passed and the other test files couldn't run; after the first two commits, 132 passed.
 
 | File | What it checks |
 |---|---|
@@ -145,8 +180,8 @@ In stub mode, the existing `x-jio-scenario` header also drives the planner: `rai
 | `tests/slots.test.js` (new, 14) | Open for the whole slot, `near_mrt`, last stop, `shop`, given centre, crowd, `dietUnknown`, every meeting-area method, and the full flow: meet once, then rank three slots. |
 | `tests/options.test.js` (new, 9) | Walk minutes, every reason tag, rain warning, indoor swap (including `currentOptionIds` and the fallback beyond the shortlist), and search (name, area, stall, why it doesn't fit, sort order). |
 | `tests/plan-routes.test.js` (new, 14) | The four endpoints over real HTTP: good requests, every kind of 400, and the stub `rain` and `routing-fail` scenarios. |
-| `tests/stress.test.js` (extended) | Now runs on the joined data, plus 100 random itinerary slots (random meeting method, duration, category, last stop, crowd weight, weather). Every result is checked against every rule, including: a swap only with a rain warning, never already shown, always indoor. |
-| `tests/edge-cases.test.js` (one added) | The regret rounding bug. |
+| `tests/stress.test.js` (new in `3944775`, extended since) | About 1,500 seeded random runs checked against rules that must always hold. Now also runs on the joined data, plus 100 random itinerary slots (random meeting method, duration, category, last stop, crowd weight, weather). Every result is checked against every rule, including: a swap only with a rain warning, never already shown, always indoor. |
+| `tests/edge-cases.test.js` (new, 10) | One test per bug: the five from the stress test, and the regret rounding bug. Each fails on the old code. |
 
 Two tests were checked by breaking the code on purpose, to make sure they can fail:
 
@@ -171,15 +206,19 @@ Two tests were checked by breaking the code on purpose, to make sure they can fa
   The API uses the engine's. The engine already accepts a `radius` option, but the API does not expose it yet.
 - **Defaults are guesses:** curated venue attributes and group sizes (`KIND_DEFAULTS`) are defaults. Better data (user tags, reviews) would make occasion fit meaningful.
 
-**For the frontend (`frontend/src/lib/api.js`):**
+**For the frontend.** Not done yet; the app still uses its own ranking. The step-by-step guide with code is in [changes-and-frontend-guide.md](changes-and-frontend-guide.md#part-b-what-the-frontend-needs-to-change). In short, in `frontend/src/lib/api.js`:
 
-- Replace the in-browser ranking with calls to these endpoints:
-  - `chooseMeetingArea` becomes `/api/meeting-area`
-  - `rankForSlot` becomes `/api/converge` with `centre`, `durationMinutes`, `categories`, `lastStop` and `currentOptionIds`
-  - `searchVenuesForSlot` becomes `/api/search`
-- **Then delete the frontend's own ranking** (`scoreVenue`, `rankForSlot`, `indoorSwap`, `chooseMeetingArea`, `crowd.js`), so there is only one.
-- Votes, options and slots stay where they are.
-- Show `walkMinutes`, `reasons`, `crowd`, `warnings`, `swap`, `verify`, `dietUnknown` and `approximate` as described in [planner-api.md](planner-api.md).
+1. **Build requests from a session:** members' `start` and `end` as coordinates (from their area ids), `dateTime` from `session.date` plus the slot start, and an `occasion` (sessions don't have one yet, so default `'catch_up'`).
+2. **Meeting area:** `computeMeeting` calls `/api/meeting-area` instead of `chooseMeetingArea`.
+3. **Ranking:** `rankSlot` calls `/api/converge` with `centre`, `durationMinutes`, `categories`, `lastStop`, `currentOptionIds` and `weatherCase`.
+4. **Sort by `rank`, not by `score` descending:** the backend's score is lower-is-better. `getPlan` currently sorts highest first, which would show the worst option first.
+5. **Async:** `rankSlot` and `computeMeeting` become network calls, so `syncOptions` and every function that calls them need `await`.
+6. **Rename venue fields** for the cards: `price` ← `avgPricePerPerson`, `indoor` ← `setting === 'indoor'`, `walk` ← `walkMinutes`, and `rating` is 0–5 (or `null` for CDC), so double it.
+7. **Keep the venues the API returns:** results include mock and CDC venues that aren't in the frontend's 63, so `venueById` must look in a cache of API venues too (for add, swap and the itinerary).
+8. **Search:** `searchVenuesForSlot` calls `/api/search`, and "Add" uses its `fits`.
+9. **Unknown crowd:** handle `crowd: 'unknown'` in `SuggestionCard` (`CROWD_TONE`, `CROWD_LABELS`), or it shows "undefined · est.".
+10. **Demo switches:** rain → `weatherCase`; routing off → `method: 'centroid'`; simulate crowd → a `crowd` weight.
+11. **Then delete the frontend's ranking:** `scoreVenue`, `rankForSlot`, `unfitReason`, `indoorSwap`, `chooseMeetingArea`, `crowdScore`, `crowdLevel`. **Keep** slots, voting (`reconcileOptions`, `moreOptions`), `travel.js` (the itinerary uses it) and the display helpers (`crowdText`, `meetingResultLine`).
 
 **Backend, later:**
 
@@ -190,7 +229,12 @@ Two tests were checked by breaking the code on purpose, to make sure they can fa
 
 ## Files
 
+Across all six commits on this branch.
+
 **New:**
+- `backend/tests/stress.test.js`
+- `backend/tests/edge-cases.test.js`
+- `backend/scripts/build-cdc.js` (moved from `tests/`)
 - `backend/src/planner/venue-adapter.js`
 - `backend/src/db/venues.js`
 - `backend/src/routes/plan-schemas.js`
@@ -199,19 +243,23 @@ Two tests were checked by breaking the code on purpose, to make sure they can fa
 - `backend/src/db/mock/areas.json` (generated)
 - `backend/docs/planner-api.md`
 - `backend/docs/engine-integration.md`
+- `backend/docs/changes-and-frontend-guide.md`
 - `backend/tests/venues.test.js`
 - `backend/tests/slots.test.js`
 - `backend/tests/plan-routes.test.js`
 - `backend/tests/options.test.js`
 
 **Changed:**
+- every file in `backend/src/planner/` (`import`/`export`)
+- the engine tests (`cdc`, `geo-filters`, `graph`, `pipeline`, `postranking`), now in Vitest
+- `.gitignore` (`backend/data/CDC.json`)
 - `backend/src/planner/engine.js`
 - `backend/src/planner/filters.js`
 - `backend/src/planner/scoring.js`
 - `backend/src/planner/geo.js` (`walkMinutes`)
 - `backend/src/routes/plan.js` (was empty)
 - `backend/src/app.js`
-- `backend/package.json` (`build:venues` script)
+- `backend/package.json` (`build:cdc` and `build:venues` scripts)
 - `backend/tests/stress.test.js`
 - `backend/tests/edge-cases.test.js`
 - `README.md` (API and docs links)

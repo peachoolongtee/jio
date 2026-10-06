@@ -28,6 +28,42 @@ Travel times are still an estimate (no OneMap yet), so every number in minutes i
 
 Each result already carries what the option cards show: `walkMinutes`, `reasons`, `crowd`, `warnings` and `swap`. The frontend no longer needs its own `scoreVenue`, `rankForSlot`, `indoorSwap` or `chooseMeetingArea`, and should delete them once it calls the API, so there is only one ranking.
 
+## Switching the frontend over
+
+Step-by-step guide with code for `frontend/src/lib/api.js`: [changes-and-frontend-guide.md, part B](changes-and-frontend-guide.md#part-b-what-the-frontend-needs-to-change). The things that would break if missed:
+
+| Watch out for | Why | Do this |
+|---|---|---|
+| **Score direction** | `score` is a penalty: **lower is better**. `getPlan` sorts `b.score - a.score`. | Sort by `rank` (1 is best). |
+| **Venues outside the frontend's list** | Results include mock (`v25`) and CDC (`cdc_570511`) venues, which `venueById` can't find in `VENUES`. | Keep every `result.venue` the API sends (a cache by id) and look there first. |
+| **Async** | `rankSlot` and `computeMeeting` become network calls. | `await` them, and make `syncOptions` and its callers async. |
+| **`crowd: 'unknown'`** | Mock and CDC venues have no crowd profile. `SuggestionCard`'s `CROWD_TONE` and `crowdText` only know `quiet`, `moderate` and `busy`. | Add `unknown`, or hide the tag. |
+| **No occasion** | Sessions don't have one; the backend requires it. | Send `'catch_up'` until session creation asks. |
+| **Coordinates, not area ids** | Members are sent with `start` and `end` as `{ lat, lng }`. | Look up `areaById(session.locations[id].start.areaId)`. The meeting area's `area.id` matches the frontend's `AREAS` ids. |
+| **Date-time** | One string per slot. | `` `${session.date}T${P.fromMinutes(slot.start)}` `` plus `durationMinutes: slot.duration`. |
+
+Venue and option fields have different names from the frontend's:
+
+| Card reads | Backend sends |
+|---|---|
+| `option.walk` | `result.walkMinutes` |
+| `option.swap.id` | `result.swap.venueId` |
+| `venue.price` | `venue.avgPricePerPerson` |
+| `venue.indoor` | `venue.setting === 'indoor'` |
+| `venue.mrt`, `venue.mrtWalk` | `venue.nearestMrt`, `venue.mrtWalkMinutes` |
+| `venue.rating` (0–10) | `venue.rating` (0–5, `null` for CDC sites): double it |
+| `venue.hours` (`"07:30-20:00"`) | `venue.openingHours` (`["07:30", "20:00"]`) |
+| `venue.serves` | `venue.mealPeriods` |
+| `venue.tags` includes `cdc` | `venue.cdcAccepted` |
+| `venue.kind`, `venue.popularity` | the same, but only on the frontend's 63 places |
+
+The demo switches map to request fields:
+- rain → `weatherCase: 'rain'`
+- routing off → `method: 'centroid'` on `/api/meeting-area`
+- simulate crowd → a `crowd` weight
+
+**After switching, delete the frontend's ranking** so there is only one: `scoreVenue`, `rankForSlot`, `unfitReason`, `indoorSwap`, `chooseMeetingArea`, `crowdScore`, `crowdLevel`. **Keep** slots, voting (`reconcileOptions`, `moreOptions`), `travel.js` (used by the itinerary) and the display helpers (`crowdText`, `meetingResultLine`).
+
 ## Members
 
 Each member is an object. Only `id` is required, plus a location (`home` or `start`) for `/meeting-area` and `/converge`.
