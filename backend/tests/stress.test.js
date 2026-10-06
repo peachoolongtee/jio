@@ -5,8 +5,8 @@
 import { test } from 'vitest';
 import assert from 'node:assert';
 import base from '../src/db/mock/mock-data.json';
-import cdcFile from '../src/db/mock/cdc-venues.json';
-import { converge, roam } from '../src/planner/engine.js';
+import { loadPlanData } from '../src/db/venues.js';
+import { converge, roam, meetingArea } from '../src/planner/engine.js';
 import { filterByConstraints } from '../src/planner/filters.js';
 import { haversineKm, centroid, fairnessWeights, minimaxCenter } from '../src/planner/geo.js';
 import * as S from '../src/planner/scoring.js';
@@ -71,7 +71,7 @@ const synthData = {
   ...base, venues: synthVenues,
   visitHistory: synthVenues.slice(0, 40).map(v => ({ groupId: 'g1', venueId: v.id, date: `2026-${pick(['08', '09', '10'])}-0${int(1, 4)}` })),
 };
-const realData = { ...base, venues: [...base.venues, ...cdcFile.venues] };
+const realData = loadPlanData(); // mock + curated (frontend) + CDC, as served by the API
 
 // ---------------------------------------------------------------- the rules every Converge result must follow
 function checkConverge(input, data, label, deps) {
@@ -83,6 +83,7 @@ function checkConverge(input, data, label, deps) {
   const passed = new Set(filterByConstraints(data.venues, {
     members: active, groupConstraints: input.groupConstraints ?? [], dateTime: input.dateTime,
     categories: input.categories ?? ['eat', 'drink'], excludeVenueIds: input.excludeVenueIds ?? [], unknownPolicy: input.unknownPolicy ?? 'strict',
+    durationMinutes: input.durationMinutes ?? 0,
   }).passed.map(v => v.id));
 
   assert.ok(out.results.length <= (input.topN ?? 5), `${label}: more than topN`);
@@ -92,6 +93,16 @@ function checkConverge(input, data, label, deps) {
     assert.ok(Number.isFinite(r.score) && r.score >= 0 && r.score <= 100, `${label}: score ${r.score}`);
     assert.ok(passed.has(r.venueId), `${label}: ${r.venueId} breaks a hard filter`);
     assert.ok(r.distanceFromCentreKm <= 3 + 1e-9, `${label}: beyond the 3 km cap`);
+    if (input.lastStop) assert.ok(r.venue.mrtWalkMinutes <= (input.lastStopMrtWalkMinutes ?? 10) || (input.unknownPolicy === 'lenient' && r.venue.mrtWalkMinutes == null), `${label}: last stop not near an MRT`);
+    assert.ok(['quiet', 'moderate', 'busy', 'unknown'].includes(r.crowd), `${label}: crowd ${r.crowd}`);
+    assert.ok(Number.isInteger(r.walkMinutes) && r.walkMinutes >= 0, `${label}: walk ${r.walkMinutes}`);
+    assert.ok(r.reasons.length <= 2 && r.reasons.every(t => typeof t === 'string'), `${label}: reasons`);
+    if (r.swap) {
+      assert.deepStrictEqual(r.warnings, ['rain'], `${label}: a swap without a rain warning`);
+      assert.ok(!out.results.some(x => x.venueId === r.swap.venueId), `${label}: swap is already shown`);
+      assert.ok(!(input.currentOptionIds ?? []).includes(r.swap.venueId), `${label}: swap is already an option`);
+      assert.strictEqual(data.venues.find(v => v.id === r.swap.venueId).setting, 'indoor', `${label}: swap is not indoor`);
+    }
     for (const m of active) {
       if (m.maxReturnMinutes) assert.ok(r.returnByMember[m.id] <= m.maxReturnMinutes, `${label}: ${m.id} return trip too long`);
     }
@@ -124,12 +135,33 @@ test('converge: 300 random groups on 400 random venues follow every rule', () =>
   assert.ok(outcomes.ok > 50, `too few ok results to be a useful test: ${JSON.stringify(outcomes)}`);
 });
 
-test('converge: 100 random groups on the real CDC + mock venues follow every rule', () => {
+test('converge: 100 random groups on the joined mock + curated + CDC venues follow every rule', () => {
   for (let i = 0; i < 100; i++) {
     const members = Array.from({ length: int(2, 8) }, (_, j) => mockMember(j));
     const input = { members, occasion: pick(OCCASIONS), dateTime: `2026-10-10T${pick(['08:30', '12:30', '15:30', '19:00', '22:30'])}`, unknownPolicy: pick(['strict', 'lenient']) };
     checkConverge(input, realData, `real#${i}`);
   }
+});
+
+test('itinerary slots: random meeting areas, durations, categories, last stops and crowd weights follow every rule', () => {
+  let okSlots = 0;
+  for (let i = 0; i < 100; i++) {
+    const members = Array.from({ length: int(2, 8) }, (_, j) => mockMember(j));
+    const meet = meetingArea({ members, method: pick(['station', 'weighted_centroid', 'minimax']) }, realData);
+    assert.ok(realData.areas.some(a => a.id === meet.area.id), `slot#${i}: unknown area`);
+    assert.ok(Number.isFinite(meet.worstMinutes), `slot#${i}: worst ${meet.worstMinutes}`);
+    const input = {
+      members, occasion: pick(OCCASIONS), centre: meet.centre, unknownPolicy: pick(['strict', 'lenient']),
+      dateTime: `2026-10-10T${pick(['09:00', '12:00', '14:30', '18:30', '21:00'])}`, durationMinutes: pick([0, 60, 90, 120]),
+      categories: [pick(['eat', 'drink', 'shop', 'activity'])], lastStop: rng() < 0.3, weatherCase: pick(['clear', 'rain', 'rain_east']),
+      weights: rng() < 0.3 ? { ...S.DEFAULT_WEIGHTS.converge, crowd: int(1, 20) } : undefined,
+    };
+    const out = checkConverge(input, realData, `slot#${i}`);
+    if (out.status === 'ok') assert.deepStrictEqual(out.centre, meet.centre, `slot#${i}: centre moved`);
+    okSlots += out.status === 'ok' ? 1 : 0;
+  }
+  // Random diets and strict mode empty many slots (see docs/engine-integration.md); 20+ still exercises the rules.
+  assert.ok(okSlots >= 20, `only ${okSlots}/100 slots returned venues: too few to test the rules`);
 });
 
 test('converge: rules still hold when routing fails for some legs', () => {
