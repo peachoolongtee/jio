@@ -1,0 +1,231 @@
+{
+ "_meta": {
+  "source": "frontend/src/lib/mock/places.js (AREAS)",
+  "convertedBy": "backend/scripts/build-venues.js",
+  "note": "Do not edit by hand: edit the frontend file and re-run pnpm build:venues."
+ },
+ "areas": [
+  {
+   "id": "tiong-bahru",
+   "name": "Tiong Bahru",
+   "lat": 1.28614,
+   "lng": 103.82706
+  },
+  {
+   "id": "outram-park",
+   "name": "Outram Park",
+   "lat": 1.28013,
+   "lng": 103.83953
+  },
+  {
+   "id": "chinatown",
+   "name": "Chinatown",
+   "lat": 1.2844,
+   "lng": 103.84394
+  },
+  {
+   "id": "raffles-place",
+   "name": "Raffles Place",
+   "lat": 1.28393,
+   "lng": 103.85148
+  },
+  {
+   "id": "city-hall",
+   "name": "City Hall",
+   "lat": 1.29312,
+   "lng": 103.85201
+  },
+  {
+   "id": "bugis",
+   "name": "Bugis",
+   "lat": 1.30065,
+   "lng": 103.85585
+  },
+  {
+   "id": "dhoby-ghaut",
+   "name": "Dhoby Ghaut",
+   "lat": 1.29908,
+   "lng": 103.84554
+  },
+  {
+   "id": "somerset",
+   "name": "Somerset",
+   "lat": 1.30027,
+   "lng": 103.83864
+  },
+  {
+   "id": "orchard",
+   "name": "Orchard",
+   "lat": 1.30406,
+   "lng": 103.83186
+  },
+  {
+   "id": "newton",
+   "name": "Newton",
+   "lat": 1.31279,
+   "lng": 103.83812
+  },
+  {
+   "id": "novena",
+   "name": "Novena",
+   "lat": 1.32049,
+   "lng": 103.84366
+  },
+  {
+   "id": "toa-payoh",
+   "name": "Toa Payoh",
+   "lat": 1.33268,
+   "lng": 103.84741
+  },
+  {
+   "id": "braddell",
+   "name": "Braddell",
+   "lat": 1.34052,
+   "lng": 103.84695
+  },
+  {
+   "id": "bishan",
+   "name": "Bishan",
+   "lat": 1.35092,
+   "lng": 103.84822
+  },
+  {
+   "id": "ang-mo-kio",
+   "name": "Ang Mo Kio",
+   "lat": 1.36993,
+   "lng": 103.84958
+  },
+  {
+   "id": "caldecott",
+   "name": "Caldecott",
+   "lat": 1.33739,
+   "lng": 103.83953
+  },
+  {
+   "id": "little-india",
+   "name": "Little India",
+   "lat": 1.30668,
+   "lng": 103.84964
+  },
+  {
+   "id": "farrer-park",
+   "name": "Farrer Park",
+   "lat": 1.31225,
+   "lng": 103.85428
+  },
+  {
+   "id": "lavender",
+   "name": "Lavender",
+   "lat": 1.30722,
+   "lng": 103.86302
+  },
+  {
+   "id": "kallang",
+   "name": "Kallang",
+   "lat": 1.31149,
+   "lng": 103.87136
+  },
+  {
+   "id": "potong-pasir",
+   "name": "Potong Pasir",
+   "lat": 1.33133,
+   "lng": 103.86888
+  },
+  {
+   "id": "serangoon",
+   "name": "Serangoon",
+   "lat": 1.35013,
+   "lng": 103.87349
+  },
+  {
+   "id": "kovan",
+   "name": "Kovan",
+   "lat": 1.36017,
+   "lng": 103.88513
+  },
+  {
+   "id": "paya-lebar",
+   "name": "Paya Lebar",
+   "lat": 1.31794,
+   "lng": 103.89287
+  },
+  {
+   "id": "bedok",
+   "name": "Bedok",
+   "lat": 1.324,
+   "lng": 103.93
+  },
+  {
+   "id": "tampines",
+   "name": "Tampines",
+   "lat": 1.35408,
+   "lng": 103.94535
+  },
+  {
+   "id": "pasir-ris",
+   "name": "Pasir Ris",
+   "lat": 1.37304,
+   "lng": 103.94934
+  },
+  {
+   "id": "changi-airport",
+   "name": "Changi Airport",
+   "lat": 1.35745,
+   "lng": 103.98837
+  },
+  {
+   "id": "punggol",
+   "name": "Punggol",
+   "lat": 1.40519,
+   "lng": 103.90237
+  },
+  {
+   "id": "woodlands",
+   "name": "Woodlands",
+   "lat": 1.43681,
+   "lng": 103.78648
+  },
+  {
+   "id": "botanic-gardens",
+   "name": "Botanic Gardens",
+   "lat": 1.32247,
+   "lng": 103.815
+  },
+  {
+   "id": "buona-vista",
+   "name": "Buona Vista",
+   "lat": 1.30716,
+   "lng": 103.79002
+  },
+  {
+   "id": "clementi",
+   "name": "Clementi",
+   "lat": 1.31509,
+   "lng": 103.76524
+  },
+  {
+   "id": "jurong-east",
+   "name": "Jurong East",
+   "lat": 1.33315,
+   "lng": 103.74227
+  },
+  {
+   "id": "boon-lay",
+   "name": "Boon Lay",
+   "lat": 1.33862,
+   "lng": 103.70594
+  },
+  {
+   "id": "tuas-link",
+   "name": "Tuas Link",
+   "lat": 1.34086,
+   "lng": 103.63687
+  },
+  {
+   "id": "harbourfront",
+   "name": "HarbourFront",
+   "lat": 1.26527,
+   "lng": 103.82095
+  }
+ ]
+}

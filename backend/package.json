@@ -11,7 +11,8 @@
     "dev": "node --watch src/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:cdc": "node scripts/build-cdc.js"
+    "build:cdc": "node scripts/build-cdc.js",
+    "build:venues": "node scripts/build-venues.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

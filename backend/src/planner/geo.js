@@ -24,6 +24,15 @@ function haversineKm(a, b) {
 const mockTravelMinutes = (a, b) => 6 + (haversineKm(a, b) * 1.35 * 60) / 22;
 
 /**
+ * Walking minutes between two points, with the frontend planner's formula so both sides show the same number:
+ * 5 km/h, and streets are 25% longer than a straight line. Under 50 m counts as 0 (same place).
+ */
+function walkMinutes(a, b) {
+  const km = haversineKm(a, b);
+  return km < 0.05 ? 0 : Math.max(1, Math.round(km * 1.25 * 12));
+}
+
+/**
  * Geographic centroid with optional weights.
  * Lat/lng are angles on a sphere, so averaging them directly drifts over distance.
  * Instead: convert to 3D (x, y, z), average, convert back.
@@ -138,4 +147,4 @@ function radiusSearch(venues, centre, opts = {}) {
   };
 }
 
-export { haversineKm, mockTravelMinutes, centroid, fairnessWeights, minimaxCenter, radiusSearch };
+export { haversineKm, mockTravelMinutes, walkMinutes, centroid, fairnessWeights, minimaxCenter, radiusSearch };
