@@ -28,7 +28,7 @@ const router = createRouter({
   routes,
   scrollBehavior: (to, from, saved) => {
     // Only the query changed on the same screen, such as a place opening over Home (?place=…): stay put.
-    if (to.path === from.path && !to.hash) return false
+    if (to.path === from.path && to.hash === from.hash) return false
     if (saved) return saved
     // A link to a section, such as /leaderboard#rewards: give the screen a moment to draw it, then scroll there.
     if (to.hash) return new Promise((resolve) => setTimeout(() => resolve({ el: to.hash, top: 16, behavior: 'smooth' }), 300))
