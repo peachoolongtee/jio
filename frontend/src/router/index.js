@@ -17,6 +17,7 @@ const routes = [
   { path: '/sessions/:id/photos', name: 'session-photos', component: () => import('@/views/PhotosView.vue'), props: true, meta: { title: 'Photos' } },
   { path: '/sessions/:id/map', name: 'session-map', component: () => import('@/views/SessionMapView.vue'), props: true, meta: { nav: false, title: 'Map' } },
   { path: '/leaderboard', name: 'leaderboard', component: () => import('@/views/LeaderboardView.vue'), meta: { tabs: true, title: 'Leaderboard' } },
+  { path: '/rewards', name: 'rewards', component: () => import('@/views/RewardsView.vue'), meta: { tabs: true, title: 'Rewards' } },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfileView.vue'), meta: { tabs: true, title: 'Profile' } },
   { path: '/people/:id', name: 'person', component: () => import('@/views/ProfileView.vue'), props: true, meta: { title: 'Profile' } },
   { path: '/design-system', name: 'design-system', component: () => import('@/views/DesignSystemView.vue'), meta: { public: true, title: 'Design system' } },
@@ -30,7 +31,7 @@ const router = createRouter({
     // Only the query changed on the same screen, such as a place opening over Home (?place=…): stay put.
     if (to.path === from.path && to.hash === from.hash) return false
     if (saved) return saved
-    // A link to a section, such as /leaderboard#rewards: give the screen a moment to draw it, then scroll there.
+    // A link to a section, such as /sessions/s1#photos: give the screen a moment to draw it, then scroll there.
     if (to.hash) return new Promise((resolve) => setTimeout(() => resolve({ el: to.hash, top: 16, behavior: 'smooth' }), 300))
     return { top: 0 }
   },

@@ -2,15 +2,10 @@
 // Leaderboard: one ranking, the points earned this season. A season is a calendar quarter; when it ends,
 // first place wins points to spend, and season points start again from 0 (points to spend are kept).
 // The rule, the countdown and the last few winners are on this screen. Ian's row is pinned at the bottom
-// when he is outside the top 10.
-// Rewards: café vouchers bought with points. Redeeming shows a code and lowers the balance;
-// a voucher that costs more than the balance is disabled and says how many points are missing.
-import { computed, onMounted, ref } from 'vue'
-import AppButton from '@/components/ui/AppButton.vue'
+// when he is outside the top 10. Spending points is on Rewards.
+import { computed, onMounted } from 'vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
-import EmptyState from '@/components/ui/EmptyState.vue'
-import ModalDialog from '@/components/ui/ModalDialog.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import StatTile from '@/components/ui/StatTile.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
@@ -22,12 +17,8 @@ import { format } from 'date-fns'
 const TOP = 10
 
 const groups = useGroupsStore()
-const confirming = ref(null)
-const redeemed = ref(null)
-const busy = ref(false)
-const error = ref('')
 
-onMounted(() => Promise.all([groups.loadLeaderboard(), groups.loadSeason(), groups.loadRewards()]))
+onMounted(() => Promise.all([groups.loadLeaderboard(), groups.loadSeason()]))
 
 const now = useNow()
 const season = computed(() => groups.season)
@@ -47,23 +38,10 @@ const pinned = computed(() => {
   const me = groups.me
   return me && !top.value.some((r) => r.isMe) ? me : null
 })
-const points = computed(() => groups.me?.points ?? 0)
 const ordinal = (n) => {
   const s = ['th', 'st', 'nd', 'rd']
   const v = n % 100
   return n + (s[(v - 20) % 10] || s[v] || s[0])
-}
-
-async function redeem() {
-  busy.value = true
-  error.value = ''
-  try {
-    redeemed.value = await groups.redeem(confirming.value.id)
-    confirming.value = null
-  } catch (e) {
-    error.value = e.message
-  }
-  busy.value = false
 }
 </script>
 
@@ -82,8 +60,8 @@ async function redeem() {
         <section class="section" aria-labelledby="rank-head">
           <h2 id="rank-head" class="sr-only">Ranking by points this season</h2>
           <BannerNote v-if="season" icon="trophy" class="season-rule">
-            First place on {{ endDate }} wins <strong>{{ season.prize }} points</strong> to spend on café discounts.
-            Then everyone's season points start again from 0. Points you have not spent are kept.
+            First place on {{ endDate }} wins <strong>{{ season.prize }} points</strong> to spend on Rewards.
+            Then everyone's season points start again from 0.
           </BannerNote>
           <div v-if="groups.loading.leaderboard && !groups.leaderboard.length" class="stack">
             <SkeletonRow v-for="n in 6" :key="n" avatar />
@@ -128,8 +106,8 @@ async function redeem() {
 
         <aside class="side">
           <div class="me-stats" aria-label="Your standing">
-            <StatTile label="Your rank" :value="groups.me ? ordinal(groups.me.rank) : '-'" icon="trophy" :hint="groups.me ? `${groups.me.seasonPoints} points this season` : ''" />
-            <StatTile label="Points" :value="points" icon="gift" hint="Spend them on café discounts below" />
+            <StatTile label="Your rank" :value="groups.me ? ordinal(groups.me.rank) : '-'" icon="trophy" :hint="groups.me ? `of ${groups.leaderboard.length} this season` : ''" />
+            <StatTile label="Season points" :value="groups.me?.seasonPoints ?? 0" icon="sparkle" :hint="endsIn" />
           </div>
           <section v-if="season?.past.length" class="past card" aria-labelledby="past-head">
             <h2 id="past-head" class="title-md">Past seasons</h2>
@@ -146,67 +124,8 @@ async function redeem() {
         </aside>
       </div>
 
-      <section id="rewards" class="section" aria-labelledby="rewards-head">
-        <div class="section__head">
-          <h2 id="rewards-head" class="display-sm">Café discounts</h2>
-          <span class="caption">{{ points }} points to spend</span>
-        </div>
-        <ol class="how" aria-label="How points work">
-          <li><span class="how__n">1</span><span class="body-sm">Every meetup you finish earns <strong>100 points</strong>.</span></li>
-          <li><span class="how__n">2</span><span class="body-sm">Spend them on a discount at a partner café below.</span></li>
-          <li><span class="how__n">3</span><span class="body-sm">Show the code at the counter.</span></li>
-        </ol>
-        <div v-if="groups.loading.rewards && !groups.rewards.length" class="grid-3">
-          <SkeletonRow v-for="n in 3" :key="n" />
-        </div>
-        <EmptyState v-else-if="!groups.rewards.length" title="No rewards right now" />
-        <ul v-else class="grid-3">
-          <li v-for="reward in groups.rewards" :key="reward.id" class="voucher" :class="{ 'is-short': reward.cost > points }">
-            <div class="voucher__top">
-              <span class="voucher__icon"><AppIcon name="drink" :size="20" /></span>
-              <span class="voucher__cost caption">{{ reward.cost }} pts</span>
-            </div>
-            <h3 class="title-md">{{ reward.offer }}</h3>
-            <p class="caption-sm text-muted">{{ reward.cafe }}</p>
-            <AppButton v-if="reward.cost <= points" variant="secondary" small @click="confirming = reward">Redeem</AppButton>
-            <AppButton v-else variant="secondary" small disabled>{{ reward.cost - points }} points short</AppButton>
-          </li>
-        </ul>
-      </section>
-
-      <section v-if="groups.redemptions.length" class="section" aria-labelledby="mine-head">
-        <h2 id="mine-head" class="display-sm">Your vouchers</h2>
-        <ul class="stack">
-          <li v-for="r in groups.redemptions" :key="r.id" class="code-row">
-            <span class="stack">
-              <span class="title-sm">{{ r.reward.offer }}</span>
-              <span class="caption-sm text-muted">{{ r.reward.cafe }}</span>
-            </span>
-            <code class="code">{{ r.code }}</code>
-          </li>
-        </ul>
-      </section>
     </div>
 
-    <ModalDialog :open="!!confirming" :title="confirming ? `Redeem ${confirming.cost} points?` : ''" @update:open="(v) => !v && (confirming = null)">
-      <template #content>
-        <p v-if="confirming" class="body-md">{{ confirming.offer }} · {{ confirming.cafe }}</p>
-        <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
-      </template>
-      <AppButton block :disabled="busy" @click="redeem">Redeem</AppButton>
-      <AppButton block variant="secondary" @click="confirming = null">Not now</AppButton>
-    </ModalDialog>
-
-    <ModalDialog :open="!!redeemed" title="Voucher code" @update:open="(v) => !v && (redeemed = null)">
-      <template #content>
-        <div v-if="redeemed" class="stack gap-sm">
-          <span class="body-md">{{ redeemed.reward.offer }} · {{ redeemed.reward.cafe }}</span>
-          <code class="code code--big">{{ redeemed.code }}</code>
-          <span class="caption text-muted">Balance {{ redeemed.points }} points</span>
-        </div>
-      </template>
-      <AppButton block @click="redeemed = null">Done</AppButton>
-    </ModalDialog>
   </main>
 </template>
 
@@ -246,16 +165,4 @@ async function redeem() {
 .board__count { display: flex; flex-direction: column; align-items: flex-end; }
 .board__pinned { position: sticky; bottom: var(--tabbar-height); margin-top: var(--spacing-sm); padding-top: var(--spacing-sm); border-top: 2px solid var(--ink); background: var(--canvas); }
 @media (min-width: 1128px) { .board__pinned { bottom: 0; } }
-.how { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-sm); margin: 0; padding: 0; list-style: none; }
-.how li { display: flex; align-items: center; gap: var(--spacing-sm); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--rounded-md); background: var(--surface-soft); }
-.how__n { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--rounded-full); background: var(--ink); color: var(--on-dark); font: var(--text-caption); }
-.voucher { display: flex; flex-direction: column; gap: var(--spacing-sm); height: 100%; padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
-.voucher > :last-child { margin-top: auto; align-self: flex-start; }
-.voucher__top { display: flex; align-items: center; justify-content: space-between; }
-.voucher__icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
-.voucher__cost { padding: var(--spacing-xxs) var(--spacing-sm); border: 1px solid var(--ink); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font: var(--text-badge); }
-.voucher.is-short .voucher__cost { background: var(--surface-strong); color: var(--muted); }
-.code-row { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); min-height: 56px; border-bottom: 1px solid var(--hairline-soft); }
-.code { padding: var(--spacing-xs) var(--spacing-sm); border-radius: var(--rounded-xs); background: var(--surface-strong); font: var(--text-caption); letter-spacing: 1px; }
-.code--big { align-self: flex-start; padding: var(--spacing-sm) var(--spacing-base); font: var(--text-display-sm); }
 </style>

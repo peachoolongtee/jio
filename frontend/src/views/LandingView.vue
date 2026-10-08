@@ -1,8 +1,8 @@
 <script setup>
-// Home: a photo hero (Marina Bay at dusk) with a serif headline, then what Ian needs next. Three states:
+// Home: a greeting, then what Ian needs next. Three states:
 //   No active meetup        greeting, a short line about Jio, "Create meetup", and Your meetups (past ones, or an
 //                           empty state with a create prompt).
-//   Meetup, no midpoint     a frosted "Your meetup" card: name, friends, where the midpoint stands, Open meetup.
+//   Meetup, no midpoint     a "Your meetup" card: name, friends, where the midpoint stands, Open meetup.
 //   Meetup with a midpoint  the same card with the meeting area, and Places near your meetup below: places around
 //                           the midpoint, nearest first, with one Filter button.
 // The filter has toggles (Touristy spots, Hidden gems, CDC Vouchers accepted, Food, Café),
@@ -24,7 +24,6 @@ import PlaceCard from '@/components/event/PlaceCard.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SessionCard from '@/components/event/SessionCard.vue'
 import * as api from '@/lib/api.js'
-import heroPhoto from '@/assets/home/marina-bay-dusk.jpg'
 import { canViewTransition, withViewTransition } from '@/lib/viewTransition.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -91,15 +90,10 @@ const openTo = computed(() => {
   return `/sessions/${m.id}`
 })
 
-// The headline follows the state; the last part is set in italics, like a spoken aside.
-const headline = computed(() => {
-  if (!meetup.value) return { lead: 'Make the plan,', accent: 'not the group chat.' }
-  if (area.value) return { lead: 'See you at', accent: `${area.value.name}.` }
-  return { lead: 'Getting everyone', accent: 'together.' }
-})
+// One line under the greeting, about where things stand.
 const blurb = computed(() => {
-  if (!meetup.value) return 'Jio finds the fairest place for everyone to meet, then lets the group vote on where to go.'
-  if (area.value) return `The fairest midpoint for ${meetup.value.activeIds.length} people. Pick somewhere nearby, or open the meetup to vote.`
+  if (!meetup.value) return 'Plan a meetup with friends. Jio finds the fairest place for everyone to meet.'
+  if (area.value) return `Your group meets at ${area.value.name}. Here is what is nearby.`
   return 'Once everyone shares where they are starting, Jio works out the fairest midpoint.'
 })
 
@@ -241,61 +235,52 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 
 <template>
   <main class="screen home" data-testid="landing-view">
-    <!-- The hero: Marina Bay at dusk, the greeting and what to do next. -->
-    <section class="hero" aria-labelledby="home-title">
-      <img class="hero__photo" :src="heroPhoto" alt="" fetchpriority="high" />
-      <div class="hero__shade" aria-hidden="true" />
-      <RouterLink to="/profile" class="hero__me" aria-label="Profile" title="Profile">
-        <UserAvatar :name="auth.user.name" :src="auth.user.photo" person="ian" :size="40" />
-      </RouterLink>
-
-      <div class="hero__content">
-        <p class="hero__eyebrow rise"><span class="hero__dot" aria-hidden="true" />{{ today }} · Hi, {{ auth.user.name }}</p>
-        <h1 id="home-title" class="hero__title rise" style="--i: 1">
-          {{ headline.lead }}<br />
-          <em>{{ headline.accent }}</em>
-        </h1>
-        <p class="hero__blurb rise" style="--i: 2">{{ blurb }}</p>
-
-        <div v-if="!events.loaded" class="hero__card hero__card--loading rise" style="--i: 3" aria-hidden="true" />
-
-        <!-- No meetup going: one clear way to start. -->
-        <div v-else-if="!meetup" class="hero__actions rise" style="--i: 3">
-          <RouterLink to="/sessions/new" class="hero__cta">
-            <AppIcon name="plus" :size="18" />
-            <span>Create meetup</span>
-            <AppIcon name="chevron-right" :size="16" class="hero__cta-arrow" />
-          </RouterLink>
-          <p class="hero__note">Free for everyone. Friends join in a tap.</p>
+    <header class="screen__header">
+      <div class="home__top">
+        <div class="screen__titles">
+          <p class="caption text-muted">{{ today }}</p>
+          <h1 class="display-xl">Hi, {{ auth.user.name }}</h1>
+          <p class="body-md text-muted home__blurb">{{ blurb }}</p>
         </div>
-
-        <!-- The meetup going now, on frosted glass. -->
-        <article v-else class="hero__card rise" style="--i: 3" aria-labelledby="meetup-name">
-          <p class="hero__card-label">Your meetup</p>
-          <h2 id="meetup-name" class="hero__card-name">{{ meetup.title }}</h2>
-          <div class="hero__card-meta">
-            <span class="hero__card-row">
-              <AvatarStack v-if="friendPeople.length" :people="friendPeople" :size="24" :max="4" />
-              <span>{{ friendsText }}</span>
-            </span>
-            <span v-if="area" class="hero__card-row">
-              <AppIcon name="pin" :size="16" />
-              <span>Meeting at <strong>{{ area.name }}</strong></span>
-            </span>
-            <span v-else class="hero__card-row" :class="{ 'is-finding': meetup.findingMeeting }">
-              <span class="hero__pulse" aria-hidden="true" />
-              <span>{{ midpointStatus }}</span>
-            </span>
-          </div>
-          <RouterLink :to="openTo" class="hero__open">
-            Open meetup
-            <AppIcon name="chevron-right" :size="16" />
-          </RouterLink>
-        </article>
+        <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
+          <UserAvatar :name="auth.user.name" :src="auth.user.photo" person="ian" :size="44" />
+        </RouterLink>
       </div>
-    </section>
+    </header>
 
-    <div class="screen__body home__body">
+    <div class="screen__body">
+      <SkeletonRow v-if="!events.loaded" :lines="3" />
+
+      <!-- No meetup going: one clear way to start. -->
+      <AppButton v-else-if="!meetup" class="home__create rise" to="/sessions/new">
+        <AppIcon name="plus" />
+        Create meetup
+      </AppButton>
+
+      <!-- The meetup going now. -->
+      <article v-else class="meetup rise" aria-labelledby="meetup-name">
+        <p class="meetup__label caption">Your meetup</p>
+        <h2 id="meetup-name" class="display-sm meetup__name">{{ meetup.title }}</h2>
+        <div class="meetup__meta">
+          <span class="meetup__row">
+            <AvatarStack v-if="friendPeople.length" :people="friendPeople" :size="24" :max="4" />
+            <span>{{ friendsText }}</span>
+          </span>
+          <span v-if="area" class="meetup__row">
+            <AppIcon name="pin" :size="16" />
+            <span>Meeting at <strong>{{ area.name }}</strong></span>
+          </span>
+          <span v-else class="meetup__row" :class="{ 'is-finding': meetup.findingMeeting }">
+            <span class="meetup__pulse" aria-hidden="true" />
+            <span>{{ midpointStatus }}</span>
+          </span>
+        </div>
+        <AppButton class="meetup__open" :to="openTo">
+          Open meetup
+          <AppIcon name="chevron-right" :size="16" />
+        </AppButton>
+      </article>
+
       <!-- No meetup going: the ones before, or a prompt to make the first. -->
       <section v-if="events.loaded && !meetup" class="section rise" aria-labelledby="home-meetups">
         <div class="section__head">
@@ -365,56 +350,27 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 </template>
 
 <style scoped>
-/* ── The hero: a photo, a shade for legible text, and the content centred on it ── */
-.hero { position: relative; isolation: isolate; display: flex; align-items: center; justify-content: center; min-height: min(88svh, 720px); margin: 0 0 var(--spacing-lg); overflow: hidden; color: #fff; text-align: center; }
-@media (min-width: 744px) { .hero { margin: var(--spacing-base) var(--gutter) var(--spacing-xl); border-radius: var(--rounded-xl); min-height: min(80vh, 680px); } }
-.hero__photo { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; object-position: 50% 60%; }
-/* Darker at the top for the date line and at the bottom for the card; the sky stays open in the middle. */
-.hero__shade { position: absolute; inset: 0; z-index: -1; background: linear-gradient(to bottom, rgb(12 16 24 / 0.55) 0%, rgb(12 16 24 / 0.3) 35%, rgb(12 16 24 / 0.45) 60%, rgb(12 16 24 / 0.75) 100%); }
-.hero__me { position: absolute; top: var(--spacing-base); right: var(--spacing-base); border-radius: var(--rounded-full); box-shadow: 0 0 0 2px rgb(255 255 255 / 0.6); }
-.hero__content { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-base); width: 100%; max-width: 780px; padding: var(--spacing-xxl) var(--gutter); }
-.hero__eyebrow { display: inline-flex; align-items: center; gap: var(--spacing-sm); margin: 0; color: rgb(255 255 255 / 0.78); font: 600 11px/1.4 var(--font-sans); letter-spacing: 0.22em; text-transform: uppercase; }
-.hero__dot { width: 6px; height: 6px; border-radius: var(--rounded-full); background: currentColor; }
-.hero__title { margin: var(--spacing-xs) 0 0; font: 400 clamp(44px, 9vw, 88px)/0.98 var(--font-display); letter-spacing: -0.02em; text-shadow: 0 2px 24px rgb(0 0 0 / 0.25); text-wrap: balance; overflow-wrap: anywhere; }
-.hero__title em { font-style: italic; }
-.hero__blurb { max-width: 440px; margin: 0; color: rgb(255 255 255 / 0.9); text-shadow: 0 1px 12px rgb(0 0 0 / 0.45); font: var(--text-body-md); text-wrap: pretty; }
-
-/* "Create meetup": the one Rausch moment on the photo, with a short reassurance under it. */
-.hero__actions { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-md); width: 100%; margin-top: var(--spacing-md); }
-.hero__cta { display: inline-flex; align-items: center; gap: var(--spacing-sm); width: min(100%, 320px); min-height: 52px; padding: 0 var(--spacing-lg); border-radius: var(--rounded-sm); background: var(--primary); color: var(--on-primary); font: var(--text-button-md); text-decoration: none; box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.5); transition: transform 260ms var(--ease-spring), background-color var(--motion-fast) var(--ease-out); }
-.hero__cta-arrow { margin-left: auto; transition: transform var(--motion-fast) var(--ease-out); }
-.hero__cta:active { transform: scale(0.97); transition-duration: 80ms; background: var(--primary-active); }
-@media (hover: hover) { .hero__cta:hover .hero__cta-arrow { transform: translateX(3px); } }
-.hero__cta:focus-visible, .hero__open:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
-.hero__note { margin: 0; color: rgb(255 255 255 / 0.65); font: var(--text-caption-sm); }
-
-/* Your meetup, on frosted glass. */
-.hero__card { display: flex; flex-direction: column; align-items: stretch; gap: var(--spacing-md); width: min(100%, 420px); margin-top: var(--spacing-md); padding: var(--spacing-lg); border: 1px solid rgb(255 255 255 / 0.24); border-radius: var(--rounded-lg); background: rgb(255 255 255 / 0.12); backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2); text-align: left; }
-.hero__card--loading { min-height: 180px; }
-.hero__card-label { margin: 0; color: rgb(255 255 255 / 0.7); font: 600 11px/1.4 var(--font-sans); letter-spacing: 0.18em; text-transform: uppercase; }
-.hero__card-name { margin: 0; font: var(--text-display-sm); overflow-wrap: anywhere; }
-.hero__card-meta { display: flex; flex-direction: column; gap: var(--spacing-sm); color: rgb(255 255 255 / 0.88); font: var(--text-body-sm); }
-.hero__card-row { display: inline-flex; align-items: center; gap: var(--spacing-sm); }
-.hero__card-row strong { color: #fff; font-weight: 600; }
-.hero__card :deep(.avatar) { box-shadow: 0 0 0 2px rgb(255 255 255 / 0.85); }
-/* The midpoint is still to come: a soft pulse; quicker while the planner is working it out. */
-.hero__pulse { position: relative; flex-shrink: 0; width: 10px; height: 10px; margin: 0 3px; border-radius: var(--rounded-full); background: #fff; }
-.hero__pulse::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: #fff; animation: hero-pulse 2s ease-out infinite; }
-.is-finding .hero__pulse::after { animation-duration: 0.9s; }
-@keyframes hero-pulse { from { transform: scale(1); opacity: 0.7; } to { transform: scale(3); opacity: 0; } }
-.hero__open { display: inline-flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 0 var(--spacing-base) 0 var(--spacing-lg); border-radius: var(--rounded-sm); background: #f5f1e6; color: var(--ink); font: var(--text-button-md); text-decoration: none; transition: transform 260ms var(--ease-spring), background-color var(--motion-fast) var(--ease-out); }
-.hero__open:active { transform: scale(0.97); transition-duration: 80ms; }
-@media (hover: hover) { .hero__open:hover { background: #fff; } }
-
-/* The photo drifts very slowly, like a still frame breathing. */
-@media (prefers-reduced-motion: no-preference) {
-  .hero__photo { animation: hero-drift 24s ease-in-out infinite alternate; }
-  @keyframes hero-drift { from { transform: scale(1.06); } to { transform: scale(1); } }
-}
-@media (prefers-reduced-motion: reduce) { .hero__pulse::after { animation: none; } }
-
-.home__body { padding-top: 0; }
+.home__top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-md); }
+.home__blurb { max-width: 560px; margin: var(--spacing-xs) 0 0; }
+.home__me { flex-shrink: 0; border-radius: var(--rounded-full); }
+.home__create { align-self: flex-start; }
 .home__context { display: inline-flex; align-items: center; gap: var(--spacing-xs); margin: 0; }
+
+/* Your meetup: a white card that floats a little, like a reservation card. */
+.meetup { display: flex; flex-direction: column; gap: var(--spacing-md); max-width: 560px; padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); }
+.meetup__label { margin: 0; color: var(--muted); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
+.meetup__name { margin: 0; overflow-wrap: anywhere; }
+.meetup__meta { display: flex; flex-direction: column; gap: var(--spacing-sm); color: var(--body); font: var(--text-body-sm); }
+.meetup__row { display: inline-flex; align-items: center; gap: var(--spacing-sm); }
+.meetup__row strong { color: var(--ink); font-weight: 600; }
+.meetup__open { align-self: flex-start; }
+/* The midpoint is still to come: a soft Rausch pulse, quicker while the planner is working it out. */
+.meetup__pulse { position: relative; flex-shrink: 0; width: 10px; height: 10px; margin: 0 3px; border-radius: var(--rounded-full); background: var(--primary); }
+.meetup__pulse::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--primary); animation: meetup-pulse 2s ease-out infinite; }
+.is-finding .meetup__pulse::after { animation-duration: 0.9s; }
+@keyframes meetup-pulse { from { transform: scale(1); opacity: 0.6; } to { transform: scale(3); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .meetup__pulse::after { animation: none; } }
+
 /* A place card is a link to its detail view. */
 .place-link { display: block; border-radius: var(--rounded-md); color: inherit; text-decoration: none; }
 .place-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }

@@ -2,8 +2,7 @@
 // The main navigation, at every screen size: a floating pill near the bottom of the screen. The current tab is
 // tinted Rausch and its name slides out beside the icon; the others are icons only (each keeps its name for screen
 // readers and as a tooltip). Create is always the Rausch +. The pill springs in when it first appears.
-// Home, Leaderboard, Create, Rewards, Profile. Rewards is the café discounts section of the leaderboard
-// (/leaderboard#rewards); it lights up there, and Leaderboard everywhere else on that page.
+// Home, Leaderboard, Create, Rewards, Profile.
 import { RouterLink, useRoute } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 
@@ -14,7 +13,7 @@ defineProps({
       { id: 'home', label: 'Home', icon: 'tab-feed', to: '/' },
       { id: 'leaderboard', label: 'Leaderboard', icon: 'tab-board', to: '/leaderboard' },
       { id: 'create', label: 'Create', name: 'Create session', icon: 'tab-plus', to: '/sessions/new', create: true },
-      { id: 'rewards', label: 'Rewards', icon: 'tab-trophy', to: '/leaderboard#rewards' },
+      { id: 'rewards', label: 'Rewards', icon: 'tab-trophy', to: '/rewards' },
       { id: 'profile', label: 'Profile', icon: 'tab-profile', to: '/profile' },
     ],
   },
@@ -26,8 +25,6 @@ function isActive(tab) {
   const path = route.path
   if (tab.id === 'home') return path === '/'
   if (tab.id === 'create') return path === '/sessions/new'
-  if (tab.id === 'rewards') return path === '/leaderboard' && route.hash === '#rewards'
-  if (tab.id === 'leaderboard') return path === '/leaderboard' && route.hash !== '#rewards'
   return path === tab.to || path.startsWith(`${tab.to}/`)
 }
 </script>

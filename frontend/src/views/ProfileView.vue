@@ -1,14 +1,15 @@
 <script setup>
-// Profiles.
-//   Ian's own (/profile): a host card (large photo, name, home area, meetups and points), the meetup graph
-//   and his sessions.
-//   Another person's (/people/:id): the same card and graph, and "Recent activity".
+// Profiles, across the whole page.
+//   The top: a banner in the person's own colour (the same as their avatar and map pin), their avatar overlapping
+//   it, name, @username and home area, a strip of three numbers (meetups, season rank, points) and one big button:
+//   "Create meetup" on Ian's own, "Add friend" / "Friends" on someone else's.
+//   Then the meetup graph, and Ian's sessions or the other person's recent activity.
+//   Ian's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back.
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
-import ChipButton from '@/components/ui/ChipButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
@@ -20,6 +21,7 @@ import NotFoundView from './NotFoundView.vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
+import { personColour } from '@/lib/people.js'
 
 const props = defineProps({ id: { type: String, default: '' } })
 
@@ -36,7 +38,7 @@ const isMe = computed(() => personId.value === 'ian')
 async function load() {
   missing.value = false
   try {
-    await Promise.all([groups.loadProfile(personId.value), groups.loadPeople(), isMe.value ? events.loadSessions() : null])
+    await Promise.all([groups.loadProfile(personId.value), groups.loadPeople(), groups.loadLeaderboard(), isMe.value ? events.loadSessions() : null])
   } catch {
     missing.value = true
   }
@@ -50,6 +52,20 @@ watch(() => props.id, (id) => id === 'ian' && router.replace('/profile'), { imme
 const person = computed(() => groups.profiles[personId.value])
 const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
 const dateText = (d) => format(parseISO(d), 'd MMM yyyy')
+const colour = computed(() => personColour(personId.value))
+const rank = computed(() => groups.leaderboard.find((r) => r.id === personId.value)?.rank ?? null)
+const ordinal = (n) => {
+  const s = ['th', 'st', 'nd', 'rd']
+  const v = n % 100
+  return n + (s[(v - 20) % 10] || s[v] || s[0])
+}
+const friendBusy = ref(false)
+async function toggleFriend() {
+  friendBusy.value = true
+  await groups.setFriend(person.value.id, !person.value.isFriend)
+  await load()
+  friendBusy.value = false
+}
 
 async function signOut() {
   await auth.signOut()
@@ -60,38 +76,46 @@ async function signOut() {
 <template>
   <NotFoundView v-if="missing" />
   <main v-else class="screen profile" data-testid="profile-view">
-    <header class="screen__header">
-      <div class="screen__bar">
-        <IconButton v-if="!isMe" label="Back" @click="router.back()"><AppIcon name="back" /></IconButton>
-        <h1 v-else class="display-xl">Profile</h1>
-      </div>
-    </header>
-
     <template v-if="person">
-      <div class="screen__body">
-        <!-- The host card: who they are on the left, their numbers stacked on the right. -->
-        <section class="host rise" aria-label="About">
-          <div class="host__who">
-            <UserAvatar class="host__avatar" :name="person.name" :src="person.photo" :person="person.id" :size="104" labelled />
-            <h2 class="display-md">{{ person.name }}</h2>
-            <p class="caption-sm text-muted">@{{ person.username }}</p>
-            <p class="caption-sm host__area"><AppIcon name="pin" :size="12" /> {{ person.homeArea }}</p>
+      <!-- The top: banner, avatar, who they are, three numbers and one action. -->
+      <section class="hero" :style="{ '--pc': colour }" aria-label="About">
+        <div class="hero__banner">
+          <IconButton v-if="!isMe" label="Back" class="hero__btn hero__btn--left" @click="router.back()"><AppIcon name="back" /></IconButton>
+          <IconButton v-else label="Sign out" class="hero__btn hero__btn--right" @click="signOutOpen = true"><AppIcon name="logout" /></IconButton>
+        </div>
+        <div class="hero__body">
+          <UserAvatar class="hero__avatar" :name="person.name" :src="person.photo" :person="person.id" :size="104" labelled />
+          <div class="hero__grid">
+            <div class="hero__who">
+              <h1 class="hero__name">{{ person.name }}<span v-if="isMe" class="hero__you caption">You</span></h1>
+              <p class="body-md text-muted">@{{ person.username }}<template v-if="person.homeArea"> · {{ person.homeArea }}</template></p>
+            </div>
+            <div class="hero__side">
+              <dl class="stats">
+                <div class="stats__item">
+                  <dd class="stats__value tnum"><AppIcon name="people" :size="18" />{{ person.meetups }}</dd>
+                  <dt class="caption-sm">Meetups</dt>
+                </div>
+                <div class="stats__item">
+                  <dd class="stats__value tnum"><AppIcon name="trophy" :size="18" />{{ rank ? ordinal(rank) : '–' }}</dd>
+                  <dt class="caption-sm">Season rank</dt>
+                </div>
+                <div class="stats__item">
+                  <dd class="stats__value tnum"><AppIcon name="star" :size="18" />{{ person.points }}</dd>
+                  <dt class="caption-sm">Points</dt>
+                </div>
+              </dl>
+              <AppButton v-if="isMe" block to="/sessions/new"><AppIcon name="plus" />Create meetup</AppButton>
+              <AppButton v-else block :variant="person.isFriend ? 'secondary' : 'primary'" :disabled="friendBusy" :aria-pressed="String(person.isFriend)" @click="toggleFriend">
+                <AppIcon :name="person.isFriend ? 'check' : 'plus'" />
+                {{ person.isFriend ? 'Friends' : 'Add friend' }}
+              </AppButton>
+            </div>
           </div>
-          <dl class="host__stats">
-            <div class="host__stat">
-              <dd class="display-md tnum">{{ person.meetups }}</dd>
-              <dt class="caption-sm">Meetups</dt>
-            </div>
-            <div class="host__stat">
-              <dd class="display-md tnum">{{ person.points }}</dd>
-              <dt class="caption-sm">Points</dt>
-            </div>
-          </dl>
-        </section>
-        <ChipButton v-if="!isMe" check class="host__friend" :selected="person.isFriend" @click="groups.setFriend(person.id, !person.isFriend).then(load)">
-          {{ person.isFriend ? 'Friends' : 'Add friend' }}
-        </ChipButton>
+        </div>
+      </section>
 
+      <div class="screen__body">
         <section class="card graph-card rise" style="--i: 1" aria-labelledby="graph-head">
           <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
           <MeetupGraph :history="person.history" :planned="person.planned" />
@@ -101,10 +125,6 @@ async function signOut() {
         <section v-if="isMe" class="section" aria-labelledby="my-sessions">
           <div class="section__head">
             <h2 id="my-sessions" class="display-sm">Sessions</h2>
-            <AppButton variant="secondary" small to="/leaderboard#rewards">
-              <AppIcon name="gift" />
-              Café discounts
-            </AppButton>
           </div>
           <div v-if="!events.loaded" class="stack"><SkeletonRow v-for="n in 2" :key="n" :lines="3" /></div>
           <EmptyState v-else-if="!events.sessions.length" title="No sessions yet">
@@ -130,14 +150,9 @@ async function signOut() {
             </li>
           </ul>
         </section>
-
-        <AppButton v-if="isMe" variant="tertiary" underline class="profile__out" @click="signOutOpen = true">
-          <AppIcon name="logout" />
-          Sign out
-        </AppButton>
       </div>
     </template>
-    <div v-else class="screen__body"><SkeletonRow v-for="n in 3" :key="n" avatar /></div>
+    <div v-else class="screen__body profile__loading"><SkeletonRow v-for="n in 3" :key="n" avatar /></div>
 
     <ModalDialog v-model:open="signOutOpen" title="Sign out?">
       <AppButton block variant="secondary" @click="signOutOpen = false">Stay signed in</AppButton>
@@ -147,21 +162,41 @@ async function signOut() {
 </template>
 
 <style scoped>
-/* host-card: white, 14px corners, 24px padding, the one shadow tier. */
-.host { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: center; gap: var(--spacing-lg); max-width: 640px; padding: var(--spacing-lg); border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); }
-.host__who { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xxs); text-align: center; min-width: 0; }
-.host__avatar { margin-bottom: var(--spacing-sm); }
-.host__area { display: inline-flex; align-items: center; gap: var(--spacing-xs); color: var(--body); }
-.host__stats { display: flex; flex-direction: column; margin: 0; }
-.host__stat { display: flex; flex-direction: column; padding: var(--spacing-sm) 0; }
-.host__stat + .host__stat { border-top: 1px solid var(--hairline); }
-.host__stat dd { margin: 0; line-height: 1.2; }
-.host__stat dt { color: var(--body); }
-.host__friend { align-self: flex-start; }
-.graph-card { max-width: 640px; overflow: hidden; padding: var(--spacing-base); }
+/* ── The top ── */
+.hero { margin-bottom: var(--spacing-lg); }
+/* The banner: the person's colour, deep at one corner and light at the other, with two soft shapes for depth. */
+.hero__banner { position: relative; height: clamp(150px, 26vw, 240px); background:
+  radial-gradient(60% 120% at 85% 0%, color-mix(in srgb, var(--pc) 35%, white) 0%, transparent 60%),
+  radial-gradient(45% 90% at 10% 100%, color-mix(in srgb, var(--pc) 70%, black) 0%, transparent 70%),
+  linear-gradient(135deg, color-mix(in srgb, var(--pc) 80%, black), var(--pc) 55%, color-mix(in srgb, var(--pc) 60%, white)); }
+@media (min-width: 744px) { .hero__banner { margin: var(--spacing-base) var(--gutter) 0; border-radius: var(--rounded-lg); } }
+.hero__btn { position: absolute; top: var(--spacing-base); background: color-mix(in srgb, var(--canvas) 85%, transparent); box-shadow: var(--shadow-float); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.hero__btn--left { left: var(--spacing-base); }
+.hero__btn--right { right: var(--spacing-base); }
+.hero__body { display: flex; flex-direction: column; gap: var(--spacing-base); padding: 0 var(--gutter); }
+@media (min-width: 744px) { .hero__body { padding: 0 calc(var(--gutter) + var(--spacing-lg)); } }
+/* The avatar overlaps the banner's bottom edge, ringed in white. */
+.hero__avatar { position: relative; z-index: 1; margin-top: -52px; box-shadow: 0 0 0 4px var(--canvas), var(--shadow-float); }
+.hero__grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-lg); }
+@media (min-width: 1128px) { .hero__grid { grid-template-columns: minmax(0, 1fr) minmax(0, 460px); align-items: start; } }
+.hero__who { display: flex; flex-direction: column; gap: var(--spacing-xxs); min-width: 0; }
+.hero__who p { margin: 0; }
+.hero__name { display: flex; align-items: center; gap: var(--spacing-sm); margin: 0; font: var(--text-display-xl); overflow-wrap: anywhere; }
+.hero__you { padding: 2px var(--spacing-sm); border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--muted); font-weight: 600; }
+.hero__side { display: flex; flex-direction: column; gap: var(--spacing-md); }
+
+/* Three numbers in a bordered strip, split by thin lines. */
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: var(--spacing-md) 0; border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+.stats__item { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xxs); padding: 0 var(--spacing-sm); text-align: center; }
+.stats__item + .stats__item { border-left: 1px solid var(--hairline); }
+.stats__value { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--ink); font: var(--text-display-sm); }
+.stats__value :deep(svg) { color: var(--pc); }
+.stats__item dt { color: var(--muted); }
+
+.graph-card { overflow: hidden; padding: var(--spacing-base); }
 .activity { display: flex; flex-direction: column; }
 .activity__row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 60px; border-bottom: 1px solid var(--hairline-soft); }
 .activity__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
 .activity__link { color: var(--ink); }
-.profile__out { align-self: flex-start; }
+.profile__loading { padding-top: var(--spacing-xl); }
 </style>

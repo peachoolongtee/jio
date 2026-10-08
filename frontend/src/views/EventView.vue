@@ -159,7 +159,7 @@ async function endPlan() {
         <BannerNote v-if="status === 'completed'" icon="trophy">
           Completed · +{{ POINTS_PER_MEETUP }} points each to spend on café discounts
           <template #actions>
-            <AppButton small variant="secondary" to="/leaderboard#rewards">Café discounts</AppButton>
+            <AppButton small variant="secondary" to="/rewards">Rewards</AppButton>
           </template>
         </BannerNote>
         <BannerNote v-for="trip in longTrips" :key="trip.id" tone="warning" icon="warning">
