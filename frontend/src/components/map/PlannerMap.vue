@@ -133,6 +133,8 @@ function drawHeat() {
   if (!props.heat) return
   const radius = { quiet: 160, moderate: 260, busy: 380 }
   for (const point of props.heatPoints) {
+    // No crowd data for the place (crowd 'unknown'): nothing to draw.
+    if (!radius[point.level]) continue
     for (const scale of [1, 0.6]) {
       L.circle([point.lat, point.lng], { radius: radius[point.level] * scale, className: `pm-heat pm-heat--${point.level}`, interactive: false }).addTo(layers.heat)
     }

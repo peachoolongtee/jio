@@ -40,10 +40,12 @@ export function crowdLevel(venue, minute, options) {
   return 'busy'
 }
 
-export const CROWD_LABELS = { quiet: 'Quiet', moderate: 'Moderate', busy: 'Busy' }
+// 'unknown': the planner has no crowd profile for the place (most CDC and mock venues).
+export const CROWD_LABELS = { quiet: 'Quiet', moderate: 'Moderate', busy: 'Busy', unknown: 'Crowd unknown' }
 
-// Always written as an estimate.
+// Always written as an estimate, unless there is nothing to estimate.
 export function crowdText(level) {
+  if (!(level in CROWD_LABELS) || level === 'unknown') return CROWD_LABELS.unknown
   return `${CROWD_LABELS[level]} · est.`
 }
 
