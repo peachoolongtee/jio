@@ -296,7 +296,26 @@ Places that fit come first, then by walking time. `distanceKm` is rounded here. 
 |---|---|---|
 | 400 | `{ "error": "invalid_input", "issues": [ { "path": "occasion", "message": "…" } ] }` | A field is missing or wrong. Every bad field is listed. |
 | 400 | `{ "error": "invalid_json" }` | The body is not JSON. |
+| 404 | `{ "error": "not_found" }` | No route at that address, or the wrong method. |
+| 413 | `{ "error": "too_large" }` | The body is over 100 kB. |
 | 500 | `{ "error": "server_error" }` | A bug on our side. The server log has the details. |
+
+## Limits
+
+Every list and number has an upper limit, so one request cannot keep the server busy. Going over any of them is a 400 naming the field.
+
+| Field | Limit |
+|---|---|
+| `members`, `optedOut`, `overrides` | 30 |
+| `groupConstraints` | 10 |
+| `currentOptionIds` | 30 (the app shows at most 6 options per slot) |
+| `excludeVenueIds` | 200 |
+| `cuisineLikes`, `cuisineDislikes` | 20 each per member |
+| any id, name or label | 80 characters |
+| any weight | 1000 |
+| `budgetMaxPerPerson` | 10000 |
+| `max_price_pp:N` | 5 digits |
+| `near_mrt:N` | 3 digits |
 
 ## Testing from Playwright (stub mode)
 
