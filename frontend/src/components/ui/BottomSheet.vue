@@ -122,11 +122,18 @@ watch(open, async (isOpen) => {
   .sheet--side .sheet__panel { width: var(--side-panel-width); max-width: 100%; height: 100dvh; max-height: none; border-radius: var(--rounded-lg) 0 0 var(--rounded-lg); }
 }
 
-/* 200ms: the backdrop fades and the sheet slides. */
-.sheet-enter-active, .sheet-leave-active { transition: opacity var(--motion-fast) ease; }
-.sheet-enter-active .sheet__panel, .sheet-leave-active .sheet__panel { transition: transform var(--motion-fast) ease; }
+/* The backdrop fades and the sheet glides up on the native sheet curve. Leaving is quicker than arriving. */
+.sheet-enter-active { transition: opacity var(--motion-fast) var(--ease-out); }
+.sheet-leave-active { transition: opacity 160ms var(--ease-out); }
+.sheet-enter-active .sheet__panel { transition: transform var(--motion-medium) var(--ease-sheet); }
+.sheet-leave-active .sheet__panel { transition: transform 160ms var(--ease-out); }
 .sheet-enter-from, .sheet-leave-to { opacity: 0; }
-.sheet-enter-from .sheet__panel, .sheet-leave-to .sheet__panel { transform: translateY(24px); }
+.sheet-enter-from .sheet__panel { transform: translateY(48px); }
+.sheet-leave-to .sheet__panel { transform: translateY(24px); }
+@media (min-width: 1128px) {
+  .sheet:not(.sheet--side).sheet-enter-from .sheet__panel { transform: translateY(12px) scale(0.98); }
+  .sheet:not(.sheet--side).sheet-leave-to .sheet__panel { transform: translateY(6px); }
+}
 @media (min-width: 1128px) {
   .sheet--side.sheet-enter-from .sheet__panel, .sheet--side.sheet-leave-to .sheet__panel { transform: translateX(24px); }
 }

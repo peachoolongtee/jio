@@ -37,8 +37,8 @@ const fontSize = computed(() => (props.size >= 96 ? 36 : props.size >= 64 ? 20 :
   justify-content: center;
   overflow: hidden;
   border-radius: var(--rounded-full);
-  background: var(--primary-tint);
-  color: var(--primary-active);
+  background: var(--surface-strong);
+  color: var(--ink);
   line-height: 1.29;
 }
 .avatar > img { width: 100%; height: 100%; object-fit: cover; }

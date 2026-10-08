@@ -96,6 +96,20 @@ async function simulateVoting() {
   running.value = ''
 }
 
+// Friends post photos from the day. Placeholder photography from picsum.photos, a mix of shapes.
+const SHAPES = [[800, 1000], [800, 600], [800, 800], [800, 1100], [800, 560]]
+async function simulatePhotos() {
+  const s = session.value
+  running.value = 'photos'
+  note.value = ''
+  const jobs = friendsIn.value.slice(0, 5).map((f, i) => () => {
+    const [w, h] = SHAPES[(i + (s.photos?.length || 0)) % SHAPES.length]
+    return api.addPhoto(s.id, f, `https://picsum.photos/seed/jio-${s.id}-${f}-${s.photos?.length || 0}/${w}/${h}`).catch((e) => (note.value = e.message))
+  })
+  await spread(jobs, SPAN)
+  running.value = ''
+}
+
 async function applyChange() {
   const { personId, which, areaId } = change.value
   await api.setLocation(session.value.id, personId, which, { areaId })
@@ -140,6 +154,9 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       </AppButton>
       <AppButton block variant="secondary" :disabled="!session || status !== 'voting' || !!running" @click="simulateVoting">
         {{ running === 'voting' ? 'Voting' : 'Simulate friends voting' }}
+      </AppButton>
+      <AppButton block variant="secondary" :disabled="!session || !['confirmed', 'completed'].includes(status) || !!running" @click="simulatePhotos">
+        {{ running === 'photos' ? 'Posting photos' : 'Simulate friends posting photos' }}
       </AppButton>
     </section>
 

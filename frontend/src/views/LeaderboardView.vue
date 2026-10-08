@@ -24,6 +24,12 @@ const error = ref('')
 onMounted(() => Promise.all([groups.loadLeaderboard(), groups.loadRewards()]))
 
 const top = computed(() => groups.leaderboard.slice(0, TOP))
+// The top three on a podium (2nd, 1st, 3rd), everyone else in the list below.
+const podium = computed(() => {
+  const [a, b, c] = top.value
+  return [b, a, c].filter(Boolean).map((row) => ({ ...row, place: row === a ? 1 : row === b ? 2 : 3 }))
+})
+const rest = computed(() => top.value.slice(3))
 const pinned = computed(() => {
   const me = groups.me
   return me && !top.value.some((r) => r.isMe) ? me : null
@@ -62,8 +68,21 @@ async function redeem() {
           <div v-if="groups.loading.leaderboard && !groups.leaderboard.length" class="stack">
             <SkeletonRow v-for="n in 6" :key="n" avatar />
           </div>
-          <ol v-else class="board">
-            <li v-for="row in top" :key="row.id" class="board__row" :class="{ 'is-me': row.isMe, 'is-podium': row.rank <= 3 }">
+ <template v-else>
+          <ol class="podium rise" aria-label="Top three">
+            <li v-for="row in podium" :key="row.id" class="podium__spot" :class="[`podium__spot--${row.place}`, { 'is-me': row.isMe }]">
+              <RouterLink :to="row.isMe ? '/profile' : `/people/${row.id}`" class="podium__link" :aria-label="`Rank ${row.rank}: ${row.name}, ${row.meetups} meetups`">
+                <span class="podium__avatar">
+                  <UserAvatar :name="row.name" :src="row.photo" :size="row.place === 1 ? 72 : 56" />
+                  <span class="podium__rank">{{ row.rank }}</span>
+                </span>
+                <span class="title-sm truncate">{{ row.name }}</span>
+                <span class="podium__count display-sm tnum">{{ row.meetups }}</span>
+              </RouterLink>
+            </li>
+          </ol>
+          <ol v-if="rest.length" class="board card">
+            <li v-for="row in rest" :key="row.id" class="board__row" :class="{ 'is-me': row.isMe, 'is-podium': row.rank <= 3 }">
               <span class="board__rank" :aria-label="`Rank ${row.rank}`">{{ row.rank }}</span>
               <UserAvatar :name="row.name" :src="row.photo" :size="40" />
               <RouterLink :to="row.isMe ? '/profile' : `/people/${row.id}`" class="board__name">
@@ -72,36 +91,35 @@ async function redeem() {
               </RouterLink>
               <span class="board__count">
                 <span class="title-md">{{ row.meetups }}</span>
-                <span class="caption-sm text-muted">{{ row.meetups === 1 ? 'meetup' : 'meetups' }}</span>
               </span>
             </li>
           </ol>
+          </template>
           <div v-if="pinned" class="board__pinned">
             <div class="board__row is-me">
               <span class="board__rank" :aria-label="`Rank ${pinned.rank}`">{{ pinned.rank }}</span>
               <UserAvatar :name="pinned.name" :src="pinned.photo" :size="40" />
               <RouterLink to="/profile" class="board__name"><span class="title-sm truncate">{{ pinned.name }} (you)</span></RouterLink>
-              <span class="board__count"><span class="title-md">{{ pinned.meetups }}</span><span class="caption-sm text-muted">meetups</span></span>
+              <span class="board__count"><span class="title-md tnum">{{ pinned.meetups }}</span></span>
             </div>
           </div>
         </section>
 
         <aside class="me-stats" aria-label="Your standing">
-          <StatTile label="Your rank" :value="groups.me ? ordinal(groups.me.rank) : '–'" icon="trophy" />
-          <StatTile label="Points" :value="points" icon="gift" tone="warm" />
+          <StatTile label="Your rank" :value="groups.me ? ordinal(groups.me.rank) : '-'" icon="trophy" />
+          <StatTile label="Points" :value="points" icon="gift" />
         </aside>
       </div>
 
       <section class="section" aria-labelledby="rewards-head">
         <div class="section__head">
           <h2 id="rewards-head" class="display-sm">Rewards</h2>
-          <span class="caption text-brand">{{ points }} points</span>
+          <span class="caption">{{ points }} points</span>
         </div>
-        <p class="caption-sm text-muted">100 points per successful meetup</p>
         <div v-if="groups.loading.rewards && !groups.rewards.length" class="grid-3">
           <SkeletonRow v-for="n in 3" :key="n" />
         </div>
-        <EmptyState v-else-if="!groups.rewards.length" title="No rewards right now" text="New café vouchers show up here." />
+        <EmptyState v-else-if="!groups.rewards.length" title="No rewards right now" />
         <ul v-else class="grid-3">
           <li v-for="reward in groups.rewards" :key="reward.id" class="voucher" :class="{ 'is-short': reward.cost > points }">
             <div class="voucher__top">
@@ -111,7 +129,7 @@ async function redeem() {
             <h3 class="title-md">{{ reward.offer }}</h3>
             <p class="caption-sm text-muted">{{ reward.cafe }}</p>
             <AppButton v-if="reward.cost <= points" variant="secondary" small @click="confirming = reward">Redeem</AppButton>
-            <AppButton v-else variant="secondary" small disabled>{{ reward.cost - points }} more points needed</AppButton>
+            <AppButton v-else variant="secondary" small disabled>{{ reward.cost - points }} points short</AppButton>
           </li>
         </ul>
       </section>
@@ -156,21 +174,32 @@ async function redeem() {
 .board-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-lg); }
 @media (min-width: 1128px) { .board-layout { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; } }
 .me-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
-.board { display: flex; flex-direction: column; }
-.board__row { display: grid; grid-template-columns: 32px 40px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 64px; padding: 0 var(--spacing-sm); border-bottom: 1px solid var(--hairline-soft); }
-.board__row.is-me { border-radius: var(--rounded-sm); background: var(--primary-tint); }
+.podium { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: var(--spacing-sm); }
+.podium__link { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xs); padding: var(--spacing-base) var(--spacing-sm) 0; color: var(--ink); text-decoration: none; }
+.podium__avatar { position: relative; margin-bottom: var(--spacing-xs); }
+.podium__avatar :deep(.avatar) { box-shadow: 0 0 0 3px var(--canvas), 0 0 0 4px var(--hairline); }
+.podium__rank { position: absolute; left: 50%; bottom: -8px; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; transform: translateX(-50%); border-radius: var(--rounded-full); background: var(--ink); box-shadow: 0 0 0 2px var(--canvas); color: var(--on-dark); font: var(--text-badge); }
+.podium__spot { border-radius: var(--rounded-md) var(--rounded-md) 0 0; background: var(--canvas); }
+.podium__spot--1 { padding-bottom: var(--spacing-xl); background: var(--surface-soft); }
+.podium__spot--2, .podium__spot--3 { padding-bottom: var(--spacing-base); }
+.podium__count { color: var(--ink); }
+.podium__spot.is-me .podium__link .title-sm::after { content: " (you)"; color: var(--muted); font-weight: 400; }
+.board { display: flex; flex-direction: column; gap: 0; padding: var(--spacing-xs) var(--spacing-sm); }
+.board__row { display: grid; grid-template-columns: 32px 40px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 64px; padding: 0 var(--spacing-sm); }
+.board__row + .board__row { border-top: 1px solid var(--hairline-soft); }
+.board__row.is-me { border-radius: var(--rounded-sm); background: var(--surface-soft); }
 .board__rank { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--rounded-full); color: var(--muted); font: var(--text-caption); }
-.board__row.is-podium .board__rank { background: var(--primary); color: var(--on-primary); }
+.board__row.is-podium .board__rank { background: var(--ink); color: var(--on-dark); }
 .board__name { display: flex; flex-direction: column; min-width: 0; min-height: var(--tap-min); justify-content: center; color: var(--ink); text-decoration: none; }
 @media (hover: hover) { .board__name:hover .title-sm { text-decoration: underline; } }
 .board__count { display: flex; flex-direction: column; align-items: flex-end; }
-.board__pinned { position: sticky; bottom: var(--tabbar-height); margin-top: var(--spacing-sm); padding-top: var(--spacing-sm); border-top: 2px solid var(--primary); background: var(--canvas); }
+.board__pinned { position: sticky; bottom: var(--tabbar-height); margin-top: var(--spacing-sm); padding-top: var(--spacing-sm); border-top: 2px solid var(--ink); background: var(--canvas); }
 @media (min-width: 1128px) { .board__pinned { bottom: 0; } }
 .voucher { display: flex; flex-direction: column; gap: var(--spacing-sm); height: 100%; padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
 .voucher > :last-child { margin-top: auto; align-self: flex-start; }
 .voucher__top { display: flex; align-items: center; justify-content: space-between; }
-.voucher__icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--rounded-full); background: var(--cat-drink-bg); color: var(--cat-drink-fg); }
-.voucher__cost { padding: var(--spacing-xxs) var(--spacing-sm); border-radius: var(--rounded-full); background: var(--primary-tint); color: var(--primary-active); }
+.voucher__icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
+.voucher__cost { padding: var(--spacing-xxs) var(--spacing-sm); border: 1px solid var(--ink); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font: var(--text-badge); }
 .voucher.is-short .voucher__cost { background: var(--surface-strong); color: var(--muted); }
 .code-row { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); min-height: 56px; border-bottom: 1px solid var(--hairline-soft); }
 .code { padding: var(--spacing-xs) var(--spacing-sm); border-radius: var(--rounded-xs); background: var(--surface-strong); font: var(--text-caption); letter-spacing: 1px; }

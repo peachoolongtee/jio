@@ -201,22 +201,21 @@ defineExpose({ refit })
 .pm-person__dot { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--rounded-full); background: var(--ink); color: var(--on-dark); }
 .pm-person__min { font: var(--text-caption-sm); }
 .pm-person:not(:has(.pm-person__min)) { padding-right: 2px; }
+/* The meeting area is the Rausch marker. Stops and places are white markers with ink, like Airbnb's map pins;
+   the leading or selected one flips to ink. */
 .pm-area { border: 3px solid var(--canvas); background: var(--primary); color: var(--on-primary); }
-.pm-stop { border: 2px solid var(--canvas); background: var(--primary); color: var(--on-primary); font: var(--text-caption); }
-.pm-venue { border: 2px solid var(--canvas); }
-.pm-venue--eat { background: var(--cat-eat-fg); }
-.pm-venue--drink { background: var(--cat-drink-fg); }
-.pm-venue--shop { background: var(--cat-shop-fg); }
-.pm-venue--activity { background: var(--cat-activity-fg); }
-.pm-venue.is-highlight { outline: 3px solid var(--primary); outline-offset: 1px; }
-.pm-stop.is-selected, .pm-venue.is-selected { transform: scale(1.25); outline: 3px solid var(--ink); outline-offset: 1px; }
+.pm-stop { border: 1px solid var(--hairline); background: var(--canvas); color: var(--ink); font: var(--text-caption); font-weight: 700; }
+.pm-venue { border: 4px solid var(--canvas); background: var(--border-strong); }
+.pm-venue.is-highlight { background: var(--ink); }
+.pm-stop.is-selected, .pm-venue.is-selected { transform: scale(1.2); border-color: var(--ink); background: var(--ink); color: var(--on-dark); }
 .pm-tip { padding: var(--spacing-xxs) var(--spacing-sm); border: 0; border-radius: var(--rounded-full); background: var(--canvas); box-shadow: var(--shadow-float); color: var(--ink); font: var(--text-caption-sm); white-space: nowrap; }
 .pm-tip::before { display: none; }
-.pm-tip--area { background: var(--primary); color: var(--on-primary); font: var(--text-caption); }
-.pm-route { stroke: var(--primary); stroke-width: 4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.pm-tip--area { font: var(--text-caption); font-weight: 600; }
+.pm-route { stroke: var(--ink); stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .pm-spoke { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 6; fill: none; opacity: 0.6; }
-.pm-heat { stroke: none; fill-opacity: 0.18; }
-.pm-heat--quiet { fill: var(--crowd-quiet); }
-.pm-heat--moderate { fill: var(--crowd-moderate); }
-.pm-heat--busy { fill: var(--crowd-busy); fill-opacity: 0.24; }
+/* Crowd heat: Rausch, stronger as it gets busier. */
+.pm-heat { stroke: none; fill: var(--primary); }
+.pm-heat--quiet { fill-opacity: 0.08; }
+.pm-heat--moderate { fill-opacity: 0.16; }
+.pm-heat--busy { fill-opacity: 0.3; }
 </style>

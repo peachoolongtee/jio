@@ -3,6 +3,7 @@
 // The filter has toggles (Touristy spots, Hidden gems, CDC Vouchers accepted, Food, Café),
 // a budget slider (the most to spend per person) and a distance slider.
 import { computed, onMounted, ref } from 'vue'
+import { format } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BottomSheet from '@/components/ui/BottomSheet.vue'
@@ -41,6 +42,7 @@ const shown = ref(PAGE)
 const emptyFilters = () => ({ touristy: false, hidden: false, cdc: false, food: false, cafe: false, budget: BUDGET.max, distance: DISTANCE.max })
 // What the list shows, and what the sheet is editing. "Show places" copies one to the other.
 const filters = ref(emptyFilters())
+const today = format(new Date(), 'EEEE d MMMM')
 const editing = ref(emptyFilters())
 
 onMounted(async () => {
@@ -103,39 +105,33 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 <template>
   <main class="screen home" data-testid="landing-view">
     <header class="screen__header">
-      <div class="screen__bar">
-        <span class="display-xl text-brand mobile-only" aria-hidden="true">Jio</span>
-        <RouterLink to="/profile" class="home__me mobile-only" aria-label="Profile">
-          <UserAvatar :name="auth.user.name" :src="auth.user.photo" :size="40" />
+      <div class="home__top">
+        <div class="screen__titles">
+          <p class="caption text-muted">{{ today }}</p>
+          <h1 class="display-xl">Hi, {{ auth.user.name }}</h1>
+        </div>
+        <RouterLink to="/profile" class="home__me mobile-only" aria-label="Profile" title="Profile">
+          <UserAvatar :name="auth.user.name" :src="auth.user.photo" :size="44" />
         </RouterLink>
-      </div>
-      <div class="screen__titles">
-        <h1 class="display-xl">Hi, {{ auth.user.name }}</h1>
       </div>
     </header>
 
     <div class="screen__body">
-      <AppButton class="home__create" to="/sessions/new">
-        <AppIcon name="plus" />
-        Create session
-      </AppButton>
-
-      <section class="section" aria-labelledby="home-current">
-        <div class="section__head">
-          <h2 id="home-current" class="display-sm">Current session</h2>
-          <AppButton v-if="events.sessions.length > 1" variant="tertiary" underline to="/sessions">All sessions</AppButton>
-        </div>
+      <section class="section rise" aria-label="Your session">
         <SkeletonRow v-if="!events.loaded" :lines="3" />
-        <SessionCard v-else-if="events.current" class="home__session" :session="events.current" :names="(id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))" />
-        <EmptyState v-else title="No session yet" text="Create one and invite your friends." />
+        <SessionCard v-else-if="events.current" hero class="home__session" :session="events.current" :names="(id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))" />
+        <RouterLink v-else to="/sessions/new" class="home__new">
+          <span class="home__new-icon"><AppIcon name="plus" :size="22" /></span>
+          <span class="display-sm">Create session</span>
+        </RouterLink>
+        <RouterLink v-if="events.sessions.length > 1" to="/sessions" class="home__all caption">All sessions <AppIcon name="chevron-right" :size="14" /></RouterLink>
       </section>
 
-      <section class="section" aria-labelledby="home-places">
+      <section class="section rise" style="--i: 1" aria-labelledby="home-places">
         <div class="section__head">
-          <h2 id="home-places" class="display-sm">Places near you</h2>
-          <button type="button" class="filter-btn" :class="{ 'is-on': activeCount }" :aria-label="activeCount ? `Filter, ${activeCount} on` : 'Filter'" @click="openFilter">
-            <AppIcon name="filter" />
-            <span>Filter</span>
+          <h2 id="home-places" class="display-sm">Nearby</h2>
+          <button type="button" class="filter-btn" :class="{ 'is-on': activeCount }" :aria-label="activeCount ? `Filter, ${activeCount} on` : 'Filter'" title="Filter" @click="openFilter">
+            <AppIcon name="filter" :size="18" />
             <span v-if="activeCount" class="filter-btn__count" aria-hidden="true">{{ activeCount }}</span>
           </button>
         </div>
@@ -143,15 +139,14 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <div v-if="loadingPlaces" class="grid-3">
           <SkeletonRow v-for="n in 6" :key="n" avatar />
         </div>
-        <EmptyState v-else-if="!filtered.length" title="No places match these filters" text="Try a bigger budget or distance, or clear the filters.">
+        <EmptyState v-else-if="!filtered.length" title="No places match">
           <AppButton variant="secondary" @click="clearApplied">Clear all</AppButton>
         </EmptyState>
         <template v-else>
-          <p class="caption-sm text-muted">{{ filtered.length }} places</p>
           <ul class="grid-3">
             <li v-for="place in filtered.slice(0, shown)" :key="place.id"><PlaceCard :place="place" /></li>
           </ul>
-          <AppButton v-if="filtered.length > shown" variant="secondary" class="home__more" @click="shown += PAGE">Show more places</AppButton>
+          <AppButton v-if="filtered.length > shown" variant="secondary" class="home__more" @click="shown += PAGE">Show more</AppButton>
         </template>
       </section>
     </div>
@@ -173,24 +168,29 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 </template>
 
 <style scoped>
+.home__top { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--spacing-md); }
 .home__me { border-radius: var(--rounded-full); }
-.home__create { align-self: flex-start; }
-.home__session { max-width: 560px; }
+.home__session { max-width: 640px; }
+.home__all { display: inline-flex; align-items: center; gap: 2px; align-self: flex-start; min-height: var(--tap-min); color: var(--ink); text-decoration: underline; }
+.home__new { display: flex; align-items: center; gap: var(--spacing-base); max-width: 640px; padding: var(--spacing-lg); border: 1px dashed var(--border-strong); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); text-decoration: none; }
+.home__new-icon { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
+@media (hover: hover) { .home__new:hover { border-color: var(--ink); box-shadow: var(--shadow-float); } }
 .home__more { align-self: center; }
 .filter-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  min-height: var(--tap-min);
-  padding: 0 var(--spacing-base);
-  border: 1px solid var(--border-strong);
+  justify-content: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  border: 0;
   border-radius: var(--rounded-full);
   background: var(--canvas);
+  border: 1px solid var(--hairline);
   color: var(--ink);
-  font: var(--text-button-sm);
 }
-.filter-btn.is-on { border-color: var(--primary); color: var(--primary-active); }
-.filter-btn__count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); font: var(--text-badge); }
-@media (hover: hover) { .filter-btn:hover { border-color: var(--ink); } }
+.filter-btn.is-on { border: 2px solid var(--ink); }
+.filter-btn__count { position: absolute; top: -2px; right: -2px; display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--rounded-full); background: var(--ink); box-shadow: 0 0 0 2px var(--canvas); color: var(--on-dark); font: var(--text-badge); }
+@media (hover: hover) { .filter-btn:hover { background: var(--surface-soft); } }
 .filter-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-base); }
 </style>

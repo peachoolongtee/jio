@@ -71,3 +71,27 @@ describe('meeting area', () => {
     expect(meetingResultLine(result, 'Bishan')).toBe(`Fairest for 6 people: nobody travels more than ${result.maxMinutes} minutes.`)
   })
 })
+
+describe('choosing another meeting area', () => {
+  it('gives travel times to the chosen area', async () => {
+    const { meetingAt } = await import('../meetingArea.js')
+    const novena = AREAS.find((a) => a.id === 'novena')
+    const result = meetingAt({ origins: DEMO, area: novena })
+    expect(result.areaId).toBe('novena')
+    expect(result.method).toBe('chosen')
+    expect(result.times.jonathan).toBe(transitMinutes(DEMO[2], novena))
+  })
+
+  it('needs at least 2 locations', async () => {
+    const { meetingAt } = await import('../meetingArea.js')
+    expect(meetingAt({ origins: [DEMO[0]], area: AREAS[0] })).toBeNull()
+  })
+
+  it('ranks the alternatives fairest first, with the fairest matching the automatic choice', async () => {
+    const { rankAreas } = await import('../meetingArea.js')
+    const ranked = rankAreas({ origins: DEMO, candidates: AREAS })
+    expect(ranked).toHaveLength(AREAS.length)
+    expect(ranked[0].areaId).toBe(chooseMeetingArea({ origins: DEMO, candidates: AREAS }).areaId)
+    for (let i = 1; i < ranked.length; i++) expect(ranked[i].maxMinutes).toBeGreaterThanOrEqual(ranked[i - 1].maxMinutes)
+  })
+})

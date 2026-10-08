@@ -73,14 +73,16 @@ defineProps({
   border-radius: var(--rounded-sm);
   color: var(--body);
   text-decoration: none;
+  transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
 }
-.side__link.is-active { background: var(--primary-tint); color: var(--primary-active); }
+.side__link:active { background: var(--surface-strong); transition-duration: 0ms; }
+.side__link.is-active { background: var(--surface-soft); color: var(--ink); }
 .side__link.is-active .title-sm { font-weight: 600; }
 .side__me { display: flex; align-items: center; gap: var(--spacing-sm); min-height: 56px; margin-top: auto; padding: var(--spacing-sm); border-radius: var(--rounded-sm); color: var(--ink); text-decoration: none; }
 .side__me-text { display: flex; flex-direction: column; min-width: 0; }
 @media (hover: hover) {
   .side__link:hover { background: var(--surface-soft); color: var(--ink); }
-  .side__link.is-active:hover { background: var(--primary-tint-strong); color: var(--primary-active); }
+  .side__link.is-active:hover { background: var(--surface-strong); color: var(--ink); }
   .side__me:hover { background: var(--surface-soft); }
 }
 </style>

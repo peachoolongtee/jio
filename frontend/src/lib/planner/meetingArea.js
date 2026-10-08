@@ -63,7 +63,25 @@ export function chooseMeetingArea({ origins, candidates, travel = transitMinutes
   return best.result
 }
 
-// The one result line under the map.
+// The group can override the fairest area with one they agree on.
+// Same shape as chooseMeetingArea, with method 'chosen' and the travel times to that area.
+export function meetingAt({ origins, area, travel = transitMinutes }) {
+  if (!origins || origins.length < MIN_LOCATIONS || !area) return null
+  return summarise(area, origins, timesTo(area, origins, travel), 'chosen')
+}
+
+// Every candidate ranked by the fairness rule (longest trip, then total), for choosing another area.
+export function rankAreas({ origins, candidates, travel = transitMinutes }) {
+  if (!origins || origins.length < MIN_LOCATIONS) return []
+  return candidates
+    .map((area) => {
+      const r = summarise(area, origins, timesTo(area, origins, travel), 'fairest')
+      return { areaId: area.id, maxMinutes: r.maxMinutes, totalMinutes: r.totalMinutes }
+    })
+    .sort((a, b) => a.maxMinutes - b.maxMinutes || a.totalMinutes - b.totalMinutes)
+}
+
+// A one-line summary of a meeting result.
 export function meetingResultLine(result, areaName) {
   if (!result) return ''
   const people = `${result.count} ${result.count === 1 ? 'person' : 'people'}`

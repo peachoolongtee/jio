@@ -9,6 +9,7 @@ import { ADDRESSES, AREAS } from './mock/places.js'
 import { VENUES } from './mock/venues.js'
 import { HOST_ID, PAST_ACTIVITY, PEOPLE, POINTS_PER_MEETUP, STARTING_MEETUPS } from './mock/people.js'
 import { REWARDS } from './mock/rewards.js'
+import { pastMeetupDates } from './mock/history.js'
 import * as P from './planner/index.js'
 import { format } from 'date-fns'
 import axios from 'axios'
@@ -22,7 +23,7 @@ export const api = axios.create({
 })
 
 const STORAGE_KEY = 'jio-demo-v1'
-const VERSION = 3
+const VERSION = 4
 const DELAY = { read: 80, plan: 300, write: 40 }
 
 // ── Storage ────────────────────────────────────────────────────────────────
@@ -44,6 +45,18 @@ function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY))
     if (saved && saved.version === VERSION) return saved
+    // Version 3 had smaller starting meetup counts: keep the account and sessions, recount the stats.
+    if (saved && saved.version === 3) {
+      const stats = freshDb().stats
+      for (const s of saved.sessions.filter((x) => x.status === 'completed')) {
+        for (const m of s.members.filter((x) => x.state === 'joined')) {
+          stats[m.id].meetups += 1
+          stats[m.id].points += POINTS_PER_MEETUP
+        }
+      }
+      stats[HOST_ID].points = Math.max(0, stats[HOST_ID].points - (saved.redemptions || []).reduce((sum, r) => sum + (REWARDS.find((x) => x.id === r.rewardId)?.cost || 0), 0))
+      return { ...saved, version: VERSION, stats }
+    }
   } catch {
     // No storage, or something unreadable: start fresh.
   }
@@ -53,11 +66,13 @@ function load() {
 let db = load()
 const listeners = new Set()
 
+// Returns false when storage refuses the write (full, or a private window). The demo still works for this visit.
 function save() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(db))
+    return true
   } catch {
-    // Private windows can refuse storage. The demo still works for this visit.
+    return false
   }
 }
 
@@ -114,7 +129,9 @@ function origins(session) {
     })
 }
 
+// The fairest area, unless the group chose another one (session.areaOverride).
 function computeMeeting(session) {
+  if (session.areaOverride) return P.meetingAt({ origins: origins(session), area: areaById(session.areaOverride) })
   return P.chooseMeetingArea({ origins: origins(session), candidates: AREAS, routing: db.conditions.routing })
 }
 
@@ -277,7 +294,13 @@ export async function getPerson(id) {
     ...sessions.filter((s) => s.status === 'completed').map((s) => ({ date: s.date, text: `Successful meetup at ${s.areaName}`, sessionId: s.id })),
     ...(PAST_ACTIVITY[id] || []),
   ].sort((a, b) => b.date.localeCompare(a.date))
-  return { ...publicPerson(id), sessions, activity }
+  // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned).
+  const counts = {}
+  for (const date of pastMeetupDates(id, STARTING_MEETUPS[id])) counts[date] = (counts[date] || 0) + 1
+  for (const s of sessions.filter((x) => x.status === 'completed')) counts[s.date] = (counts[s.date] || 0) + 1
+  const planned = sessions.filter((x) => !['completed', 'cancelled'].includes(x.status)).map((x) => x.date)
+  const history = Object.entries(counts).map(([date, count]) => ({ date, count }))
+  return { ...publicPerson(id), sessions, activity, history, planned }
 }
 
 export async function setFriend(id, isFriend) {
@@ -361,7 +384,10 @@ function summary(session) {
     ...clone(session),
     locations: publicLocations(session),
     area: area ? { ...area } : null,
-    resultLine: area ? P.meetingResultLine(session.meeting, area.name) : '',
+    areaChosen: !!session.areaOverride,
+    photos: (session.photos || []).map((p) => ({ ...p, name: nameOf(p.personId) })),
+    // Only the routing fallback needs explaining; the fairest result speaks for itself.
+    areaNote: session.meeting?.method === 'centre' ? 'Routing unavailable. Showing the geographic centre.' : '',
     activeIds: activeIds(session),
     areaName: session.meeting ? areaById(session.meeting.areaId).name : '',
     isToday: isSessionDay(session),
@@ -401,6 +427,7 @@ export async function createSession({ title, date, start, end }) {
     plan: null,
     banner: null,
     replan: null,
+    photos: [],
   }
   db.sessions.push(session)
   return touch(session, 'session')
@@ -448,6 +475,38 @@ export async function useMeetingArea(id) {
   session.banner = null
   syncOptions(session)
   return touch(session, 'session')
+}
+
+// The group can pick a different meeting area than the fairest one. areaId null goes back to the fairest.
+// Before Confirmed only. If the area moves while voting, place votes are cleared and suggestions refreshed.
+export async function setMeetingArea(id, areaId) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (!['locating', 'voting'].includes(session.status)) throw new Error('The meeting area is fixed once the plan is confirmed.')
+  const previous = session.meeting
+  session.areaOverride = areaId || null
+  const next = computeMeeting(session)
+  if (!next) throw new Error('The meeting area needs at least 2 locations.')
+  session.meeting = next
+  const moved = previous?.areaId !== next.areaId
+  if (moved && session.status === 'voting') {
+    session.votes = {}
+    session.options = {}
+  }
+  syncOptions(session)
+  if (moved) {
+    const cleared = session.status === 'voting' ? ' Place votes were cleared.' : ''
+    session.banner = { text: `Meeting area changed to ${areaById(next.areaId).name}.${cleared}`, at: Date.now() }
+  }
+  return touch(session, 'session')
+}
+
+// Areas to choose from, fairest first, with the longest trip to each.
+export async function getAreaOptions(id) {
+  await wait(DELAY.read)
+  const session = sessionById(id)
+  const ranked = P.rankAreas({ origins: origins(session), candidates: AREAS })
+  return ranked.map((r, i) => ({ id: r.areaId, name: areaById(r.areaId).name, maxMinutes: r.maxMinutes, fairest: i === 0 }))
 }
 
 export async function optOut(id, personId) {
@@ -648,7 +707,7 @@ export async function confirmPlan(id) {
     const winner = P.pickWinner(session.options[slot.id] || [], session.votes[slot.id], scores)
     if (winner) stops.push({ slotId: slot.id, category: slot.category, venueId: winner, plannedStart: slot.start, duration: slot.duration })
   }
-  session.plan = { stops, modes: [] }
+  session.plan = { stops, modes: [], startAt: stops[0]?.plannedStart ?? null }
   session.status = 'confirmed'
   session.banner = null
   session.replan = null
@@ -660,7 +719,8 @@ export async function getItinerary(id) {
   const session = sessionById(id)
   if (!session.plan) return null
   const stops = session.plan.stops.map((s) => ({ ...s, venue: venueById(s.venueId) }))
-  const { stops: timed, legs } = P.buildItinerary(stops, session.plan.modes)
+  const startAt = session.plan.startAt ?? Math.min(...session.plan.stops.map((s) => s.plannedStart))
+  const { stops: timed, legs } = P.buildItinerary(stops, session.plan.modes, startAt)
   const last = timed[timed.length - 1]?.venue || null
   const people = activeIds(session)
     .map((pid) => ({ id: pid, name: nameOf(pid), place: endPlaceOf(session, pid) }))
@@ -668,7 +728,7 @@ export async function getItinerary(id) {
     .map((p) => ({ id: p.id, name: p.name, end: { ...p.place } }))
   const area = session.meeting ? areaById(session.meeting.areaId) : null
   return {
-    stops: timed.map((s, index) => ({ index, slotId: s.slotId, category: s.category, venue: clone(s.venue), start: s.start, end: s.end, duration: s.duration })),
+    stops: timed.map((s, index) => ({ index, slotId: s.slotId, category: s.category, venue: clone(s.venue), start: s.start, end: s.end, duration: s.duration, open: s.open })),
     legs,
     end: P.endPoint(last),
     trips: P.tripsHome(last, people),
@@ -685,6 +745,20 @@ export async function setTravelMode(id, legIndex, mode) {
   const modes = [...(session.plan.modes || [])]
   modes[legIndex] = mode
   session.plan.modes = modes
+  return touch(session, 'plan')
+}
+
+// Rearrange the itinerary: move the stop at `from` to `to`. The plan keeps its start time and every stop is
+// re-timed after the one before it. Travel modes go back to their defaults, because the legs are new pairs.
+export async function reorderStops(id, from, to) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can be rearranged.')
+  const { stops } = session.plan
+  if (from === to || from < 0 || to < 0 || from >= stops.length || to >= stops.length) return summary(session)
+  if (session.plan.startAt == null) session.plan.startAt = Math.min(...stops.map((s) => s.plannedStart))
+  session.plan.stops = P.moveItem(stops, from, to)
+  session.plan.modes = []
   return touch(session, 'plan')
 }
 
@@ -753,6 +827,28 @@ export async function endPlan(id) {
   }
   emit({ type: 'stats' })
   return touch(session, 'session')
+}
+
+// ── Photos: everyone in a session can post pictures from the day ────────────
+
+export async function addPhoto(id, personId, src) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (!['confirmed', 'completed'].includes(session.status)) throw new Error('Photos open once the plan is confirmed.')
+  session.photos = [...(session.photos || []), { id: `p${db.seq++}`, personId, src, at: Date.now() }]
+  if (!save()) {
+    // Local storage is full: drop the new photo so the rest of the demo keeps saving.
+    session.photos.pop()
+    throw new Error('There is no room left for more photos in this demo.')
+  }
+  return touch(session, 'photos')
+}
+
+export async function deletePhoto(id, photoId) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  session.photos = (session.photos || []).filter((p) => p.id !== photoId)
+  return touch(session, 'photos')
 }
 
 // ── Rewards ────────────────────────────────────────────────────────────────

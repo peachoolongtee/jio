@@ -12,8 +12,9 @@ export const PEOPLE = [
   { id: 'darryl', name: 'Darryl', username: 'darryl', homeAreaId: 'bishan' },
 ]
 
-// Successful meetups before the demo starts. Each one earned POINTS_PER_MEETUP points.
-export const STARTING_MEETUPS = { ian: 0, darius: 6, nicole: 5, darryl: 3, faith: 2, jonathan: 1 }
+// Successful meetups before the demo starts (the last six months). Each one earned POINTS_PER_MEETUP points.
+// Their dates come from lib/mock/history.js, so the profile graph matches these counts.
+export const STARTING_MEETUPS = { ian: 0, darius: 24, nicole: 19, darryl: 12, faith: 8, jonathan: 5 }
 export const POINTS_PER_MEETUP = 100
 
 // What each friend picks when the demo simulates them choosing categories and how long they can stay.

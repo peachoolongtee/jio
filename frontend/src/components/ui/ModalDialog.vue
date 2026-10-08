@@ -73,6 +73,12 @@ watch(open, async (isOpen) => {
 .modal { overflow-y: auto; }
 .modal__panel { max-height: calc(100dvh - var(--spacing-lg) * 2); overflow-y: auto; }
 
-.modal-enter-active, .modal-leave-active { transition: opacity var(--motion-fast) ease; }
+/* The backdrop fades; the dialog rises 12px and settles. Leaving is quicker than arriving. */
+.modal-enter-active { transition: opacity var(--motion-fast) var(--ease-out); }
+.modal-leave-active { transition: opacity 150ms var(--ease-out); }
+.modal-enter-active .modal__panel { transition: transform var(--motion-medium) var(--ease-sheet); }
+.modal-leave-active .modal__panel { transition: transform 150ms var(--ease-out); }
 .modal-enter-from, .modal-leave-to { opacity: 0; }
+.modal-enter-from .modal__panel { transform: translateY(12px) scale(0.98); }
+.modal-leave-to .modal__panel { transform: translateY(6px); }
 </style>

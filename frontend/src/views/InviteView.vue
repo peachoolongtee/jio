@@ -35,7 +35,7 @@ const session = computed(() => events.byId[props.id])
 const inSession = (personId) => session.value?.members.some((m) => m.id === personId && m.state === 'joined')
 const lists = computed(() => [
   { id: 'friends', title: 'Friends', people: groups.friends },
-  { id: 'more', title: 'More people on Jio', people: groups.suggested },
+  { id: 'more', title: 'Suggested', people: groups.suggested },
 ])
 const available = computed(() => groups.people.filter((p) => !inSession(p.id)))
 const allPicked = computed(() => available.value.length > 0 && available.value.every((p) => picked.value.includes(p.id)))
@@ -131,7 +131,7 @@ function done() {
 </template>
 
 <style scoped>
-.sent-mark { display: inline-flex; align-items: center; gap: var(--spacing-xs); color: var(--primary-active); }
+.sent-mark { display: inline-flex; align-items: center; gap: var(--spacing-xs); color: var(--ink); }
 @media (min-width: 1128px) {
   .screen__footer > :deep(.btn--block) { width: 100%; }
 }

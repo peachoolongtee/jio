@@ -1,5 +1,5 @@
 <script setup>
-// A chip: a 32px pill inside a 44px tap area. Outlined at rest, Lagoon when selected.
+// A chip: a 32px pill inside a 44px tap area. Hairline-outlined at rest, ink when selected.
 //   <ChipButton :selected="vibe === 'Chill'" @click="vibe = 'Chill'">Chill</ChipButton>
 // `radio` marks it as one choice in a set (wrap the set in role="radiogroup").
 // Without it the chip is a toggle. `check` shows a tick when selected.
@@ -60,12 +60,14 @@ defineProps({
   color: var(--ink);
   font: var(--text-caption);
   white-space: nowrap;
-  transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease;
+  transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
 }
+.chip:not(:disabled):active .chip__pill { border-color: var(--ink); background: var(--surface-strong); transition-duration: 0ms; }
+.chip.is-selected:not(:disabled):active .chip__pill { background: var(--body); }
 .chip__text { overflow: hidden; text-overflow: ellipsis; }
 /* A chip with an avatar is a little taller and hugs the avatar on the left. */
 .chip.has-leading .chip__pill { gap: var(--spacing-sm); height: 40px; padding: 0 var(--spacing-md) 0 var(--spacing-xs); }
-.chip.is-selected .chip__pill { border-color: var(--primary); background: var(--primary); color: var(--on-primary); }
+.chip.is-selected .chip__pill { border-color: var(--selected); background: var(--selected); color: var(--on-selected); }
 .chip:disabled { cursor: not-allowed; }
 .chip:disabled .chip__pill { border-color: var(--hairline); color: var(--muted-soft); }
 /* The focus ring sits on the pill, not on the larger tap area. */
@@ -73,6 +75,6 @@ defineProps({
 .chip:focus-visible .chip__pill { outline: 2px solid var(--ink); outline-offset: 2px; }
 @media (hover: hover) {
   .chip:not(:disabled):hover .chip__pill { border-color: var(--ink); }
-  .chip.is-selected:not(:disabled):hover .chip__pill { border-color: var(--primary-active); background: var(--primary-active); }
+  .chip.is-selected:not(:disabled):hover .chip__pill { border-color: var(--body); background: var(--body); }
 }
 </style>

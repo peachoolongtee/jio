@@ -1,12 +1,12 @@
 <script setup>
 // One suggested place in a slot, with its vote.
-//   <SuggestionCard :option="option" :slot-time="'15:00'" :total="4" leading mine @vote="vote" @swap="swap" />
-// Shows: name, category icon, walking time from the meeting area, price tier, crowd (an estimate),
-// up to two reason tags, a rain warning with an indoor swap, and the vote count with a bar.
-// `leading` highlights the card in Lagoon. `closed` makes the vote read-only.
+//   <SuggestionCard :option="option" leading mine @vote="vote" @swap="swap" />
+// Name, category icon, walking time, price tier, crowd (an estimate), up to two reasons,
+// a rain warning with an indoor swap, and who voted. The leader is outlined in ink.
 import { computed } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
+import AvatarStack from '../ui/AvatarStack.vue'
 import CategoryIcon from '../ui/CategoryIcon.vue'
 import ChipButton from '../ui/ChipButton.vue'
 import InfoTag from '../ui/InfoTag.vue'
@@ -15,72 +15,65 @@ import { crowdText } from '@/lib/planner/crowd.js'
 
 const props = defineProps({
   option: { type: Object, required: true },
-  total: { type: Number, default: 0 },
   leading: { type: Boolean, default: false },
   mine: { type: Boolean, default: false },
   closed: { type: Boolean, default: false },
   selected: { type: Boolean, default: false },
 })
-defineEmits(['vote', 'swap', 'focus'])
+defineEmits(['vote', 'swap'])
 
-const CROWD_TONE = { quiet: 'lagoon', moderate: 'warning', busy: 'error' }
-const width = computed(() => `${props.total ? Math.round((props.option.votes / props.total) * 100) : 0}%`)
-const count = computed(() => `${props.option.votes} ${props.option.votes === 1 ? 'vote' : 'votes'}`)
+// Crowd stays neutral (one accent only); Busy gets an ink outline so it stands out without colour.
+const CROWD_TONE = { quiet: 'neutral', moderate: 'neutral', busy: 'strong' }
+// The crowd tag already says "Quiet", so a "Quiet at 15:00" reason would repeat it.
+const reasons = computed(() => props.option.reasons.filter((r) => !r.startsWith('Quiet at')))
 </script>
 
 <template>
-  <article class="sugg" :class="{ 'is-leading': leading, 'is-selected': selected }" :aria-label="option.venue.name" :data-option="option.id">
+  <article class="sugg" :class="{ 'is-leading': leading, 'is-selected': selected }" :aria-label="option.venue.name">
     <div class="sugg__top">
       <CategoryIcon :category="option.venue.category" :size="36" />
       <div class="sugg__title">
         <h4 class="title-md clamp-2">{{ option.venue.name }}</h4>
-        <p class="caption-sm text-muted">
-          <AppIcon name="walk" :size="12" class="sugg__inline" />
-          {{ option.walk }} min walk · {{ option.venue.area }}
+        <p class="sugg__meta caption-sm text-muted">
+          <span>{{ option.walk }} min walk</span>
+          <PriceTier :price="option.venue.price" />
         </p>
       </div>
-      <PriceTier :price="option.venue.price" />
     </div>
 
     <div class="sugg__tags">
-      <InfoTag :tone="CROWD_TONE[option.crowd]" icon="people">{{ crowdText(option.crowd) }}</InfoTag>
-      <InfoTag v-for="reason in option.reasons" :key="reason" tone="neutral">{{ reason }}</InfoTag>
+      <InfoTag :tone="CROWD_TONE[option.crowd]">{{ crowdText(option.crowd) }}</InfoTag>
+      <InfoTag v-for="reason in reasons" :key="reason">{{ reason }}</InfoTag>
+      <InfoTag v-if="option.warnings.includes('rain')" tone="warning" icon="rain">Outdoor, rain expected</InfoTag>
     </div>
-
-    <div v-if="option.warnings.includes('rain')" class="sugg__rain">
-      <InfoTag tone="warning" icon="rain">Outdoor · rain expected</InfoTag>
-      <AppButton v-if="option.swap && !closed" variant="secondary" small @click="$emit('swap', option)">
-        <AppIcon name="swap" />
-        Swap for {{ option.swap.name }}
-      </AppButton>
-    </div>
+    <AppButton v-if="option.swap && !closed" variant="secondary" small class="sugg__swap" @click="$emit('swap', option)">
+      <AppIcon name="swap" />
+      Swap for {{ option.swap.name }}
+    </AppButton>
 
     <div class="sugg__vote">
-      <div class="sugg__count">
-        <span class="caption">
-          {{ count }}<template v-if="leading"> · <span class="text-brand">Leading</span></template>
-        </span>
-        <span class="sugg__track" aria-hidden="true"><span class="sugg__fill" :style="{ width }" /></span>
-        <span v-if="option.voters.length" class="caption-sm text-muted truncate">{{ option.voters.join(', ') }}</span>
-      </div>
+      <span class="sugg__count">
+        <AvatarStack v-if="option.voters.length" :people="option.voters" :size="20" :max="4" />
+        <span class="caption" :class="{ 'sugg__lead': leading }">{{ option.votes }} {{ option.votes === 1 ? 'vote' : 'votes' }}</span>
+      </span>
       <ChipButton v-if="!closed" radio check :selected="mine" :aria-label="`${mine ? 'Your vote' : 'Vote for'} ${option.venue.name}`" @click="$emit('vote', option)">
-        {{ mine ? 'Your vote' : 'Vote' }}
+        {{ mine ? 'Voted' : 'Vote' }}
       </ChipButton>
     </div>
   </article>
 </template>
 
 <style scoped>
-.sugg { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); transition: border-color var(--motion-fast) ease; }
-.sugg.is-leading { border: 2px solid var(--primary); padding: calc(var(--spacing-base) - 1px); }
+.sugg { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); transition: box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
+/* The leader is outlined in ink, 2px, like a selected date. */
+.sugg.is-leading { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 .sugg.is-selected { box-shadow: var(--shadow-float); }
 .sugg__top { display: flex; align-items: flex-start; gap: var(--spacing-md); }
 .sugg__title { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-xxs); }
-.sugg__inline { display: inline-block; vertical-align: -1px; }
+.sugg__meta { display: flex; align-items: center; gap: var(--spacing-sm); }
 .sugg__tags { display: flex; flex-wrap: wrap; gap: var(--spacing-xs); }
-.sugg__rain { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm); }
-.sugg__vote { display: flex; align-items: center; gap: var(--spacing-md); }
-.sugg__count { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-xs); }
-.sugg__track { display: block; height: 6px; overflow: hidden; border-radius: var(--rounded-full); background: var(--primary-tint); }
-.sugg__fill { display: block; height: 100%; border-radius: var(--rounded-full); background: var(--primary); transition: width var(--motion-fast) ease; }
+.sugg__swap { align-self: flex-start; }
+.sugg__vote { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); margin: 0 calc(var(--spacing-xs) * -1) -6px 0; }
+.sugg__lead { font-weight: 700; }
+.sugg__count { display: inline-flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }
 </style>
