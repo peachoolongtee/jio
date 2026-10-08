@@ -107,6 +107,7 @@
   /* Type. Use the classes in app.css, or these shorthands: font: var(--text-body-sm).
      Display weights stay modest (500 to 700); the layout, not type muscle, carries hierarchy. */
   --font-sans: "Airbnb Cereal VF", Circular, Inter, -apple-system, system-ui, Roboto, "Helvetica Neue", sans-serif;
+  --font-display: ui-serif, "New York", "Iowan Old Style", Georgia, "Times New Roman", serif; /* Only the Home headline: the device's own serif, nothing to download. */
   --text-rating-display: 700 64px/1.1 var(--font-sans); /* The one loud number: a profile's meetup count. */
   --text-display-xl: 700 28px/1.4 var(--font-sans); /* Screen titles. */
   --text-display-lg: 500 22px/1.18 var(--font-sans); /* Card hero titles. */

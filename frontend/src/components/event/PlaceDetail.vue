@@ -27,6 +27,8 @@ const KIND_LABELS = {
 const props = defineProps({
   place: { type: Object, required: true },
   reviews: { type: Array, default: null },
+  // Where the distance is measured from: "home", or the meetup's area ("Serangoon").
+  from: { type: String, default: 'home' },
 })
 const emit = defineEmits(['close'])
 
@@ -80,7 +82,7 @@ onBeforeUnmount(() => {
               </span>
             </div>
             <div class="pd__distance">
-              <span class="pd__chip"><AppIcon name="route" :size="14" /><span class="tnum">{{ place.distanceKm }} km</span> from home</span>
+              <span class="pd__chip"><AppIcon name="route" :size="14" /><span class="tnum">{{ place.distanceKm }} km</span> from {{ from }}</span>
               <span v-if="place.mrt" class="caption-sm text-muted">{{ place.mrtWalk }} min walk from {{ place.mrt }} MRT</span>
             </div>
           </section>
