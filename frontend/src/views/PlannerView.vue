@@ -31,7 +31,8 @@ import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
 import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { fromMinutes, timeAndDuration } from '@/lib/planner/format.js'
-import { crowdText } from '@/lib/planner/crowd.js'
+import { crowdText, crowdTone } from '@/lib/planner/crowd.js'
+import { placeImage } from '@/lib/placeImages.js'
 import { mealWindow, MEAL_WINDOWS } from '@/lib/planner/timeOfDay.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -161,10 +162,47 @@ async function add(result) {
   }
 }
 
+// ── Search radius ──
+// null: the planner widens on its own (500 m, then 1, 2 and 3 km). Otherwise only places this close are suggested.
+const RADII = [null, 100, 250, 500, 1000, 2000, 3000]
+const radiusLabel = (m) => (m == null ? 'Auto' : m >= 1000 ? `${m / 1000} km` : `${m} m`)
+const radius = computed(() => plan.value?.radius ?? null)
+const settingRadius = ref(false)
+async function setRadius(metres) {
+  if (metres === radius.value) return
+  settingRadius.value = true
+  error.value = ''
+  try {
+    await planner.setRadius(props.id, metres)
+  } catch (e) {
+    error.value = e.message
+  }
+  settingRadius.value = false
+}
+// The smallest radius choice that reaches `km`, for "Widen to …".
+const radiusFor = (km) => RADII.find((m) => m != null && m >= km * 1000) ?? null
+
+// Who leads a slot, in words: "Leading: Ming Kee Chicken Rice · 2 votes", or a tie.
+function leadText(slot) {
+  const name = (id) => slot.options.find((o) => o.id === id)?.venue.name || ''
+  const votes = `${slot.topVotes} ${slot.topVotes === 1 ? 'vote' : 'votes'}`
+  if (slot.leader) return `Leading: ${name(slot.leader)} · ${votes}`
+  if (slot.tied?.length) return `Tied: ${slot.tied.map(name).join(' and ')} · ${votes} each`
+  return ''
+}
+
+// Why a slot has nothing, in words.
+function emptyText(slot) {
+  const e = slot.empty
+  if (e?.reason === 'outside_max_radius' && radius.value) return `Nothing that fits is within ${radiusLabel(radius.value)}. The nearest is ${e.nearestKm.toFixed(1)} km away.`
+  if (e?.reason === 'outside_max_radius') return `Nothing that fits is within 3 km. The nearest is ${e.nearestKm.toFixed(1)} km away.`
+  return 'Jio found no place that is open and fits this time.'
+}
+
 // ── Map ──
 const currentMapSlot = computed(() => slots.value.find((s) => s.id === mapSlot.value) || slots.value[0])
 const mapPlaces = computed(() =>
-  (currentMapSlot.value?.options || []).map((o) => ({ id: o.id, name: o.venue.name, lat: o.venue.lat, lng: o.venue.lng, category: o.venue.category, highlight: currentMapSlot.value.leader === o.id })),
+  (currentMapSlot.value?.options || []).map((o) => ({ id: o.id, name: o.venue.name, lat: o.venue.lat, lng: o.venue.lng, category: o.venue.category, highlight: currentMapSlot.value.leader === o.id, muted: !!currentMapSlot.value.leader && currentMapSlot.value.leader !== o.id })),
 )
 const heatPoints = computed(() => (currentMapSlot.value?.options || []).map((o) => ({ lat: o.venue.lat, lng: o.venue.lng, level: o.crowd })))
 const selectedOption = computed(() => currentMapSlot.value?.options.find((o) => o.id === selected.value) || null)
@@ -172,7 +210,8 @@ const selectedOption = computed(() => currentMapSlot.value?.options.find((o) => 
 // ── Confirm ──
 const winners = computed(() =>
   slots.value.map((slot) => {
-    const sorted = [...slot.options].sort((a, b) => b.votes - a.votes || b.score - a.score)
+    // Most votes first; a tie goes to the better planner score, which is a penalty (lower is better).
+    const sorted = [...slot.options].sort((a, b) => b.votes - a.votes || a.score - b.score)
     return { slot, option: sorted[0] }
   }),
 )
@@ -235,6 +274,14 @@ async function confirm() {
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
         <!-- 6b: vote on places -->
+        <div v-if="voting && slots.length" class="radius">
+          <span id="radius-label" class="caption text-muted">Search within</span>
+          <div class="scroll-x" role="radiogroup" aria-labelledby="radius-label">
+            <ChipButton v-for="m in RADII" :key="m ?? 'auto'" radio :selected="radius === m" :disabled="settingRadius" @click="setRadius(m)">{{ radiusLabel(m) }}</ChipButton>
+          </div>
+          <span class="caption-sm text-muted">{{ radius == null ? 'Auto starts at 500 m and looks further out until 3 places fit.' : `Only places within ${radiusLabel(radius)} of ${session.area.name}.` }}</span>
+        </div>
+
         <SplitView v-model:view="view" label="Places">
           <template #list>
             <div v-if="loading" class="stack gap-md">
@@ -251,16 +298,19 @@ async function confirm() {
                 <IconButton v-if="voting" :label="`Delete the ${CATEGORY_LABELS[slot.category]} slot`" @click="deleting = slot"><AppIcon name="trash" /></IconButton>
               </header>
 
-              <EmptyState v-if="!slot.options.length" title="Nothing nearby for this slot">
+              <EmptyState v-if="!slot.options.length" title="Nothing nearby for this slot" :text="emptyText(slot)">
+                <AppButton v-if="voting && radius && slot.empty?.widenToKm && radiusFor(slot.empty.widenToKm)" variant="secondary" small :disabled="settingRadius" @click="setRadius(radiusFor(slot.empty.widenToKm))">Widen to {{ radiusLabel(radiusFor(slot.empty.widenToKm)) }}</AppButton>
                 <AppButton v-if="voting" variant="secondary" small @click="deleting = slot">Delete slot</AppButton>
               </EmptyState>
               <template v-else>
+                <p v-if="slot.totalVotes && leadText(slot)" class="lead-line" role="status"><AppIcon name="trophy" :size="14" /> {{ leadText(slot) }}</p>
                 <div class="slot__options" role="radiogroup" :aria-labelledby="`slot-${slot.id}`">
                   <SuggestionCard
                     v-for="option in slot.options"
                     :key="option.id"
                     :option="option"
                     :leading="slot.leader === option.id"
+                    :behind="!!slot.leader && slot.leader !== option.id"
                     :mine="slot.myVote === option.id"
                     :closed="!voting"
                     :selected="selected === option.id"
@@ -268,6 +318,10 @@ async function confirm() {
                     @swap="swap(slot, $event)"
                   />
                 </div>
+                <p v-if="voting && radius && slot.few" class="few-line">
+                  <span class="caption-sm text-muted">Only {{ slot.few.found }} {{ slot.few.found === 1 ? 'place fits' : 'places fit' }} within {{ radiusLabel(radius) }}.</span>
+                  <AppButton v-if="slot.few.widenToKm && radiusFor(slot.few.widenToKm)" variant="tertiary" underline small :disabled="settingRadius" @click="setRadius(radiusFor(slot.few.widenToKm))">Widen to {{ radiusLabel(radiusFor(slot.few.widenToKm)) }}</AppButton>
+                </p>
                 <div v-if="voting && slot.options.length < 6" class="slot__more">
                   <IconButton label="More suggestions" :disabled="!slot.canAddMore || loadingMore === slot.id" @click="more(slot)"><AppIcon name="plus" /></IconButton>
                   <IconButton label="Search a place" @click="openAdd(slot)"><AppIcon name="search" /></IconButton>
@@ -287,17 +341,19 @@ async function confirm() {
               </div>
               <ToggleSwitch v-model="showHeat" label="Crowd" class="map-tools__heat" />
             </div>
-            <PlannerMap :area="session.area" :places="mapPlaces" :heat="showHeat" :heat-points="heatPoints" :selected="selected" label="Places map" @select="selected = $event" />
+            <PlannerMap :area="session.area" :places="mapPlaces" :heat="showHeat" :heat-points="heatPoints" :radius="radius || 0" :selected="selected" label="Places map" @select="selected = $event" />
             <div v-if="selectedOption" class="pin-card" role="dialog" :aria-label="selectedOption.venue.name">
               <div class="row between gap-sm">
-                <span class="title-md clamp-2">{{ selectedOption.venue.name }}</span>
+                <img class="pin-card__photo" :src="placeImage(selectedOption.venue)" alt="" width="56" height="56" />
+                <span class="title-md clamp-2 pin-card__name">{{ selectedOption.venue.name }}</span>
                 <IconButton label="Close" @click="selected = ''"><AppIcon name="close" :size="14" /></IconButton>
               </div>
               <div class="row gap-sm wrap">
                 <CategoryIcon :category="selectedOption.venue.category" :size="24" />
                 <span class="caption-sm">{{ selectedOption.walk }} min walk</span>
                 <PriceTier :price="selectedOption.venue.price" />
-                <InfoTag>{{ crowdText(selectedOption.crowd) }}</InfoTag>
+                <InfoTag :tone="crowdTone(selectedOption.crowd)">{{ crowdText(selectedOption.crowd) }}</InfoTag>
+                <InfoTag v-if="currentMapSlot.leader === selectedOption.id" tone="strong" icon="trophy">Leading</InfoTag>
               </div>
               <div class="row between">
                 <span class="caption">{{ selectedOption.votes }} {{ selectedOption.votes === 1 ? 'vote' : 'votes' }}</span>
@@ -396,10 +452,15 @@ async function confirm() {
 .heat-key { position: absolute; left: var(--spacing-sm); bottom: var(--spacing-xl); z-index: 500; display: flex; align-items: center; gap: var(--spacing-sm); padding: var(--spacing-xs) var(--spacing-md); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: var(--shadow-float); font: var(--text-caption-sm); }
 .heat-key__item { display: inline-flex; align-items: center; gap: var(--spacing-xs); }
 .heat-key__dot { width: 10px; height: 10px; border-radius: var(--rounded-full); }
-.heat-key__dot { background: var(--primary); }
-.heat-key__dot--quiet { opacity: 0.25; }
-.heat-key__dot--moderate { opacity: 0.55; }
-.heat-key__dot--busy { opacity: 1; }
+.heat-key__dot--quiet { background: var(--crowd-quiet); }
+.heat-key__dot--moderate { background: var(--crowd-moderate); }
+.heat-key__dot--busy { background: var(--crowd-busy); }
+.radius { display: flex; flex-direction: column; gap: var(--spacing-xs); }
+/* Who leads the slot: an ink pill, like the "Leading" tag on the card and the label on the map. */
+.lead-line { display: inline-flex; align-items: center; gap: var(--spacing-xs); align-self: flex-start; margin: 0; padding: var(--spacing-xxs) var(--spacing-sm); border-radius: var(--rounded-full); background: var(--ink); color: var(--on-dark); font: var(--text-caption); }
+.few-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); margin: 0; }
+.pin-card__photo { flex-shrink: 0; width: 56px; height: 56px; object-fit: cover; border-radius: var(--rounded-sm); }
+.pin-card__name { flex: 1 1 0; min-width: 0; }
 .winners { display: flex; flex-direction: column; gap: var(--spacing-sm); }
 .winners__row { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: var(--spacing-md); }
 .add-results { display: flex; flex-direction: column; }

@@ -2,7 +2,8 @@
 // The session: people, locations and the meeting area (steps 2 to 5).
 //   Inviting  the people list and "Start session" (2 people or more, including Ian)
 //   Locating  Ian's start and end, the meeting area with a map, and one list of everyone with
-//             their area, travel time and status. The group can pick another area than the fairest.
+//             their area, travel time (coloured by length, with a key) and status. While the planner works
+//             out the area, the card and the map say so.
 //   Later     the same, read-only once the plan is confirmed
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -14,12 +15,12 @@ import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
-import AreaSheet from '@/components/group/AreaSheet.vue'
 import LocationSheet from '@/components/group/LocationSheet.vue'
 import MemberList from '@/components/group/MemberList.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
+import { TRAVEL_TONES } from '@/lib/planner/travel.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
@@ -35,7 +36,6 @@ const missing = ref(false)
 const busy = ref(false)
 const error = ref('')
 const sheet = ref({ open: false, which: 'start' })
-const areaOpen = ref(false)
 const view = ref('list')
 
 async function load() {
@@ -55,7 +55,6 @@ const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
 const voterIds = computed(() => (session.value ? votersOf(session.value.votes, active.value) : []))
 const locked = computed(() => ['confirmed', 'completed', 'cancelled'].includes(status.value))
-const canChangeArea = computed(() => ['locating', 'voting'].includes(status.value) && !!session.value?.meeting)
 const myLoc = computed(() => session.value?.locations?.ian || { start: null, end: null })
 const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAreaId, name: auth.user.homeAreaName } : null))
 
@@ -79,6 +78,8 @@ const mapPeople = computed(() =>
     }),
 )
 
+// The planner is working out the meeting area right now.
+const finding = computed(() => !!session.value?.findingMeeting)
 function openSheet(which) {
   sheet.value = { open: true, which }
 }
@@ -145,18 +146,25 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 
         <SplitView v-model:view="view" label="Meeting area">
           <template #list>
-            <!-- Step 5: the meeting area. -->
-            <section class="area" aria-labelledby="area-head">
-              <template v-if="session.meeting">
+            <!-- Step 5: the meeting area. While the planner works it out, the card says so and a bar sweeps across. -->
+            <section class="area" :class="{ 'is-finding': finding }" aria-labelledby="area-head" :role="finding ? 'status' : undefined">
+              <template v-if="finding">
                 <div class="area__main">
-                  <span class="area__pin"><AppIcon name="pin" :size="18" /></span>
+                  <span class="area__pin area__pin--finding"><AppIcon name="pin" :size="18" /></span>
                   <div class="stack">
-                    <span class="caption area__label">{{ session.areaChosen ? 'Chosen area' : 'Fairest area' }}</span>
-                    <h2 id="area-head" class="display-lg">{{ session.area.name }}</h2>
+                    <span class="caption area__label">Working it out</span>
+                    <h2 id="area-head" class="title-md">Finding the fairest meeting point…</h2>
                   </div>
                 </div>
-                <IconButton v-if="canChangeArea" label="Change meeting area" class="area__edit" @click="areaOpen = true"><AppIcon name="edit" /></IconButton>
+                <span class="area__bar" aria-hidden="true"><span /></span>
               </template>
+              <div v-else-if="session.meeting" class="area__main">
+                <span class="area__pin"><AppIcon name="pin" :size="18" /></span>
+                <div class="stack">
+                  <span class="caption area__label">Fairest area</span>
+                  <h2 id="area-head" class="display-lg">{{ session.area.name }}</h2>
+                </div>
+              </div>
               <h2 v-else id="area-head" class="title-md text-muted">Waiting for 2 locations</h2>
             </section>
             <p v-if="session.areaNote" class="caption-sm text-muted">{{ session.areaNote }}</p>
@@ -164,11 +172,15 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
             <section class="section card" aria-label="People">
               <ProgressDonut v-if="progress" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
               <MemberList :session="session" :names="nameOf" :voters="voterIds" />
+              <p v-if="session.meeting && !finding" class="travel-key" aria-label="Travel time colours">
+                <span v-for="t in TRAVEL_TONES" :key="t.id" class="travel-key__item"><span class="travel-key__dot" :class="`is-${t.id}`" />{{ t.label }}</span>
+              </p>
             </section>
           </template>
           <template #map>
-            <PlannerMap :people="mapPeople" :area="session.area" spokes label="Meeting area map" />
-            <div v-if="!session.meeting" class="map-wait title-sm">Waiting for 2 locations</div>
+            <PlannerMap :people="mapPeople" :area="session.area" :finding="finding" spokes label="Meeting area map" />
+            <div v-if="finding" class="map-wait map-wait--finding title-sm" role="status">Finding the fairest meeting point…</div>
+            <div v-else-if="!session.meeting" class="map-wait title-sm">Waiting for 2 locations</div>
           </template>
         </SplitView>
       </template>
@@ -178,15 +190,14 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
       <AppButton v-if="status === 'inviting'" block :disabled="active.length < 2 || busy" @click="startSession">
         {{ active.length < 2 ? 'Invite 1 more to start' : 'Start session' }}
       </AppButton>
-      <AppButton v-else-if="status === 'locating'" block :disabled="!session.meeting || busy" @click="useArea">
-        {{ session.meeting ? `Meet at ${session.area.name}` : 'Waiting for locations' }}
+      <AppButton v-else-if="status === 'locating'" block :disabled="!session.meeting || busy || finding" @click="useArea">
+        {{ finding ? 'Finding the meeting point…' : session.meeting ? `Meet at ${session.area.name}` : 'Waiting for locations' }}
       </AppButton>
       <AppButton v-else-if="status === 'voting'" block :to="`/sessions/${id}/plan`">Activities</AppButton>
       <AppButton v-else block :to="`/sessions/${id}/itinerary`">{{ session.isToday && status === 'confirmed' ? "Today's plan" : 'Itinerary' }}</AppButton>
     </footer>
 
     <LocationSheet v-model:open="sheet.open" :which="sheet.which" :home="homeArea" @select="saveLocation" />
-    <AreaSheet v-if="session.area" v-model:open="areaOpen" :session-id="id" :current="session.area.id" :chosen="session.areaChosen" />
   </main>
   <main v-else class="screen" data-testid="group-detail-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
@@ -205,5 +216,21 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 .area__main { display: flex; align-items: center; gap: var(--spacing-md); min-width: 0; }
 .area__label { color: var(--muted); }
 .area__pin { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
-.map-wait { position: absolute; left: 50%; top: 50%; z-index: 500; transform: translate(-50%, -50%); padding: var(--spacing-md) var(--spacing-base); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); }
+/* Finding the meeting area: the pin breathes and a bar sweeps across. Still when motion is reduced. */
+.area.is-finding { flex-direction: column; align-items: stretch; }
+.area__pin--finding { animation: area-breathe 1.2s ease-in-out infinite alternate; }
+.area__bar { position: relative; height: 4px; overflow: hidden; border-radius: var(--rounded-full); background: var(--surface-strong); }
+.area__bar > span { position: absolute; top: 0; bottom: 0; width: 40%; border-radius: var(--rounded-full); background: var(--primary); animation: area-sweep 1.1s ease-in-out infinite; }
+@keyframes area-breathe { to { transform: scale(1.12); } }
+@keyframes area-sweep { from { left: -40%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .area__pin--finding, .area__bar > span { animation: none; } .area__bar > span { left: 30%; } }
+/* The key for the travel-time colours in the people list. */
+.travel-key { display: flex; flex-wrap: wrap; gap: var(--spacing-xs) var(--spacing-base); margin: 0; font: var(--text-caption-sm); color: var(--muted); }
+.travel-key__item { display: inline-flex; align-items: center; gap: var(--spacing-xs); }
+.travel-key__dot { width: 10px; height: 10px; border-radius: var(--rounded-full); }
+.travel-key__dot.is-short { background: var(--travel-short); }
+.travel-key__dot.is-medium { background: var(--travel-medium); }
+.travel-key__dot.is-long { background: var(--travel-long); }
+.map-wait { position: absolute; left: 50%; top: 50%; z-index: 500; transform: translate(-50%, -50%); padding: var(--spacing-md) var(--spacing-base); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); text-align: center; }
+.map-wait--finding { top: var(--spacing-md); transform: translateX(-50%); }
 </style>

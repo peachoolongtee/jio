@@ -1,12 +1,15 @@
 <script setup>
 // A big number with a label on a flat white card. For stats such as rank and points.
 //   <StatTile label="Successful meetups" :value="3" icon="trophy" />
+//   <StatTile label="Points" :value="320" icon="gift" hint="Spend them on café discounts" />
 import AppIcon from './AppIcon.vue'
 
 defineProps({
   label: { type: String, required: true },
   value: { type: [Number, String], required: true },
   icon: { type: String, default: '' },
+  // One short line under the label, such as what the number is for.
+  hint: { type: String, default: '' },
 })
 </script>
 
@@ -15,6 +18,7 @@ defineProps({
     <AppIcon v-if="icon" class="stat__icon" :name="icon" :size="20" />
     <span class="stat__value tnum">{{ value }}</span>
     <span class="caption stat__label">{{ label }}</span>
+    <span v-if="hint" class="caption-sm stat__hint">{{ hint }}</span>
   </div>
 </template>
 
@@ -24,4 +28,5 @@ defineProps({
 .stat__icon { color: var(--ink); margin-bottom: var(--spacing-xs); }
 .stat__value { font: var(--text-display-md); }
 .stat__label { color: var(--muted); }
+.stat__hint { color: var(--muted); }
 </style>

@@ -1,7 +1,8 @@
 <script setup>
-// One stop on the itinerary timeline: a numbered ink dot on the rail, the time and duration on one line
-// ("15:00 · 45 min"), the name, the category as an icon only, where it is and the price tier.
-//   <StopCard :number="1" time="15:00" :duration="45" name="Tiong Bahru Bakery" category="drink" :price="14" area="Tiong Bahru" />
+// One stop on the itinerary timeline: a numbered dot on the rail in the category colour (matching the stop's pin
+// on the map), the time and duration on one line ("15:00 · 45 min"), the name, the category as an icon,
+// where it is, the price tier, and a photo of the kind of place when `image` is set.
+//   <StopCard :number="1" time="15:00" :duration="45" name="Tiong Bahru Bakery" category="drink" :price="14" area="Tiong Bahru" :image="src" />
 // Put several in a list with the .timeline class (EventView) so the rail joins them.
 // Slots: `handle` (a drag handle, on the right), `actions` (buttons such as "Delete stop").
 // `warning` shows a short error-red line, for example "Closed at 15:00" after the stops were rearranged.
@@ -21,12 +22,13 @@ defineProps({
   warning: { type: String, default: '' },
   // Highlights the stop: its pin is selected on the map, or it is being dragged.
   lifted: { type: Boolean, default: false },
+  image: { type: String, default: '' },
 })
 </script>
 
 <template>
   <article class="stop" :class="{ 'is-lifted': lifted }" :aria-label="name">
-    <span class="stop__dot" aria-hidden="true">{{ number || '' }}</span>
+    <span class="stop__dot" :class="`stop__dot--${category}`" aria-hidden="true">{{ number || '' }}</span>
     <div class="stop__body">
       <span class="caption tnum">{{ timeAndDuration(time, duration) }}</span>
       <h3 class="title-md clamp-2">{{ name }}</h3>
@@ -37,6 +39,7 @@ defineProps({
       </p>
       <p v-if="warning" class="stop__warning caption-sm"><AppIcon name="warning" :size="12" /> {{ warning }}</p>
     </div>
+    <img v-if="image" class="stop__photo" :src="image" alt="" loading="lazy" width="64" height="64" />
     <div v-if="$slots.actions || $slots.handle" class="stop__actions">
       <slot name="actions" />
       <slot name="handle" />
@@ -45,11 +48,17 @@ defineProps({
 </template>
 
 <style scoped>
-.stop { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: start; gap: var(--spacing-md); padding: var(--spacing-xs) 0; border-radius: var(--rounded-sm); background: var(--canvas); }
+/* Dot | text | photo | actions, on one row. */
+.stop { position: relative; display: grid; grid-auto-flow: column; grid-template-columns: 28px minmax(0, 1fr); grid-auto-columns: auto; align-items: start; gap: var(--spacing-md); padding: var(--spacing-xs) 0; border-radius: var(--rounded-sm); background: var(--canvas); }
 .stop__dot { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-top: 2px; border-radius: var(--rounded-full); background: var(--ink); box-shadow: 0 0 0 4px var(--canvas); color: var(--on-dark); font: var(--text-caption); }
+.stop__dot--eat { background: var(--cat-eat-fg); }
+.stop__dot--drink { background: var(--cat-drink-fg); }
+.stop__dot--shop { background: var(--cat-shop-fg); }
+.stop__dot--activity { background: var(--cat-activity-fg); }
 .stop__body { display: flex; flex-direction: column; gap: var(--spacing-xxs); min-width: 0; }
 .stop__meta { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; margin-top: var(--spacing-xxs); }
 .stop__warning { display: inline-flex; align-items: center; gap: var(--spacing-xs); margin-top: var(--spacing-xxs); color: var(--primary-error-text); }
+.stop__photo { width: 64px; height: 64px; object-fit: cover; border-radius: var(--rounded-sm); background: var(--surface-strong); }
 .stop__actions { display: flex; align-items: center; gap: var(--spacing-xs); }
 .stop.is-lifted .stop__dot { background: var(--primary); }
 </style>

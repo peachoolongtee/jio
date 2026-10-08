@@ -53,7 +53,7 @@ const TYPE = [
   ['body-sm', 'Small body text'], ['caption', 'Label or chip'], ['caption-sm', 'Meta line'], ['badge', 'Status pill'],
 ]
 const STATUSES = ['inviting', 'locating', 'voting', 'confirmed', 'completed', 'cancelled']
-const ICONS = ['back', 'close', 'plus', 'check', 'search', 'filter', 'calendar', 'clock', 'pin', 'map', 'locate', 'flag', 'route', 'layers', 'expand', 'people', 'user-plus', 'trophy', 'gift', 'sparkle', 'edit', 'trash', 'more', 'swap', 'rain', 'warning', 'info', 'lock', 'camera', 'home', 'logout', 'eat', 'drink', 'activity', 'shop', 'walk', 'mrt', 'grab', 'star', 'grip']
+const ICONS = ['back', 'close', 'plus', 'check', 'search', 'filter', 'calendar', 'clock', 'pin', 'map', 'locate', 'flag', 'route', 'layers', 'expand', 'people', 'user-plus', 'trophy', 'gift', 'sparkle', 'edit', 'trash', 'more', 'swap', 'rain', 'warning', 'info', 'lock', 'camera', 'home', 'logout', 'eat', 'drink', 'activity', 'shop', 'walk', 'mrt', 'car', 'star', 'grip']
 const FRIENDS = ['Darius', 'Jonathan', 'Nicole', 'Faith']
 const PLACE = { id: 'p', name: 'Tiong Bahru Bakery', category: 'drink', area: 'Tiong Bahru', distanceKm: 0.4, price: 14, rating: 8.4, tags: ['touristy'] }
 const OPTION = {
@@ -247,7 +247,7 @@ const toast = ref(false)
         </div>
         <div class="stack">
           <StopCard :number="1" time="15:00" :duration="120" name="Bishan Public Library" category="activity" :price="0" area="Bishan" />
-          <TravelConnector :options="{ walk: 4, mrt: 9, grab: 6 }" :mode="mode" @change="mode = $event" />
+          <TravelConnector :options="{ walk: 4, mrt: 9, car: 6 }" :mode="mode" @change="mode = $event" />
           <StopCard :number="2" :time="mode === 'walk' ? '17:04' : mode === 'mrt' ? '17:09' : '17:06'" :duration="90" name="Junction 8" category="shop" :price="15" area="Bishan" />
         </div>
         <div class="card">

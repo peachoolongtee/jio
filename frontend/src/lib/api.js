@@ -1,8 +1,8 @@
 // Every read and write in the app goes through this file.
 //
-// For now it is a mock backend: the data lives in memory (and in localStorage, so a reload keeps the demo),
-// and the planner rules from lib/planner run here, the way the Express planner will run them on the server.
-// When Supabase and the backend exist, replace the bodies of these functions; the screens and stores do not change.
+// The meeting area and the suggestions come from the Jio backend's planner (see plannerApi.js).
+// Everything else is still a mock: the data lives in memory (and in localStorage, so a reload keeps the demo).
+// When Supabase exists, replace the bodies of these functions; the screens and stores do not change.
 //
 // Every function is async, like a network call. Writes notify subscribers, the way Supabase live updates will.
 import { ADDRESSES, AREAS } from './mock/places.js'
@@ -11,20 +11,19 @@ import { HOST_ID, PAST_ACTIVITY, PEOPLE, POINTS_PER_MEETUP, STARTING_MEETUPS } f
 import { REWARDS } from './mock/rewards.js'
 import { pastMeetupDates } from './mock/history.js'
 import * as P from './planner/index.js'
+import * as planner from './plannerApi.js'
 import { format } from 'date-fns'
-import axios from 'axios'
 
-// Calls to the Jio backend (planner, geocode and weather proxy).
-// Attaching the Supabase session token waits on the JWT verification decision.
-// The mock functions below move onto this client as the backend endpoints land.
-export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
-  timeout: 15000,
-})
+export { api } from './plannerApi.js'
 
 const STORAGE_KEY = 'jio-demo-v1'
-const VERSION = 4
-const DELAY = { read: 80, plan: 300, write: 40 }
+// 5: the backend planner (db.venues) and photos, itinerary order and seasons. Older saves start fresh.
+const VERSION = 5
+// How many ranked places to ask for per slot: enough to top a slot up to its maximum.
+const RANKED_MAX = 10
+// meeting: the least time the "finding the meeting point" animation shows. The planner answers in milliseconds
+// with estimated travel times; with real routing it takes longer on its own.
+const DELAY = { read: 80, plan: 300, write: 40, meeting: 700 }
 
 // ── Storage ────────────────────────────────────────────────────────────────
 
@@ -37,6 +36,8 @@ function freshDb(keep = {}) {
     stats: Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: STARTING_MEETUPS[p.id], points: STARTING_MEETUPS[p.id] * POINTS_PER_MEETUP }])),
     redemptions: [],
     conditions: { rain: false, crowd: false, routing: true, sessionDay: false },
+    // Every venue the planner has sent, by id. Suggestions can be any of the backend's venues, not only VENUES.
+    venues: {},
     seq: 1,
   }
 }
@@ -45,18 +46,8 @@ function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY))
     if (saved && saved.version === VERSION) return saved
-    // Version 3 had smaller starting meetup counts: keep the account and sessions, recount the stats.
-    if (saved && saved.version === 3) {
-      const stats = freshDb().stats
-      for (const s of saved.sessions.filter((x) => x.status === 'completed')) {
-        for (const m of s.members.filter((x) => x.state === 'joined')) {
-          stats[m.id].meetups += 1
-          stats[m.id].points += POINTS_PER_MEETUP
-        }
-      }
-      stats[HOST_ID].points = Math.max(0, stats[HOST_ID].points - (saved.redemptions || []).reduce((sum, r) => sum + (REWARDS.find((x) => x.id === r.rewardId)?.cost || 0), 0))
-      return { ...saved, version: VERSION, stats }
-    }
+    // An older save: its sessions point at venues this version cannot look up. Keep the account, start fresh.
+    if (saved && saved.version < VERSION) return freshDb({ user: saved.user, friends: saved.friends })
   } catch {
     // No storage, or something unreadable: start fresh.
   }
@@ -94,7 +85,7 @@ export function subscribe(fn) {
 
 const personById = (id) => PEOPLE.find((p) => p.id === id)
 const areaById = (id) => AREAS.find((a) => a.id === id)
-const venueById = (id) => VENUES.find((v) => v.id === id)
+const venueById = (id) => db.venues[id] || VENUES.find((v) => v.id === id)
 
 function nameOf(id) {
   if (id === HOST_ID && db.user) return db.user.name
@@ -118,21 +109,47 @@ function isSessionDay(session) {
   return session.date === todayKey() || db.conditions.sessionDay
 }
 
-// ── Planner, run on the "server" ───────────────────────────────────────────
+// ── Planner, run on the backend ────────────────────────────────────────────
 
-function origins(session) {
+// Each person with a start location, as the backend expects them: start and end as points.
+function membersFor(session) {
   return activeIds(session)
     .filter((id) => session.locations[id]?.start)
     .map((id) => {
-      const { lat, lng } = areaById(session.locations[id].start.areaId)
-      return { id, lat, lng }
+      const start = areaById(session.locations[id].start.areaId)
+      const end = endPlaceOf(session, id)
+      return { id, name: nameOf(id), start: { lat: start.lat, lng: start.lng }, end: { lat: end.lat, lng: end.lng } }
     })
 }
 
-// The fairest area, unless the group chose another one (session.areaOverride).
-function computeMeeting(session) {
-  if (session.areaOverride) return P.meetingAt({ origins: origins(session), area: areaById(session.areaOverride) })
-  return P.chooseMeetingArea({ origins: origins(session), candidates: AREAS, routing: db.conditions.routing })
+// Sessions whose meeting area the planner is working out right now. getSession shows it as `findingMeeting`.
+const finding = new Set()
+
+// The meeting area, in the shape meetingResultLine and recalculate read: { areaId, method, times, maxMinutes, ... }.
+async function computeMeeting(session) {
+  const members = membersFor(session)
+  if (members.length < P.MIN_LOCATIONS) return null
+  // Show the new location and the "finding" animation straight away; the answer follows.
+  finding.add(session.id)
+  emit({ type: 'pending', sessionId: session.id })
+  let data
+  try {
+    ;[data] = await Promise.all([planner.meetingArea({ members, routing: db.conditions.routing }), wait(DELAY.meeting)])
+  } finally {
+    finding.delete(session.id)
+  }
+  const times = Object.fromEntries(Object.entries(data.travelByMember).map(([id, minutes]) => [id, Math.round(minutes)]))
+  const minutes = Object.values(times)
+  const same = members.every((m) => P.distanceKm(m.start, members[0].start) < P.SAME_PLACE_KM)
+  return {
+    areaId: data.area.id,
+    method: same ? 'same' : data.method === 'station' ? 'fairest' : 'centre',
+    times,
+    maxMinutes: Math.max(...minutes),
+    totalMinutes: minutes.reduce((sum, m) => sum + m, 0),
+    count: members.length,
+    approximate: data.approximate,
+  }
 }
 
 function activePrefs(session) {
@@ -150,41 +167,65 @@ function endPlaceOf(session, id) {
   return areaId ? areaById(areaId) : null
 }
 
-function homes(session) {
-  return activeIds(session)
-    .map((id) => ({ id, name: nameOf(id), place: endPlaceOf(session, id) }))
-    .filter((h) => h.place)
-    .map((h) => ({ id: h.id, name: h.name, lat: h.place.lat, lng: h.place.lng }))
+// Rank one slot on the backend. The slot's current options are always scored, so they come back in `current`
+// while they still fit. Every venue in the answer is remembered, so options and the itinerary can show it later.
+async function rankSlot(session, slot, slots, currentOptionIds = session.options[slot.id] || []) {
+  const ranked = await planner.rankSlot({
+    members: membersFor(session),
+    centre: areaById(session.meeting.areaId),
+    date: session.date,
+    slot,
+    lastStop: slots[slots.length - 1]?.id === slot.id,
+    currentOptionIds,
+    conditions: db.conditions,
+    radiusMeters: session.radius || undefined,
+    topN: RANKED_MAX,
+  })
+  for (const o of [...ranked.options, ...ranked.current]) db.venues[o.venue.id] = o.venue
+  return ranked
 }
 
-function rankSlot(session, slot, slots) {
-  const area = areaById(session.meeting.areaId)
-  const isLast = slots[slots.length - 1]?.id === slot.id
-  return P.rankForSlot(VENUES, { slot, area, isLast, conditions: db.conditions, homes: homes(session) })
+const rankAll = (session, slots) => Promise.all(slots.map((slot) => rankSlot(session, slot, slots)))
+
+// Friends can change things while the planner is still answering (the demo panel does this on purpose).
+// Each sync takes a ticket, and only the latest one for a session applies its answer.
+const tickets = {}
+const takeTicket = (session, kind) => {
+  const key = `${session.id}:${kind}`
+  const ticket = (tickets[key] = (tickets[key] || 0) + 1)
+  return () => ticket === tickets[key]
 }
+
+// Every place that fits a slot, best first: the suggestions, then current options ranked further down.
+const rankedIds = (ranked) => [...new Set([...ranked.options, ...ranked.current].map((o) => o.venue.id))]
 
 // Keep the options in step with the current slots: drop options that no longer fit, top up to three,
 // and drop votes for options or people that are gone.
-function syncOptions(session) {
-  if (!session.meeting || !['voting'].includes(session.status)) return
+async function syncOptions(session) {
+  if (!session.meeting || session.status !== 'voting') return
   const slots = slotsOf(session)
+  const isLatest = takeTicket(session, 'options')
+  const rankings = await rankAll(session, slots)
+  // Applied once every slot is ranked, to the session as it is now, so a vote cast meanwhile is kept.
+  if (!isLatest() || session.status !== 'voting') return
   const ids = activeIds(session)
   const nextOptions = {}
   const nextVotes = {}
-  for (const slot of slots) {
-    const ranked = rankSlot(session, slot, slots).options.map((o) => o.venue.id)
-    nextOptions[slot.id] = P.reconcileOptions(session.options[slot.id], ranked)
+  slots.forEach((slot, i) => {
+    nextOptions[slot.id] = P.reconcileOptions(session.options[slot.id], rankedIds(rankings[i]))
     const votes = session.votes[slot.id] || {}
     nextVotes[slot.id] = Object.fromEntries(Object.entries(votes).filter(([person, venue]) => ids.includes(person) && nextOptions[slot.id].includes(venue)))
-  }
+  })
   session.options = nextOptions
   session.votes = nextVotes
 }
 
 // A start or end location changed, a late location arrived, or someone opted out.
-function applyTrigger(session, trigger) {
+async function applyTrigger(session, trigger) {
+  const isLatest = takeTicket(session, 'meeting')
+  const next = await computeMeeting(session)
+  if (!isLatest()) return
   const previous = session.meeting
-  const next = computeMeeting(session)
   const outcome = P.recalculate({
     status: session.status,
     previous,
@@ -201,8 +242,23 @@ function applyTrigger(session, trigger) {
   session.meeting = next
   if (outcome.clearVotes) session.votes = {}
   if (outcome.refreshSuggestions) session.options = {}
-  syncOptions(session)
+  await syncOptions(session)
   if (outcome.banner) session.banner = { text: outcome.banner, at: Date.now() }
+}
+
+// For a write that needs the planner: if the planner cannot answer, put the session back as it was, so nothing
+// is half-saved (a location kept but not shown, Voting with no options). The caller still gets the error.
+async function orUndo(session, change) {
+  const before = clone(session)
+  try {
+    return await change()
+  } catch (err) {
+    for (const key of Object.keys(session)) delete session[key]
+    Object.assign(session, before)
+    // Save the session as it was, and show it again (a "pending" update may have shown the change already).
+    emit({ type: 'pending', sessionId: session.id })
+    throw err
+  }
 }
 
 // Save, tell subscribers, and answer with the session as getSession would.
@@ -384,13 +440,16 @@ function summary(session) {
     ...clone(session),
     locations: publicLocations(session),
     area: area ? { ...area } : null,
-    areaChosen: !!session.areaOverride,
     photos: (session.photos || []).map((p) => ({ ...p, name: nameOf(p.personId) })),
-    // Only the routing fallback needs explaining; the fairest result speaks for itself.
+    resultLine: area ? P.meetingResultLine(session.meeting, area.name) : '',
+    // Only the routing fallback needs explaining on screen; the fairest result speaks for itself.
     areaNote: session.meeting?.method === 'centre' ? 'Routing unavailable. Showing the geographic centre.' : '',
     activeIds: activeIds(session),
     areaName: session.meeting ? areaById(session.meeting.areaId).name : '',
     isToday: isSessionDay(session),
+    findingMeeting: finding.has(session.id),
+    // The search radius the group chose, in metres, or null to let the planner widen on its own.
+    radius: session.radius ?? null,
     slots: slots.map((s) => ({ ...s, optionCount: (session.options[s.id] || []).length })),
   }
 }
@@ -428,6 +487,7 @@ export async function createSession({ title, date, start, end }) {
     banner: null,
     replan: null,
     photos: [],
+    radius: null,
   }
   db.sessions.push(session)
   return touch(session, 'session')
@@ -458,55 +518,27 @@ export async function setLocation(id, personId, which, place) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (['completed', 'cancelled'].includes(session.status)) throw new Error('This session has ended.')
-  const loc = session.locations[personId] || { start: null, end: null }
-  const hadStart = !!loc.start
-  loc[which] = place ? { areaId: place.areaId, label: place.label || areaById(place.areaId).name } : null
-  session.locations[personId] = loc
-  const kind = which === 'end' ? 'end' : hadStart ? 'start' : 'added'
-  applyTrigger(session, { kind, personName: nameOf(personId) })
-  return touch(session, 'location')
+  return orUndo(session, async () => {
+    const loc = session.locations[personId] || { start: null, end: null }
+    const hadStart = !!loc.start
+    loc[which] = place ? { areaId: place.areaId, label: place.label || areaById(place.areaId).name } : null
+    session.locations[personId] = loc
+    const kind = which === 'end' ? 'end' : hadStart ? 'start' : 'added'
+    await applyTrigger(session, { kind, personName: nameOf(personId) })
+    return touch(session, 'location')
+  })
 }
 
 export async function useMeetingArea(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (!session.meeting) throw new Error('The meeting area needs at least 2 locations.')
-  session.status = 'voting'
-  session.banner = null
-  syncOptions(session)
-  return touch(session, 'session')
-}
-
-// The group can pick a different meeting area than the fairest one. areaId null goes back to the fairest.
-// Before Confirmed only. If the area moves while voting, place votes are cleared and suggestions refreshed.
-export async function setMeetingArea(id, areaId) {
-  await wait(DELAY.write)
-  const session = sessionById(id)
-  if (!['locating', 'voting'].includes(session.status)) throw new Error('The meeting area is fixed once the plan is confirmed.')
-  const previous = session.meeting
-  session.areaOverride = areaId || null
-  const next = computeMeeting(session)
-  if (!next) throw new Error('The meeting area needs at least 2 locations.')
-  session.meeting = next
-  const moved = previous?.areaId !== next.areaId
-  if (moved && session.status === 'voting') {
-    session.votes = {}
-    session.options = {}
-  }
-  syncOptions(session)
-  if (moved) {
-    const cleared = session.status === 'voting' ? ' Place votes were cleared.' : ''
-    session.banner = { text: `Meeting area changed to ${areaById(next.areaId).name}.${cleared}`, at: Date.now() }
-  }
-  return touch(session, 'session')
-}
-
-// Areas to choose from, fairest first, with the longest trip to each.
-export async function getAreaOptions(id) {
-  await wait(DELAY.read)
-  const session = sessionById(id)
-  const ranked = P.rankAreas({ origins: origins(session), candidates: AREAS })
-  return ranked.map((r, i) => ({ id: r.areaId, name: areaById(r.areaId).name, maxMinutes: r.maxMinutes, fairest: i === 0 }))
+  return orUndo(session, async () => {
+    session.status = 'voting'
+    session.banner = null
+    await syncOptions(session)
+    return touch(session, 'session')
+  })
 }
 
 export async function optOut(id, personId) {
@@ -514,10 +546,12 @@ export async function optOut(id, personId) {
   const session = sessionById(id)
   const member = session.members.find((m) => m.id === personId)
   if (!member || member.role === 'host') throw new Error('The host cannot opt out.')
-  member.state = 'opted_out'
-  applyTrigger(session, { kind: 'optout', personName: nameOf(personId) })
-  syncOptions(session)
-  return touch(session, 'optout')
+  return orUndo(session, async () => {
+    member.state = 'opted_out'
+    await applyTrigger(session, { kind: 'optout', personName: nameOf(personId) })
+    await syncOptions(session)
+    return touch(session, 'optout')
+  })
 }
 
 export async function dismissBanner(id) {
@@ -541,27 +575,46 @@ export async function setPreferences(id, personId, prefs) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (session.status !== 'voting') throw new Error('Categories can only change while voting.')
-  session.prefs[personId] = { categories: [...prefs.categories], until: prefs.until ?? null }
-  syncOptions(session)
-  return touch(session, 'prefs')
+  return orUndo(session, async () => {
+    session.prefs[personId] = { categories: [...prefs.categories], until: prefs.until ?? null }
+    await syncOptions(session)
+    return touch(session, 'prefs')
+  })
 }
 
 export async function deleteSlot(id, slotId) {
   await wait(DELAY.write)
   const session = sessionById(id)
-  session.deletedSlots = [...new Set([...session.deletedSlots, slotId])]
-  delete session.options[slotId]
-  delete session.votes[slotId]
-  syncOptions(session)
-  return touch(session, 'slots')
+  return orUndo(session, async () => {
+    session.deletedSlots = [...new Set([...session.deletedSlots, slotId])]
+    delete session.options[slotId]
+    delete session.votes[slotId]
+    await syncOptions(session)
+    return touch(session, 'slots')
+  })
 }
 
 export async function restoreSlots(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
-  session.deletedSlots = []
-  syncOptions(session)
-  return touch(session, 'slots')
+  return orUndo(session, async () => {
+    session.deletedSlots = []
+    await syncOptions(session)
+    return touch(session, 'slots')
+  })
+}
+
+// The search radius around the meeting area, in metres (100 to 3000), or null to let the planner widen on its own.
+// Options outside the new radius drop out, with their votes, and each slot tops up to three again.
+export async function setRadius(id, metres) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (metres != null && !(metres >= 100 && metres <= 3000)) throw new Error('Pick a radius from 100 m to 3 km.')
+  return orUndo(session, async () => {
+    session.radius = metres ?? null
+    await syncOptions(session)
+    return touch(session, 'options')
+  })
 }
 
 export async function addMoreOptions(id, slotId) {
@@ -569,34 +622,28 @@ export async function addMoreOptions(id, slotId) {
   const session = sessionById(id)
   const slots = slotsOf(session)
   const slot = slots.find((s) => s.id === slotId)
-  const ranked = rankSlot(session, slot, slots).options.map((o) => o.venue.id)
-  session.options[slotId] = P.moreOptions(session.options[slotId] || [], ranked)
+  const ranked = await rankSlot(session, slot, slots)
+  session.options[slotId] = P.moreOptions(session.options[slotId] || [], rankedIds(ranked))
   return touch(session, 'options')
 }
 
 // Search places to add to a slot. Each result says whether it fits, and why not.
 export async function searchVenuesForSlot(id, slotId, query) {
-  await wait(DELAY.read)
   const session = sessionById(id)
   const slots = slotsOf(session)
   const slot = slots.find((s) => s.id === slotId)
-  const isLast = slots[slots.length - 1]?.id === slotId
-  const q = query.trim().toLowerCase()
+  const q = query.trim()
   if (!q || !slot) return []
-  const area = areaById(session.meeting.areaId)
-  return VENUES.filter((v) => v.name.toLowerCase().includes(q) || v.area.toLowerCase().includes(q))
-    .map((v) => ({
-      id: v.id,
-      name: v.name,
-      area: v.area,
-      category: v.category,
-      walk: P.walkMinutes(area, v),
-      // Searched places follow the same rules as suggestions, including staying near the meeting area.
-      unfit: P.unfitReason(v, slot, { isLast }) || (P.distanceKm(area, v) > P.WIDE_RADIUS_KM ? 'far' : ''),
-      added: (session.options[slotId] || []).includes(v.id),
-    }))
-    .sort((a, b) => Number(!!a.unfit) - Number(!!b.unfit) || a.walk - b.walk)
-    .slice(0, 12)
+  const results = await planner.searchSlot({
+    query: q,
+    members: membersFor(session),
+    centre: areaById(session.meeting.areaId),
+    date: session.date,
+    slot,
+    lastStop: slots[slots.length - 1]?.id === slotId,
+    maxKm: session.radius ? session.radius / 1000 : undefined,
+  })
+  return results.map((r) => ({ ...r, added: (session.options[slotId] || []).includes(r.id) }))
 }
 
 export async function addOption(id, slotId, venueId) {
@@ -604,13 +651,13 @@ export async function addOption(id, slotId, venueId) {
   const session = sessionById(id)
   const slots = slotsOf(session)
   const slot = slots.find((s) => s.id === slotId)
-  const venue = venueById(venueId)
-  const isLast = slots[slots.length - 1]?.id === slotId
-  const area = areaById(session.meeting.areaId)
-  if (P.unfitReason(venue, slot, { isLast }) || P.distanceKm(area, venue) > P.WIDE_RADIUS_KM) throw new Error(`${venue.name} does not fit this slot.`)
   const options = session.options[slotId] || []
+  if (options.includes(venueId)) return touch(session, 'options')
   if (options.length >= P.OPTIONS_MAX) throw new Error('A slot holds up to 6 options.')
-  if (!options.includes(venueId)) session.options[slotId] = [...options, venueId]
+  // The planner scores current options whenever they fit, so ask it with this place included.
+  const ranked = await rankSlot(session, slot, slots, [...options, venueId])
+  if (!ranked.current.some((o) => o.venue.id === venueId)) throw new Error(`${venueById(venueId)?.name || 'This place'} does not fit this slot.`)
+  session.options[slotId] = [...(session.options[slotId] || []), venueId]
   return touch(session, 'options')
 }
 
@@ -644,16 +691,16 @@ export async function getPlan(id) {
   }
   const slots = slotsOf(session)
   const area = areaById(session.meeting.areaId)
-  const view = slots.map((slot) => {
-    const ranked = rankSlot(session, slot, slots)
-    const byId = Object.fromEntries(ranked.options.map((o) => [o.venue.id, o]))
+  const rankings = await rankAll(session, slots)
+  const view = slots.map((slot, i) => {
+    const ranked = rankings[i]
+    const byId = Object.fromEntries([...ranked.options, ...ranked.current].map((o) => [o.venue.id, o]))
     const optionIds = (session.options[slot.id] || []).filter((v) => byId[v])
     const votes = session.votes[slot.id] || {}
     const counts = P.tally(votes)
     const options = optionIds
       .map((venueId) => {
         const o = byId[venueId]
-        const swap = o.warnings.includes('rain') ? P.indoorSwap(ranked.options, optionIds) : null
         return {
           id: venueId,
           venue: clone(o.venue),
@@ -664,23 +711,36 @@ export async function getPlan(id) {
           warnings: o.warnings,
           votes: counts[venueId] || 0,
           voters: Object.keys(votes).filter((p) => votes[p] === venueId).map(nameOf),
-          swap: swap ? { id: swap.venue.id, name: swap.venue.name } : null,
+          swap: o.swap,
+          explanation: o.explanation,
+          dietUnknown: o.dietUnknown,
+          verify: o.verify,
+          approximate: o.approximate,
         }
       })
-      .sort((a, b) => b.score - a.score)
+      // The planner's score is a penalty: lowest first is best first.
+      .sort((a, b) => a.score - b.score)
     return {
       ...slot,
       isLast: slots[slots.length - 1].id === slot.id,
       options,
-      canAddMore: options.length < P.OPTIONS_MAX && ranked.options.length > options.length,
+      canAddMore: options.length < P.OPTIONS_MAX && rankedIds(ranked).length > options.length,
       widened: ranked.widened,
+      // Why the slot has no options: { reason, nearestKm, widenToKm } from the planner, or null.
+      empty: ranked.empty ? { reason: ranked.empty.reason, nearestKm: ranked.empty.hints?.nearestKm ?? null, widenToKm: ranked.empty.hints?.widenToKm ?? null } : null,
+      // Fewer than 3 places fit inside the search radius: { found, widenToKm }, or null.
+      few: ranked.few,
       leader: P.leader(optionIds, votes),
+      // The most votes any option has, and the options sharing it when there is no single leader.
+      topVotes: Math.max(0, ...optionIds.map((v) => counts[v] || 0)),
+      tied: P.leader(optionIds, votes) ? [] : optionIds.filter((v) => counts[v] && counts[v] === Math.max(...optionIds.map((o) => counts[o] || 0))),
       totalVotes: Object.keys(votes).length,
       myVote: votes[HOST_ID] || null,
     }
   })
   return {
     area: { ...area },
+    radius: session.radius ?? null,
     slots: view,
     voters: P.voters(session.votes, ids),
     prefs: clone(session.prefs),
@@ -700,13 +760,15 @@ export async function confirmPlan(id) {
   if (session.status !== 'voting') throw new Error('Only a session in Voting can be confirmed.')
   if (!P.canConfirm(session.votes, ids)) throw new Error('At least 2 people need to vote first.')
   const slots = slotsOf(session)
+  const rankings = await rankAll(session, slots)
+  if (session.status !== 'voting') throw new Error('Only a session in Voting can be confirmed.')
   const stops = []
-  for (const slot of slots) {
-    const ranked = rankSlot(session, slot, slots).options
-    const scores = Object.fromEntries(ranked.map((o) => [o.venue.id, o.score]))
+  slots.forEach((slot, i) => {
+    // pickWinner breaks a tie on the higher score. The planner's score is a penalty, so flip it.
+    const scores = Object.fromEntries([...rankings[i].options, ...rankings[i].current].map((o) => [o.venue.id, -o.score]))
     const winner = P.pickWinner(session.options[slot.id] || [], session.votes[slot.id], scores)
     if (winner) stops.push({ slotId: slot.id, category: slot.category, venueId: winner, plannedStart: slot.start, duration: slot.duration })
-  }
+  })
   session.plan = { stops, modes: [], startAt: stops[0]?.plannedStart ?? null }
   session.status = 'confirmed'
   session.banner = null
@@ -781,22 +843,26 @@ export async function respondReplan(id, accept) {
   await wait(DELAY.write)
   const session = sessionById(id)
   const trigger = session.replan?.trigger || null
-  session.replan = null
-  if (accept) reopenVoting(session, trigger)
-  return touch(session, 'session')
+  return orUndo(session, async () => {
+    session.replan = null
+    if (accept) await reopenVoting(session, trigger)
+    return touch(session, 'session')
+  })
 }
 
 // Edit → Re-plan from the itinerary.
 export async function replan(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
-  reopenVoting(session, null)
-  return touch(session, 'session')
+  return orUndo(session, async () => {
+    await reopenVoting(session, null)
+    return touch(session, 'session')
+  })
 }
 
-function reopenVoting(session, trigger) {
+async function reopenVoting(session, trigger) {
   const previous = session.meeting
-  const next = computeMeeting(session)
+  const next = await computeMeeting(session)
   session.status = 'voting'
   session.plan = null
   session.meeting = next
@@ -805,7 +871,7 @@ function reopenVoting(session, trigger) {
     session.votes = {}
     session.options = {}
   }
-  syncOptions(session)
+  await syncOptions(session)
   session.banner = trigger
     ? {
         text: P.recalcBanner({ previousName: previous ? areaById(previous.areaId).name : null, nextName: next ? areaById(next.areaId).name : null, trigger }),
@@ -887,7 +953,7 @@ export async function setConditions(patch) {
   db.conditions = { ...db.conditions, ...patch }
   // Routing changes how the meeting area is found, so sessions still locating are re-calculated.
   if ('routing' in patch) {
-    for (const session of db.sessions.filter((s) => s.status === 'locating')) session.meeting = computeMeeting(session)
+    for (const session of db.sessions.filter((s) => s.status === 'locating')) session.meeting = await computeMeeting(session)
   }
   emit({ type: 'conditions' })
   return clone(db.conditions)

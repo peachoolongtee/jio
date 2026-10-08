@@ -1,11 +1,13 @@
 <script setup>
-// Everyone in a session: name, their area and travel time, and their status as an icon
+// Everyone in a session: name, their area and travel time (coloured by length: up to 30, 31 to 45, over 45 min),
+// and their status as an icon
 // (Joined, Location submitted, Voted, Opted out; the name is the icon's label). Others' locations are the area name only.
 //   <MemberList :session="session" :names="nameOf" :voters="voterIds" />
 import { computed } from 'vue'
 import AppIcon from '../ui/AppIcon.vue'
 import UserAvatar from '../ui/UserAvatar.vue'
 import { submissionStatus } from '@/lib/session.js'
+import { travelTone } from '@/lib/planner/travel.js'
 
 const props = defineProps({
   session: { type: Object, required: true },
@@ -21,9 +23,9 @@ const rows = computed(() =>
     const minutes = props.session.meeting?.times?.[member.id]
     const status = submissionStatus(props.session, member.id, props.voters)
     const out = member.state === 'opted_out'
-    let meta = ''
-    if (!props.compact && !out) meta = start ? (minutes != null ? `${start.name} · ${minutes} min` : start.name) : 'No location yet'
-    return { id: member.id, name: props.names(member.id), host: member.role === 'host', meta, status, out }
+    const meta = props.compact || out ? '' : start?.name || 'No location yet'
+    const travel = !props.compact && !out && start && minutes != null ? { minutes, tone: travelTone(minutes) } : null
+    return { id: member.id, name: props.names(member.id), host: member.role === 'host', meta, travel, status, out }
   }),
 )
 // The status as an icon only; its name is the label for screen readers and the tooltip.
@@ -37,7 +39,7 @@ const TONE = { Joined: 'wait', 'Location submitted': 'done', Voted: 'done', 'Opt
       <UserAvatar :name="row.name" :size="36" />
       <RouterLink :to="row.id === 'ian' ? '/profile' : `/people/${row.id}`" class="member__text">
         <span class="title-sm truncate">{{ row.name }}<span v-if="row.host" class="caption-sm text-muted"> (host)</span></span>
-        <span v-if="row.meta" class="caption-sm text-muted truncate">{{ row.meta }}</span>
+        <span v-if="row.meta" class="caption-sm text-muted truncate">{{ row.meta }}<template v-if="row.travel"> · <span class="member__min" :class="`is-${row.travel.tone}`">{{ row.travel.minutes }} min</span></template></span>
       </RouterLink>
       <span class="member__status" :class="`is-${TONE[row.status]}`" role="img" :aria-label="row.status" :title="row.status">
         <AppIcon :name="ICON[row.status]" :size="14" />
@@ -57,4 +59,8 @@ const TONE = { Joined: 'wait', 'Location submitted': 'done', Voted: 'done', 'Opt
 .member__status.is-done { background: var(--selected); color: var(--on-selected); }
 .member__status.is-out { border: 1px solid var(--primary-error-text); background: var(--canvas); color: var(--primary-error-text); }
 .member.is-out .member__text { opacity: 0.6; }
+.member__min { font-weight: 600; }
+.member__min.is-short { color: var(--travel-short); }
+.member__min.is-medium { color: var(--travel-medium); }
+.member__min.is-long { color: var(--travel-long); }
 </style>

@@ -1,0 +1,2860 @@
+{
+  "_meta": {
+    "note": "Fictional mock data for testing the Converge and Roam engines. Venue names are invented; areas and MRT stations are real; coordinates are approximate. Member dietary needs and budgets are invented for testing, edit freely.",
+    "today": "2026-10-04",
+    "timezone": "Asia/Singapore",
+    "units": {
+      "rating": "0 to 5",
+      "price": "SGD per person",
+      "noise": "1 quiet to 5 loud",
+      "attributes": "0 to 100 (higher = more of that quality)",
+      "exposure": "0 = linked to the MRT, 5 = open air with a long walk",
+      "queueMinutesPeak": "typical wait at peak"
+    },
+    "dietRule": "diet.halal / vegetarian / vegan are 'full' | 'options' | 'none'. A venue passes a member's hard dietary filter if the value is 'full' or 'options'. 'full' can earn a ranking bonus. Activities have diet = null and skip dietary filters.",
+    "mealPeriodWindows": {
+      "breakfast": "07:00-11:00",
+      "lunch": "11:00-14:30",
+      "tea": "14:30-17:00",
+      "dinner": "17:00-21:30",
+      "supper": "21:30-late"
+    },
+    "groupConstraintVocabulary": [
+      "step_free",
+      "sockets",
+      "quiet (noise <= 2)",
+      "indoor_only",
+      "max_price_pp:N"
+    ],
+    "hardFilters": [
+      "category",
+      "dietary (per member)",
+      "group constraints",
+      "maxGroupSize >= group size",
+      "open at planned time",
+      "within radius"
+    ],
+    "radiusSteps_m": [
+      500,
+      1000,
+      2000,
+      3000
+    ],
+    "minResultsBeforeStopExpanding": 3,
+    "antiRepeat": "suggested: penalty 100 if visited within 14 days, falling linearly to 0 at 60 days. Use visitHistory.",
+    "occasionFit": "Precomputed from attributes x profiles weights (sum of weight x attribute). Replace with your review-scan + user-tag scores later.",
+    "priceSensitivity": "Per occasion multiplier on the price weight: a date or birthday is a splurge (0.3 to 0.5), study is budget-driven (1.5).",
+    "mockTravel": "mockTravelMinutes = 6 + haversine_km x 1.35 x 60 / 22. A stand-in for OneMap routing so tests are deterministic.",
+    "weatherRule": "penalty = rainRisk x (exposure / 5) x 100 for the venue forecastArea in the chosen weatherCase."
+  },
+  "members": [
+    {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+        "label": "Tampines",
+        "lat": 1.3541,
+        "lng": 103.9446
+      },
+      "dietary": [],
+      "prefersHealthy": false,
+      "cuisineLikes": [
+        "japanese",
+        "korean",
+        "cafe"
+      ],
+      "cuisineDislikes": [],
+      "budgetMaxPerPerson": 25,
+      "maxReturnMinutes": 60,
+      "travelDebtMinutes": 0
+    },
+    {
+      "id": "darius",
+      "name": "Darius",
+      "home": {
+        "label": "Jurong East",
+        "lat": 1.3331,
+        "lng": 103.7436
+      },
+      "dietary": [
+        "halal"
+      ],
+      "prefersHealthy": false,
+      "cuisineLikes": [
+        "malay",
+        "indian",
+        "middle_eastern"
+      ],
+      "cuisineDislikes": [],
+      "budgetMaxPerPerson": 20,
+      "maxReturnMinutes": 60,
+      "travelDebtMinutes": 40
+    },
+    {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+        "label": "Woodlands",
+        "lat": 1.437,
+        "lng": 103.7865
+      },
+      "dietary": [
+        "vegetarian"
+      ],
+      "prefersHealthy": true,
+      "cuisineLikes": [
+        "western",
+        "cafe",
+        "indian"
+      ],
+      "cuisineDislikes": [
+        "korean"
+      ],
+      "budgetMaxPerPerson": 30,
+      "maxReturnMinutes": 75,
+      "travelDebtMinutes": 25
+    },
+    {
+      "id": "nicole",
+      "name": "Nicole",
+      "home": {
+        "label": "Punggol",
+        "lat": 1.4043,
+        "lng": 103.9021
+      },
+      "dietary": [
+        "vegan"
+      ],
+      "prefersHealthy": true,
+      "cuisineLikes": [
+        "japanese",
+        "thai",
+        "healthy"
+      ],
+      "cuisineDislikes": [],
+      "budgetMaxPerPerson": 25,
+      "maxReturnMinutes": 60,
+      "travelDebtMinutes": 0
+    },
+    {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+        "label": "Clementi",
+        "lat": 1.3151,
+        "lng": 103.7653
+      },
+      "dietary": [],
+      "prefersHealthy": true,
+      "cuisineLikes": [
+        "western",
+        "korean",
+        "cafe"
+      ],
+      "cuisineDislikes": [],
+      "budgetMaxPerPerson": 30,
+      "maxReturnMinutes": 60,
+      "travelDebtMinutes": 10
+    },
+    {
+      "id": "darryl",
+      "name": "Darryl",
+      "home": {
+        "label": "Toa Payoh",
+        "lat": 1.3343,
+        "lng": 103.8563
+      },
+      "dietary": [],
+      "prefersHealthy": false,
+      "cuisineLikes": [
+        "chinese",
+        "hawker",
+        "western"
+      ],
+      "cuisineDislikes": [],
+      "budgetMaxPerPerson": 18,
+      "maxReturnMinutes": 45,
+      "travelDebtMinutes": 5
+    }
+  ],
+  "groups": [
+    {
+      "id": "g1",
+      "name": "WAD2 crew",
+      "memberIds": [
+        "ian",
+        "darius",
+        "jonathan",
+        "nicole",
+        "faith",
+        "darryl"
+      ]
+    }
+  ],
+  "occasionProfiles": {
+    "date": {
+      "label": "Date",
+      "priceSensitivity": 0.3,
+      "weights": {
+        "romantic": 0.4,
+        "quiet": 0.25,
+        "privacy": 0.2,
+        "cozy": 0.15
+      }
+    },
+    "birthday": {
+      "label": "Birthday",
+      "priceSensitivity": 0.5,
+      "weights": {
+        "celebration": 0.45,
+        "lively": 0.25,
+        "cozy": 0.15,
+        "privacy": 0.15
+      }
+    },
+    "coffee_chat": {
+      "label": "Coffee chat",
+      "priceSensitivity": 1.0,
+      "weights": {
+        "quiet": 0.35,
+        "cozy": 0.3,
+        "privacy": 0.2,
+        "workFriendly": 0.15
+      }
+    },
+    "study": {
+      "label": "Study session",
+      "priceSensitivity": 1.5,
+      "weights": {
+        "workFriendly": 0.55,
+        "quiet": 0.4,
+        "cozy": 0.05
+      }
+    },
+    "catch_up": {
+      "label": "Catch-up",
+      "priceSensitivity": 1.0,
+      "weights": {
+        "cozy": 0.4,
+        "quiet": 0.25,
+        "privacy": 0.2,
+        "lively": 0.15
+      }
+    },
+    "casual_meal": {
+      "label": "Casual meal",
+      "priceSensitivity": 1.2,
+      "weights": {
+        "lively": 0.4,
+        "cozy": 0.3,
+        "celebration": 0.15,
+        "quiet": 0.15
+      }
+    }
+  },
+  "venues": [
+    {
+      "id": "v01",
+      "name": "Lantern & Lace",
+      "area": "Tiong Bahru",
+      "nearestMrt": "Tiong Bahru",
+      "lat": 1.2865,
+      "lng": 103.833,
+      "forecastArea": "central",
+      "category": "eat",
+      "cuisine": "western",
+      "avgPricePerPerson": 58,
+      "rating": 4.6,
+      "ratingCount": 812,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "options",
+        "vegan": "options",
+        "healthy": 3
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 8,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 2,
+      "queueMinutesPeak": 20,
+      "openingHours": [
+        [
+          "12:00",
+          "14:30"
+        ],
+        [
+          "18:00",
+          "22:30"
+        ]
+      ],
+      "mealPeriods": [
+        "lunch",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 80,
+        "romantic": 92,
+        "cozy": 75,
+        "lively": 30,
+        "privacy": 80,
+        "workFriendly": 10,
+        "celebration": 70
+      },
+      "priceBand": 4,
+      "occasionFit": {
+        "date": 84,
+        "birthday": 62,
+        "coffee_chat": 68,
+        "study": 41,
+        "catch_up": 71,
+        "casual_meal": 57
+      }
+    },
+    {
+      "id": "v03",
+      "name": "Green Table Kitchen",
+      "area": "Bugis",
+      "nearestMrt": "Bugis",
+      "lat": 1.3,
+      "lng": 103.856,
+      "forecastArea": "central",
+      "category": "eat",
+      "cuisine": "vegetarian",
+      "avgPricePerPerson": 24,
+      "rating": 4.5,
+      "ratingCount": 640,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "full",
+        "vegan": "full",
+        "healthy": 5
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 8,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": true,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 2,
+      "queueMinutesPeak": 10,
+      "openingHours": [
+        [
+          "11:00",
+          "21:30"
+        ]
+      ],
+      "mealPeriods": [
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 70,
+        "romantic": 60,
+        "cozy": 85,
+        "lively": 35,
+        "privacy": 55,
+        "workFriendly": 45,
+        "celebration": 45
+      },
+      "priceBand": 2,
+      "occasionFit": {
+        "date": 65,
+        "birthday": 50,
+        "coffee_chat": 68,
+        "study": 57,
+        "catch_up": 68,
+        "casual_meal": 57
+      }
+    },
+    {
+      "id": "v04",
+      "name": "Zaytoon Garden",
+      "area": "Kampong Glam",
+      "nearestMrt": "Bugis",
+      "lat": 1.302,
+      "lng": 103.859,
+      "forecastArea": "central",
+      "category": "eat",
+      "cuisine": "middle_eastern",
+      "avgPricePerPerson": 28,
+      "rating": 4.4,
+      "ratingCount": 950,
+      "diet": {
+        "halal": "full",
+        "vegetarian": "options",
+        "vegan": "options",
+        "healthy": 3
+      },
+      "setting": "mixed",
+      "exposure": 2,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 14,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 3,
+      "queueMinutesPeak": 25,
+      "openingHours": [
+        [
+          "11:30",
+          "23:00"
+        ]
+      ],
+      "mealPeriods": [
+        "lunch",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 45,
+        "romantic": 55,
+        "cozy": 70,
+        "lively": 65,
+        "privacy": 40,
+        "workFriendly": 10,
+        "celebration": 75
+      },
+      "priceBand": 3,
+      "occasionFit": {
+        "date": 52,
+        "birthday": 67,
+        "coffee_chat": 46,
+        "study": 27,
+        "catch_up": 57,
+        "casual_meal": 65
+      }
+    },
+    {
+      "id": "v05",
+      "name": "Sakura Counter",
+      "area": "Dhoby Ghaut",
+      "nearestMrt": "Dhoby Ghaut",
+      "lat": 1.301,
+      "lng": 103.842,
+      "forecastArea": "central",
+      "category": "eat",
+      "cuisine": "japanese",
+      "avgPricePerPerson": 65,
+      "rating": 4.7,
+      "ratingCount": 430,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "none",
+        "vegan": "none",
+        "healthy": 4
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 6,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": false,
+      "noise": 2,
+      "queueMinutesPeak": 30,
+      "openingHours": [
+        [
+          "12:00",
+          "14:30"
+        ],
+        [
+          "18:00",
+          "22:00"
+        ]
+      ],
+      "mealPeriods": [
+        "lunch",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 85,
+        "romantic": 85,
+        "cozy": 60,
+        "lively": 20,
+        "privacy": 75,
+        "workFriendly": 0,
+        "celebration": 60
+      },
+      "priceBand": 4,
+      "occasionFit": {
+        "date": 79,
+        "birthday": 52,
+        "coffee_chat": 63,
+        "study": 37,
+        "catch_up": 63,
+        "casual_meal": 48
+      }
+    },
+    {
+      "id": "v06",
+      "name": "Roti & Ember",
+      "area": "Little India",
+      "nearestMrt": "Little India",
+      "lat": 1.3068,
+      "lng": 103.852,
+      "forecastArea": "central",
+      "category": "eat",
+      "cuisine": "indian",
+      "avgPricePerPerson": 14,
+      "rating": 4.2,
+      "ratingCount": 1500,
+      "diet": {
+        "halal": "full",
+        "vegetarian": "options",
+        "vegan": "options",
+        "healthy": 2
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": true,
+      "maxGroupSize": 12,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": false,
+      "noise": 4,
+      "queueMinutesPeak": 15,
+      "openingHours": [
+        [
+          "08:00",
+          "22:30"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 25,
+        "romantic": 15,
+        "cozy": 40,
+        "lively": 70,
+        "privacy": 15,
+        "workFriendly": 5,
+        "celebration": 40
+      },
+      "priceBand": 2,
+      "occasionFit": {
+        "date": 21,
+        "birthday": 44,
+        "coffee_chat": 25,
+        "study": 15,
+        "catch_up": 36,
+        "casual_meal": 50
+      }
+    },
+    {
+      "id": "v08",
+      "name": "Brew Lab Study Cafe",
+      "area": "Bras Basah",
+      "nearestMrt": "Bras Basah",
+      "lat": 1.2975,
+      "lng": 103.849,
+      "forecastArea": "central",
+      "category": "drink",
+      "cuisine": "cafe",
+      "avgPricePerPerson": 9,
+      "rating": 4.1,
+      "ratingCount": 560,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "options",
+        "vegan": "none",
+        "healthy": 2
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 6,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": true,
+      "sockets": true,
+      "longStayOk": true,
+      "noise": 2,
+      "queueMinutesPeak": 5,
+      "openingHours": [
+        [
+          "08:00",
+          "22:00"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 85,
+        "romantic": 20,
+        "cozy": 60,
+        "lively": 20,
+        "privacy": 40,
+        "workFriendly": 95,
+        "celebration": 5
+      },
+      "priceBand": 1,
+      "occasionFit": {
+        "date": 46,
+        "birthday": 22,
+        "coffee_chat": 70,
+        "study": 89,
+        "catch_up": 56,
+        "casual_meal": 40
+      }
+    },
+    {
+      "id": "v11",
+      "name": "Dim Sum Garden Banquet",
+      "area": "Chinatown",
+      "nearestMrt": "Chinatown",
+      "lat": 1.284,
+      "lng": 103.844,
+      "forecastArea": "central",
+      "category": "eat",
+      "cuisine": "chinese",
+      "avgPricePerPerson": 32,
+      "rating": 4.3,
+      "ratingCount": 900,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "options",
+        "vegan": "none",
+        "healthy": 2
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 16,
+      "hasPrivateRoom": true,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 4,
+      "queueMinutesPeak": 25,
+      "openingHours": [
+        [
+          "09:00",
+          "14:30"
+        ],
+        [
+          "17:30",
+          "22:00"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 25,
+        "romantic": 20,
+        "cozy": 40,
+        "lively": 80,
+        "privacy": 70,
+        "workFriendly": 0,
+        "celebration": 90
+      },
+      "priceBand": 3,
+      "occasionFit": {
+        "date": 34,
+        "birthday": 77,
+        "coffee_chat": 35,
+        "study": 12,
+        "catch_up": 48,
+        "casual_meal": 61
+      }
+    },
+    {
+      "id": "v14",
+      "name": "Banyan Rooftop Bar",
+      "area": "Clarke Quay",
+      "nearestMrt": "Clarke Quay",
+      "lat": 1.287,
+      "lng": 103.848,
+      "forecastArea": "central",
+      "category": "drink",
+      "cuisine": "bar",
+      "avgPricePerPerson": 48,
+      "rating": 4.4,
+      "ratingCount": 520,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "options",
+        "vegan": "options",
+        "healthy": 2
+      },
+      "setting": "outdoor",
+      "exposure": 4,
+      "aircon": false,
+      "stepFree": false,
+      "cdcAccepted": false,
+      "maxGroupSize": 10,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": false,
+      "noise": 3,
+      "queueMinutesPeak": 15,
+      "openingHours": [
+        [
+          "17:00",
+          "24:00"
+        ]
+      ],
+      "mealPeriods": [
+        "dinner",
+        "supper"
+      ],
+      "attributes": {
+        "quiet": 45,
+        "romantic": 90,
+        "cozy": 45,
+        "lively": 60,
+        "privacy": 45,
+        "workFriendly": 0,
+        "celebration": 55
+      },
+      "priceBand": 3,
+      "occasionFit": {
+        "date": 63,
+        "birthday": 53,
+        "coffee_chat": 38,
+        "study": 20,
+        "catch_up": 47,
+        "casual_meal": 53
+      }
+    },
+    {
+      "id": "v20",
+      "name": "Novena Wellness Cafe",
+      "area": "Novena",
+      "nearestMrt": "Novena",
+      "lat": 1.3205,
+      "lng": 103.844,
+      "forecastArea": "central",
+      "category": "drink",
+      "cuisine": "healthy",
+      "avgPricePerPerson": 21,
+      "rating": 4.4,
+      "ratingCount": 390,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "full",
+        "vegan": "full",
+        "healthy": 5
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 6,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": true,
+      "sockets": true,
+      "longStayOk": true,
+      "noise": 1,
+      "queueMinutesPeak": 5,
+      "openingHours": [
+        [
+          "08:00",
+          "19:00"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 92,
+        "romantic": 40,
+        "cozy": 80,
+        "lively": 15,
+        "privacy": 60,
+        "workFriendly": 85,
+        "celebration": 15
+      },
+      "priceBand": 2,
+      "occasionFit": {
+        "date": 63,
+        "birthday": 32,
+        "coffee_chat": 81,
+        "study": 88,
+        "catch_up": 69,
+        "casual_meal": 46
+      }
+    },
+    {
+      "id": "v02",
+      "name": "Lorong Delight Food Centre",
+      "area": "Toa Payoh",
+      "nearestMrt": "Toa Payoh",
+      "lat": 1.335,
+      "lng": 103.852,
+      "forecastArea": "central",
+      "category": "eat",
+      "cuisine": "hawker",
+      "avgPricePerPerson": 7,
+      "rating": 4.1,
+      "ratingCount": 2100,
+      "diet": {
+        "halal": "options",
+        "vegetarian": "options",
+        "vegan": "none",
+        "healthy": 2
+      },
+      "setting": "mixed",
+      "exposure": 2,
+      "aircon": false,
+      "stepFree": true,
+      "cdcAccepted": true,
+      "maxGroupSize": 12,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": false,
+      "noise": 4,
+      "queueMinutesPeak": 10,
+      "openingHours": [
+        [
+          "07:00",
+          "21:00"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 20,
+        "romantic": 5,
+        "cozy": 30,
+        "lively": 75,
+        "privacy": 10,
+        "workFriendly": 5,
+        "celebration": 25
+      },
+      "priceBand": 1,
+      "occasionFit": {
+        "date": 14,
+        "birthday": 36,
+        "coffee_chat": 19,
+        "study": 12,
+        "catch_up": 30,
+        "casual_meal": 46
+      }
+    },
+    {
+      "id": "v25",
+      "name": "Bishan Green Halal Kitchen",
+      "area": "Bishan",
+      "nearestMrt": "Bishan",
+      "lat": 1.351,
+      "lng": 103.849,
+      "forecastArea": "central",
+      "category": "eat",
+      "cuisine": "malay",
+      "avgPricePerPerson": 16,
+      "rating": 4.3,
+      "ratingCount": 520,
+      "diet": {
+        "halal": "full",
+        "vegetarian": "full",
+        "vegan": "options",
+        "healthy": 4
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 10,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": true,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 3,
+      "queueMinutesPeak": 15,
+      "openingHours": [
+        [
+          "10:30",
+          "22:00"
+        ]
+      ],
+      "mealPeriods": [
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 55,
+        "romantic": 35,
+        "cozy": 70,
+        "lively": 55,
+        "privacy": 45,
+        "workFriendly": 30,
+        "celebration": 70
+      },
+      "priceBand": 2,
+      "occasionFit": {
+        "date": 47,
+        "birthday": 63,
+        "coffee_chat": 54,
+        "study": 42,
+        "catch_up": 59,
+        "casual_meal": 62
+      }
+    },
+    {
+      "id": "v26",
+      "name": "Kebun Banquet House",
+      "area": "Ang Mo Kio",
+      "nearestMrt": "Ang Mo Kio",
+      "lat": 1.37,
+      "lng": 103.848,
+      "forecastArea": "central",
+      "category": "eat",
+      "cuisine": "chinese",
+      "avgPricePerPerson": 27,
+      "rating": 4.2,
+      "ratingCount": 610,
+      "diet": {
+        "halal": "options",
+        "vegetarian": "options",
+        "vegan": "options",
+        "healthy": 3
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 14,
+      "hasPrivateRoom": true,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 4,
+      "queueMinutesPeak": 25,
+      "openingHours": [
+        [
+          "11:00",
+          "22:30"
+        ]
+      ],
+      "mealPeriods": [
+        "lunch",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 25,
+        "romantic": 20,
+        "cozy": 45,
+        "lively": 80,
+        "privacy": 70,
+        "workFriendly": 0,
+        "celebration": 88
+      },
+      "priceBand": 3,
+      "occasionFit": {
+        "date": 35,
+        "birthday": 77,
+        "coffee_chat": 36,
+        "study": 12,
+        "catch_up": 50,
+        "casual_meal": 62
+      }
+    },
+    {
+      "id": "v07",
+      "name": "Sprout & Co",
+      "area": "Holland Village",
+      "nearestMrt": "Holland Village",
+      "lat": 1.3115,
+      "lng": 103.796,
+      "forecastArea": "west",
+      "category": "eat",
+      "cuisine": "healthy",
+      "avgPricePerPerson": 18,
+      "rating": 4.3,
+      "ratingCount": 700,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "full",
+        "vegan": "options",
+        "healthy": 5
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 8,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": true,
+      "sockets": true,
+      "longStayOk": true,
+      "noise": 3,
+      "queueMinutesPeak": 10,
+      "openingHours": [
+        [
+          "09:00",
+          "20:30"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 55,
+        "romantic": 25,
+        "cozy": 70,
+        "lively": 45,
+        "privacy": 35,
+        "workFriendly": 75,
+        "celebration": 20
+      },
+      "priceBand": 2,
+      "occasionFit": {
+        "date": 41,
+        "birthday": 36,
+        "coffee_chat": 59,
+        "study": 67,
+        "catch_up": 56,
+        "casual_meal": 50
+      }
+    },
+    {
+      "id": "v12",
+      "name": "Halal Hot Pot House",
+      "area": "Jurong East",
+      "nearestMrt": "Jurong East",
+      "lat": 1.334,
+      "lng": 103.743,
+      "forecastArea": "west",
+      "category": "eat",
+      "cuisine": "chinese",
+      "avgPricePerPerson": 26,
+      "rating": 4.2,
+      "ratingCount": 760,
+      "diet": {
+        "halal": "full",
+        "vegetarian": "options",
+        "vegan": "options",
+        "healthy": 3
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 12,
+      "hasPrivateRoom": true,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 4,
+      "queueMinutesPeak": 30,
+      "openingHours": [
+        [
+          "11:30",
+          "22:30"
+        ]
+      ],
+      "mealPeriods": [
+        "lunch",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 25,
+        "romantic": 25,
+        "cozy": 50,
+        "lively": 80,
+        "privacy": 55,
+        "workFriendly": 0,
+        "celebration": 85
+      },
+      "priceBand": 3,
+      "occasionFit": {
+        "date": 35,
+        "birthday": 74,
+        "coffee_chat": 35,
+        "study": 13,
+        "catch_up": 49,
+        "casual_meal": 64
+      }
+    },
+    {
+      "id": "v18",
+      "name": "Clementi Heartland Eatery",
+      "area": "Clementi",
+      "nearestMrt": "Clementi",
+      "lat": 1.315,
+      "lng": 103.765,
+      "forecastArea": "west",
+      "category": "eat",
+      "cuisine": "hawker",
+      "avgPricePerPerson": 8,
+      "rating": 4.1,
+      "ratingCount": 880,
+      "diet": {
+        "halal": "options",
+        "vegetarian": "options",
+        "vegan": "none",
+        "healthy": 2
+      },
+      "setting": "mixed",
+      "exposure": 2,
+      "aircon": false,
+      "stepFree": true,
+      "cdcAccepted": true,
+      "maxGroupSize": 10,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": false,
+      "noise": 4,
+      "queueMinutesPeak": 10,
+      "openingHours": [
+        [
+          "07:00",
+          "21:00"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 20,
+        "romantic": 5,
+        "cozy": 30,
+        "lively": 70,
+        "privacy": 10,
+        "workFriendly": 5,
+        "celebration": 25
+      },
+      "priceBand": 1,
+      "occasionFit": {
+        "date": 14,
+        "birthday": 35,
+        "coffee_chat": 19,
+        "study": 12,
+        "catch_up": 30,
+        "casual_meal": 44
+      }
+    },
+    {
+      "id": "v19",
+      "name": "Holland V Tapas Garden",
+      "area": "Holland Village",
+      "nearestMrt": "Holland Village",
+      "lat": 1.3108,
+      "lng": 103.7955,
+      "forecastArea": "west",
+      "category": "eat",
+      "cuisine": "tapas",
+      "avgPricePerPerson": 40,
+      "rating": 4.3,
+      "ratingCount": 610,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "options",
+        "vegan": "options",
+        "healthy": 3
+      },
+      "setting": "mixed",
+      "exposure": 2,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 10,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 3,
+      "queueMinutesPeak": 20,
+      "openingHours": [
+        [
+          "16:00",
+          "23:30"
+        ]
+      ],
+      "mealPeriods": [
+        "dinner",
+        "supper"
+      ],
+      "attributes": {
+        "quiet": 45,
+        "romantic": 70,
+        "cozy": 70,
+        "lively": 65,
+        "privacy": 45,
+        "workFriendly": 0,
+        "celebration": 65
+      },
+      "priceBand": 3,
+      "occasionFit": {
+        "date": 59,
+        "birthday": 63,
+        "coffee_chat": 46,
+        "study": 22,
+        "catch_up": 58,
+        "casual_meal": 64
+      }
+    },
+    {
+      "id": "v24",
+      "name": "Jurong East Halal Grill",
+      "area": "Jurong East",
+      "nearestMrt": "Jurong East",
+      "lat": 1.3335,
+      "lng": 103.744,
+      "forecastArea": "west",
+      "category": "eat",
+      "cuisine": "western",
+      "avgPricePerPerson": 22,
+      "rating": 4.2,
+      "ratingCount": 640,
+      "diet": {
+        "halal": "full",
+        "vegetarian": "options",
+        "vegan": "none",
+        "healthy": 2
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 10,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 4,
+      "queueMinutesPeak": 20,
+      "openingHours": [
+        [
+          "11:00",
+          "22:30"
+        ]
+      ],
+      "mealPeriods": [
+        "lunch",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 30,
+        "romantic": 25,
+        "cozy": 45,
+        "lively": 75,
+        "privacy": 40,
+        "workFriendly": 0,
+        "celebration": 70
+      },
+      "priceBand": 2,
+      "occasionFit": {
+        "date": 32,
+        "birthday": 63,
+        "coffee_chat": 32,
+        "study": 14,
+        "catch_up": 45,
+        "casual_meal": 59
+      }
+    },
+    {
+      "id": "v09",
+      "name": "Kampung Nasi House",
+      "area": "Paya Lebar",
+      "nearestMrt": "Paya Lebar",
+      "lat": 1.318,
+      "lng": 103.892,
+      "forecastArea": "east",
+      "category": "eat",
+      "cuisine": "malay",
+      "avgPricePerPerson": 10,
+      "rating": 4.3,
+      "ratingCount": 1800,
+      "diet": {
+        "halal": "full",
+        "vegetarian": "none",
+        "vegan": "none",
+        "healthy": 2
+      },
+      "setting": "mixed",
+      "exposure": 1,
+      "aircon": false,
+      "stepFree": true,
+      "cdcAccepted": true,
+      "maxGroupSize": 10,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": false,
+      "noise": 4,
+      "queueMinutesPeak": 10,
+      "openingHours": [
+        [
+          "07:00",
+          "21:00"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 20,
+        "romantic": 5,
+        "cozy": 35,
+        "lively": 70,
+        "privacy": 10,
+        "workFriendly": 5,
+        "celebration": 30
+      },
+      "priceBand": 2,
+      "occasionFit": {
+        "date": 14,
+        "birthday": 38,
+        "coffee_chat": 20,
+        "study": 13,
+        "catch_up": 32,
+        "casual_meal": 46
+      }
+    },
+    {
+      "id": "v10",
+      "name": "Hearth & Honey Brunch",
+      "area": "Dakota",
+      "nearestMrt": "Dakota",
+      "lat": 1.305,
+      "lng": 103.905,
+      "forecastArea": "east",
+      "category": "eat",
+      "cuisine": "western",
+      "avgPricePerPerson": 28,
+      "rating": 4.5,
+      "ratingCount": 1100,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "options",
+        "vegan": "options",
+        "healthy": 3
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 10,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": true,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 3,
+      "queueMinutesPeak": 35,
+      "openingHours": [
+        [
+          "08:00",
+          "17:00"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea"
+      ],
+      "attributes": {
+        "quiet": 55,
+        "romantic": 55,
+        "cozy": 90,
+        "lively": 50,
+        "privacy": 40,
+        "workFriendly": 50,
+        "celebration": 80
+      },
+      "priceBand": 3,
+      "occasionFit": {
+        "date": 57,
+        "birthday": 68,
+        "coffee_chat": 62,
+        "study": 54,
+        "catch_up": 65,
+        "casual_meal": 67
+      }
+    },
+    {
+      "id": "v13",
+      "name": "Seoul Table BBQ",
+      "area": "Tampines",
+      "nearestMrt": "Tampines",
+      "lat": 1.355,
+      "lng": 103.944,
+      "forecastArea": "east",
+      "category": "eat",
+      "cuisine": "korean",
+      "avgPricePerPerson": 35,
+      "rating": 4.4,
+      "ratingCount": 1300,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "none",
+        "vegan": "none",
+        "healthy": 2
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 10,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 4,
+      "queueMinutesPeak": 40,
+      "openingHours": [
+        [
+          "11:30",
+          "23:00"
+        ]
+      ],
+      "mealPeriods": [
+        "lunch",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 20,
+        "romantic": 25,
+        "cozy": 40,
+        "lively": 90,
+        "privacy": 35,
+        "workFriendly": 0,
+        "celebration": 85
+      },
+      "priceBand": 3,
+      "occasionFit": {
+        "date": 28,
+        "birthday": 72,
+        "coffee_chat": 26,
+        "study": 10,
+        "catch_up": 42,
+        "casual_meal": 64
+      }
+    },
+    {
+      "id": "v15",
+      "name": "Tampines Hawker Hub",
+      "area": "Tampines",
+      "nearestMrt": "Tampines",
+      "lat": 1.3535,
+      "lng": 103.9445,
+      "forecastArea": "east",
+      "category": "eat",
+      "cuisine": "hawker",
+      "avgPricePerPerson": 7,
+      "rating": 4.0,
+      "ratingCount": 1700,
+      "diet": {
+        "halal": "options",
+        "vegetarian": "options",
+        "vegan": "none",
+        "healthy": 2
+      },
+      "setting": "mixed",
+      "exposure": 2,
+      "aircon": false,
+      "stepFree": true,
+      "cdcAccepted": true,
+      "maxGroupSize": 12,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": false,
+      "noise": 4,
+      "queueMinutesPeak": 10,
+      "openingHours": [
+        [
+          "07:00",
+          "21:30"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 20,
+        "romantic": 5,
+        "cozy": 25,
+        "lively": 75,
+        "privacy": 10,
+        "workFriendly": 5,
+        "celebration": 25
+      },
+      "priceBand": 1,
+      "occasionFit": {
+        "date": 13,
+        "birthday": 35,
+        "coffee_chat": 17,
+        "study": 12,
+        "catch_up": 28,
+        "casual_meal": 44
+      }
+    },
+    {
+      "id": "v21",
+      "name": "Katong Peranakan Kitchen",
+      "area": "Katong",
+      "nearestMrt": "Dakota",
+      "lat": 1.3055,
+      "lng": 103.9055,
+      "forecastArea": "east",
+      "category": "eat",
+      "cuisine": "peranakan",
+      "avgPricePerPerson": 32,
+      "rating": 4.5,
+      "ratingCount": 1250,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "options",
+        "vegan": "none",
+        "healthy": 2
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 12,
+      "hasPrivateRoom": true,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 3,
+      "queueMinutesPeak": 30,
+      "openingHours": [
+        [
+          "11:00",
+          "15:00"
+        ],
+        [
+          "17:30",
+          "22:00"
+        ]
+      ],
+      "mealPeriods": [
+        "lunch",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 45,
+        "romantic": 50,
+        "cozy": 70,
+        "lively": 60,
+        "privacy": 55,
+        "workFriendly": 5,
+        "celebration": 80
+      },
+      "priceBand": 3,
+      "occasionFit": {
+        "date": 53,
+        "birthday": 70,
+        "coffee_chat": 49,
+        "study": 24,
+        "catch_up": 59,
+        "casual_meal": 64
+      }
+    },
+    {
+      "id": "v16",
+      "name": "Woodlands Kopitiam Row",
+      "area": "Woodlands",
+      "nearestMrt": "Woodlands",
+      "lat": 1.4365,
+      "lng": 103.786,
+      "forecastArea": "north",
+      "category": "eat",
+      "cuisine": "hawker",
+      "avgPricePerPerson": 8,
+      "rating": 4.0,
+      "ratingCount": 900,
+      "diet": {
+        "halal": "options",
+        "vegetarian": "options",
+        "vegan": "none",
+        "healthy": 2
+      },
+      "setting": "mixed",
+      "exposure": 2,
+      "aircon": false,
+      "stepFree": true,
+      "cdcAccepted": true,
+      "maxGroupSize": 10,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": false,
+      "noise": 4,
+      "queueMinutesPeak": 10,
+      "openingHours": [
+        [
+          "06:30",
+          "21:00"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 20,
+        "romantic": 5,
+        "cozy": 25,
+        "lively": 70,
+        "privacy": 10,
+        "workFriendly": 5,
+        "celebration": 25
+      },
+      "priceBand": 1,
+      "occasionFit": {
+        "date": 13,
+        "birthday": 34,
+        "coffee_chat": 17,
+        "study": 12,
+        "catch_up": 28,
+        "casual_meal": 42
+      }
+    },
+    {
+      "id": "v17",
+      "name": "Punggol Waterway Cafe",
+      "area": "Punggol",
+      "nearestMrt": "Punggol",
+      "lat": 1.4065,
+      "lng": 103.9,
+      "forecastArea": "northeast",
+      "category": "drink",
+      "cuisine": "cafe",
+      "avgPricePerPerson": 17,
+      "rating": 4.2,
+      "ratingCount": 480,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "options",
+        "vegan": "options",
+        "healthy": 3
+      },
+      "setting": "mixed",
+      "exposure": 3,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 8,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": true,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 2,
+      "queueMinutesPeak": 10,
+      "openingHours": [
+        [
+          "09:00",
+          "21:00"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 70,
+        "romantic": 70,
+        "cozy": 75,
+        "lively": 35,
+        "privacy": 50,
+        "workFriendly": 55,
+        "celebration": 50
+      },
+      "priceBand": 2,
+      "occasionFit": {
+        "date": 67,
+        "birthday": 50,
+        "coffee_chat": 65,
+        "study": 62,
+        "catch_up": 63,
+        "casual_meal": 55
+      }
+    },
+    {
+      "id": "v22",
+      "name": "Springleaf Kopitiam",
+      "area": "Springleaf",
+      "nearestMrt": "Springleaf",
+      "lat": 1.3975,
+      "lng": 103.8184,
+      "forecastArea": "north",
+      "category": "eat",
+      "cuisine": "hawker",
+      "avgPricePerPerson": 8,
+      "rating": 4.0,
+      "ratingCount": 350,
+      "diet": {
+        "halal": "options",
+        "vegetarian": "options",
+        "vegan": "options",
+        "healthy": 2
+      },
+      "setting": "mixed",
+      "exposure": 2,
+      "aircon": false,
+      "stepFree": true,
+      "cdcAccepted": true,
+      "maxGroupSize": 8,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": false,
+      "noise": 3,
+      "queueMinutesPeak": 5,
+      "openingHours": [
+        [
+          "07:00",
+          "20:00"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 45,
+        "romantic": 10,
+        "cozy": 40,
+        "lively": 50,
+        "privacy": 20,
+        "workFriendly": 10,
+        "celebration": 25
+      },
+      "priceBand": 1,
+      "occasionFit": {
+        "date": 25,
+        "birthday": 33,
+        "coffee_chat": 33,
+        "study": 26,
+        "catch_up": 39,
+        "casual_meal": 43
+      }
+    },
+    {
+      "id": "v23",
+      "name": "Yishun Lakeside Cafe",
+      "area": "Yishun",
+      "nearestMrt": "Khatib",
+      "lat": 1.413,
+      "lng": 103.833,
+      "forecastArea": "north",
+      "category": "drink",
+      "cuisine": "cafe",
+      "avgPricePerPerson": 15,
+      "rating": 4.1,
+      "ratingCount": 300,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "options",
+        "vegan": "options",
+        "healthy": 3
+      },
+      "setting": "mixed",
+      "exposure": 3,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 8,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": true,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 2,
+      "queueMinutesPeak": 5,
+      "openingHours": [
+        [
+          "09:00",
+          "21:00"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 70,
+        "romantic": 45,
+        "cozy": 70,
+        "lively": 35,
+        "privacy": 40,
+        "workFriendly": 55,
+        "celebration": 35
+      },
+      "priceBand": 2,
+      "occasionFit": {
+        "date": 54,
+        "birthday": 41,
+        "coffee_chat": 62,
+        "study": 62,
+        "catch_up": 59,
+        "casual_meal": 51
+      }
+    },
+    {
+      "id": "v27",
+      "name": "Sengkang Riverside Bistro",
+      "area": "Sengkang",
+      "nearestMrt": "Sengkang",
+      "lat": 1.3925,
+      "lng": 103.898,
+      "forecastArea": "northeast",
+      "category": "eat",
+      "cuisine": "western",
+      "avgPricePerPerson": 30,
+      "rating": 4.4,
+      "ratingCount": 420,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "options",
+        "vegan": "options",
+        "healthy": 3
+      },
+      "setting": "mixed",
+      "exposure": 2,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 8,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 2,
+      "queueMinutesPeak": 15,
+      "openingHours": [
+        [
+          "11:30",
+          "22:00"
+        ]
+      ],
+      "mealPeriods": [
+        "lunch",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 65,
+        "romantic": 75,
+        "cozy": 75,
+        "lively": 40,
+        "privacy": 60,
+        "workFriendly": 5,
+        "celebration": 60
+      },
+      "priceBand": 3,
+      "occasionFit": {
+        "date": 70,
+        "birthday": 57,
+        "coffee_chat": 58,
+        "study": 33,
+        "catch_up": 64,
+        "casual_meal": 57
+      }
+    },
+    {
+      "id": "v28",
+      "name": "Thomson Green Bistro",
+      "area": "Thomson",
+      "nearestMrt": "Caldecott",
+      "lat": 1.3545,
+      "lng": 103.833,
+      "forecastArea": "central",
+      "category": "eat",
+      "cuisine": "western",
+      "avgPricePerPerson": 24,
+      "rating": 4.3,
+      "ratingCount": 380,
+      "diet": {
+        "halal": "options",
+        "vegetarian": "full",
+        "vegan": "full",
+        "healthy": 4
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 10,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": true,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 2,
+      "queueMinutesPeak": 10,
+      "openingHours": [
+        [
+          "10:00",
+          "21:30"
+        ]
+      ],
+      "mealPeriods": [
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 65,
+        "romantic": 50,
+        "cozy": 80,
+        "lively": 45,
+        "privacy": 50,
+        "workFriendly": 40,
+        "celebration": 60
+      },
+      "priceBand": 2,
+      "occasionFit": {
+        "date": 58,
+        "birthday": 58,
+        "coffee_chat": 63,
+        "study": 52,
+        "catch_up": 65,
+        "casual_meal": 61
+      }
+    },
+    {
+      "id": "v29",
+      "name": "Kallang Riverside Brasserie",
+      "area": "Kallang",
+      "nearestMrt": "Lavender",
+      "lat": 1.311,
+      "lng": 103.87,
+      "forecastArea": "central",
+      "category": "eat",
+      "cuisine": "western",
+      "avgPricePerPerson": 33,
+      "rating": 4.3,
+      "ratingCount": 410,
+      "diet": {
+        "halal": "none",
+        "vegetarian": "options",
+        "vegan": "none",
+        "healthy": 3
+      },
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 10,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 3,
+      "queueMinutesPeak": 20,
+      "openingHours": [
+        [
+          "11:30",
+          "22:30"
+        ]
+      ],
+      "mealPeriods": [
+        "lunch",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 50,
+        "romantic": 55,
+        "cozy": 65,
+        "lively": 55,
+        "privacy": 45,
+        "workFriendly": 5,
+        "celebration": 65
+      },
+      "priceBand": 3,
+      "occasionFit": {
+        "date": 53,
+        "birthday": 60,
+        "coffee_chat": 47,
+        "study": 26,
+        "catch_up": 56,
+        "casual_meal": 59
+      }
+    },
+    {
+      "id": "v30",
+      "name": "Aljunied Kopi & Toast",
+      "area": "Aljunied",
+      "nearestMrt": "Aljunied",
+      "lat": 1.3165,
+      "lng": 103.883,
+      "forecastArea": "east",
+      "category": "eat",
+      "cuisine": "hawker",
+      "avgPricePerPerson": 6,
+      "rating": 4.1,
+      "ratingCount": 640,
+      "diet": {
+        "halal": "options",
+        "vegetarian": "options",
+        "vegan": "none",
+        "healthy": 2
+      },
+      "setting": "mixed",
+      "exposure": 2,
+      "aircon": false,
+      "stepFree": true,
+      "cdcAccepted": true,
+      "maxGroupSize": 8,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": false,
+      "noise": 4,
+      "queueMinutesPeak": 10,
+      "openingHours": [
+        [
+          "06:30",
+          "20:30"
+        ]
+      ],
+      "mealPeriods": [
+        "breakfast",
+        "lunch",
+        "tea",
+        "dinner"
+      ],
+      "attributes": {
+        "quiet": 25,
+        "romantic": 5,
+        "cozy": 35,
+        "lively": 65,
+        "privacy": 10,
+        "workFriendly": 5,
+        "celebration": 25
+      },
+      "priceBand": 1,
+      "occasionFit": {
+        "date": 16,
+        "birthday": 34,
+        "coffee_chat": 22,
+        "study": 15,
+        "catch_up": 32,
+        "casual_meal": 44
+      }
+    },
+    {
+      "id": "a01",
+      "name": "Pin Drop Bowling & Arcade",
+      "area": "Tampines",
+      "nearestMrt": "Tampines",
+      "lat": 1.3535,
+      "lng": 103.9455,
+      "forecastArea": "east",
+      "category": "activity",
+      "cuisine": "bowling",
+      "avgPricePerPerson": 15,
+      "rating": 4.2,
+      "ratingCount": 980,
+      "diet": null,
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 12,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 5,
+      "queueMinutesPeak": 20,
+      "openingHours": [
+        [
+          "11:00",
+          "23:00"
+        ]
+      ],
+      "mealPeriods": [],
+      "attributes": {
+        "quiet": 5,
+        "romantic": 15,
+        "cozy": 20,
+        "lively": 95,
+        "privacy": 20,
+        "workFriendly": 0,
+        "celebration": 85
+      },
+      "priceBand": 2,
+      "occasionFit": {
+        "date": 14,
+        "birthday": 68,
+        "coffee_chat": 12,
+        "study": 3,
+        "catch_up": 28,
+        "casual_meal": 58
+      }
+    },
+    {
+      "id": "a02",
+      "name": "Quiet Page Board Game Cafe",
+      "area": "Bugis",
+      "nearestMrt": "Bugis",
+      "lat": 1.2995,
+      "lng": 103.8545,
+      "forecastArea": "central",
+      "category": "activity",
+      "cuisine": "board_games",
+      "avgPricePerPerson": 12,
+      "rating": 4.4,
+      "ratingCount": 530,
+      "diet": null,
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 10,
+      "hasPrivateRoom": false,
+      "cakeFriendly": true,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 3,
+      "queueMinutesPeak": 10,
+      "openingHours": [
+        [
+          "12:00",
+          "23:00"
+        ]
+      ],
+      "mealPeriods": [],
+      "attributes": {
+        "quiet": 50,
+        "romantic": 35,
+        "cozy": 85,
+        "lively": 55,
+        "privacy": 40,
+        "workFriendly": 0,
+        "celebration": 70
+      },
+      "priceBand": 2,
+      "occasionFit": {
+        "date": 47,
+        "birthday": 64,
+        "coffee_chat": 51,
+        "study": 24,
+        "catch_up": 63,
+        "casual_meal": 66
+      }
+    },
+    {
+      "id": "a03",
+      "name": "Riverside Promenade",
+      "area": "Punggol",
+      "nearestMrt": "Punggol",
+      "lat": 1.4045,
+      "lng": 103.906,
+      "forecastArea": "northeast",
+      "category": "activity",
+      "cuisine": "park",
+      "avgPricePerPerson": 0,
+      "rating": 4.5,
+      "ratingCount": 3000,
+      "diet": null,
+      "setting": "outdoor",
+      "exposure": 5,
+      "aircon": false,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 30,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 1,
+      "queueMinutesPeak": 0,
+      "openingHours": [
+        [
+          "00:00",
+          "24:00"
+        ]
+      ],
+      "mealPeriods": [],
+      "attributes": {
+        "quiet": 60,
+        "romantic": 75,
+        "cozy": 30,
+        "lively": 30,
+        "privacy": 40,
+        "workFriendly": 0,
+        "celebration": 20
+      },
+      "priceBand": 1,
+      "occasionFit": {
+        "date": 58,
+        "birthday": 27,
+        "coffee_chat": 38,
+        "study": 26,
+        "catch_up": 40,
+        "casual_meal": 33
+      }
+    },
+    {
+      "id": "a04",
+      "name": "Little Lights Museum",
+      "area": "Bras Basah",
+      "nearestMrt": "Bras Basah",
+      "lat": 1.296,
+      "lng": 103.8485,
+      "forecastArea": "central",
+      "category": "activity",
+      "cuisine": "museum",
+      "avgPricePerPerson": 18,
+      "rating": 4.4,
+      "ratingCount": 760,
+      "diet": null,
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 20,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 1,
+      "queueMinutesPeak": 15,
+      "openingHours": [
+        [
+          "10:00",
+          "18:00"
+        ]
+      ],
+      "mealPeriods": [],
+      "attributes": {
+        "quiet": 85,
+        "romantic": 55,
+        "cozy": 40,
+        "lively": 20,
+        "privacy": 30,
+        "workFriendly": 0,
+        "celebration": 10
+      },
+      "priceBand": 2,
+      "occasionFit": {
+        "date": 55,
+        "birthday": 20,
+        "coffee_chat": 48,
+        "study": 36,
+        "catch_up": 46,
+        "casual_meal": 34
+      }
+    },
+    {
+      "id": "a05",
+      "name": "Escape Chamber",
+      "area": "Orchard",
+      "nearestMrt": "Somerset",
+      "lat": 1.304,
+      "lng": 103.832,
+      "forecastArea": "central",
+      "category": "activity",
+      "cuisine": "escape_room",
+      "avgPricePerPerson": 28,
+      "rating": 4.5,
+      "ratingCount": 610,
+      "diet": null,
+      "setting": "indoor",
+      "exposure": 0,
+      "aircon": true,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 8,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": false,
+      "noise": 4,
+      "queueMinutesPeak": 10,
+      "openingHours": [
+        [
+          "11:00",
+          "22:00"
+        ]
+      ],
+      "mealPeriods": [],
+      "attributes": {
+        "quiet": 15,
+        "romantic": 10,
+        "cozy": 30,
+        "lively": 85,
+        "privacy": 60,
+        "workFriendly": 0,
+        "celebration": 80
+      },
+      "priceBand": 3,
+      "occasionFit": {
+        "date": 24,
+        "birthday": 71,
+        "coffee_chat": 26,
+        "study": 8,
+        "catch_up": 41,
+        "casual_meal": 57
+      }
+    },
+    {
+      "id": "a06",
+      "name": "Botanic Stroll Trail",
+      "area": "Botanic Gardens",
+      "nearestMrt": "Botanic Gardens",
+      "lat": 1.314,
+      "lng": 103.816,
+      "forecastArea": "central",
+      "category": "activity",
+      "cuisine": "park",
+      "avgPricePerPerson": 0,
+      "rating": 4.7,
+      "ratingCount": 5200,
+      "diet": null,
+      "setting": "outdoor",
+      "exposure": 5,
+      "aircon": false,
+      "stepFree": true,
+      "cdcAccepted": false,
+      "maxGroupSize": 30,
+      "hasPrivateRoom": false,
+      "cakeFriendly": false,
+      "wifi": false,
+      "sockets": false,
+      "longStayOk": true,
+      "noise": 1,
+      "queueMinutesPeak": 0,
+      "openingHours": [
+        [
+          "05:00",
+          "24:00"
+        ]
+      ],
+      "mealPeriods": [],
+      "attributes": {
+        "quiet": 75,
+        "romantic": 80,
+        "cozy": 30,
+        "lively": 25,
+        "privacy": 60,
+        "workFriendly": 0,
+        "celebration": 25
+      },
+      "priceBand": 1,
+      "occasionFit": {
+        "date": 67,
+        "birthday": 31,
+        "coffee_chat": 47,
+        "study": 32,
+        "catch_up": 47,
+        "casual_meal": 34
+      }
+    }
+  ],
+  "weatherCases": {
+    "clear": {
+      "central": {
+        "rainRisk": 0.1,
+        "tempC": 31
+      },
+      "east": {
+        "rainRisk": 0.1,
+        "tempC": 31
+      },
+      "west": {
+        "rainRisk": 0.1,
+        "tempC": 31
+      },
+      "north": {
+        "rainRisk": 0.1,
+        "tempC": 31
+      },
+      "northeast": {
+        "rainRisk": 0.1,
+        "tempC": 31
+      }
+    },
+    "rain": {
+      "central": {
+        "rainRisk": 0.85,
+        "tempC": 26
+      },
+      "east": {
+        "rainRisk": 0.8,
+        "tempC": 26
+      },
+      "west": {
+        "rainRisk": 0.75,
+        "tempC": 26
+      },
+      "north": {
+        "rainRisk": 0.7,
+        "tempC": 26
+      },
+      "northeast": {
+        "rainRisk": 0.8,
+        "tempC": 26
+      }
+    },
+    "rain_east": {
+      "central": {
+        "rainRisk": 0.1,
+        "tempC": 31
+      },
+      "west": {
+        "rainRisk": 0.1,
+        "tempC": 31
+      },
+      "north": {
+        "rainRisk": 0.1,
+        "tempC": 31
+      },
+      "east": {
+        "rainRisk": 0.85,
+        "tempC": 27
+      },
+      "northeast": {
+        "rainRisk": 0.85,
+        "tempC": 27
+      }
+    }
+  },
+  "visitHistory": [
+    {
+      "groupId": "g1",
+      "venueId": "v09",
+      "date": "2026-10-03"
+    },
+    {
+      "groupId": "g1",
+      "venueId": "v10",
+      "date": "2026-09-27"
+    },
+    {
+      "groupId": "g1",
+      "venueId": "v11",
+      "date": "2026-09-19"
+    },
+    {
+      "groupId": "g1",
+      "venueId": "v13",
+      "date": "2026-08-22"
+    },
+    {
+      "groupId": "g1",
+      "venueId": "v21",
+      "date": "2026-07-12"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "S01",
+      "name": "Birthday dinner, everyone, mixed diets",
+      "occasion": "birthday",
+      "dateTime": "2026-10-10T19:00",
+      "memberIds": [
+        "ian",
+        "darius",
+        "jonathan",
+        "nicole",
+        "faith",
+        "darryl"
+      ],
+      "groupId": "g1",
+      "groupConstraints": [],
+      "overrides": {},
+      "weatherCase": "clear",
+      "categories": [
+        "eat",
+        "drink"
+      ],
+      "expect": "Hard filters leave 7 venues that serve halal AND vegetarian AND vegan (v04, v06, v12, v22, v25, v26, v28). Midpoint is in Bishan, so only v25, v26 and v28 fall inside the 3km cap."
+    },
+    {
+      "id": "S02",
+      "name": "Date night, clear weather",
+      "occasion": "date",
+      "dateTime": "2026-10-16T19:30",
+      "memberIds": [
+        "darryl",
+        "faith"
+      ],
+      "groupId": null,
+      "groupConstraints": [],
+      "overrides": {
+        "faith": {
+          "start": {
+            "label": "SMU, Bras Basah",
+            "lat": 1.2966,
+            "lng": 103.8496
+          }
+        },
+        "darryl": {
+          "start": {
+            "label": "Office, Tiong Bahru",
+            "lat": 1.286,
+            "lng": 103.83
+          }
+        }
+      },
+      "weatherCase": "clear",
+      "categories": [
+        "eat",
+        "drink"
+      ],
+      "expect": "Faith starts at SMU, Darryl at his office. Midpoint is near Fort Canning, so romantic venues v01, v05, v14 are all within 1km and should rank high."
+    },
+    {
+      "id": "S02b",
+      "name": "Date night, rainy",
+      "occasion": "date",
+      "dateTime": "2026-10-16T19:30",
+      "memberIds": [
+        "darryl",
+        "faith"
+      ],
+      "groupId": null,
+      "groupConstraints": [],
+      "overrides": {
+        "faith": {
+          "start": {
+            "label": "SMU, Bras Basah",
+            "lat": 1.2966,
+            "lng": 103.8496
+          }
+        },
+        "darryl": {
+          "start": {
+            "label": "Office, Tiong Bahru",
+            "lat": 1.286,
+            "lng": 103.83
+          }
+        }
+      },
+      "weatherCase": "rain",
+      "categories": [
+        "eat",
+        "drink"
+      ],
+      "expect": "Same as S02 but the outdoor rooftop bar (v14) must score worse and rank lower than in S02."
+    },
+    {
+      "id": "S03",
+      "name": "Study session at 3pm, sockets and quiet needed",
+      "occasion": "study",
+      "dateTime": "2026-10-10T15:00",
+      "memberIds": [
+        "faith",
+        "darryl"
+      ],
+      "groupId": null,
+      "groupConstraints": [
+        "sockets",
+        "quiet"
+      ],
+      "overrides": {
+        "faith": {
+          "start": {
+            "label": "SMU, Bras Basah",
+            "lat": 1.2966,
+            "lng": 103.8496
+          }
+        }
+      },
+      "weatherCase": "clear",
+      "categories": [
+        "eat",
+        "drink"
+      ],
+      "expect": "Only venues with sockets and noise 2 or below (v08, v20). Study fit should put v08 and v20 on top."
+    },
+    {
+      "id": "S04",
+      "name": "Late lunch at 3pm (time-of-day edge case)",
+      "occasion": "catch_up",
+      "dateTime": "2026-10-10T15:00",
+      "memberIds": [
+        "faith",
+        "darryl"
+      ],
+      "groupId": null,
+      "groupConstraints": [],
+      "overrides": {
+        "faith": {
+          "start": {
+            "label": "SMU, Bras Basah",
+            "lat": 1.2966,
+            "lng": 103.8496
+          }
+        },
+        "darryl": {
+          "start": {
+            "label": "Office, Tiong Bahru",
+            "lat": 1.286,
+            "lng": 103.83
+          }
+        }
+      },
+      "weatherCase": "clear",
+      "categories": [
+        "eat",
+        "drink"
+      ],
+      "expect": "Same area as S02. Venues closed at 15:00 (split-hours v01, v05 and v11 which closes 14:30) must NOT appear, even though they would at 19:00."
+    },
+    {
+      "id": "S05",
+      "name": "Midpoint lands in a nature reserve (empty midpoint)",
+      "occasion": "casual_meal",
+      "dateTime": "2026-10-11T12:30",
+      "memberIds": [
+        "darius",
+        "jonathan",
+        "nicole"
+      ],
+      "groupId": null,
+      "groupConstraints": [],
+      "overrides": {},
+      "weatherCase": "clear",
+      "categories": [
+        "eat",
+        "drink"
+      ],
+      "expect": "Nothing within 500m and nothing within 1km of the midpoint. First hit is v22 Springleaf, so the radius must expand: 2km step with a plain centroid (1.1km away), 3km step with the default fairness-weighted midpoint (2.6km away, because Darius and Jonathan carry travel debt)."
+    },
+    {
+      "id": "S06",
+      "name": "No venue satisfies every constraint",
+      "occasion": "casual_meal",
+      "dateTime": "2026-10-10T12:30",
+      "memberIds": [
+        "darius",
+        "nicole"
+      ],
+      "groupId": null,
+      "groupConstraints": [
+        "step_free",
+        "max_price_pp:7"
+      ],
+      "overrides": {},
+      "weatherCase": "clear",
+      "categories": [
+        "eat",
+        "drink"
+      ],
+      "expect": "Halal + vegan + $7 or less pp + step-free leaves ZERO venues. The app must say which constraint to relax, not show a blank screen."
+    },
+    {
+      "id": "S07",
+      "name": "Opt-out recalculation (S01 without Darius)",
+      "occasion": "birthday",
+      "dateTime": "2026-10-10T19:00",
+      "memberIds": [
+        "ian",
+        "jonathan",
+        "nicole",
+        "faith",
+        "darryl"
+      ],
+      "groupId": "g1",
+      "groupConstraints": [],
+      "overrides": {},
+      "weatherCase": "clear",
+      "categories": [
+        "eat",
+        "drink"
+      ],
+      "basedOn": "S01",
+      "optedOut": [
+        "darius"
+      ],
+      "expect": "Midpoint moves east and the halal constraint disappears, so more venues pass and the result list changes."
+    },
+    {
+      "id": "S08",
+      "name": "Someone starts elsewhere, someone ends elsewhere",
+      "occasion": "catch_up",
+      "dateTime": "2026-10-10T14:00",
+      "memberIds": [
+        "ian",
+        "faith",
+        "darryl"
+      ],
+      "groupId": null,
+      "groupConstraints": [],
+      "overrides": {
+        "faith": {
+          "start": {
+            "label": "SMU, Bras Basah",
+            "lat": 1.2966,
+            "lng": 103.8496
+          }
+        },
+        "ian": {
+          "end": {
+            "label": "Friend's place, Paya Lebar",
+            "lat": 1.319,
+            "lng": 103.892
+          }
+        }
+      },
+      "weatherCase": "clear",
+      "categories": [
+        "eat",
+        "drink"
+      ],
+      "expect": "Faith starts at SMU, Ian ends at a friend's place. Return-trip check must use Ian's override end, not home."
+    }
+  ],
+  "roamScenarios": [
+    {
+      "id": "R01",
+      "name": "Roam from Bugis after eating",
+      "current": {
+        "label": "Bugis",
+        "lat": 1.3008,
+        "lng": 103.8555
+      },
+      "dateTime": "2026-10-10T14:45",
+      "occasion": "catch_up",
+      "memberIds": [
+        "darius",
+        "ian",
+        "darryl"
+      ],
+      "groupConstraints": [],
+      "excludeVenueIds": [
+        "v04"
+      ],
+      "weatherCase": "clear",
+      "categories": [
+        "eat",
+        "drink",
+        "activity"
+      ],
+      "expect": "v04 (just visited) is not suggested. Halal applies to food only, activities still appear (a02, a04). All results open at 14:45."
+    },
+    {
+      "id": "R02",
+      "name": "Roam in Punggol, rainy",
+      "current": {
+        "label": "Punggol",
+        "lat": 1.405,
+        "lng": 103.903
+      },
+      "dateTime": "2026-10-11T16:00",
+      "occasion": "date",
+      "memberIds": [
+        "nicole",
+        "ian"
+      ],
+      "groupConstraints": [],
+      "excludeVenueIds": [],
+      "weatherCase": "rain_east",
+      "categories": [
+        "eat",
+        "drink",
+        "activity"
+      ],
+      "expect": "Outdoor promenade (a03) must score worse in rain than in clear weather."
+    }
+  ]
+}

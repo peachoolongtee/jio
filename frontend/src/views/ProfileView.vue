@@ -101,7 +101,10 @@ async function signOut() {
         <section v-if="isMe" class="section" aria-labelledby="my-sessions">
           <div class="section__head">
             <h2 id="my-sessions" class="display-sm">Sessions</h2>
-            <IconButton label="Rewards" to="/leaderboard"><AppIcon name="gift" /></IconButton>
+            <AppButton variant="secondary" small to="/leaderboard#rewards">
+              <AppIcon name="gift" />
+              Café discounts
+            </AppButton>
           </div>
           <div v-if="!events.loaded" class="stack"><SkeletonRow v-for="n in 2" :key="n" :lines="3" /></div>
           <EmptyState v-else-if="!events.sessions.length" title="No sessions yet">

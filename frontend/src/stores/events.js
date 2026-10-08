@@ -53,8 +53,6 @@ export const useEventsStore = defineStore('events', () => {
   const start = act(api.startSession)
   const setMyLocation = (id, which, place) => act(api.setLocation)(id, HOST_ID, which, place)
   const useArea = act(api.useMeetingArea)
-  const setArea = act(api.setMeetingArea)
-  const areaOptions = (id) => api.getAreaOptions(id)
   const cancel = act(api.cancelSession)
   const dismissBanner = act(api.dismissBanner)
   const confirm = act(api.confirmPlan)
@@ -99,6 +97,6 @@ export const useEventsStore = defineStore('events', () => {
   return {
     sessions, byId, itineraries, loaded, current,
     loadSessions, loadSession, loadItinerary,
-    create, invite, start, setMyLocation, useArea, setArea, areaOptions, cancel, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, addPhoto, deletePhoto,
+    create, invite, start, setMyLocation, useArea, cancel, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, addPhoto, deletePhoto,
   }
 })

@@ -36,9 +36,12 @@ export const usePlannerStore = defineStore('planner', () => {
   const swapOption = (id, slotId, fromId, toId) => api.swapOption(id, slotId, fromId, toId)
   const vote = (id, slotId, venueId) => api.vote(id, slotId, HOST_ID, venueId)
   const searchVenues = (id, slotId, query) => api.searchVenuesForSlot(id, slotId, query)
+  const setRadius = (id, metres) => api.setRadius(id, metres)
 
   // Live updates: any change to a session refreshes its plan; weather and crowd refresh every plan.
   api.subscribe((event) => {
+    // "pending" only shows work in progress (the meeting area being found); the plan has not changed yet.
+    if (event.type === 'pending') return
     if (event.type === 'reset') {
       plans.value = {}
       loadConditions()
@@ -52,5 +55,5 @@ export const usePlannerStore = defineStore('planner', () => {
     if (event.sessionId && plans.value[event.sessionId]) loadPlan(event.sessionId, { quiet: true })
   })
 
-  return { plans, loading, conditions, loadPlan, loadConditions, setCondition, setMyPreferences, deleteSlot, restoreSlots, addMore, addOption, swapOption, vote, searchVenues }
+  return { plans, loading, conditions, loadPlan, loadConditions, setCondition, setMyPreferences, deleteSlot, restoreSlots, addMore, addOption, swapOption, vote, searchVenues, setRadius }
 })

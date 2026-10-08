@@ -25,6 +25,28 @@
   --luxe: #460479; /* Sub-brand only. Not used in Jio. */
   --plus: #92174d; /* Sub-brand only. Not used in Jio. */
 
+  /* Data colours. They carry information on maps, keys and stripes, never actions: Rausch stays the one accent.
+     Always shown with words or a key, never as the only signal. */
+  /* Good, middling, bad: travel time to the meeting area and how crowded a place is. */
+  --scale-good: #008a05;
+  --scale-middle: #b45f06;
+  --scale-bad: var(--primary-error-text);
+  --travel-short: var(--scale-good); /* Up to 30 min. */
+  --travel-medium: var(--scale-middle); /* 31 to 45 min. */
+  --travel-long: var(--scale-bad); /* Over 45 min. */
+  --crowd-quiet: var(--scale-good);
+  --crowd-moderate: var(--scale-middle);
+  --crowd-busy: var(--scale-bad);
+  /* Categories: card stripes, stop numbers, itinerary pins and the category key. The icon still names the category. */
+  --cat-eat-fg: #c2410c;
+  --cat-eat-bg: color-mix(in srgb, var(--cat-eat-fg) 12%, var(--canvas));
+  --cat-drink-fg: #7c4a1e;
+  --cat-drink-bg: color-mix(in srgb, var(--cat-drink-fg) 12%, var(--canvas));
+  --cat-shop-fg: #6d28d9;
+  --cat-shop-bg: color-mix(in srgb, var(--cat-shop-fg) 12%, var(--canvas));
+  --cat-activity-fg: #0f766e;
+  --cat-activity-bg: color-mix(in srgb, var(--cat-activity-fg) 12%, var(--canvas));
+
   /* Text */
   --ink: #222222; /* Headlines, body, and the fill for anything selected. Never pure black. */
   --body: #3f3f3f; /* Longer running text. */

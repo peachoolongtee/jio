@@ -40,20 +40,21 @@ const expanded = ref(false)
 <style scoped>
 .split { display: flex; flex-direction: column; gap: var(--spacing-base); }
 .split__list { display: flex; flex-direction: column; gap: var(--spacing-base); min-width: 0; }
-.split__map { position: relative; height: 60dvh; min-height: 320px; overflow: hidden; border: 1px solid var(--hairline); border-radius: var(--rounded-md); }
+.split__map { position: relative; height: 72dvh; min-height: 420px; overflow: hidden; border: 1px solid var(--hairline); border-radius: var(--rounded-md); }
 .split__expand { display: none; }
 .split--list .split__map { display: none; }
 .split--map .split__list { display: none; }
 
 @media (min-width: 1128px) {
-  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: var(--spacing-lg); }
+  /* The map takes the larger share: it is where the group sees who travels how far and where everything is. */
+  .split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: start; gap: var(--spacing-lg); }
   .split__switch { display: none; }
   .split--list .split__map, .split--map .split__list { display: flex; }
-  .split__map { position: sticky; top: var(--spacing-lg); display: block; height: min(640px, calc(100dvh - 160px)); }
+  .split__map { position: sticky; top: var(--spacing-lg); display: block; height: min(820px, calc(100dvh - 120px)); }
   .split--list .split__map { display: block; }
   .split.is-expanded { grid-template-columns: minmax(0, 1fr); }
   .split.is-expanded .split__list { display: none; }
-  .split.is-expanded .split__map { height: calc(100dvh - 200px); }
+  .split.is-expanded .split__map { height: calc(100dvh - 140px); }
   .split__expand {
     position: absolute;
     top: var(--spacing-md);

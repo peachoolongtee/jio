@@ -40,12 +40,17 @@ export function crowdLevel(venue, minute, options) {
   return 'busy'
 }
 
-export const CROWD_LABELS = { quiet: 'Quiet', moderate: 'Moderate', busy: 'Busy' }
+// 'unknown': the planner has no crowd profile for the place (most CDC and mock venues).
+export const CROWD_LABELS = { quiet: 'Quiet', moderate: 'Moderate', busy: 'Busy', unknown: 'Crowd unknown' }
 
-// Always written as an estimate.
-export function crowdText(level) {
-  return `${CROWD_LABELS[level]} · est.`
+// The InfoTag tone for each level, the same colours as the map's heat layer. Unknown stays neutral.
+const CROWD_TONES = { quiet: 'good', moderate: 'middle', busy: 'error' }
+export function crowdTone(level) {
+  return CROWD_TONES[level] || 'neutral'
 }
 
-// How much each level lowers the ranking score.
-export const CROWD_PENALTY = { quiet: 0, moderate: 0.6, busy: 1.4 }
+// Always written as an estimate, unless there is nothing to estimate.
+export function crowdText(level) {
+  if (!(level in CROWD_LABELS) || level === 'unknown') return CROWD_LABELS.unknown
+  return `${CROWD_LABELS[level]} · est.`
+}
