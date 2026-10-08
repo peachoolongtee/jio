@@ -4,9 +4,9 @@ For Darius, before you push your frontend work. Everyone else working on the fro
 
 **What happened:** `dev` now has Nicole and Faith's backend planner (`feature/backend-engines`), and the frontend uses it. The meeting area, the suggestions for each slot and "Search a place" come from `POST /api/meeting-area`, `/api/converge` and `/api/search` instead of the ranking code in `src/lib/planner/`. That old ranking is deleted, so there is one algorithm.
 
-**What did not change:** no screen in `src/views/` and no store in `src/stores/`. Every function in `src/lib/api.js` keeps its name, arguments and return shape. Slots, voting, the itinerary, rewards and auth work as before.
+**What did not change in the switch-over:** every function in `src/lib/api.js` keeps its name, arguments and return shape. Slots, voting, the itinerary, rewards and auth work as before.
 
-So most of your work should merge without trouble. Conflicts can only happen in the 12 files listed in [Where conflicts can happen](#where-conflicts-can-happen), and each one says what to keep.
+**Then a round of UI changes** landed on `dev` too (place photos, colour coding, a search radius, a meeting-point animation, a bigger map, Car instead of Grab, café discounts). Those touch screens and components, so they are listed separately in [2b](#2b-ui-changes-after-the-switch-over). If you changed the same screens, expect conflicts there; each row says what to keep.
 
 ---
 
@@ -80,6 +80,32 @@ Two rules if you add or change functions in `api.js`:
 
 ---
 
+## 2b. UI changes after the switch-over
+
+These changed screens and components. If you rebuilt one of these files, keep your layout and add back the parts in the right-hand column.
+
+| File | What changed | Keep, if you rewrote the file |
+|---|---|---|
+| `views/PlannerView.vue` | "Search within" radius chips (Auto, 100 m to 3 km); "Leading: … · N votes" line per slot; empty and few-places messages with "Widen to …"; dimmed non-leading pins; radius circle on the map; photo in the map pop-up; Confirm dialog tie-break now `a.score - b.score` (lower is better). | `RADII`, `setRadius`, `leadText`, `emptyText`, `radiusFor`, the `:radius` and `muted` map props, `:behind` on `SuggestionCard`. |
+| `views/GroupDetailView.vue` | "Finding the fairest meeting point…" in the list and on the map while the planner works; "Use …" disabled meanwhile; travel bars and minutes coloured by travel time, with a key. | `finding`, `:finding` on `PlannerMap`, `row.tone`, `TRAVEL_TONES`. |
+| `views/EventView.vue`, `views/SessionMapView.vue` | Stop photos; stop numbers in category colours; category key on the itinerary map; points text says they buy café discounts. | `:image="placeImage(stop.venue)"`, `category` on map places, `CategoryKey`. |
+| `views/LandingView.vue` | Points banner: what your points buy, with a link to the discounts. | `pointsLine` and the `BannerNote`. |
+| `views/LeaderboardView.vue`, `views/ProfileView.vue` | "Rewards" is now "Café discounts" with a 3-step explainer (`id="rewards"` for links); Points tiles say what points are for. | `id="rewards"`, the `hint` on `StatTile`. |
+| `components/event/SuggestionCard.vue` | Photo with category badge, category stripe, "Leading" tag, grey vote bar when `behind`. | `placeImage`, `crowdTone`, the `behind` prop. |
+| `components/event/PlaceCard.vue`, `StopCard.vue` | Photos (`StopCard` has a new `image` prop); stop number in category colour; `RatingBadge` hidden when there is no rating. | |
+| `components/map/PlannerMap.vue` | New props `finding` and `radius`; people coloured by travel time; stops coloured by category; `highlight` labelled "Leading", `muted` faded. | All of it: other screens rely on these props. |
+| `components/ui/SplitView.vue` | Bigger map: 72dvh on phones, 3/5 of the width on desktop. | |
+| `components/ui/StatTile.vue` | Optional `hint` line. | |
+| `components/event/TravelConnector.vue`, `ui/AppIcon.vue`, `lib/planner/travel.js`, `itinerary.js` | **Grab is now Car** (`car` key, `carMinutes`, `car` icon). A plan saved with `grab` falls back to the default mode. | Use `car`, never `grab`. |
+| `lib/planner/crowd.js`, `travel.js` | `crowdTone(level)` and `travelTone(minutes)`: one colour scale used everywhere. | Use these instead of local colour maps. |
+| `styles/tokens.css` | `--travel-short`, `--travel-medium`, `--travel-long`. | |
+| `router/index.js` | Links with `#section` scroll to it. | |
+| **New:** `lib/placeImages.js`, `assets/places/*.jpg` + `CREDITS.md`, `components/map/CategoryKey.vue` | One Unsplash photo per kind of place; `placeImage(venue)` picks it. | Nothing to merge. |
+
+`api.js` also gained `setRadius(id, metres)`, `session.findingMeeting`, `session.radius`, and per slot in `getPlan`: `empty`, `few`, `topVotes`, `tied`. A "pending" event shows work in progress; the planner store ignores it.
+
+---
+
 ## 3. Rules for screens, so nothing breaks
 
 These come from the backend's data. They apply to any screen you built or changed.
@@ -130,11 +156,12 @@ Then click through it once:
 
 1. Demo tools → **Reset demo data**. Old saved data is cleared automatically anyway, because `VERSION` changed.
 2. Create a session and invite friends.
-3. Set your start. Demo tools → **Simulate friends submitting locations**. A meeting area and the line "Fairest for N people…" appear.
+3. Set your start. Demo tools → **Simulate friends submitting locations**. "Finding the fairest meeting point…" pulses on the map, then a meeting area and the line "Fairest for N people…" appear, with travel times in green, rust or red.
 4. **Use this area** and pick categories. Each slot shows 3 options, best first. Some say "Crowd unknown".
 5. Demo tools → turn on **Simulate rain**. An outdoor option shows "Outdoor · rain expected" and a **Swap for…** button. Press it: the indoor place replaces it and stays.
 6. **Search a place** → "food stalls" → **Add** one. It stays in the slot.
-7. **Simulate friends voting** → **Confirm plan**. The itinerary shows every stop, including CDC places.
+7. Under **Search within**, pick **500 m**. A dashed circle appears on the map, and slots with fewer places say so with a **Widen to …** button.
+8. **Simulate friends voting**. Each slot says "Leading: … · N votes", and the leader is labelled on the map. Then **Confirm plan**. The itinerary shows every stop with a photo, including CDC places, and Walk / MRT / **Car** between stops.
 
 ---
 
