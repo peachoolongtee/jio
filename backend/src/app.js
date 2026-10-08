@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import { loadPlanData } from './db/venues.js'
+import { createMeRouter } from './routes/me.js'
 import { createPlanRouter } from './routes/plan.js'
 import { createHttp } from './services/http.js'
 import { scenarioMiddleware } from './services/scenario.js'
@@ -18,6 +19,8 @@ import { scenarioMiddleware } from './services/scenario.js'
 //   stub           - true answers external API calls from fixtures.
 //   http           - The HTTP helper to share. Defaults to one built from `stub`.
 //   planData       - Venues and settings the planner reads. Defaults to loadPlanData() (mock + curated + CDC).
+//   supabase       - The server's Supabase clients, from createSupabase(). Without it the routes that
+//                    need a login (GET /api/me) are not mounted.
 //   mount          - A function that adds extra routes. They must go in before the "not found" handler,
 //                    so routes added to the returned app afterwards are never reached. Tests use this:
 //                      createApp({ frontendOrigin, mount: (app) => app.get('/probe', handler) })
@@ -26,6 +29,7 @@ export function createApp({
   stub = false,
   http = createHttp({ stub }),
   planData = loadPlanData(),
+  supabase = null,
   mount = () => {},
 }) {
   if (!frontendOrigin || frontendOrigin === '*') {
@@ -57,6 +61,10 @@ export function createApp({
 
   // Planner: /api/meeting-area, /api/converge, /api/roam.
   app.use('/api', createPlanRouter({ data: planData }))
+
+  // Routes that need a login. The planner routes above do not check one yet: the frontend has to
+  // start sending the session token first.
+  if (supabase) app.use('/api', createMeRouter({ supabase }))
 
   mount(app)
 

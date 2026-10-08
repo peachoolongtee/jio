@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { createApp } from './app.js'
+import { createSupabase } from './db/supabase.js'
 import { assertStubAllowed, createHttp } from './services/http.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -26,7 +27,18 @@ try {
 
 const http = createHttp({ stub })
 
-createApp({ frontendOrigin, stub, http }).listen(port, () => {
+// Supabase: token checks and database access. All three values are needed. Without them the server
+// still runs, but the routes that need a login are switched off.
+const { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY } = process.env
+const supabaseReady = SUPABASE_URL && SUPABASE_ANON_KEY && SUPABASE_SERVICE_ROLE_KEY
+const supabase = supabaseReady
+  ? createSupabase({ url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY, serviceKey: SUPABASE_SERVICE_ROLE_KEY })
+  : null
+
+createApp({ frontendOrigin, stub, http, supabase }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
   if (stub) console.log('Stub mode is ON: external API calls are answered from fixtures.')
+  if (!supabase) {
+    console.log('Supabase is NOT configured: routes that need a login are off. Set SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY in backend/.env.')
+  }
 })
