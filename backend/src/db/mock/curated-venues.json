@@ -1,0 +1,3994 @@
+{
+ "_meta": {
+  "source": "frontend/src/lib/mock/venues.js",
+  "convertedBy": "backend/scripts/build-venues.js",
+  "note": "Do not edit by hand: edit the frontend file and re-run pnpm build:venues."
+ },
+ "venues": [
+  {
+   "id": "tiong-bahru-bakery",
+   "name": "Tiong Bahru Bakery",
+   "area": "Tiong Bahru",
+   "nearestMrt": "Tiong Bahru",
+   "mrtWalkMinutes": 10,
+   "lat": 1.28403,
+   "lng": 103.83235,
+   "forecastArea": "central",
+   "category": "drink",
+   "kind": "cafe",
+   "cuisine": "cafe",
+   "avgPricePerPerson": 14,
+   "priceBand": 2,
+   "rating": 4.2,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 8,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 2,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "07:30",
+     "20:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "tea"
+   ],
+   "attributes": {
+    "quiet": 55,
+    "romantic": 45,
+    "cozy": 75,
+    "lively": 45,
+    "privacy": 45,
+    "workFriendly": 70,
+    "celebration": 35
+   },
+   "popularity": 0.8,
+   "tags": [
+    "touristy"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "tiong-bahru-market",
+   "name": "Tiong Bahru Market and Food Centre",
+   "area": "Tiong Bahru",
+   "nearestMrt": "Tiong Bahru",
+   "mrtWalkMinutes": 9,
+   "lat": 1.2852,
+   "lng": 103.8325,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 6,
+   "priceBand": 1,
+   "rating": 4.3,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "06:00",
+     "21:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 20,
+    "romantic": 5,
+    "cozy": 25,
+    "lively": 75,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.75,
+   "tags": [
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "loos-curry-rice",
+   "name": "Loo's Hainanese Curry Rice",
+   "area": "Tiong Bahru",
+   "nearestMrt": "Tiong Bahru",
+   "mrtWalkMinutes": 8,
+   "lat": 1.2839,
+   "lng": 103.8303,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 7,
+   "priceBand": 1,
+   "rating": 4.2,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "08:00",
+     "14:30"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch"
+   ],
+   "attributes": {
+    "quiet": 30,
+    "romantic": 5,
+    "cozy": 35,
+    "lively": 65,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.7,
+   "tags": [
+    "cdc",
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "plain-vanilla",
+   "name": "Plain Vanilla Tiong Bahru",
+   "area": "Tiong Bahru",
+   "nearestMrt": "Tiong Bahru",
+   "mrtWalkMinutes": 9,
+   "lat": 1.2832,
+   "lng": 103.8298,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "dessert",
+   "cuisine": "dessert",
+   "avgPricePerPerson": 9,
+   "priceBand": 2,
+   "rating": 4.1,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 1
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 8,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 3,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "07:30",
+     "19:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "tea"
+   ],
+   "attributes": {
+    "quiet": 50,
+    "romantic": 50,
+    "cozy": 65,
+    "lively": 50,
+    "privacy": 35,
+    "workFriendly": 25,
+    "celebration": 55
+   },
+   "popularity": 0.6,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "forty-hands",
+   "name": "Forty Hands",
+   "area": "Tiong Bahru",
+   "nearestMrt": "Tiong Bahru",
+   "mrtWalkMinutes": 9,
+   "lat": 1.2834,
+   "lng": 103.83,
+   "forecastArea": "central",
+   "category": "drink",
+   "kind": "cafe",
+   "cuisine": "cafe",
+   "avgPricePerPerson": 11,
+   "priceBand": 2,
+   "rating": 4,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 8,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 2,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "08:00",
+     "17:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "tea"
+   ],
+   "attributes": {
+    "quiet": 65,
+    "romantic": 45,
+    "cozy": 75,
+    "lively": 35,
+    "privacy": 45,
+    "workFriendly": 70,
+    "celebration": 35
+   },
+   "popularity": 0.6,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "merci-marcel",
+   "name": "Merci Marcel Tiong Bahru",
+   "area": "Tiong Bahru",
+   "nearestMrt": "Tiong Bahru",
+   "mrtWalkMinutes": 10,
+   "lat": 1.2844,
+   "lng": 103.8329,
+   "forecastArea": "central",
+   "category": "drink",
+   "kind": "cafe",
+   "cuisine": "cafe",
+   "avgPricePerPerson": 28,
+   "priceBand": 3,
+   "rating": 4.1,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 8,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 2,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "08:00",
+     "23:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "tea",
+    "dinner",
+    "supper"
+   ],
+   "attributes": {
+    "quiet": 65,
+    "romantic": 45,
+    "cozy": 75,
+    "lively": 35,
+    "privacy": 45,
+    "workFriendly": 70,
+    "celebration": 35
+   },
+   "popularity": 0.65,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "jian-bo-shui-kueh",
+   "name": "Jian Bo Shui Kueh",
+   "area": "Tiong Bahru",
+   "nearestMrt": "Tiong Bahru",
+   "mrtWalkMinutes": 9,
+   "lat": 1.28525,
+   "lng": 103.83245,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 3,
+   "priceBand": 1,
+   "rating": 4.1,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "06:30",
+     "18:30"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "tea"
+   ],
+   "attributes": {
+    "quiet": 30,
+    "romantic": 5,
+    "cozy": 35,
+    "lively": 65,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.6,
+   "tags": [
+    "cdc",
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "tiong-bahru-plaza",
+   "name": "Tiong Bahru Plaza",
+   "area": "Tiong Bahru",
+   "nearestMrt": "Tiong Bahru",
+   "mrtWalkMinutes": 1,
+   "lat": 1.2865,
+   "lng": 103.8269,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "mall",
+   "cuisine": "mall",
+   "avgPricePerPerson": 20,
+   "priceBand": 2,
+   "rating": 3.8,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 25,
+    "romantic": 15,
+    "cozy": 25,
+    "lively": 70,
+    "privacy": 15,
+    "workFriendly": 15,
+    "celebration": 35
+   },
+   "popularity": 0.7,
+   "tags": [
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "nylon-coffee",
+   "name": "Nylon Coffee Roasters",
+   "area": "Everton Park",
+   "nearestMrt": "Outram Park",
+   "mrtWalkMinutes": 8,
+   "lat": 1.2766,
+   "lng": 103.8395,
+   "forecastArea": "central",
+   "category": "drink",
+   "kind": "cafe",
+   "cuisine": "cafe",
+   "avgPricePerPerson": 7,
+   "priceBand": 1,
+   "rating": 4.3,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 8,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 2,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "08:30",
+     "17:30"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "tea"
+   ],
+   "attributes": {
+    "quiet": 75,
+    "romantic": 45,
+    "cozy": 85,
+    "lively": 25,
+    "privacy": 45,
+    "workFriendly": 70,
+    "celebration": 35
+   },
+   "popularity": 0.5,
+   "tags": [
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "maxwell-food-centre",
+   "name": "Maxwell Food Centre",
+   "area": "Chinatown",
+   "nearestMrt": "Maxwell",
+   "mrtWalkMinutes": 1,
+   "lat": 1.2803,
+   "lng": 103.8447,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 6,
+   "priceBand": 1,
+   "rating": 4.2,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "08:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 10,
+    "romantic": 5,
+    "cozy": 25,
+    "lively": 85,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.9,
+   "tags": [
+    "touristy",
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "chinatown-complex",
+   "name": "Chinatown Complex Food Centre",
+   "area": "Chinatown",
+   "nearestMrt": "Chinatown",
+   "mrtWalkMinutes": 4,
+   "lat": 1.2827,
+   "lng": 103.8429,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 6,
+   "priceBand": 1,
+   "rating": 4.1,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "07:00",
+     "21:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 20,
+    "romantic": 5,
+    "cozy": 25,
+    "lively": 75,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.75,
+   "tags": [
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "buddha-tooth-relic",
+   "name": "Buddha Tooth Relic Temple and Museum",
+   "area": "Chinatown",
+   "nearestMrt": "Maxwell",
+   "mrtWalkMinutes": 2,
+   "lat": 1.2815,
+   "lng": 103.8443,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "attraction",
+   "cuisine": "attraction",
+   "avgPricePerPerson": 0,
+   "priceBand": 1,
+   "rating": 4.4,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 3,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "07:00",
+     "17:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 25,
+    "romantic": 40,
+    "cozy": 30,
+    "lively": 75,
+    "privacy": 20,
+    "workFriendly": 5,
+    "celebration": 45
+   },
+   "popularity": 0.8,
+   "tags": [
+    "touristy"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "potato-head",
+   "name": "Potato Head Singapore",
+   "area": "Keong Saik",
+   "nearestMrt": "Outram Park",
+   "mrtWalkMinutes": 5,
+   "lat": 1.2805,
+   "lng": 103.8415,
+   "forecastArea": "central",
+   "category": "drink",
+   "kind": "bar",
+   "cuisine": "bar",
+   "avgPricePerPerson": 30,
+   "priceBand": 3,
+   "rating": 4.1,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 1
+   },
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 15,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "11:00",
+     "00:00"
+    ]
+   ],
+   "mealPeriods": [
+    "lunch",
+    "tea",
+    "dinner",
+    "supper"
+   ],
+   "attributes": {
+    "quiet": 25,
+    "romantic": 55,
+    "cozy": 45,
+    "lively": 85,
+    "privacy": 35,
+    "workFriendly": 5,
+    "celebration": 75
+   },
+   "popularity": 0.7,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "henderson-waves",
+   "name": "Henderson Waves",
+   "area": "Telok Blangah",
+   "nearestMrt": "Telok Blangah",
+   "mrtWalkMinutes": 15,
+   "lat": 1.2763,
+   "lng": 103.8154,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "park",
+   "cuisine": "park",
+   "avgPricePerPerson": 0,
+   "priceBand": 1,
+   "rating": 4.3,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "outdoor",
+   "exposure": 5,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 1,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "00:00",
+     "24:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 80,
+    "romantic": 60,
+    "cozy": 50,
+    "lively": 25,
+    "privacy": 40,
+    "workFriendly": 15,
+    "celebration": 25
+   },
+   "popularity": 0.4,
+   "tags": [
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "vivocity",
+   "name": "VivoCity",
+   "area": "HarbourFront",
+   "nearestMrt": "HarbourFront",
+   "mrtWalkMinutes": 2,
+   "lat": 1.2644,
+   "lng": 103.8222,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "mall",
+   "cuisine": "mall",
+   "avgPricePerPerson": 25,
+   "priceBand": 3,
+   "rating": 4,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 15,
+    "romantic": 15,
+    "cozy": 25,
+    "lively": 80,
+    "privacy": 15,
+    "workFriendly": 15,
+    "celebration": 35
+   },
+   "popularity": 0.85,
+   "tags": [
+    "touristy"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "national-gallery",
+   "name": "National Gallery Singapore",
+   "area": "City Hall",
+   "nearestMrt": "City Hall",
+   "mrtWalkMinutes": 5,
+   "lat": 1.2904,
+   "lng": 103.8515,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "museum",
+   "cuisine": "museum",
+   "avgPricePerPerson": 20,
+   "priceBand": 2,
+   "rating": 4.4,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 30,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 1,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "19:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 65,
+    "romantic": 45,
+    "cozy": 40,
+    "lively": 35,
+    "privacy": 35,
+    "workFriendly": 20,
+    "celebration": 20
+   },
+   "popularity": 0.6,
+   "tags": [
+    "touristy"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "raffles-city",
+   "name": "Raffles City Shopping Centre",
+   "area": "City Hall",
+   "nearestMrt": "City Hall",
+   "mrtWalkMinutes": 1,
+   "lat": 1.2937,
+   "lng": 103.8532,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "mall",
+   "cuisine": "mall",
+   "avgPricePerPerson": 30,
+   "priceBand": 3,
+   "rating": 4,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 25,
+    "romantic": 15,
+    "cozy": 25,
+    "lively": 70,
+    "privacy": 15,
+    "workFriendly": 15,
+    "celebration": 35
+   },
+   "popularity": 0.75,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "bugis-street",
+   "name": "Bugis Street",
+   "area": "Bugis",
+   "nearestMrt": "Bugis",
+   "mrtWalkMinutes": 2,
+   "lat": 1.3008,
+   "lng": 103.855,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "market",
+   "cuisine": "market",
+   "avgPricePerPerson": 15,
+   "priceBand": 2,
+   "rating": 3.8,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 30,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "11:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 10,
+    "romantic": 20,
+    "cozy": 25,
+    "lively": 90,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 35
+   },
+   "popularity": 0.85,
+   "tags": [
+    "touristy"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "haji-lane",
+   "name": "Haji Lane",
+   "area": "Kampong Glam",
+   "nearestMrt": "Bugis",
+   "mrtWalkMinutes": 7,
+   "lat": 1.3014,
+   "lng": 103.859,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "market",
+   "cuisine": "market",
+   "avgPricePerPerson": 25,
+   "priceBand": 3,
+   "rating": 4.1,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "outdoor",
+   "exposure": 4,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 30,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "11:00",
+     "20:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 10,
+    "romantic": 20,
+    "cozy": 25,
+    "lively": 90,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 35
+   },
+   "popularity": 0.7,
+   "tags": [
+    "touristy"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "zam-zam",
+   "name": "Zam Zam Singapore",
+   "area": "Kampong Glam",
+   "nearestMrt": "Bugis",
+   "mrtWalkMinutes": 7,
+   "lat": 1.3023,
+   "lng": 103.8584,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "restaurant",
+   "cuisine": "restaurant",
+   "avgPricePerPerson": 9,
+   "priceBand": 2,
+   "rating": 4.1,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 12,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 3,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "07:00",
+     "23:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "dinner",
+    "supper"
+   ],
+   "attributes": {
+    "quiet": 55,
+    "romantic": 55,
+    "cozy": 60,
+    "lively": 50,
+    "privacy": 55,
+    "workFriendly": 15,
+    "celebration": 65
+   },
+   "popularity": 0.65,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "atlas",
+   "name": "Atlas",
+   "area": "Bugis",
+   "nearestMrt": "Bugis",
+   "mrtWalkMinutes": 5,
+   "lat": 1.299,
+   "lng": 103.858,
+   "forecastArea": "central",
+   "category": "drink",
+   "kind": "bar",
+   "cuisine": "bar",
+   "avgPricePerPerson": 35,
+   "priceBand": 3,
+   "rating": 4.5,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 1
+   },
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 15,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "12:00",
+     "00:00"
+    ]
+   ],
+   "mealPeriods": [
+    "tea",
+    "dinner",
+    "supper"
+   ],
+   "attributes": {
+    "quiet": 15,
+    "romantic": 55,
+    "cozy": 45,
+    "lively": 95,
+    "privacy": 35,
+    "workFriendly": 5,
+    "celebration": 75
+   },
+   "popularity": 0.7,
+   "tags": [
+    "touristy"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "chye-seng-huat",
+   "name": "Chye Seng Huat Hardware",
+   "area": "Jalan Besar",
+   "nearestMrt": "Farrer Park",
+   "mrtWalkMinutes": 9,
+   "lat": 1.3113,
+   "lng": 103.8613,
+   "forecastArea": "central",
+   "category": "drink",
+   "kind": "cafe",
+   "cuisine": "cafe",
+   "avgPricePerPerson": 9,
+   "priceBand": 2,
+   "rating": 4.2,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 8,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 2,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "08:30",
+     "17:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "tea"
+   ],
+   "attributes": {
+    "quiet": 75,
+    "romantic": 45,
+    "cozy": 85,
+    "lively": 25,
+    "privacy": 45,
+    "workFriendly": 70,
+    "celebration": 35
+   },
+   "popularity": 0.6,
+   "tags": [
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "national-museum",
+   "name": "National Museum of Singapore",
+   "area": "Dhoby Ghaut",
+   "nearestMrt": "Bras Basah",
+   "mrtWalkMinutes": 5,
+   "lat": 1.2966,
+   "lng": 103.8485,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "museum",
+   "cuisine": "museum",
+   "avgPricePerPerson": 15,
+   "priceBand": 2,
+   "rating": 4.3,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 30,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 1,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "19:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 65,
+    "romantic": 45,
+    "cozy": 40,
+    "lively": 35,
+    "privacy": 35,
+    "workFriendly": 20,
+    "celebration": 20
+   },
+   "popularity": 0.5,
+   "tags": [
+    "touristy"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "plaza-singapura",
+   "name": "Plaza Singapura",
+   "area": "Dhoby Ghaut",
+   "nearestMrt": "Dhoby Ghaut",
+   "mrtWalkMinutes": 1,
+   "lat": 1.3007,
+   "lng": 103.8451,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "mall",
+   "cuisine": "mall",
+   "avgPricePerPerson": 20,
+   "priceBand": 2,
+   "rating": 3.9,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 25,
+    "romantic": 15,
+    "cozy": 25,
+    "lively": 70,
+    "privacy": 15,
+    "workFriendly": 15,
+    "celebration": 35
+   },
+   "popularity": 0.8,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "fort-canning-park",
+   "name": "Fort Canning Park",
+   "area": "Dhoby Ghaut",
+   "nearestMrt": "Fort Canning",
+   "mrtWalkMinutes": 3,
+   "lat": 1.2947,
+   "lng": 103.8459,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "park",
+   "cuisine": "park",
+   "avgPricePerPerson": 0,
+   "priceBand": 1,
+   "rating": 4.3,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "outdoor",
+   "exposure": 5,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 1,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "00:00",
+     "24:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 70,
+    "romantic": 60,
+    "cozy": 40,
+    "lively": 35,
+    "privacy": 40,
+    "workFriendly": 15,
+    "celebration": 25
+   },
+   "popularity": 0.4,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "ion-orchard",
+   "name": "ION Orchard",
+   "area": "Orchard",
+   "nearestMrt": "Orchard",
+   "mrtWalkMinutes": 1,
+   "lat": 1.304,
+   "lng": 103.8319,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "mall",
+   "cuisine": "mall",
+   "avgPricePerPerson": 40,
+   "priceBand": 3,
+   "rating": 4.1,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 15,
+    "romantic": 15,
+    "cozy": 25,
+    "lively": 80,
+    "privacy": 15,
+    "workFriendly": 15,
+    "celebration": 35
+   },
+   "popularity": 0.85,
+   "tags": [
+    "touristy"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "velocity",
+   "name": "Velocity@Novena Square",
+   "area": "Novena",
+   "nearestMrt": "Novena",
+   "mrtWalkMinutes": 1,
+   "lat": 1.3204,
+   "lng": 103.8438,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "mall",
+   "cuisine": "mall",
+   "avgPricePerPerson": 15,
+   "priceBand": 2,
+   "rating": 3.7,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 25,
+    "romantic": 15,
+    "cozy": 25,
+    "lively": 70,
+    "privacy": 15,
+    "workFriendly": 15,
+    "celebration": 35
+   },
+   "popularity": 0.6,
+   "tags": [
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "united-square",
+   "name": "United Square",
+   "area": "Novena",
+   "nearestMrt": "Novena",
+   "mrtWalkMinutes": 4,
+   "lat": 1.3171,
+   "lng": 103.8437,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "mall",
+   "cuisine": "mall",
+   "avgPricePerPerson": 20,
+   "priceBand": 2,
+   "rating": 3.8,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 25,
+    "romantic": 15,
+    "cozy": 25,
+    "lively": 70,
+    "privacy": 15,
+    "workFriendly": 15,
+    "celebration": 35
+   },
+   "popularity": 0.55,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "boon-tong-kee",
+   "name": "Boon Tong Kee Balestier",
+   "area": "Balestier",
+   "nearestMrt": "Novena",
+   "mrtWalkMinutes": 10,
+   "lat": 1.3248,
+   "lng": 103.8499,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "restaurant",
+   "cuisine": "restaurant",
+   "avgPricePerPerson": 15,
+   "priceBand": 2,
+   "rating": 4,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 12,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 3,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "11:00",
+     "14:30"
+    ],
+    [
+     "17:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [
+    "lunch",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 55,
+    "romantic": 55,
+    "cozy": 60,
+    "lively": 50,
+    "privacy": 55,
+    "workFriendly": 15,
+    "celebration": 65
+   },
+   "popularity": 0.6,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "founder-bak-kut-teh",
+   "name": "Founder Bak Kut Teh",
+   "area": "Balestier",
+   "nearestMrt": "Novena",
+   "mrtWalkMinutes": 12,
+   "lat": 1.3235,
+   "lng": 103.8498,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "restaurant",
+   "cuisine": "restaurant",
+   "avgPricePerPerson": 14,
+   "priceBand": 2,
+   "rating": 4,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 12,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 3,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "09:00",
+     "21:30"
+    ]
+   ],
+   "mealPeriods": [
+    "lunch",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 45,
+    "romantic": 55,
+    "cozy": 60,
+    "lively": 60,
+    "privacy": 55,
+    "workFriendly": 15,
+    "celebration": 65
+   },
+   "popularity": 0.55,
+   "tags": [
+    "touristy"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "wheelers-yard",
+   "name": "Wheeler's Yard",
+   "area": "Balestier",
+   "nearestMrt": "Novena",
+   "mrtWalkMinutes": 14,
+   "lat": 1.3263,
+   "lng": 103.8501,
+   "forecastArea": "central",
+   "category": "drink",
+   "kind": "cafe",
+   "cuisine": "cafe",
+   "avgPricePerPerson": 20,
+   "priceBand": 2,
+   "rating": 4,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 8,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 2,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [
+    "lunch",
+    "tea",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 75,
+    "romantic": 45,
+    "cozy": 85,
+    "lively": 25,
+    "privacy": 45,
+    "workFriendly": 70,
+    "celebration": 35
+   },
+   "popularity": 0.5,
+   "tags": [
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "whampoa-makan-place",
+   "name": "Whampoa Makan Place",
+   "area": "Whampoa",
+   "nearestMrt": "Boon Keng",
+   "mrtWalkMinutes": 10,
+   "lat": 1.3232,
+   "lng": 103.8542,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 5,
+   "priceBand": 1,
+   "rating": 4,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "06:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 30,
+    "romantic": 5,
+    "cozy": 35,
+    "lively": 65,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.55,
+   "tags": [
+    "cdc",
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "newton-food-centre",
+   "name": "Newton Food Centre",
+   "area": "Newton",
+   "nearestMrt": "Newton",
+   "mrtWalkMinutes": 3,
+   "lat": 1.312,
+   "lng": 103.8396,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 15,
+   "priceBand": 2,
+   "rating": 3.9,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "outdoor",
+   "exposure": 4,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "17:00",
+     "02:00"
+    ]
+   ],
+   "mealPeriods": [
+    "dinner",
+    "supper"
+   ],
+   "attributes": {
+    "quiet": 10,
+    "romantic": 5,
+    "cozy": 25,
+    "lively": 85,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.7,
+   "tags": [
+    "touristy"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "lorong-8-toa-payoh",
+   "name": "Toa Payoh Lorong 8 Market and Food Centre",
+   "area": "Toa Payoh",
+   "nearestMrt": "Braddell",
+   "mrtWalkMinutes": 9,
+   "lat": 1.3385,
+   "lng": 103.8545,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 5,
+   "priceBand": 1,
+   "rating": 4,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "06:00",
+     "20:30"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 30,
+    "romantic": 5,
+    "cozy": 35,
+    "lively": 65,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.55,
+   "tags": [
+    "cdc",
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "creamier-toa-payoh",
+   "name": "Creamier Toa Payoh",
+   "area": "Toa Payoh",
+   "nearestMrt": "Braddell",
+   "mrtWalkMinutes": 8,
+   "lat": 1.3373,
+   "lng": 103.8438,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "dessert",
+   "cuisine": "dessert",
+   "avgPricePerPerson": 8,
+   "priceBand": 1,
+   "rating": 4.3,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 1
+   },
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 8,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 3,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "12:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [
+    "tea",
+    "supper"
+   ],
+   "attributes": {
+    "quiet": 60,
+    "romantic": 50,
+    "cozy": 75,
+    "lively": 40,
+    "privacy": 35,
+    "workFriendly": 25,
+    "celebration": 55
+   },
+   "popularity": 0.6,
+   "tags": [
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "toa-payoh-central",
+   "name": "Toa Payoh Central",
+   "area": "Toa Payoh",
+   "nearestMrt": "Toa Payoh",
+   "mrtWalkMinutes": 1,
+   "lat": 1.3324,
+   "lng": 103.8476,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "mall",
+   "cuisine": "mall",
+   "avgPricePerPerson": 12,
+   "priceBand": 2,
+   "rating": 3.7,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 25,
+    "romantic": 15,
+    "cozy": 25,
+    "lively": 70,
+    "privacy": 15,
+    "workFriendly": 15,
+    "celebration": 35
+   },
+   "popularity": 0.6,
+   "tags": [
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "dragon-playground",
+   "name": "Toa Payoh Dragon Playground",
+   "area": "Toa Payoh",
+   "nearestMrt": "Toa Payoh",
+   "mrtWalkMinutes": 9,
+   "lat": 1.3346,
+   "lng": 103.853,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "park",
+   "cuisine": "park",
+   "avgPricePerPerson": 0,
+   "priceBand": 1,
+   "rating": 4.2,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "outdoor",
+   "exposure": 5,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 1,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "00:00",
+     "24:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 80,
+    "romantic": 60,
+    "cozy": 50,
+    "lively": 25,
+    "privacy": 40,
+    "workFriendly": 15,
+    "celebration": 25
+   },
+   "popularity": 0.3,
+   "tags": [
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "toa-payoh-town-park",
+   "name": "Toa Payoh Town Park",
+   "area": "Toa Payoh",
+   "nearestMrt": "Toa Payoh",
+   "mrtWalkMinutes": 4,
+   "lat": 1.333,
+   "lng": 103.8496,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "park",
+   "cuisine": "park",
+   "avgPricePerPerson": 0,
+   "priceBand": 1,
+   "rating": 4,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "outdoor",
+   "exposure": 5,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 1,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "00:00",
+     "24:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 70,
+    "romantic": 60,
+    "cozy": 40,
+    "lively": 35,
+    "privacy": 40,
+    "workFriendly": 15,
+    "celebration": 25
+   },
+   "popularity": 0.3,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "toa-payoh-library",
+   "name": "Toa Payoh Public Library",
+   "area": "Toa Payoh",
+   "nearestMrt": "Toa Payoh",
+   "mrtWalkMinutes": 3,
+   "lat": 1.3331,
+   "lng": 103.8488,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "library",
+   "cuisine": "library",
+   "avgPricePerPerson": 0,
+   "priceBand": 1,
+   "rating": 3.9,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 1,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "21:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 95,
+    "romantic": 10,
+    "cozy": 45,
+    "lively": 5,
+    "privacy": 40,
+    "workFriendly": 95,
+    "celebration": 0
+   },
+   "popularity": 0.4,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "junction-8",
+   "name": "Junction 8",
+   "area": "Bishan",
+   "nearestMrt": "Bishan",
+   "mrtWalkMinutes": 1,
+   "lat": 1.3505,
+   "lng": 103.8488,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "mall",
+   "cuisine": "mall",
+   "avgPricePerPerson": 15,
+   "priceBand": 2,
+   "rating": 3.9,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 25,
+    "romantic": 15,
+    "cozy": 25,
+    "lively": 70,
+    "privacy": 15,
+    "workFriendly": 15,
+    "celebration": 35
+   },
+   "popularity": 0.75,
+   "tags": [
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "bishan-library",
+   "name": "Bishan Public Library",
+   "area": "Bishan",
+   "nearestMrt": "Bishan",
+   "mrtWalkMinutes": 3,
+   "lat": 1.3502,
+   "lng": 103.8496,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "library",
+   "cuisine": "library",
+   "avgPricePerPerson": 0,
+   "priceBand": 1,
+   "rating": 4,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 1,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "21:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 95,
+    "romantic": 10,
+    "cozy": 45,
+    "lively": 5,
+    "privacy": 40,
+    "workFriendly": 95,
+    "celebration": 0
+   },
+   "popularity": 0.35,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "bishan-amk-park",
+   "name": "Bishan-Ang Mo Kio Park",
+   "area": "Bishan",
+   "nearestMrt": "Bishan",
+   "mrtWalkMinutes": 14,
+   "lat": 1.3629,
+   "lng": 103.8447,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "park",
+   "cuisine": "park",
+   "avgPricePerPerson": 0,
+   "priceBand": 1,
+   "rating": 4.3,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "outdoor",
+   "exposure": 5,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 1,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "00:00",
+     "24:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 70,
+    "romantic": 60,
+    "cozy": 40,
+    "lively": 35,
+    "privacy": 40,
+    "workFriendly": 15,
+    "celebration": 25
+   },
+   "popularity": 0.45,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "bishan-swimming",
+   "name": "Bishan ActiveSG Swimming Complex",
+   "area": "Bishan",
+   "nearestMrt": "Bishan",
+   "mrtWalkMinutes": 8,
+   "lat": 1.3556,
+   "lng": 103.8511,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "sports",
+   "cuisine": "sports",
+   "avgPricePerPerson": 2,
+   "priceBand": 1,
+   "rating": 3.9,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "outdoor",
+   "exposure": 5,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "08:00",
+     "21:30"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 20,
+    "romantic": 10,
+    "cozy": 10,
+    "lively": 80,
+    "privacy": 10,
+    "workFriendly": 0,
+    "celebration": 40
+   },
+   "popularity": 0.4,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "kopitiam-junction-8",
+   "name": "Kopitiam Junction 8",
+   "area": "Bishan",
+   "nearestMrt": "Bishan",
+   "mrtWalkMinutes": 1,
+   "lat": 1.3504,
+   "lng": 103.8486,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 6,
+   "priceBand": 1,
+   "rating": 3.7,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "07:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 20,
+    "romantic": 5,
+    "cozy": 25,
+    "lively": 75,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.65,
+   "tags": [
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "ya-kun-junction-8",
+   "name": "Ya Kun Kaya Toast Junction 8",
+   "area": "Bishan",
+   "nearestMrt": "Bishan",
+   "mrtWalkMinutes": 1,
+   "lat": 1.3506,
+   "lng": 103.849,
+   "forecastArea": "central",
+   "category": "drink",
+   "kind": "cafe",
+   "cuisine": "cafe",
+   "avgPricePerPerson": 5,
+   "priceBand": 1,
+   "rating": 3.8,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 8,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 2,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "07:30",
+     "21:30"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "tea"
+   ],
+   "attributes": {
+    "quiet": 65,
+    "romantic": 45,
+    "cozy": 75,
+    "lively": 35,
+    "privacy": 45,
+    "workFriendly": 70,
+    "celebration": 35
+   },
+   "popularity": 0.6,
+   "tags": [
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "starbucks-junction-8",
+   "name": "Starbucks Junction 8",
+   "area": "Bishan",
+   "nearestMrt": "Bishan",
+   "mrtWalkMinutes": 1,
+   "lat": 1.3507,
+   "lng": 103.8485,
+   "forecastArea": "central",
+   "category": "drink",
+   "kind": "cafe",
+   "cuisine": "cafe",
+   "avgPricePerPerson": 9,
+   "priceBand": 2,
+   "rating": 3.7,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 8,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 2,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "07:30",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "tea",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 65,
+    "romantic": 45,
+    "cozy": 75,
+    "lively": 35,
+    "privacy": 45,
+    "workFriendly": 70,
+    "celebration": 35
+   },
+   "popularity": 0.7,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "ming-kee-chicken-rice",
+   "name": "Ming Kee Chicken Rice",
+   "area": "Bishan",
+   "nearestMrt": "Bishan",
+   "mrtWalkMinutes": 6,
+   "lat": 1.3518,
+   "lng": 103.8456,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 6,
+   "priceBand": 1,
+   "rating": 4.1,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:30",
+     "20:30"
+    ]
+   ],
+   "mealPeriods": [
+    "lunch",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 30,
+    "romantic": 5,
+    "cozy": 35,
+    "lively": 65,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.6,
+   "tags": [
+    "cdc",
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "sin-ming-roti-prata",
+   "name": "Sin Ming Roti Prata",
+   "area": "Sin Ming",
+   "nearestMrt": "Marymount",
+   "mrtWalkMinutes": 12,
+   "lat": 1.3559,
+   "lng": 103.8382,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 5,
+   "priceBand": 1,
+   "rating": 4.1,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "06:30",
+     "18:30"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch"
+   ],
+   "attributes": {
+    "quiet": 30,
+    "romantic": 5,
+    "cozy": 35,
+    "lively": 65,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.55,
+   "tags": [
+    "cdc",
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "roti-prata-house",
+   "name": "Roti Prata House",
+   "area": "Upper Thomson",
+   "nearestMrt": "Upper Thomson",
+   "mrtWalkMinutes": 2,
+   "lat": 1.3544,
+   "lng": 103.8328,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "restaurant",
+   "cuisine": "restaurant",
+   "avgPricePerPerson": 6,
+   "priceBand": 1,
+   "rating": 4,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 12,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 3,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "07:00",
+     "01:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "tea",
+    "dinner",
+    "supper"
+   ],
+   "attributes": {
+    "quiet": 55,
+    "romantic": 55,
+    "cozy": 60,
+    "lively": 50,
+    "privacy": 55,
+    "workFriendly": 15,
+    "celebration": 65
+   },
+   "popularity": 0.6,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "udders-thomson",
+   "name": "Udders Upper Thomson",
+   "area": "Upper Thomson",
+   "nearestMrt": "Upper Thomson",
+   "mrtWalkMinutes": 3,
+   "lat": 1.3533,
+   "lng": 103.8347,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "dessert",
+   "cuisine": "dessert",
+   "avgPricePerPerson": 8,
+   "priceBand": 1,
+   "rating": 4.2,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 1
+   },
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 8,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 3,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "12:00",
+     "23:00"
+    ]
+   ],
+   "mealPeriods": [
+    "tea",
+    "supper"
+   ],
+   "attributes": {
+    "quiet": 60,
+    "romantic": 50,
+    "cozy": 75,
+    "lively": 40,
+    "privacy": 35,
+    "workFriendly": 25,
+    "celebration": 55
+   },
+   "popularity": 0.55,
+   "tags": [
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "thomson-plaza",
+   "name": "Thomson Plaza",
+   "area": "Upper Thomson",
+   "nearestMrt": "Upper Thomson",
+   "mrtWalkMinutes": 3,
+   "lat": 1.3548,
+   "lng": 103.8306,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "mall",
+   "cuisine": "mall",
+   "avgPricePerPerson": 15,
+   "priceBand": 2,
+   "rating": 3.7,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 25,
+    "romantic": 15,
+    "cozy": 25,
+    "lively": 70,
+    "privacy": 15,
+    "workFriendly": 15,
+    "celebration": 35
+   },
+   "popularity": 0.5,
+   "tags": [
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "nex",
+   "name": "NEX",
+   "area": "Serangoon",
+   "nearestMrt": "Serangoon",
+   "mrtWalkMinutes": 1,
+   "lat": 1.3507,
+   "lng": 103.8723,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "mall",
+   "cuisine": "mall",
+   "avgPricePerPerson": 15,
+   "priceBand": 2,
+   "rating": 4,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 25,
+    "romantic": 15,
+    "cozy": 25,
+    "lively": 70,
+    "privacy": 15,
+    "workFriendly": 15,
+    "celebration": 35
+   },
+   "popularity": 0.8,
+   "tags": [
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "shaw-nex",
+   "name": "Shaw Theatres Nex",
+   "area": "Serangoon",
+   "nearestMrt": "Serangoon",
+   "mrtWalkMinutes": 2,
+   "lat": 1.3506,
+   "lng": 103.8721,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "cinema",
+   "cuisine": "cinema",
+   "avgPricePerPerson": 14,
+   "priceBand": 2,
+   "rating": 3.9,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 2,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "01:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 60,
+    "romantic": 65,
+    "cozy": 50,
+    "lively": 40,
+    "privacy": 40,
+    "workFriendly": 0,
+    "celebration": 45
+   },
+   "popularity": 0.6,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "serangoon-library",
+   "name": "Serangoon Public Library",
+   "area": "Serangoon",
+   "nearestMrt": "Serangoon",
+   "mrtWalkMinutes": 2,
+   "lat": 1.3508,
+   "lng": 103.8724,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "library",
+   "cuisine": "library",
+   "avgPricePerPerson": 0,
+   "priceBand": 1,
+   "rating": 3.9,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 1,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "21:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 95,
+    "romantic": 10,
+    "cozy": 45,
+    "lively": 5,
+    "privacy": 40,
+    "workFriendly": 95,
+    "celebration": 0
+   },
+   "popularity": 0.35,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "nex-rooftop-garden",
+   "name": "NEX Rooftop Garden",
+   "area": "Serangoon",
+   "nearestMrt": "Serangoon",
+   "mrtWalkMinutes": 3,
+   "lat": 1.3505,
+   "lng": 103.8726,
+   "forecastArea": "central",
+   "category": "activity",
+   "kind": "park",
+   "cuisine": "park",
+   "avgPricePerPerson": 0,
+   "priceBand": 1,
+   "rating": 3.8,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "outdoor",
+   "exposure": 5,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 1,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 80,
+    "romantic": 60,
+    "cozy": 50,
+    "lively": 25,
+    "privacy": 40,
+    "workFriendly": 15,
+    "celebration": 25
+   },
+   "popularity": 0.35,
+   "tags": [
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "sushi-tei-nex",
+   "name": "Sushi Tei NEX",
+   "area": "Serangoon",
+   "nearestMrt": "Serangoon",
+   "mrtWalkMinutes": 2,
+   "lat": 1.3508,
+   "lng": 103.8725,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "restaurant",
+   "cuisine": "restaurant",
+   "avgPricePerPerson": 28,
+   "priceBand": 3,
+   "rating": 3.9,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 12,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 3,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "11:30",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [
+    "lunch",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 55,
+    "romantic": 55,
+    "cozy": 60,
+    "lively": 50,
+    "privacy": 55,
+    "workFriendly": 15,
+    "celebration": 65
+   },
+   "popularity": 0.65,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "food-republic-nex",
+   "name": "Food Republic NEX",
+   "area": "Serangoon",
+   "nearestMrt": "Serangoon",
+   "mrtWalkMinutes": 1,
+   "lat": 1.3509,
+   "lng": 103.8722,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 8,
+   "priceBand": 1,
+   "rating": 3.7,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "08:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 20,
+    "romantic": 5,
+    "cozy": 25,
+    "lively": 75,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.7,
+   "tags": [
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "chomp-chomp",
+   "name": "Chomp Chomp Food Centre",
+   "area": "Serangoon Gardens",
+   "nearestMrt": "Lorong Chuan",
+   "mrtWalkMinutes": 20,
+   "lat": 1.3641,
+   "lng": 103.866,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 10,
+   "priceBand": 2,
+   "rating": 4.2,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "outdoor",
+   "exposure": 4,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "17:30",
+     "00:00"
+    ]
+   ],
+   "mealPeriods": [
+    "dinner",
+    "supper"
+   ],
+   "attributes": {
+    "quiet": 20,
+    "romantic": 5,
+    "cozy": 25,
+    "lively": 75,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.8,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "myvillage",
+   "name": "myVillage at Serangoon Garden",
+   "area": "Serangoon Gardens",
+   "nearestMrt": "Lorong Chuan",
+   "mrtWalkMinutes": 18,
+   "lat": 1.364,
+   "lng": 103.8652,
+   "forecastArea": "central",
+   "category": "shop",
+   "kind": "mall",
+   "cuisine": "mall",
+   "avgPricePerPerson": 15,
+   "priceBand": 2,
+   "rating": 3.7,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 25,
+    "romantic": 15,
+    "cozy": 25,
+    "lively": 70,
+    "privacy": 15,
+    "workFriendly": 15,
+    "celebration": 35
+   },
+   "popularity": 0.45,
+   "tags": [],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "serangoon-garden-market",
+   "name": "Serangoon Garden Market",
+   "area": "Serangoon Gardens",
+   "nearestMrt": "Lorong Chuan",
+   "mrtWalkMinutes": 18,
+   "lat": 1.3635,
+   "lng": 103.865,
+   "forecastArea": "central",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 5,
+   "priceBand": 1,
+   "rating": 4,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "indoor",
+   "exposure": 2,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "06:00",
+     "14:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch"
+   ],
+   "attributes": {
+    "quiet": 30,
+    "romantic": 5,
+    "cozy": 35,
+    "lively": 65,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.5,
+   "tags": [
+    "cdc",
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "lolas-cafe",
+   "name": "Lola's Café",
+   "area": "Kovan",
+   "nearestMrt": "Kovan",
+   "mrtWalkMinutes": 2,
+   "lat": 1.3601,
+   "lng": 103.8862,
+   "forecastArea": "east",
+   "category": "drink",
+   "kind": "cafe",
+   "cuisine": "cafe",
+   "avgPricePerPerson": 20,
+   "priceBand": 2,
+   "rating": 4.1,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 3
+   },
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": false,
+   "maxGroupSize": 8,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 2,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [
+    "lunch",
+    "tea",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 75,
+    "romantic": 45,
+    "cozy": 85,
+    "lively": 25,
+    "privacy": 45,
+    "workFriendly": 70,
+    "celebration": 35
+   },
+   "popularity": 0.6,
+   "tags": [
+    "hidden"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "heartland-mall",
+   "name": "Heartland Mall Kovan",
+   "area": "Kovan",
+   "nearestMrt": "Kovan",
+   "mrtWalkMinutes": 2,
+   "lat": 1.3592,
+   "lng": 103.8854,
+   "forecastArea": "east",
+   "category": "shop",
+   "kind": "mall",
+   "cuisine": "mall",
+   "avgPricePerPerson": 12,
+   "priceBand": 2,
+   "rating": 3.5,
+   "ratingCount": null,
+   "diet": null,
+   "setting": "indoor",
+   "exposure": 0,
+   "aircon": true,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 50,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": true,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "10:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [],
+   "attributes": {
+    "quiet": 25,
+    "romantic": 15,
+    "cozy": 25,
+    "lively": 70,
+    "privacy": 15,
+    "workFriendly": 15,
+    "celebration": 35
+   },
+   "popularity": 0.45,
+   "tags": [
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": false,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  },
+  {
+   "id": "kovan-209-market",
+   "name": "Kovan 209 Market and Food Centre",
+   "area": "Kovan",
+   "nearestMrt": "Kovan",
+   "mrtWalkMinutes": 3,
+   "lat": 1.3588,
+   "lng": 103.8848,
+   "forecastArea": "east",
+   "category": "eat",
+   "kind": "hawker",
+   "cuisine": "hawker",
+   "avgPricePerPerson": 5,
+   "priceBand": 1,
+   "rating": 3.9,
+   "ratingCount": null,
+   "diet": {
+    "halal": "unknown",
+    "vegetarian": "unknown",
+    "vegan": "unknown",
+    "healthy": 2
+   },
+   "setting": "indoor",
+   "exposure": 1,
+   "aircon": false,
+   "stepFree": null,
+   "sockets": null,
+   "wifi": null,
+   "cdcAccepted": true,
+   "maxGroupSize": 20,
+   "hasPrivateRoom": false,
+   "cakeFriendly": false,
+   "longStayOk": false,
+   "noise": 4,
+   "queueMinutesPeak": null,
+   "openingHours": [
+    [
+     "06:00",
+     "22:00"
+    ]
+   ],
+   "mealPeriods": [
+    "breakfast",
+    "lunch",
+    "dinner"
+   ],
+   "attributes": {
+    "quiet": 20,
+    "romantic": 5,
+    "cozy": 25,
+    "lively": 75,
+    "privacy": 10,
+    "workFriendly": 5,
+    "celebration": 25
+   },
+   "popularity": 0.55,
+   "tags": [
+    "cdc"
+   ],
+   "source": "curated",
+   "dataQuality": {
+    "attributesAreDefaults": true,
+    "dietUnknown": true,
+    "accessUnknown": true,
+    "ratingRescaledFrom10": true,
+    "forecastAreaApprox": true
+   }
+  }
+ ]
+}

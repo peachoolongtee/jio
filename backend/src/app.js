@@ -1,5 +1,7 @@
 import express from 'express'
 import cors from 'cors'
+import { loadPlanData } from './db/venues.js'
+import { createPlanRouter } from './routes/plan.js'
 import { createHttp } from './services/http.js'
 import { scenarioMiddleware } from './services/scenario.js'
 
@@ -15,7 +17,8 @@ import { scenarioMiddleware } from './services/scenario.js'
 //   frontendOrigin - The one origin CORS allows. Required, and never "*".
 //   stub           - true answers external API calls from fixtures.
 //   http           - The HTTP helper to share. Defaults to one built from `stub`.
-export function createApp({ frontendOrigin, stub = false, http = createHttp({ stub }) }) {
+//   planData       - Venues and settings the planner reads. Defaults to loadPlanData() (mock + curated + CDC).
+export function createApp({ frontendOrigin, stub = false, http = createHttp({ stub }), planData = loadPlanData() }) {
   if (!frontendOrigin || frontendOrigin === '*') {
     throw new Error('createApp needs one explicit frontend origin; "*" is not allowed.')
   }
@@ -41,6 +44,21 @@ export function createApp({ frontendOrigin, stub = false, http = createHttp({ st
   // Uptime ping. The Render keep-alive cron hits this.
   app.get('/healthz', (req, res) => {
     res.status(200).json({ ok: true })
+  })
+
+  // Planner: /api/meeting-area, /api/converge, /api/roam.
+  app.use('/api', createPlanRouter({ data: planData }))
+
+  // Errors always come back as JSON, never as an HTML page.
+  // A body that is not valid JSON is the caller's mistake (400). Anything else is a bug on our side (500).
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, req, res, next) => {
+    if (err.type === 'entity.parse.failed') {
+      res.status(400).json({ error: 'invalid_json', message: 'The request body is not valid JSON.' })
+      return
+    }
+    console.error(err)
+    res.status(500).json({ error: 'server_error', message: 'Something went wrong on the server.' })
   })
 
   return app
