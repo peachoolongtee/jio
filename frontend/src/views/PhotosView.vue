@@ -1,19 +1,22 @@
 <script setup>
 // Photos: everyone in the session posts pictures from the day, newest first.
-//   - The newest photo leads, large, with the next two beside it (under it on a phone).
-//   - The rest sit in a masonry wall of mixed shapes.
-//   - Each photo carries a small frosted tag with who posted it; the lead one also says when, and where
-//     (the stop on the itinerary at that time, when it was posted on the day).
-//   - Tapping a photo opens the swipeable viewer on that photo, growing out of its tile.
-//   - The Rausch camera button adds photos. Your own photos can be deleted in the viewer.
+//   - They hang as instant prints on a string (PolaroidLine): drag it, use the arrows or ← and →. Each print's
+//     note says where it was taken (the stop on the itinerary at that time, when posted on the day) or who
+//     posted it; the line underneath says who, when and where.
+//   - Tapping the print in the middle opens the swipeable viewer on it, growing out of the print. Swiping in the
+//     viewer moves the line along behind it.
+//   - All photos, as small thumbnails underneath: tapping one brings its print to the middle of the line.
+//   - "Add photos" sits above the line (the Rausch camera floats while there are none). Your own photos can be
+//     deleted in the viewer.
 import { computed, onMounted, ref, watch } from 'vue'
+import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AvatarStack from '@/components/ui/AvatarStack.vue'
+import PolaroidLine from '@/components/ui/PolaroidLine.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import PhotoViewer from '@/components/ui/PhotoViewer.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
-import UserAvatar from '@/components/ui/UserAvatar.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import NotFoundView from './NotFoundView.vue'
@@ -23,13 +26,11 @@ import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({ id: { type: String, required: true } })
 
-// The wall's tile shapes, in turn, so neighbouring photos differ.
-const SHAPES = ['4 / 5', '1 / 1', '3 / 4', '4 / 3', '1 / 1', '4 / 5', '5 / 4']
-const LEAD = 3
-
 const events = useEventsStore()
 const missing = ref(false)
 const viewing = ref(-1)
+// The print in the middle of the line.
+const current = ref(0)
 const uploading = ref(0)
 const error = ref('')
 const input = ref(null)
@@ -53,8 +54,6 @@ watch(() => props.id, load)
 
 // Newest first, for the gallery and the viewer alike, so swiping on moves back in time.
 const ordered = computed(() => [...(session.value?.photos || [])].reverse())
-const lead = computed(() => ordered.value.slice(0, LEAD))
-const rest = computed(() => ordered.value.slice(LEAD))
 const contributors = computed(() => [...new Map(ordered.value.map((p) => [p.personId, { id: p.personId, name: p.name }])).values()])
 
 const time = (at) => new Date(at).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -75,9 +74,26 @@ function placeOf(photo) {
   return stop?.venue.name || ''
 }
 
-// The gallery picture of photo `i`, for the viewer to grow out of and shrink back into.
+// The prints: the note on the print, and the line under the string.
+const prints = computed(() =>
+  ordered.value.map((p) => {
+    const place = placeOf(p)
+    return { id: p.id, src: p.src, alt: `Photo by ${p.name}`, note: place || p.name, title: `Photo by ${p.name}`, caption: [time(p.at), place].filter(Boolean).join(' · ') }
+  }),
+)
+
+// The print of photo `i`, for the viewer to grow out of and shrink back into.
 const tileImage = (i) => gallery.value?.querySelector(`[data-photo="${i}"] img`) || null
 const openPhoto = (i) => viewer.value?.open(i)
+// Swiping in the viewer moves the line along behind it, so closing lands on the same print.
+watch(viewing, (i) => {
+  if (i >= 0) current.value = i
+})
+// A thumbnail: bring its print to the middle and the line into view.
+function showPrint(i) {
+  current.value = i
+  gallery.value?.querySelector('.pl')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+}
 
 async function onFiles(event) {
   const files = [...(event.target.files || [])]
@@ -113,61 +129,36 @@ async function remove(photo) {
       <EmptyState v-else-if="!ordered.length && !uploading" illustration="done" title="No photos yet" />
 
       <div v-else ref="gallery" class="gallery">
-        <p class="gallery__sum">
+        <div class="gallery__sum">
           <AvatarStack :people="contributors" :size="24" :max="5" />
           <span class="caption-sm text-muted tnum">
             {{ ordered.length }} {{ ordered.length === 1 ? 'photo' : 'photos' }}<template v-if="uploading"> · Uploading {{ uploading }}</template>
           </span>
-        </p>
+          <AppButton variant="secondary" small class="gallery__add" @click="input?.click()">
+            <AppIcon name="camera" :size="16" />
+            Add photos
+          </AppButton>
+        </div>
 
-        <section v-if="lead.length" class="lead" :class="`lead--${lead.length}`" aria-label="Latest photos">
-          <button
-            v-for="(p, k) in lead"
-            :key="p.id"
-            type="button"
-            class="tile rise"
-            :class="{ 'tile--feature': k === 0 }"
-            :style="{ '--i': k }"
-            :data-photo="k"
-            :aria-label="`Photo by ${p.name}, ${time(p.at)}`"
-            @click="openPhoto(k)"
-          >
-            <img :src="p.src" alt="" draggable="false" />
-            <span v-if="k === 0 && placeOf(p)" class="tile__tag caption-sm"><AppIcon name="pin" :size="12" />{{ placeOf(p) }}</span>
-            <span class="tile__by">
-              <UserAvatar :name="p.name" :person="p.personId" :size="k === 0 ? 28 : 24" />
-              <span class="tile__name caption">{{ p.name }}</span>
-              <span v-if="k === 0" class="tile__time caption-sm tnum">{{ time(p.at) }}</span>
-            </span>
-          </button>
+        <PolaroidLine v-model:index="current" class="rise" :photos="prints" label="Photos from the day" @open="openPhoto" />
+
+        <section class="thumbs" aria-labelledby="thumbs-head">
+          <h2 id="thumbs-head" class="title-md">All photos</h2>
+          <ul class="thumbs__grid">
+            <li v-for="n in uploading" :key="`up-${n}`"><span class="thumb thumb--loading" aria-hidden="true" /></li>
+            <li v-for="(p, k) in ordered" :key="p.id">
+              <button type="button" class="thumb" :class="{ 'is-current': k === current }" :aria-label="`Photo by ${p.name}, ${time(p.at)}`" :aria-current="k === current ? 'true' : undefined" @click="showPrint(k)">
+                <img :src="p.src" alt="" loading="lazy" draggable="false" />
+              </button>
+            </li>
+          </ul>
         </section>
-
-        <ul v-if="rest.length || uploading" class="wall" aria-label="More photos">
-          <li v-for="n in uploading" :key="`up-${n}`" class="wall__item">
-            <span class="tile tile--loading" aria-hidden="true" />
-          </li>
-          <li v-for="(p, k) in rest" :key="p.id" class="wall__item rise" :style="{ '--i': Math.min(k + LEAD, 10) }">
-            <button
-              type="button"
-              class="tile"
-              :style="{ aspectRatio: SHAPES[k % SHAPES.length] }"
-              :data-photo="k + LEAD"
-              :aria-label="`Photo by ${p.name}, ${time(p.at)}`"
-              @click="openPhoto(k + LEAD)"
-            >
-              <img :src="p.src" alt="" loading="lazy" draggable="false" />
-              <span class="tile__by">
-                <UserAvatar :name="p.name" :person="p.personId" :size="24" />
-                <span class="tile__name caption">{{ p.name }}</span>
-              </span>
-            </button>
-          </li>
-        </ul>
       </div>
     </div>
 
     <template v-if="open">
-      <IconButton tone="brand" label="Add photos" class="add-photo" @click="input?.click()"><AppIcon name="camera" :size="22" /></IconButton>
+      <!-- With no photos yet, the camera floats; once there are some, "Add photos" sits above the line instead. -->
+      <IconButton v-if="!ordered.length && !uploading" tone="brand" label="Add photos" class="add-photo" @click="input?.click()"><AppIcon name="camera" :size="22" /></IconButton>
       <input ref="input" class="sr-only" type="file" accept="image/*" multiple tabindex="-1" aria-hidden="true" @change="onFiles" />
     </template>
 
@@ -189,48 +180,19 @@ async function remove(photo) {
 <style scoped>
 .gallery { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .gallery__sum { display: flex; align-items: center; gap: var(--spacing-sm); min-height: 28px; }
+.gallery__add { margin-left: auto; }
 
-/* A photo tile: large rounded corners, the picture filling it, a soft lift and a slow zoom on hover. */
-.tile { position: relative; display: block; width: 100%; padding: 0; overflow: hidden; isolation: isolate; border: 0; border-radius: var(--rounded-lg); background: var(--surface-strong); cursor: zoom-in; transition: box-shadow var(--motion-medium) var(--ease-out); }
-.tile img { display: block; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; -webkit-user-drag: none; user-select: none; transition: transform 700ms var(--ease-out); }
-@media (hover: hover) {
-  .tile:hover { box-shadow: var(--shadow-float); }
-  .tile:hover img { transform: scale(1.04); }
-}
-.tile:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
-
-/* Frosted white tags on the photo, like the badges on an Airbnb listing photo. */
-.tile__by, .tile__tag { position: absolute; z-index: 1; display: inline-flex; align-items: center; max-width: calc(100% - var(--spacing-base)); border-radius: var(--rounded-full); background: color-mix(in srgb, var(--canvas) 84%, transparent); -webkit-backdrop-filter: blur(12px) saturate(1.6); backdrop-filter: blur(12px) saturate(1.6); color: var(--ink); white-space: nowrap; }
-.tile__by { left: var(--spacing-sm); bottom: var(--spacing-sm); gap: 6px; padding: 3px 10px 3px 3px; }
-.tile__name { overflow: hidden; text-overflow: ellipsis; }
-.tile__time { color: var(--muted); }
-.tile__tag { top: var(--spacing-base); left: var(--spacing-base); gap: var(--spacing-xs); padding: 6px 12px 6px 10px; }
-.tile--feature .tile__by { left: var(--spacing-base); bottom: var(--spacing-base); gap: var(--spacing-sm); padding: 4px 14px 4px 4px; }
-/* On a phone the smaller tiles show only the face, so nothing is cramped. */
-@media (max-width: 743.98px) {
-  .tile:not(.tile--feature) .tile__by { padding: 3px; }
-  .tile:not(.tile--feature) .tile__name { display: none; }
-}
-
-/* The lead: the newest photo large, the next two beside it. */
-.lead { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
-.lead .tile { aspect-ratio: 1 / 1; }
-.lead .tile--feature { grid-column: 1 / -1; aspect-ratio: 4 / 5; }
-.lead--2 .tile:not(.tile--feature) { grid-column: 1 / -1; aspect-ratio: 16 / 9; }
-@media (min-width: 744px) {
-  .lead { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: var(--spacing-base); height: clamp(380px, 56vh, 560px); }
-  .lead .tile, .lead .tile--feature, .lead--2 .tile:not(.tile--feature) { height: 100%; aspect-ratio: auto; }
-  .lead .tile--feature { grid-column: 1; grid-row: 1 / -1; }
-  .lead--2 .tile:not(.tile--feature) { grid-column: 2; grid-row: 1 / -1; }
-  .lead--1 { grid-template-columns: minmax(0, 1fr); }
-}
-
-/* The wall: masonry columns of mixed shapes. */
-.wall { columns: 2; column-gap: var(--spacing-md); margin-top: var(--spacing-xs); }
-@media (min-width: 744px) { .wall { columns: 3; column-gap: var(--spacing-base); } }
-.wall__item { break-inside: avoid; margin-bottom: var(--spacing-md); }
-@media (min-width: 744px) { .wall__item { margin-bottom: var(--spacing-base); } }
-.tile--loading { aspect-ratio: 4 / 5; cursor: default; animation: loading 1.1s ease-in-out infinite alternate; }
+/* All photos: small square thumbnails; the one on the line in the middle is ringed. */
+.thumbs { display: flex; flex-direction: column; gap: var(--spacing-md); margin-top: var(--spacing-base); }
+.thumbs__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: var(--spacing-sm); margin: 0; padding: 0; list-style: none; }
+@media (min-width: 744px) { .thumbs__grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); } }
+.thumb { position: relative; display: block; width: 100%; aspect-ratio: 1; padding: 0; overflow: hidden; border: 0; border-radius: var(--rounded-sm); background: var(--surface-strong); cursor: pointer; transition: transform 260ms var(--ease-spring), box-shadow var(--motion-fast) var(--ease-out); }
+.thumb img { display: block; width: 100%; height: 100%; object-fit: cover; -webkit-user-drag: none; user-select: none; }
+.thumb.is-current { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--ink); }
+.thumb:active { transform: scale(0.94); transition-duration: 80ms; }
+@media (hover: hover) { .thumb:hover { transform: translateY(-2px); } }
+.thumb:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.thumb--loading { animation: loading 1.1s ease-in-out infinite alternate; }
 @keyframes loading { to { opacity: 0.5; } }
 
 .add-photo { position: fixed; right: var(--spacing-lg); bottom: calc(var(--spacing-lg) + env(safe-area-inset-bottom, 0px)); z-index: 15; width: 60px; height: 60px; box-shadow: var(--shadow-float); }
