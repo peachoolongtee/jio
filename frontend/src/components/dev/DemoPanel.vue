@@ -62,22 +62,32 @@ function spread(jobs, span) {
   return Promise.all(jobs.map((job, i) => wait(step * (i + 1)).then(() => job(i))))
 }
 
-async function simulateLocations() {
+// Run a demo action. A failure (the planner backend not answering, say) shows in the note
+// instead of leaving the buttons disabled.
+async function act(kind, fn) {
+  running.value = kind
+  note.value = ''
+  try {
+    await fn()
+  } catch (e) {
+    note.value = e.message
+  } finally {
+    running.value = ''
+  }
+}
+
+const simulateLocations = () => act('locations', async () => {
   const s = session.value
   const waiting = friendsIn.value.filter((id) => !s.locations?.[id]?.start)
-  running.value = 'locations'
   note.value = waiting.length ? '' : 'Every friend already has a start location.'
   await spread(
     waiting.map((id) => () => api.setLocation(s.id, id, 'start', { areaId: PEOPLE.find((p) => p.id === id).homeAreaId })),
     SPAN,
   )
-  running.value = ''
-}
+})
 
-async function simulateVoting() {
+const simulateVoting = () => act('voting', async () => {
   const id = session.value.id
-  running.value = 'voting'
-  note.value = ''
   // First each friend picks categories and how long they can stay, then they vote.
   const fresh = await api.getSession(id)
   const needPicks = friendsIn.value.filter((f) => !fresh.prefs[f]?.categories?.length)
@@ -93,19 +103,18 @@ async function simulateVoting() {
   })
   await spread(jobs, SPAN * 0.6)
   if (!plan.slots.length) note.value = 'Friends picked categories. No slots yet.'
-  running.value = ''
-}
+})
 
-async function applyChange() {
+const applyChange = () => act('change', async () => {
   const { personId, which, areaId } = change.value
   await api.setLocation(session.value.id, personId, which, { areaId })
   note.value = `${nameOf(personId)}'s ${which} location is now ${AREAS.find((a) => a.id === areaId).name}.`
-}
+})
 
-async function optOut() {
+const optOut = () => act('optout', async () => {
   await api.optOut(session.value.id, optOutId.value)
   note.value = `${nameOf(optOutId.value)} opted out.`
-}
+})
 
 async function reset() {
   await api.resetDemo()

@@ -18,8 +18,13 @@ export const api = axios.create({
 api.interceptors.response.use(
   (res) => res,
   (err) => {
+    // No answer at all: the backend is not running, or it refused this page's address (CORS allows one
+    // origin, FRONTEND_ORIGIN). The browser reports both the same way, so name both.
     if (!err.response) {
-      throw new Error('Cannot reach the Jio planner. Start the backend with "pnpm dev:backend" and try again.')
+      throw new Error(
+        `Cannot reach the Jio planner at ${api.defaults.baseURL}. Check the backend is running ("pnpm dev:backend") ` +
+          `and that this page is open at the address it allows (FRONTEND_ORIGIN, by default http://localhost:5173).`,
+      )
     }
     const issues = err.response.data?.issues?.map((i) => `${i.path}: ${i.message}`).join('; ')
     throw new Error(issues ? `The planner could not use this request (${issues}).` : err.response.data?.message || 'The planner had a problem. Try again.')
