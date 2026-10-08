@@ -94,11 +94,17 @@ describe('a session planned by the backend', () => {
     }
   })
 
-  it('says how to fix it when the backend is not running', async () => {
+  it('says how to fix it when the backend is not running, and saves nothing half-way', async () => {
     const baseURL = api.api.defaults.baseURL
     api.api.defaults.baseURL = 'http://127.0.0.1:9'
     try {
-      await api.replan(id).catch(() => {})
+      const before = await api.getSession(id)
+      await expect(api.setLocation(id, HOST_ID, 'end', { areaId: 'bugis' })).rejects.toThrow(/Cannot reach the Jio planner/)
+      await expect(api.replan(id)).rejects.toThrow(/Cannot reach the Jio planner/)
+      const after = await api.getSession(id)
+      expect(after.locations).toEqual(before.locations)
+      expect(after.status).toBe(before.status)
+      expect(after.plan).toEqual(before.plan)
       await expect(plan()).rejects.toThrow(/Cannot reach the Jio planner/)
     } finally {
       api.api.defaults.baseURL = baseURL

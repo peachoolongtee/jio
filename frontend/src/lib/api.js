@@ -226,6 +226,19 @@ async function applyTrigger(session, trigger) {
   if (outcome.banner) session.banner = { text: outcome.banner, at: Date.now() }
 }
 
+// For a write that needs the planner: if the planner cannot answer, put the session back as it was, so nothing
+// is half-saved (a location kept but not shown, Voting with no options). The caller still gets the error.
+async function orUndo(session, change) {
+  const before = clone(session)
+  try {
+    return await change()
+  } catch (err) {
+    for (const key of Object.keys(session)) delete session[key]
+    Object.assign(session, before)
+    throw err
+  }
+}
+
 // Save, tell subscribers, and answer with the session as getSession would.
 function touch(session, type) {
   session.updatedAt = Date.now()
@@ -469,23 +482,27 @@ export async function setLocation(id, personId, which, place) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (['completed', 'cancelled'].includes(session.status)) throw new Error('This session has ended.')
-  const loc = session.locations[personId] || { start: null, end: null }
-  const hadStart = !!loc.start
-  loc[which] = place ? { areaId: place.areaId, label: place.label || areaById(place.areaId).name } : null
-  session.locations[personId] = loc
-  const kind = which === 'end' ? 'end' : hadStart ? 'start' : 'added'
-  await applyTrigger(session, { kind, personName: nameOf(personId) })
-  return touch(session, 'location')
+  return orUndo(session, async () => {
+    const loc = session.locations[personId] || { start: null, end: null }
+    const hadStart = !!loc.start
+    loc[which] = place ? { areaId: place.areaId, label: place.label || areaById(place.areaId).name } : null
+    session.locations[personId] = loc
+    const kind = which === 'end' ? 'end' : hadStart ? 'start' : 'added'
+    await applyTrigger(session, { kind, personName: nameOf(personId) })
+    return touch(session, 'location')
+  })
 }
 
 export async function useMeetingArea(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (!session.meeting) throw new Error('The meeting area needs at least 2 locations.')
-  session.status = 'voting'
-  session.banner = null
-  await syncOptions(session)
-  return touch(session, 'session')
+  return orUndo(session, async () => {
+    session.status = 'voting'
+    session.banner = null
+    await syncOptions(session)
+    return touch(session, 'session')
+  })
 }
 
 export async function optOut(id, personId) {
@@ -493,10 +510,12 @@ export async function optOut(id, personId) {
   const session = sessionById(id)
   const member = session.members.find((m) => m.id === personId)
   if (!member || member.role === 'host') throw new Error('The host cannot opt out.')
-  member.state = 'opted_out'
-  await applyTrigger(session, { kind: 'optout', personName: nameOf(personId) })
-  await syncOptions(session)
-  return touch(session, 'optout')
+  return orUndo(session, async () => {
+    member.state = 'opted_out'
+    await applyTrigger(session, { kind: 'optout', personName: nameOf(personId) })
+    await syncOptions(session)
+    return touch(session, 'optout')
+  })
 }
 
 export async function dismissBanner(id) {
@@ -520,27 +539,33 @@ export async function setPreferences(id, personId, prefs) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (session.status !== 'voting') throw new Error('Categories can only change while voting.')
-  session.prefs[personId] = { categories: [...prefs.categories], until: prefs.until ?? null }
-  await syncOptions(session)
-  return touch(session, 'prefs')
+  return orUndo(session, async () => {
+    session.prefs[personId] = { categories: [...prefs.categories], until: prefs.until ?? null }
+    await syncOptions(session)
+    return touch(session, 'prefs')
+  })
 }
 
 export async function deleteSlot(id, slotId) {
   await wait(DELAY.write)
   const session = sessionById(id)
-  session.deletedSlots = [...new Set([...session.deletedSlots, slotId])]
-  delete session.options[slotId]
-  delete session.votes[slotId]
-  await syncOptions(session)
-  return touch(session, 'slots')
+  return orUndo(session, async () => {
+    session.deletedSlots = [...new Set([...session.deletedSlots, slotId])]
+    delete session.options[slotId]
+    delete session.votes[slotId]
+    await syncOptions(session)
+    return touch(session, 'slots')
+  })
 }
 
 export async function restoreSlots(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
-  session.deletedSlots = []
-  await syncOptions(session)
-  return touch(session, 'slots')
+  return orUndo(session, async () => {
+    session.deletedSlots = []
+    await syncOptions(session)
+    return touch(session, 'slots')
+  })
 }
 
 export async function addMoreOptions(id, slotId) {
@@ -745,17 +770,21 @@ export async function respondReplan(id, accept) {
   await wait(DELAY.write)
   const session = sessionById(id)
   const trigger = session.replan?.trigger || null
-  session.replan = null
-  if (accept) await reopenVoting(session, trigger)
-  return touch(session, 'session')
+  return orUndo(session, async () => {
+    session.replan = null
+    if (accept) await reopenVoting(session, trigger)
+    return touch(session, 'session')
+  })
 }
 
 // Edit → Re-plan from the itinerary.
 export async function replan(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
-  await reopenVoting(session, null)
-  return touch(session, 'session')
+  return orUndo(session, async () => {
+    await reopenVoting(session, null)
+    return touch(session, 'session')
+  })
 }
 
 async function reopenVoting(session, trigger) {
