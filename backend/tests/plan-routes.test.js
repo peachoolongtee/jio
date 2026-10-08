@@ -191,3 +191,24 @@ describe('stub mode scenarios (for Playwright)', () => {
     check(await post('/roam', { ...roamBody, weatherCase: 'clear' }, { url: stubBase, headers: { [SCENARIO_HEADER]: 'rain' } }), 'clear')
   })
 })
+
+describe('POST /api/converge with a chosen radius', () => {
+  const BISHAN = { lat: 1.35092, lng: 103.84822 }
+  const slot = { members: group, occasion: 'catch_up', dateTime: '2026-10-10T12:30', categories: ['eat'], centre: BISHAN, unknownPolicy: 'lenient' }
+  const km = (a, b) => Math.hypot((a.lat - b.lat) * 111, (a.lng - b.lng) * 111 * Math.cos((a.lat * Math.PI) / 180))
+
+  it('only suggests places inside radiusMeters', async () => {
+    const { status, body } = await post('/converge', { ...slot, radiusMeters: 500, topN: 10 })
+    expect(status).toBe(200)
+    expect(body.results.length).toBeGreaterThan(0)
+    for (const r of body.results) expect(km(BISHAN, r.venue)).toBeLessThanOrEqual(0.5)
+  })
+
+  it('rejects a radius under 100 m or over 3 km', async () => {
+    for (const radiusMeters of [50, 5000]) {
+      const { status, body } = await post('/converge', { ...slot, radiusMeters })
+      expect(status).toBe(400)
+      expect(body.issues[0].path).toBe('radiusMeters')
+    }
+  })
+})

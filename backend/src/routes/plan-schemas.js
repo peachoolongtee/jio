@@ -99,6 +99,8 @@ export function makePlanSchemas(data) {
       seed: z.enum(['weighted_centroid', 'centroid', 'minimax']).optional(),
       lastStop: z.boolean().default(false),
       lastStopMrtWalkMinutes: z.number().int().min(1).max(30).optional(),
+      // The group's chosen search radius around the centre. Without it the search widens on its own up to 3 km.
+      radiusMeters: z.number().int().min(100).max(3000).optional(),
       weights: weightsFor(CONVERGE_FACTORS),
     })
     .refine(someoneLeft, NOBODY)

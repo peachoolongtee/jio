@@ -132,3 +132,26 @@ test('without current options, `current` is empty and results are unchanged', ()
   assert.deepStrictEqual(out.current, []);
   assert.deepStrictEqual(out.results.map(r => r.venueId), converge({ ...slot, currentOptionIds: [] }, data).results.map(r => r.venueId));
 });
+
+// ---------------- the group's chosen radius (radiusMeters)
+test('radiusMeters: only places inside the chosen radius are suggested or kept as current options', () => {
+  const at = (id, metres) => venue(id, { lat: bugis.lat + metres / 111_000 }); // metres north of the centre
+  const data = only([at('m50', 50), at('m80', 80), at('m300', 300), at('m700', 700), at('m1500', 1500)]);
+  const within = (out) => out.results.map((r) => r.venueId).sort();
+  assert.deepStrictEqual(within(converge({ ...slot, radiusMeters: 100 }, data)), ['m50', 'm80']);
+  assert.deepStrictEqual(within(converge({ ...slot, radiusMeters: 500 }, data)), ['m300', 'm50', 'm80']);
+  const out = converge({ ...slot, radiusMeters: 500, currentOptionIds: ['m700', 'm300'] }, data);
+  assert.deepStrictEqual(out.current.map((r) => r.venueId), ['m300'], 'm700 is outside 500 m, so it no longer fits');
+  // Without a chosen radius, the search still widens on its own.
+  assert.ok(converge({ ...slot, currentOptionIds: ['m700'] }, data).current.some((r) => r.venueId === 'm700'));
+});
+test('radiusMeters: fewer than 3 inside gives a notice; none inside is empty, with how far to widen', () => {
+  const data = only([venue('near', { lat: bugis.lat + 80 / 111_000 }), venue('far', { lat: bugis.lat + 1200 / 111_000 })]);
+  const few = converge({ ...slot, radiusMeters: 100 }, data);
+  assert.strictEqual(few.status, 'ok');
+  assert.strictEqual(few.notice?.type, 'few_options');
+  const none = converge({ ...slot, radiusMeters: 100 }, only([venue('far', { lat: bugis.lat + 1200 / 111_000 })]));
+  assert.strictEqual(none.status, 'empty');
+  assert.strictEqual(none.reason, 'outside_max_radius');
+  assert.strictEqual(none.hints.widenToKm, 2);
+});

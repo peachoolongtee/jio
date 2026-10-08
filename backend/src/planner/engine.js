@@ -87,7 +87,7 @@ function prune(candidates, c, keep) {
 
 /**
  * The shortlist plus the options the group is already voting on (input.currentOptionIds) that pass the hard filters
- * and sit inside the 3 km cap (the same cap as search). The radius search stops at the first radius with 3 venues
+ * and sit inside the 3 km cap (the same cap as search), or inside the radius the group chose. The radius search stops at the first radius with 3 venues
  * and prune keeps 10, so without this a place added by search or swapped in for rain would never be scored.
  */
 function withCurrentOptions(shortlist, passed, centre, currentIds = [], maxKm = 3) {
@@ -215,8 +215,8 @@ function converge(input, data, deps = {}) {
     return emptyResult('no_venue_passes_constraints', { centre, hints: relaxationHints(data.venues, ctx), diagnostics });
   }
 
-  // 3. expanding radius
-  const rs = radiusSearch(filt.passed, centre, input.radius);
+  // 3. expanding radius, or exactly the radius the group chose (input.radiusMeters)
+  const rs = radiusSearch(filt.passed, centre, input.radiusMeters ? { steps: [input.radiusMeters] } : input.radius);
   Object.assign(diagnostics, { radiusUsed: rs.radiusUsed, firstHitRadius: rs.firstHitRadius, inRadius: rs.candidates.length });
   if (rs.candidates.length === 0) {
     const widenToKm = Math.ceil(rs.nearestKm);
@@ -226,7 +226,7 @@ function converge(input, data, deps = {}) {
   // 4. prune, then route. The options the group is already voting on are always routed and scored too.
   const pruned = withCurrentOptions(
     prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion] }, pruneTo),
-    filt.passed, centre, input.currentOptionIds,
+    filt.passed, centre, input.currentOptionIds, (input.radiusMeters ?? 3000) / 1000,
   );
   diagnostics.routingCalls = pruned.length * members.length * 2;
   const c = context(input, data, members);
