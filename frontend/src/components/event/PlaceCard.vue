@@ -2,29 +2,33 @@
 // A place near Ian on Home: a photo of the kind of place with its category, the name, where it is,
 // the price tier and the rating.
 //   <PlaceCard :place="venue" />
+// `morph` gives the card and its photo, name, rating and price the view-transition names that PlaceDetail uses,
+// so the card can grow into the detail view and shrink back (LandingView runs it). Only one card at a time.
 import CategoryIcon from '../ui/CategoryIcon.vue'
 import PriceTier from '../ui/PriceTier.vue'
 import RatingBadge from '../ui/RatingBadge.vue'
 import { placeImage } from '@/lib/placeImages.js'
 
-defineProps({
+const props = defineProps({
   place: { type: Object, required: true },
+  morph: { type: Boolean, default: false },
 })
+const vt = (name) => (props.morph ? { viewTransitionName: name } : null)
 </script>
 
 <template>
-  <article class="place" :aria-label="place.name">
+  <article class="place" :aria-label="place.name" :style="vt('place-card')">
     <div class="place__plate">
-      <img class="place__photo" :src="placeImage(place)" alt="" loading="lazy" width="84" height="84" />
+      <img class="place__photo" :style="vt('place-photo')" :src="placeImage(place)" alt="" loading="lazy" width="84" height="84" />
       <CategoryIcon class="place__cat" :category="place.category" :size="28" />
     </div>
     <div class="place__text">
       <div class="place__top">
-        <h3 class="title-md clamp-2">{{ place.name }}</h3>
-        <RatingBadge v-if="place.rating != null" :score="place.rating" />
+        <h3 class="title-md clamp-2" :style="vt('place-name')">{{ place.name }}</h3>
+        <RatingBadge v-if="place.rating != null" :style="vt('place-rating')" :score="place.rating" />
       </div>
       <p class="caption-sm text-muted">{{ place.area }} · {{ place.distanceKm }} km</p>
-      <PriceTier class="place__price" :price="place.price" />
+      <PriceTier class="place__price" :style="vt('place-price')" :price="place.price" />
     </div>
   </article>
 </template>

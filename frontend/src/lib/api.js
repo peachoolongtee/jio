@@ -10,6 +10,7 @@ import { VENUES } from './mock/venues.js'
 import { HOST_ID, PAST_ACTIVITY, PEOPLE, POINTS_PER_MEETUP, STARTING_MEETUPS } from './mock/people.js'
 import { REWARDS } from './mock/rewards.js'
 import { pastMeetupDates } from './mock/history.js'
+import { reviewsFor } from './mock/reviews.js'
 import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
@@ -478,10 +479,20 @@ export async function placeFromCoords(lat, lng) {
 }
 
 // Places near an area, for Home. Each has its distance in km.
+const withDistance = (venue, home) => ({ ...clone(venue), distanceKm: Math.round(P.distanceKm(home, venue) * 10) / 10 })
+
 export async function nearbyPlaces(areaId) {
   await wait(DELAY.plan)
   const home = areaById(areaId) || AREAS[0]
-  return VENUES.map((v) => ({ ...clone(v), distanceKm: Math.round(P.distanceKm(home, v) * 10) / 10 })).sort((a, b) => a.distanceKm - b.distanceKm)
+  return VENUES.map((v) => withDistance(v, home)).sort((a, b) => a.distanceKm - b.distanceKm)
+}
+
+// One place for the detail view: what its card shows (with the same distance), its address and its reviews.
+export async function getPlace(id, areaId) {
+  await wait(DELAY.read)
+  const venue = VENUES.find((v) => v.id === id)
+  if (!venue) throw new Error('This place does not exist.')
+  return { ...withDistance(venue, areaById(areaId) || AREAS[0]), reviews: reviewsFor(venue) }
 }
 
 // ── Sessions ───────────────────────────────────────────────────────────────

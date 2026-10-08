@@ -2,7 +2,8 @@
 // for a person (seeded by their id), spread over the last 26 weeks and leaning towards weekends.
 import { format, subDays } from 'date-fns'
 
-function seeded(text) {
+// A random number generator that gives the same sequence every time for the same text.
+export function seeded(text) {
   let h = 2166136261
   for (const c of text) h = Math.imul(h ^ c.charCodeAt(0), 16777619)
   return () => {

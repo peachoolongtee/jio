@@ -3,7 +3,9 @@
 // with one Filter button.
 // The filter has toggles (Touristy spots, Hidden gems, CDC Vouchers accepted, Food, Café),
 // a budget slider (the most to spend per person) and a distance slider.
-import { computed, onMounted, ref } from 'vue'
+// Tapping a place opens it (?place=id): its card grows into PlaceDetail and shrinks back on close.
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { format } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -15,8 +17,10 @@ import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import PlaceCard from '@/components/event/PlaceCard.vue'
+import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SessionCard from '@/components/event/SessionCard.vue'
 import * as api from '@/lib/api.js'
+import { canViewTransition, withViewTransition } from '@/lib/viewTransition.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
@@ -116,6 +120,78 @@ const pointsLine = computed(() => {
   return `You have ${points} points: enough for ${count}, like ${offer} at ${best.cafe}.`
 })
 
+// ── Place detail ──
+// The open place lives in the URL, so Back closes it and a link opens it straight away. The card and the detail
+// view share view-transition names (PlaceCard `morph`, PlaceDetail), so the card grows into the view and back.
+// Without the View Transitions API, or when the card is out of sight, the view simply opens and closes.
+const route = useRoute()
+const router = useRouter()
+const openPlace = ref(null)
+const reviews = ref(null)
+// The card that carries the shared names right now: only around a transition, and only one.
+const morphId = ref('')
+
+const cardOf = (id) => document.querySelector(`[data-place="${CSS.escape(id)}"]`)
+function inView(el) {
+  const r = el?.getBoundingClientRect()
+  return !!r && r.bottom > 0 && r.top < window.innerHeight && r.width > 0
+}
+
+async function showPlace(id) {
+  const card = places.value.find((p) => p.id === id)
+  reviews.value = null
+  const loading = api.getPlace(id, auth.user.homeAreaId)
+  if (card && canViewTransition() && inView(cardOf(id))) {
+    morphId.value = id
+    await nextTick()
+    await withViewTransition(() => {
+      morphId.value = ''
+      openPlace.value = card
+    })
+  } else if (card) {
+    openPlace.value = card
+  }
+  try {
+    const place = await loading
+    if (route.query.place !== id) return
+    openPlace.value = { ...(openPlace.value || {}), ...place }
+    reviews.value = place.reviews
+  } catch {
+    // A link to a place that does not exist: just show Home.
+    router.replace({ query: {} })
+  }
+}
+
+async function hidePlace() {
+  const place = openPlace.value
+  if (!place) return
+  const card = cardOf(place.id)
+  if (canViewTransition() && inView(card)) {
+    await withViewTransition(() => {
+      openPlace.value = null
+      morphId.value = place.id
+    })
+    morphId.value = ''
+  } else {
+    openPlace.value = null
+  }
+  reviews.value = null
+  card?.focus({ preventScroll: true })
+}
+
+watch(
+  () => route.query.place,
+  (id) => (id ? showPlace(id) : hidePlace()),
+  { immediate: true },
+)
+
+// Back, when the place was opened from this list; otherwise (a shared link) just drop it from the URL.
+function closePlace() {
+  const back = window.history.state?.back
+  if (back && router.resolve(back).path === route.path && !router.resolve(back).query.place) router.back()
+  else router.replace({ query: {} })
+}
+
 const budgetText = (v) => (v >= BUDGET.max ? 'Any budget' : `Up to SGD ${v}`)
 const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} km`)
 </script>
@@ -169,7 +245,11 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         </EmptyState>
         <template v-else>
           <ul class="grid-3">
-            <li v-for="place in filtered.slice(0, shown)" :key="place.id"><PlaceCard :place="place" /></li>
+            <li v-for="place in filtered.slice(0, shown)" :key="place.id">
+              <RouterLink :to="{ query: { place: place.id } }" class="place-link" :data-place="place.id">
+                <PlaceCard :place="place" :morph="morphId === place.id" />
+              </RouterLink>
+            </li>
           </ul>
           <AppButton v-if="filtered.length > shown" variant="secondary" class="home__more" @click="shown += PAGE">Show more</AppButton>
         </template>
@@ -189,10 +269,14 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         </div>
       </template>
     </BottomSheet>
+    <PlaceDetail v-if="openPlace" :place="openPlace" :reviews="reviews" @close="closePlace" />
   </main>
 </template>
 
 <style scoped>
+/* A place card is a link to its detail view. */
+.place-link { display: block; border-radius: var(--rounded-md); color: inherit; text-decoration: none; }
+.place-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .home__top { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--spacing-md); }
 .home__me { border-radius: var(--rounded-full); }
 .home__session { max-width: 640px; }

@@ -6,7 +6,8 @@
 //   pill      Small Rausch pill, for example "Set".
 //   danger    Error-red fill, for an action that cannot be undone, for example "Cancel session".
 // `small` makes primary and secondary buttons 44px tall with smaller text, for actions inside cards.
-// Pass `to` to make it a router link. A disabled button always renders as a real <button>.
+// Pass `to` to make it a router link, or `href` for a link to another site (add target="_blank" to open a new tab;
+// it gets rel="noopener"). A disabled button always renders as a real <button>.
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 
@@ -17,20 +18,24 @@ const props = defineProps({
   underline: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
   to: { type: [String, Object], default: null },
+  href: { type: String, default: null },
   type: { type: String, default: 'button' },
 })
 
 const isLink = computed(() => !!props.to && !props.disabled)
+const isAnchor = computed(() => !!props.href && !props.disabled)
 </script>
 
 <template>
   <component
-    :is="isLink ? RouterLink : 'button'"
+    :is="isLink ? RouterLink : isAnchor ? 'a' : 'button'"
     class="btn"
     :class="[`btn--${variant}`, { 'btn--block': block, 'btn--underline': underline, 'btn--small': small }]"
     :to="isLink ? to : undefined"
-    :type="isLink ? undefined : type"
-    :disabled="isLink ? undefined : disabled"
+    :href="isAnchor ? href : undefined"
+    :rel="isAnchor ? 'noopener' : undefined"
+    :type="isLink || isAnchor ? undefined : type"
+    :disabled="isLink || isAnchor ? undefined : disabled"
   >
     <slot />
   </component>

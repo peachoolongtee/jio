@@ -153,6 +153,29 @@ svg { display: block; flex-shrink: 0; }
 ::view-transition-group(photo-hero) { animation-duration: 420ms; animation-timing-function: var(--ease-out); }
 ::view-transition-old(photo-hero),
 ::view-transition-new(photo-hero) { height: 100%; object-fit: cover; overflow: clip; }
+/* A place card grows into its detail view on Home, and shrinks back into the grid. The card's box grows
+   (its other content is revealed from the top left, never stretched) while the photo, name, rating and price
+   each travel to their own place. Long enough to follow with the eye. */
+::view-transition-group(place-card),
+::view-transition-group(place-photo),
+::view-transition-group(place-name),
+::view-transition-group(place-rating),
+::view-transition-group(place-price) { animation-duration: 520ms; animation-timing-function: cubic-bezier(0.2, 0.9, 0.25, 1); }
+::view-transition-group(place-card) { border-radius: var(--rounded-md); box-shadow: var(--shadow-float); }
+::view-transition-image-pair(place-card) { overflow: clip; border-radius: var(--rounded-md); }
+::view-transition-old(place-card),
+::view-transition-new(place-card) { width: 100%; height: 100%; object-fit: none; object-position: left top; }
+::view-transition-old(place-card) { animation-duration: 200ms; }
+::view-transition-new(place-card) { animation-duration: 360ms; }
+::view-transition-old(place-photo),
+::view-transition-new(place-photo) { height: 100%; object-fit: cover; overflow: clip; }
+/* Text scales with its box and keeps its shape; the old and new wrapping cross-fade. */
+::view-transition-old(place-name),
+::view-transition-new(place-name),
+::view-transition-old(place-rating),
+::view-transition-new(place-rating),
+::view-transition-old(place-price),
+::view-transition-new(place-price) { width: auto; height: 100%; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
