@@ -23,7 +23,7 @@ Travel times are still an estimate (no OneMap yet), so every number in minutes i
    - `durationMinutes`: the slot's duration
    - `categories`: `[slot.category]`
    - `lastStop: true` for the last slot
-4. Show `results` as the options to vote on. The frontend keeps the votes; the backend only ranks. Send the ids already being voted on as `currentOptionIds`, so a rain swap never suggests one of them.
+4. Show `results` as the options to vote on. The frontend keeps the votes; the backend only ranks. Send the ids already being voted on as `currentOptionIds`: they are always scored and come back in `current` while they still fit, and a rain swap never suggests one of them.
 5. "Add a place": call `/api/search` with the same slot fields plus `query`.
 
 Each result already carries what the option cards show: `walkMinutes`, `reasons`, `crowd`, `warnings` and `swap`. The frontend no longer needs its own `scoreVenue`, `rankForSlot`, `indoorSwap` or `chooseMeetingArea`, and should delete them once it calls the API, so there is only one ranking.
@@ -166,7 +166,7 @@ Request (one slot; the response below is real output for these two members with 
 | `groupConstraints` | no | `step_free`, `sockets`, `quiet`, `indoor_only`, `max_price_pp:N`, `near_mrt:N`. |
 | `weights` | no | Override scoring weights, all 0 or more. Keys: `worst`, `mean`, `returnWorst`, `occasion`, `preference`, `rating`, `weather`, `price`, `cdc`, `antiRepeat`, `crowd`. `crowd` has no weight by default, so it doesn't change the ranking unless you send one. |
 | `weatherCase` | no | `clear`, `rain`, `rain_east` (mock forecasts until the NEA service exists). |
-| `currentOptionIds` | no | The options the group is already voting on. A rain swap never suggests one of these. |
+| `currentOptionIds` | no | The options the group is already voting on. Each one that passes the hard filters and is within 3 km is always scored, even past the shortlist (a place added by search, or swapped in for rain), and comes back in `current`. A rain swap never suggests one of these. |
 | `optedOut`, `overrides`, `excludeVenueIds`, `groupId`, `topN`, `seed`, `travelCeilingMinutes` | no | As in the engine (`backend/src/planner/engine.js`). |
 
 Response:
@@ -177,6 +177,7 @@ Response:
   "centre": { "lat": 1.35092, "lng": 103.84822 },
   "notice": null,
   "regret": null,
+  "current": [],
   "results": [
     {
       "rank": 1,
@@ -222,6 +223,7 @@ What to show for each result:
 | `swap` | With a rain warning: `{ "venueId", "name" }` of an indoor alternative that is not already shown or in `currentOptionIds`, or `null` if none is within 3 km. |
 | `approximate` | Travel times are estimates because routing failed. |
 | `regret` (top level) | "Picking X instead would add N minutes to Y's journey". `null` when there is nothing to say. |
+| `current` (top level) | The `currentOptionIds` that still fit, as results (same fields), ranked among every scored venue. An id missing here no longer fits the slot. `[]` when none were sent. |
 | `notice` (top level) | `{ "type": "few_options", "found": 1, "widenToKm": 4 }` when fewer than 3 venues are within 3 km. |
 
 When nothing fits, `status` is `"empty"` and `reason` says why:

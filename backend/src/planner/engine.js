@@ -8,13 +8,15 @@ import { centroid, fairnessWeights, minimaxCenter, radiusSearch, mockTravelMinut
 import { filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds } from './filters.js';
 import * as S from './scoring.js';
 
-/** Apply per-plan overrides (start/end) and drop members who opted out. Default start and end = home. */
+/** Apply per-plan overrides (start/end) and drop members who opted out. Default start and end = home.
+ *  With no home, end = start: the API accepts a member with only a start point. */
 function resolveMembers(members, overrides = {}, optedOut = []) {
   return members
     .filter(m => !optedOut.includes(m.id))
     .map(m => {
       const o = overrides[m.id] || {};
-      return { ...m, start: o.start || m.start || m.home, end: o.end || m.end || m.home };
+      const start = o.start || m.start || m.home;
+      return { ...m, start, end: o.end || m.end || m.home || start };
     });
 }
 
@@ -81,6 +83,21 @@ function prune(candidates, c, keep) {
     .sort((a, b) => a.pre - b.pre)
     .slice(0, keep)
     .map(o => o.x);
+}
+
+/**
+ * The shortlist plus the options the group is already voting on (input.currentOptionIds) that pass the hard filters
+ * and sit inside the 3 km cap (the same cap as search). The radius search stops at the first radius with 3 venues
+ * and prune keeps 10, so without this a place added by search or swapped in for rain would never be scored.
+ */
+function withCurrentOptions(shortlist, passed, centre, currentIds = [], maxKm = 3) {
+  const have = new Set(shortlist.map(x => x.venue.id));
+  const want = new Set(currentIds);
+  const extra = passed
+    .filter(v => want.has(v.id) && !have.has(v.id))
+    .map(venue => ({ venue, distanceKm: haversineKm(centre, venue) }))
+    .filter(x => x.distanceKm <= maxKm);
+  return [...shortlist, ...extra];
 }
 
 function context(input, data, members) {
@@ -206,8 +223,11 @@ function converge(input, data, deps = {}) {
     return emptyResult('outside_max_radius', { centre, hints: { nearestKm: rs.nearestKm, widenToKm }, diagnostics });
   }
 
-  // 4. prune, then route
-  const pruned = prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion] }, pruneTo);
+  // 4. prune, then route. The options the group is already voting on are always routed and scored too.
+  const pruned = withCurrentOptions(
+    prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion] }, pruneTo),
+    filt.passed, centre, input.currentOptionIds,
+  );
   diagnostics.routingCalls = pruned.length * members.length * 2;
   const c = context(input, data, members);
   const weights = occasionWeights(baseWeights, c.profile);
@@ -252,15 +272,19 @@ function converge(input, data, deps = {}) {
   const names = Object.fromEntries(members.map(m => [m.id, m.name]));
   const label = c.profile?.label ?? 'meetup';
   const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, centre, input);
-  const results = shown.map((r, i) => ({
+  const toResult = (r, i) => ({
     rank: i + 1, venueId: r.venue.id, name: r.venue.name, venue: r.venue, score: r.score,
     worstMinutes: r.worstMinutes, worstMember: names[r.worstMemberId], meanMinutes: r.meanRaw,
     travelByMember: r.travelByMember, returnByMember: r.returnByMember, distanceFromCentreKm: r.distanceKm,
     breakdown: r.breakdown, explanation: S.explain(r, label), verify: needsVerification(r.venue, members),
     approximate: r.approximate, dietUnknown: unknownDietNeeds(r.venue, members),
     ...optionLabels(r, centre, c, swap, input.lastStop ? Math.max(...r.back) : null),
-  }));
-  return { status: 'ok', centre, results, regret: S.regretCounterfactual(rows, names), notice: fewOptions(rs), diagnostics };
+  });
+  const results = shown.map(toResult);
+  // Every current option that still fits, in rank order, ranked among all scored venues. An id missing here no longer fits.
+  const currentIds = new Set(input.currentOptionIds ?? []);
+  const current = rows.map(toResult).filter(r => currentIds.has(r.venueId));
+  return { status: 'ok', centre, results, current, regret: S.regretCounterfactual(rows, names), notice: fewOptions(rs), diagnostics };
 }
 
 /**

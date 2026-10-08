@@ -93,3 +93,13 @@ test('regret line: a gap under one minute is not shown as "would add 0 minutes"'
   const r = S.regretCounterfactual([row('rec', 45, 40), row('popular', 46, 30)], { ian: 'Ian' });
   assert.strictEqual(r.text, "Picking popular instead would add 1 minute to Ian's journey.");
 });
+
+// ---------------- 7. member with a start but no home or end (found in a live API smoke test)
+test('a member with only a start point heads back to it instead of crashing on the trip home', () => {
+  const startOnly = id => ({ id, start: member(id).home });
+  for (const lastStop of [false, true]) {
+    const out = converge({ ...dinner, lastStop, unknownPolicy: 'lenient', members: [startOnly('ian'), startOnly('faith')] }, data);
+    assert.strictEqual(out.status, 'ok', `lastStop ${lastStop}`);
+    assert.ok(allFinite(out));
+  }
+});

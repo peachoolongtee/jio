@@ -106,3 +106,29 @@ test('searchVenues: uses the slot rules (duration, category, diet, last stop), a
   assert.deepStrictEqual(strictSlot[0].unfit.sort(), ['category', 'closed', 'diet:halal', 'near_mrt']);
   assert.deepStrictEqual(searchVenues({ ...base, query: '   ' }, only(vs)), []);
 });
+
+// ---------------- current options (the ones the group is voting on)
+// 12 venues on top of the meeting point fill the shortlist; 'added' is 1.5 km out, like a place added by search.
+const crowdOfNear = () => Array.from({ length: 12 }, (_, i) => venue(`near${i}`));
+const added = venue('added', { lat: bugis.lat + 0.0135 });
+test('a current option outside the shortlist is still scored and comes back in `current`', () => {
+  const data = only([...crowdOfNear(), added]);
+  assert.ok(!converge(slot, data).results.some(r => r.venueId === 'added'), 'not on the shortlist on its own');
+  const out = converge({ ...slot, currentOptionIds: ['added', 'near0'] }, data);
+  assert.deepStrictEqual(out.current.map(r => r.venueId).sort(), ['added', 'near0']);
+  const r = out.current.find(x => x.venueId === 'added');
+  assert.strictEqual(r.walkMinutes, walkMinutes(bugis, added));
+  assert.ok(Number.isFinite(r.score) && r.rank >= 1 && Array.isArray(r.reasons));
+});
+test('a current option that no longer fits, or is past 3 km, is left out of `current`', () => {
+  const closed = venue('closed', { openingHours: [['18:00', '22:00']] });
+  const far = venue('far', { lat: bugis.lat + 0.04 }); // ~4.4 km
+  const out = converge({ ...slot, currentOptionIds: ['closed', 'far', 'gone'] }, only([...crowdOfNear(), closed, far]));
+  assert.deepStrictEqual(out.current, []);
+});
+test('without current options, `current` is empty and results are unchanged', () => {
+  const data = only([...crowdOfNear(), added]);
+  const out = converge(slot, data);
+  assert.deepStrictEqual(out.current, []);
+  assert.deepStrictEqual(out.results.map(r => r.venueId), converge({ ...slot, currentOptionIds: [] }, data).results.map(r => r.venueId));
+});
