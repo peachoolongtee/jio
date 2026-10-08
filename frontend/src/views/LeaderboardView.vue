@@ -1,17 +1,23 @@
 <script setup>
-// Leaderboard: one ranking, the number of successful meetups (sessions that reached Completed).
-// Ian's row is pinned at the bottom when he is outside the top 10.
+// Leaderboard: one ranking, the points earned this season. A season is a calendar quarter; when it ends,
+// first place wins points to spend, and season points start again from 0 (points to spend are kept).
+// The rule, the countdown and the last few winners are on this screen. Ian's row is pinned at the bottom
+// when he is outside the top 10.
 // Rewards: café vouchers bought with points. Redeeming shows a code and lowers the balance;
 // a voucher that costs more than the balance is disabled and says how many points are missing.
 import { computed, onMounted, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import BannerNote from '@/components/ui/BannerNote.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import StatTile from '@/components/ui/StatTile.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import { useGroupsStore } from '@/stores/groups.js'
+import { endsInText, lastDay, seasonRange } from '@/lib/season.js'
+import { useNow } from '@/lib/useNow.js'
+import { format } from 'date-fns'
 
 const TOP = 10
 
@@ -21,7 +27,14 @@ const redeemed = ref(null)
 const busy = ref(false)
 const error = ref('')
 
-onMounted(() => Promise.all([groups.loadLeaderboard(), groups.loadRewards()]))
+onMounted(() => Promise.all([groups.loadLeaderboard(), groups.loadSeason(), groups.loadRewards()]))
+
+const now = useNow()
+const season = computed(() => groups.season)
+const endsIn = computed(() => (season.value ? endsInText(season.value, now.value) : ''))
+const endDate = computed(() => (season.value ? format(lastDay(season.value), 'd MMM') : ''))
+// "Darius" or "Darius and Nicole"; "Nobody" when nobody earned points that season.
+const winnerNames = (past) => (past.winners.length ? past.winners.map((w) => (w.isMe ? 'You' : w.name)).join(' and ') : 'Nobody')
 
 const top = computed(() => groups.leaderboard.slice(0, TOP))
 // The top three on a podium (2nd, 1st, 3rd), everyone else in the list below.
@@ -58,26 +71,33 @@ async function redeem() {
   <main class="screen">
     <header class="screen__header">
       <h1 class="display-xl">Leaderboard</h1>
-      <p class="body-sm text-muted">Successful meetups</p>
+      <div v-if="season" class="season-line">
+        <p class="body-sm text-muted">Season {{ season.number }} · {{ seasonRange(season) }} · points this season</p>
+        <span class="season-chip"><AppIcon name="clock" :size="13" /><span class="tnum">{{ endsIn }}</span></span>
+      </div>
     </header>
 
     <div class="screen__body">
       <div class="board-layout">
         <section class="section" aria-labelledby="rank-head">
-          <h2 id="rank-head" class="sr-only">Ranking by successful meetups</h2>
+          <h2 id="rank-head" class="sr-only">Ranking by points this season</h2>
+          <BannerNote v-if="season" icon="trophy" class="season-rule">
+            First place on {{ endDate }} wins <strong>{{ season.prize }} points</strong> to spend on café discounts.
+            Then everyone's season points start again from 0. Points you have not spent are kept.
+          </BannerNote>
           <div v-if="groups.loading.leaderboard && !groups.leaderboard.length" class="stack">
             <SkeletonRow v-for="n in 6" :key="n" avatar />
           </div>
  <template v-else>
           <ol class="podium rise" aria-label="Top three">
             <li v-for="row in podium" :key="row.id" class="podium__spot" :class="[`podium__spot--${row.place}`, { 'is-me': row.isMe }]">
-              <RouterLink :to="row.isMe ? '/profile' : `/people/${row.id}`" class="podium__link" :aria-label="`Rank ${row.rank}: ${row.name}, ${row.meetups} meetups`">
+              <RouterLink :to="row.isMe ? '/profile' : `/people/${row.id}`" class="podium__link" :aria-label="`Rank ${row.rank}: ${row.name}, ${row.seasonPoints} points this season`">
                 <span class="podium__avatar">
                   <UserAvatar :name="row.name" :src="row.photo" :size="row.place === 1 ? 72 : 56" />
                   <span class="podium__rank">{{ row.rank }}</span>
                 </span>
                 <span class="title-sm truncate">{{ row.name }}</span>
-                <span class="podium__count display-sm tnum">{{ row.meetups }}</span>
+                <span class="podium__count"><span class="display-sm tnum">{{ row.seasonPoints }}</span> <span class="caption-sm text-muted">pts</span></span>
               </RouterLink>
             </li>
           </ol>
@@ -90,7 +110,8 @@ async function redeem() {
                 <span class="caption-sm text-muted">{{ row.homeArea }}</span>
               </RouterLink>
               <span class="board__count">
-                <span class="title-md">{{ row.meetups }}</span>
+                <span class="title-md tnum">{{ row.seasonPoints }}</span>
+                <span class="caption-sm text-muted">pts</span>
               </span>
             </li>
           </ol>
@@ -100,14 +121,28 @@ async function redeem() {
               <span class="board__rank" :aria-label="`Rank ${pinned.rank}`">{{ pinned.rank }}</span>
               <UserAvatar :name="pinned.name" :src="pinned.photo" :size="40" />
               <RouterLink to="/profile" class="board__name"><span class="title-sm truncate">{{ pinned.name }} (you)</span></RouterLink>
-              <span class="board__count"><span class="title-md tnum">{{ pinned.meetups }}</span></span>
+              <span class="board__count"><span class="title-md tnum">{{ pinned.seasonPoints }}</span><span class="caption-sm text-muted">pts</span></span>
             </div>
           </div>
         </section>
 
-        <aside class="me-stats" aria-label="Your standing">
-          <StatTile label="Your rank" :value="groups.me ? ordinal(groups.me.rank) : '-'" icon="trophy" />
-          <StatTile label="Points" :value="points" icon="gift" hint="Spend them on café discounts below" />
+        <aside class="side">
+          <div class="me-stats" aria-label="Your standing">
+            <StatTile label="Your rank" :value="groups.me ? ordinal(groups.me.rank) : '-'" icon="trophy" :hint="groups.me ? `${groups.me.seasonPoints} points this season` : ''" />
+            <StatTile label="Points" :value="points" icon="gift" hint="Spend them on café discounts below" />
+          </div>
+          <section v-if="season?.past.length" class="past card" aria-labelledby="past-head">
+            <h2 id="past-head" class="title-md">Past seasons</h2>
+            <ol class="past__list">
+              <li v-for="past in season.past" :key="past.number" class="past__row">
+                <span class="past__icon"><AppIcon name="trophy" :size="16" /></span>
+                <span class="past__text">
+                  <span class="title-sm">{{ winnerNames(past) }}</span>
+                  <span class="caption-sm text-muted">Season {{ past.number }}<template v-if="past.winners.length"> · {{ past.winners[0].seasonPoints }} points · won {{ past.prize }}</template></span>
+                </span>
+              </li>
+            </ol>
+          </section>
         </aside>
       </div>
 
@@ -178,7 +213,18 @@ async function redeem() {
 <style scoped>
 .board-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-lg); }
 @media (min-width: 1128px) { .board-layout { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; } }
+.side { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 .me-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
+/* The season: which one, its dates, and a countdown chip like the session countdown. */
+.season-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); }
+.season-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); font: var(--text-badge); font-size: 12px; white-space: nowrap; }
+.season-rule { margin-bottom: var(--spacing-base); }
+.past { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-base); }
+.past__list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.past__row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 52px; }
+.past__row + .past__row { border-top: 1px solid var(--hairline-soft); }
+.past__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
+.past__text { display: flex; flex-direction: column; min-width: 0; }
 .podium { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: var(--spacing-sm); }
 .podium__link { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xs); padding: var(--spacing-base) var(--spacing-sm) 0; color: var(--ink); text-decoration: none; }
 .podium__avatar { position: relative; margin-bottom: var(--spacing-xs); }

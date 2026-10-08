@@ -10,6 +10,7 @@ import { VENUES } from './mock/venues.js'
 import { HOST_ID, PAST_ACTIVITY, PEOPLE, POINTS_PER_MEETUP, STARTING_MEETUPS } from './mock/people.js'
 import { REWARDS } from './mock/rewards.js'
 import { pastMeetupDates } from './mock/history.js'
+import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { format } from 'date-fns'
@@ -27,13 +28,27 @@ const DELAY = { read: 80, plan: 300, write: 40, meeting: 700 }
 
 // ── Storage ────────────────────────────────────────────────────────────────
 
+// The leaderboard season now, and how many points each person earned in it so far: their past meetups since
+// the season began (the same dates as their profile graph).
+function freshSeason(now = new Date()) {
+  const season = { number: 1, ...Season.quarterOf(now) }
+  const since = format(new Date(season.startsAt), 'yyyy-MM-dd')
+  const earned = (id) => pastMeetupDates(id, STARTING_MEETUPS[id], now).filter((d) => d >= since).length * POINTS_PER_MEETUP
+  return { season, earned }
+}
+
 function freshDb(keep = {}) {
+  const { season, earned } = freshSeason()
   return {
     version: VERSION,
     user: keep.user || null,
     friends: keep.friends || [],
     sessions: [],
-    stats: Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: STARTING_MEETUPS[p.id], points: STARTING_MEETUPS[p.id] * POINTS_PER_MEETUP }])),
+    // points: what each person can spend. seasonPoints: what they earned this season, for the leaderboard.
+    stats: Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: STARTING_MEETUPS[p.id], points: STARTING_MEETUPS[p.id] * POINTS_PER_MEETUP, seasonPoints: earned(p.id) }])),
+    season,
+    // Past seasons, latest first: { number, startsAt, endsAt, winners: [{ id, seasonPoints }], prize }.
+    pastSeasons: [],
     redemptions: [],
     conditions: { rain: false, crowd: false, routing: true, sessionDay: false },
     // Every venue the planner has sent, by id. Suggestions can be any of the backend's venues, not only VENUES.
@@ -349,6 +364,9 @@ export async function getPerson(id) {
   const activity = [
     ...sessions.filter((s) => s.status === 'completed').map((s) => ({ date: s.date, text: `Successful meetup at ${s.areaName}`, sessionId: s.id })),
     ...(PAST_ACTIVITY[id] || []),
+    ...db.pastSeasons
+      .filter((x) => x.winners.some((w) => w.id === id))
+      .map((x) => ({ date: format(new Date(x.endsAt), 'yyyy-MM-dd'), text: `Won season ${x.number} · +${x.prize} points` })),
   ].sort((a, b) => b.date.localeCompare(a.date))
   // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned).
   const counts = {}
@@ -366,16 +384,63 @@ export async function setFriend(id, isFriend) {
   return [...db.friends]
 }
 
-// One ranking: successful meetups. Ties share a rank.
+// ── Seasons ────────────────────────────────────────────────────────────────
+
+// End the current season at `at`: the winners get the prize to spend, then season points start again.
+function closeSeason(at) {
+  const ended = { ...db.season, endsAt: at }
+  const winners = Season.seasonWinners(PEOPLE.map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints })))
+  for (const id of winners) db.stats[id].points += Season.SEASON_PRIZE
+  db.pastSeasons.unshift({ ...ended, prize: Season.SEASON_PRIZE, winners: winners.map((id) => ({ id, seasonPoints: db.stats[id].seasonPoints })) })
+  for (const p of PEOPLE) db.stats[p.id].seasonPoints = 0
+  db.season = Season.nextSeason(db.season, at)
+}
+
+// Seasons that ran out while nobody had the app open end now, in order. Returns true when one ended.
+function catchUpSeasons(now = Date.now()) {
+  let ended = false
+  while (now >= db.season.endsAt) {
+    closeSeason(db.season.endsAt)
+    ended = true
+  }
+  if (ended) save()
+  return ended
+}
+
+function publicSeason(season) {
+  return {
+    ...clone(season),
+    winners: (season.winners || []).map((w) => ({ ...w, name: nameOf(w.id), isMe: w.id === HOST_ID })),
+  }
+}
+
+// The season now, the prize, and the last few seasons with their winners.
+export async function getSeason() {
+  await wait(DELAY.read)
+  if (catchUpSeasons()) emit({ type: 'stats' })
+  return { ...publicSeason(db.season), prize: Season.SEASON_PRIZE, past: db.pastSeasons.slice(0, 4).map(publicSeason) }
+}
+
+// Demo: end the season now instead of waiting for the end of the quarter. Returns the season that ended.
+export async function endSeason() {
+  await wait(DELAY.write)
+  closeSeason(Date.now())
+  emit({ type: 'stats' })
+  return publicSeason(db.pastSeasons[0])
+}
+
+// One ranking: points earned this season. Ties share a rank.
 export async function getLeaderboard() {
   await wait(DELAY.read)
-  const rows = PEOPLE.map((p) => publicPerson(p.id)).sort((a, b) => b.meetups - a.meetups || (a.id === HOST_ID ? -1 : b.id === HOST_ID ? 1 : a.name.localeCompare(b.name)))
+  if (catchUpSeasons()) emit({ type: 'stats' })
+  const rows = PEOPLE.map((p) => ({ ...publicPerson(p.id), seasonPoints: db.stats[p.id].seasonPoints }))
+    .sort((a, b) => b.seasonPoints - a.seasonPoints || (a.id === HOST_ID ? -1 : b.id === HOST_ID ? 1 : a.name.localeCompare(b.name)))
   let rank = 0
   let last = null
   return rows.map((row, i) => {
-    if (row.meetups !== last) {
+    if (row.seasonPoints !== last) {
       rank = i + 1
-      last = row.meetups
+      last = row.seasonPoints
     }
     return { ...row, rank, isMe: row.id === HOST_ID }
   })
@@ -890,6 +955,7 @@ export async function endPlan(id) {
   for (const personId of activeIds(session)) {
     db.stats[personId].meetups += 1
     db.stats[personId].points += POINTS_PER_MEETUP
+    db.stats[personId].seasonPoints += POINTS_PER_MEETUP
   }
   emit({ type: 'stats' })
   return touch(session, 'session')

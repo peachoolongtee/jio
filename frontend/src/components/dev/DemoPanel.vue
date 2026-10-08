@@ -127,6 +127,13 @@ const optOut = () => act('optout', async () => {
   note.value = `${nameOf(optOutId.value)} opted out.`
 })
 
+// The leaderboard season ends now instead of at the end of the quarter: first place wins the prize.
+const endSeason = () => act('season', async () => {
+  const ended = await api.endSeason()
+  const names = ended.winners.map((w) => w.name).join(' and ')
+  note.value = names ? `Season ${ended.number} ended. ${names} won ${ended.prize} points.` : `Season ${ended.number} ended. Nobody earned points, so nobody won.`
+})
+
 async function reset() {
   await api.resetDemo()
   note.value = 'Demo data reset.'
@@ -181,6 +188,13 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       <h3 class="title-md">One friend opts out</h3>
       <SelectField v-model="optOutId" label="Friend" :options="friendOptions" :disabled="!friendOptions.length" />
       <AppButton block variant="secondary" :disabled="!session || !live || !optOutId" @click="optOut">Opt out</AppButton>
+    </section>
+
+    <section class="demo-group">
+      <h3 class="title-md">Leaderboard</h3>
+      <AppButton block variant="secondary" :disabled="!!running" @click="endSeason">
+        {{ running === 'season' ? 'Ending the season' : 'End the season now' }}
+      </AppButton>
     </section>
 
     <section class="demo-group">
