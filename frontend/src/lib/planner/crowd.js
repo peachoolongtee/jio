@@ -48,6 +48,3 @@ export function crowdText(level) {
   if (!(level in CROWD_LABELS) || level === 'unknown') return CROWD_LABELS.unknown
   return `${CROWD_LABELS[level]} · est.`
 }
-
-// How much each level lowers the ranking score.
-export const CROWD_PENALTY = { quiet: 0, moderate: 0.6, busy: 1.4 }
