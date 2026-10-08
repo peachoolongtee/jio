@@ -1,12 +1,12 @@
 <script>
 // Kept outside <script setup> so the prop validator below can use it.
-const MODES = { walk: 'Walk', mrt: 'MRT', grab: 'Grab' }
+const MODES = { walk: 'Walk', mrt: 'MRT', car: 'Car' }
 </script>
 
 <script setup>
-// The link between two stops: a line and a visible three-way switch, Walk, MRT and Grab,
+// The link between two stops: a line and a visible three-way switch, Walk, MRT and Car,
 // each with its own time. Choosing one moves every later stop.
-//   <TravelConnector :options="{ walk: 12, mrt: 9, grab: 7 }" mode="walk" @change="setMode(index, $event)" />
+//   <TravelConnector :options="{ walk: 12, mrt: 9, car: 7 }" mode="walk" @change="setMode(index, $event)" />
 // Set `readonly` where the mode cannot be changed: only the chosen mode is shown.
 import { useId } from 'vue'
 import AppIcon from '../ui/AppIcon.vue'

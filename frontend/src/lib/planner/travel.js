@@ -26,8 +26,9 @@ export function transitMinutes(a, b) {
   return Math.min(walkMinutes(a, b), mrtMinutes(a, b))
 }
 
-// Grab: about 5 minutes to be picked up, then 27 km/h through traffic.
-export function grabMinutes(a, b) {
+// Car (a Grab, a taxi or driving yourself): about 5 minutes to get going (a pick-up, or finding parking),
+// then 27 km/h through traffic.
+export function carMinutes(a, b) {
   const km = distanceKm(a, b)
   if (km < SAME_PLACE_KM) return 0
   return Math.round(5 + km * DETOUR * 2.2)
@@ -35,13 +36,25 @@ export function grabMinutes(a, b) {
 
 // The three choices between two stops, each with its own time.
 export function legOptions(a, b) {
-  return { walk: walkMinutes(a, b), mrt: mrtMinutes(a, b), grab: grabMinutes(a, b) }
+  return { walk: walkMinutes(a, b), mrt: mrtMinutes(a, b), car: carMinutes(a, b) }
 }
 
-// The mode a leg starts with: walk when it is short, otherwise the faster of MRT and Grab,
-// preferring the MRT unless Grab saves more than 10 minutes.
+// The mode a leg starts with: walk when it is short, otherwise the faster of MRT and car,
+// preferring the MRT unless the car saves more than 10 minutes.
 export function defaultMode(options) {
   if (options.walk <= 12) return 'walk'
-  if (options.mrt <= options.grab + 10) return 'mrt'
-  return 'grab'
+  if (options.mrt <= options.car + 10) return 'mrt'
+  return 'car'
+}
+
+// Colour coding for a person's trip to the meeting area, always shown with the minutes:
+// short (up to 30 min), medium (up to 45) and long (over 45).
+export const TRAVEL_TONES = [
+  { id: 'short', label: 'Up to 30 min', max: 30 },
+  { id: 'medium', label: '31 to 45 min', max: 45 },
+  { id: 'long', label: 'Over 45 min', max: Infinity },
+]
+
+export function travelTone(minutes) {
+  return TRAVEL_TONES.find((t) => minutes <= t.max).id
 }

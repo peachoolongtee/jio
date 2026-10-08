@@ -19,7 +19,9 @@ const STORAGE_KEY = 'jio-demo-v1'
 const VERSION = 4
 // How many ranked places to ask for per slot: enough to top a slot up to its maximum.
 const RANKED_MAX = 10
-const DELAY = { read: 80, plan: 300, write: 40 }
+// meeting: the least time the "finding the meeting point" animation shows. The planner answers in milliseconds
+// with estimated travel times; with real routing it takes longer on its own.
+const DELAY = { read: 80, plan: 300, write: 40, meeting: 700 }
 
 // ── Storage ────────────────────────────────────────────────────────────────
 
@@ -114,11 +116,22 @@ function membersFor(session) {
     })
 }
 
+// Sessions whose meeting area the planner is working out right now. getSession shows it as `findingMeeting`.
+const finding = new Set()
+
 // The meeting area, in the shape meetingResultLine and recalculate read: { areaId, method, times, maxMinutes, ... }.
 async function computeMeeting(session) {
   const members = membersFor(session)
   if (members.length < P.MIN_LOCATIONS) return null
-  const data = await planner.meetingArea({ members, routing: db.conditions.routing })
+  // Show the new location and the "finding" animation straight away; the answer follows.
+  finding.add(session.id)
+  emit({ type: 'pending', sessionId: session.id })
+  let data
+  try {
+    ;[data] = await Promise.all([planner.meetingArea({ members, routing: db.conditions.routing }), wait(DELAY.meeting)])
+  } finally {
+    finding.delete(session.id)
+  }
   const times = Object.fromEntries(Object.entries(data.travelByMember).map(([id, minutes]) => [id, Math.round(minutes)]))
   const minutes = Object.values(times)
   const same = members.every((m) => P.distanceKm(m.start, members[0].start) < P.SAME_PLACE_KM)
@@ -159,6 +172,7 @@ async function rankSlot(session, slot, slots, currentOptionIds = session.options
     lastStop: slots[slots.length - 1]?.id === slot.id,
     currentOptionIds,
     conditions: db.conditions,
+    radiusMeters: session.radius || undefined,
     topN: RANKED_MAX,
   })
   for (const o of [...ranked.options, ...ranked.current]) db.venues[o.venue.id] = o.venue
@@ -235,6 +249,8 @@ async function orUndo(session, change) {
   } catch (err) {
     for (const key of Object.keys(session)) delete session[key]
     Object.assign(session, before)
+    // Save the session as it was, and show it again (a "pending" update may have shown the change already).
+    emit({ type: 'pending', sessionId: session.id })
     throw err
   }
 }
@@ -416,6 +432,9 @@ function summary(session) {
     activeIds: activeIds(session),
     areaName: session.meeting ? areaById(session.meeting.areaId).name : '',
     isToday: isSessionDay(session),
+    findingMeeting: finding.has(session.id),
+    // The search radius the group chose, in metres, or null to let the planner widen on its own.
+    radius: session.radius ?? null,
     slots: slots.map((s) => ({ ...s, optionCount: (session.options[s.id] || []).length })),
   }
 }
@@ -452,6 +471,7 @@ export async function createSession({ title, date, start, end }) {
     plan: null,
     banner: null,
     replan: null,
+    radius: null,
   }
   db.sessions.push(session)
   return touch(session, 'session')
@@ -568,6 +588,19 @@ export async function restoreSlots(id) {
   })
 }
 
+// The search radius around the meeting area, in metres (100 to 3000), or null to let the planner widen on its own.
+// Options outside the new radius drop out, with their votes, and each slot tops up to three again.
+export async function setRadius(id, metres) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (metres != null && !(metres >= 100 && metres <= 3000)) throw new Error('Pick a radius from 100 m to 3 km.')
+  return orUndo(session, async () => {
+    session.radius = metres ?? null
+    await syncOptions(session)
+    return touch(session, 'options')
+  })
+}
+
 export async function addMoreOptions(id, slotId) {
   await wait(DELAY.plan)
   const session = sessionById(id)
@@ -592,6 +625,7 @@ export async function searchVenuesForSlot(id, slotId, query) {
     date: session.date,
     slot,
     lastStop: slots[slots.length - 1]?.id === slotId,
+    maxKm: session.radius ? session.radius / 1000 : undefined,
   })
   return results.map((r) => ({ ...r, added: (session.options[slotId] || []).includes(r.id) }))
 }
@@ -676,13 +710,21 @@ export async function getPlan(id) {
       options,
       canAddMore: options.length < P.OPTIONS_MAX && rankedIds(ranked).length > options.length,
       widened: ranked.widened,
+      // Why the slot has no options: { reason, nearestKm, widenToKm } from the planner, or null.
+      empty: ranked.empty ? { reason: ranked.empty.reason, nearestKm: ranked.empty.hints?.nearestKm ?? null, widenToKm: ranked.empty.hints?.widenToKm ?? null } : null,
+      // Fewer than 3 places fit inside the search radius: { found, widenToKm }, or null.
+      few: ranked.few,
       leader: P.leader(optionIds, votes),
+      // The most votes any option has, and the options sharing it when there is no single leader.
+      topVotes: Math.max(0, ...optionIds.map((v) => counts[v] || 0)),
+      tied: P.leader(optionIds, votes) ? [] : optionIds.filter((v) => counts[v] && counts[v] === Math.max(...optionIds.map((o) => counts[o] || 0))),
       totalVotes: Object.keys(votes).length,
       myVote: votes[HOST_ID] || null,
     }
   })
   return {
     area: { ...area },
+    radius: session.radius ?? null,
     slots: view,
     voters: P.voters(session.votes, ids),
     prefs: clone(session.prefs),

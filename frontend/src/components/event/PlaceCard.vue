@@ -1,11 +1,13 @@
 <script setup>
-// A place near Ian on Home: a category plate, the name, where it is, the price tier and the rating.
+// A place near Ian on Home: a photo of the kind of place with its category, the name, where it is,
+// the price tier and the rating.
 //   <PlaceCard :place="venue" />
 import { computed } from 'vue'
 import CategoryIcon from '../ui/CategoryIcon.vue'
 import InfoTag from '../ui/InfoTag.vue'
 import PriceTier from '../ui/PriceTier.vue'
 import RatingBadge from '../ui/RatingBadge.vue'
+import { placeImage } from '@/lib/placeImages.js'
 
 const props = defineProps({
   place: { type: Object, required: true },
@@ -23,12 +25,13 @@ const tags = computed(() => {
 <template>
   <article class="place" :aria-label="place.name">
     <div class="place__plate" :class="`place__plate--${place.category}`">
-      <CategoryIcon :category="place.category" :size="48" />
+      <img class="place__photo" :src="placeImage(place)" alt="" loading="lazy" width="88" height="88" />
+      <CategoryIcon class="place__cat" :category="place.category" :size="28" />
     </div>
     <div class="place__text">
       <div class="place__top">
         <h3 class="title-md clamp-2">{{ place.name }}</h3>
-        <RatingBadge :score="place.rating" />
+        <RatingBadge v-if="place.rating != null" :score="place.rating" />
       </div>
       <p class="caption-sm text-muted">{{ place.area }} · {{ place.distanceKm }} km</p>
       <div class="place__tags">
@@ -41,7 +44,9 @@ const tags = computed(() => {
 
 <style scoped>
 .place { display: flex; gap: var(--spacing-md); padding: var(--spacing-md); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
-.place__plate { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 88px; height: 88px; border-radius: var(--rounded-sm); }
+.place__plate { position: relative; flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 88px; height: 88px; border-radius: var(--rounded-sm); }
+.place__photo { width: 100%; height: 100%; object-fit: cover; border-radius: var(--rounded-sm); }
+.place__cat { position: absolute; right: -6px; bottom: -6px; box-shadow: 0 0 0 2px var(--canvas); }
 .place__plate--eat { background: var(--cat-eat-bg); }
 .place__plate--drink { background: var(--cat-drink-bg); }
 .place__plate--shop { background: var(--cat-shop-bg); }

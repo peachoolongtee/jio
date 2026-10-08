@@ -25,7 +25,15 @@ describe('a session planned by the backend', () => {
     ;({ id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' }))
     await api.inviteFriends(id, ['jonathan', 'faith'])
     await api.startSession(id)
-    for (const [person, areaId] of Object.entries(people)) await api.setLocation(id, person, 'start', { areaId })
+    const [first, ...rest] = Object.entries(people)
+    await api.setLocation(id, first[0], 'start', { areaId: first[1] })
+    // While the planner works out the meeting area, the session says so (the map shows an animation).
+    const saving = api.setLocation(id, rest[0][0], 'start', { areaId: rest[0][1] })
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    expect((await api.getSession(id)).findingMeeting).toBe(true)
+    await saving
+    expect((await api.getSession(id)).findingMeeting).toBe(false)
+    for (const [person, areaId] of rest.slice(1)) await api.setLocation(id, person, 'start', { areaId })
     const session = await api.getSession(id)
     expect(session.area.id).toBe('bishan')
     expect(session.meeting.maxMinutes).toBeGreaterThan(0)
@@ -48,6 +56,22 @@ describe('a session planned by the backend', () => {
         expect(o.reasons.length).toBeLessThanOrEqual(2)
       }
     }
+  })
+
+  it('keeps suggestions inside the radius the group picks, and widens again on Auto', async () => {
+    const km = (a, b) => Math.hypot((a.lat - b.lat) * 111.32, (a.lng - b.lng) * 111.32 * Math.cos((a.lat * Math.PI) / 180))
+    await api.setRadius(id, 250)
+    const near = await plan()
+    expect(near.radius).toBe(250)
+    for (const slot of near.slots) {
+      for (const o of slot.options) expect(km(near.area, o.venue)).toBeLessThanOrEqual(0.25)
+      if (!slot.options.length) expect(slot.empty?.reason).toBeTruthy()
+    }
+    await api.setRadius(id, null)
+    const auto = await plan()
+    expect(auto.radius).toBeNull()
+    for (const slot of auto.slots) expect(slot.options).toHaveLength(3)
+    await expect(api.setRadius(id, 50)).rejects.toThrow(/100 m to 3 km/)
   })
 
   it('adds a place found by search, even one past the suggestions, and keeps showing it', async () => {

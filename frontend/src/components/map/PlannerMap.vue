@@ -8,10 +8,15 @@
 // route      join the places in order with a line
 // spokes     a thin line from each person to the meeting area
 // heat       show the crowd heat layer; heatPoints are { lat, lng, level: quiet | moderate | busy }
+// finding    the meeting area is being worked out: a pulse between everyone instead of the area pin
+// radius     metres: a circle around the meeting area showing how far suggestions may be
+// Colour coding: people by travel time (short, medium, long), places and numbered stops by category,
+// the leading place (highlight) ringed and labelled while the others (muted) fade back.
 // Pins are focusable: Tab to a pin and press Enter to select it.
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { travelTone } from '@/lib/planner/travel.js'
 
 const props = defineProps({
   people: { type: Array, default: () => [] },
@@ -26,6 +31,8 @@ const props = defineProps({
   // What the view fits to: 'all' (default), or 'places' to frame the stops and the meeting area only.
   fitTo: { type: String, default: 'all' },
   zoomPosition: { type: String, default: 'topleft' },
+  finding: { type: Boolean, default: false },
+  radius: { type: Number, default: 0 },
 })
 const emit = defineEmits(['select'])
 
@@ -45,9 +52,10 @@ const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 // A compact pill: the person's initial and their travel time. The full text is the marker's title.
 function personIcon(person) {
   const minutes = person.minutes != null ? `<span class="pm-person__min">${person.minutes} min</span>` : ''
+  const tone = person.minutes != null && !props.finding ? ` pm-person--${travelTone(person.minutes)}` : ''
   return L.divIcon({
     className: 'pm pm--auto',
-    html: `<span class="pm-person"><span class="pm-person__dot">${esc(person.name.charAt(0))}</span>${minutes}</span>`,
+    html: `<span class="pm-person${tone}"><span class="pm-person__dot">${esc(person.name.charAt(0))}</span>${minutes}</span>`,
     iconSize: null,
     iconAnchor: [14, 14],
   })
@@ -65,10 +73,10 @@ function areaIcon() {
 function placeIcon(place) {
   const selected = place.id === props.selected
   const inner = place.label ? esc(place.label) : ''
-  const cls = place.label ? 'pm-stop' : `pm-venue pm-venue--${place.category || 'eat'}`
+  const cls = place.label ? `pm-stop pm-stop--${place.category || 'eat'}` : `pm-venue pm-venue--${place.category || 'eat'}`
   return L.divIcon({
     className: 'pm',
-    html: `<span class="${cls}${selected ? ' is-selected' : ''}${place.highlight ? ' is-highlight' : ''}">${inner}</span>`,
+    html: `<span class="${cls}${selected ? ' is-selected' : ''}${place.highlight ? ' is-highlight' : ''}${place.muted ? ' is-muted' : ''}">${inner}</span>`,
     iconSize: [32, 32],
     iconAnchor: [16, 16],
   })
@@ -80,9 +88,31 @@ function draw() {
   const points = []
   const focus = []
 
-  if (props.area && props.spokes) {
+  // While the meeting area is being found: a pulse in the middle of everyone, and moving lines towards it.
+  const middle = props.finding && props.people.length
+    ? { lat: props.people.reduce((s, p) => s + p.lat, 0) / props.people.length, lng: props.people.reduce((s, p) => s + p.lng, 0) / props.people.length }
+    : null
+  const hub = middle || (props.spokes ? props.area : null)
+  if (hub) {
     for (const person of props.people) {
-      L.polyline([[person.lat, person.lng], [props.area.lat, props.area.lng]], { className: 'pm-spoke', interactive: false }).addTo(layers.base)
+      L.polyline([[person.lat, person.lng], [hub.lat, hub.lng]], { className: middle ? 'pm-spoke pm-spoke--finding' : 'pm-spoke', interactive: false }).addTo(layers.base)
+    }
+  }
+  if (middle) {
+    const icon = L.divIcon({ className: 'pm', html: '<span class="pm-finding"><span></span><span></span><span></span></span>', iconSize: [96, 96], iconAnchor: [48, 48] })
+    L.marker([middle.lat, middle.lng], { icon, interactive: false, keyboard: false, zIndexOffset: 400 }).addTo(layers.base)
+  }
+
+  // How far suggestions may be: a circle around the meeting area, labelled at its top edge.
+  if (props.area && props.radius && !middle) {
+    const circle = L.circle([props.area.lat, props.area.lng], { radius: props.radius, className: 'pm-radius', interactive: false }).addTo(layers.base)
+    const label = props.radius >= 1000 ? `${props.radius / 1000} km` : `${props.radius} m`
+    const top = [props.area.lat + props.radius / 111320, props.area.lng]
+    L.marker(top, { icon: L.divIcon({ className: 'pm pm--auto', html: `<span class="pm-radius-label">${label}</span>`, iconSize: null, iconAnchor: [24, 12] }), interactive: false, keyboard: false }).addTo(layers.base)
+    const bounds = circle.getBounds()
+    for (const corner of [bounds.getNorthWest(), bounds.getSouthEast()]) {
+      points.push([corner.lat, corner.lng])
+      focus.push([corner.lat, corner.lng])
     }
   }
 
@@ -96,7 +126,7 @@ function draw() {
     points.push([person.lat, person.lng])
   }
 
-  if (props.area) {
+  if (props.area && !middle) {
     L.marker([props.area.lat, props.area.lng], { icon: areaIcon(), title: `Meeting area: ${props.area.name}`, alt: `Meeting area: ${props.area.name}`, keyboard: true, zIndexOffset: 500 })
       .bindTooltip(esc(props.area.name), { permanent: true, direction: 'bottom', offset: [0, 18], className: 'pm-tip pm-tip--area' })
       .addTo(layers.base)
@@ -106,6 +136,7 @@ function draw() {
 
   for (const place of props.places) {
     const marker = L.marker([place.lat, place.lng], { icon: placeIcon(place), title: place.name, alt: place.name, keyboard: true, riseOnHover: true, zIndexOffset: place.id === props.selected ? 1000 : 300 })
+    if (place.highlight) marker.bindTooltip('Leading', { permanent: true, direction: 'top', offset: [0, -18], className: 'pm-tip pm-tip--lead' })
     marker.on('click', () => emit('select', place.id))
     marker.on('keypress', (event) => {
       if (event.originalEvent.key === 'Enter' || event.originalEvent.key === ' ') emit('select', place.id)
@@ -169,7 +200,7 @@ onBeforeUnmount(() => {
   map = null
 })
 
-watch(() => [props.people, props.area, props.places, props.route, props.spokes, props.selected], draw, { deep: true })
+watch(() => [props.people, props.area, props.places, props.route, props.spokes, props.selected, props.finding, props.radius], draw, { deep: true })
 watch(() => [props.heat, props.heatPoints], () => map && drawHeat(), { deep: true })
 
 // Called by a parent after the map container becomes visible.
@@ -217,6 +248,35 @@ defineExpose({ refit })
 .pm-tip--area { background: var(--primary); color: var(--on-primary); font: var(--text-caption); }
 .pm-route { stroke: var(--primary); stroke-width: 4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .pm-spoke { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 6; fill: none; opacity: 0.6; }
+/* Travel time: the person's initial sits on their travel colour. */
+.pm-person--short .pm-person__dot { background: var(--travel-short); }
+.pm-person--medium .pm-person__dot { background: var(--travel-medium); }
+.pm-person--long .pm-person__dot { background: var(--travel-long); }
+.pm-person--long { box-shadow: 0 0 0 2px var(--travel-long), var(--shadow-float); }
+/* Numbered stops in their category colour. */
+.pm-stop--eat { background: var(--cat-eat-fg); }
+.pm-stop--drink { background: var(--cat-drink-fg); }
+.pm-stop--shop { background: var(--cat-shop-fg); }
+.pm-stop--activity { background: var(--cat-activity-fg); }
+/* Voting: the leader is ringed and labelled, the others step back. */
+.pm-venue.is-muted, .pm-stop.is-muted { opacity: 0.55; }
+.pm-tip--lead { background: var(--primary); color: var(--on-primary); font: var(--text-caption); }
+/* The chosen search radius. */
+.pm-radius { stroke: var(--primary); stroke-width: 2; stroke-dasharray: 6 6; fill: var(--primary); fill-opacity: 0.06; }
+.pm-radius-label { display: inline-block; padding: var(--spacing-xxs) var(--spacing-sm); border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); font: var(--text-caption-sm); white-space: nowrap; }
+/* Finding the meeting area: rings pulse out from the middle of everyone, and the lines march towards it. */
+.pm-finding { position: relative; display: block; width: 96px; height: 96px; }
+.pm-finding > span { position: absolute; inset: 0; border: 3px solid var(--primary); border-radius: var(--rounded-full); opacity: 0; animation: pm-pulse 1.8s ease-out infinite; }
+.pm-finding > span:nth-child(2) { animation-delay: 0.6s; }
+.pm-finding > span:nth-child(3) { animation-delay: 1.2s; }
+.pm-finding::after { content: ""; position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 3px solid var(--canvas); border-radius: var(--rounded-full); background: var(--primary); box-shadow: var(--shadow-float); }
+.pm-spoke--finding { stroke: var(--primary); opacity: 0.9; animation: pm-march 0.8s linear infinite; }
+@keyframes pm-pulse { 0% { transform: scale(0.2); opacity: 0.9; } 100% { transform: scale(1); opacity: 0; } }
+@keyframes pm-march { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) {
+  .pm-finding > span, .pm-spoke--finding { animation: none; }
+  .pm-finding > span:first-child { opacity: 0.5; transform: scale(0.7); }
+}
 .pm-heat { stroke: none; fill-opacity: 0.18; }
 .pm-heat--quiet { fill: var(--crowd-quiet); }
 .pm-heat--moderate { fill: var(--crowd-moderate); }

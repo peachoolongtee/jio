@@ -1,6 +1,7 @@
 <script setup>
 // A big number with a label, on a soft tint. For profile stats such as successful meetups and points.
 //   <StatTile label="Successful meetups" :value="3" icon="trophy" />
+//   <StatTile label="Points" :value="320" icon="gift" tone="warm" hint="Spend them on café discounts" />
 import AppIcon from './AppIcon.vue'
 
 defineProps({
@@ -8,6 +9,8 @@ defineProps({
   value: { type: [Number, String], required: true },
   icon: { type: String, default: '' },
   tone: { type: String, default: 'lagoon', validator: (v) => ['lagoon', 'warm'].includes(v) },
+  // One short line under the label, such as what the number is for.
+  hint: { type: String, default: '' },
 })
 </script>
 
@@ -16,12 +19,14 @@ defineProps({
     <AppIcon v-if="icon" class="stat__icon" :name="icon" :size="20" />
     <span class="display-xl stat__value">{{ value }}</span>
     <span class="caption stat__label">{{ label }}</span>
+    <span v-if="hint" class="caption-sm stat__hint">{{ hint }}</span>
   </div>
 </template>
 
 <style scoped>
 .stat { display: flex; flex-direction: column; gap: var(--spacing-xxs); padding: var(--spacing-base); border-radius: var(--rounded-md); }
 .stat__value { line-height: 1.2; }
+.stat__hint { color: var(--muted); }
 .stat--lagoon { background: var(--primary-tint); }
 .stat--lagoon .stat__icon { color: var(--primary-active); }
 .stat--warm { background: var(--cat-drink-bg); }

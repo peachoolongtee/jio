@@ -81,16 +81,16 @@ async function signOut() {
       <div class="screen__body">
         <div class="stats">
           <StatTile label="Successful meetups" :value="person.meetups" icon="trophy" />
-          <StatTile label="Points" :value="person.points" icon="gift" tone="warm" />
+          <StatTile label="Points" :value="person.points" icon="gift" tone="warm" :hint="isMe ? 'Spend them on café discounts' : ''" />
         </div>
 
         <!-- Ian: his sessions -->
         <section v-if="isMe" class="section" aria-labelledby="my-sessions">
           <div class="section__head">
             <h2 id="my-sessions" class="display-sm">Sessions</h2>
-            <AppButton variant="secondary" small to="/leaderboard">
+            <AppButton variant="secondary" small to="/leaderboard#rewards">
               <AppIcon name="gift" />
-              Rewards
+              Café discounts
             </AppButton>
           </div>
           <div v-if="!events.loaded" class="stack"><SkeletonRow v-for="n in 2" :key="n" :lines="3" /></div>

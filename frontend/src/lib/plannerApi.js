@@ -93,8 +93,10 @@ export async function meetingArea({ members, routing = true }) {
 //   slot: { start (minutes after midnight), time ("HH:MM"), duration, category }
 //   currentOptionIds: the options the group is voting on. They are always scored, and come back in `current`
 //                     for as long as they still fit.
-// Returns { options (best first), current (the current options that still fit), widened, empty }.
-export async function rankSlot({ members, centre, date, slot, lastStop, currentOptionIds = [], conditions = {}, topN }) {
+//   radiusMeters:     the radius the group chose (100 to 3000), or undefined to let the planner widen on its own.
+// Returns { options (best first), current (the current options that still fit), widened, few, empty }.
+// few: { found, widenToKm } when fewer than 3 places fit inside the search radius.
+export async function rankSlot({ members, centre, date, slot, lastStop, currentOptionIds = [], conditions = {}, radiusMeters, topN }) {
   const { data } = await api.post('/api/converge', {
     members,
     occasion: DEFAULT_OCCASION,
@@ -107,14 +109,16 @@ export async function rankSlot({ members, centre, date, slot, lastStop, currentO
     weatherCase: conditions.rain ? 'rain' : 'clear',
     unknownPolicy: UNKNOWN_POLICY,
     ...(conditions.crowd ? { weights: CROWD_WEIGHTS } : {}),
+    radiusMeters,
     topN,
   })
-  if (data.status !== 'ok') return { options: [], current: [], widened: false, empty: data }
-  return { options: data.results.map(toOption), current: data.current.map(toOption), widened: !!data.notice, empty: null }
+  if (data.status !== 'ok') return { options: [], current: [], widened: false, few: null, empty: data }
+  const few = data.notice?.type === 'few_options' ? { found: data.notice.found, widenToKm: data.notice.widenToKm } : null
+  return { options: data.results.map(toOption), current: data.current.map(toOption), widened: !!data.notice, few, empty: null }
 }
 
 // Find places by name for a slot. Each says whether it fits, and the first reason it does not.
-export async function searchSlot({ query, members, centre, date, slot, lastStop }) {
+export async function searchSlot({ query, members, centre, date, slot, lastStop, maxKm }) {
   const { data } = await api.post('/api/search', {
     query,
     centre: point(centre),
@@ -124,6 +128,7 @@ export async function searchSlot({ query, members, centre, date, slot, lastStop 
     lastStop,
     members,
     unknownPolicy: UNKNOWN_POLICY,
+    maxKm,
   })
   return data.results.map((r) => {
     const reason = r.unfit[0] || ''

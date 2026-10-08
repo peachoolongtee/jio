@@ -1,7 +1,7 @@
 <script setup>
 // The confirmed plan, on one screen. On the day itself it is titled "Today's plan".
 //   - Stops in order: time and duration on one line, name, category icon, price tier.
-//   - Between stops: a visible Walk / MRT / Grab switch, each with its own time. It moves every later stop.
+//   - Between stops: a visible Walk / MRT / Car switch, each with its own time. It moves every later stop.
 //   - The end point and each person's travel time home, with a warning for anyone over 60 minutes.
 //   - The AI button (an empty sheet for now) and "View map".
 //   - Edit: delete a stop, change a travel mode, or re-plan. "End plan" completes the session on the day.
@@ -20,6 +20,8 @@ import ToastMessage from '@/components/ui/ToastMessage.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import StopCard from '@/components/event/StopCard.vue'
+import CategoryKey from '@/components/map/CategoryKey.vue'
+import { placeImage } from '@/lib/placeImages.js'
 import TravelConnector from '@/components/event/TravelConnector.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
@@ -121,9 +123,9 @@ async function endPlan() {
 
       <template v-else>
         <BannerNote v-if="status === 'completed'" icon="trophy">
-          Successful meetup · {{ POINTS_PER_MEETUP }} points for each person
+          Successful meetup · {{ POINTS_PER_MEETUP }} points for each person to spend on café discounts
           <template #actions>
-            <AppButton small variant="secondary" to="/leaderboard">Leaderboard</AppButton>
+            <AppButton small variant="secondary" to="/leaderboard#rewards">Café discounts</AppButton>
           </template>
         </BannerNote>
 
@@ -174,6 +176,7 @@ async function endPlan() {
                   :category="stop.category"
                   :price="stop.venue.price"
                   :area="stop.venue.area"
+                  :image="placeImage(stop.venue)"
                   :lifted="selected === stop.venue.id"
                 >
                   <template v-if="editing && itinerary.stops.length > 1" #actions>
@@ -214,6 +217,7 @@ async function endPlan() {
 
           <template #map>
             <PlannerMap :places="mapPlaces" :people="mapPeople" :area="itinerary?.area" route label="Itinerary map" :selected="selected" @select="selected = $event" />
+            <CategoryKey :categories="mapPlaces.map((p) => p.category)" />
           </template>
         </SplitView>
       </template>
@@ -227,7 +231,7 @@ async function endPlan() {
 
     <ModalDialog v-model:open="endOpen" title="End plan?">
       <template #content>
-        <p class="body-md">Successful meetup · {{ POINTS_PER_MEETUP }} points each for {{ session.activeIds.length }} people</p>
+        <p class="body-md">Successful meetup · {{ POINTS_PER_MEETUP }} points each for {{ session.activeIds.length }} people, to spend on café discounts</p>
       </template>
       <AppButton block :disabled="busy" @click="endPlan">End plan</AppButton>
       <AppButton block variant="secondary" @click="endOpen = false">Not yet</AppButton>
@@ -246,7 +250,7 @@ async function endPlan() {
       <AppButton block :disabled="busy" @click="replan">Re-plan</AppButton>
     </ModalDialog>
 
-    <ToastMessage v-model:show="toast" :text="`Session completed · +${POINTS_PER_MEETUP} points`" :offset="120" />
+    <ToastMessage v-model:show="toast" :text="`Session completed · +${POINTS_PER_MEETUP} points to spend on café discounts`" :offset="120" />
   </main>
   <main v-else class="screen" data-testid="event-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">

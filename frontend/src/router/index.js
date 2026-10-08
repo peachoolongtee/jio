@@ -24,7 +24,12 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
-  scrollBehavior: (to, from, saved) => saved || { top: 0 },
+  scrollBehavior: (to, from, saved) => {
+    if (saved) return saved
+    // A link to a section, such as /leaderboard#rewards: give the screen a moment to draw it, then scroll there.
+    if (to.hash) return new Promise((resolve) => setTimeout(() => resolve({ el: to.hash, top: 16, behavior: 'smooth' }), 300))
+    return { top: 0 }
+  },
 })
 
 router.beforeEach(async (to) => {

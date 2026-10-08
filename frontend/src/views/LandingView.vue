@@ -1,10 +1,12 @@
 <script setup>
-// Home: "Create session", Ian's current session and places near him, with one Filter button.
+// Home: "Create session", Ian's points and what café discounts they buy, his current session and places near him,
+// with one Filter button.
 // The filter has toggles (Touristy spots, Hidden gems, CDC Vouchers accepted, Food, Café),
 // a budget slider (the most to spend per person) and a distance slider.
 import { computed, onMounted, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import BannerNote from '@/components/ui/BannerNote.vue'
 import BottomSheet from '@/components/ui/BottomSheet.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import RangeSlider from '@/components/ui/RangeSlider.vue'
@@ -44,7 +46,7 @@ const filters = ref(emptyFilters())
 const editing = ref(emptyFilters())
 
 onMounted(async () => {
-  const jobs = [groups.loadPeople()]
+  const jobs = [groups.loadPeople(), groups.loadLeaderboard(), groups.loadRewards()]
   if (!events.loaded) jobs.push(events.loadSessions())
   places.value = await api.nearbyPlaces(auth.user.homeAreaId)
   loadingPlaces.value = false
@@ -96,6 +98,22 @@ function clearApplied() {
   editing.value = emptyFilters()
 }
 
+// Points, in terms of what they buy: "320 points: enough for 5 café discounts, like SGD 3 off any coffee at Nylon Coffee Roasters."
+const pointsLine = computed(() => {
+  const points = groups.me?.points
+  if (points == null || !groups.rewards.length) return ''
+  const affordable = groups.rewards.filter((r) => r.cost <= points).sort((a, b) => b.cost - a.cost)
+  if (!affordable.length) {
+    const cheapest = Math.min(...groups.rewards.map((r) => r.cost))
+    return `You have ${points} points. ${cheapest - points} more and you can get your first café discount. Every meetup you finish earns 100.`
+  }
+  const best = affordable[0]
+  const count = affordable.length === 1 ? 'a café discount' : `${affordable.length} café discounts`
+  // "One free cupcake" reads "one free cupcake" mid-sentence; "SGD 5 off" stays as it is.
+  const offer = /^[A-Z][a-z]/.test(best.offer) ? best.offer[0].toLowerCase() + best.offer.slice(1) : best.offer
+  return `You have ${points} points: enough for ${count}, like ${offer} at ${best.cafe}.`
+})
+
 const budgetText = (v) => (v >= BUDGET.max ? 'Any budget' : `Up to SGD ${v}`)
 const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} km`)
 </script>
@@ -119,6 +137,13 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <AppIcon name="plus" />
         Create session
       </AppButton>
+
+      <BannerNote v-if="pointsLine" icon="gift">
+        {{ pointsLine }}
+        <template #actions>
+          <AppButton small variant="secondary" to="/leaderboard#rewards">See café discounts</AppButton>
+        </template>
+      </BannerNote>
 
       <section class="section" aria-labelledby="home-current">
         <div class="section__head">

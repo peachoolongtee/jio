@@ -88,16 +88,20 @@ async function redeem() {
 
         <aside class="me-stats" aria-label="Your standing">
           <StatTile label="Your rank" :value="groups.me ? ordinal(groups.me.rank) : '–'" icon="trophy" />
-          <StatTile label="Points" :value="points" icon="gift" tone="warm" />
+          <StatTile label="Points" :value="points" icon="gift" tone="warm" hint="Spend them on café discounts below" />
         </aside>
       </div>
 
-      <section class="section" aria-labelledby="rewards-head">
+      <section id="rewards" class="section" aria-labelledby="rewards-head">
         <div class="section__head">
-          <h2 id="rewards-head" class="display-sm">Rewards</h2>
-          <span class="caption text-brand">{{ points }} points</span>
+          <h2 id="rewards-head" class="display-sm">Café discounts</h2>
+          <span class="caption text-brand">{{ points }} points to spend</span>
         </div>
-        <p class="caption-sm text-muted">100 points per successful meetup</p>
+        <ol class="how" aria-label="How points work">
+          <li><span class="how__n">1</span><span class="body-sm">Every meetup you finish earns <strong>100 points</strong>.</span></li>
+          <li><span class="how__n">2</span><span class="body-sm">Spend them on a discount at a partner café below.</span></li>
+          <li><span class="how__n">3</span><span class="body-sm">Show the code at the counter.</span></li>
+        </ol>
         <div v-if="groups.loading.rewards && !groups.rewards.length" class="grid-3">
           <SkeletonRow v-for="n in 3" :key="n" />
         </div>
@@ -166,6 +170,9 @@ async function redeem() {
 .board__count { display: flex; flex-direction: column; align-items: flex-end; }
 .board__pinned { position: sticky; bottom: var(--tabbar-height); margin-top: var(--spacing-sm); padding-top: var(--spacing-sm); border-top: 2px solid var(--primary); background: var(--canvas); }
 @media (min-width: 1128px) { .board__pinned { bottom: 0; } }
+.how { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-sm); margin: 0; padding: 0; list-style: none; }
+.how li { display: flex; align-items: center; gap: var(--spacing-sm); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--rounded-md); background: var(--surface-soft); }
+.how__n { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); font: var(--text-caption); }
 .voucher { display: flex; flex-direction: column; gap: var(--spacing-sm); height: 100%; padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
 .voucher > :last-child { margin-top: auto; align-self: flex-start; }
 .voucher__top { display: flex; align-items: center; justify-content: space-between; }

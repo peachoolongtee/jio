@@ -19,6 +19,7 @@ import MemberList from '@/components/group/MemberList.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
+import { TRAVEL_TONES, travelTone } from '@/lib/planner/travel.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
@@ -86,10 +87,13 @@ const travelRows = computed(() => {
   return active.value.map((id) => {
     const start = session.value.locations?.[id]?.start
     const minutes = session.value.meeting?.times?.[id]
-    return { id, name: nameOf(id), area: start?.name || '', minutes: start ? minutes : null, width: start && minutes != null ? `${Math.max(4, (minutes / max) * 100)}%` : '0%', longest: minutes === max && !!start }
+    const known = !!start && minutes != null
+    return { id, name: nameOf(id), area: start?.name || '', minutes: start ? minutes : null, width: known ? `${Math.max(4, (minutes / max) * 100)}%` : '0%', longest: minutes === max && !!start, tone: known ? travelTone(minutes) : '' }
   })
 })
 const locationCount = computed(() => mapPeople.value.length)
+// The planner is working out the meeting area right now.
+const finding = computed(() => !!session.value?.findingMeeting)
 
 function openSheet(which) {
   sheet.value = { open: true, which }
@@ -183,7 +187,17 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
           <h2 id="area-head" class="display-sm">Meeting area</h2>
           <SplitView v-model:view="view" label="Meeting area">
             <template #list>
-              <div v-if="session.meeting" class="area-card">
+              <div v-if="finding" class="area-card is-finding" role="status">
+                <div class="row gap-sm">
+                  <span class="area-card__pin area-card__pin--finding"><AppIcon name="pin" :size="20" /></span>
+                  <div class="stack">
+                    <span class="caption text-muted">Working it out</span>
+                    <span class="display-sm">Finding the fairest meeting point…</span>
+                  </div>
+                </div>
+                <span class="area-card__bar" aria-hidden="true"><span /></span>
+              </div>
+              <div v-else-if="session.meeting" class="area-card">
                 <div class="row gap-sm">
                   <span class="area-card__pin"><AppIcon name="pin" :size="20" /></span>
                   <div class="stack">
@@ -201,14 +215,20 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
                     <span class="title-sm">{{ row.name }}</span>
                     <span class="caption-sm text-muted">{{ row.area || 'No location yet' }}</span>
                   </span>
-                  <span v-if="row.minutes != null" class="travel__bar" aria-hidden="true"><span :class="{ 'is-longest': row.longest }" :style="{ width: row.width }" /></span>
-                  <span class="caption travel__min">{{ row.minutes != null ? `${row.minutes} min` : '' }}</span>
+                  <span v-if="row.minutes != null" class="travel__bar" aria-hidden="true"><span :class="[`is-${row.tone}`, { 'is-longest': row.longest }]" :style="{ width: row.width }" /></span>
+                  <span class="caption travel__min" :class="row.tone && `travel__min--${row.tone}`">{{ row.minutes != null ? `${row.minutes} min` : '' }}</span>
                 </li>
               </ul>
+              <p v-if="session.meeting" class="travel-key" aria-label="Travel time colours">
+                <span v-for="t in TRAVEL_TONES" :key="t.id" class="travel-key__item"><span class="travel-key__dot" :class="`is-${t.id}`" />{{ t.label }}</span>
+              </p>
             </template>
             <template #map>
-              <PlannerMap :people="mapPeople" :area="session.area" spokes label="Meeting area map" />
-              <div v-if="!session.meeting" class="map-wait">
+              <PlannerMap :people="mapPeople" :area="session.area" :finding="finding" spokes label="Meeting area map" />
+              <div v-if="finding" class="map-wait map-wait--finding" role="status">
+                <span class="title-sm">Finding the fairest meeting point…</span>
+              </div>
+              <div v-else-if="!session.meeting" class="map-wait">
                 <span class="title-sm">Waiting for at least 2 locations</span>
               </div>
             </template>
@@ -228,8 +248,8 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
       <AppButton v-if="status === 'inviting'" block :disabled="active.length < 2 || busy" @click="startSession">
         {{ active.length < 2 ? 'Start session · needs 2 people' : 'Start session' }}
       </AppButton>
-      <AppButton v-else-if="status === 'locating'" block :disabled="!session.meeting || busy" @click="useArea">
-        {{ session.meeting ? `Use ${session.area.name}` : 'Use this area' }}
+      <AppButton v-else-if="status === 'locating'" block :disabled="!session.meeting || busy || finding" @click="useArea">
+        {{ finding ? 'Finding the meeting point…' : session.meeting ? `Use ${session.area.name}` : 'Use this area' }}
       </AppButton>
       <AppButton v-else-if="status === 'voting'" block :to="`/sessions/${id}/plan`">Choose activities</AppButton>
       <AppButton v-else block :to="`/sessions/${id}/itinerary`">{{ session.isToday && status === 'confirmed' ? "Today's plan" : 'View itinerary' }}</AppButton>
@@ -257,7 +277,24 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 .travel__who { display: flex; flex-direction: column; min-width: 0; }
 .travel__bar { height: 8px; border-radius: var(--rounded-full); background: var(--primary-tint); overflow: hidden; }
 .travel__bar > span { display: block; height: 100%; border-radius: var(--rounded-full); background: var(--primary); transition: width var(--motion-fast) ease; }
-.travel__bar > span.is-longest { background: var(--primary-active); }
+.travel__bar > span.is-short { background: var(--travel-short); }
+.travel__bar > span.is-medium { background: var(--travel-medium); }
+.travel__bar > span.is-long { background: var(--travel-long); }
+.travel__min--long { color: var(--travel-long); font-weight: 600; }
+.travel-key { display: flex; flex-wrap: wrap; gap: var(--spacing-xs) var(--spacing-base); margin: 0; font: var(--text-caption-sm); color: var(--muted); }
+.travel-key__item { display: inline-flex; align-items: center; gap: var(--spacing-xs); }
+.travel-key__dot { width: 10px; height: 10px; border-radius: var(--rounded-full); }
+.travel-key__dot.is-short { background: var(--travel-short); }
+.travel-key__dot.is-medium { background: var(--travel-medium); }
+.travel-key__dot.is-long { background: var(--travel-long); }
+/* Finding the meeting area: the pin breathes and a bar sweeps across. Still when motion is reduced. */
+.area-card__pin--finding { animation: area-breathe 1.2s ease-in-out infinite alternate; }
+.area-card__bar { position: relative; height: 4px; overflow: hidden; border-radius: var(--rounded-full); background: var(--primary-tint-strong); }
+.area-card__bar > span { position: absolute; top: 0; bottom: 0; width: 40%; border-radius: var(--rounded-full); background: var(--primary); animation: area-sweep 1.1s ease-in-out infinite; }
+@keyframes area-breathe { to { transform: scale(1.12); } }
+@keyframes area-sweep { from { left: -40%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .area-card__pin--finding, .area-card__bar > span { animation: none; } .area-card__bar > span { left: 30%; } }
 .travel__min { text-align: right; }
 .map-wait { position: absolute; left: 50%; top: 50%; z-index: 500; transform: translate(-50%, -50%); padding: var(--spacing-md) var(--spacing-base); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); text-align: center; }
+.map-wait--finding { top: var(--spacing-md); transform: translateX(-50%); }
 </style>

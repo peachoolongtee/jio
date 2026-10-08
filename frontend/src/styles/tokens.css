@@ -42,6 +42,11 @@
   --crowd-moderate: var(--signature);
   --crowd-busy: var(--primary-error-text);
 
+  /* Travel time to the meeting area, on map pins and travel bars. Same scale as crowd: Lagoon good, rust middling, red long. */
+  --travel-short: var(--primary);
+  --travel-medium: var(--signature);
+  --travel-long: var(--primary-error-text);
+
   /* Text */
   --ink: #222222; /* Main text, and the Completed pill. Never pure black. Selected things are Lagoon. */
   --body: #3f3f3f; /* Longer running text. */

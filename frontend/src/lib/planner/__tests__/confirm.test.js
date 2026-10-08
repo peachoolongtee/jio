@@ -37,17 +37,24 @@ describe('itinerary', () => {
 
   it('changing a travel mode moves every later stop', () => {
     const walk = buildItinerary(stops, ['walk', 'walk'])
-    const grab = buildItinerary(stops, ['walk', 'grab'])
-    expect(grab.stops[1].start).toBe(walk.stops[1].start)
-    expect(grab.stops[2].start).not.toBe(walk.stops[2].start)
+    const car = buildItinerary(stops, ['walk', 'car'])
+    expect(car.stops[1].start).toBe(walk.stops[1].start)
+    expect(car.stops[2].start).not.toBe(walk.stops[2].start)
     const mrt = buildItinerary(stops, ['mrt', 'walk'])
     expect(mrt.stops[1].start).toBe(stops[0].plannedStart + 120 + mrt.legs[0].options.mrt)
     expect(mrt.stops[2].start).toBe(mrt.stops[1].end + mrt.legs[1].options.walk)
   })
 
-  it('gives every leg a time for Walk, MRT and Grab', () => {
+  it('gives every leg a time for Walk, MRT and Car', () => {
     const { legs } = buildItinerary(stops)
-    for (const leg of legs) expect(Object.keys(leg.options).sort()).toEqual(['grab', 'mrt', 'walk'])
+    for (const leg of legs) expect(Object.keys(leg.options).sort()).toEqual(['car', 'mrt', 'walk'])
+  })
+
+  it('falls back to the default mode for a plan saved with a mode that no longer exists', () => {
+    const saved = buildItinerary(stops, ['grab', 'grab'])
+    const fresh = buildItinerary(stops)
+    expect(saved.legs.map((l) => l.mode)).toEqual(fresh.legs.map((l) => l.mode))
+    expect(saved.stops.every((s) => Number.isFinite(s.start))).toBe(true)
   })
 })
 
