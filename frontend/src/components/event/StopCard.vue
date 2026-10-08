@@ -6,6 +6,7 @@
 // Put several in a list with the .timeline class (EventView) so the rail joins them.
 // Slots: `handle` (a drag handle, on the right), `actions` (buttons such as "Delete stop").
 // `warning` shows a short error-red line, for example "Closed at 15:00" after the stops were rearranged.
+// `banner` shows the photo as a wide strip above the details instead of a thumbnail beside them.
 import AppIcon from '../ui/AppIcon.vue'
 import CategoryIcon from '../ui/CategoryIcon.vue'
 import PriceTier from '../ui/PriceTier.vue'
@@ -23,6 +24,7 @@ defineProps({
   // Highlights the stop: its pin is selected on the map, or it is being dragged.
   lifted: { type: Boolean, default: false },
   image: { type: String, default: '' },
+  banner: { type: Boolean, default: false },
 })
 </script>
 
@@ -30,6 +32,7 @@ defineProps({
   <article class="stop" :class="{ 'is-lifted': lifted }" :aria-label="name">
     <span class="stop__dot" :class="`stop__dot--${category}`" aria-hidden="true">{{ number || '' }}</span>
     <div class="stop__body">
+      <img v-if="image && banner" class="stop__banner" :src="image" alt="" loading="lazy" />
       <span class="caption tnum">{{ timeAndDuration(time, duration) }}</span>
       <h3 class="title-md clamp-2">{{ name }}</h3>
       <p class="stop__meta">
@@ -39,7 +42,7 @@ defineProps({
       </p>
       <p v-if="warning" class="stop__warning caption-sm"><AppIcon name="warning" :size="12" /> {{ warning }}</p>
     </div>
-    <img v-if="image" class="stop__photo" :src="image" alt="" loading="lazy" width="64" height="64" />
+    <img v-if="image && !banner" class="stop__photo" :src="image" alt="" loading="lazy" width="64" height="64" />
     <div v-if="$slots.actions || $slots.handle" class="stop__actions">
       <slot name="actions" />
       <slot name="handle" />
@@ -58,6 +61,7 @@ defineProps({
 .stop__body { display: flex; flex-direction: column; gap: var(--spacing-xxs); min-width: 0; }
 .stop__meta { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; margin-top: var(--spacing-xxs); }
 .stop__warning { display: inline-flex; align-items: center; gap: var(--spacing-xs); margin-top: var(--spacing-xxs); color: var(--primary-error-text); }
+.stop__banner { display: block; width: 100%; height: 120px; margin-bottom: var(--spacing-sm); object-fit: cover; border-radius: var(--rounded-sm); background: var(--surface-strong); }
 .stop__photo { width: 64px; height: 64px; object-fit: cover; border-radius: var(--rounded-sm); background: var(--surface-strong); }
 .stop__actions { display: flex; align-items: center; gap: var(--spacing-xs); }
 .stop.is-lifted .stop__dot { background: var(--primary); }

@@ -14,12 +14,14 @@ import SegmentTabs from './SegmentTabs.vue'
 const view = defineModel('view', { type: String, default: 'list' })
 defineProps({
   label: { type: String, required: true },
+  // Desktop: give the list and the map equal widths, for lists that need the room (the itinerary).
+  even: { type: Boolean, default: false },
 })
 const expanded = ref(false)
 </script>
 
 <template>
-  <div class="split" :class="[`split--${view}`, { 'is-expanded': expanded }]">
+  <div class="split" :class="[`split--${view}`, { 'is-expanded': expanded, 'split--even': even }]">
     <SegmentTabs
       v-model="view"
       class="split__switch"
@@ -52,6 +54,7 @@ const expanded = ref(false)
   .split--list .split__map, .split--map .split__list { display: flex; }
   .split__map { position: sticky; top: var(--spacing-lg); display: block; height: min(820px, calc(100dvh - 120px)); }
   .split--list .split__map { display: block; }
+  .split--even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .split.is-expanded { grid-template-columns: minmax(0, 1fr); }
   .split.is-expanded .split__list { display: none; }
   .split.is-expanded .split__map { height: calc(100dvh - 140px); }

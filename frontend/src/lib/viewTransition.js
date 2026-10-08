@@ -40,6 +40,9 @@ export function installPageTransitions(router) {
     // Not on the first load, and not when only the query or hash changes.
     if (!from.matched.length || to.path === from.path || !canViewTransition()) return true
     done()
+    // Marks this as a page change, so styles/app.css can give it its own animation.
+    const root = document.documentElement
+    root.dataset.vt = 'page'
     return new Promise((resolve) => {
       let started = false
       const transition = document.startViewTransition(
@@ -55,7 +58,7 @@ export function installPageTransitions(router) {
           }),
       )
       transition.ready.catch(() => {})
-      transition.finished.catch(() => {})
+      transition.finished.catch(() => {}).finally(() => delete root.dataset.vt)
       // If the browser is slow to start the transition, carry on with the navigation without it.
       setTimeout(() => {
         if (started) return

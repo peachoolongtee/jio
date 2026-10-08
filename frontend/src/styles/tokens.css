@@ -28,9 +28,9 @@
   /* Data colours. They carry information on maps, keys and stripes, never actions: Rausch stays the one accent.
      Always shown with words or a key, never as the only signal. */
   /* Good, middling, bad: travel time to the meeting area and how crowded a place is. */
-  --scale-good: #008a05;
-  --scale-middle: #b45f06;
-  --scale-bad: var(--primary-error-text);
+  --scale-good: #15803d;
+  --scale-middle: #b7791f;
+  --scale-bad: #dc2626;
   --travel-short: var(--scale-good); /* Up to 30 min. */
   --travel-medium: var(--scale-middle); /* 31 to 45 min. */
   --travel-long: var(--scale-bad); /* Over 45 min. */
@@ -38,14 +38,23 @@
   --crowd-moderate: var(--scale-middle);
   --crowd-busy: var(--scale-bad);
   /* Categories: card stripes, stop numbers, itinerary pins and the category key. The icon still names the category. */
-  --cat-eat-fg: #c2410c;
+  --cat-eat-fg: #ea580c;
   --cat-eat-bg: color-mix(in srgb, var(--cat-eat-fg) 12%, var(--canvas));
-  --cat-drink-fg: #7c4a1e;
+  --cat-drink-fg: #0284c7;
   --cat-drink-bg: color-mix(in srgb, var(--cat-drink-fg) 12%, var(--canvas));
-  --cat-shop-fg: #6d28d9;
+  --cat-shop-fg: #9333ea;
   --cat-shop-bg: color-mix(in srgb, var(--cat-shop-fg) 12%, var(--canvas));
-  --cat-activity-fg: #0f766e;
+  --cat-activity-fg: #059669;
   --cat-activity-bg: color-mix(in srgb, var(--cat-activity-fg) 12%, var(--canvas));
+  /* People: each person keeps one colour everywhere, on their map pin and their avatar (lib/people.js). */
+  --person-1: #2563eb;
+  --person-2: #7c3aed;
+  --person-3: #0d9488;
+  --person-4: #c026d3;
+  --person-5: #ea580c;
+  --person-6: #4d7c0f;
+  --person-7: #0891b2;
+  --person-8: #a16207;
 
   /* Text */
   --ink: #222222; /* Headlines, body, and the fill for anything selected. Never pure black. */
@@ -134,6 +143,7 @@
   --motion-fast: 200ms; /* Hover and press changes, fades. */
   --motion-medium: 320ms; /* Sheets, dialogs and photos sliding into place. */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* Quick start, soft landing. The default curve for everything that moves. */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* A little overshoot: buttons letting go, chips popping on. */
   --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1); /* Sheets and dialogs arriving, like a native sheet. */
 }
 

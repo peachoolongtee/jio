@@ -55,7 +55,7 @@ watch(() => props.id, load)
 const ordered = computed(() => [...(session.value?.photos || [])].reverse())
 const lead = computed(() => ordered.value.slice(0, LEAD))
 const rest = computed(() => ordered.value.slice(LEAD))
-const contributors = computed(() => [...new Set(ordered.value.map((p) => p.name))])
+const contributors = computed(() => [...new Map(ordered.value.map((p) => [p.personId, { id: p.personId, name: p.name }])).values()])
 
 const time = (at) => new Date(at).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: false })
 
@@ -135,7 +135,7 @@ async function remove(photo) {
             <img :src="p.src" alt="" draggable="false" />
             <span v-if="k === 0 && placeOf(p)" class="tile__tag caption-sm"><AppIcon name="pin" :size="12" />{{ placeOf(p) }}</span>
             <span class="tile__by">
-              <UserAvatar :name="p.name" :size="k === 0 ? 28 : 24" />
+              <UserAvatar :name="p.name" :person="p.personId" :size="k === 0 ? 28 : 24" />
               <span class="tile__name caption">{{ p.name }}</span>
               <span v-if="k === 0" class="tile__time caption-sm tnum">{{ time(p.at) }}</span>
             </span>
@@ -157,7 +157,7 @@ async function remove(photo) {
             >
               <img :src="p.src" alt="" loading="lazy" draggable="false" />
               <span class="tile__by">
-                <UserAvatar :name="p.name" :size="24" />
+                <UserAvatar :name="p.name" :person="p.personId" :size="24" />
                 <span class="tile__name caption">{{ p.name }}</span>
               </span>
             </button>

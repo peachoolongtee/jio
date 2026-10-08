@@ -22,7 +22,7 @@ defineProps({
 </script>
 
 <template>
-  <nav class="side" aria-label="Main">
+  <nav class="side" aria-label="Main" style="view-transition-name: app-nav">
     <RouterLink to="/" class="side__brand display-xl" aria-label="Jio, home">Jio</RouterLink>
     <AppButton block to="/sessions/new">
       <AppIcon name="plus" />
@@ -42,7 +42,7 @@ defineProps({
       </li>
     </ul>
     <RouterLink v-if="user" to="/profile" class="side__me">
-      <UserAvatar :name="user.name" :src="user.photo" :size="32" />
+      <UserAvatar :name="user.name" :src="user.photo" person="ian" :size="32" />
       <span class="side__me-text">
         <span class="caption truncate">{{ user.name }}</span>
         <span class="caption-sm text-muted truncate">@{{ user.username }}</span>

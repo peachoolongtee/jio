@@ -319,7 +319,7 @@ function onKeydown(e) {
           <IconButton v-if="index < last" label="Next photo" class="viewer__btn viewer__nav viewer__nav--next" @click="go(1)"><AppIcon name="chevron-right" /></IconButton>
 
           <footer class="viewer__meta">
-            <UserAvatar :name="photo.name" :size="36" />
+            <UserAvatar :name="photo.name" :person="photo.personId" :size="36" />
             <span class="viewer__who">
               <span class="title-sm">{{ photo.name }}</span>
               <span class="caption-sm viewer__soft truncate"><span class="tnum">{{ time(photo.at) }}</span><template v-if="where"> · {{ where }}</template></span>

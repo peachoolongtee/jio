@@ -53,13 +53,16 @@ const isAnchor = computed(() => !!props.href && !props.disabled)
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+  transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform 260ms var(--ease-spring), box-shadow var(--motion-fast) var(--ease-out);
 }
-/* The press shows at once; letting go eases back. */
-.btn:not(:disabled):active { transition-duration: 0ms; }
+/* The press shows at once (darker, and the button gives a little); letting go springs back. */
+.btn:not(:disabled):active { transform: scale(0.97); transition-duration: 0ms, 0ms, 0ms, 80ms, 0ms; }
+@media (hover: hover) {
+  .btn--primary:not(:disabled):hover { box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--primary) 60%, transparent); }
+}
 .btn--block { display: flex; width: 100%; }
 
-/* button-primary: Rausch, 48px, 8px corners, 14px by 24px. Pressing flips to Rausch Active: no transform, no shadow. */
+/* button-primary: Rausch, 48px, 8px corners, 14px by 24px. Pressing flips to Rausch Active; hovering casts a soft Rausch glow. */
 .btn--primary { height: 48px; padding: 0 var(--spacing-lg); border-radius: var(--rounded-sm); background: var(--primary); color: var(--on-primary); }
 .btn--primary:not(:disabled):active { background: var(--primary-active); }
 .btn--primary:disabled { background: var(--primary-disabled); color: var(--on-primary); cursor: not-allowed; }

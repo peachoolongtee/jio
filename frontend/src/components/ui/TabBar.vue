@@ -20,7 +20,7 @@ defineProps({
 </script>
 
 <template>
-  <nav class="tabbar" aria-label="Main">
+  <nav class="tabbar" aria-label="Main" style="view-transition-name: app-tabs">
     <template v-for="tab in tabs" :key="tab.label">
       <RouterLink v-if="tab.create" class="tabbar__create" :to="tab.to" :aria-label="tab.label" :title="tab.label">
         <AppIcon :name="tab.icon" />

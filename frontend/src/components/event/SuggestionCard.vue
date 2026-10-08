@@ -14,6 +14,7 @@ import ChipButton from '../ui/ChipButton.vue'
 import InfoTag from '../ui/InfoTag.vue'
 import PriceTier from '../ui/PriceTier.vue'
 import { crowdText, crowdTone } from '@/lib/planner/crowd.js'
+import { distanceText } from '@/lib/planner/format.js'
 import { placeImage } from '@/lib/placeImages.js'
 
 const props = defineProps({
@@ -40,7 +41,7 @@ const reasons = computed(() => props.option.reasons.filter((r) => !r.startsWith(
       <div class="sugg__title">
         <h4 class="title-md clamp-2">{{ option.venue.name }}</h4>
         <p class="sugg__meta caption-sm text-muted">
-          <span>{{ option.walk }} min walk</span>
+          <span>{{ option.walk }} min walk<template v-if="option.distanceM != null"> · {{ distanceText(option.distanceM) }}</template></span>
           <PriceTier :price="option.venue.price" />
         </p>
       </div>
@@ -70,7 +71,8 @@ const reasons = computed(() => props.option.reasons.filter((r) => !r.startsWith(
 </template>
 
 <style scoped>
-.sugg { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); transition: box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
+.sugg { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); transition: box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
+@media (hover: hover) { .sugg:hover { transform: translateY(-2px); } }
 /* A stripe on the left in the category colour, matching the place's pin on the map. */
 .sugg--eat { --sugg-cat: var(--cat-eat-fg); }
 .sugg--drink { --sugg-cat: var(--cat-drink-fg); }

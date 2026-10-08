@@ -35,8 +35,8 @@ const TONE = { Joined: 'wait', 'Location submitted': 'done', Voted: 'done', 'Opt
 
 <template>
   <ul class="members" aria-label="People">
-    <li v-for="row in rows" :key="row.id" class="member" :class="{ 'is-out': row.out }">
-      <UserAvatar :name="row.name" :size="36" />
+    <li v-for="(row, i) in rows" :key="row.id" class="member rise" :class="{ 'is-out': row.out }" :style="{ '--i': i }">
+      <UserAvatar :name="row.name" :person="row.id" :size="36" />
       <RouterLink :to="row.id === 'ian' ? '/profile' : `/people/${row.id}`" class="member__text">
         <span class="title-sm truncate">{{ row.name }}<span v-if="row.host" class="caption-sm text-muted"> (host)</span></span>
         <span v-if="row.meta" class="caption-sm text-muted truncate">{{ row.meta }}<template v-if="row.travel"> · <span class="member__min" :class="`is-${row.travel.tone}`">{{ row.travel.minutes }} min</span></template></span>

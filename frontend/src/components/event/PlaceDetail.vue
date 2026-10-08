@@ -101,7 +101,7 @@ onBeforeUnmount(() => {
             <ul v-else class="pd__list">
               <li v-for="review in reviews" :key="review.id" class="review">
                 <div class="review__top">
-                  <UserAvatar :name="review.name" :size="32" />
+                  <UserAvatar :name="review.name" :person="review.personId" :size="32" />
                   <span class="review__who">
                     <span class="title-sm">{{ review.name }}</span>
                     <span class="caption-sm text-muted">{{ reviewDate(review.date) }}</span>

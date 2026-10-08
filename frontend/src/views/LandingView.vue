@@ -205,7 +205,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
           <h1 class="display-xl">Hi, {{ auth.user.name }}</h1>
         </div>
         <RouterLink to="/profile" class="home__me mobile-only" aria-label="Profile" title="Profile">
-          <UserAvatar :name="auth.user.name" :src="auth.user.photo" :size="44" />
+          <UserAvatar :name="auth.user.name" :src="auth.user.photo" person="ian" :size="44" />
         </RouterLink>
       </div>
     </header>
@@ -245,7 +245,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         </EmptyState>
         <template v-else>
           <ul class="grid-3">
-            <li v-for="place in filtered.slice(0, shown)" :key="place.id">
+            <li v-for="(place, i) in filtered.slice(0, shown)" :key="place.id" class="rise" :style="{ '--i': i % PAGE }">
               <RouterLink :to="{ query: { place: place.id } }" class="place-link" :data-place="place.id">
                 <PlaceCard :place="place" :morph="morphId === place.id" />
               </RouterLink>
@@ -274,6 +274,9 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 </template>
 
 <style scoped>
+/* A soft wash of colour behind the greeting, so Home feels warm without adding anything to read. */
+.home { position: relative; isolation: isolate; }
+.home::before { content: ""; position: absolute; inset: 0 0 auto; z-index: -1; height: 320px; pointer-events: none; background: radial-gradient(55% 90% at 8% 0%, color-mix(in srgb, var(--primary) 13%, transparent), transparent 70%), radial-gradient(45% 80% at 92% 0%, color-mix(in srgb, var(--cat-shop-fg) 11%, transparent), transparent 70%); }
 /* A place card is a link to its detail view. */
 .place-link { display: block; border-radius: var(--rounded-md); color: inherit; text-decoration: none; }
 .place-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }

@@ -147,6 +147,14 @@ svg { display: block; flex-shrink: 0; }
 ::view-transition-group(*),
 ::view-transition-old(*),
 ::view-transition-new(*) { animation-duration: 240ms; animation-timing-function: var(--ease-out); }
+/* A new screen: the old one steps back as it fades, the new one rises into place. The navigation has its own
+   names (SideNav, TabBar), so it stays perfectly still while the page changes around it. */
+:root[data-vt='page']::view-transition-old(root) { animation: page-out 200ms var(--ease-out) both; }
+:root[data-vt='page']::view-transition-new(root) { animation: page-in 380ms var(--ease-out) both; }
+@keyframes page-out { to { opacity: 0; transform: scale(0.985); } }
+@keyframes page-in { from { opacity: 0; transform: translateY(16px); } }
+::view-transition-group(app-nav),
+::view-transition-group(app-tabs) { animation-duration: 0s; }
 /* The session tab underline slides to the new tab. */
 ::view-transition-group(session-tab) { animation-duration: var(--motion-medium); }
 /* A photo grows out of the gallery into the viewer, and back. */

@@ -22,7 +22,7 @@ const props = defineProps({
   hero: { type: Boolean, default: false },
 })
 
-const people = computed(() => props.session.activeIds.map((id) => props.names(id)).filter(Boolean))
+const people = computed(() => props.session.activeIds.map((id) => ({ id, name: props.names(id) })).filter((p) => p.name))
 const where = computed(() => {
   const s = props.session
   if (s.areaName) return s.areaName
@@ -67,7 +67,7 @@ const photos = computed(() => (props.session.photos || []).slice(-3).reverse())
 </template>
 
 <style scoped>
-.session-card { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); text-decoration: none; transition: box-shadow var(--motion-fast) var(--ease-out); }
+.session-card { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); text-decoration: none; transition: box-shadow var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
 .session-card__body { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-base); }
 .session-card__top { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm); }
 .session-card__title { margin-top: var(--spacing-xs); }
@@ -75,7 +75,7 @@ const photos = computed(() => (props.session.photos || []).slice(-3).reverse())
 .session-card__slot { display: grid; grid-template-columns: 24px auto minmax(0, 1fr); align-items: center; gap: var(--spacing-sm); }
 .session-card__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); margin-top: var(--spacing-sm); }
 .session-card__where { display: inline-flex; align-items: center; gap: var(--spacing-xs); min-width: 0; color: var(--ink); }
-@media (hover: hover) { .session-card:hover { box-shadow: var(--shadow-float); } }
+@media (hover: hover) { .session-card:hover { box-shadow: var(--shadow-float); transform: translateY(-2px); } }
 
 /* Hero: more room, a larger title (display-lg, 22px / 500), and the photo band on top. */
 .session-card--hero .session-card__body { gap: var(--spacing-sm); padding: var(--spacing-lg); }

@@ -8,11 +8,12 @@ const MODES = { walk: 'Walk', mrt: 'MRT', car: 'Car' }
 // each with its own time. Choosing one moves every later stop.
 //   <TravelConnector :options="{ walk: 12, mrt: 9, car: 7 }" mode="walk" @change="setMode(index, $event)" />
 // Set `readonly` where the mode cannot be changed: only the chosen mode is shown.
+// Two stops in the same place (every mode 0 min) just say so: there is nothing to choose.
 // Inside a .timeline list it sits on the rail, between two stops.
-import { useId } from 'vue'
+import { computed, useId } from 'vue'
 import AppIcon from '../ui/AppIcon.vue'
 
-defineProps({
+const props = defineProps({
   options: { type: Object, required: true },
   mode: { type: String, required: true, validator: (v) => v in MODES },
   readonly: { type: Boolean, default: false },
@@ -21,12 +22,17 @@ defineProps({
 })
 defineEmits(['change'])
 const id = useId()
+const together = computed(() => Object.values(props.options).every((m) => m === 0))
 </script>
 
 <template>
   <div class="leg">
     <span class="leg__rail" aria-hidden="true" />
-    <span v-if="readonly" class="leg__fixed caption-sm text-muted">
+    <span v-if="together" class="leg__fixed caption-sm text-muted">
+      <AppIcon name="pin" :size="14" />
+      Same building · no travel needed
+    </span>
+    <span v-else-if="readonly" class="leg__fixed caption-sm text-muted">
       <AppIcon :name="mode" :size="14" />
       {{ MODES[mode] }} {{ options[mode] }} min
     </span>

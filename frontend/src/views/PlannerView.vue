@@ -30,9 +30,10 @@ import SuggestionCard from '@/components/event/SuggestionCard.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
 import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
-import { fromMinutes, timeAndDuration } from '@/lib/planner/format.js'
+import { distanceText, fromMinutes, timeAndDuration } from '@/lib/planner/format.js'
 import { crowdText, crowdTone } from '@/lib/planner/crowd.js'
 import { placeImage } from '@/lib/placeImages.js'
+import { confetti } from '@/lib/confetti.js'
 import { mealWindow, MEAL_WINDOWS } from '@/lib/planner/timeOfDay.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -221,7 +222,9 @@ async function confirm() {
   try {
     await events.confirm(props.id)
     confirmOpen.value = false
-    router.push(`/sessions/${props.id}/itinerary`)
+    // A moment to celebrate: confetti, and the itinerary opens with a "Plan confirmed" card.
+    confetti()
+    router.push({ path: `/sessions/${props.id}/itinerary`, state: { justConfirmed: true } })
   } catch (e) {
     error.value = e.message
     confirmOpen.value = false
@@ -249,7 +252,7 @@ async function confirm() {
         <!-- 6a: categories and timing -->
         <section v-if="voting" class="picks" aria-label="Your picks">
           <div class="picks__row" role="group" aria-label="Your categories">
-            <ChipButton v-for="c in CATEGORIES" :key="c" :selected="myPrefs.categories.includes(c)" @click="toggleCategory(c)">
+            <ChipButton v-for="c in CATEGORIES" :key="c" :selected="myPrefs.categories.includes(c)" :style="{ '--chip-on': `var(--cat-${c}-fg)` }" @click="toggleCategory(c)">
               <template #leading><CategoryIcon :category="c" :size="28" /></template>
               {{ CATEGORY_LABELS[c] }}
             </ChipButton>
@@ -288,7 +291,7 @@ async function confirm() {
               <SkeletonRow v-for="n in 3" :key="n" avatar :lines="3" />
             </div>
             <EmptyState v-else-if="!slots.length" title="No slots yet" text="Pick a category to start." />
-            <section v-for="slot in slots" v-else :key="slot.id" class="slot" :aria-labelledby="`slot-${slot.id}`">
+            <section v-for="(slot, si) in slots" v-else :key="slot.id" class="slot rise" :style="{ '--i': si }" :aria-labelledby="`slot-${slot.id}`">
               <header class="slot__head">
                 <CategoryIcon :category="slot.category" :size="32" />
                 <div class="slot__title">
@@ -334,7 +337,7 @@ async function confirm() {
           <template #map>
             <div class="map-tools">
               <div class="map-tools__slots" role="radiogroup" aria-label="Slot on the map">
-                <ChipButton v-for="slot in slots" :key="slot.id" radio :selected="mapSlot === slot.id" @click="mapSlot = slot.id; selected = ''">
+                <ChipButton v-for="slot in slots" :key="slot.id" radio :selected="mapSlot === slot.id" :style="{ '--chip-on': `var(--cat-${slot.category}-fg)` }" @click="mapSlot = slot.id; selected = ''">
                   <template #leading><CategoryIcon :category="slot.category" :size="24" /></template>
                   {{ slot.time }}
                 </ChipButton>
@@ -350,7 +353,7 @@ async function confirm() {
               </div>
               <div class="row gap-sm wrap">
                 <CategoryIcon :category="selectedOption.venue.category" :size="24" />
-                <span class="caption-sm">{{ selectedOption.walk }} min walk</span>
+                <span class="caption-sm">{{ selectedOption.walk }} min walk · {{ distanceText(selectedOption.distanceM) }}</span>
                 <PriceTier :price="selectedOption.venue.price" />
                 <InfoTag :tone="crowdTone(selectedOption.crowd)">{{ crowdText(selectedOption.crowd) }}</InfoTag>
                 <InfoTag v-if="currentMapSlot.leader === selectedOption.id" tone="strong" icon="trophy">Leading</InfoTag>

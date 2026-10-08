@@ -90,10 +90,10 @@ async function redeem() {
           </div>
  <template v-else>
           <ol class="podium rise" aria-label="Top three">
-            <li v-for="row in podium" :key="row.id" class="podium__spot" :class="[`podium__spot--${row.place}`, { 'is-me': row.isMe }]">
+            <li v-for="row in podium" :key="row.id" class="podium__spot rise" :class="[`podium__spot--${row.place}`, { 'is-me': row.isMe }]" :style="{ '--i': row.place === 1 ? 0 : row.place }">
               <RouterLink :to="row.isMe ? '/profile' : `/people/${row.id}`" class="podium__link" :aria-label="`Rank ${row.rank}: ${row.name}, ${row.seasonPoints} points this season`">
                 <span class="podium__avatar">
-                  <UserAvatar :name="row.name" :src="row.photo" :size="row.place === 1 ? 72 : 56" />
+                  <UserAvatar :name="row.name" :src="row.photo" :person="row.id" :size="row.place === 1 ? 72 : 56" />
                   <span class="podium__rank">{{ row.rank }}</span>
                 </span>
                 <span class="title-sm truncate">{{ row.name }}</span>
@@ -102,9 +102,9 @@ async function redeem() {
             </li>
           </ol>
           <ol v-if="rest.length" class="board card">
-            <li v-for="row in rest" :key="row.id" class="board__row" :class="{ 'is-me': row.isMe, 'is-podium': row.rank <= 3 }">
+            <li v-for="(row, i) in rest" :key="row.id" class="board__row rise" :class="{ 'is-me': row.isMe, 'is-podium': row.rank <= 3 }" :style="{ '--i': i + 3 }">
               <span class="board__rank" :aria-label="`Rank ${row.rank}`">{{ row.rank }}</span>
-              <UserAvatar :name="row.name" :src="row.photo" :size="40" />
+              <UserAvatar :name="row.name" :src="row.photo" :person="row.id" :size="40" />
               <RouterLink :to="row.isMe ? '/profile' : `/people/${row.id}`" class="board__name">
                 <span class="title-sm truncate">{{ row.name }}<template v-if="row.isMe"> (you)</template></span>
                 <span class="caption-sm text-muted">{{ row.homeArea }}</span>
@@ -119,7 +119,7 @@ async function redeem() {
           <div v-if="pinned" class="board__pinned">
             <div class="board__row is-me">
               <span class="board__rank" :aria-label="`Rank ${pinned.rank}`">{{ pinned.rank }}</span>
-              <UserAvatar :name="pinned.name" :src="pinned.photo" :size="40" />
+              <UserAvatar :name="pinned.name" :src="pinned.photo" :person="pinned.id" :size="40" />
               <RouterLink to="/profile" class="board__name"><span class="title-sm truncate">{{ pinned.name }} (you)</span></RouterLink>
               <span class="board__count"><span class="title-md tnum">{{ pinned.seasonPoints }}</span><span class="caption-sm text-muted">pts</span></span>
             </div>

@@ -44,3 +44,10 @@ export function timeAndDuration(start, minutes) {
 export function minutesLabel(minutes) {
   return `${Math.round(minutes)} min`
 }
+
+// A distance for a card: metres under 1 km (to the nearest 10), then kilometres with one decimal.
+export function distanceText(metres) {
+  if (metres == null) return ''
+  if (metres < 1000) return `${Math.max(10, Math.round(metres / 10) * 10)} m`
+  return `${(metres / 1000).toFixed(1)} km`
+}

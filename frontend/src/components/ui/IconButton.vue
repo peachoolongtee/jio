@@ -41,10 +41,10 @@ defineProps({
   background: var(--surface-strong);
   color: var(--ink);
   cursor: pointer;
-  transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
+  transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), transform 260ms var(--ease-spring);
 }
-/* The press shows at once (a darker circle); letting go eases back. */
-.icon-btn:not(:disabled):active { background: var(--hairline); transition-duration: 0ms; }
+/* The press shows at once (a darker circle that gives a little); letting go springs back. */
+.icon-btn:not(:disabled):active { background: var(--hairline); transform: scale(0.9); transition-duration: 0ms, 0ms, 80ms; }
 .icon-btn--outline:not(:disabled):active { border-color: var(--ink); background: var(--surface-soft); }
 /* `tone="brand"`: the Rausch orb, for the one main icon action on a screen (Create, Add photos). */
 .icon-btn--brand { background: var(--primary); color: var(--on-primary); }

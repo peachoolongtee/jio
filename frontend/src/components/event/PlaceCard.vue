@@ -35,7 +35,7 @@ const vt = (name) => (props.morph ? { viewTransitionName: name } : null)
 
 <style scoped>
 /* A property-card-like row: a photo plate (14px corners) with its category badge, and the meta beside it. Flat, hairline. */
-.place { display: flex; gap: var(--spacing-md); padding: var(--spacing-sm); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); transition: box-shadow var(--motion-fast) var(--ease-out); }
+.place { display: flex; gap: var(--spacing-md); padding: var(--spacing-sm); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); transition: box-shadow var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
 .place__plate { position: relative; flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 84px; height: 84px; border-radius: var(--rounded-sm); background: var(--surface-strong); }
 .place__photo { width: 100%; height: 100%; object-fit: cover; border-radius: var(--rounded-sm); }
 .place__cat { position: absolute; right: -6px; bottom: -6px; box-shadow: 0 0 0 2px var(--canvas); }
@@ -43,5 +43,5 @@ const vt = (name) => (props.morph ? { viewTransitionName: name } : null)
 .place__text { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-xs); padding: var(--spacing-xs) var(--spacing-xs) var(--spacing-xs) 0; }
 .place__top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-sm); }
 .place__price { margin-top: auto; }
-@media (hover: hover) { .place:hover { box-shadow: var(--shadow-float); } }
+@media (hover: hover) { .place:hover { box-shadow: var(--shadow-float); transform: translateY(-2px); } }
 </style>

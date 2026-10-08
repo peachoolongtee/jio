@@ -3,10 +3,13 @@
 //   - A timeline of stops: time and duration on one line, name, category icon, price tier, a photo, and the stop
 //     number in its category colour (the same as its pin; the map has a key).
 //   - Between stops: a visible Walk / MRT / Car switch, each with its own time. It moves every later stop.
+//     Two stops in the same building just say so.
+//   - On desktop the timeline is as tall as the map beside it, with the stops spread out.
+//   - Each stop has a delete button once the plan is confirmed (two stops or more), with a confirm dialog.
 //   - The end point, and each person's trip home (folded away; anyone over 60 minutes is flagged above).
 //   - Drag a stop by its handle (or focus the handle and use the arrow keys) to rearrange the day. Times follow;
 //     a stop that would be closed at its new time, or an end far from the MRT, is flagged.
-//   - Map, Ask AI (an empty sheet for now) and Edit: delete a stop or re-plan. "End plan" on the day.
+//   - Map, Ask AI (an empty sheet for now) and Edit: re-plan. "End plan" on the day.
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -49,6 +52,17 @@ const error = ref('')
 const view = ref('list')
 const selected = ref('')
 const toast = ref(false)
+// Arrived straight from "Confirm plan": say so, big and clear, until dismissed.
+const justConfirmed = ref(!!window.history.state?.justConfirmed)
+const confirmedLine = computed(() => {
+  const stops = itinerary.value?.stops || []
+  const summary = stops.length ? ` ${stops.length} ${stops.length === 1 ? 'stop' : 'stops'}, starting ${fromMinutes(stops[0].start)}.` : ''
+  return `Everyone in the group can see the itinerary now.${summary}`
+})
+function dismissConfirmed() {
+  justConfirmed.value = false
+  window.history.replaceState({ ...window.history.state, justConfirmed: false }, '')
+}
 
 async function load() {
   missing.value = false
@@ -132,6 +146,16 @@ async function endPlan() {
       </EmptyState>
 
       <template v-else>
+        <Transition name="celebrate" appear>
+          <section v-if="justConfirmed && confirmed" class="celebrate" role="status">
+            <span class="celebrate__icon"><AppIcon name="check" :size="22" /></span>
+            <div class="celebrate__text">
+              <h2 class="display-sm">Plan confirmed</h2>
+              <p class="body-sm">{{ confirmedLine }}</p>
+            </div>
+            <IconButton label="Dismiss" class="celebrate__close" @click="dismissConfirmed"><AppIcon name="close" :size="16" /></IconButton>
+          </section>
+        </Transition>
         <BannerNote v-if="status === 'completed'" icon="trophy">
           Completed · +{{ POINTS_PER_MEETUP }} points each to spend on café discounts
           <template #actions>
@@ -148,7 +172,7 @@ async function endPlan() {
         </RouterLink>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
-        <SplitView v-model:view="view" label="Itinerary">
+        <SplitView v-model:view="view" label="Itinerary" even>
           <template #list>
             <div v-if="!itinerary" class="stack gap-md">
               <SkeletonRow v-for="n in 3" :key="n" avatar />
@@ -183,10 +207,11 @@ async function endPlan() {
                       :price="stop.venue.price"
                       :area="stop.venue.area"
                       :image="placeImage(stop.venue)"
+                      banner
                       :warning="stop.open === false ? 'Closed at this time' : ''"
                       :lifted="lifted || selected === stop.venue.id"
                     >
-                      <template v-if="editing && itinerary.stops.length > 1" #actions>
+                      <template v-if="canMove" #actions>
                         <IconButton outline :label="`Delete stop: ${stop.venue.name}`" @click="removing = i"><AppIcon name="trash" /></IconButton>
                       </template>
                       <template v-if="canMove" #handle>
@@ -303,4 +328,27 @@ async function endPlan() {
 .home__row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 36px; }
 .home__row.is-long .home__min { color: var(--primary-error-text); }
 .replan { align-self: flex-start; }
+
+/* "Plan confirmed", right after confirming: a warm card that pops in under the confetti. */
+.celebrate { position: relative; display: flex; align-items: center; gap: var(--spacing-base); padding: var(--spacing-base) var(--spacing-xl) var(--spacing-base) var(--spacing-base); border-radius: var(--rounded-md); background: linear-gradient(120deg, color-mix(in srgb, var(--primary) 14%, var(--canvas)), color-mix(in srgb, var(--cat-shop-fg) 12%, var(--canvas))); }
+.celebrate__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary) 18%, transparent); }
+.celebrate__text { display: flex; flex-direction: column; gap: var(--spacing-xxs); min-width: 0; }
+.celebrate__close { position: absolute; top: var(--spacing-xs); right: var(--spacing-xs); }
+.celebrate-enter-active { transition: opacity 400ms var(--ease-out), transform 600ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+.celebrate-enter-active .celebrate__icon { animation: celebrate-pop 700ms 150ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.celebrate-leave-active { transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out); }
+.celebrate-enter-from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+.celebrate-leave-to { opacity: 0; transform: scale(0.98); }
+@keyframes celebrate-pop { from { transform: scale(0) rotate(-45deg); } to { transform: scale(1) rotate(0); } }
+
+/* Desktop: the timeline fills the height of the map beside it (less the Trips home row below), with the stops
+   spread out, bigger photos and names, so the day reads at a glance. */
+@media (min-width: 1128px) {
+  .timeline { min-height: calc(min(820px, 100dvh - 120px) - 68px); padding: var(--spacing-lg); }
+  .timeline::before { top: 42px; bottom: 42px; left: calc(var(--spacing-lg) + 13px); }
+  .timeline :deep(.sortable) { flex: 1 1 auto; justify-content: space-around; gap: var(--spacing-sm); }
+  .timeline :deep(.stop__banner) { height: 150px; border-radius: var(--rounded-md); }
+  .timeline :deep(.stop .title-md) { font: var(--text-display-sm); }
+  .timeline :deep(.stop) { padding: var(--spacing-sm) 0; }
+}
 </style>

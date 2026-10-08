@@ -90,7 +90,7 @@ function done() {
       <IllustrationBlob name="sent" />
       <ul>
         <ListRow v-for="person in sent" :key="person.id" as="li" :title="person.name" :meta="`@${person.username}`">
-          <template #leading><UserAvatar :name="person.name" /></template>
+          <template #leading><UserAvatar :name="person.name" :person="person.id" /></template>
           <template #trailing>
             <span class="sent-mark caption"><AppIcon name="check" :size="14" /> Invited</span>
           </template>
@@ -108,7 +108,7 @@ function done() {
         <h2 :id="`invite-${list.id}`" class="title-md">{{ list.title }}</h2>
         <ul>
           <ListRow v-for="person in list.people" :key="person.id" as="li" :title="person.name" :meta="`@${person.username} · ${person.homeArea}`">
-            <template #leading><UserAvatar :name="person.name" /></template>
+            <template #leading><UserAvatar :name="person.name" :person="person.id" /></template>
             <template #trailing>
               <span v-if="inSession(person.id)" class="caption text-muted">In session</span>
               <ChipButton v-else check :selected="picked.includes(person.id)" :aria-label="`Invite ${person.name}`" @click="toggle(person.id)">

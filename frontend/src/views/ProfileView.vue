@@ -72,7 +72,7 @@ async function signOut() {
         <!-- The host card: who they are on the left, their numbers stacked on the right. -->
         <section class="host rise" aria-label="About">
           <div class="host__who">
-            <UserAvatar class="host__avatar" :name="person.name" :src="person.photo" :size="104" labelled />
+            <UserAvatar class="host__avatar" :name="person.name" :src="person.photo" :person="person.id" :size="104" labelled />
             <h2 class="display-md">{{ person.name }}</h2>
             <p class="caption-sm text-muted">@{{ person.username }}</p>
             <p class="caption-sm host__area"><AppIcon name="pin" :size="12" /> {{ person.homeArea }}</p>
