@@ -231,8 +231,6 @@ const setCondition = (key, value) => planner.setCondition(key, value)
   color: var(--on-dark);
   font: var(--text-button-sm);
 }
-/* Desktop: in the sidebar, above the profile row, clear of every screen's actions. */
-@media (min-width: 1128px) { .demo-fab { left: var(--spacing-base); right: auto; bottom: 96px; } }
 @media (hover: hover) { .demo-fab:hover { background: var(--body); } }
 .demo-target { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-md); border-radius: var(--rounded-md); background: var(--surface-soft); }
 .demo-group { display: flex; flex-direction: column; gap: var(--spacing-sm); padding-top: var(--spacing-base); border-top: 1px solid var(--hairline); }

@@ -6,7 +6,7 @@ How the look of the app is put together, and how to build a new screen with it. 
 
 - `styles/tokens.css`: every colour, spacing step, radius, type size and the one shadow, as CSS variables.
 - `styles/app.css`: the reset, the type classes, the screen layout and a few helper classes.
-- `components/ui/`: shared components, for example `AppButton`, `TextField`, `ChipButton`, `BottomSheet`, `ProgressDonut`, `SplitView`, `SideNav`, `CountdownChip`, `MeetupGraph`, `PhotoViewer`, `SortableList`.
+- `components/ui/`: shared components, for example `AppButton`, `TextField`, `ChipButton`, `BottomSheet`, `ProgressDonut`, `SplitView`, `TabBar`, `CountdownChip`, `MeetupGraph`, `PhotoViewer`, `SortableList`.
 - `components/event/`: session components: `SessionCard`, `SuggestionCard`, `StopCard`, `TravelConnector`, `PlaceCard`, `PollBar`.
 - `components/map/PlannerMap.vue`: every map (Leaflet on OneMap tiles).
 - `assets/fonts/`: Inter, the documented stand-in for Airbnb Cereal VF (which is licensed to Airbnb).
@@ -26,7 +26,7 @@ How the look of the app is put together, and how to build a new screen with it. 
 7. Copy is short and professional: labels, values and statuses. No exclamation marks, no emoji, no sentences that explain how the interface works. Full sentences only for errors, empty states and the re-calculation banner.
 8. Prefer an icon on its own over an icon plus a word for secondary actions (edit, invite, filter, search, Ask AI). Use `IconButton`: its `label` is read out and shown as a tooltip. Keep words for primary actions and menu items.
 9. Anything tappable looks tappable: an unselected chip has a visible outline. Every control has a hover state and a visible focus state, and nothing is revealed by hover alone.
-10. One layout for every size. Breakpoints: mobile under 744px, tablet 744 to 1127px (mobile layout, wider margins), desktop 1128px and up (sidebar, list and map side by side, sheets open as dialogs). Switch layouts with CSS, never by re-creating the screen, so resizing keeps its state.
+10. One layout for every size. Breakpoints: mobile under 744px, tablet 744 to 1127px (mobile layout, wider margins), desktop 1128px and up (list and map side by side, sheets open as dialogs). The floating tab bar is the navigation at every size. Switch layouts with CSS, never by re-creating the screen, so resizing keeps its state.
 
 ## A new screen
 

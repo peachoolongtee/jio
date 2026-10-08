@@ -24,7 +24,6 @@ import RangeSlider from '@/components/ui/RangeSlider.vue'
 import RatingBadge from '@/components/ui/RatingBadge.vue'
 import SegmentTabs from '@/components/ui/SegmentTabs.vue'
 import SelectField from '@/components/ui/SelectField.vue'
-import SideNav from '@/components/ui/SideNav.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SortableList from '@/components/ui/SortableList.vue'
 import SplitView from '@/components/ui/SplitView.vue'
@@ -272,9 +271,8 @@ const toast = ref(false)
           <template #list><div class="placeholder">List</div></template>
           <template #map><div class="placeholder placeholder--map">Map</div></template>
         </SplitView>
-        <p class="caption text-muted">SideNav (desktop) and TabBar (mobile)</p>
+        <p class="caption text-muted">TabBar: the floating navigation at every size</p>
         <div class="frames">
-          <div class="frame frame--side"><SideNav :user="{ name: 'Ian', username: 'ian', photo: '' }" /></div>
           <div class="frame frame--tabs"><TabBar /></div>
         </div>
       </section>
@@ -323,8 +321,8 @@ const toast = ref(false)
 .placeholder--map { height: 100%; background: var(--surface-strong); }
 .frames { display: flex; flex-wrap: wrap; gap: var(--spacing-base); }
 .frame { overflow: hidden; border: 1px solid var(--hairline); border-radius: var(--rounded-md); }
-.frame--side { width: var(--sidebar-width); height: 420px; }
 .frame--side :deep(.side) { position: static; display: flex; height: 100%; }
 .frame--tabs { flex: 1 1 320px; align-self: flex-start; }
-.frame--tabs :deep(.tabbar) { position: static; display: grid; }
+.frame--tabs { padding: var(--spacing-base); background: var(--surface-soft); }
+.frame--tabs :deep(.tabbar) { position: static; margin: 0 auto; transform: none; animation: none; }
 </style>

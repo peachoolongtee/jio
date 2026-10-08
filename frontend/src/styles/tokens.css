@@ -129,17 +129,17 @@
 
   /* App frame.
      Breakpoints (media queries cannot read variables, so these numbers are written out in the CSS):
-       mobile   under 744px    tab bar at the bottom
+       mobile   under 744px    one column
        tablet   744 to 1127px  the mobile layout with wider margins
-       desktop  1128px and up  sidebar on the left, lists and maps side by side, dialogs instead of sheets */
+       desktop  1128px and up  lists and maps side by side, dialogs instead of sheets
+     The floating tab bar is the navigation at every size. */
   --gutter: var(--spacing-lg); /* Side padding of every screen. Wider on tablet and desktop, below. */
   --content-max-width: 1200px; /* Desktop content sits in a centred column no wider than this. */
   --form-max-width: 480px; /* Sign-up and create-session forms. */
   --dialog-max-width: 480px; /* Dialogs and, on desktop, sheets. */
   --sheet-max-width: 600px; /* Bottom sheets on tablet. */
   --side-panel-width: 420px; /* A sheet shown as a side panel on desktop. */
-  --sidebar-width: 248px; /* Desktop navigation. */
-  --tabbar-height: 72px; /* Mobile navigation bar. */
+  --tabbar-height: 88px; /* Room the floating tab bar needs at the bottom of a screen (the pill and its gap). */
   --tap-min: 44px; /* Smallest tap target. */
   --motion-fast: 200ms; /* Hover and press changes, fades. */
   --motion-medium: 320ms; /* Sheets, dialogs and photos sliding into place. */

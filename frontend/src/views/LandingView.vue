@@ -245,7 +245,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
     <section class="hero" aria-labelledby="home-title">
       <img class="hero__photo" :src="heroPhoto" alt="" fetchpriority="high" />
       <div class="hero__shade" aria-hidden="true" />
-      <RouterLink to="/profile" class="hero__me mobile-only" aria-label="Profile" title="Profile">
+      <RouterLink to="/profile" class="hero__me" aria-label="Profile" title="Profile">
         <UserAvatar :name="auth.user.name" :src="auth.user.photo" person="ian" :size="40" />
       </RouterLink>
 

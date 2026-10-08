@@ -28,7 +28,7 @@ const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
     <header class="screen__header">
       <div class="screen__bar">
         <h1 class="display-xl">Sessions</h1>
-        <AppButton class="mobile-only" variant="pill" to="/sessions/new">
+        <AppButton variant="pill" to="/sessions/new">
           <AppIcon name="plus" :size="14" />
           Create
         </AppButton>

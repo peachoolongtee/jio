@@ -1,10 +1,9 @@
 <script setup>
-// The main navigation on mobile and tablet: a floating pill near the bottom of the screen. The current tab is
+// The main navigation, at every screen size: a floating pill near the bottom of the screen. The current tab is
 // tinted Rausch and its name slides out beside the icon; the others are icons only (each keeps its name for screen
 // readers and as a tooltip). Create is always the Rausch +. The pill springs in when it first appears.
 // Home, Leaderboard, Create, Rewards, Profile. Rewards is the café discounts section of the leaderboard
 // (/leaderboard#rewards); it lights up there, and Leaderboard everywhere else on that page.
-// On desktop SideNav takes its place.
 import { RouterLink, useRoute } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 
@@ -104,6 +103,4 @@ function isActive(tab) {
   .tabbar { animation: none; }
   .tabbar__tab, .tabbar__label { transition: none; }
 }
-/* Desktop uses SideNav instead. */
-@media (min-width: 1128px) { .tabbar { display: none; } }
 </style>
