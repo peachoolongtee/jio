@@ -97,21 +97,19 @@ const simulateLocations = () => act('locations', async () => {
 
 const simulateVoting = () => act('voting', async () => {
   const id = session.value.id
-  // First each friend picks categories and how long they can stay, then they vote.
-  const fresh = await api.getSession(id)
-  const needPicks = friendsIn.value.filter((f) => !fresh.prefs[f]?.categories?.length)
-  await spread(needPicks.map((f) => () => api.setPreferences(id, f, FRIEND_PICKS[f])), SPAN * 0.3)
   const plan = await api.getPlan(id)
   const jobs = []
+  // Each friend votes in the categories they like (FRIEND_PICKS), for one place in each.
   friendsIn.value.forEach((f, i) => {
     plan.slots.forEach((slot, s) => {
-      if (!slot.options.length) return
+      if (!slot.options.length || !FRIEND_PICKS[f]?.categories?.includes(slot.category)) return
+      // Voting for a place they already voted for would take the vote back.
+      if (slot.options.some((o) => o.voters.some((v) => v.id === f))) return
       const pick = slot.options[PATTERN[(i + s) % PATTERN.length] % slot.options.length]
       jobs.push(() => api.vote(id, slot.id, f, pick.id).catch(() => {}))
     })
   })
-  await spread(jobs, SPAN * 0.6)
-  if (!plan.slots.length) note.value = 'Friends picked categories. No slots yet.'
+  await spread(jobs, SPAN)
 })
 
 // Friends post photos from the day. Placeholder photography from picsum.photos, a mix of shapes.

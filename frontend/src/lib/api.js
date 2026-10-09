@@ -179,8 +179,29 @@ function activePrefs(session) {
   return Object.fromEntries(Object.entries(session.prefs).filter(([id]) => ids.includes(id)))
 }
 
+// What people browse and vote on: every category at once, so nobody has to pick categories first. Each is ranked
+// as if it were the only stop: Eat at lunch or dinner, the others in the middle of the session (at its start most
+// shops and bars are not open yet). Slot ids are the category names.
 function slotsOf(session) {
-  return P.buildSlots({ prefs: activePrefs(session), ...windowOf(session), deleted: session.deletedSlots })
+  const prefs = activePrefs(session)
+  const window = windowOf(session)
+  return P.CATEGORIES.filter((c) => !session.deletedSlots.includes(c)).flatMap((c) => {
+    const everyone = Object.fromEntries(activeIds(session).map((id) => [id, { categories: [c], until: prefs[id]?.until ?? null }]))
+    return P.buildSlots({ prefs: everyone, ...window }).map((slot) => {
+      if (c === 'eat') return slot
+      const planEnd = P.groupStayUntil(everyone, window.windowEnd)
+      const start = window.windowStart + Math.floor((planEnd - window.windowStart - slot.duration) / 2 / 15) * 15
+      return { ...slot, start, time: P.fromMinutes(start) }
+    })
+  })
+}
+
+// The plan the votes make: only the categories someone voted in, laid out back to back in the session window.
+function planSlotsOf(session) {
+  const prefs = activePrefs(session)
+  const voted = P.CATEGORIES.filter((c) => Object.keys(session.votes[c] || {}).length && !session.deletedSlots.includes(c))
+  const everyone = Object.fromEntries(activeIds(session).map((id) => [id, { categories: voted, until: prefs[id]?.until ?? null }]))
+  return P.buildSlots({ prefs: everyone, ...windowOf(session) })
 }
 
 function endPlaceOf(session, id) {
@@ -208,6 +229,8 @@ async function rankSlot(session, slot, slots, currentOptionIds = session.options
 }
 
 const rankAll = (session, slots) => Promise.all(slots.map((slot) => rankSlot(session, slot, slots)))
+// The categories people browse are not stops in a plan yet, so none is ranked as the last stop (near an MRT).
+const rankBrowse = (session, slots) => Promise.all(slots.map((slot) => rankSlot(session, slot, [])))
 
 // Friends can change things while the planner is still answering (the demo panel does this on purpose).
 // Each sync takes a ticket, and only the latest one for a session applies its answer.
@@ -227,7 +250,7 @@ async function syncOptions(session) {
   if (!session.meeting || session.status !== 'voting') return
   const slots = slotsOf(session)
   const isLatest = takeTicket(session, 'options')
-  const rankings = await rankAll(session, slots)
+  const rankings = await rankBrowse(session, slots)
   // Applied once every slot is ranked, to the session as it is now, so a vote cast meanwhile is kept.
   if (!isLatest() || session.status !== 'voting') return
   const ids = activeIds(session)
@@ -533,7 +556,8 @@ function publicLocations(session) {
 }
 
 function summary(session) {
-  const slots = session.status === 'voting' && session.meeting ? slotsOf(session) : []
+  // The plan forming so far: the categories with votes, at their times.
+  const slots = session.status === 'voting' && session.meeting ? planSlotsOf(session) : []
   const area = session.meeting ? areaById(session.meeting.areaId) : null
   return {
     ...clone(session),
@@ -721,7 +745,7 @@ export async function addMoreOptions(id, slotId) {
   const session = sessionById(id)
   const slots = slotsOf(session)
   const slot = slots.find((s) => s.id === slotId)
-  const ranked = await rankSlot(session, slot, slots)
+  const ranked = await rankSlot(session, slot, [])
   session.options[slotId] = P.moreOptions(session.options[slotId] || [], rankedIds(ranked))
   return touch(session, 'options')
 }
@@ -739,7 +763,7 @@ export async function searchVenuesForSlot(id, slotId, query) {
     centre: areaById(session.meeting.areaId),
     date: session.date,
     slot,
-    lastStop: slots[slots.length - 1]?.id === slotId,
+    lastStop: false,
     maxKm: session.radius ? session.radius / 1000 : undefined,
   })
   return results.map((r) => ({ ...r, added: (session.options[slotId] || []).includes(r.id) }))
@@ -754,7 +778,7 @@ export async function addOption(id, slotId, venueId) {
   if (options.includes(venueId)) return touch(session, 'options')
   if (options.length >= P.OPTIONS_MAX) throw new Error('A slot holds up to 6 options.')
   // The planner scores current options whenever they fit, so ask it with this place included.
-  const ranked = await rankSlot(session, slot, slots, [...options, venueId])
+  const ranked = await rankSlot(session, slot, [], [...options, venueId])
   if (!ranked.current.some((o) => o.venue.id === venueId)) throw new Error(`${venueById(venueId)?.name || 'This place'} does not fit this slot.`)
   session.options[slotId] = [...(session.options[slotId] || []), venueId]
   return touch(session, 'options')
@@ -770,13 +794,17 @@ export async function swapOption(id, slotId, fromId, toId) {
   return touch(session, 'options')
 }
 
-// One vote per person per slot. Voting again in the same slot changes the vote.
+// One vote per person per category. Voting for another place in it moves the vote; voting for the same place
+// again takes it back (a category nobody votes in stays out of the plan).
 export async function vote(id, slotId, personId, venueId) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (session.status !== 'voting') throw new Error('Votes are read-only once the plan is confirmed.')
   if (!(session.options[slotId] || []).includes(venueId)) throw new Error('That place is no longer an option.')
-  session.votes[slotId] = { ...(session.votes[slotId] || {}), [personId]: venueId }
+  const votes = { ...(session.votes[slotId] || {}) }
+  if (votes[personId] === venueId) delete votes[personId]
+  else votes[personId] = venueId
+  session.votes[slotId] = votes
   return touch(session, 'vote')
 }
 
@@ -790,7 +818,7 @@ export async function getPlan(id) {
   }
   const slots = slotsOf(session)
   const area = areaById(session.meeting.areaId)
-  const rankings = await rankAll(session, slots)
+  const rankings = await rankBrowse(session, slots)
   const view = slots.map((slot, i) => {
     const ranked = rankings[i]
     const byId = Object.fromEntries([...ranked.options, ...ranked.current].map((o) => [o.venue.id, o]))
@@ -849,6 +877,8 @@ export async function getPlan(id) {
     stayUntil: P.groupStayUntil(activePrefs(session), windowOf(session).windowEnd),
     deletedSlots: [...session.deletedSlots],
     stayOptions: P.stayOptions(windowOf(session).windowStart, windowOf(session).windowEnd),
+    // The stops the votes so far would make: { category, time, duration } in order.
+    planned: planSlotsOf(session).map((s) => ({ category: s.category, start: s.start, time: s.time, duration: s.duration })),
   }
 }
 
@@ -860,7 +890,8 @@ export async function confirmPlan(id) {
   const ids = activeIds(session)
   if (session.status !== 'voting') throw new Error('Only a session in Voting can be confirmed.')
   if (!P.canConfirm(session.votes, ids)) throw new Error('At least 2 people need to vote first.')
-  const slots = slotsOf(session)
+  const slots = planSlotsOf(session)
+  if (!slots.length) throw new Error('Vote for at least one place first.')
   const rankings = await rankAll(session, slots)
   if (session.status !== 'voting') throw new Error('Only a session in Voting can be confirmed.')
   const stops = []

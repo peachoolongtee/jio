@@ -1,8 +1,8 @@
 <script setup>
 // One suggested place in a slot, with its vote.
 //   <SuggestionCard :option="option" leading mine @vote="vote" @swap="swap" />
-// A photo of the kind of place with its category icon, the name, walking time, price tier, crowd (an estimate),
-// up to two reasons, a rain warning with an indoor swap, and who voted.
+// A photo of the kind of place with its category icon, the name, walking time, price tier, crowd (an estimate, left
+// out when there is none), up to two reasons, a rain warning with an indoor swap, and who voted.
 // Colour coding: a stripe in the category colour, and crowd on the data scale. `leading` outlines the card in ink
 // and tags it "Leading"; `behind` (another place leads) mutes the vote count. `closed` makes the vote read-only.
 import { computed } from 'vue'
@@ -49,7 +49,7 @@ const reasons = computed(() => props.option.reasons.filter((r) => !r.startsWith(
 
     <div class="sugg__tags">
       <InfoTag v-if="leading" tone="strong" icon="trophy">Leading</InfoTag>
-      <InfoTag :tone="crowdTone(option.crowd)">{{ crowdText(option.crowd) }}</InfoTag>
+      <InfoTag v-if="option.crowd !== 'unknown'" :tone="crowdTone(option.crowd)">{{ crowdText(option.crowd) }}</InfoTag>
       <InfoTag v-for="reason in reasons" :key="reason">{{ reason }}</InfoTag>
       <InfoTag v-if="option.warnings.includes('rain')" tone="warning" icon="rain">Outdoor, rain expected</InfoTag>
     </div>
