@@ -263,12 +263,12 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 
     <footer v-if="status !== 'cancelled'" class="screen__footer">
       <AppButton v-if="status === 'inviting' && active.length < 2" block @click="inviteOpen = true">Invite friends</AppButton>
-      <AppButton v-else-if="status === 'inviting'" block :disabled="busy" @click="startSession">Start session</AppButton>
-      <AppButton v-else-if="status === 'locating'" block :disabled="!session.meeting || busy || loading" @click="useArea">
+      <AppButton v-else-if="status === 'inviting'" next block :disabled="busy" @click="startSession">Start session</AppButton>
+      <AppButton v-else-if="status === 'locating'" next block :disabled="!session.meeting || busy || loading" @click="useArea">
         {{ loading ? 'Finding the meeting point…' : session.meeting ? 'Confirm location' : 'Waiting for everyone' }}
       </AppButton>
-      <AppButton v-else-if="status === 'voting'" block :to="`/sessions/${id}/plan`">Vote on places</AppButton>
-      <AppButton v-else block :to="`/sessions/${id}/itinerary`">{{ session.isToday && status === 'confirmed' ? "Today's plan" : 'Itinerary' }}</AppButton>
+      <AppButton v-else-if="status === 'voting'" next block :to="`/sessions/${id}/plan`">Vote on places</AppButton>
+      <AppButton v-else next block :to="`/sessions/${id}/itinerary`">{{ session.isToday && status === 'confirmed' ? "Today's plan" : 'Itinerary' }}</AppButton>
     </footer>
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />

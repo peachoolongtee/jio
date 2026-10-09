@@ -56,8 +56,6 @@ async function next() {
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton label="Back" to="/"><AppIcon name="back" /></IconButton>
-        <span class="caption text-muted">Step 1 of 2</span>
-        <span class="bar-spacer" />
       </div>
       <div class="screen__titles">
         <h1 class="display-xl">Create session</h1>
@@ -87,13 +85,12 @@ async function next() {
     </form>
 
     <footer class="screen__footer">
-      <AppButton block :disabled="!ready || busy" @click="next">Next</AppButton>
+      <AppButton next block :disabled="!ready || busy" @click="next">Next</AppButton>
     </footer>
   </main>
 </template>
 
 <style scoped>
-.bar-spacer { width: var(--tap-min); }
 
 /* Date and time: the calendar, then the times. Phones stack them; from tablet up the times sit to the right,
    start at the top and end at the bottom, each centred so its buttons have room to fly out. */

@@ -2,8 +2,8 @@
 // Invite friends without leaving the session: a dialog over the page, so who is already in stays in view behind it.
 //   <InviteDialog v-model:open="inviteOpen" :session="session" />
 // An icon and a close button at the top, the title and a line on what happens, a search box, then friends (and
-// suggested people) who are not in the session yet, each picked with a tap. At the bottom: how many are picked,
-// Cancel and Send invites. Invites are pending until each friend accepts.
+// suggested people) who are not in the session yet, each picked with a tap. At the bottom: how many are picked and
+// Send invites (the close button is the way out, so there is no Cancel as well). Invites are pending until each friend accepts.
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
@@ -122,7 +122,6 @@ async function send() {
           <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
           <footer class="invite-dialog__foot">
             <span class="caption text-muted tnum" aria-live="polite">{{ picked.length }} selected</span>
-            <AppButton variant="secondary" @click="close">Cancel</AppButton>
             <AppButton :disabled="!picked.length || busy" @click="send">Send invites</AppButton>
           </footer>
         </section>
@@ -161,12 +160,7 @@ async function send() {
 .is-picked .invite-dialog__check { border-color: var(--primary); background: var(--primary); color: var(--on-primary); }
 .invite-dialog__foot { display: flex; align-items: center; gap: var(--spacing-sm); padding-top: var(--spacing-xs); }
 .invite-dialog__foot > :first-child { margin-right: auto; }
-/* Phones: the count on its own line, then Cancel and Send invites sharing the row. */
-@media (max-width: 743px) {
-  .invite-dialog__foot { flex-wrap: wrap; }
-  .invite-dialog__foot > :first-child { flex-basis: 100%; }
-  .invite-dialog__foot > :not(:first-child) { flex: 1 1 0; }
-}
+
 
 .invite-enter-active { transition: opacity var(--motion-fast) var(--ease-out); }
 .invite-leave-active { transition: opacity 150ms var(--ease-out); }

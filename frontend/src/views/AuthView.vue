@@ -163,7 +163,6 @@ watch(() => draft.value.username, () => (usernameError.value = ''))
       <div class="screen__bar">
         <IconButton v-if="draft.step > 0" label="Back" @click="back"><AppIcon name="back" /></IconButton>
         <span v-else class="display-xl text-brand" aria-label="Jio">Jio</span>
-        <span class="caption text-muted">Step {{ draft.step + 1 }} of {{ STEPS.length }}</span>
       </div>
       <ProgressBar :value="draft.step + 1" :max="STEPS.length" label="Sign-up progress" />
     </header>
@@ -265,10 +264,10 @@ watch(() => draft.value.username, () => (usernameError.value = ''))
         <AppButton block variant="secondary" @click="askContacts(false)">Not now</AppButton>
       </template>
       <template v-else-if="step === 'photo'">
-        <AppButton block @click="next">{{ draft.photo ? 'Next' : 'Skip' }}</AppButton>
+        <AppButton next block @click="next">{{ draft.photo ? 'Next' : 'Skip' }}</AppButton>
       </template>
       <template v-else>
-        <AppButton block :disabled="!canContinue || busy" @click="next">{{ step === 'friends' ? 'Finish' : 'Next' }}</AppButton>
+        <AppButton next block :disabled="!canContinue || busy" @click="next">{{ step === 'friends' ? 'Finish' : 'Next' }}</AppButton>
       </template>
       <AppButton v-if="quickAccount" variant="tertiary" underline small class="signup__dev" :disabled="busy" @click="quickAccount">Dev: create a demo account</AppButton>
     </footer>

@@ -14,7 +14,6 @@ import IconButton from '@/components/ui/IconButton.vue'
 import IllustrationBlob from '@/components/ui/IllustrationBlob.vue'
 import ListRow from '@/components/ui/ListRow.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
-import StatusPill from '@/components/ui/StatusPill.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -92,8 +91,6 @@ function done() {
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton label="Back to session" :to="`/sessions/${id}`"><AppIcon name="back" /></IconButton>
-        <span v-if="session?.status === 'inviting'" class="caption text-muted">Step 2 of 2</span>
-        <StatusPill v-if="session" :status="session.status" />
       </div>
       <div class="screen__titles">
         <h1 class="display-xl">{{ sent.length ? 'Invites sent' : 'Invite friends' }}</h1>
@@ -179,7 +176,7 @@ function done() {
     </div>
 
     <footer v-if="session" class="screen__footer">
-      <AppButton v-if="sent.length" block @click="done">Done</AppButton>
+      <AppButton v-if="sent.length" next block @click="done">Done</AppButton>
       <template v-else>
         <span class="caption text-muted invite__picked" aria-live="polite">{{ picked.length }} selected</span>
         <AppButton block :disabled="!picked.length || busy" @click="send">

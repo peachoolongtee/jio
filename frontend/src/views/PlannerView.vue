@@ -292,7 +292,7 @@ async function confirm() {
       </AppButton>
     </footer>
     <footer v-else-if="['confirmed', 'completed'].includes(session.status)" class="screen__footer">
-      <AppButton block :to="`/sessions/${id}/itinerary`">Itinerary</AppButton>
+      <AppButton next block :to="`/sessions/${id}/itinerary`">Itinerary</AppButton>
     </footer>
 
     <ModalDialog v-model:open="confirmOpen" title="Confirm plan?">
