@@ -1,6 +1,7 @@
 <script setup>
 // The session: people, locations and the meeting area (steps 2 to 5).
-//   Inviting  the people list and "Start session" (2 people or more, including Ian)
+//   Inviting  the people list with an Invite button. Below 2 people the main button is "Invite friends";
+//             from 2 people (including Ian) it is "Start session"
 //   Locating  Ian's start and end, the meeting area with a map, and one list of everyone with
 //             their area, travel time (coloured by length, with a key) and status. While the planner works
 //             out the area, the card and the map say so.
@@ -121,9 +122,10 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
       <section v-if="status === 'inviting'" class="section" aria-labelledby="people-head">
         <div class="section__head">
           <h2 id="people-head" class="title-md">People <span class="text-muted">{{ active.length }}</span></h2>
-          <IconButton label="Invite friends" :to="`/sessions/${id}/invite`"><AppIcon name="user-plus" /></IconButton>
+          <AppButton variant="secondary" small :to="`/sessions/${id}/invite`"><AppIcon name="user-plus" :size="16" />Invite</AppButton>
         </div>
         <MemberList :session="session" :names="nameOf" compact />
+        <p v-if="active.length < 2" class="body-sm text-muted invite-hint">Invite at least one friend to start. Everyone you invite joins straight away; then each of you shares where you're starting from.</p>
       </section>
 
       <template v-else>
@@ -185,9 +187,8 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
     </div>
 
     <footer v-if="status !== 'cancelled'" class="screen__footer">
-      <AppButton v-if="status === 'inviting'" block :disabled="active.length < 2 || busy" @click="startSession">
-        {{ active.length < 2 ? 'Invite 1 more to start' : 'Start session' }}
-      </AppButton>
+      <AppButton v-if="status === 'inviting' && active.length < 2" block :to="`/sessions/${id}/invite`">Invite friends</AppButton>
+      <AppButton v-else-if="status === 'inviting'" block :disabled="busy" @click="startSession">Start session</AppButton>
       <AppButton v-else-if="status === 'locating'" block :disabled="!session.meeting || busy || finding" @click="useArea">
         {{ finding ? 'Finding the meeting point…' : session.meeting ? `Meet at ${session.area.name}` : 'Waiting for everyone' }}
       </AppButton>
@@ -205,6 +206,7 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 </template>
 
 <style scoped>
+.invite-hint { margin: 0; }
 .mine { display: flex; flex-direction: column; margin: 0; padding: var(--spacing-xs) var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
 .mine__row { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 56px; }
 .mine__row + .mine__row { border-top: 1px solid var(--hairline-soft); }

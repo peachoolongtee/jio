@@ -1,6 +1,6 @@
 <script setup>
 // The top of every session screen: back arrow, title, date, the status pill, the session's sections
-// and a menu with Invite friends and Cancel session.
+// and a menu with Cancel session (and Invite friends once the session has started).
 //   <SessionHeader :session="session" :title="'Today\'s plan'" />
 import { computed, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
@@ -37,7 +37,8 @@ const sections = computed(() => {
   if (['confirmed', 'completed'].includes(s)) list.push({ to: `/sessions/${id}/photos`, label: 'Photos' })
   return list
 })
-const canInvite = computed(() => ['inviting', 'locating', 'voting'].includes(status.value))
+// While inviting, the page has its own Invite button, so the menu does not repeat it.
+const canInvite = computed(() => ['locating', 'voting'].includes(status.value))
 const canCancel = computed(() => !['completed', 'cancelled'].includes(status.value))
 
 async function cancelSession() {
@@ -96,6 +97,7 @@ function askCancel() {
         <AppIcon name="user-plus" />
         Invite friends
       </AppButton>
+      <p v-if="canCancel" class="body-sm text-muted">Cancelling calls the meetup off for everyone in it. It cannot be undone.</p>
       <AppButton v-if="canCancel" block variant="danger" @click="askCancel">
         <AppIcon name="close" />
         Cancel session
@@ -103,6 +105,7 @@ function askCancel() {
     </BottomSheet>
 
     <ModalDialog v-model:open="cancelOpen" title="Cancel this session?">
+      <template #content><p class="body-md text-muted">The meetup is called off for everyone in it and moves to your past sessions. This cannot be undone.</p></template>
       <AppButton block variant="secondary" @click="cancelOpen = false">Keep session</AppButton>
       <AppButton block variant="danger" :disabled="busy" @click="cancelSession">Cancel session</AppButton>
     </ModalDialog>

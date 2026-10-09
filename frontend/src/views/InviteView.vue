@@ -89,7 +89,7 @@ function done() {
   <main class="screen screen--invite">
     <header class="screen__header">
       <div class="screen__bar">
-        <IconButton label="Back" :to="`/sessions/${id}`"><AppIcon name="back" /></IconButton>
+        <IconButton label="Back to session" :to="`/sessions/${id}`"><AppIcon name="back" /></IconButton>
         <span v-if="session?.status === 'inviting'" class="caption text-muted">Step 2 of 2</span>
         <StatusPill v-if="session" :status="session.status" />
       </div>
@@ -179,7 +179,6 @@ function done() {
       <AppButton v-if="sent.length" block @click="done">Done</AppButton>
       <template v-else>
         <span class="caption text-muted invite__picked" aria-live="polite">{{ picked.length }} selected</span>
-        <AppButton variant="secondary" class="invite__cancel" :to="`/sessions/${id}`">Cancel</AppButton>
         <AppButton block :disabled="!picked.length || busy" @click="send">
           {{ picked.length ? `Send ${picked.length} ${picked.length === 1 ? 'invite' : 'invites'}` : 'Send invites' }}
         </AppButton>
@@ -213,13 +212,11 @@ function done() {
 .invite__tag--host { border-color: color-mix(in srgb, var(--primary) 35%, var(--canvas)); color: var(--primary-active); }
 .invite__picked { display: none; }
 
-/* Tablet and up: the actions follow the card, right-aligned under it: "N selected", Cancel, Send invites.
-   Phones keep the pinned full-width Send button, where the thumb is, and drop Cancel (the back arrow does it). */
-.invite__cancel { display: none; }
+/* Tablet and up: the action follows the card: "N selected" on the left, Send invites on the right. Phones keep the
+   pinned full-width Send button, where the thumb is. There is no Cancel: the back arrow already returns to the session. */
 @media (min-width: 744px) {
   .screen__body { flex: 0 0 auto; }
   .screen__footer { position: static; flex-direction: row; justify-content: flex-end; align-items: center; padding-top: 0; border-top: 0; }
   .invite__picked { display: inline; margin-right: auto; }
-  .invite__cancel { display: inline-flex; }
 }
 </style>

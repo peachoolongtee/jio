@@ -27,6 +27,11 @@ const props = defineProps({
 
 const isLink = computed(() => !!props.to && !props.disabled)
 const isAnchor = computed(() => !!props.href && !props.disabled)
+// Only the attributes each element uses. Passing href: undefined to a RouterLink overrode the href it renders,
+// which left an <a> with no href: not reachable with Tab, and not a link to screen readers.
+const attrs = computed(() =>
+  isLink.value ? { to: props.to } : isAnchor.value ? { href: props.href, rel: 'noopener' } : { type: props.type, disabled: props.disabled },
+)
 </script>
 
 <template>
@@ -34,11 +39,7 @@ const isAnchor = computed(() => !!props.href && !props.disabled)
     :is="isLink ? RouterLink : isAnchor ? 'a' : 'button'"
     class="btn"
     :class="[`btn--${variant}`, { 'btn--block': block, 'btn--underline': underline, 'btn--small': small }]"
-    :to="isLink ? to : undefined"
-    :href="isAnchor ? href : undefined"
-    :rel="isAnchor ? 'noopener' : undefined"
-    :type="isLink || isAnchor ? undefined : type"
-    :disabled="isLink || isAnchor ? undefined : disabled"
+    v-bind="attrs"
   >
     <template v-if="variant === 'primary'">
       <span class="btn__dot" aria-hidden="true" />
