@@ -83,12 +83,12 @@ onBeforeUnmount(() => cancelAnimationFrame(frame))
 </template>
 
 <style scoped>
-.hold { position: relative; overflow: hidden; display: inline-flex; align-items: center; height: var(--tap-min); padding: 0 var(--spacing-base); border: 1px solid color-mix(in srgb, var(--primary-error-text) 35%, var(--canvas)); border-radius: var(--rounded-full); background: var(--canvas); color: var(--primary-error-text); font: var(--text-button-sm); white-space: nowrap; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.hold { position: relative; overflow: hidden; display: inline-flex; align-items: center; height: var(--tap-min); padding: 0 var(--spacing-base); border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--canvas)); border-radius: var(--rounded-full); background: var(--canvas); color: var(--primary); font: var(--text-button-sm); white-space: nowrap; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 /* The fill: grows from the left as you hold. No transition while holding (it follows the clock); letting go
    runs it back quickly. */
-.hold__fill { position: absolute; inset: 0; background: color-mix(in srgb, var(--primary-error-text) 16%, var(--canvas)); transform: scaleX(var(--p)); transform-origin: left; transition: transform 220ms var(--ease-out); }
+.hold__fill { position: absolute; inset: 0; background: color-mix(in srgb, var(--primary) 16%, var(--canvas)); transform: scaleX(var(--p)); transform-origin: left; transition: transform 220ms var(--ease-out); }
 .hold.is-holding .hold__fill { transition: none; }
 .hold__label { position: relative; display: inline-flex; align-items: center; gap: 6px; }
-@media (hover: hover) { .hold:hover { border-color: var(--primary-error-text); } }
+@media (hover: hover) { .hold:hover { border-color: var(--primary); } }
 .hold:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 </style>

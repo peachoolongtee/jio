@@ -2,7 +2,7 @@
 // The buttons of the design system.
 //   primary   The main action, one per screen: a plain Rausch button with white text.
 //             Add `next` when it takes you on to the next page or step ("Next", "Start session", "Itinerary"):
-//             a white pill with a Rausch dot; on hover (or keyboard focus) the dot swells to fill it Rausch and
+//             a white pill with the label and an arrow after it; on hover (or keyboard focus) a hidden Rausch dot swells to fill it and
 //             the label slides out as it slides back in with an arrow. Touch screens, which cannot hover, show the
 //             filled Rausch pill with its arrow from the start. Keep it for moving on, so it stays meaningful.
 //   secondary Ink outline on white.
@@ -49,7 +49,7 @@ const attrs = computed(() =>
   >
     <template v-if="kind === 'next'">
       <span class="btn__dot" aria-hidden="true" />
-      <span class="btn__label"><slot /></span>
+      <span class="btn__label"><slot /><AppIcon name="arrow-right" :size="18" /></span>
       <span class="btn__reveal" aria-hidden="true"><slot /><AppIcon name="arrow-right" :size="18" /></span>
     </template>
     <slot v-else />
@@ -80,11 +80,11 @@ const attrs = computed(() =>
 .btn--primary:not(:disabled):focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .btn--primary:disabled { background: var(--primary-disabled); cursor: not-allowed; }
 
-/* button-next: the interactive hover pill, for moving on to the next page. 48px tall, fully round, ink label beside a small Rausch dot.
+/* button-next: the interactive hover pill, for moving on to the next page. 48px tall, fully round, ink label. The Rausch dot that fills it on hover stays hidden at rest.
    Hover or keyboard focus: the dot swells to fill the pill, the label slides right and fades, and a white copy
    with an arrow slides in from the right. */
-.btn--next { position: relative; isolation: isolate; overflow: hidden; height: 48px; min-width: 160px; padding: 0 var(--spacing-lg) 0 calc(var(--spacing-base) + 18px); border: 1px solid var(--border-strong); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font-weight: 600; }
-.btn__dot { position: absolute; top: calc(50% - 4px); left: var(--spacing-base); z-index: -1; width: 8px; height: 8px; border-radius: var(--rounded-full); background: var(--primary); transition: all 300ms var(--ease-out); }
+.btn--next { position: relative; isolation: isolate; overflow: hidden; height: 48px; min-width: 160px; padding: 0 var(--spacing-lg); border: 1px solid var(--border-strong); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font-weight: 600; }
+.btn__dot { position: absolute; top: calc(50% - 4px); left: var(--spacing-base); z-index: -1; width: 8px; height: 8px; border-radius: var(--rounded-full); background: var(--primary); transform: scale(0); transition: all 300ms var(--ease-out); }
 .btn__label { display: inline-flex; align-items: center; gap: var(--spacing-sm); transform: translateX(0); transition: transform 300ms var(--ease-out), opacity 300ms var(--ease-out); }
 .btn__reveal { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: var(--spacing-sm); color: var(--on-primary); opacity: 0; transform: translateX(48px); transition: transform 300ms var(--ease-out), opacity 300ms var(--ease-out); }
 .btn--next:not(:disabled):focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
@@ -130,7 +130,7 @@ const attrs = computed(() =>
 
 .btn--small.btn--primary, .btn--small.btn--secondary, .btn--small.btn--danger { height: var(--tap-min); padding: 0 var(--spacing-base); font: var(--text-button-sm); }
 .btn--small.btn--primary { font-weight: 600; }
-.btn--small.btn--next { height: var(--tap-min); min-width: 120px; padding: 0 var(--spacing-base) 0 calc(var(--spacing-base) + 12px); font: var(--text-button-sm); font-weight: 600; }
+.btn--small.btn--next { height: var(--tap-min); min-width: 120px; padding: 0 var(--spacing-base); font: var(--text-button-sm); font-weight: 600; }
 .btn--small .btn__dot { left: var(--spacing-md); }
 
 @media (hover: hover) {

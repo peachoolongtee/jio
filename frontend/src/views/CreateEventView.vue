@@ -4,12 +4,13 @@
 // Next stays disabled until the title, the date and the start time are set.
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { addDays, format, parseISO, startOfDay } from 'date-fns'
+import { addDays, format, startOfDay } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import CalendarPicker from '@/components/ui/CalendarPicker.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import SessionSteps from '@/components/event/SessionSteps.vue'
 import RadialTimePicker from '@/components/ui/RadialTimePicker.vue'
 import TextField from '@/components/ui/TextField.vue'
 import { fromMinutes, toMinutes } from '@/lib/planner/format.js'
@@ -31,7 +32,6 @@ const error = ref('')
 // Sessions can be planned up to three months ahead.
 const today = startOfDay(new Date())
 const lastDay = format(addDays(today, 90), 'yyyy-MM-dd')
-const dateText = computed(() => (date.value ? format(parseISO(date.value), 'EEEE d MMMM') : 'Pick a day'))
 // Without an end time the window runs six hours, up to midnight.
 const endValue = computed(() => end.value || (start.value ? fromMinutes(Math.min(toMinutes(start.value) + DEFAULT_LENGTH, 23 * 60 + 59)) : ''))
 const endError = computed(() => (start.value && end.value && toMinutes(end.value) <= toMinutes(start.value) ? 'End time must be after the start time.' : ''))
@@ -60,6 +60,7 @@ async function next() {
       <div class="screen__titles">
         <h1 class="display-xl">Create session</h1>
       </div>
+      <SessionSteps />
     </header>
 
     <form class="screen__body" novalidate @submit.prevent="next">
@@ -71,10 +72,7 @@ async function next() {
       </div>
 
       <section class="when" aria-labelledby="when-label">
-        <div class="when__head">
-          <span id="when-label" class="caption text-muted">Date and time</span>
-          <span class="caption-sm when__picked">{{ dateText }}</span>
-        </div>
+        <span id="when-label" class="sr-only">Date and time</span>
         <CalendarPicker v-model="date" class="when__calendar" label="Date" :max="lastDay" />
         <div class="when__times">
           <RadialTimePicker v-model="start" label="Start time" fallback="09:00" />
@@ -95,13 +93,9 @@ async function next() {
 /* Date and time: the calendar, then the times. Phones stack them; from tablet up the times sit to the right,
    start at the top and end at the bottom, each centred so its buttons have room to fly out. */
 .when { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-md) var(--spacing-xl); }
-/* The picked day sits beside the label, on the left, clear of the time buttons when they fly out. */
-.when__head { display: flex; align-items: baseline; gap: var(--spacing-sm); }
-.when__picked::before { content: "·"; margin-right: var(--spacing-sm); color: var(--muted); }
 .when__times { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xl); padding: var(--spacing-base) 0; }
 @media (min-width: 744px) {
-  .when { grid-template-columns: minmax(0, 1fr) 240px; grid-template-areas: "head head" "calendar times"; }
-  .when__head { grid-area: head; }
+  .when { grid-template-columns: minmax(0, 1fr) 240px; grid-template-areas: "calendar times"; }
   .when__calendar { grid-area: calendar; }
   .when__times { grid-area: times; justify-content: space-between; padding: var(--spacing-lg) 0; }
 }

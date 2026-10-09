@@ -2,7 +2,7 @@
    Every colour, size, radius and shadow in the app comes from here.
    Change a value in this file and every screen follows. Do not hard-code these values elsewhere.
 
-   The system in one line: a white canvas, near-black ink, and a single voltage of Rausch (#d10027)
+   The system in one line: a white canvas, near-black ink, and a single voltage of Rausch (#ff385c)
    for the primary action. Rausch is used scarcely: most screens are white + ink with one or two Rausch moments.
    Anything selected is ink, not Rausch (like Airbnb's selected date and active tab). */
 
@@ -17,9 +17,10 @@
 
 :root {
   /* Brand */
-  --primary: #d10027; /* Rausch. Primary CTAs, the create orb, the wordmark, the meeting-area pin, "Live now". White on it is 5.6:1, and it is 4.6:1 on its own 11% tint (the current tab), so it is safe for text. */
-  --primary-bright: #ff385c; /* The original, brighter Rausch (3.5:1 with white). Decoration that carries no text only: glows, washes, rings. */
-  --primary-active: #aa001f; /* Rausch pressed. */
+  --primary: #ff385c; /* Rausch. Primary CTAs, the create orb, the meeting-area pin, "Live now". White text on it is 3.5:1; this brighter red was chosen over the darker #d10027 on 2026-10-09. */
+  --primary-bright: #ff385c; /* The same Rausch, for decoration: glows, washes, rings. Kept as its own name in case --primary changes again. */
+  --brand-logo: #f93d64; /* The official logo pink (components/ui/JioLogo.vue, the favicon). For the logo only, never for text. */
+  --primary-active: #e00b41; /* Rausch pressed. */
   --primary-disabled: #ffd1da; /* Disabled CTAs, and the palest Rausch wash (illustrations, the lightest graph level). */
   --primary-error-text: #c13515; /* Error text, Cancelled, Opted out, warnings. Always pair it with words. */
   --primary-error-text-hover: #b32505;
@@ -48,25 +49,23 @@
   --travel-medium: var(--scale-middle); /* 31 to 45 min, as a fill. */
   --travel-medium-text: var(--scale-middle-text); /* 31 to 45 min, as text. */
   --travel-long: var(--scale-bad); /* Over 45 min. */
-  /* Categories: card stripes, stop numbers, itinerary pins and the category key. The icon still names the category.
-     Each is dark enough for white numbers on it (4.5:1 or more). */
-  --cat-eat-fg: #c44a0a;
+  /* Categories: card stripes, stop numbers, itinerary pins and the category key. The icon still names the category. */
+  --cat-eat-fg: #ea580c;
   --cat-eat-bg: color-mix(in srgb, var(--cat-eat-fg) 12%, var(--canvas));
-  --cat-drink-fg: #0277b4;
+  --cat-drink-fg: #0284c7;
   --cat-drink-bg: color-mix(in srgb, var(--cat-drink-fg) 12%, var(--canvas));
   --cat-shop-fg: #9333ea;
   --cat-shop-bg: color-mix(in srgb, var(--cat-shop-fg) 12%, var(--canvas));
-  --cat-activity-fg: #04825b;
+  --cat-activity-fg: #059669;
   --cat-activity-bg: color-mix(in srgb, var(--cat-activity-fg) 12%, var(--canvas));
-  /* People: each person keeps one colour everywhere, on their map pin and their avatar (lib/people.js).
-     Each is dark enough for a white initial on it (4.5:1 or more). */
+  /* People: each person keeps one colour everywhere, on their map pin and their avatar (lib/people.js). */
   --person-1: #2563eb;
   --person-2: #7c3aed;
-  --person-3: #0b7f75;
+  --person-3: #0d9488;
   --person-4: #c026d3;
-  --person-5: #c44a0a;
+  --person-5: #ea580c;
   --person-6: #4d7c0f;
-  --person-7: #077c99;
+  --person-7: #0891b2;
   --person-8: #a16207;
 
   /* Text */

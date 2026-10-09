@@ -156,8 +156,11 @@ onBeforeUnmount(() => {
         />
       </div>
     </div>
-    <p v-if="error" :id="`${id}-note`" class="caption-sm text-error" role="alert">{{ error }}</p>
-    <p v-else-if="hint" :id="`${id}-note`" class="caption-sm text-muted">{{ hint }}</p>
+    <!-- The note's line is always kept, so a hint or error appearing never moves the time. -->
+    <div class="tp__note">
+      <p v-if="error" :id="`${id}-note`" class="caption-sm text-error" role="alert">{{ error }}</p>
+      <p v-else-if="hint" :id="`${id}-note`" class="caption-sm text-muted">{{ hint }}</p>
+    </div>
   </div>
 </template>
 
@@ -166,6 +169,8 @@ onBeforeUnmount(() => {
 .tp { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-sm); width: 100%; text-align: center; }
 /* The wheel is as big as the pill; the buttons fly out around it and float over whatever is beside it. */
 .tp__wheel { position: relative; z-index: 1; display: inline-flex; }
+.tp__note { min-height: 1.5em; }
+.tp__note > p { margin: 0; }
 .tp__wheel.is-open { z-index: 40; }
 
 .tp__pill { position: relative; z-index: 2; padding: var(--spacing-md) var(--spacing-lg); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: 0 0 0 1px var(--hairline), 0 2px 6px rgb(0 0 0 / 0.08); transition: box-shadow var(--motion-fast) var(--ease-out); }

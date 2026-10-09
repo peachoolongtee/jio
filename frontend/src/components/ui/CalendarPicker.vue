@@ -94,11 +94,12 @@ const weeks = computed(() => {
 .cal__grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .cal__grid th { padding-bottom: var(--spacing-xs); font-weight: 500; text-align: center; }
 .cal__grid td { padding: 2px; text-align: center; }
-/* A day: a round button that fills ink when picked. Today has a ring; other months' days are faint. */
+/* A day: a round button that fills Rausch when picked. Today has a ring; other months' days are faint. */
 .cal__day { width: 100%; max-width: 44px; aspect-ratio: 1; padding: 0; border: 1px solid transparent; border-radius: var(--rounded-full); background: transparent; color: var(--ink); font: var(--text-body-sm); cursor: pointer; }
 .cal__day.is-outside { color: var(--muted); }
 .cal__day.is-today { border-color: var(--border-strong); font-weight: 600; }
-.cal__day.is-selected { border-color: var(--selected); background: var(--selected); color: var(--on-selected); font-weight: 600; }
+/* The picked day: a solid Rausch circle. */
+.cal__day.is-selected { border-color: var(--primary); background: var(--primary); color: var(--on-primary); font-weight: 600; }
 .cal__day:disabled { color: var(--muted-soft); cursor: default; text-decoration: line-through; text-decoration-color: var(--hairline); }
 @media (hover: hover) { .cal__day:not(:disabled):not(.is-selected):hover { background: var(--surface-soft); } }
 .cal__day:focus-visible, .cal__arrow:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
