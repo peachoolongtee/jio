@@ -1,10 +1,25 @@
+<script>
+// Loads a past season's ranking without throwing: a failure comes back as `failed`, so the screen can show it and
+// offer a retry instead of waiting for ever.
+// How to call: await loadStandings(api.getSeasonStandings, 1) -> { rows: [...], failed: false }
+export async function loadStandings(fetchRows, number) {
+  try {
+    return { rows: await fetchRows(number), failed: false }
+  } catch {
+    return { rows: [], failed: true }
+  }
+}
+</script>
+
 <script setup>
 // Leaderboard: one ranking, the JioCoins earned this season. A season is a calendar quarter; when it ends,
 // first place wins JioCoins to spend, and season totals start again from 0 (JioCoins to spend are kept).
 // The rule and the countdown are on this screen; the picker switches between this season and the last one,
-// showing the last season's final ranking and winner. Spending JioCoins is on Rewards. The other people are hand-written, so a "Sample data for the demo"
-// note says so. Someone with nothing this season has no rank yet (rank null).
+// showing the last season's final ranking and winner. Spending JioCoins is on Rewards. The other people are hand-written sample data; this
+// screen shows no note saying so. Someone with nothing this season has no rank yet (rank null).
 // States: skeleton rows while loading, a message with Retry if loading fails, and a message when no one is ranked.
+// Picking the last season keeps the card (and the picker, with its keyboard focus) on screen: its ranking shows
+// skeleton rows while it loads, or a message with Try again if it fails.
 // Behind it all, GridPulse: a fine grid across the whole window that lights up in colour where the pointer passes.
 // The ranking sits on a frosted panel above it, so the colour glows softly through without touching the text;
 // the title and countdown hold the colour back.
@@ -64,11 +79,20 @@ const isPast = computed(() => !!shown.value && shown.value !== season.value)
 // A past season's final ranking, fetched when it is picked.
 const pastRows = ref([])
 const pastLoading = ref(false)
-watch(run, async () => {
-  if (!isPast.value) return
+const pastFailed = ref(false)
+// How to call: loadPast() (when the last season is picked, and from Try again)
+async function loadPast() {
+  if (pastLoading.value) return
   pastLoading.value = true
-  pastRows.value = await api.getSeasonStandings(shown.value.number)
+  pastRows.value = []
+  const { rows, failed } = await loadStandings(api.getSeasonStandings, shown.value.number)
+  pastRows.value = rows
+  pastFailed.value = failed
   pastLoading.value = false
+}
+watch(run, () => {
+  pastFailed.value = false
+  if (isPast.value) loadPast()
 })
 // A new season started while the screen was open: go back to it.
 watch(() => season.value?.number, (n) => { if (n != null) run.value = String(n) }, { immediate: true })
@@ -88,7 +112,7 @@ const meId = computed(() => rows.value.find((r) => r.isMe)?.id || '')
 const entries = computed(() => rows.value.map(toEntry))
 // The podium is for people who earned something: nobody stands on it with 0 JioCoins.
 const podium = computed(() => entries.value.slice(0, 3).filter((e) => e.value > 0))
-const loading = computed(() => (isPast.value ? pastLoading.value : loadingNow.value && !groups.leaderboard.length))
+const loading = computed(() => !isPast.value && loadingNow.value && !groups.leaderboard.length)
 // Nobody has earned anything this season yet.
 const nobody = computed(() => !isPast.value && !entries.value.some((e) => e.value > 0))
 
@@ -131,7 +155,14 @@ const nobody = computed(() => !isPast.value && !entries.value.some((e) => e.valu
             :run-options="runOptions"
           >
             <template #empty>
-              <EmptyState v-if="!entries.length" title="No ranking saved" text="This season ended before Jio kept full rankings. Only its winner is remembered." />
+              <!-- The message stays while it retries, so keyboard focus on Try again is not lost. -->
+              <EmptyState v-if="isPast && pastFailed" title="Could not load that season" text="Check your connection and try again." role="alert">
+                <AppButton variant="secondary" @click="loadPast">Try again</AppButton>
+              </EmptyState>
+              <div v-else-if="isPast && pastLoading" class="stack" aria-busy="true">
+                <SkeletonRow v-for="n in 6" :key="n" avatar />
+              </div>
+              <EmptyState v-else-if="!entries.length" title="No ranking saved" text="This season ended before Jio kept full rankings. Only its winner is remembered." />
             </template>
           </LeaderboardCard>
         </section>
@@ -148,6 +179,8 @@ const nobody = computed(() => !isPast.value && !entries.value.some((e) => e.valu
 /* Frosted glass: mostly white, blurred, so the grid's colours glow through it softly and the text stays sharp. */
 .board { border: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent); background: color-mix(in srgb, var(--canvas) 72%, transparent); -webkit-backdrop-filter: blur(14px) saturate(1.3); backdrop-filter: blur(14px) saturate(1.3); box-shadow: var(--shadow-float); }
 .board { display: flex; flex-direction: column; gap: var(--spacing-base); min-width: 0; padding: var(--spacing-base); border-radius: var(--rounded-lg); }
+/* On a phone the frosted panel and the card inside it share their padding, so names have room. */
+@media (max-width: 480px) { .board { padding: var(--spacing-xs); } }
 /* The title, with the days the season has left in a Rausch pill beside it. */
 .title-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm) var(--spacing-md); }
 /* The prize, beside the countdown: small, but always in view. */
