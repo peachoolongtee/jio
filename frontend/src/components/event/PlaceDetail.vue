@@ -89,11 +89,11 @@ onBeforeUnmount(() => {
         <div class="pd__body">
           <header class="pd__head">
             <p class="pd__kind caption text-muted"><CategoryIcon :category="place.category" :size="24" /> {{ kind }}</p>
-            <h2 :id="titleId" class="display-md pd__name" style="view-transition-name: place-name">{{ place.name }}</h2>
+            <h2 :id="titleId" class="display-md pd__name">{{ place.name }}</h2>
             <SampleNote />
             <div class="pd__facts">
-              <RatingBadge v-if="place.rating != null" large style="view-transition-name: place-rating" :score="place.rating" />
-              <PriceTier class="pd__price" style="view-transition-name: place-price" :price="place.price" />
+              <RatingBadge v-if="place.rating != null" large :score="place.rating" />
+              <PriceTier class="pd__price" :price="place.price" />
             </div>
           </header>
 
@@ -165,7 +165,8 @@ onBeforeUnmount(() => {
 /* Phones: the card fills the screen. Wider screens: a large panel in the middle, the page dimmed behind. */
 .pd__panel { position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; overflow-y: auto; overscroll-behavior: contain; background: var(--canvas); outline: none; }
 @media (min-width: 768px) {
-  .pd__panel { width: min(640px, calc(100% - var(--spacing-xl) * 2)); height: auto; max-height: calc(100dvh - var(--spacing-xl) * 2); border-radius: var(--rounded-lg); box-shadow: var(--shadow-float); }
+  /* A fixed height, so reviews arriving late scroll inside it instead of growing it (and moving it, centred). */
+  .pd__panel { width: min(640px, calc(100% - var(--spacing-xl) * 2)); height: min(860px, calc(100dvh - var(--spacing-xl) * 2)); max-height: none; border-radius: var(--rounded-lg); box-shadow: var(--shadow-float); }
 }
 .pd__hero { position: relative; flex-shrink: 0; }
 .pd__photo { display: block; width: 100%; height: clamp(220px, 34vh, 320px); object-fit: cover; background: var(--surface-strong); }
@@ -187,6 +188,10 @@ onBeforeUnmount(() => {
 .pd__navigate { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xs); }
 .pd__error { display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); }
 .pd__reviews { display: flex; flex-direction: column; gap: var(--spacing-md); }
+/* Reviews arrive just after the view opens: they fade in, so the panel never jumps. */
+.pd__list, .pd__reviews-head .caption { animation: pd-in 280ms var(--ease-out) both; }
+@keyframes pd-in { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .pd__list, .pd__reviews-head .caption { animation: none; } }
 .pd__reviews-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--spacing-sm); }
 .pd__list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 .review { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-base) 0; }

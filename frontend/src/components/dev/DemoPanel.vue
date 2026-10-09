@@ -16,6 +16,8 @@ import * as api from '@/lib/api.js'
 import { lastWeather } from '@/lib/plannerApi.js'
 import { FRIEND_PICKS, HOST_ID, PEOPLE } from '@/lib/mock/people.js'
 import { DEMO_ACCOUNT } from './demoAccount.js'
+import { makeDemoPhotos } from './demoPhotos.js'
+import { placeKind } from '@/lib/placeImages.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -116,10 +118,10 @@ const simulateVoting = () => act('voting', async () => {
   await spread(jobs, SPAN)
 })
 
-// Friends post photos from the day. Placeholder photography from picsum.photos, a mix of shapes.
-// A session holds up to PHOTOS_MAX photos, so this stops at the cap, and at the first photo that fails to save
-// (the browser's storage is full, say), and shows why in the note.
-const SHAPES = [[800, 1000], [800, 600], [800, 800], [800, 1100], [800, 560]]
+// Friends post photos from the day, filling the session's album: photos made from the app's own place photos,
+// of the kinds of place on the itinerary (demoPhotos.js), posted by the friends in turn. A session holds up to
+// PHOTOS_MAX photos, so this stops at the cap, and at the first photo that fails to save (the browser's storage is
+// full, say), and shows why in the note.
 const simulatePhotos = () => act('photos', async () => {
   const s = await api.getSession(session.value.id)
   const room = api.PHOTOS_MAX - s.photoCount
@@ -127,21 +129,29 @@ const simulatePhotos = () => act('photos', async () => {
     note.value = `The session already holds ${api.PHOTOS_MAX} photos. Delete one first.`
     return
   }
-  const friends = friendsIn.value.slice(0, 5)
-  const posters = friends.slice(0, room)
+  const friends = friendsIn.value.length ? friendsIn.value : [HOST_ID]
+  const itinerary = await api.getItinerary(s.id).catch(() => null)
+  const kinds = (itinerary?.stops || []).map((stop) => placeKind(stop.venue))
+  let srcs
+  try {
+    srcs = await makeDemoPhotos(kinds, room, `${s.id}-${s.photoCount}`)
+  } catch (e) {
+    note.value = e.message
+    return
+  }
   let failure = ''
-  const jobs = posters.map((f, i) => async () => {
+  let posted = 0
+  const jobs = srcs.map((src, i) => async () => {
     if (failure) return
-    const [w, h] = SHAPES[(i + s.photoCount) % SHAPES.length]
     try {
-      await api.addPhoto(s.id, f, `https://picsum.photos/seed/jio-${s.id}-${f}-${s.photoCount}/${w}/${h}`)
+      await api.addPhoto(s.id, friends[(i + s.photoCount) % friends.length], src)
+      posted += 1
     } catch (e) {
       failure = e.message
     }
   })
   await spread(jobs, SPAN)
-  if (failure) note.value = failure
-  else if (posters.length < friends.length) note.value = `Posted ${posters.length}. A session holds up to ${api.PHOTOS_MAX} photos.`
+  note.value = failure ? `Posted ${posted}. ${failure}` : `Posted ${posted} photos. The album is full (${api.PHOTOS_MAX}).`
 })
 
 const applyChange = () => act('change', async () => {
@@ -208,7 +218,7 @@ const setCondition = (key, value) => planner.setCondition(key, value)
         {{ running === 'voting' ? 'Voting' : 'Simulate friends voting' }}
       </AppButton>
       <AppButton block variant="secondary" :disabled="!session || !['confirmed', 'completed'].includes(status) || !!running" @click="simulatePhotos">
-        {{ running === 'photos' ? 'Posting photos' : 'Simulate friends posting photos' }}
+        {{ running === 'photos' ? 'Posting photos' : 'Fill the album with photos' }}
       </AppButton>
     </section>
 
