@@ -5,23 +5,27 @@
 //     posted it; the line underneath says who, when and where.
 //   - Tapping the print in the middle opens the swipeable viewer on it, growing out of the print. Swiping in the
 //     viewer moves the line along behind it.
-//   - All photos, as small thumbnails underneath: tapping one brings its print to the middle of the line.
-//   - "Add photos" sits above the line (the Rausch camera floats while there are none). Your own photos can be
-//     deleted in the viewer.
-import { computed, onMounted, ref, watch } from 'vue'
+//   - All photos, as small thumbnails underneath: tapping one opens the viewer on it, growing out of the thumbnail.
+//   - "Add photos" sits above the line (the Rausch camera floats while there are none). A session holds up to
+//     PHOTOS_MAX photos. Your own photos can be deleted in the viewer, after a question to make sure.
+//   - The pictures are not part of the session summary (it has photoCount): they load with events.loadPhotos.
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AvatarStack from '@/components/ui/AvatarStack.vue'
 import PolaroidLine from '@/components/ui/PolaroidLine.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import ModalDialog from '@/components/ui/ModalDialog.vue'
 import PhotoViewer from '@/components/ui/PhotoViewer.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import NotFoundView from './NotFoundView.vue'
+import { PHOTOS_MAX } from '@/lib/api.js'
 import { compressImage } from '@/lib/image.js'
 import { HOST_ID } from '@/lib/mock/people.js'
+import { sessionPath } from '@/lib/session.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({ id: { type: String, required: true } })
@@ -33,27 +37,44 @@ const viewing = ref(-1)
 const current = ref(0)
 const uploading = ref(0)
 const error = ref('')
+const loadError = ref('')
 const input = ref(null)
+const addButton = ref(null)
 const gallery = ref(null)
 const viewer = ref(null)
+// Where the viewer grows out of: a thumbnail, or the print on the line.
+let openedFrom = 'line'
+// The photo the question "Delete this photo?" is about.
+const confirming = ref(false)
+let toDelete = null
 
 const session = computed(() => events.byId[props.id])
 const open = computed(() => ['confirmed', 'completed'].includes(session.value?.status))
+// undefined until the pictures have loaded.
+const loaded = computed(() => events.photos[props.id])
 
 async function load() {
   missing.value = false
+  loadError.value = ''
   try {
     await events.loadSession(props.id)
-    if (open.value) await events.loadItinerary(props.id)
   } catch {
     missing.value = true
+    return
+  }
+  if (!open.value) return
+  try {
+    await Promise.all([events.loadItinerary(props.id), events.loadPhotos(props.id)])
+  } catch (e) {
+    loadError.value = e.message || 'Could not load the photos.'
   }
 }
 onMounted(load)
 watch(() => props.id, load)
 
 // Newest first, for the gallery and the viewer alike, so swiping on moves back in time.
-const ordered = computed(() => [...(session.value?.photos || [])].reverse())
+const ordered = computed(() => [...(loaded.value || [])].reverse())
+const full = computed(() => ordered.value.length >= PHOTOS_MAX)
 const contributors = computed(() => [...new Map(ordered.value.map((p) => [p.personId, { id: p.personId, name: p.name }])).values()])
 
 const time = (at) => new Date(at).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -82,19 +103,19 @@ const prints = computed(() =>
   }),
 )
 
-// The print of photo `i`, for the viewer to grow out of and shrink back into.
-const tileImage = (i) => gallery.value?.querySelector(`[data-photo="${i}"] img`) || null
-const openPhoto = (i) => viewer.value?.open(i)
+// The picture of photo `i` that the viewer grows out of and shrinks back into.
+const tileImage = (i) => gallery.value?.querySelector(openedFrom === 'thumb' ? `[data-thumb="${i}"] img` : `[data-photo="${i}"] img`) || null
+function openPhoto(i, from = 'line') {
+  openedFrom = from
+  viewer.value?.open(i)
+}
 // Swiping in the viewer moves the line along behind it, so closing lands on the same print.
 watch(viewing, (i) => {
   if (i >= 0) current.value = i
 })
-// A thumbnail: bring its print to the middle and the line into view.
-function showPrint(i) {
-  current.value = i
-  gallery.value?.querySelector('.pl')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-}
 
+// Posts the pictures one by one. It stops at the first one that fails (the session is full, the browser's storage is
+// full) and says why, instead of trying the rest and saying it again.
 async function onFiles(event) {
   const files = [...(event.target.files || [])]
   event.target.value = ''
@@ -105,14 +126,36 @@ async function onFiles(event) {
       await events.addPhoto(props.id, await compressImage(file))
     } catch (e) {
       error.value = e.message
+      break
+    } finally {
+      uploading.value -= 1
     }
-    uploading.value -= 1
   }
 }
 
-async function remove(photo) {
+// The viewer asks to delete a photo: ask first. Cancelling leaves the viewer open, focus back on its Delete button.
+function askDelete(photo) {
+  toDelete = photo
+  confirming.value = true
+}
+
+async function confirmDelete() {
+  const photo = toDelete
+  toDelete = null
+  confirming.value = false
+  if (!photo) return
   viewing.value = -1
-  await events.deletePhoto(props.id, photo.id)
+  error.value = ''
+  try {
+    await events.deletePhoto(props.id, photo.id)
+    await events.loadPhotos(props.id)
+  } catch (e) {
+    error.value = e.message
+  }
+  // The photo the focus was on is gone: move it to the line, or to the camera when no photos are left.
+  await nextTick()
+  const target = ordered.value.length ? gallery.value?.querySelector('.pl') : addButton.value?.$el
+  target?.focus({ preventScroll: true })
 }
 </script>
 
@@ -125,29 +168,40 @@ async function remove(photo) {
       <SessionNotices :session="session" />
       <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
-      <EmptyState v-if="!open" title="Photos open once the plan is confirmed" />
-      <EmptyState v-else-if="!ordered.length && !uploading" illustration="done" title="No photos yet" />
+      <EmptyState v-if="!open" title="Photos open once the plan is confirmed" text="Everyone in the session can post pictures from the day after that.">
+        <AppButton variant="secondary" :to="sessionPath(session)">Back to the session</AppButton>
+      </EmptyState>
+      <div v-else-if="loadError" class="stack gap-md" role="alert">
+        <p class="body-sm text-error">{{ loadError }}</p>
+        <AppButton variant="secondary" @click="load">Try again</AppButton>
+      </div>
+      <div v-else-if="!loaded" role="status" aria-busy="true">
+        <span class="sr-only">Loading photos</span>
+        <SkeletonRow v-for="n in 3" :key="n" />
+      </div>
+      <EmptyState v-else-if="!ordered.length && !uploading" illustration="done" title="No photos yet" text="Add the first one with the camera button." />
 
       <div v-else ref="gallery" class="gallery">
         <div class="gallery__sum">
           <AvatarStack :people="contributors" :size="24" :max="5" />
           <span class="caption-sm text-muted tnum">
-            {{ ordered.length }} {{ ordered.length === 1 ? 'photo' : 'photos' }}<template v-if="uploading"> · Uploading {{ uploading }}</template>
+            {{ ordered.length }} of {{ PHOTOS_MAX }} {{ ordered.length === 1 ? 'photo' : 'photos' }}<template v-if="full"> · Full, delete one to add more</template><template v-if="uploading"> · Uploading {{ uploading }}</template>
           </span>
-          <AppButton variant="secondary" small class="gallery__add" @click="input?.click()">
+          <AppButton variant="secondary" small class="gallery__add" :disabled="full" @click="input?.click()">
             <AppIcon name="camera" :size="16" />
             Add photos
           </AppButton>
         </div>
 
-        <PolaroidLine v-model:index="current" class="rise" :photos="prints" label="Photos from the day" @open="openPhoto" />
+        <PolaroidLine v-model:index="current" class="rise" :photos="prints" label="Photos from the day" @open="openPhoto($event, 'line')" />
+        <p class="caption text-muted">Select the photo in the middle, or any photo below, to open it larger.</p>
 
         <section class="thumbs" aria-labelledby="thumbs-head">
           <h2 id="thumbs-head" class="title-md">All photos</h2>
           <ul class="thumbs__grid">
             <li v-for="n in uploading" :key="`up-${n}`"><span class="thumb thumb--loading" aria-hidden="true" /></li>
             <li v-for="(p, k) in ordered" :key="p.id">
-              <button type="button" class="thumb" :class="{ 'is-current': k === current }" :aria-label="`Photo by ${p.name}, ${time(p.at)}`" :aria-current="k === current ? 'true' : undefined" @click="showPrint(k)">
+              <button type="button" class="thumb" :class="{ 'is-current': k === current }" :data-thumb="k" :aria-label="`Open photo by ${p.name}, ${time(p.at)}`" :aria-current="k === current ? 'true' : undefined" @click="openPhoto(k, 'thumb')">
                 <img :src="p.src" alt="" loading="lazy" draggable="false" />
               </button>
             </li>
@@ -158,7 +212,7 @@ async function remove(photo) {
 
     <template v-if="open">
       <!-- With no photos yet, the camera floats; once there are some, "Add photos" sits above the line instead. -->
-      <IconButton v-if="!ordered.length && !uploading" tone="brand" label="Add photos" class="add-photo" @click="input?.click()"><AppIcon name="camera" :size="22" /></IconButton>
+      <IconButton v-if="!ordered.length && !uploading && loaded" ref="addButton" tone="brand" label="Add photos" class="add-photo" @click="input?.click()"><AppIcon name="camera" :size="22" /></IconButton>
       <input ref="input" class="sr-only" type="file" accept="image/*" multiple tabindex="-1" aria-hidden="true" @change="onFiles" />
     </template>
 
@@ -169,8 +223,13 @@ async function remove(photo) {
       :origin="tileImage"
       :place="placeOf"
       :can-delete="(p) => p.personId === HOST_ID"
-      @delete="remove"
+      @delete="askDelete"
     />
+
+    <ModalDialog v-model:open="confirming" title="Delete this photo?" text="It is removed for everyone in the session.">
+      <AppButton block variant="secondary" @click="confirming = false">Keep photo</AppButton>
+      <AppButton block variant="danger" @click="confirmDelete">Delete photo</AppButton>
+    </ModalDialog>
   </main>
   <main v-else class="screen" data-testid="photos-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)"><SkeletonRow v-for="n in 3" :key="n" /></div>
@@ -179,7 +238,7 @@ async function remove(photo) {
 
 <style scoped>
 .gallery { display: flex; flex-direction: column; gap: var(--spacing-md); }
-.gallery__sum { display: flex; align-items: center; gap: var(--spacing-sm); min-height: 28px; }
+.gallery__sum { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm); min-height: 28px; }
 .gallery__add { margin-left: auto; }
 
 /* All photos: small square thumbnails; the one on the line in the middle is ringed. */
