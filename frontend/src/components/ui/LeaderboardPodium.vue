@@ -6,6 +6,7 @@
 // height and the number on it follow the rank, so two people tied for first both stand on gold.
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
+import CoinBadge from './CoinBadge.vue'
 import UserAvatar from './UserAvatar.vue'
 import { COIN } from '@/lib/currency.js'
 
@@ -40,7 +41,7 @@ const spots = computed(() => {
           <span class="podium__crown"><AppIcon name="crown" :size="14" /></span>
         </span>
         <span class="podium__name title-sm truncate">{{ spot.userId === currentUserId ? 'You' : spot.userName }}</span>
-        <span class="podium__value body-sm tnum">{{ spot.value.toLocaleString('en-SG') }}</span>
+        <CoinBadge class="podium__value body-sm" :amount="spot.value" />
       </component>
       <span class="podium__block" aria-hidden="true">{{ spot.rank }}</span>
     </li>

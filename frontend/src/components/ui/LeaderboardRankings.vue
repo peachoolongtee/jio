@@ -7,8 +7,8 @@
 // The current user's row is outlined, and the list opens on the page that has it.
 import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import CoinBadge from './CoinBadge.vue'
 import UserAvatar from './UserAvatar.vue'
-import { COIN, compact } from '@/lib/currency.js'
 
 const props = defineProps({
   rankings: { type: Array, required: true },
@@ -52,7 +52,7 @@ const last = computed(() => Math.min(props.rankings.length, (page.value + 1) * s
           <span class="title-md truncate">{{ row.userId === currentUserId ? 'You' : row.userName }}</span>
           <span v-if="row.byline" class="body-sm text-muted truncate">{{ row.byline }}</span>
         </component>
-        <span class="rankings__value title-md tnum" :aria-label="`${row.value} ${COIN}`">{{ compact(row.value) }}</span>
+        <CoinBadge class="rankings__value title-md" :amount="row.value" short />
       </li>
     </ol>
 

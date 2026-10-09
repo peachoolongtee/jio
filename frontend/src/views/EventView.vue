@@ -20,6 +20,7 @@ import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
+import CoinBadge from '@/components/ui/CoinBadge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { RouterLink } from 'vue-router'
@@ -347,7 +348,7 @@ async function endPlan() {
 
     <ModalDialog v-model:open="endOpen" title="End plan?">
       <template #content>
-        <p class="body-md">+{{ coins(POINTS_PER_MEETUP) }} each for {{ session.activeIds.length }} people, to spend on sample café vouchers</p>
+        <p class="body-md">+<CoinBadge :amount="POINTS_PER_MEETUP" /> each for {{ session.activeIds.length }} people, to spend on sample café vouchers</p>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
       <AppButton block :disabled="busy" @click="endPlan">End plan</AppButton>

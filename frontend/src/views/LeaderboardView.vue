@@ -1,21 +1,23 @@
 <script setup>
 // Leaderboard: one ranking, the JioCoins earned this season. A season is a calendar quarter; when it ends,
 // first place wins JioCoins to spend, and season totals start again from 0 (JioCoins to spend are kept).
-// The rule, the countdown and the last few winners are on this screen; the picker shows a past season's
-// final ranking. Spending JioCoins is on Rewards. The other people are hand-written, so a "Sample data for the demo"
+// The rule and the countdown are on this screen; the picker switches between this season and the last one,
+// showing the last season's final ranking and winner. Spending JioCoins is on Rewards. The other people are hand-written, so a "Sample data for the demo"
 // note says so. Someone with nothing this season has no rank yet (rank null).
 // States: skeleton rows while loading, a message with Retry if loading fails, and a message when no one is ranked.
+// Behind it all, GridPulse: a fine grid across the whole window that lights up in colour where the pointer passes.
+// The ranking sits on a frosted panel above it, so the colour glows softly through without touching the text;
+// the title and countdown hold the colour back.
 import { computed, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
-import BannerNote from '@/components/ui/BannerNote.vue'
+import CoinBadge from '@/components/ui/CoinBadge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import GridPulse from '@/components/ui/GridPulse.vue'
 import LeaderboardCard from '@/components/ui/LeaderboardCard.vue'
-import SampleNote from '@/components/ui/SampleNote.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import { useGroupsStore } from '@/stores/groups.js'
 import * as api from '@/lib/api.js'
-import { coins } from '@/lib/currency.js'
 import { endsInText, lastDay } from '@/lib/season.js'
 import { useNow } from '@/lib/useNow.js'
 
@@ -44,18 +46,18 @@ const endsIn = computed(() => (season.value ? endsInText(season.value, now.value
 // "Darius" or "Darius and Nicole"; "Nobody" when nobody earned JioCoins that season.
 const winnerNames = (past) => (past.winners.length ? past.winners.map((w) => (w.isMe ? 'You' : w.name)).join(' and ') : 'Nobody')
 
-// The picker: this season, then the past seasons the app remembers. Ids are season numbers as text.
+// The picker: this season, and the one before it (when there is one). Ids are season numbers as text.
+const lastSeason = computed(() => season.value?.past[0] || null)
 const run = ref('')
 const runOptions = computed(() => {
   if (!season.value) return []
-  return [
-    { id: String(season.value.number), label: 'This season' },
-    ...season.value.past.map((p) => ({ id: String(p.number), label: `Season ${p.number}` })),
-  ]
+  const options = [{ id: String(season.value.number), label: 'This season' }]
+  if (lastSeason.value) options.push({ id: String(lastSeason.value.number), label: 'Last season' })
+  return options
 })
 const shown = computed(() => {
   if (!season.value) return null
-  return season.value.past.find((p) => String(p.number) === run.value) || season.value
+  return lastSeason.value && String(lastSeason.value.number) === run.value ? lastSeason.value : season.value
 })
 const isPast = computed(() => !!shown.value && shown.value !== season.value)
 
@@ -93,16 +95,23 @@ const nobody = computed(() => !isPast.value && !entries.value.some((e) => e.valu
 </script>
 
 <template>
-  <main class="screen">
+  <main class="screen grid-page">
+    <GridPulse class="page-grid" />
     <header class="screen__header">
       <div class="title-line">
-        <h1 class="display-xl">Leaderboard</h1>
-        <span v-if="season" class="days-left tnum"><AppIcon name="clock" :size="14" />{{ endsIn }}</span>
+        <h1 class="display-xl" data-grid-avoid>Leaderboard</h1>
+        <span v-if="season" class="days-left tnum" data-grid-avoid><AppIcon name="clock" :size="14" />{{ endsIn }}</span>
+        <span v-if="shown" class="prize" data-grid-avoid>
+          <AppIcon name="trophy" :size="14" />
+          <template v-if="!isPast">Winner gets</template>
+          <template v-else>{{ winnerNames(shown) }} won</template>
+          <CoinBadge v-if="!isPast || shown.winners.length" class="prize__coins" :amount="shown.prize ?? season.prize" />
+        </span>
       </div>
     </header>
 
     <div class="screen__body">
-      <div class="board-layout" :class="{ 'has-side': season?.past.length }">
+      <div class="board-layout">
         <EmptyState v-if="loadError" title="Could not load the leaderboard" text="Check your connection and try again." role="alert">
           <AppButton variant="secondary" :disabled="loadingNow" @click="load">Retry</AppButton>
         </EmptyState>
@@ -110,12 +119,6 @@ const nobody = computed(() => !isPast.value && !entries.value.some((e) => e.valu
           <SkeletonRow v-for="n in 6" :key="n" avatar />
         </div>
         <section v-else class="board" aria-label="Ranking">
-          <BannerNote v-if="!isPast" icon="trophy">
-            First place wins <strong>{{ coins(season.prize) }}</strong>
-          </BannerNote>
-          <BannerNote v-else icon="trophy">
-            <strong>{{ winnerNames(shown) }}</strong> won this season<template v-if="shown.winners.length"> and took home {{ coins(shown.prize) }}</template>.
-          </BannerNote>
           <EmptyState v-if="nobody" title="No one ranked yet" text="Finish a meetup to earn JioCoins this season. Everyone who does is ranked here." />
           <LeaderboardCard
             v-model:selected-run-id="run"
@@ -131,23 +134,8 @@ const nobody = computed(() => !isPast.value && !entries.value.some((e) => e.valu
               <EmptyState v-if="!entries.length" title="No ranking saved" text="This season ended before Jio kept full rankings. Only its winner is remembered." />
             </template>
           </LeaderboardCard>
-          <SampleNote />
         </section>
 
-        <aside v-if="season?.past.length" class="side">
-          <section class="past card" aria-labelledby="past-head">
-            <h2 id="past-head" class="title-md">Past seasons</h2>
-            <ol class="past__list">
-              <li v-for="past in season.past" :key="past.number" class="past__row">
-                <span class="past__icon"><AppIcon name="trophy" :size="16" /></span>
-                <span class="past__text">
-                  <span class="title-sm">{{ winnerNames(past) }}</span>
-                  <span class="caption-sm text-muted">Season {{ past.number }}<template v-if="past.winners.length"> · {{ coins(past.winners[0].seasonPoints) }} · won {{ coins(past.prize) }}</template></span>
-                </span>
-              </li>
-            </ol>
-          </section>
-        </aside>
       </div>
 
     </div>
@@ -157,16 +145,13 @@ const nobody = computed(() => !isPast.value && !entries.value.some((e) => e.valu
 
 <style scoped>
 .board-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-lg); }
-@media (min-width: 1128px) { .board-layout.has-side { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; } }
-.board { display: flex; flex-direction: column; gap: var(--spacing-base); min-width: 0; }
-.side { display: flex; flex-direction: column; gap: var(--spacing-lg); }
+/* Frosted glass: mostly white, blurred, so the grid's colours glow through it softly and the text stays sharp. */
+.board { border: 1px solid color-mix(in srgb, var(--hairline) 70%, transparent); background: color-mix(in srgb, var(--canvas) 72%, transparent); -webkit-backdrop-filter: blur(14px) saturate(1.3); backdrop-filter: blur(14px) saturate(1.3); box-shadow: var(--shadow-float); }
+.board { display: flex; flex-direction: column; gap: var(--spacing-base); min-width: 0; padding: var(--spacing-base); border-radius: var(--rounded-lg); }
 /* The title, with the days the season has left in a Rausch pill beside it. */
 .title-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm) var(--spacing-md); }
+/* The prize, beside the countdown: small, but always in view. */
+.prize { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font: var(--text-badge); font-size: 13px; white-space: nowrap; }
+.prize__coins { font-weight: 700; }
 .days-left { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); font: var(--text-badge); font-size: 13px; white-space: nowrap; }
-.past { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-base); }
-.past__list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
-.past__row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 52px; }
-.past__row + .past__row { border-top: 1px solid var(--hairline-soft); }
-.past__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
-.past__text { display: flex; flex-direction: column; min-width: 0; }
 </style>
