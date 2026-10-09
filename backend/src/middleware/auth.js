@@ -1,16 +1,23 @@
 import { AuthUnavailableError } from '../db/supabase.js'
 
-// Answers 401 in the agreed error shape: { error: { code, message } }.
+// Answers 401 in the flat error shape every route uses: { error: '<code>', message: '<text>' }.
+//
+// How to call:
+//   return unauthenticated(res, 'Send the session token as "Authorization: Bearer <token>".')
 function unauthenticated(res, message) {
-  res.status(401).json({ error: { code: 'unauthenticated', message } })
+  res.status(401).json({ error: 'unauthenticated', message })
 }
 
-// Answers 503 when Supabase cannot be reached to check the token. The caller's token may be fine, so it
-// says to try again, not to sign in again.
+// Answers 503 when Supabase cannot be reached to check the token, in the same flat shape. The caller's token
+// may be fine, so it says to try again, not to sign in again.
+//
+// How to call:
+//   if (err instanceof AuthUnavailableError) return unavailable(res)
 function unavailable(res) {
   res.set('Retry-After', '5')
   res.status(503).json({
-    error: { code: 'auth_unavailable', message: 'Login cannot be checked right now. Try again shortly.' },
+    error: 'auth_unavailable',
+    message: 'Login cannot be checked right now. Try again shortly.',
   })
 }
 

@@ -57,10 +57,8 @@ export function scenarioMiddleware(req, res, next) {
   // A typo in a test should fail loudly, not quietly run the dry scenario.
   if (!SCENARIOS.includes(scenario)) {
     return res.status(400).json({
-      error: {
-        code: 'unknown_scenario',
-        message: `Unknown scenario "${scenario}". Use one of: ${SCENARIOS.join(', ')}.`,
-      },
+      error: 'unknown_scenario',
+      message: `Unknown scenario "${scenario}". Use one of: ${SCENARIOS.join(', ')}.`,
     })
   }
 
