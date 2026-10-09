@@ -26,9 +26,9 @@ const STORAGE_KEY = 'jio-demo-v1'
 const VERSION = 6
 // How many ranked places to ask for per slot: enough to top a slot up to its maximum.
 const RANKED_MAX = 10
-// meeting: the least time the "finding the meeting point" animation shows. The planner answers in milliseconds
+// meeting: the least time the "finding the meeting point" loading bar shows (long enough for it to fill up). The planner answers in milliseconds
 // with estimated travel times; with real routing it takes longer on its own.
-const DELAY = { read: 80, plan: 300, write: 40, meeting: 700 }
+const DELAY = { read: 80, plan: 300, write: 40, meeting: 1200 }
 
 // ── Storage ────────────────────────────────────────────────────────────────
 

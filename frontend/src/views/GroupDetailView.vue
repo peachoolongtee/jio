@@ -6,12 +6,13 @@
 //             their area, travel time (coloured by length, with a key) and status. While the planner works
 //             out the area, the card and the map say so.
 //   Later     the same, read-only once the plan is confirmed
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
+import SegmentedProgress from '@/components/ui/SegmentedProgress.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
@@ -81,6 +82,50 @@ const mapPeople = computed(() =>
 
 // The planner is working out the meeting area right now.
 const finding = computed(() => !!session.value?.findingMeeting)
+
+// The loading bar before the meeting point is revealed. While the planner works, it creeps towards 90%; when the
+// answer arrives it runs to 100%, holds a moment, then the place appears. `loading` covers both parts.
+const loadPct = ref(0)
+const finishing = ref(false)
+const loading = computed(() => finding.value || finishing.value)
+const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+let frame = 0
+let holdTimer = 0
+function stopLoader() {
+  cancelAnimationFrame(frame)
+  clearTimeout(holdTimer)
+}
+function tween(from, to, ms, done) {
+  const t0 = performance.now()
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / ms)
+    loadPct.value = from + (to - from) * (1 - (1 - k) ** 3)
+    if (k < 1) frame = requestAnimationFrame(step)
+    else done?.()
+  }
+  frame = requestAnimationFrame(step)
+}
+watch(finding, (now, was) => {
+  stopLoader()
+  if (now) {
+    finishing.value = false
+    loadPct.value = 0
+    // Ease towards 90% and wait there for the answer.
+    const t0 = performance.now()
+    const creep = (time) => {
+      loadPct.value = 90 * (1 - Math.exp(-(time - t0) / 450))
+      frame = requestAnimationFrame(creep)
+    }
+    frame = requestAnimationFrame(creep)
+  } else if (was) {
+    if (reduceMotion) return
+    finishing.value = true
+    tween(loadPct.value, 100, 320, () => {
+      holdTimer = setTimeout(() => { finishing.value = false }, 380)
+    })
+  }
+})
+onBeforeUnmount(stopLoader)
 function openSheet(which) {
   sheet.value = { open: true, which }
 }
@@ -129,17 +174,25 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
       </section>
 
       <template v-else>
-        <!-- Ian's own start and end. Only he sees the exact place. -->
-        <dl class="mine" aria-label="Your locations">
-          <div class="mine__row">
-            <dt class="caption text-muted">From</dt>
-            <dd class="title-sm truncate">{{ myLoc.start?.label || 'Not set' }}</dd>
+        <!-- Ian's own start and end, as a little route: where he starts, a dotted line, where he heads after.
+             Only he sees the exact place. -->
+        <dl class="route" aria-label="Your locations">
+          <div class="route__stop">
+            <span class="route__dot route__dot--from" aria-hidden="true"><AppIcon name="home" :size="18" /></span>
+            <div class="route__text">
+              <dt class="caption text-muted">Starting from</dt>
+              <dd class="title-sm truncate" :class="{ 'text-muted': !myLoc.start }">{{ myLoc.start?.label || 'Not set yet' }}</dd>
+            </div>
             <AppButton v-if="!locked && !myLoc.start" variant="pill" @click="openSheet('start')">Set</AppButton>
             <IconButton v-else-if="!locked" label="Change start location" @click="openSheet('start')"><AppIcon name="edit" /></IconButton>
           </div>
-          <div class="mine__row">
-            <dt class="caption text-muted">To</dt>
-            <dd class="title-sm truncate">{{ myLoc.end ? myLoc.end.label : 'Same as start' }}</dd>
+          <span class="route__line" aria-hidden="true" />
+          <div class="route__stop">
+            <span class="route__dot route__dot--to" aria-hidden="true"><AppIcon name="flag" :size="18" /></span>
+            <div class="route__text">
+              <dt class="caption text-muted">Heading to after</dt>
+              <dd class="title-sm truncate">{{ myLoc.end ? myLoc.end.label : 'Back to where you started' }}</dd>
+            </div>
             <IconButton v-if="!locked" label="Change end location" @click="openSheet('end')"><AppIcon name="edit" /></IconButton>
           </div>
         </dl>
@@ -148,24 +201,16 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 
         <SplitView v-model:view="view" label="Meeting area">
           <template #list>
-            <!-- Step 5: the meeting area. While the planner works it out, the card says so and a bar sweeps across. -->
-            <section v-if="finding || session.meeting" class="area" :class="{ 'is-finding': finding }" aria-labelledby="area-head" :role="finding ? 'status' : undefined">
-              <template v-if="finding">
-                <div class="area__main">
-                  <span class="area__pin area__pin--finding"><AppIcon name="pin" :size="18" /></span>
-                  <div class="stack">
-                    <span class="caption area__label">Working it out</span>
-                    <h2 id="area-head" class="title-md">Finding the fairest meeting point…</h2>
-                  </div>
-                </div>
-                <span class="area__bar" aria-hidden="true"><span /></span>
+            <!-- Step 5: the meeting point. While the planner works it out a segmented bar fills up; at 100% the place
+                 appears. -->
+            <section v-if="loading || session.meeting" class="area" :class="{ 'is-finding': loading }" aria-labelledby="area-head" :role="loading ? 'status' : undefined">
+              <template v-if="loading">
+                <h2 id="area-head" class="title-md">Finding the meeting point</h2>
+                <SegmentedProgress :value="loadPct" label="Checking everyone's travel time" />
               </template>
-              <div v-else-if="session.meeting" class="area__main">
-                <span class="area__pin"><AppIcon name="pin" :size="18" /></span>
-                <div class="stack">
-                  <span class="caption area__label">Fairest area</span>
-                  <h2 id="area-head" class="display-lg">{{ session.area.name }}</h2>
-                </div>
+              <div v-else class="area__main area__main--reveal">
+                <span class="area__pin"><AppIcon name="pin" :size="20" /></span>
+                <h2 id="area-head" class="display-lg">{{ session.area.name }}</h2>
               </div>
             </section>
             <p v-if="session.areaNote" class="caption-sm text-muted">{{ session.areaNote }}</p>
@@ -173,14 +218,14 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
             <section class="section card" aria-label="People">
               <ProgressDonut v-if="progress" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
               <MemberList :session="session" :names="nameOf" :voters="voterIds" />
-              <p v-if="session.meeting && !finding" class="travel-key" aria-label="Travel time colours">
+              <p v-if="session.meeting && !loading" class="travel-key" aria-label="Travel time colours">
                 <span v-for="t in TRAVEL_TONES" :key="t.id" class="travel-key__item"><span class="travel-key__dot" :class="`is-${t.id}`" />{{ t.label }}</span>
               </p>
             </section>
           </template>
           <template #map>
-            <PlannerMap :people="mapPeople" :area="session.area" :finding="finding" spokes label="Meeting area map" />
-            <div v-if="finding" class="map-wait map-wait--finding title-sm" role="status">Finding the fairest meeting point…</div>
+            <PlannerMap :people="mapPeople" :area="loading ? null : session.area" :finding="loading" spokes label="Meeting area map" />
+            <div v-if="loading" class="map-wait map-wait--finding title-sm" role="status">Finding the meeting point… {{ Math.round(loadPct) }}%</div>
           </template>
         </SplitView>
       </template>
@@ -189,8 +234,8 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
     <footer v-if="status !== 'cancelled'" class="screen__footer">
       <AppButton v-if="status === 'inviting' && active.length < 2" block :to="`/sessions/${id}/invite`">Invite friends</AppButton>
       <AppButton v-else-if="status === 'inviting'" block :disabled="busy" @click="startSession">Start session</AppButton>
-      <AppButton v-else-if="status === 'locating'" block :disabled="!session.meeting || busy || finding" @click="useArea">
-        {{ finding ? 'Finding the meeting point…' : session.meeting ? `Meet at ${session.area.name}` : 'Waiting for everyone' }}
+      <AppButton v-else-if="status === 'locating'" block :disabled="!session.meeting || busy || loading" @click="useArea">
+        {{ loading ? 'Finding the meeting point…' : session.meeting ? 'Confirm location' : 'Waiting for everyone' }}
       </AppButton>
       <AppButton v-else-if="status === 'voting'" block :to="`/sessions/${id}/plan`">Activities</AppButton>
       <AppButton v-else block :to="`/sessions/${id}/itinerary`">{{ session.isToday && status === 'confirmed' ? "Today's plan" : 'Itinerary' }}</AppButton>
@@ -207,23 +252,30 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 
 <style scoped>
 .invite-hint { margin: 0; }
-.mine { display: flex; flex-direction: column; margin: 0; padding: var(--spacing-xs) var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
-.mine__row { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 56px; }
-.mine__row + .mine__row { border-top: 1px solid var(--hairline-soft); }
-.mine__row dd { margin: 0; }
+/* Your route: a soft Rausch-tinted card. Start (a Rausch home) and end (an ink flag) joined by a dotted line:
+   stacked on phones, side by side from tablet up. */
+.route { display: flex; flex-direction: column; margin: 0; padding: var(--spacing-sm) var(--spacing-base); border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--hairline)); border-radius: var(--rounded-lg); background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 6%, var(--canvas)), var(--canvas) 70%); }
+.route__stop { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 64px; }
+.route__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.route__text dd { margin: 0; }
+.route__dot { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--rounded-full); }
+.route__dot--from { background: var(--primary); color: var(--on-primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 15%, transparent); }
+.route__dot--to { border: 2px solid var(--ink); background: var(--canvas); color: var(--ink); }
+.route__line { width: 0; height: 18px; margin-left: 19px; border-left: 2px dashed color-mix(in srgb, var(--primary) 45%, var(--hairline)); }
+@media (min-width: 744px) {
+  .route { flex-direction: row; align-items: center; gap: var(--spacing-base); padding: var(--spacing-md) var(--spacing-lg); }
+  .route__stop { flex: 1; }
+  .route__line { flex: 0 0 48px; width: 48px; height: 0; margin: 0; border-left: 0; border-top: 2px dashed color-mix(in srgb, var(--primary) 45%, var(--hairline)); }
+}
 /* The meeting area: a reservation-card style block. The pin is the screen's Rausch moment besides the CTA. */
 .area { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); }
 .area__main { display: flex; align-items: center; gap: var(--spacing-md); min-width: 0; }
-.area__label { color: var(--muted); }
 .area__pin { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
-/* Finding the meeting area: the pin breathes and a bar sweeps across. Still when motion is reduced. */
-.area.is-finding { flex-direction: column; align-items: stretch; }
-.area__pin--finding { animation: area-breathe 1.2s ease-in-out infinite alternate; }
-.area__bar { position: relative; height: 4px; overflow: hidden; border-radius: var(--rounded-full); background: var(--surface-strong); }
-.area__bar > span { position: absolute; top: 0; bottom: 0; width: 40%; border-radius: var(--rounded-full); background: var(--primary); animation: area-sweep 1.1s ease-in-out infinite; }
-@keyframes area-breathe { to { transform: scale(1.12); } }
-@keyframes area-sweep { from { left: -40%; } to { left: 100%; } }
-@media (prefers-reduced-motion: reduce) { .area__pin--finding, .area__bar > span { animation: none; } .area__bar > span { left: 30%; } }
+/* Finding the meeting point: a title over the segmented bar. When it is found, the place pops in. */
+.area.is-finding { flex-direction: column; align-items: stretch; gap: var(--spacing-base); }
+.area__main--reveal { animation: area-reveal 420ms var(--ease-spring) both; }
+@keyframes area-reveal { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .area__main--reveal { animation: none; } }
 /* The key for the travel-time colours in the people list. */
 .travel-key { display: flex; flex-wrap: wrap; gap: var(--spacing-xs) var(--spacing-base); margin: 0; font: var(--text-caption-sm); color: var(--muted); }
 .travel-key__item { display: inline-flex; align-items: center; gap: var(--spacing-xs); }
