@@ -3,7 +3,7 @@ import { requireUser } from '../middleware/auth.js'
 
 // Who the caller is. The first route that needs a login, and the one to copy for the next.
 //
-//   GET /api/me   →   { user: { id, email }, profile: { id, username, display_name, avatar_url, home_area_id } }
+//   GET /api/me   →   { user: { id, email }, profile: { id, username, display_name, avatar_url } }
 //
 // How to mount it (app.js does this when Supabase is configured):
 //   app.use('/api', createMeRouter({ supabase }))
@@ -18,7 +18,7 @@ export function createMeRouter({ supabase }) {
       // Read as the user, so the database's own rules decide what comes back.
       const { data: profile, error } = await req.supabase
         .from('profiles')
-        .select('id, username, display_name, avatar_url, home_area_id')
+        .select('id, username, display_name, avatar_url')
         .eq('id', req.user.id)
         .maybeSingle()
       if (error) throw new Error(`Could not load the profile: ${error.message}`)
