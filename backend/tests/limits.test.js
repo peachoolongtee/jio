@@ -1,6 +1,7 @@
 import { once } from 'node:events'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../src/app.js'
+import { ExternalApiError } from '../src/services/errors.js'
 
 // Requests built to keep the server busy or break ranking. Every one must be refused quickly.
 // Before the limits existed, 800 distinct group constraints (a 15 kB body) blocked the server for 79 seconds.
@@ -51,6 +52,17 @@ describe('planner input limits', () => {
       radiusMeters: 1000,
       topN: 10,
     })
+    expect(r.status).toBe(200)
+  })
+
+  it('refuses more than 4 categories', async () => {
+    const r = await send('/api/converge', { ...valid, categories: ['eat', 'drink', 'shop', 'activity', 'eat'] })
+    expect(r.status).toBe(400)
+    expect(pathsOf(r)).toContain('categories')
+  })
+
+  it('accepts repeated categories', async () => {
+    const r = await send('/api/converge', { ...valid, categories: ['eat', 'eat', 'eat'] })
     expect(r.status).toBe(200)
   })
 
@@ -132,6 +144,40 @@ describe('errors are always JSON', () => {
     const r = await send('/api/converge', { ...valid, excludeVenueIds: many(30000, (i) => `venue-id-${i}`) })
     expect(r.status).toBe(413)
     expect(r.json.error).toBe('too_large')
+  })
+
+  it('answers another client mistake from the body parser with its own status, as JSON', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const res = await fetch(`${base}/api/converge`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-encoding': 'bogus' },
+      body: JSON.stringify(valid),
+    })
+    expect(res.status).toBe(415)
+    expect(await res.json()).toEqual({ error: 'bad_request', message: 'The request could not be read.' })
+    expect(errorLog).not.toHaveBeenCalled()
+    errorLog.mockRestore()
+  })
+
+  it('answers 500, not the upstream status, when an external API error escapes a route', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const app = createApp({
+      frontendOrigin: FRONTEND,
+      mount: (a) =>
+        a.get('/probe', () => {
+          throw new ExternalApiError('onemap answered 401', { service: 'onemap', status: 401, url: 'https://onemap.test/route' })
+        }),
+    }).listen(0)
+    await once(app, 'listening')
+    try {
+      const res = await fetch(`http://127.0.0.1:${app.address().port}/probe`)
+      expect(res.status).toBe(500)
+      expect(await res.json()).toEqual({ error: 'server_error', message: 'Something went wrong on the server.' })
+      expect(errorLog).toHaveBeenCalledTimes(1)
+    } finally {
+      await new Promise((resolve) => app.close(resolve))
+      errorLog.mockRestore()
+    }
   })
 
   it('answers 404 as JSON for an address that does not exist', async () => {
