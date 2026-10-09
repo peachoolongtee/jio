@@ -1,0 +1,128 @@
+/* Jio base styles. Tokens live in tokens.css; component styles live inside each .vue file.
+   This file holds the reset, the type classes, the screen layout and a few helpers. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #app { min-height: 100%; }
+
+body {
+  margin: 0;
+  font: var(--text-body-md);
+  color: var(--ink);
+  background: var(--canvas);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, p, ul, ol { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+a { color: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+svg { display: block; flex-shrink: 0; }
+
+/* Keyboard focus: 2px ink, no glow. Every control shows it. */
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* Text links get a hover state on devices that can hover. */
+@media (hover: hover) { a:hover { text-decoration-thickness: 2px; } }
+
+/* ── Type classes ─────────────────────────────────────────── */
+.display-xl { font: var(--text-display-xl); }
+.display-lg { font: var(--text-display-lg); letter-spacing: -0.44px; }
+.display-md { font: var(--text-display-md); }
+.display-sm { font: var(--text-display-sm); letter-spacing: -0.18px; }
+.title-md { font: var(--text-title-md); }
+.title-sm { font: var(--text-title-sm); }
+.body-md { font: var(--text-body-md); }
+.body-sm { font: var(--text-body-sm); }
+.caption { font: var(--text-caption); }
+.caption-sm { font: var(--text-caption-sm); }
+.link { font: var(--text-link); }
+.micro-label { font: var(--text-micro-label); }
+.badge { font: var(--text-badge); }
+.button-md { font: var(--text-button-md); }
+.button-sm { font: var(--text-button-sm); }
+
+.text-muted { color: var(--muted); }
+.text-body { color: var(--body); }
+.text-error { color: var(--primary-error-text); }
+.text-brand { color: var(--primary); }
+
+/* Long names wrap to two lines, then cut off. */
+.clamp-2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── App frame and screen layout ──────────────────────────── */
+/* The frame: sidebar on desktop, tab bar on mobile and tablet. App.vue switches between them with CSS only,
+   so resizing the window never re-creates the current screen. */
+.app { min-height: 100dvh; background: var(--canvas); }
+.app__main { display: flex; flex-direction: column; min-width: 0; min-height: 100dvh; }
+.app__side { display: none; }
+.app.has-tabs .app__main { padding-bottom: var(--tabbar-height); }
+@media (min-width: 1128px) {
+  .app.has-nav { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
+  .app.has-nav .app__side { display: flex; }
+  .app.has-tabs .app__main { padding-bottom: 0; }
+}
+
+/* A screen is a column: header, a body, and an optional footer that stays in view.
+   On wide windows it sits in a centred column no wider than --content-max-width. */
+.screen { flex: 1 1 auto; display: flex; flex-direction: column; width: 100%; max-width: calc(var(--content-max-width) + var(--gutter) * 2); margin: 0 auto; }
+/* Forms (sign-up, create session) never stretch: a centred column no wider than --form-max-width. */
+.screen--form { max-width: calc(var(--form-max-width) + var(--gutter) * 2); }
+.screen__header { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md) var(--gutter) var(--spacing-base); }
+.screen__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); min-height: var(--tap-min); }
+.screen__titles { display: flex; flex-direction: column; gap: var(--spacing-xs); min-width: 0; }
+.screen__body { flex: 1 1 auto; display: flex; flex-direction: column; gap: var(--spacing-lg); padding: 0 var(--gutter) var(--spacing-lg); }
+.screen__footer { position: sticky; bottom: 0; z-index: 5; flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base) var(--gutter) var(--spacing-lg); border-top: 1px solid var(--hairline); background: var(--canvas); }
+@media (min-width: 1128px) {
+  .screen__header { padding-top: var(--spacing-xl); }
+  /* On desktop the main action sits at the end of the content, right-aligned, not in a full-width bar. */
+  .screen__footer { flex-direction: row; justify-content: flex-end; align-items: center; }
+  .screen__footer > .btn--block { width: auto; min-width: 240px; }
+}
+
+/* Section heading row: a heading and an optional action or count on the right. */
+.section { display: flex; flex-direction: column; gap: var(--spacing-md); }
+.section__head { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); min-height: var(--tap-min); }
+
+/* Grids for cards: one column on mobile, two on tablet, three on desktop. */
+.grid-3 { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-base); }
+@media (min-width: 744px) { .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1128px) { .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* Show something on one layout only. The content still exists at every size; only where it sits changes. */
+@media (min-width: 1128px) { .mobile-only { display: none !important; } }
+@media (max-width: 1127.98px) { .desktop-only { display: none !important; } }
+
+/* A bordered card. */
+.card { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+/* A quiet note, for example a short summary. */
+.note { padding: var(--spacing-md); border-radius: var(--rounded-md); background: var(--surface-soft); color: var(--body); font: var(--text-body-sm); }
+/* A grey plate that stands in for a photo until real images exist. */
+.photo { display: flex; align-items: center; justify-content: center; aspect-ratio: 1 / 1; overflow: hidden; border-radius: var(--rounded-md); background: var(--surface-strong); color: var(--muted); font: var(--text-caption-sm); }
+.photo > img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ── Helpers ──────────────────────────────────────────────── */
+.stack { display: flex; flex-direction: column; }
+.row { display: flex; align-items: center; }
+.wrap { display: flex; flex-wrap: wrap; }
+.gap-xs { gap: var(--spacing-xs); }
+.gap-sm { gap: var(--spacing-sm); }
+.gap-md { gap: var(--spacing-md); }
+.gap-base { gap: var(--spacing-base); }
+.gap-lg { gap: var(--spacing-lg); }
+.between { justify-content: space-between; }
+.grow { flex: 1 1 0; min-width: 0; }
+
+/* Chips sit in a row with no vertical gap: each chip already has a 44px tap area. */
+.chip-row { display: flex; flex-wrap: wrap; gap: 0 var(--spacing-sm); }
+/* A row that scrolls sideways and bleeds to the screen edge. */
+.scroll-x { display: flex; gap: var(--spacing-sm); margin-right: calc(var(--gutter) * -1); padding-right: var(--gutter); overflow-x: auto; scrollbar-width: none; }
+.scroll-x::-webkit-scrollbar { display: none; }
+
+/* Text for screen readers only. */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

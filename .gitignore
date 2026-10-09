@@ -35,3 +35,6 @@ npm-debug.log*
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Raw CDC merchant snapshot (11.5 MB). Rebuild cdc-venues.json with: pnpm --filter jio-backend build:cdc
+backend/data/CDC.json

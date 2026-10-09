@@ -28,7 +28,6 @@ describe('currentScenario', () => {
 // Starts an app with two throwaway routes that report what a real route would
 // see: the scenario, and the first forecast the shared HTTP helper returns.
 async function startApp({ stub }) {
-  const app = createApp({ frontendOrigin: FRONTEND, stub })
   const report = async (req, res) => {
     await delay(5) // Cross an await, like a real handler does.
     const forecast = stub ? await req.app.locals.http.getJson(FORECAST_URL) : null
@@ -37,8 +36,15 @@ async function startApp({ stub }) {
       forecast: forecast?.data.items[0].forecasts[0].forecast ?? null,
     })
   }
-  app.get('/probe', report)
-  app.post('/probe', report)
+  // Extra routes go in through `mount`, so they sit before the app's "not found" handler.
+  const app = createApp({
+    frontendOrigin: FRONTEND,
+    stub,
+    mount: (a) => {
+      a.get('/probe', report)
+      a.post('/probe', report)
+    },
+  })
 
   const server = app.listen(0)
   await once(server, 'listening')
