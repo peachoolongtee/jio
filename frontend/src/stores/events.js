@@ -49,7 +49,8 @@ export const useEventsStore = defineStore('events', () => {
   const act = (fn) => async (id, ...args) => put(await fn(id, ...args))
 
   const create = async (data) => put(await api.createSession(data))
-  const invite = act(api.inviteFriends)
+  // Invites from the app are pending until each friend accepts.
+  const invite = act((id, personIds) => api.inviteFriends(id, personIds, { pending: true }))
   const start = act(api.startSession)
   const setMyLocation = (id, which, place) => act(api.setLocation)(id, HOST_ID, which, place)
   const useArea = act(api.useMeetingArea)

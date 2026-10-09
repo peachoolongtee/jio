@@ -10,7 +10,6 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
-import AvatarStack from '@/components/ui/AvatarStack.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
@@ -19,6 +18,7 @@ import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
+import InviteDialog from '@/components/group/InviteDialog.vue'
 import LocationSheet from '@/components/group/LocationSheet.vue'
 import MemberList from '@/components/group/MemberList.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
@@ -59,14 +59,18 @@ const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
 const voterIds = computed(() => (session.value ? votersOf(session.value.votes, active.value) : []))
 const locked = computed(() => ['confirmed', 'completed', 'cancelled'].includes(status.value))
-// While inviting: everyone in, the host first, with @username and home area (as on the invite page).
-const joined = computed(() =>
-  active.value.map((pid) => {
-    const p = pid === 'ian' ? { username: auth.user.username, homeArea: auth.user.homeAreaName } : groups.people.find((x) => x.id === pid) || {}
-    return { id: pid, name: nameOf(pid), host: pid === 'ian', username: p.username || '', homeArea: p.homeArea || '' }
-  }),
+// While inviting: everyone joined or invited, the host first, with @username and home area (as on the invite page).
+// The ring counts who has joined out of everyone invited.
+const lobby = computed(() =>
+  (session.value?.members || [])
+    .filter((m) => ['joined', 'invited'].includes(m.state))
+    .map((m) => {
+      const p = m.id === 'ian' ? { username: auth.user.username, homeArea: auth.user.homeAreaName } : groups.people.find((x) => x.id === m.id) || {}
+      return { id: m.id, name: nameOf(m.id), host: m.role === 'host', joined: m.state === 'joined', username: p.username || '', homeArea: p.homeArea || '' }
+    }),
 )
-const ready = computed(() => active.value.length >= 2)
+const lobbyRing = computed(() => lobby.value.map((p) => ({ name: p.name, done: p.joined })))
+const inviteOpen = ref(false)
 
 const myLoc = computed(() => session.value?.locations?.ian || { start: null, end: null })
 const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAreaId, name: auth.user.homeAreaName } : null))
@@ -177,29 +181,23 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
       <!-- Inviting: who is in, whether the session can start, and Start session below. -->
       <section v-if="status === 'inviting'" class="card lobby" aria-labelledby="lobby-head">
         <header class="lobby__head">
-          <AvatarStack :people="joined" :size="36" :max="6" />
-          <div class="lobby__title">
-            <h2 id="lobby-head" class="title-md lobby__state" :class="{ 'is-ready': ready }">
-              <span class="lobby__dot" aria-hidden="true" />{{ ready ? 'Ready to start' : 'Waiting for friends' }}
-            </h2>
-            <p class="body-sm text-muted">
-              {{ ready ? `Everyone is in. Start the session when you're ready, then each of you shares where you're starting from.` : 'Invite at least one friend to start. Everyone you invite joins straight away.' }}
-            </p>
-          </div>
-          <AppButton variant="secondary" small :to="`/sessions/${id}/invite`"><AppIcon name="user-plus" :size="16" />Invite</AppButton>
+          <h2 id="lobby-head" class="sr-only">Who is in</h2>
+          <ProgressDonut compact title="Joined" :people="lobbyRing" done-label="Joined" />
+          <AppButton variant="secondary" small @click="inviteOpen = true"><AppIcon name="user-plus" :size="16" />Invite</AppButton>
         </header>
 
         <div class="lobby__group">
-          <h3 class="caption text-muted">In this session <span class="tnum">· {{ joined.length }}</span></h3>
+          <h3 class="caption text-muted">In this session <span class="tnum">· {{ lobby.length }}</span></h3>
           <ul class="lobby__list">
-            <li v-for="(person, i) in joined" :key="person.id" class="lobby__row rise" :style="{ '--i': i }">
+            <li v-for="(person, i) in lobby" :key="person.id" class="lobby__row rise" :class="{ 'is-pending': !person.joined }" :style="{ '--i': i }">
               <UserAvatar :name="person.name" :person="person.id" :size="44" />
               <RouterLink :to="person.host ? '/profile' : `/people/${person.id}`" class="lobby__who">
                 <span class="title-sm truncate">{{ person.name }}<template v-if="person.host"> (you)</template></span>
                 <span class="caption-sm text-muted truncate"><template v-if="person.username">@{{ person.username }}</template><template v-if="person.username && person.homeArea"> · </template>{{ person.homeArea }}</span>
               </RouterLink>
               <span v-if="person.host" class="lobby__tag lobby__tag--host"><AppIcon name="crown" :size="14" />Host</span>
-              <span v-else class="lobby__tag"><AppIcon name="check" :size="14" />Joined</span>
+              <span v-else-if="person.joined" class="lobby__tag"><AppIcon name="check" :size="14" />Joined</span>
+              <span v-else class="lobby__tag lobby__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
             </li>
           </ul>
         </div>
@@ -264,7 +262,7 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
     </div>
 
     <footer v-if="status !== 'cancelled'" class="screen__footer">
-      <AppButton v-if="status === 'inviting' && active.length < 2" block :to="`/sessions/${id}/invite`">Invite friends</AppButton>
+      <AppButton v-if="status === 'inviting' && active.length < 2" block @click="inviteOpen = true">Invite friends</AppButton>
       <AppButton v-else-if="status === 'inviting'" block :disabled="busy" @click="startSession">Start session</AppButton>
       <AppButton v-else-if="status === 'locating'" block :disabled="!session.meeting || busy || loading" @click="useArea">
         {{ loading ? 'Finding the meeting point…' : session.meeting ? 'Confirm location' : 'Waiting for everyone' }}
@@ -273,6 +271,7 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
       <AppButton v-else block :to="`/sessions/${id}/itinerary`">{{ session.isToday && status === 'confirmed' ? "Today's plan" : 'Itinerary' }}</AppButton>
     </footer>
 
+    <InviteDialog v-model:open="inviteOpen" :session="session" />
     <LocationSheet v-model:open="sheet.open" :which="sheet.which" :home="homeArea" @select="saveLocation" />
   </main>
   <main v-else class="screen" data-testid="group-detail-view">
@@ -283,23 +282,10 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 </template>
 
 <style scoped>
-/* Inviting: a card like the invite page's. A header says whether the session can start (a Rausch dot that pulses
-   once everyone needed is in), then who is in, each with a Host or Joined tag. */
+/* Inviting: a card like the invite page's. A header with a ring of who has joined out of everyone invited, and
+   Invite; then who is in, each with a Host, Joined or Invited tag. */
 .lobby { gap: var(--spacing-lg); }
-.lobby__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-md) var(--spacing-base); padding-bottom: var(--spacing-lg); border-bottom: 1px solid var(--hairline); }
-.lobby__title { flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.lobby__title p { margin: 0; }
-/* Phones: avatars and Invite share the top row; the state and its line sit under them. */
-@media (max-width: 743px) {
-  .lobby__head > :last-child { margin-left: auto; }
-  .lobby__title { order: 3; flex-basis: 100%; }
-}
-.lobby__state { display: inline-flex; align-items: center; gap: var(--spacing-sm); margin: 0; }
-.lobby__dot { position: relative; width: 10px; height: 10px; border-radius: var(--rounded-full); background: var(--muted-soft); }
-.lobby__state.is-ready .lobby__dot { background: var(--primary); }
-.lobby__state.is-ready .lobby__dot::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--primary); animation: lobby-pulse 2s ease-out infinite; }
-@keyframes lobby-pulse { from { transform: scale(1); opacity: 0.6; } to { transform: scale(2.8); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .lobby__state.is-ready .lobby__dot::after { animation: none; } }
+.lobby__head { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-base); padding-bottom: var(--spacing-lg); border-bottom: 1px solid var(--hairline); }
 .lobby__group { display: flex; flex-direction: column; gap: var(--spacing-xs); }
 .lobby__group h3 { margin: 0; }
 .lobby__list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
@@ -309,6 +295,9 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 @media (hover: hover) { .lobby__who:hover .title-sm { text-decoration: underline; } }
 .lobby__tag { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: var(--rounded-full); color: var(--body); font: var(--text-caption); }
 .lobby__tag--host { border-color: color-mix(in srgb, var(--primary) 35%, var(--canvas)); color: var(--primary-active); }
+/* Invited, not joined yet: a dashed tag and a faded row, until they accept. */
+.lobby__tag--pending { border-style: dashed; color: var(--muted); }
+.lobby__row.is-pending .lobby__who, .lobby__row.is-pending :deep(.avatar) { opacity: 0.55; }
 /* Your route: a soft Rausch-tinted card. Start (a Rausch home) and end (an ink flag) joined by a dotted line:
    stacked on phones, side by side from tablet up. */
 .route { display: flex; flex-direction: column; margin: 0; padding: var(--spacing-sm) var(--spacing-base); border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--hairline)); border-radius: var(--rounded-lg); background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 6%, var(--canvas)), var(--canvas) 70%); }

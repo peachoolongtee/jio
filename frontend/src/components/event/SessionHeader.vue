@@ -3,7 +3,6 @@
 // through (SessionSteps), and a menu with Cancel session (and Invite friends once the session has started).
 //   <SessionHeader :session="session" :title="'Today\'s plan'" />
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import BottomSheet from '../ui/BottomSheet.vue'
@@ -11,6 +10,7 @@ import IconButton from '../ui/IconButton.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
 import CountdownChip from '../ui/CountdownChip.vue'
 import SessionSteps from './SessionSteps.vue'
+import InviteDialog from '../group/InviteDialog.vue'
 import { dateLine } from '@/lib/session.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -21,10 +21,10 @@ const props = defineProps({
   back: { type: String, default: '/' },
 })
 
-const router = useRouter()
 const events = useEventsStore()
 const menuOpen = ref(false)
 const cancelOpen = ref(false)
+const inviteOpen = ref(false)
 const busy = ref(false)
 
 const status = computed(() => props.session.status)
@@ -41,7 +41,7 @@ async function cancelSession() {
 
 function goInvite() {
   menuOpen.value = false
-  router.push(`/sessions/${props.session.id}/invite`)
+  inviteOpen.value = true
 }
 
 function askCancel() {
@@ -81,6 +81,8 @@ function askCancel() {
         Cancel session
       </AppButton>
     </BottomSheet>
+
+    <InviteDialog v-model:open="inviteOpen" :session="session" />
 
     <ModalDialog v-model:open="cancelOpen" title="Cancel this session?">
       <template #content><p class="body-md text-muted">The meetup is called off for everyone in it and moves to your past sessions. This cannot be undone.</p></template>

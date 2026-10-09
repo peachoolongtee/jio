@@ -114,7 +114,31 @@ function nameOf(id) {
 function sessionById(id) {
   const session = db.sessions.find((s) => s.id === id)
   if (!session) throw new Error('This session does not exist.')
+  settleInvites(session)
   return session
+}
+
+// Pending invites. In the demo a friend accepts on their own a moment after being invited (their phone would ask
+// them): each invite stores when it will be accepted, a timer accepts it then, and reading a session accepts any
+// whose time has passed (after a reload, the timers are gone). Returns true when someone joined.
+const ACCEPT_AFTER = 1400
+const ACCEPT_GAP = 900
+function settleInvites(session, now = Date.now()) {
+  let changed = false
+  for (const member of session.members) {
+    if (member.state === 'invited' && member.acceptAt <= now) {
+      member.state = 'joined'
+      delete member.acceptAt
+      changed = true
+    }
+  }
+  return changed
+}
+function scheduleAccept(session, at) {
+  setTimeout(() => {
+    const current = db.sessions.find((s) => s.id === session.id)
+    if (current && settleInvites(current)) touch(current, 'session')
+  }, Math.max(0, at - Date.now()) + 20)
 }
 
 const activeIds = (session) => session.members.filter((m) => m.state === 'joined').map((m) => m.id)
@@ -579,6 +603,7 @@ function summary(session) {
 
 export async function listSessions() {
   await wait(DELAY.read)
+  db.sessions.forEach((s) => settleInvites(s))
   return db.sessions.map(summary).sort((a, b) => b.createdAt - a.createdAt)
 }
 
@@ -617,13 +642,28 @@ export async function createSession({ title, date, start, end }) {
 }
 
 // Invited friends accept automatically: they already have the app.
-export async function inviteFriends(id, personIds) {
+// Invite friends. By default they join straight away (tests and demo scripts). With { pending: true }, as the app
+// does, each one is Invited until they accept, which in the demo they do on their own, one after another.
+export async function inviteFriends(id, personIds, { pending = false } = {}) {
   await wait(DELAY.write)
   const session = sessionById(id)
+  let at = Date.now() + ACCEPT_AFTER
   for (const personId of personIds) {
-    const member = session.members.find((m) => m.id === personId)
-    if (member) member.state = 'joined'
-    else session.members.push({ id: personId, role: 'guest', state: 'joined' })
+    let member = session.members.find((m) => m.id === personId)
+    if (member?.state === 'joined') continue
+    if (!member) {
+      member = { id: personId, role: 'guest' }
+      session.members.push(member)
+    }
+    if (pending) {
+      member.state = 'invited'
+      member.acceptAt = at
+      scheduleAccept(session, at)
+      at += ACCEPT_GAP
+    } else {
+      member.state = 'joined'
+      delete member.acceptAt
+    }
   }
   return touch(session, 'session')
 }
@@ -632,6 +672,8 @@ export async function startSession(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (activeIds(session).length < 2) throw new Error('A session needs at least 2 people.')
+  // Invites nobody accepted yet lapse: the session goes ahead with whoever is in.
+  session.members = session.members.filter((m) => m.state !== 'invited')
   session.status = 'locating'
   return touch(session, 'session')
 }

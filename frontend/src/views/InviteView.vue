@@ -2,7 +2,8 @@
 // Step 2: invite friends. Ian picks friends from a list; everyone on it already has the app.
 // One card, one column at every size: the session and how many are in it, a search box, who is already in
 // (the host first, with a Host badge), then friends and suggested people to pick, and Cancel / Send invites.
-// After sending, the screen confirms each invite. Friends join automatically, with no action from them.
+// After sending, the screen confirms each invite. Each friend shows as Invited until they accept (in the demo, on
+// their own a moment later).
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -36,7 +37,8 @@ onMounted(async () => {
 })
 
 const session = computed(() => events.byId[props.id])
-const inSession = (personId) => session.value?.members.some((m) => m.id === personId && m.state === 'joined')
+const inSession = (personId) => session.value?.members.some((m) => m.id === personId && ['joined', 'invited'].includes(m.state))
+const isInvited = (personId) => session.value?.members.some((m) => m.id === personId && m.state === 'invited')
 // Search by name or @username. Empty: everyone.
 const query = ref('')
 const matches = (p) => {
@@ -149,6 +151,7 @@ function done() {
                 <span class="caption-sm text-muted truncate"><template v-if="person.username">@{{ person.username }}</template><template v-if="person.username && person.homeArea"> · </template>{{ person.homeArea }}</span>
               </span>
               <span v-if="person.host" class="invite__tag invite__tag--host"><AppIcon name="crown" :size="14" />Host</span>
+              <span v-else-if="isInvited(person.id)" class="invite__tag invite__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
               <span v-else class="invite__tag"><AppIcon name="check" :size="14" />Joined</span>
             </li>
           </ul>
@@ -209,6 +212,7 @@ function done() {
 .invite__who { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 /* Who is already in: a quiet outlined tag, the host's with a Rausch crown. */
 .invite__tag { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: var(--rounded-full); color: var(--body); font: var(--text-caption); }
+.invite__tag--pending { border-style: dashed; color: var(--muted); }
 .invite__tag--host { border-color: color-mix(in srgb, var(--primary) 35%, var(--canvas)); color: var(--primary-active); }
 .invite__picked { display: none; }
 
