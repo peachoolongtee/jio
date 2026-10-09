@@ -78,6 +78,18 @@ function onBlur() {
   text.value = model.value
 }
 
+// Mouse: open on hover. Leaving waits a moment before closing, so the pointer can cross the gap between the time
+// and a button (entering a button counts as entering the picker again).
+let closeTimer = 0
+function onEnter() {
+  clearTimeout(closeTimer)
+  hovered.value = true
+}
+function onLeave() {
+  clearTimeout(closeTimer)
+  closeTimer = setTimeout(() => { hovered.value = false }, 300)
+}
+
 // Touch screens have no hover: the first tap on the time opens the buttons instead of the keyboard.
 // A tap on the time while they are open starts typing; a tap anywhere else closes them.
 const root = ref(null)
@@ -94,7 +106,10 @@ function closeOnOutside(event) {
   tapped.value = false
   document.removeEventListener('pointerdown', closeOnOutside, true)
 }
-onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnOutside, true))
+onBeforeUnmount(() => {
+  clearTimeout(closeTimer)
+  document.removeEventListener('pointerdown', closeOnOutside, true)
+})
 </script>
 
 <template>
@@ -104,11 +119,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnOutside
       ref="root"
       class="tp__wheel"
       :class="{ 'is-open': open }"
-      @mouseenter="hovered = true"
-      @mouseleave="hovered = false"
+      @mouseenter="onEnter"
+      @mouseleave="onLeave"
       @keydown.esc="tapped = false; hovered = false"
     >
-      <div class="tp__orbit" aria-hidden="true" />
       <button
         v-for="(node, i) in NODES"
         :key="node.label"
@@ -148,13 +162,11 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnOutside
 </template>
 
 <style scoped>
-.tp { display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-sm); }
+/* Full width with everything centred, so two pickers stay lined up whatever note sits under them. */
+.tp { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-sm); width: 100%; text-align: center; }
 /* The wheel is as big as the pill; the buttons fly out around it and float over whatever is beside it. */
 .tp__wheel { position: relative; z-index: 1; display: inline-flex; }
 .tp__wheel.is-open { z-index: 40; }
-/* An invisible disc under the buttons, so the mouse can travel from the time to a button without closing them. */
-.tp__orbit { position: absolute; top: 50%; left: 50%; width: 330px; height: 330px; border-radius: var(--rounded-full); transform: translate(-50%, -50%); pointer-events: none; }
-.tp__wheel.is-open .tp__orbit { pointer-events: auto; }
 
 .tp__pill { position: relative; z-index: 2; padding: var(--spacing-md) var(--spacing-lg); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: 0 0 0 1px var(--hairline), 0 2px 6px rgb(0 0 0 / 0.08); transition: box-shadow var(--motion-fast) var(--ease-out); }
 .tp__pill:focus-within { box-shadow: 0 0 0 1px var(--ink), 0 0 0 5px var(--surface-strong), 0 12px 24px -8px rgb(0 0 0 / 0.2); }

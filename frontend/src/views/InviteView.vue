@@ -136,4 +136,11 @@ function done() {
 @media (min-width: 1128px) {
   .section > ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--spacing-xl); }
 }
+/* Tablet and up: the action follows the form, right-aligned at a normal width, instead of a full-width bar
+   pinned to the bottom of the window. Phones keep the pinned bar, where the thumb is. */
+@media (min-width: 744px) {
+  .screen__body { flex: 0 0 auto; }
+  .screen__footer { position: static; flex-direction: row; justify-content: flex-end; padding-top: 0; border-top: 0; }
+  .screen__footer > :deep(.btn) { width: auto; min-width: 200px; }
+}
 </style>

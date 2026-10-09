@@ -108,4 +108,11 @@ async function next() {
   .when__calendar { grid-area: calendar; }
   .when__times { grid-area: times; justify-content: space-between; padding: var(--spacing-lg) 0; }
 }
+/* Tablet and up: the action follows the form, right-aligned at a normal width, instead of a full-width bar
+   pinned to the bottom of the window. Phones keep the pinned bar, where the thumb is. */
+@media (min-width: 744px) {
+  .screen__body { flex: 0 0 auto; }
+  .screen__footer { position: static; flex-direction: row; justify-content: flex-end; padding-top: 0; border-top: 0; }
+  .screen__footer > :deep(.btn) { width: auto; min-width: 200px; }
+}
 </style>
