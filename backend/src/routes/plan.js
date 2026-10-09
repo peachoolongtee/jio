@@ -144,6 +144,17 @@ export function createPlanRouter({ data, weather, onemap = null, places = null, 
     })
   }
 
+  // The API's names for how many options to look for, in the engine's words: minOptions is the radius search's
+  // minResults, shortlistSize is the engine's pruneTo. Left out, the engine keeps its defaults (3 and 10).
+  //
+  // How to call:
+  //   const engineInput = withOptionCounts({ ...input, minOptions: 10, shortlistSize: 20 })
+  const withOptionCounts = (input) => ({
+    ...input,
+    ...(input.shortlistSize !== undefined && { pruneTo: input.shortlistSize }),
+    ...(input.minOptions !== undefined && { radius: { minResults: input.minOptions } }),
+  })
+
   // Answers 400 in the shape every planner error uses.
   //
   // How to call:
@@ -175,8 +186,8 @@ export function createPlanRouter({ data, weather, onemap = null, places = null, 
       )
       const { planData, google } = await addGooglePlaces(input, weatherData, forecast)
       const { result, travel } = usesTravel
-        ? await runWithTravel({ ...input, weatherCase }, planData, run)
-        : { result: await run({ ...input, weatherCase }, planData, depsFor()) }
+        ? await runWithTravel(withOptionCounts({ ...input, weatherCase }), planData, run)
+        : { result: await run(withOptionCounts({ ...input, weatherCase }), planData, depsFor()) }
       res.json({
         ...result,
         ...(travel && { travel }),

@@ -126,6 +126,15 @@ Built by Ian in `backend/src/services/weather.js` and `backend/src/planner/live-
   - `not_needed`: the request asked for no category Google is used for
   - `unavailable`: Google is down; the planner answers with its other venues
 
+### Google reviews (not built: feasibility, checked 10 Oct 2026)
+
+- **Demo Key:** Place Details returns the rating and review count, but **no review texts** (0 returned), the same as photos. It does return `googleMapsLinks.reviewsUri`, a link to the place's reviews on Google Maps, which works now.
+- **Normal key:** Place Details (New) with the `reviews` field gives up to **5** reviews per place: Google's "most relevant", not chosen or sorted by us. Each has a rating, text, author (`authorAttribution`) and age ("2 weeks ago").
+- **How it would work:** fetched only when someone opens a place's details (one Place Details request per opened place, cached briefly), never for every option on a list.
+- **Cost:** `reviews` is in Google's premium (Atmosphere) tier, so check the free amount on Google's pricing page and keep the daily quota on the key.
+- **Terms:** don't save reviews; show each review's author and that it comes from Google.
+- **Frontend:** the place detail screen already shows mock reviews (`frontend/src/lib/mock/reviews.js`), so real ones would replace those.
+
 ## To set up (manual steps)
 
 1. **OneMap account:** register at https://www.onemap.gov.sg/apidocs/register, then put the email and password in your own `backend/.env` as `ONEMAP_EMAIL` and `ONEMAP_PASSWORD`. On Render, set them under the service's Environment tab. **Never commit them or paste them in chat.**

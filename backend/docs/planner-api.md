@@ -170,6 +170,8 @@ Request (one slot; the response below is real output for these two members with 
 | `currentOptionIds` | no | The options the group is already voting on. Each one that passes the hard filters and is within 3 km is always scored, even past the shortlist (a place added by search, or swapped in for rain), and comes back in `current`. A rain swap never suggests one of these. |
 | `radiusMeters` | no | The search radius the group chose, 100 to 3000. Only places inside it are suggested or kept in `current`. Without it, the search widens on its own (500 m, 1, 2, then 3 km). Search takes the same limit as `maxKm`. |
 | `optedOut`, `overrides`, `excludeVenueIds`, `groupId`, `topN`, `seed`, `travelCeilingMinutes` | no | As in the engine (`backend/src/planner/engine.js`). |
+| `minOptions` | no | Keep widening the search (500 m, 1 km, 2 km, 3 km) until at least this many places fit. Default **3**, max 30. Ignored when `radiusMeters` is sent. |
+| `shortlistSize` | no | How many places are fully scored, with travel times. Default **10**, max 30. The answer has at most this many `results` (and at most `topN`). Each one costs a OneMap route per member and trip. |
 
 Response:
 
@@ -331,6 +333,23 @@ Every error has the same flat body: `{ "error": "<code>", "message": "<text>" }`
 **Rain risk.** Each forecast sentence maps to a risk from 0 to 1, multiplied by how exposed the venue is. At 0.6 or more the planner adds the rain warning and suggests an indoor swap. A sentence the server does not recognise scores 0.5 and is logged once.
 
 `/api/meeting-area` and `/api/search` do not use weather and have no `weather` field.
+
+## Getting more options per slot
+
+By default a slot gets few options, because of two limits:
+- The search **stops at the first circle with 3 places** (500 m, then 1 km, 2 km, 3 km).
+- Only **10 places are scored**.
+
+To get more, send `minOptions` and `shortlistSize` with `topN`. Measured live at Newton, Sat 2pm, with Google and OneMap on:
+
+| Slot | Default | `minOptions: 10, shortlistSize: 20, topN: 20` | OneMap routes |
+|---|---|---|---|
+| Activity | 5 options | 20 options | 8 → 28 |
+| Drink | 5 options | 12 options | 10 → 20 |
+
+More options means more OneMap calls per slot. They're cached for 6 hours, so repeats are free.
+
+The **screen's** limit is separate, and it's the frontend's: `OPTIONS_START` (3) and `OPTIONS_MAX` (6) in `frontend/src/lib/planner/suggestions.js`, and `RANKED_MAX` (10) in `frontend/src/lib/api.js`.
 
 ## Venues from OneMap
 
