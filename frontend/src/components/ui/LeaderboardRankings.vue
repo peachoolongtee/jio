@@ -1,12 +1,13 @@
 <script setup>
-// A ranked list in pages: rank, avatar, name and one line under it, then the amount in JioCoins.
+// The full ranking in one bordered box, in pages: rank, a crown for the first three rows, avatar, name and one
+// line under it, then the amount in short form ("1.2k").
 //   <LeaderboardRankings :rankings="rows" current-user-id="ian" show-pagination :default-page-size="10" />
 // Each ranking: { userId, rank, userName, byline?, value, photo?, to? }. `to` makes the name a link.
-// The current user's row is highlighted, and the list opens on the page that has it.
+// The current user's row is outlined, and the list opens on the page that has it.
 import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import UserAvatar from './UserAvatar.vue'
-import { COIN } from '@/lib/currency.js'
+import { COIN, compact } from '@/lib/currency.js'
 
 const props = defineProps({
   rankings: { type: Array, required: true },
@@ -27,23 +28,29 @@ watch(() => props.rankings, () => { page.value = myPage() })
 
 const visible = computed(() => props.rankings.slice(page.value * size.value, (page.value + 1) * size.value))
 const first = computed(() => page.value * size.value + 1)
+// A row's position in the whole list, from 1. Crowns follow position, so a tie on 3rd crowns one row, not four.
+const place = (i) => page.value * size.value + i + 1
 const last = computed(() => Math.min(props.rankings.length, (page.value + 1) * size.value))
 </script>
 
 <template>
   <div class="rankings">
-    <ol class="rankings__list" :start="first">
-      <li v-for="(row, i) in visible" :key="row.userId" class="rankings__row rise" :class="{ 'is-me': row.userId === currentUserId }" :style="{ '--i': i + 3 }">
+    <ol class="rankings__list">
+      <li
+        v-for="(row, i) in visible"
+        :key="row.userId"
+        class="rankings__row rise"
+        :class="[{ 'is-me': row.userId === currentUserId }, place(i) <= 3 ? `is-top-${place(i)}` : '']"
+        :style="{ '--i': i + 3 }"
+      >
         <span class="rankings__rank tnum" :aria-label="`Rank ${row.rank}`">{{ row.rank }}</span>
+        <span class="rankings__crown"><AppIcon v-if="place(i) <= 3" name="crown" :size="20" /></span>
         <UserAvatar :name="row.userName" :src="row.photo || ''" :person="row.userId" :size="40" />
         <component :is="row.to ? 'RouterLink' : 'span'" :to="row.to || undefined" class="rankings__name">
-          <span class="title-sm truncate">{{ row.userName }}<template v-if="row.userId === currentUserId"> (you)</template></span>
-          <span v-if="row.byline" class="caption-sm text-muted truncate">{{ row.byline }}</span>
+          <span class="title-md truncate">{{ row.userId === currentUserId ? 'You' : row.userName }}</span>
+          <span v-if="row.byline" class="body-sm text-muted truncate">{{ row.byline }}</span>
         </component>
-        <span class="rankings__value">
-          <span class="title-md tnum">{{ row.value.toLocaleString('en-SG') }}</span>
-          <span class="caption-sm text-muted">{{ COIN }}</span>
-        </span>
+        <span class="rankings__value title-md tnum" :aria-label="`${row.value} ${COIN}`">{{ compact(row.value) }}</span>
       </li>
     </ol>
 
@@ -60,18 +67,23 @@ const last = computed(() => Math.min(props.rankings.length, (page.value + 1) * s
 </template>
 
 <style scoped>
-.rankings { display: flex; flex-direction: column; gap: var(--spacing-sm); }
-.rankings__list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
-.rankings__row { display: grid; grid-template-columns: 28px 40px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 64px; padding: 0 var(--spacing-sm); }
-.rankings__row + .rankings__row { border-top: 1px solid var(--hairline-soft); }
-.rankings__row.is-me { border-top-color: transparent; border-radius: var(--rounded-sm); background: var(--surface-soft); box-shadow: inset 3px 0 0 var(--ink); }
-.rankings__row.is-me + .rankings__row { border-top-color: transparent; }
-.rankings__rank { color: var(--muted); font: var(--text-caption); text-align: center; }
-.rankings__row.is-me .rankings__rank { color: var(--ink); }
+.rankings { display: flex; flex-direction: column; gap: var(--spacing-md); }
+/* One box, rows split by hairlines. */
+.rankings__list { display: flex; flex-direction: column; margin: 0; padding: 0; overflow: hidden; border: 1px solid var(--hairline); border-radius: var(--rounded-md); list-style: none; }
+.rankings__row { display: grid; grid-template-columns: 20px 24px 40px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 72px; padding: var(--spacing-sm) var(--spacing-base); }
+.rankings__row + .rankings__row { border-top: 1px solid var(--hairline); }
+/* Your row: outlined and lifted, like a selected card. */
+.rankings__row.is-me { border-radius: var(--rounded-md); background: var(--surface-soft); box-shadow: inset 0 0 0 2px var(--ink); }
+.rankings__rank { color: var(--ink); font: var(--text-title-md); text-align: center; }
+.rankings__crown { display: inline-flex; }
+.is-top-1 .rankings__crown { color: var(--primary); }
+.is-top-2 .rankings__crown { color: var(--ink); }
+.is-top-3 .rankings__crown { color: var(--muted); }
 .rankings__name { display: flex; flex-direction: column; justify-content: center; min-width: 0; min-height: var(--tap-min); color: var(--ink); text-decoration: none; }
-@media (hover: hover) { a.rankings__name:hover .title-sm { text-decoration: underline; } }
-.rankings__value { display: flex; flex-direction: column; align-items: flex-end; }
+@media (hover: hover) { a.rankings__name:hover .title-md { text-decoration: underline; } }
+.rankings__value { white-space: nowrap; }
 .rankings__pager { display: flex; align-items: center; justify-content: flex-end; gap: var(--spacing-sm); }
 .rankings__step { display: inline-flex; align-items: center; justify-content: center; width: var(--tap-min); height: var(--tap-min); border: 1px solid var(--hairline); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); cursor: pointer; }
 .rankings__step:disabled { color: var(--muted-soft); cursor: default; }
+@media (max-width: 399px) { .rankings__row { grid-template-columns: 16px 20px 40px minmax(0, 1fr) auto; gap: var(--spacing-sm); padding: var(--spacing-sm) var(--spacing-md); } }
 </style>

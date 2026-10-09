@@ -7,3 +7,9 @@ export const COIN_ONE = 'JioCoin'
 export function coins(n) {
   return `${Number(n).toLocaleString('en-SG')} ${n === 1 ? COIN_ONE : COIN}`
 }
+
+// Short form for tight spaces: 950 → "950", 1250 → "1.3k", 289400 → "289.4k".
+const short = new Intl.NumberFormat('en-SG', { notation: 'compact', maximumFractionDigits: 1 })
+export function compact(n) {
+  return short.format(n).toLowerCase()
+}

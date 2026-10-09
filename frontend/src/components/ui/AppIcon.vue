@@ -26,6 +26,7 @@ const ICONS = {
   'chevron-right': { body: '<path d="m6 4 4 4-4 4"/>', stroke: 2 },
   home: { body: '<path d="M2.5 7.5 8 3l5.5 4.5v6H10V10H6v3.5H2.5Z"/>' },
   filter: { body: '<path d="M2.5 4h11M4.5 8h7M6.5 12h3"/>', stroke: 1.75 },
+  crown: { body: '<path d="M2.75 12.5h10.5M3.25 10.5 2.25 4.75 5.5 7.5 8 3.25l2.5 4.25 3.25-2.75-1 5.75Z"/>' },
   coin: { body: '<circle cx="8" cy="8" r="6"/><path d="M9.25 5.25v3.5a1.75 1.75 0 0 1-3.5 0"/>' },
   sparkle: { body: '<path d="M8 2.5 9.2 6.8 13.5 8 9.2 9.2 8 13.5 6.8 9.2 2.5 8 6.8 6.8Z"/>' },
   map: { body: '<path d="M2 4 6 2.5l4 1.5 4-1.5v9.5L10 13.5 6 12l-4 1.5Z"/><path d="M6 2.5V12M10 4v9.5"/>' },

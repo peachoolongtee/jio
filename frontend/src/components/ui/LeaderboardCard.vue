@@ -4,8 +4,8 @@
 //   <LeaderboardCard title="Season 4" from-date="2026-10-01" to-date="2026-12-31"
 //     :podium-rankings="top3" :rankings="rest" current-user-id="ian"
 //     :run-options="[{ id: '4', label: 'This season' }]" v-model:selected-run-id="run" />
-// Rankings use the shapes in LeaderboardPodium and LeaderboardRankings. The default slot sits between
-// the header and the podium, for a note such as the season's prize.
+// Rankings use the shapes in LeaderboardPodium and LeaderboardRankings; pass everyone in `rankings`,
+// the top three included. The default slot sits between the header and the podium.
 import { computed, useId } from 'vue'
 import { format } from 'date-fns'
 import LeaderboardPodium from './LeaderboardPodium.vue'
@@ -66,17 +66,17 @@ const active = computed({
 </template>
 
 <style scoped>
-.lb { gap: var(--spacing-base); }
-@media (max-width: 599px) { .lb { padding: var(--spacing-base); } }
+.lb { gap: var(--spacing-lg); padding: var(--spacing-lg); border-radius: var(--rounded-lg); }
+@media (max-width: 599px) { .lb { padding: var(--spacing-lg) var(--spacing-base); } }
 .lb__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-base); }
 .lb__title { display: flex; flex-direction: column; gap: var(--spacing-xxs); min-width: 0; }
 .lb__picker {
   flex-shrink: 0;
-  height: 40px;
+  height: 36px;
   max-width: 50%;
   padding: 0 32px 0 12px;
   border: 1px solid var(--hairline);
-  border-radius: var(--rounded-full);
+  border-radius: var(--rounded-sm);
   background: var(--canvas) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23222' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E") no-repeat right 12px center / 14px;
   color: var(--ink);
   text-overflow: ellipsis;

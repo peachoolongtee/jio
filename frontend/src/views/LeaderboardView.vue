@@ -62,13 +62,12 @@ const toEntry = (row) => ({
   rank: row.rank,
   value: row.seasonPoints,
   photo: row.photo,
-  byline: isPast.value ? row.homeArea : `${row.homeArea} · ${row.meetups} ${row.meetups === 1 ? 'meetup' : 'meetups'}`,
+  byline: `${row.homeArea} · ${row.meetups} ${row.meetups === 1 ? 'meetup' : 'meetups'}`,
   to: row.isMe ? '/profile' : `/people/${row.id}`,
 })
 const meId = computed(() => rows.value.find((r) => r.isMe)?.id || '')
 const entries = computed(() => rows.value.map(toEntry))
 const podium = computed(() => entries.value.slice(0, 3))
-const rest = computed(() => entries.value.slice(3))
 const loading = computed(() => (isPast.value ? pastLoading.value : groups.loading.leaderboard && !groups.leaderboard.length))
 
 const ordinal = (n) => {
@@ -93,17 +92,7 @@ const ordinal = (n) => {
         <div v-if="!season || loading" class="stack" aria-busy="true">
           <SkeletonRow v-for="n in 6" :key="n" avatar />
         </div>
-        <LeaderboardCard
-          v-else
-          v-model:selected-run-id="run"
-          :title="`Season ${shown.number}`"
-          :from-date="shown.startsAt"
-          :to-date="lastDay(shown)"
-          :podium-rankings="podium"
-          :rankings="rest"
-          :current-user-id="meId"
-          :run-options="runOptions"
-        >
+        <section v-else class="board" aria-label="Ranking">
           <BannerNote v-if="!isPast" icon="trophy">
             First place on {{ endDate }} wins <strong>{{ coins(season.prize) }}</strong> to spend on Rewards.
             Then everyone's season total starts again from 0.
@@ -111,10 +100,21 @@ const ordinal = (n) => {
           <BannerNote v-else icon="trophy">
             <strong>{{ winnerNames(shown) }}</strong> won this season<template v-if="shown.winners.length"> and took home {{ coins(shown.prize) }}</template>.
           </BannerNote>
-          <template #empty>
-            <EmptyState v-if="!entries.length" title="No ranking saved" text="This season ended before Jio kept full rankings. Only its winner is remembered." />
-          </template>
-        </LeaderboardCard>
+          <LeaderboardCard
+            v-model:selected-run-id="run"
+            :title="`Season ${shown.number}`"
+            :from-date="shown.startsAt"
+            :to-date="lastDay(shown)"
+            :podium-rankings="podium"
+            :rankings="entries"
+            :current-user-id="meId"
+            :run-options="runOptions"
+          >
+            <template #empty>
+              <EmptyState v-if="!entries.length" title="No ranking saved" text="This season ended before Jio kept full rankings. Only its winner is remembered." />
+            </template>
+          </LeaderboardCard>
+        </section>
 
         <aside class="side">
           <div class="me-stats" aria-label="Your standing">
@@ -144,6 +144,7 @@ const ordinal = (n) => {
 <style scoped>
 .board-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-lg); }
 @media (min-width: 1128px) { .board-layout { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; } }
+.board { display: flex; flex-direction: column; gap: var(--spacing-base); min-width: 0; }
 .side { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 .me-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
 /* The season: which one, its dates, and a countdown chip like the session countdown. */
