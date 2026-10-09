@@ -10,7 +10,7 @@
 // The filter has toggles (Touristy spots, Hidden gems, CDC Vouchers accepted, Food, Café),
 // a budget slider (the most to spend per person) and a distance slider (from the midpoint).
 // Tapping a place opens it (?place=id): its card grows into PlaceDetail and shrinks back on close.
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { format } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -79,6 +79,21 @@ const friendsText = computed(() => `${friends.value.length} ${friends.value.leng
 // The routes on the map: friends from all round the island meeting in the middle (Toa Payoh), which is where the
 // band's button sits. Always these, spread out, rather than one meetup's starts (often a few stops apart).
 const at = (id) => AREAS.find((a) => a.id === id)
+// Until there is a midpoint (no meetup, or one still waiting on locations) Home has nothing below the band, so the
+// band fills the screen and Singapore is drawn large.
+const fullMap = computed(() => events.loaded && !area.value)
+// How much of the map always shows around the middle. Full screen: all of Singapore on a wide screen; on a phone a
+// little closer, so the island fills the width (only the tips of Tuas and Changi run off the sides).
+const narrow = ref(false)
+let narrowQuery = null
+const syncNarrow = () => { narrow.value = !!narrowQuery?.matches }
+onMounted(() => {
+  narrowQuery = typeof matchMedia === 'function' ? matchMedia('(max-width: 743px)') : null
+  syncNarrow()
+  narrowQuery?.addEventListener('change', syncNarrow)
+})
+onBeforeUnmount(() => narrowQuery?.removeEventListener('change', syncNarrow))
+const mapSpan = computed(() => (!fullMap.value ? [340, 260] : narrow.value ? [340, 300] : [400, 320]))
 const MEET = at('toa-payoh')
 const mapRoutes = ['boon-lay', 'jurong-east', 'woodlands', 'punggol', 'tampines', 'harbourfront'].map((id) => ({ from: at(id), to: MEET }))
 
@@ -247,7 +262,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 <template>
   <main class="screen home" data-testid="landing-view">
     <!-- The band: a muted map of Singapore; the routes meet under the main action, in the middle. -->
-    <section class="hero" :class="{ 'has-meetup': meetup }" aria-labelledby="home-hello">
+    <section class="hero" :class="{ 'has-meetup': meetup, 'hero--full': fullMap }" aria-labelledby="home-hello">
       <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
         <UserAvatar :name="auth.user.name" :src="auth.user.photo" person="ian" :size="44" />
       </RouterLink>
@@ -260,7 +275,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 
       <!-- The map, with the button where the routes meet. -->
       <div class="hero__stage">
-        <SingaporeMap class="hero__map" :routes="mapRoutes" :center="MEET" :span="[340, 260]" hide-meet />
+        <SingaporeMap class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" hide-meet />
         <div class="hero__action">
           <SkeletonRow v-if="!events.loaded" :lines="1" />
           <HeroButton v-else :to="meetup ? openTo : '/sessions/new'" class="rise">{{ meetup ? 'Open meetup' : 'Start a session' }}</HeroButton>
@@ -353,10 +368,12 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
   inset: 0 auto 0 50%;
   width: min(100vw, 1440px);
   transform: translateX(-50%);
+  /* Two masks: --edge fades the map out towards the stage's edges, --clearing around the button. */
+  --edge: radial-gradient(ellipse 50% 50% at 50% 50%, #000 60%, transparent 100%);
   --clearing: radial-gradient(ellipse 230px 95px at 50% 50%, transparent 55%, #000 100%);
-  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 60%, transparent 100%), var(--clearing);
+  -webkit-mask-image: var(--edge), var(--clearing);
   -webkit-mask-composite: source-in;
-  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 60%, transparent 100%), var(--clearing);
+  mask-image: var(--edge), var(--clearing);
   mask-composite: intersect;
 }
 /* With a meetup, the clearing reaches down to take in the line under the button. */
@@ -369,7 +386,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
   /* Phones: the avatar sits top right, so the greeting keeps clear of it on both sides (to stay centred). */
   .hero__hello { align-self: stretch; padding-right: calc(var(--gutter) + 52px); padding-left: calc(var(--gutter) + 52px); }
   /* The map is narrow here, so it fades out later, nearer the edges. */
-  .hero__map { -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 70%, transparent 100%), var(--clearing); mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 70%, transparent 100%), var(--clearing); }
+  .hero__map { --edge: radial-gradient(ellipse 70% 60% at 50% 50%, #000 70%, transparent 100%); }
   /* A smaller clearing to match the smaller map. */
   .hero__map { --clearing: radial-gradient(ellipse 160px 60px at 50% 50%, transparent 60%, #000 100%); }
   .has-meetup .hero__map { --clearing: radial-gradient(ellipse 180px 90px at 50% calc(50% + 24px), transparent 60%, #000 100%); }
@@ -380,6 +397,13 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
   /* The top bar has Profile from here up. */
   .home__me { display: none; }
 }
+/* No midpoint yet: the band fills the screen under the top bar (above the tab bar on phones), the stage takes all
+   the room under the greeting, and the map runs edge to edge, fading only at the very edges. */
+.hero--full { min-height: calc(100dvh - var(--topbar-height) - var(--tabbar-height)); margin-bottom: 0; }
+.hero--full .hero__stage { flex: 1 1 auto; height: auto; min-height: 420px; }
+.hero--full .hero__map { --edge: radial-gradient(ellipse 72% 72% at 50% 50%, #000 70%, transparent 100%); width: 100vw; }
+/* On a phone the map is drawn small, so its dots are drawn a little bigger to keep the island's shape clear. */
+@media (max-width: 743px) { .hero--full .hero__map :deep(.sgmap__dots) { stroke-width: 2.8; } }
 .home__body { padding-top: 0; }
 .home__context { display: inline-flex; align-items: center; gap: var(--spacing-xs); margin: 0; }
 

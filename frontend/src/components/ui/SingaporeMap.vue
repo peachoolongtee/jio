@@ -8,7 +8,9 @@
 // rest of the box with whatever is beyond. Give the box a size.
 // Built after Aceternity's World Map, with Singapore from lib/singaporeDots.js instead of the world.
 import { computed } from 'vue'
-import { NEARBY_DOTS, SINGAPORE_DOTS, project } from '@/lib/singaporeDots.js'
+import { DOT_STEP, NEARBY_DOTS, SINGAPORE_DOTS, project } from '@/lib/singaporeDots.js'
+
+const DOT = DOT_STEP * 0.42
 
 const props = defineProps({
   routes: { type: Array, default: () => [] },
@@ -47,8 +49,8 @@ const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
 <template>
   <div class="sgmap" aria-hidden="true">
     <svg :viewBox="viewBox" preserveAspectRatio="xMidYMid meet" class="sgmap__svg">
-      <path class="sgmap__dots sgmap__dots--near" :d="NEARBY_DOTS" />
-      <path class="sgmap__dots" :d="SINGAPORE_DOTS" />
+      <path class="sgmap__dots sgmap__dots--near" :d="NEARBY_DOTS" :stroke-width="DOT" />
+      <path class="sgmap__dots" :d="SINGAPORE_DOTS" :stroke-width="DOT" />
 
       <path v-for="(line, i) in lines" :key="`r${i}`" class="sgmap__route" :d="line.d" pathLength="1" :style="{ '--i': i }" />
       <circle v-for="(line, i) in lines" :key="`s${i}`" class="sgmap__start" :cx="line.a.x" :cy="line.a.y" r="3.2" />
@@ -64,7 +66,7 @@ const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
 .sgmap { position: relative; overflow: hidden; pointer-events: none; user-select: none; }
 .sgmap__svg { display: block; width: 100%; height: 100%; overflow: visible; }
 /* Dots: a path of zero-length lines with round caps. Singapore in a pale grey, its neighbours paler still. */
-.sgmap__dots { fill: none; stroke: color-mix(in srgb, var(--ink) 14%, transparent); stroke-width: 3; stroke-linecap: round; }
+.sgmap__dots { fill: none; stroke: color-mix(in srgb, var(--ink) 16%, transparent); stroke-linecap: round; }
 .sgmap__dots--near { stroke: color-mix(in srgb, var(--ink) 6%, transparent); }
 /* Each route draws itself in once, one after another. */
 .sgmap__route { fill: none; stroke: var(--primary); stroke-width: 1.2; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 0.55; animation: sgmap-draw 1.4s var(--ease-out) forwards; animation-delay: calc(0.2s + var(--i) * 0.2s); }
