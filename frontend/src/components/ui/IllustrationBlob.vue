@@ -13,10 +13,10 @@ const DRAWINGS = {
 </script>
 
 <script setup>
-// A Lagoon line drawing on a soft blob, for empty states and the top of sign-up steps.
+// A Rausch line drawing on a pale Rausch blob, for empty states and the top of sign-up steps.
 //   <IllustrationBlob name="invite" />
 // To draw a new one, pass SVG shapes in the default slot. The canvas is 160 by 112.
-// Shapes take the Lagoon stroke; add class="fill" to a shape that should be white inside.
+// Shapes take the Rausch stroke; add class="fill" to a shape that should be white inside.
 
 defineProps({
   name: { type: String, default: 'invite', validator: (v) => v in DRAWINGS },

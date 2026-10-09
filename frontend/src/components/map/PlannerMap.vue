@@ -6,17 +6,20 @@
 // area       the meeting area pin
 // places     venues: numbered pins when `label` is set, otherwise category dots
 // route      join the places in order with a line
-// spokes     a thin line from each person to the meeting area
+// spokes     a dashed line from each person to the meeting area, in their colour, moving towards it
 // heat       show the crowd heat layer; heatPoints are { lat, lng, level: quiet | moderate | busy }
 // finding    the meeting area is being worked out: a pulse between everyone instead of the area pin
-// radius     metres: a circle around the meeting area showing how far suggestions may be
-// Colour coding: people by travel time (short, medium, long), places and numbered stops by category,
+// radius     metres: a circle around the meeting area showing how far suggestions may be; it grows or shrinks
+//            smoothly to a new size
+// Colour coding: each person in their own colour (lib/people.js, the same as their avatar) with their travel
+// time coloured by length (short, medium, long), places and numbered stops by category,
 // the leading place (highlight) ringed and labelled while the others (muted) fade back.
 // Pins are focusable: Tab to a pin and press Enter to select it.
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { travelTone } from '@/lib/planner/travel.js'
+import { personIndex } from '@/lib/people.js'
 
 const props = defineProps({
   people: { type: Array, default: () => [] },
@@ -55,7 +58,7 @@ function personIcon(person) {
   const tone = person.minutes != null && !props.finding ? ` pm-person--${travelTone(person.minutes)}` : ''
   return L.divIcon({
     className: 'pm pm--auto',
-    html: `<span class="pm-person${tone}"><span class="pm-person__dot">${esc(person.name.charAt(0))}</span>${minutes}</span>`,
+    html: `<span class="pm-person pm-c-${personIndex(person.id)}${tone}"><span class="pm-person__dot">${esc(person.name.charAt(0))}</span>${minutes}</span>`,
     iconSize: null,
     iconAnchor: [14, 14],
   })
@@ -95,7 +98,8 @@ function draw() {
   const hub = middle || (props.spokes ? props.area : null)
   if (hub) {
     for (const person of props.people) {
-      L.polyline([[person.lat, person.lng], [hub.lat, hub.lng]], { className: middle ? 'pm-spoke pm-spoke--finding' : 'pm-spoke', interactive: false }).addTo(layers.base)
+      const className = `pm-spoke pm-c-${personIndex(person.id)}${middle ? ' pm-spoke--finding' : ''}`
+      L.polyline([[person.lat, person.lng], [hub.lat, hub.lng]], { className, interactive: false }).addTo(layers.base)
     }
   }
   if (middle) {
@@ -103,18 +107,7 @@ function draw() {
     L.marker([middle.lat, middle.lng], { icon, interactive: false, keyboard: false, zIndexOffset: 400 }).addTo(layers.base)
   }
 
-  // How far suggestions may be: a circle around the meeting area, labelled at its top edge.
-  if (props.area && props.radius && !middle) {
-    const circle = L.circle([props.area.lat, props.area.lng], { radius: props.radius, className: 'pm-radius', interactive: false }).addTo(layers.base)
-    const label = props.radius >= 1000 ? `${props.radius / 1000} km` : `${props.radius} m`
-    const top = [props.area.lat + props.radius / 111320, props.area.lng]
-    L.marker(top, { icon: L.divIcon({ className: 'pm pm--auto', html: `<span class="pm-radius-label">${label}</span>`, iconSize: null, iconAnchor: [24, 12] }), interactive: false, keyboard: false }).addTo(layers.base)
-    const bounds = circle.getBounds()
-    for (const corner of [bounds.getNorthWest(), bounds.getSouthEast()]) {
-      points.push([corner.lat, corner.lng])
-      focus.push([corner.lat, corner.lng])
-    }
-  }
+  // The search radius is drawn, and kept in view, by drawRadius.
 
   if (props.route && props.places.length > 1) {
     L.polyline(props.places.map((p) => [p.lat, p.lng]), { className: 'pm-route', interactive: false }).addTo(layers.base)
@@ -153,10 +146,71 @@ function draw() {
   const key = frame.map((p) => p.join(',')).sort().join('|')
   if (key !== fittedKey) {
     fittedKey = key
-    if (frame.length > 1) map.fitBounds(L.latLngBounds(frame), { padding: [64, 64], maxZoom: 16 })
+    if (frame.length > 1) map.fitBounds(L.latLngBounds(frame), { padding: [64, 64], maxZoom: 16, animate: true })
     else if (frame.length === 1) map.setView(frame[0], 15)
     else map.setView(SINGAPORE, 11)
   }
+}
+
+// The search radius: a dashed circle around the meeting area, labelled at its top edge. A new radius grows or
+// shrinks the circle to it instead of jumping; a new meeting area starts it again.
+let circle = null
+let circleLabel = null
+let circleArea = ''
+let shownRadius = 0
+let tween = 0
+const RADIUS_MS = 480
+const easeOut = (t) => 1 - (1 - t) ** 3
+const radiusText = (m) => (m >= 1000 ? `${m / 1000} km` : `${m} m`)
+const topOf = (area, metres) => [area.lat + metres / 111320, area.lng]
+
+function drawRadius() {
+  cancelAnimationFrame(tween)
+  const area = props.area
+  const target = area && props.radius && !props.finding ? props.radius : 0
+  const key = area ? `${area.lat},${area.lng}` : ''
+  if (!target || key !== circleArea) {
+    layers.radius.clearLayers()
+    circle = null
+    circleLabel = null
+    shownRadius = 0
+    circleArea = key
+  }
+  if (!target) return
+  if (!circle) {
+    circle = L.circle([area.lat, area.lng], { radius: target, className: 'pm-radius', interactive: false }).addTo(layers.radius)
+    const icon = L.divIcon({ className: 'pm pm--auto', html: '<span class="pm-radius-label"></span>', iconSize: null, iconAnchor: [24, 12] })
+    circleLabel = L.marker(topOf(area, target), { icon, interactive: false, keyboard: false }).addTo(layers.radius)
+  }
+  const label = circleLabel.getElement()?.querySelector('.pm-radius-label')
+  if (label) label.textContent = radiusText(target)
+  const from = shownRadius || target * 0.85
+  const set = (r) => {
+    shownRadius = r
+    circle.setRadius(r)
+    circleLabel.setLatLng(topOf(area, r))
+  }
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || from === target) {
+    set(target)
+    return keepInView()
+  }
+  const start = performance.now()
+  const step = (now) => {
+    const t = Math.min(1, (now - start) / RADIUS_MS)
+    set(from + (target - from) * easeOut(t))
+    if (t < 1) tween = requestAnimationFrame(step)
+    else keepInView()
+  }
+  tween = requestAnimationFrame(step)
+}
+
+// Once the circle has its new size: if it spills out of view, zoom out just enough to show it all.
+// A smaller circle never zooms the map in, so changing your mind does not throw the map around.
+function keepInView() {
+  if (!circle || !map) return
+  const bounds = circle.getBounds()
+  if (map.getBounds().pad(-0.05).contains(bounds)) return
+  map.fitBounds(bounds.extend(map.getBounds()), { padding: [24, 24], maxZoom: 16, animate: true })
 }
 
 function drawHeat() {
@@ -177,8 +231,9 @@ onMounted(() => {
   map = L.map(el.value, { center: SINGAPORE, zoom: 11, minZoom: 10, maxZoom: 18, zoomSnap: 0.25, zoomControl: false, maxBounds: BOUNDS })
   L.control.zoom({ position: props.zoomPosition }).addTo(map)
   L.tileLayer(TILES, { attribution: ATTRIBUTION, minZoom: 10, minNativeZoom: 11, maxZoom: 19, bounds: BOUNDS }).addTo(map)
-  layers = { base: L.layerGroup().addTo(map), heat: L.layerGroup().addTo(map) }
+  layers = { base: L.layerGroup().addTo(map), heat: L.layerGroup().addTo(map), radius: L.layerGroup().addTo(map) }
   draw()
+  drawRadius()
   // The map can start hidden (the List / Map switch on phones). Re-measure whenever its box changes.
   let lastWidth = el.value.clientWidth
   observer = new ResizeObserver(() => {
@@ -195,12 +250,14 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  cancelAnimationFrame(tween)
   observer?.disconnect()
   map?.remove()
   map = null
 })
 
 watch(() => [props.people, props.area, props.places, props.route, props.spokes, props.selected, props.finding, props.radius], draw, { deep: true })
+watch(() => [props.area?.lat, props.area?.lng, props.radius, props.finding], () => map && drawRadius())
 watch(() => [props.heat, props.heatPoints], () => map && drawHeat(), { deep: true })
 
 // Called by a parent after the map container becomes visible.
@@ -231,36 +288,41 @@ defineExpose({ refit })
 .pm-person, .pm-area, .pm-stop, .pm-venue { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: var(--rounded-full); box-shadow: var(--shadow-float); font: var(--text-micro-label); }
 .pm--auto { width: auto !important; height: auto !important; }
 .pm-person { display: inline-flex; gap: var(--spacing-xs); width: auto; height: 28px; padding: 2px var(--spacing-sm) 2px 2px; background: var(--canvas); color: var(--ink); white-space: nowrap; }
-.pm-person__dot { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--rounded-full); background: var(--ink); color: var(--on-dark); }
+.pm-person__dot { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--rounded-full); background: var(--pc, var(--ink)); color: var(--on-dark); }
+/* Each person's colour, on their pin and their line to the meeting area (lib/people.js). */
+.pm-c-1 { --pc: var(--person-1); } .pm-c-2 { --pc: var(--person-2); } .pm-c-3 { --pc: var(--person-3); } .pm-c-4 { --pc: var(--person-4); }
+.pm-c-5 { --pc: var(--person-5); } .pm-c-6 { --pc: var(--person-6); } .pm-c-7 { --pc: var(--person-7); } .pm-c-8 { --pc: var(--person-8); }
 .pm-person__min { font: var(--text-caption-sm); }
 .pm-person:not(:has(.pm-person__min)) { padding-right: 2px; }
+/* The meeting area is the Rausch marker. Stops and places are pins in their category colour with a white rim;
+   the leader gets an ink ring and a "Leading" label, and the selected one flips to ink. */
 .pm-area { border: 3px solid var(--canvas); background: var(--primary); color: var(--on-primary); }
-.pm-stop { border: 2px solid var(--canvas); background: var(--primary); color: var(--on-primary); font: var(--text-caption); }
-.pm-venue { border: 2px solid var(--canvas); }
+.pm-stop { border: 2px solid var(--canvas); background: var(--ink); color: var(--on-dark); font: var(--text-caption); font-weight: 700; }
+.pm-venue { border: 4px solid var(--canvas); background: var(--border-strong); }
 .pm-venue--eat { background: var(--cat-eat-fg); }
 .pm-venue--drink { background: var(--cat-drink-fg); }
 .pm-venue--shop { background: var(--cat-shop-fg); }
 .pm-venue--activity { background: var(--cat-activity-fg); }
-.pm-venue.is-highlight { outline: 3px solid var(--primary); outline-offset: 1px; }
-.pm-stop.is-selected, .pm-venue.is-selected { transform: scale(1.25); outline: 3px solid var(--ink); outline-offset: 1px; }
+.pm-venue.is-highlight { box-shadow: 0 0 0 2px var(--ink), var(--shadow-float); }
 .pm-tip { padding: var(--spacing-xxs) var(--spacing-sm); border: 0; border-radius: var(--rounded-full); background: var(--canvas); box-shadow: var(--shadow-float); color: var(--ink); font: var(--text-caption-sm); white-space: nowrap; }
 .pm-tip::before { display: none; }
-.pm-tip--area { background: var(--primary); color: var(--on-primary); font: var(--text-caption); }
-.pm-route { stroke: var(--primary); stroke-width: 4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.pm-spoke { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 4 6; fill: none; opacity: 0.6; }
-/* Travel time: the person's initial sits on their travel colour. */
-.pm-person--short .pm-person__dot { background: var(--travel-short); }
-.pm-person--medium .pm-person__dot { background: var(--travel-medium); }
-.pm-person--long .pm-person__dot { background: var(--travel-long); }
+.pm-tip--area { font: var(--text-caption); font-weight: 600; }
+.pm-route { stroke: var(--ink); stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.pm-spoke { stroke: var(--pc, var(--ink)); stroke-width: 2.5; stroke-dasharray: 6 8; stroke-linecap: round; fill: none; opacity: 0.85; animation: pm-march 1.4s linear infinite; }
+/* Travel time: the minutes in their travel colour; a long trip also rings the pin. */
+.pm-person--short .pm-person__min { color: var(--travel-short); font-weight: 600; }
+.pm-person--medium .pm-person__min { color: var(--travel-medium); font-weight: 600; }
+.pm-person--long .pm-person__min { color: var(--travel-long); font-weight: 600; }
 .pm-person--long { box-shadow: 0 0 0 2px var(--travel-long), var(--shadow-float); }
-/* Numbered stops in their category colour. */
+/* Numbered stops in their category colour, matching the stop numbers on the itinerary. */
 .pm-stop--eat { background: var(--cat-eat-fg); }
 .pm-stop--drink { background: var(--cat-drink-fg); }
 .pm-stop--shop { background: var(--cat-shop-fg); }
 .pm-stop--activity { background: var(--cat-activity-fg); }
 /* Voting: the leader is ringed and labelled, the others step back. */
 .pm-venue.is-muted, .pm-stop.is-muted { opacity: 0.55; }
-.pm-tip--lead { background: var(--primary); color: var(--on-primary); font: var(--text-caption); }
+.pm-stop.is-selected, .pm-venue.is-selected { transform: scale(1.2); border-color: var(--ink); background: var(--ink); color: var(--on-dark); }
+.pm-tip--lead { background: var(--ink); color: var(--on-dark); font: var(--text-caption); font-weight: 600; }
 /* The chosen search radius. */
 .pm-radius { stroke: var(--primary); stroke-width: 2; stroke-dasharray: 6 6; fill: var(--primary); fill-opacity: 0.06; }
 .pm-radius-label { display: inline-block; padding: var(--spacing-xxs) var(--spacing-sm); border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); font: var(--text-caption-sm); white-space: nowrap; }
@@ -270,11 +332,11 @@ defineExpose({ refit })
 .pm-finding > span:nth-child(2) { animation-delay: 0.6s; }
 .pm-finding > span:nth-child(3) { animation-delay: 1.2s; }
 .pm-finding::after { content: ""; position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 3px solid var(--canvas); border-radius: var(--rounded-full); background: var(--primary); box-shadow: var(--shadow-float); }
-.pm-spoke--finding { stroke: var(--primary); opacity: 0.9; animation: pm-march 0.8s linear infinite; }
+.pm-spoke--finding { opacity: 1; animation-duration: 0.7s; }
 @keyframes pm-pulse { 0% { transform: scale(0.2); opacity: 0.9; } 100% { transform: scale(1); opacity: 0; } }
-@keyframes pm-march { to { stroke-dashoffset: -20; } }
+@keyframes pm-march { to { stroke-dashoffset: -28; } }
 @media (prefers-reduced-motion: reduce) {
-  .pm-finding > span, .pm-spoke--finding { animation: none; }
+  .pm-finding > span, .pm-spoke { animation: none; }
   .pm-finding > span:first-child { opacity: 0.5; transform: scale(0.7); }
 }
 .pm-heat { stroke: none; fill-opacity: 0.18; }

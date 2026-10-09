@@ -44,7 +44,7 @@ export function crowdLevel(venue, minute, options) {
 export const CROWD_LABELS = { quiet: 'Quiet', moderate: 'Moderate', busy: 'Busy', unknown: 'Crowd unknown' }
 
 // The InfoTag tone for each level, the same colours as the map's heat layer. Unknown stays neutral.
-const CROWD_TONES = { quiet: 'lagoon', moderate: 'warning', busy: 'error' }
+const CROWD_TONES = { quiet: 'good', moderate: 'middle', busy: 'error' }
 export function crowdTone(level) {
   return CROWD_TONES[level] || 'neutral'
 }

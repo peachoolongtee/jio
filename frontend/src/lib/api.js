@@ -9,6 +9,9 @@ import { ADDRESSES, AREAS } from './mock/places.js'
 import { VENUES } from './mock/venues.js'
 import { HOST_ID, PAST_ACTIVITY, PEOPLE, POINTS_PER_MEETUP, STARTING_MEETUPS } from './mock/people.js'
 import { REWARDS } from './mock/rewards.js'
+import { pastMeetupDates } from './mock/history.js'
+import { reviewsFor } from './mock/reviews.js'
+import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { format } from 'date-fns'
@@ -16,7 +19,8 @@ import { format } from 'date-fns'
 export { api } from './plannerApi.js'
 
 const STORAGE_KEY = 'jio-demo-v1'
-const VERSION = 4
+// 5: the backend planner (db.venues) and photos, itinerary order and seasons. Older saves start fresh.
+const VERSION = 5
 // How many ranked places to ask for per slot: enough to top a slot up to its maximum.
 const RANKED_MAX = 10
 // meeting: the least time the "finding the meeting point" animation shows. The planner answers in milliseconds
@@ -25,13 +29,27 @@ const DELAY = { read: 80, plan: 300, write: 40, meeting: 700 }
 
 // ── Storage ────────────────────────────────────────────────────────────────
 
+// The leaderboard season now, and how many points each person earned in it so far: their past meetups since
+// the season began (the same dates as their profile graph).
+function freshSeason(now = new Date()) {
+  const season = { number: 1, ...Season.quarterOf(now) }
+  const since = format(new Date(season.startsAt), 'yyyy-MM-dd')
+  const earned = (id) => pastMeetupDates(id, STARTING_MEETUPS[id], now).filter((d) => d >= since).length * POINTS_PER_MEETUP
+  return { season, earned }
+}
+
 function freshDb(keep = {}) {
+  const { season, earned } = freshSeason()
   return {
     version: VERSION,
     user: keep.user || null,
     friends: keep.friends || [],
     sessions: [],
-    stats: Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: STARTING_MEETUPS[p.id], points: STARTING_MEETUPS[p.id] * POINTS_PER_MEETUP }])),
+    // points: what each person can spend. seasonPoints: what they earned this season, for the leaderboard.
+    stats: Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: STARTING_MEETUPS[p.id], points: STARTING_MEETUPS[p.id] * POINTS_PER_MEETUP, seasonPoints: earned(p.id) }])),
+    season,
+    // Past seasons, latest first: { number, startsAt, endsAt, winners: [{ id, seasonPoints }], prize }.
+    pastSeasons: [],
     redemptions: [],
     conditions: { rain: false, crowd: false, routing: true, sessionDay: false },
     // Every venue the planner has sent, by id. Suggestions can be any of the backend's venues, not only VENUES.
@@ -44,6 +62,8 @@ function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY))
     if (saved && saved.version === VERSION) return saved
+    // An older save: its sessions point at venues this version cannot look up. Keep the account, start fresh.
+    if (saved && saved.version < VERSION) return freshDb({ user: saved.user, friends: saved.friends })
   } catch {
     // No storage, or something unreadable: start fresh.
   }
@@ -53,11 +73,13 @@ function load() {
 let db = load()
 const listeners = new Set()
 
+// Returns false when storage refuses the write (full, or a private window). The demo still works for this visit.
 function save() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(db))
+    return true
   } catch {
-    // Private windows can refuse storage. The demo still works for this visit.
+    return false
   }
 }
 
@@ -343,8 +365,17 @@ export async function getPerson(id) {
   const activity = [
     ...sessions.filter((s) => s.status === 'completed').map((s) => ({ date: s.date, text: `Successful meetup at ${s.areaName}`, sessionId: s.id })),
     ...(PAST_ACTIVITY[id] || []),
+    ...db.pastSeasons
+      .filter((x) => x.winners.some((w) => w.id === id))
+      .map((x) => ({ date: format(new Date(x.endsAt), 'yyyy-MM-dd'), text: `Won season ${x.number} · +${x.prize} points` })),
   ].sort((a, b) => b.date.localeCompare(a.date))
-  return { ...publicPerson(id), sessions, activity }
+  // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned).
+  const counts = {}
+  for (const date of pastMeetupDates(id, STARTING_MEETUPS[id])) counts[date] = (counts[date] || 0) + 1
+  for (const s of sessions.filter((x) => x.status === 'completed')) counts[s.date] = (counts[s.date] || 0) + 1
+  const planned = sessions.filter((x) => !['completed', 'cancelled'].includes(x.status)).map((x) => x.date)
+  const history = Object.entries(counts).map(([date, count]) => ({ date, count }))
+  return { ...publicPerson(id), sessions, activity, history, planned }
 }
 
 export async function setFriend(id, isFriend) {
@@ -354,16 +385,63 @@ export async function setFriend(id, isFriend) {
   return [...db.friends]
 }
 
-// One ranking: successful meetups. Ties share a rank.
+// ── Seasons ────────────────────────────────────────────────────────────────
+
+// End the current season at `at`: the winners get the prize to spend, then season points start again.
+function closeSeason(at) {
+  const ended = { ...db.season, endsAt: at }
+  const winners = Season.seasonWinners(PEOPLE.map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints })))
+  for (const id of winners) db.stats[id].points += Season.SEASON_PRIZE
+  db.pastSeasons.unshift({ ...ended, prize: Season.SEASON_PRIZE, winners: winners.map((id) => ({ id, seasonPoints: db.stats[id].seasonPoints })) })
+  for (const p of PEOPLE) db.stats[p.id].seasonPoints = 0
+  db.season = Season.nextSeason(db.season, at)
+}
+
+// Seasons that ran out while nobody had the app open end now, in order. Returns true when one ended.
+function catchUpSeasons(now = Date.now()) {
+  let ended = false
+  while (now >= db.season.endsAt) {
+    closeSeason(db.season.endsAt)
+    ended = true
+  }
+  if (ended) save()
+  return ended
+}
+
+function publicSeason(season) {
+  return {
+    ...clone(season),
+    winners: (season.winners || []).map((w) => ({ ...w, name: nameOf(w.id), isMe: w.id === HOST_ID })),
+  }
+}
+
+// The season now, the prize, and the last few seasons with their winners.
+export async function getSeason() {
+  await wait(DELAY.read)
+  if (catchUpSeasons()) emit({ type: 'stats' })
+  return { ...publicSeason(db.season), prize: Season.SEASON_PRIZE, past: db.pastSeasons.slice(0, 4).map(publicSeason) }
+}
+
+// Demo: end the season now instead of waiting for the end of the quarter. Returns the season that ended.
+export async function endSeason() {
+  await wait(DELAY.write)
+  closeSeason(Date.now())
+  emit({ type: 'stats' })
+  return publicSeason(db.pastSeasons[0])
+}
+
+// One ranking: points earned this season. Ties share a rank.
 export async function getLeaderboard() {
   await wait(DELAY.read)
-  const rows = PEOPLE.map((p) => publicPerson(p.id)).sort((a, b) => b.meetups - a.meetups || (a.id === HOST_ID ? -1 : b.id === HOST_ID ? 1 : a.name.localeCompare(b.name)))
+  if (catchUpSeasons()) emit({ type: 'stats' })
+  const rows = PEOPLE.map((p) => ({ ...publicPerson(p.id), seasonPoints: db.stats[p.id].seasonPoints }))
+    .sort((a, b) => b.seasonPoints - a.seasonPoints || (a.id === HOST_ID ? -1 : b.id === HOST_ID ? 1 : a.name.localeCompare(b.name)))
   let rank = 0
   let last = null
   return rows.map((row, i) => {
-    if (row.meetups !== last) {
+    if (row.seasonPoints !== last) {
       rank = i + 1
-      last = row.meetups
+      last = row.seasonPoints
     }
     return { ...row, rank, isMe: row.id === HOST_ID }
   })
@@ -401,10 +479,20 @@ export async function placeFromCoords(lat, lng) {
 }
 
 // Places near an area, for Home. Each has its distance in km.
+const withDistance = (venue, home) => ({ ...clone(venue), distanceKm: Math.round(P.distanceKm(home, venue) * 10) / 10 })
+
 export async function nearbyPlaces(areaId) {
   await wait(DELAY.plan)
   const home = areaById(areaId) || AREAS[0]
-  return VENUES.map((v) => ({ ...clone(v), distanceKm: Math.round(P.distanceKm(home, v) * 10) / 10 })).sort((a, b) => a.distanceKm - b.distanceKm)
+  return VENUES.map((v) => withDistance(v, home)).sort((a, b) => a.distanceKm - b.distanceKm)
+}
+
+// One place for the detail view: what its card shows (with the same distance), its address and its reviews.
+export async function getPlace(id, areaId) {
+  await wait(DELAY.read)
+  const venue = VENUES.find((v) => v.id === id)
+  if (!venue) throw new Error('This place does not exist.')
+  return { ...withDistance(venue, areaById(areaId) || AREAS[0]), reviews: reviewsFor(venue) }
 }
 
 // ── Sessions ───────────────────────────────────────────────────────────────
@@ -428,7 +516,10 @@ function summary(session) {
     ...clone(session),
     locations: publicLocations(session),
     area: area ? { ...area } : null,
+    photos: (session.photos || []).map((p) => ({ ...p, name: nameOf(p.personId) })),
     resultLine: area ? P.meetingResultLine(session.meeting, area.name) : '',
+    // Only the routing fallback needs explaining on screen; the fairest result speaks for itself.
+    areaNote: session.meeting?.method === 'centre' ? 'Routing unavailable. Showing the geographic centre.' : '',
     activeIds: activeIds(session),
     areaName: session.meeting ? areaById(session.meeting.areaId).name : '',
     isToday: isSessionDay(session),
@@ -471,6 +562,7 @@ export async function createSession({ title, date, start, end }) {
     plan: null,
     banner: null,
     replan: null,
+    photos: [],
     radius: null,
   }
   db.sessions.push(session)
@@ -690,11 +782,13 @@ export async function getPlan(id) {
           venue: clone(o.venue),
           score: o.score,
           walk: o.walk,
+          // As the crow flies from the meeting area, for the card ("180 m").
+          distanceM: Math.round(P.distanceKm(area, o.venue) * 1000),
           crowd: o.crowd,
           reasons: o.reasons,
           warnings: o.warnings,
           votes: counts[venueId] || 0,
-          voters: Object.keys(votes).filter((p) => votes[p] === venueId).map(nameOf),
+          voters: Object.keys(votes).filter((p) => votes[p] === venueId).map((id) => ({ id, name: nameOf(id) })),
           swap: o.swap,
           explanation: o.explanation,
           dietUnknown: o.dietUnknown,
@@ -753,7 +847,7 @@ export async function confirmPlan(id) {
     const winner = P.pickWinner(session.options[slot.id] || [], session.votes[slot.id], scores)
     if (winner) stops.push({ slotId: slot.id, category: slot.category, venueId: winner, plannedStart: slot.start, duration: slot.duration })
   })
-  session.plan = { stops, modes: [] }
+  session.plan = { stops, modes: [], startAt: stops[0]?.plannedStart ?? null }
   session.status = 'confirmed'
   session.banner = null
   session.replan = null
@@ -765,7 +859,8 @@ export async function getItinerary(id) {
   const session = sessionById(id)
   if (!session.plan) return null
   const stops = session.plan.stops.map((s) => ({ ...s, venue: venueById(s.venueId) }))
-  const { stops: timed, legs } = P.buildItinerary(stops, session.plan.modes)
+  const startAt = session.plan.startAt ?? Math.min(...session.plan.stops.map((s) => s.plannedStart))
+  const { stops: timed, legs } = P.buildItinerary(stops, session.plan.modes, startAt)
   const last = timed[timed.length - 1]?.venue || null
   const people = activeIds(session)
     .map((pid) => ({ id: pid, name: nameOf(pid), place: endPlaceOf(session, pid) }))
@@ -773,7 +868,7 @@ export async function getItinerary(id) {
     .map((p) => ({ id: p.id, name: p.name, end: { ...p.place } }))
   const area = session.meeting ? areaById(session.meeting.areaId) : null
   return {
-    stops: timed.map((s, index) => ({ index, slotId: s.slotId, category: s.category, venue: clone(s.venue), start: s.start, end: s.end, duration: s.duration })),
+    stops: timed.map((s, index) => ({ index, slotId: s.slotId, category: s.category, venue: clone(s.venue), start: s.start, end: s.end, duration: s.duration, open: s.open })),
     legs,
     end: P.endPoint(last),
     trips: P.tripsHome(last, people),
@@ -790,6 +885,20 @@ export async function setTravelMode(id, legIndex, mode) {
   const modes = [...(session.plan.modes || [])]
   modes[legIndex] = mode
   session.plan.modes = modes
+  return touch(session, 'plan')
+}
+
+// Rearrange the itinerary: move the stop at `from` to `to`. The plan keeps its start time and every stop is
+// re-timed after the one before it. Travel modes go back to their defaults, because the legs are new pairs.
+export async function reorderStops(id, from, to) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can be rearranged.')
+  const { stops } = session.plan
+  if (from === to || from < 0 || to < 0 || from >= stops.length || to >= stops.length) return summary(session)
+  if (session.plan.startAt == null) session.plan.startAt = Math.min(...stops.map((s) => s.plannedStart))
+  session.plan.stops = P.moveItem(stops, from, to)
+  session.plan.modes = []
   return touch(session, 'plan')
 }
 
@@ -859,9 +968,32 @@ export async function endPlan(id) {
   for (const personId of activeIds(session)) {
     db.stats[personId].meetups += 1
     db.stats[personId].points += POINTS_PER_MEETUP
+    db.stats[personId].seasonPoints += POINTS_PER_MEETUP
   }
   emit({ type: 'stats' })
   return touch(session, 'session')
+}
+
+// ── Photos: everyone in a session can post pictures from the day ────────────
+
+export async function addPhoto(id, personId, src) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (!['confirmed', 'completed'].includes(session.status)) throw new Error('Photos open once the plan is confirmed.')
+  session.photos = [...(session.photos || []), { id: `p${db.seq++}`, personId, src, at: Date.now() }]
+  if (!save()) {
+    // Local storage is full: drop the new photo so the rest of the demo keeps saving.
+    session.photos.pop()
+    throw new Error('There is no room left for more photos in this demo.')
+  }
+  return touch(session, 'photos')
+}
+
+export async function deletePhoto(id, photoId) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  session.photos = (session.photos || []).filter((p) => p.id !== photoId)
+  return touch(session, 'photos')
 }
 
 // ── Rewards ────────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '@/lib/api.js'
 import { HOST_ID } from '@/lib/mock/people.js'
+import { moveItem } from '@/lib/planner/itinerary.js'
 
 export const useEventsStore = defineStore('events', () => {
   const sessions = ref([])
@@ -59,8 +60,19 @@ export const useEventsStore = defineStore('events', () => {
   const replan = act(api.replan)
   const endPlan = act(api.endPlan)
 
+  const addPhoto = (id, src) => act(api.addPhoto)(id, HOST_ID, src)
+  const deletePhoto = act(api.deletePhoto)
+
   async function setTravelMode(id, legIndex, mode) {
     put(await api.setTravelMode(id, legIndex, mode))
+    await loadItinerary(id)
+  }
+
+  // Moves the stop on screen straight away, then saves and re-times from the server's answer.
+  async function reorderStops(id, from, to) {
+    const current = itineraries.value[id]
+    if (current) itineraries.value = { ...itineraries.value, [id]: { ...current, stops: moveItem(current.stops, from, to) } }
+    put(await api.reorderStops(id, from, to))
     await loadItinerary(id)
   }
 
@@ -85,6 +97,6 @@ export const useEventsStore = defineStore('events', () => {
   return {
     sessions, byId, itineraries, loaded, current,
     loadSessions, loadSession, loadItinerary,
-    create, invite, start, setMyLocation, useArea, cancel, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop,
+    create, invite, start, setMyLocation, useArea, cancel, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, addPhoto, deletePhoto,
   }
 })

@@ -191,7 +191,7 @@ watch(() => draft.value.username, () => (usernameError.value = ''))
           autocomplete="username"
           autocapitalize="none"
           placeholder="ian"
-          hint="3 to 20 characters: letters, numbers, dots and underscores"
+          hint="3 to 20 letters, numbers, dots or underscores"
           :error="usernameError"
           @input="draft.username = draft.username.toLowerCase()"
         />
@@ -219,21 +219,13 @@ watch(() => draft.value.username, () => (usernameError.value = ''))
       <template v-else-if="step === 'location'">
         <IllustrationBlob name="invite" />
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Location</h1>
-        <dl class="signup__uses">
-          <dt class="caption text-muted">Used for</dt>
-          <dd class="body-md">Your start location, places near you</dd>
-          <dt class="caption text-muted">Shared with friends</dt>
-          <dd class="body-md">Area name only</dd>
-        </dl>
+        <p class="body-md text-muted">Friends only see your area.</p>
       </template>
 
       <template v-else-if="step === 'contacts'">
         <IllustrationBlob name="profile" />
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Contacts</h1>
-        <dl class="signup__uses">
-          <dt class="caption text-muted">Used for</dt>
-          <dd class="body-md">Finding friends on Jio</dd>
-        </dl>
+
       </template>
 
       <template v-else-if="step === 'friends'">
@@ -280,7 +272,7 @@ watch(() => draft.value.username, () => (usernameError.value = ''))
 .checklist__item { display: flex; align-items: center; gap: var(--spacing-sm); color: var(--muted); }
 .checklist__item.is-ok { color: var(--ink); }
 .checklist__mark { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1.5px solid var(--border-strong); border-radius: var(--rounded-full); color: var(--on-primary); }
-.checklist__item.is-ok .checklist__mark { border-color: var(--primary); background: var(--primary); }
+.checklist__item.is-ok .checklist__mark { border-color: var(--selected); background: var(--selected); }
 .signup__photo { display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-base); }
 .signup__upload { display: inline-flex; align-items: center; gap: var(--spacing-sm); min-height: 48px; padding: 0 var(--spacing-lg); border: 1px solid var(--ink); border-radius: var(--rounded-sm); font: var(--text-button-md); cursor: pointer; }
 .signup__upload:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }

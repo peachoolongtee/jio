@@ -81,7 +81,7 @@ const card = computed(() => {
     <section v-if="card" class="full-map__card" :aria-label="card.venue.name">
       <span class="full-map__num" :class="`full-map__num--${card.category}`" aria-hidden="true">{{ card.number }}</span>
       <div class="full-map__card-text">
-        <span class="caption text-brand">{{ timeAndDuration(card.start, card.duration) }}</span>
+        <span class="caption tnum">{{ timeAndDuration(card.start, card.duration) }}</span>
         <h2 class="title-md clamp-2">{{ card.venue.name }}</h2>
         <div class="row gap-sm wrap">
           <CategoryIcon :category="card.category" :size="24" />
@@ -105,7 +105,7 @@ const card = computed(() => {
 .full-map__legend { position: absolute; left: var(--spacing-md); right: 64px; bottom: var(--spacing-xl); z-index: 1100; display: flex; gap: var(--spacing-sm); overflow-x: auto; scrollbar-width: none; }
 .full-map__stop { display: inline-flex; align-items: center; gap: var(--spacing-sm); max-width: 240px; min-height: var(--tap-min); padding: 0 var(--spacing-base) 0 var(--spacing-xs); border: 0; border-radius: var(--rounded-full); background: var(--canvas); box-shadow: var(--shadow-float); color: var(--ink); }
 @media (hover: hover) { .full-map__stop:hover { background: var(--surface-soft); } }
-.full-map__num { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); font: var(--text-caption); }
+.full-map__num { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--rounded-full); background: var(--ink); color: var(--on-dark); font: var(--text-caption); }
 /* Numbers in the category colour, matching the pins. */
 .full-map__num--eat { background: var(--cat-eat-fg); }
 .full-map__num--drink { background: var(--cat-drink-fg); }

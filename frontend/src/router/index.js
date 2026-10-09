@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
+import { installPageTransitions } from '@/lib/viewTransition.js'
 
 // meta.tabs: show the mobile tab bar (top-level screens only; flow screens have a back arrow instead).
 // meta.nav: false hides all navigation (sign-up and the full-screen map).
@@ -13,8 +14,10 @@ const routes = [
   { path: '/sessions/:id/invite', name: 'session-invite', component: () => import('@/views/InviteView.vue'), props: true, meta: { title: 'Invite friends' } },
   { path: '/sessions/:id/plan', name: 'session-plan', component: () => import('@/views/PlannerView.vue'), props: true, meta: { title: 'Activities' } },
   { path: '/sessions/:id/itinerary', name: 'session-itinerary', component: () => import('@/views/EventView.vue'), props: true, meta: { title: 'Itinerary' } },
+  { path: '/sessions/:id/photos', name: 'session-photos', component: () => import('@/views/PhotosView.vue'), props: true, meta: { title: 'Photos' } },
   { path: '/sessions/:id/map', name: 'session-map', component: () => import('@/views/SessionMapView.vue'), props: true, meta: { nav: false, title: 'Map' } },
   { path: '/leaderboard', name: 'leaderboard', component: () => import('@/views/LeaderboardView.vue'), meta: { tabs: true, title: 'Leaderboard' } },
+  { path: '/rewards', name: 'rewards', component: () => import('@/views/RewardsView.vue'), meta: { tabs: true, title: 'Rewards' } },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfileView.vue'), meta: { tabs: true, title: 'Profile' } },
   { path: '/people/:id', name: 'person', component: () => import('@/views/ProfileView.vue'), props: true, meta: { title: 'Profile' } },
   { path: '/design-system', name: 'design-system', component: () => import('@/views/DesignSystemView.vue'), meta: { public: true, title: 'Design system' } },
@@ -25,8 +28,10 @@ const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
   scrollBehavior: (to, from, saved) => {
+    // Only the query changed on the same screen, such as a place opening over Home (?place=…): stay put.
+    if (to.path === from.path && to.hash === from.hash) return false
     if (saved) return saved
-    // A link to a section, such as /leaderboard#rewards: give the screen a moment to draw it, then scroll there.
+    // A link to a section, such as /sessions/s1#photos: give the screen a moment to draw it, then scroll there.
     if (to.hash) return new Promise((resolve) => setTimeout(() => resolve({ el: to.hash, top: 16, behavior: 'smooth' }), 300))
     return { top: 0 }
   },
@@ -43,5 +48,8 @@ router.beforeEach(async (to) => {
 router.afterEach((to) => {
   document.title = to.meta.title ? `${to.meta.title} · Jio` : 'Jio'
 })
+
+// Moving between screens cross-fades instead of jumping (lib/viewTransition.js).
+installPageTransitions(router)
 
 export default router

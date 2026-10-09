@@ -1,5 +1,5 @@
 <script setup>
-// Overlapping avatars for "who is going". Pass names, or { name, src } objects.
+// Overlapping avatars for "who is going". Pass names, or { name, src, id } objects (id colours each avatar).
 // Usage: <AvatarStack :people="['Ian', 'Darius', 'Nicole']" />
 import { computed } from 'vue'
 import UserAvatar from './UserAvatar.vue'
@@ -25,6 +25,7 @@ const label = computed(() => list.value.map((p) => p.name).join(', '))
       class="avatar-stack__item"
       :name="person.name"
       :src="person.src"
+      :person="person.id"
       :size="size"
       :style="{ marginLeft: i ? -Math.round(size / 4) + 'px' : 0 }"
     />

@@ -105,6 +105,17 @@ const simulateVoting = () => act('voting', async () => {
   if (!plan.slots.length) note.value = 'Friends picked categories. No slots yet.'
 })
 
+// Friends post photos from the day. Placeholder photography from picsum.photos, a mix of shapes.
+const SHAPES = [[800, 1000], [800, 600], [800, 800], [800, 1100], [800, 560]]
+const simulatePhotos = () => act('photos', async () => {
+  const s = session.value
+  const jobs = friendsIn.value.slice(0, 5).map((f, i) => () => {
+    const [w, h] = SHAPES[(i + (s.photos?.length || 0)) % SHAPES.length]
+    return api.addPhoto(s.id, f, `https://picsum.photos/seed/jio-${s.id}-${f}-${s.photos?.length || 0}/${w}/${h}`)
+  })
+  await spread(jobs, SPAN)
+})
+
 const applyChange = () => act('change', async () => {
   const { personId, which, areaId } = change.value
   await api.setLocation(session.value.id, personId, which, { areaId })
@@ -114,6 +125,13 @@ const applyChange = () => act('change', async () => {
 const optOut = () => act('optout', async () => {
   await api.optOut(session.value.id, optOutId.value)
   note.value = `${nameOf(optOutId.value)} opted out.`
+})
+
+// The leaderboard season ends now instead of at the end of the quarter: first place wins the prize.
+const endSeason = () => act('season', async () => {
+  const ended = await api.endSeason()
+  const names = ended.winners.map((w) => w.name).join(' and ')
+  note.value = names ? `Season ${ended.number} ended. ${names} won ${ended.prize} points.` : `Season ${ended.number} ended. Nobody earned points, so nobody won.`
 })
 
 async function reset() {
@@ -150,6 +168,9 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       <AppButton block variant="secondary" :disabled="!session || status !== 'voting' || !!running" @click="simulateVoting">
         {{ running === 'voting' ? 'Voting' : 'Simulate friends voting' }}
       </AppButton>
+      <AppButton block variant="secondary" :disabled="!session || !['confirmed', 'completed'].includes(status) || !!running" @click="simulatePhotos">
+        {{ running === 'photos' ? 'Posting photos' : 'Simulate friends posting photos' }}
+      </AppButton>
     </section>
 
     <section class="demo-group">
@@ -167,6 +188,13 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       <h3 class="title-md">One friend opts out</h3>
       <SelectField v-model="optOutId" label="Friend" :options="friendOptions" :disabled="!friendOptions.length" />
       <AppButton block variant="secondary" :disabled="!session || !live || !optOutId" @click="optOut">Opt out</AppButton>
+    </section>
+
+    <section class="demo-group">
+      <h3 class="title-md">Leaderboard</h3>
+      <AppButton block variant="secondary" :disabled="!!running" @click="endSeason">
+        {{ running === 'season' ? 'Ending the season' : 'End the season now' }}
+      </AppButton>
     </section>
 
     <section class="demo-group">
@@ -203,8 +231,6 @@ const setCondition = (key, value) => planner.setCondition(key, value)
   color: var(--on-dark);
   font: var(--text-button-sm);
 }
-/* Desktop: in the sidebar, above the profile row, clear of every screen's actions. */
-@media (min-width: 1128px) { .demo-fab { left: var(--spacing-base); right: auto; bottom: 96px; } }
 @media (hover: hover) { .demo-fab:hover { background: var(--body); } }
 .demo-target { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-md); border-radius: var(--rounded-md); background: var(--surface-soft); }
 .demo-group { display: flex; flex-direction: column; gap: var(--spacing-sm); padding-top: var(--spacing-base); border-top: 1px solid var(--hairline); }

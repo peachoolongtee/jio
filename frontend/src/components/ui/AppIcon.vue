@@ -59,6 +59,7 @@ const ICONS = {
   'tab-plus': { body: '<path d="M12 5.5v13M5.5 12h13"/>', box: 24, stroke: 2 },
   'tab-board': { body: '<path d="M5 20v-6M12 20V5M19 20v-9"/>', box: 24, stroke: 1.75 },
   'tab-profile': { body: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>', box: 24, stroke: 1.75 },
+  'tab-trophy': { body: '<path d="M7 4h10v5a5 5 0 0 1-10 0Z"/><path d="M7 5.5H4.75a2.25 2.25 0 0 0 2.5 4M17 5.5h2.25a2.25 2.25 0 0 1-2.5 4M12 14v3.5M9 17.5h6M7.5 20.5h9"/>', box: 24, stroke: 1.75 },
 }
 </script>
 

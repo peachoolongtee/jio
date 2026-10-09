@@ -18,6 +18,8 @@ ul, ol { padding: 0; list-style: none; }
 a { color: inherit; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
+/* Taps respond at once on touch screens: no grey flash, no wait for a possible double-tap zoom. */
+a, button, summary, label, [role="button"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 svg { display: block; flex-shrink: 0; }
 
 /* Keyboard focus: 2px ink, no glow. Every control shows it. */
@@ -26,6 +28,7 @@ svg { display: block; flex-shrink: 0; }
 @media (hover: hover) { a:hover { text-decoration-thickness: 2px; } }
 
 /* ── Type classes ─────────────────────────────────────────── */
+.rating-display { font: var(--text-rating-display); letter-spacing: -1px; }
 .display-xl { font: var(--text-display-xl); }
 .display-lg { font: var(--text-display-lg); letter-spacing: -0.44px; }
 .display-md { font: var(--text-display-md); }
@@ -41,28 +44,22 @@ svg { display: block; flex-shrink: 0; }
 .badge { font: var(--text-badge); }
 .button-md { font: var(--text-button-md); }
 .button-sm { font: var(--text-button-sm); }
+.nav-link { font: var(--text-nav-link); }
 
 .text-muted { color: var(--muted); }
 .text-body { color: var(--body); }
 .text-error { color: var(--primary-error-text); }
-.text-brand { color: var(--primary); }
+.text-brand { color: var(--primary); } /* Rausch text: brand links only. */
 
 /* Long names wrap to two lines, then cut off. */
 .clamp-2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── App frame and screen layout ──────────────────────────── */
-/* The frame: sidebar on desktop, tab bar on mobile and tablet. App.vue switches between them with CSS only,
-   so resizing the window never re-creates the current screen. */
+/* The frame: the screen, with room at the bottom for the floating tab bar on top-level screens (any size). */
 .app { min-height: 100dvh; background: var(--canvas); }
 .app__main { display: flex; flex-direction: column; min-width: 0; min-height: 100dvh; }
-.app__side { display: none; }
-.app.has-tabs .app__main { padding-bottom: var(--tabbar-height); }
-@media (min-width: 1128px) {
-  .app.has-nav { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
-  .app.has-nav .app__side { display: flex; }
-  .app.has-tabs .app__main { padding-bottom: 0; }
-}
+.app.has-tabs .app__main { padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px)); }
 
 /* A screen is a column: header, a body, and an optional footer that stays in view.
    On wide windows it sits in a centred column no wider than --content-max-width. */
@@ -94,8 +91,14 @@ svg { display: block; flex-shrink: 0; }
 @media (min-width: 1128px) { .mobile-only { display: none !important; } }
 @media (max-width: 1127.98px) { .desktop-only { display: none !important; } }
 
-/* A bordered card. */
-.card { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+/* A card: white, 1px hairline, 14px corners, flat. It only lifts (the one shadow tier) when it floats or is hovered. */
+.card { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+
+/* Content eases in when a screen opens (skipped under reduced motion). Stagger with --i. */
+@media (prefers-reduced-motion: no-preference) {
+  .rise { animation: rise 420ms cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(var(--i, 0) * 60ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+}
 /* A quiet note, for example a short summary. */
 .note { padding: var(--spacing-md); border-radius: var(--rounded-md); background: var(--surface-soft); color: var(--body); font: var(--text-body-sm); }
 /* A grey plate that stands in for a photo until real images exist. */
@@ -120,8 +123,59 @@ svg { display: block; flex-shrink: 0; }
 .scroll-x { display: flex; gap: var(--spacing-sm); margin-right: calc(var(--gutter) * -1); padding-right: var(--gutter); overflow-x: auto; scrollbar-width: none; }
 .scroll-x::-webkit-scrollbar { display: none; }
 
+/* Tabular figures, so times and counts line up. */
+.tnum { font-variant-numeric: tabular-nums; }
+
 /* Text for screen readers only. */
+/* The handle of a SortableList item: a quiet grip that becomes a grabbing hand. touch-action stops the page
+   scrolling under a finger. <button v-bind="handle" class="drag-handle"><AppIcon name="grip" /></button> */
+.drag-handle { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: var(--tap-min); height: var(--tap-min); margin: -6px -10px 0 0; border: 0; border-radius: var(--rounded-full); background: transparent; color: var(--muted); cursor: grab; touch-action: none; }
+.drag-handle:active { cursor: grabbing; color: var(--ink); }
+@media (hover: hover) { .drag-handle:hover { background: var(--surface-soft); color: var(--ink); } }
+.drag-handle:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Page changes (lib/viewTransition.js): the old and new screens cross-fade on the same curve, so anything that
+   looks the same on both, like the tab bar, stays perfectly still. */
+::view-transition-group(*),
+::view-transition-old(*),
+::view-transition-new(*) { animation-duration: 240ms; animation-timing-function: var(--ease-out); }
+/* A new screen: the old one steps back as it fades, the new one rises into place. The tab bar has its own name,
+   so it stays perfectly still while the page changes around it. */
+:root[data-vt='page']::view-transition-old(root) { animation: page-out 200ms var(--ease-out) both; }
+:root[data-vt='page']::view-transition-new(root) { animation: page-in 380ms var(--ease-out) both; }
+@keyframes page-out { to { opacity: 0; transform: scale(0.985); } }
+@keyframes page-in { from { opacity: 0; transform: translateY(16px); } }
+::view-transition-group(app-tabs) { animation-duration: 0s; }
+/* The session tab underline slides to the new tab. */
+::view-transition-group(session-tab) { animation-duration: var(--motion-medium); }
+/* A photo grows out of the gallery into the viewer, and back. */
+::view-transition-group(photo-hero) { animation-duration: 420ms; animation-timing-function: var(--ease-out); }
+::view-transition-old(photo-hero),
+::view-transition-new(photo-hero) { height: 100%; object-fit: cover; overflow: clip; }
+/* A place card grows into its detail view on Home, and shrinks back into the grid. The card's box grows
+   (its other content is revealed from the top left, never stretched) while the photo, name, rating and price
+   each travel to their own place. Long enough to follow with the eye. */
+::view-transition-group(place-card),
+::view-transition-group(place-photo),
+::view-transition-group(place-name),
+::view-transition-group(place-rating),
+::view-transition-group(place-price) { animation-duration: 520ms; animation-timing-function: cubic-bezier(0.2, 0.9, 0.25, 1); }
+::view-transition-group(place-card) { border-radius: var(--rounded-md); box-shadow: var(--shadow-float); }
+::view-transition-image-pair(place-card) { overflow: clip; border-radius: var(--rounded-md); }
+::view-transition-old(place-card),
+::view-transition-new(place-card) { width: 100%; height: 100%; object-fit: none; object-position: left top; }
+::view-transition-old(place-card) { animation-duration: 200ms; }
+::view-transition-new(place-card) { animation-duration: 360ms; }
+::view-transition-old(place-photo),
+::view-transition-new(place-photo) { height: 100%; object-fit: cover; overflow: clip; }
+/* Text scales with its box and keeps its shape; the old and new wrapping cross-fade. */
+::view-transition-old(place-name),
+::view-transition-new(place-name),
+::view-transition-old(place-rating),
+::view-transition-new(place-rating),
+::view-transition-old(place-price),
+::view-transition-new(place-price) { width: auto; height: 100%; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }

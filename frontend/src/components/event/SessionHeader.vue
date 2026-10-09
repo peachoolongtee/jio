@@ -9,6 +9,7 @@ import AppIcon from '../ui/AppIcon.vue'
 import BottomSheet from '../ui/BottomSheet.vue'
 import IconButton from '../ui/IconButton.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
+import CountdownChip from '../ui/CountdownChip.vue'
 import StatusPill from '../ui/StatusPill.vue'
 import { dateLine } from '@/lib/session.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -30,9 +31,10 @@ const status = computed(() => props.session.status)
 const sections = computed(() => {
   const id = props.session.id
   const s = status.value
-  const list = [{ to: `/sessions/${id}`, label: 'People and area', exact: true }]
+  const list = [{ to: `/sessions/${id}`, label: 'People', exact: true }]
   if (['voting', 'confirmed', 'completed'].includes(s) || (s === 'cancelled' && props.session.meeting)) list.push({ to: `/sessions/${id}/plan`, label: 'Activities' })
   if (['confirmed', 'completed'].includes(s) || (s === 'cancelled' && props.session.plan)) list.push({ to: `/sessions/${id}/itinerary`, label: 'Itinerary' })
+  if (['confirmed', 'completed'].includes(s)) list.push({ to: `/sessions/${id}/photos`, label: 'Photos' })
   return list
 })
 const canInvite = computed(() => ['inviting', 'locating', 'voting'].includes(status.value))
@@ -61,13 +63,18 @@ function askCancel() {
     <div class="screen__bar">
       <IconButton label="Back" :to="back"><AppIcon name="back" /></IconButton>
       <StatusPill :status="session.status" />
-      <IconButton v-if="canInvite || canCancel" label="Session options" outline @click="menuOpen = true"><AppIcon name="more" /></IconButton>
-      <span v-else class="session-head__spacer" />
+      <span class="session-head__actions">
+        <!-- Screen-specific icon actions, for example Ask AI and Edit on the itinerary. -->
+        <slot name="actions" />
+        <IconButton v-if="canInvite || canCancel" label="Session options" @click="menuOpen = true"><AppIcon name="more" /></IconButton>
+        <span v-else-if="!$slots.actions" class="session-head__spacer" />
+      </span>
     </div>
     <div class="screen__titles">
       <h1 class="display-xl clamp-2">{{ title || session.title }}</h1>
-      <p class="body-sm text-muted">
-        <template v-if="title">{{ session.title }} · </template>{{ dateLine(session) }}
+      <p class="session-head__meta">
+        <span class="body-sm text-muted tnum">{{ title ? session.title : dateLine(session) }}</span>
+        <CountdownChip :session="session" />
       </p>
     </div>
     <nav v-if="sections.length > 1" class="session-head__nav" aria-label="Session sections">
@@ -80,6 +87,7 @@ function askCancel() {
         :active-class="section.exact ? '' : 'is-active'"
       >
         {{ section.label }}
+        <span class="session-head__underline" aria-hidden="true" />
       </RouterLink>
     </nav>
 
@@ -103,10 +111,17 @@ function askCancel() {
 
 <style scoped>
 .session-head__spacer { width: var(--tap-min); }
-.session-head__nav { display: flex; gap: var(--spacing-lg); margin-top: var(--spacing-xs); border-bottom: 1px solid var(--hairline); overflow-x: auto; scrollbar-width: none; }
+.session-head__actions { display: flex; align-items: center; gap: var(--spacing-sm); }
+@media (max-width: 743.98px) { .session-head__nav { gap: var(--spacing-base); } }
+.session-head__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm); }
+/* The session's sections, as Airbnb product tabs: muted labels, the current one ink with a 2px ink rule. */
+.session-head__nav { display: flex; gap: var(--spacing-lg); max-width: 100%; margin-top: var(--spacing-sm); overflow-x: auto; border-bottom: 1px solid var(--hairline); scrollbar-width: none; }
 .session-head__nav::-webkit-scrollbar { display: none; }
-.session-head__link { flex: none; display: inline-flex; align-items: center; min-height: var(--tap-min); border-bottom: 2px solid transparent; color: var(--muted); font: var(--text-button-sm); text-decoration: none; white-space: nowrap; }
-.session-head__link.is-active { border-bottom-color: var(--primary); color: var(--primary); }
+.session-head__link { position: relative; flex: none; display: inline-flex; align-items: center; min-height: var(--tap-min); margin-bottom: -1px; border-bottom: 2px solid transparent; color: var(--muted); font: var(--text-button-sm); text-decoration: none; white-space: nowrap; transition: color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
+.session-head__link.is-active { color: var(--ink); font-weight: 600; }
+/* The current tab's 2px ink rule. It is its own element so a page change can slide it to the next tab. */
+.session-head__underline { position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; border-radius: var(--rounded-full); }
+.session-head__link.is-active .session-head__underline { background: var(--ink); view-transition-name: session-tab; }
 .session-head__link:focus-visible { outline-offset: -2px; }
-@media (hover: hover) { .session-head__link:not(.is-active):hover { color: var(--ink); } }
+@media (hover: hover) { .session-head__link:not(.is-active):hover { color: var(--ink); border-bottom-color: var(--hairline); } }
 </style>
