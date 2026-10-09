@@ -1,13 +1,16 @@
 <script setup>
-// Step 1: create a session. Title, date and a time window.
+// Step 1: create a session. Title, a day from the calendar and a time window.
+// The times sit to the right of the calendar from tablet up (start on top, end below), and under it on phones.
 // Next stays disabled until the title, the date and the start time are set.
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { addDays, format, startOfDay } from 'date-fns'
+import { addDays, format, parseISO, startOfDay } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import CalendarPicker from '@/components/ui/CalendarPicker.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import RadialTimePicker from '@/components/ui/RadialTimePicker.vue'
 import TextField from '@/components/ui/TextField.vue'
 import { fromMinutes, toMinutes } from '@/lib/planner/format.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -25,14 +28,10 @@ const end = ref('')
 const busy = ref(false)
 const error = ref('')
 
-// The date strip shows the next two weeks, starting today.
+// Sessions can be planned up to three months ahead.
 const today = startOfDay(new Date())
-const days = Array.from({ length: 14 }, (_, i) => {
-  const day = addDays(today, i)
-  return { key: format(day, 'yyyy-MM-dd'), weekday: format(day, 'EEE'), number: format(day, 'd'), label: format(day, 'EEEE d MMMM') }
-})
-
-const dateText = computed(() => days.find((day) => day.key === date.value)?.label || format(today, 'MMMM yyyy'))
+const lastDay = format(addDays(today, 90), 'yyyy-MM-dd')
+const dateText = computed(() => (date.value ? format(parseISO(date.value), 'EEEE d MMMM') : 'Pick a day'))
 // Without an end time the window runs six hours, up to midnight.
 const endValue = computed(() => end.value || (start.value ? fromMinutes(Math.min(toMinutes(start.value) + DEFAULT_LENGTH, 23 * 60 + 59)) : ''))
 const endError = computed(() => (start.value && end.value && toMinutes(end.value) <= toMinutes(start.value) ? 'End time must be after the start time.' : ''))
@@ -53,7 +52,7 @@ async function next() {
 </script>
 
 <template>
-  <main class="screen screen--form" data-testid="create-event-view">
+  <main class="screen screen--wide-form" data-testid="create-event-view">
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton label="Back" to="/"><AppIcon name="back" /></IconButton>
@@ -73,33 +72,17 @@ async function next() {
         </div>
       </div>
 
-      <div class="stack gap-sm">
-        <div class="row between">
-          <span id="date-label" class="caption text-muted">Date</span>
-          <span class="caption-sm">{{ dateText }}</span>
+      <section class="when" aria-labelledby="when-label">
+        <div class="when__head">
+          <span id="when-label" class="caption text-muted">Date and time</span>
+          <span class="caption-sm when__picked">{{ dateText }}</span>
         </div>
-        <div class="scroll-x days" role="radiogroup" aria-labelledby="date-label">
-          <div v-for="day in days" :key="day.key" class="day">
-            <span class="caption-sm text-muted" aria-hidden="true">{{ day.weekday }}</span>
-            <button
-              type="button"
-              class="day__button"
-              :class="{ 'is-selected': date === day.key }"
-              role="radio"
-              :aria-checked="String(date === day.key)"
-              :aria-label="day.label"
-              @click="date = day.key"
-            >
-              {{ day.number }}
-            </button>
-          </div>
+        <CalendarPicker v-model="date" class="when__calendar" label="Date" :max="lastDay" />
+        <div class="when__times">
+          <RadialTimePicker v-model="start" label="Start time" fallback="09:00" />
+          <RadialTimePicker v-model="end" label="End time" :fallback="endValue || '18:00'" :error="endError" :hint="!end && start ? `Ends ${endValue} unless you change it` : ''" />
         </div>
-      </div>
-
-      <div class="two-up">
-        <TextField v-model="start" label="Start time" type="time" step="900" />
-        <TextField v-model="end" label="End time" type="time" step="900" :placeholder="endValue" :error="endError" :hint="!end && start ? `Ends ${endValue}` : ''" />
-      </div>
+      </section>
       <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
     </form>
 
@@ -111,27 +94,18 @@ async function next() {
 
 <style scoped>
 .bar-spacer { width: var(--tap-min); }
-.two-up { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
 
-/* The date strip: one column per day, a round 44px button that turns ink when picked. */
-.days { padding: var(--spacing-xxs) var(--gutter) var(--spacing-xxs) var(--spacing-xxs); }
-.day { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xs); width: 44px; }
-.day__button {
-  position: relative;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--rounded-full);
-  background: var(--canvas);
-  color: var(--ink);
-  font: var(--text-body-sm);
-}
-/* date-picker-day-selected: ink fill, white text. */
-.day__button.is-selected { border-color: var(--selected); background: var(--selected); color: var(--on-selected); }
-@media (hover: hover) { .day__button:not(.is-selected):hover { border-color: var(--ink); } }
-@media (min-width: 1128px) {
-  .screen__footer { justify-content: stretch; }
-  .screen__footer > :deep(.btn--block) { width: 100%; }
+/* Date and time: the calendar, then the times. Phones stack them; from tablet up the times sit to the right,
+   start at the top and end at the bottom, each centred so its buttons have room to fly out. */
+.when { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-md) var(--spacing-xl); }
+/* The picked day sits beside the label, on the left, clear of the time buttons when they fly out. */
+.when__head { display: flex; align-items: baseline; gap: var(--spacing-sm); }
+.when__picked::before { content: "·"; margin-right: var(--spacing-sm); color: var(--muted); }
+.when__times { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xl); padding: var(--spacing-base) 0; }
+@media (min-width: 744px) {
+  .when { grid-template-columns: minmax(0, 1fr) 240px; grid-template-areas: "head head" "calendar times"; }
+  .when__head { grid-area: head; }
+  .when__calendar { grid-area: calendar; }
+  .when__times { grid-area: times; justify-content: space-between; padding: var(--spacing-lg) 0; }
 }
 </style>

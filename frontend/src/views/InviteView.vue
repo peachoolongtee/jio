@@ -68,7 +68,7 @@ function done() {
 </script>
 
 <template>
-  <main class="screen screen--form">
+  <main class="screen screen--wide-form">
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton label="Back" :to="`/sessions/${id}`"><AppIcon name="back" /></IconButton>
@@ -132,7 +132,8 @@ function done() {
 
 <style scoped>
 .sent-mark { display: inline-flex; align-items: center; gap: var(--spacing-xs); color: var(--ink); }
+/* Desktop: friends in two columns, so the wider page is not one long thin list. */
 @media (min-width: 1128px) {
-  .screen__footer > :deep(.btn--block) { width: 100%; }
+  .section > ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--spacing-xl); }
 }
 </style>

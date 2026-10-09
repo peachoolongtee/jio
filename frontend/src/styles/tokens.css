@@ -146,7 +146,8 @@
      Navigation: a floating tab bar at the bottom on mobile; a full-width bar along the top from tablet up. */
   --gutter: var(--spacing-lg); /* Side padding of every screen. Wider on tablet and desktop, below. */
   --content-max-width: 1200px; /* Desktop content sits in a centred column no wider than this. */
-  --form-max-width: 480px; /* Sign-up and create-session forms. */
+  --form-max-width: 480px; /* Sign-up and other single-column forms. */
+  --wide-form-max-width: 880px; /* Create session and its invite step: a form with two columns from tablet up. */
   --dialog-max-width: 480px; /* Dialogs and, on desktop, sheets. */
   --sheet-max-width: 600px; /* Bottom sheets on tablet. */
   --side-panel-width: 420px; /* A sheet shown as a side panel on desktop. */
