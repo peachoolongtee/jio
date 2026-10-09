@@ -2,6 +2,8 @@ import 'dotenv/config'
 import { createApp } from './app.js'
 import { createSupabase } from './db/supabase.js'
 import { assertStubAllowed, createHttp } from './services/http.js'
+import { createOneMap } from './services/onemap.js'
+import { createWeather } from './services/weather.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
 const port = Number(process.env.PORT) || 3000
@@ -26,6 +28,13 @@ try {
 }
 
 const http = createHttp({ stub })
+
+// Live data. NEA weather needs no account. OneMap search needs none either; routing needs ONEMAP_EMAIL and
+// ONEMAP_PASSWORD, and without them the planner keeps its own travel estimate. The example values in
+// .env.example count as not set.
+const weather = createWeather({ http, apiKey: process.env.DATAGOV_API_KEY || null })
+const onemapEmail = process.env.ONEMAP_EMAIL === 'you@example.com' ? null : process.env.ONEMAP_EMAIL || null
+const onemap = createOneMap({ http, email: onemapEmail, password: process.env.ONEMAP_PASSWORD || null, stub })
 
 // Supabase: token checks and database access. All three values are needed. With none of them the server
 // still runs outside production, but the routes that need a login are switched off. With only some of them
@@ -54,9 +63,12 @@ const supabase =
       })
     : null
 
-createApp({ frontendOrigin, stub, http, supabase }).listen(port, () => {
+createApp({ frontendOrigin, stub, http, weather, onemap, supabase }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
   if (stub) console.log('Stub mode is ON: external API calls are answered from fixtures.')
+  else if (!onemap.routingEnabled) {
+    console.log('OneMap routing is OFF: travel times are estimates. Set ONEMAP_EMAIL and ONEMAP_PASSWORD in backend/.env.')
+  }
   if (!supabase) {
     console.log('Supabase is NOT configured: routes that need a login are off. Set SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY in backend/.env.')
   }

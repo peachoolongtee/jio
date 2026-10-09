@@ -4,7 +4,9 @@ import { loadPlanData } from './db/venues.js'
 import { createMeRouter } from './routes/me.js'
 import { createPlanRouter } from './routes/plan.js'
 import { createHttp } from './services/http.js'
+import { createOneMap } from './services/onemap.js'
 import { scenarioMiddleware } from './services/scenario.js'
+import { createWeather } from './services/weather.js'
 
 // Builds the Express app without listening, so tests can start it on a free port.
 //
@@ -19,6 +21,9 @@ import { scenarioMiddleware } from './services/scenario.js'
 //   stub           - true answers external API calls from fixtures.
 //   http           - The HTTP helper to share. Defaults to one built from `stub`.
 //   planData       - Venues and settings the planner reads. Defaults to loadPlanData() (mock + curated + CDC).
+//   weather        - Live NEA weather, from createWeather(). Default: built from `http` in stub mode, off otherwise,
+//                    so a test app never calls the real network. index.js passes the real one.
+//   onemap         - OneMap search and routing, from createOneMap(). Same default as `weather`.
 //   supabase       - The server's Supabase clients, from createSupabase(). Without it the routes that
 //                    need a login (GET /api/me) are not mounted.
 //   mount          - A function that adds extra routes. They must go in before the "not found" handler,
@@ -29,6 +34,8 @@ export function createApp({
   stub = false,
   http = createHttp({ stub }),
   planData = loadPlanData(),
+  weather = stub ? createWeather({ http }) : null,
+  onemap = stub ? createOneMap({ http, stub: true }) : null,
   supabase = null,
   mount = () => {},
 }) {
@@ -59,8 +66,8 @@ export function createApp({
     res.status(200).json({ ok: true })
   })
 
-  // Planner: /api/meeting-area, /api/converge, /api/roam.
-  app.use('/api', createPlanRouter({ data: planData }))
+  // Planner: /api/meeting-area, /api/converge, /api/roam, /api/search, /api/places/search.
+  app.use('/api', createPlanRouter({ data: planData, weather, onemap, stub }))
 
   // Routes that need a login. The planner routes above do not check one yet: the frontend has to
   // start sending the session token first.
