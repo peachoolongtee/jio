@@ -10,6 +10,7 @@
 // The phone pill is never wider than the screen less 8px each side; under 400px the current tab shows only its icon.
 import { RouterLink, useRoute } from 'vue-router'
 import AppIcon from './AppIcon.vue'
+import JioLogo from './JioLogo.vue'
 
 defineProps({
   tabs: {
@@ -31,7 +32,7 @@ const isActive = (tab) => route.meta.tab === tab.id
 
 <template>
   <nav class="tabbar" aria-label="Main" style="view-transition-name: app-tabs">
-    <RouterLink to="/" class="tabbar__brand" aria-label="Jio home">Jio</RouterLink>
+    <RouterLink to="/" class="tabbar__brand" aria-label="Jio home"><JioLogo :height="30" decorative /></RouterLink>
     <RouterLink
       v-for="tab in tabs"
       :key="tab.id"
@@ -138,7 +139,7 @@ const isActive = (tab) => route.meta.tab === tab.id
     transform: none;
     animation: none;
   }
-  .tabbar__brand { display: inline-flex; align-items: center; margin-right: var(--spacing-xl); color: var(--primary); font: 800 26px/1 var(--font-sans); letter-spacing: -0.02em; text-decoration: none; }
+  .tabbar__brand { display: inline-flex; align-items: center; margin-right: var(--spacing-xl); text-decoration: none; }
   .tabbar__tab { flex: 0 0 auto; height: 44px; padding: 0 var(--spacing-base); }
   .tabbar__tab:not(.is-active):not(.is-create) { color: var(--body); }
   .tabbar__label, .tabbar__tab.is-active .tabbar__label { grid-template-columns: 1fr; max-width: none; margin-left: var(--spacing-sm); opacity: 1; transition: none; }

@@ -9,6 +9,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import JioLogo from '@/components/ui/JioLogo.vue'
 import ListRow from '@/components/ui/ListRow.vue'
 import ProgressBar from '@/components/ui/ProgressBar.vue'
 import SelectField from '@/components/ui/SelectField.vue'
@@ -170,7 +171,7 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton v-if="draft.step > 0" label="Back" @click="back"><AppIcon name="back" /></IconButton>
-        <span v-else class="display-xl text-brand" aria-label="Jio">Jio</span>
+        <JioLogo v-else :height="36" />
       </div>
       <ProgressBar :value="draft.step + 1" :max="STEPS.length" label="Sign-up progress" />
     </header>

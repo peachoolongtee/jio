@@ -13,6 +13,7 @@ import CountdownChip from '@/components/ui/CountdownChip.vue'
 import MeetupGraph from '@/components/ui/MeetupGraph.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import JioLogo from '@/components/ui/JioLogo.vue'
 import IllustrationBlob from '@/components/ui/IllustrationBlob.vue'
 import InfoTag from '@/components/ui/InfoTag.vue'
 import ListRow from '@/components/ui/ListRow.vue'
@@ -99,7 +100,7 @@ const toast = ref(false)
   <main class="screen">
     <header class="screen__header">
       <div class="screen__titles">
-        <span class="display-xl text-brand">Jio</span>
+        <JioLogo :height="40" />
         <h1 class="display-sm">Design system</h1>
         <p class="body-sm text-muted">Tokens: styles/tokens.css · Components: components/ui, components/event</p>
       </div>
