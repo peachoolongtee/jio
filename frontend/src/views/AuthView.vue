@@ -9,6 +9,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import JioLogo from '@/components/ui/JioLogo.vue'
 import ListRow from '@/components/ui/ListRow.vue'
 import ProgressBar from '@/components/ui/ProgressBar.vue'
 import SelectField from '@/components/ui/SelectField.vue'
@@ -95,6 +96,18 @@ async function next() {
   else finish()
 }
 
+// Development builds only: skip the steps with a ready-made demo account. In a production build this is null, so the
+// button and the demo account are left out.
+const quickAccount = import.meta.env.DEV
+  ? async () => {
+      busy.value = true
+      const { DEMO_ACCOUNT } = await import('@/components/dev/demoAccount.js')
+      await auth.signUpAs(DEMO_ACCOUNT)
+      busy.value = false
+      router.replace('/')
+    }
+  : null
+
 async function finish() {
   busy.value = true
   submitError.value = ''
@@ -158,8 +171,7 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton v-if="draft.step > 0" label="Back" @click="back"><AppIcon name="back" /></IconButton>
-        <span v-else class="display-xl text-brand" aria-label="Jio">Jio</span>
-        <span class="caption text-muted">Step {{ draft.step + 1 }} of {{ STEPS.length }}</span>
+        <JioLogo v-else :height="36" />
       </div>
       <ProgressBar :value="draft.step + 1" :max="STEPS.length" label="Sign-up progress" />
     </header>
@@ -256,11 +268,12 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
 
     <footer class="screen__footer signup__footer">
       <template v-if="step === 'photo'">
-        <AppButton block @click="next">{{ draft.photo ? 'Next' : 'Skip' }}</AppButton>
+        <AppButton next block @click="next">{{ draft.photo ? 'Next' : 'Skip' }}</AppButton>
       </template>
       <template v-else>
-        <AppButton block :disabled="!canContinue || busy" @click="next">{{ step === 'friends' ? 'Finish' : 'Next' }}</AppButton>
+        <AppButton next block :disabled="!canContinue || busy" @click="next">{{ step === 'friends' ? 'Finish' : 'Next' }}</AppButton>
       </template>
+      <AppButton v-if="quickAccount" variant="tertiary" underline small class="signup__dev" :disabled="busy" @click="quickAccount">Dev: create a demo account</AppButton>
     </footer>
   </main>
 </template>
@@ -268,6 +281,7 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
 <style scoped>
 .signup { min-height: 100dvh; }
 .signup__body { padding-top: var(--spacing-lg); }
+.signup__dev { align-self: center; }
 /* The question heading takes focus for screen readers; it is not a control, so it shows no ring. */
 .signup__body h1:focus, .signup__body h1:focus-visible { outline: none; }
 .signup__peek { position: absolute; top: 6px; right: 6px; min-width: var(--tap-min); height: var(--tap-min); padding: 0 var(--spacing-md); border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--ink); font: var(--text-button-sm); text-decoration: underline; }

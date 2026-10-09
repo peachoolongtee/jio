@@ -3,7 +3,7 @@
 // ranked at zero. The planner is stubbed; the clock is set, with timers left real.
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { STORAGE_KEY, confirmedSave, loadApi, loadConfirmed, stubPlanner } from './planFixture.js'
-import { PEOPLE } from '../mock/people.js'
+import { PEOPLE, isCommunity } from '../mock/people.js'
 import { seasonRange } from '../season.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn() }))
@@ -22,9 +22,12 @@ afterEach(() => {
 })
 
 // The confirmed save with every person's season points and meetups set, and the clock where the test wants it.
+// The seeded last season is cleared, so the season on the clock is season 1.
 async function withStats(stats, now = '2026-12-30T10:00:00') {
   const state = JSON.parse((await confirmedSave()).text)
   for (const p of PEOPLE) state.stats[p.id] = { meetups: 0, points: 0, seasonPoints: 0, ...stats[p.id] }
+  state.pastSeasons = []
+  state.season.number = 1
   vi.setSystemTime(new Date(now))
   return { api: await loadApi({ data: { [STORAGE_KEY]: JSON.stringify(state) } }), id: state.sessions[0].id }
 }
@@ -47,7 +50,23 @@ describe('ending a plan after the season ran out', () => {
   it('leaves a season that has not run out alone', async () => {
     const { api, id } = await loadConfirmed()
     await api.endPlan(id)
-    expect((await api.getSeason()).number).toBe(1)
+    expect((await api.getSeason()).number).toBe(2)
+  })
+})
+
+describe('a fresh demo', () => {
+  it('ranks everyone this season and last season, and paid last season\'s winner', async () => {
+    const api = await loadApi()
+    const now = await api.getLeaderboard()
+    expect(now.every((r) => r.rank !== null)).toBe(true)
+    expect(new Set(now.map((r) => r.seasonPoints)).size).toBe(now.length)
+    const { past } = await api.getSeason()
+    expect(past).toHaveLength(1)
+    const last = await api.getSeasonStandings(past[0].number)
+    expect(last).toHaveLength(now.length)
+    expect(last.every((r) => r.rank !== null)).toBe(true)
+    expect(past[0].winners.map((w) => w.id)).toEqual([last[0].id])
+    expect(seasonRange(past[0])).toBe('1 Jul to 30 Sep')
   })
 })
 
@@ -101,7 +120,8 @@ describe('the leaderboard rank', () => {
   it('is null for everyone at zero points', async () => {
     const { api } = await withStats({})
     const rows = await api.getLeaderboard()
-    expect(rows).toHaveLength(PEOPLE.length)
+    // Other people on Jio join the leaderboard only once they are a friend, so everyone else is on it.
+    expect(rows).toHaveLength(PEOPLE.filter((p) => !isCommunity(p.id)).length)
     expect(rows.every((r) => r.rank === null)).toBe(true)
   })
 

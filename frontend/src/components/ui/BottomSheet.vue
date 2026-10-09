@@ -79,7 +79,7 @@ const { onKeydown: trap } = useFocusTrap(open, panel)
 .sheet__handle { flex-shrink: 0; align-self: center; width: 36px; height: var(--spacing-xs); margin-top: var(--spacing-sm); border-radius: var(--rounded-full); background: var(--border-strong); }
 .sheet__head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-sm) var(--spacing-base) 0 var(--spacing-lg); }
 .sheet__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--spacing-base); padding: var(--spacing-base) var(--spacing-lg) var(--spacing-lg); }
-.sheet__foot { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base) var(--spacing-lg) var(--spacing-lg); border-top: 1px solid var(--hairline); }
+.sheet__foot { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base) var(--spacing-lg) var(--spacing-lg); }
 
 /* Tablet: still a bottom sheet, but not wider than a comfortable reading width. */
 @media (min-width: 744px) {

@@ -2,7 +2,6 @@
 // The notices at the top of every session screen:
 //   - Re-plan? after Confirmed, when a location changes or someone opts out
 //   - Not enough people, when an opt-out leaves fewer than 2
-//   - the re-calculation banner: what changed and why
 //   - Cancelled
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -36,7 +35,7 @@ async function cancel() {
 </script>
 
 <template>
-  <div v-if="session.status === 'cancelled' || paused || session.replan || session.banner" class="notices">
+  <div v-if="session.status === 'cancelled' || paused || (session.replan && session.status === 'confirmed')" class="notices">
     <BannerNote v-if="session.status === 'cancelled'" tone="error" icon="close">Session cancelled</BannerNote>
 
     <BannerNote v-if="session.replan && session.status === 'confirmed'" tone="warning" icon="warning">
@@ -55,9 +54,6 @@ async function cancel() {
       </template>
     </BannerNote>
 
-    <BannerNote v-if="session.banner && session.status !== 'cancelled'" icon="info" dismissible @dismiss="events.dismissBanner(session.id)">
-      {{ session.banner.text }}
-    </BannerNote>
 
     <ModalDialog v-model:open="cancelOpen" title="Cancel this session?">
       <AppButton block variant="secondary" @click="cancelOpen = false">Keep session</AppButton>

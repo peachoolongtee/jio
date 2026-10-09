@@ -421,3 +421,45 @@ Parent task: the lead said to fix what the audit found and then merge everything
 
 - **Commits:** 8 for round 4, one merge of the session-flow branch, 14 for the audit fixes, then this log and `CLAUDE.md`. Everything was scanned for secret-shaped values before committing: none found.
 - **Left on their tickets, not fixable here:** points, prizes and codes computed in the browser; one hard-coded user id; the browser sending the group to the planner; no login screen; confirming needs a second voter; the rollback that restores a whole session; no table for photos, seasons, points, vouchers or friends.
+
+## Round 7: audit of the leaderboard and home pull request, and the design document (2026-10-10)
+
+Parent task: the lead asked to merge the new pull request "Feat/leaderboard jiocoins" (head `65567bb`, 76 files, 45 commits, already based on current `main`), to make no frontend amendments, to audit it only, and to write the design document from its design language. Nothing in `frontend/` is to be changed by the lead or any agent in this round.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 7.1 | Testing, done by the lead | Install, tests and build on the pull request's head, which already contains `main` | Nothing | Real output for each command | **Completed**: `pnpm test` 317 passed, 1 skipped; `pnpm --filter jio-frontend test` 192 passed, 22 files; `pnpm build` succeeded. These match the pull request's own claims. |
+| 7.2 | Design review | Layout, accessibility, motion and consistency of what the pull request adds or changes; which of round 6's fixes it keeps or undoes | Nothing | Each finding has a file and line and a severity; each round 6 fix is marked kept or undone | **Completed** |
+| 7.3 | Code review | Logic, data layer, honesty of what is shown, security, tests; which of round 6's fixes it keeps or undoes | Nothing | Each finding has a file and line, a failure scenario and a severity | **Completed** |
+| 7.4 | Documentation | Write `DESIGN.md` from the shipped code on this head | `DESIGN.md` and its sidecar file at the repo root, nothing else | Every token, component and motion rule named in it exists in the code at the stated path; known conflicts are recorded as facts | **Completed** |
+| 7.5 | Lead | Merge the pull request; post the audit on it; commit the docs | Docs and the tracker | The pull request is merged, or the lead is told exactly why not | **Completed.** The first attempt was refused by the permission system as "merge without review". After the review was posted on the pull request the merge went through: merge commit `9bd2b90`. |
+
+### 7.2 Design review: completed
+
+- **Agent:** a design-reviewer subagent, read-only. It rendered nothing: contrast is computed from token values and layout is worked out from the CSS.
+- **No blocker.** Seven majors and 23 minors, posted in full on the pull request.
+- **Majors:** white text on `#ff385c` at 3.5:1 on every primary button, pill and chip; category and person fills back to 3.6 to 4.1:1 with white; the leaderboard's name column about 15 px wide at 320 px; "Last season" stranding the page on a skeleton if its load fails; "Hold to end" with no route for a screen reader, switch or voice user; calendar day buttons about 30 px at 320 px; the sample notes removed from the leaderboard and Home.
+- **Round 6 fixes:** kept: the text-safe amber, the phone navigation's fit, the photo fixes, the focus trap, the stop card, "about N min", the global reduced-motion rule. Undone: the darker `--primary`, the darker category and person colours, the leaderboard's pinned row, the podium's reading order. Changed: where the sample note shows.
+- **Well built, per the review:** the popover (labelled dialog, Esc, focus trap, focus return), the grid background (hidden from assistive technology, asleep under reduced motion), and reduced-motion guards on every new animation.
+
+### 7.3 Code review: completed
+
+- **Agent:** a code-reviewer subagent, read-only. It ran nothing.
+- **No blocker by the brief's definition.** Six majors and 14 minors, posted in full on the pull request.
+- **Verified by the lead by reading the code:** `components/dev/demoAccount.js` has no `dob`; `api.signUp` calls `assertDob(profile.dob)`; `auth.startOver` signs out before signing up. So "Dev: create a demo account" fails, and "Start over" erases everything and then fails. Also verified: `STARTING_MEETUPS.ian` is 10, and no Rewards banner remains. None of this was run.
+- **Other majors:** a new account shows 10 invented meetups and 1,000 JioCoins as the user's own; the Rewards "not real offers" banner removed without being listed; the leaderboard and Home places unlabelled; votes cleared on a moved meeting area with no banner to say why; a session that waits for ever on a member who never sets a start.
+- **Planner requests:** 4 per voting-page load and per vote, up from 0 to 2; a simulated voting round about 56, down from about 130.
+- **Round 6 fixes:** all the data-layer and sign-up fixes are kept. The saved-data version is now 8, so a version 5 save loses its sessions, points and vouchers once.
+- **Security:** no `v-html`, `eval` or new `target="_blank"`; one third-party image host removed; the dot map is derived from OpenStreetMap data with attribution in a code comment only.
+
+### 7.4 Design document: completed
+
+- **Agent:** an impeccable-documenter subagent. It wrote `DESIGN.md` (894 lines) and its sidecar `.impeccable/design.json`, and changed nothing else.
+- **Verified by the lead with a script:** every token named with a hex value in a table row matches `frontend/src/styles/tokens.css`; all 40 file paths named in the document exist; of 110 token names, the two not defined in a stylesheet are `--chip-on` (a variable `ChipButton` reads) and `--name` (a placeholder in a sentence). The lead corrected two sentences that described the pull request by a file name.
+- **Contents:** the design language, tokens, components, layout, motion, imagery and logo, voice, accessibility, 29 known conflicts stated as facts, and a 14-step checklist for building a new screen.
+- **Not verified:** each component's props against its file, beyond the agent's own scripted check; the agent sampled the views by script and did not read them line by line.
+
+### 7.5 Merge and docs: completed
+
+- The pull request is merged into `main` as `9bd2b90`, with no frontend change by the lead or any agent.
+- `CLAUDE.md` now points to `DESIGN.md` and records that the lead took the brighter brand red and the reduced sample notes as shipped.

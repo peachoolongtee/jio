@@ -1,13 +1,16 @@
 <script setup>
-// The main navigation, at every screen size: a floating pill near the bottom of the screen. The current tab is
-// tinted Rausch and its name slides out beside the icon; the others are icons only (each keeps its name for screen
-// readers and as a tooltip). Create is always the Rausch +. The pill springs in when it first appears.
-// Home, Leaderboard, Create, Rewards, Profile. Which tab is current comes from the route (router `meta.tab`), so
-// Home is current on the Sessions list too. Create opens a screen with no tab bar, so it is never current.
-// The pill is never wider than the screen less 8px each side. Under 400px the current tab shows only its icon
-// (its name stays for screen readers), so five tabs of at least 44px always fit.
+// The main navigation.
+// - Mobile: a floating pill near the bottom of the screen, where thumbs reach. The current tab is tinted Rausch and
+//   its name slides out beside the icon; the others are icons only (each keeps its name for screen readers and as a
+//   tooltip). Create is a solid Rausch circle with a white +. The pill springs in when it first appears.
+// - Tablet and up (744px): a full-width bar along the top: the Jio wordmark, every tab with its name, and
+//   "Create session" as a Rausch button on the right.
+// Home, Leaderboard, Create, Rewards, Profile.
+// Which tab is current comes from the route (router `meta.tab`), so Home is current on the Sessions list too.
+// The phone pill is never wider than the screen less 8px each side; under 400px the current tab shows only its icon.
 import { RouterLink, useRoute } from 'vue-router'
 import AppIcon from './AppIcon.vue'
+import JioLogo from './JioLogo.vue'
 
 defineProps({
   tabs: {
@@ -29,6 +32,7 @@ const isActive = (tab) => route.meta.tab === tab.id
 
 <template>
   <nav class="tabbar" aria-label="Main" style="view-transition-name: app-tabs">
+    <RouterLink to="/" class="tabbar__brand" aria-label="Jio home"><JioLogo :height="30" decorative /></RouterLink>
     <RouterLink
       v-for="tab in tabs"
       :key="tab.id"
@@ -41,6 +45,7 @@ const isActive = (tab) => route.meta.tab === tab.id
     >
       <AppIcon :name="tab.icon" :size="22" />
       <span class="tabbar__label" aria-hidden="true"><span>{{ tab.label }}</span></span>
+      <span v-if="tab.name" class="tabbar__label tabbar__label--long" aria-hidden="true"><span>{{ tab.name }}</span></span>
     </RouterLink>
   </nav>
 </template>
@@ -55,6 +60,7 @@ const isActive = (tab) => route.meta.tab === tab.id
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
+  /* As wide as its tabs, and never wider than the screen less 8px each side. */
   width: max-content;
   min-width: min(320px, calc(100% - var(--spacing-sm) * 2));
   max-width: calc(100% - var(--spacing-sm) * 2);
@@ -85,10 +91,11 @@ const isActive = (tab) => route.meta.tab === tab.id
 }
 .tabbar__tab:active { transform: scale(0.94); transition-duration: 200ms, 200ms, 80ms; }
 .tabbar__tab.is-active { background: color-mix(in srgb, var(--primary) 11%, var(--canvas)); color: var(--primary); }
-/* Create is always the Rausch +, current or not. */
-.tabbar__tab.is-create { color: var(--primary); }
+/* Create is a solid Rausch circle with a white +, current or not, so it stands out from the other tabs. */
+.tabbar__tab.is-create { background: var(--primary); color: var(--on-primary); }
+.tabbar__tab.is-create.is-active { background: var(--primary-active); color: var(--on-primary); }
 .tabbar__tab:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-@media (hover: hover) { .tabbar__tab:not(.is-active):hover { background: var(--surface-soft); color: var(--ink); } .tabbar__tab.is-create:not(.is-active):hover { color: var(--primary-active); } }
+@media (hover: hover) { .tabbar__tab:not(.is-active):hover { background: var(--surface-soft); color: var(--ink); } .tabbar__tab.is-create:not(.is-active):hover { background: var(--primary-active); color: var(--on-primary); } }
 
 /* The name grows from nothing to its width with a little spring, and fades in. */
 .tabbar__label { display: grid; grid-template-columns: 0fr; min-width: 0; max-width: 84px; margin-left: 0; opacity: 0; transition: grid-template-columns 380ms var(--ease-spring), margin-left 190ms var(--ease-out), opacity 190ms var(--ease-out); }
@@ -99,6 +106,57 @@ const isActive = (tab) => route.meta.tab === tab.id
 @media (max-width: 399.98px) {
   .tabbar__label { display: none; }
   .tabbar__tab { padding: 0 var(--spacing-sm); }
+}
+
+/* Small phones: tighter tabs, so all five fit on a 320px screen. */
+@media (max-width: 379px) {
+  .tabbar { gap: 2px; padding: var(--spacing-xs); }
+  .tabbar__tab { min-width: 40px; padding: 0 var(--spacing-sm); }
+}
+
+/* Only the wide bar shows the wordmark and Create's longer name. */
+.tabbar__brand, .tabbar__label--long { display: none; }
+
+/* Tablet and up: a full-width bar along the top. The wordmark on the left, the tabs beside it with their names,
+   and Create as a Rausch button pushed to the right. */
+@media (min-width: 744px) {
+  .tabbar {
+    top: 0;
+    right: 0;
+    bottom: auto;
+    left: 0;
+    gap: var(--spacing-md);
+    /* Full width again: the phone pill's width: max-content must not shrink the top bar to its tabs. */
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    height: var(--topbar-height);
+    padding: 0 max(var(--gutter), calc((100vw - var(--content-max-width)) / 2));
+    border: 0;
+    border-bottom: 1px solid var(--hairline);
+    border-radius: 0;
+    box-shadow: none;
+    transform: none;
+    animation: none;
+  }
+  .tabbar__brand { display: inline-flex; align-items: center; margin-right: var(--spacing-xl); text-decoration: none; }
+  .tabbar__tab { flex: 0 0 auto; height: 44px; padding: 0 var(--spacing-base); }
+  .tabbar__tab:not(.is-active):not(.is-create) { color: var(--body); }
+  .tabbar__label, .tabbar__tab.is-active .tabbar__label { grid-template-columns: 1fr; max-width: none; margin-left: var(--spacing-sm); opacity: 1; transition: none; }
+  .tabbar__label > span { font: var(--text-nav-link); font-size: 15px; }
+  /* Create: last, on the right, as a Rausch button with its full name. */
+  .tabbar__tab.is-create { order: 1; margin-left: auto; padding: 0 var(--spacing-lg) 0 var(--spacing-base); }
+  .tabbar__tab.is-create .tabbar__label:not(.tabbar__label--long) { display: none; }
+  .tabbar__tab.is-create .tabbar__label--long { display: grid; }
+}
+/* Tablet: tighter tabs, and Create says just "Create", so the bar fits without scrolling. */
+@media (min-width: 744px) and (max-width: 1127px) {
+  .tabbar { gap: var(--spacing-xs); }
+  .tabbar__brand { margin-right: var(--spacing-sm); }
+  .tabbar__tab { padding: 0 var(--spacing-md); }
+  .tabbar__tab.is-create { padding: 0 var(--spacing-base) 0 var(--spacing-md); }
+  .tabbar__tab.is-create .tabbar__label:not(.tabbar__label--long) { display: grid; }
+  .tabbar__tab.is-create .tabbar__label--long { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

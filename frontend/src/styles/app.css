@@ -4,6 +4,8 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body, #app { min-height: 100%; }
+/* Always keep room for the scrollbar, so moving between a short page and a long one never shifts everything sideways. */
+html { scrollbar-gutter: stable; }
 
 body {
   margin: 0;
@@ -55,26 +57,31 @@ svg { display: block; flex-shrink: 0; }
 .truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── App frame and screen layout ──────────────────────────── */
-/* The frame: the screen, with room at the bottom for the floating tab bar on top-level screens (any size). */
+/* The frame: the screen, with room for the tab bar on top-level screens: at the bottom on mobile, at the top from tablet up. */
 .app { min-height: 100dvh; background: var(--canvas); }
-.app__main { display: flex; flex-direction: column; min-width: 0; min-height: 100dvh; }
-.app.has-tabs .app__main { padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px)); }
+.app__main { display: flex; flex-direction: column; min-width: 0; min-height: 100dvh; overflow-x: clip; } /* clip: a full-bleed band (Home's map) never scrolls sideways; sticky still works. */
+.app.has-tabs .app__main { padding-top: var(--topbar-height); padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px)); }
 
 /* A screen is a column: header, a body, and an optional footer that stays in view.
    On wide windows it sits in a centred column no wider than --content-max-width. */
 .screen { flex: 1 1 auto; display: flex; flex-direction: column; width: 100%; max-width: calc(var(--content-max-width) + var(--gutter) * 2); margin: 0 auto; }
 /* Forms (sign-up, create session) never stretch: a centred column no wider than --form-max-width. */
 .screen--form { max-width: calc(var(--form-max-width) + var(--gutter) * 2); }
+/* Create session and invite: wider, so a calendar and its times (or two columns of friends) fit side by side. */
+.screen--wide-form { max-width: calc(var(--wide-form-max-width) + var(--gutter) * 2); }
 .screen__header { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md) var(--gutter) var(--spacing-base); }
 .screen__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); min-height: var(--tap-min); }
 .screen__titles { display: flex; flex-direction: column; gap: var(--spacing-xs); min-width: 0; }
 .screen__body { flex: 1 1 auto; display: flex; flex-direction: column; gap: var(--spacing-lg); padding: 0 var(--gutter) var(--spacing-lg); }
-.screen__footer { position: sticky; bottom: 0; z-index: 5; flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base) var(--gutter) var(--spacing-lg); border-top: 1px solid var(--hairline); background: var(--canvas); }
+.screen__footer { position: sticky; bottom: 0; z-index: 5; flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base) var(--gutter) var(--spacing-lg); background: var(--canvas); }
+/* From tablet up the main action sits at the end of the content, right-aligned at a normal width,
+   not stretched across the window. Phones keep the full-width button, where the thumb is. */
+@media (min-width: 744px) {
+  .screen__footer { flex-direction: row; justify-content: flex-end; align-items: center; }
+  .screen__footer > .btn.btn--block { width: auto; min-width: 200px; }
+}
 @media (min-width: 1128px) {
   .screen__header { padding-top: var(--spacing-xl); }
-  /* On desktop the main action sits at the end of the content, right-aligned, not in a full-width bar. */
-  .screen__footer { flex-direction: row; justify-content: flex-end; align-items: center; }
-  .screen__footer > .btn--block { width: auto; min-width: 240px; }
 }
 
 /* Section heading row: a heading and an optional action or count on the right. */
@@ -139,44 +146,55 @@ svg { display: block; flex-shrink: 0; }
 ::view-transition-group(*),
 ::view-transition-old(*),
 ::view-transition-new(*) { animation-duration: 240ms; animation-timing-function: var(--ease-out); }
-/* A new screen: the old one steps back as it fades, the new one rises into place. The tab bar has its own name,
-   so it stays perfectly still while the page changes around it. */
-:root[data-vt='page']::view-transition-old(root) { animation: page-out 200ms var(--ease-out) both; }
-:root[data-vt='page']::view-transition-new(root) { animation: page-in 380ms var(--ease-out) both; }
-@keyframes page-out { to { opacity: 0; transform: scale(0.985); } }
-@keyframes page-in { from { opacity: 0; transform: translateY(16px); } }
+/* A new screen: a soft cross-fade, the new one drifting up a few pixels. Small moves, so nothing jumps; the tab bar
+   has its own name, so it stays perfectly still while the page changes around it. */
+:root[data-vt='page']::view-transition-old(root) { animation: page-out 180ms ease-out both; }
+:root[data-vt='page']::view-transition-new(root) { animation: page-in 280ms cubic-bezier(0.25, 1, 0.5, 1) both; }
+@keyframes page-out { to { opacity: 0; } }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } }
 ::view-transition-group(app-tabs) { animation-duration: 0s; }
-/* The session tab underline slides to the new tab. */
-::view-transition-group(session-tab) { animation-duration: var(--motion-medium); }
 /* A photo grows out of the gallery into the viewer, and back. */
 ::view-transition-group(photo-hero) { animation-duration: 420ms; animation-timing-function: var(--ease-out); }
 ::view-transition-old(photo-hero),
 ::view-transition-new(photo-hero) { height: 100%; object-fit: cover; overflow: clip; }
-/* A place card grows into its detail view on Home, and shrinks back into the grid. The card's box grows
-   (its other content is revealed from the top left, never stretched) while the photo, name, rating and price
-   each travel to their own place. Long enough to follow with the eye. */
+/* A place card grows into its detail view on Home, and shrinks back into the grid. Only two things move: the card's
+   box, which grows with its content revealed from the top left (never stretched), and the photo, which travels to
+   its place. Both run on the same smooth curve; the text inside cross-fades with the box rather than morphing on
+   its own, so nothing wobbles. */
 ::view-transition-group(place-card),
-::view-transition-group(place-photo),
-::view-transition-group(place-name),
-::view-transition-group(place-rating),
-::view-transition-group(place-price) { animation-duration: 520ms; animation-timing-function: cubic-bezier(0.2, 0.9, 0.25, 1); }
+::view-transition-group(place-photo) { animation-duration: 440ms; animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1); }
 ::view-transition-group(place-card) { border-radius: var(--rounded-md); box-shadow: var(--shadow-float); }
 ::view-transition-image-pair(place-card) { overflow: clip; border-radius: var(--rounded-md); }
 ::view-transition-old(place-card),
 ::view-transition-new(place-card) { width: 100%; height: 100%; object-fit: none; object-position: left top; }
-::view-transition-old(place-card) { animation-duration: 200ms; }
-::view-transition-new(place-card) { animation-duration: 360ms; }
+::view-transition-old(place-card) { animation: vt-fade-out 160ms ease-out both; }
+::view-transition-new(place-card) { animation: vt-fade-in 260ms ease-out 60ms both; }
+@keyframes vt-fade-out { to { opacity: 0; } }
+@keyframes vt-fade-in { from { opacity: 0; } }
 ::view-transition-old(place-photo),
-::view-transition-new(place-photo) { height: 100%; object-fit: cover; overflow: clip; }
-/* Text scales with its box and keeps its shape; the old and new wrapping cross-fade. */
-::view-transition-old(place-name),
-::view-transition-new(place-name),
-::view-transition-old(place-rating),
-::view-transition-new(place-rating),
-::view-transition-old(place-price),
-::view-transition-new(place-price) { width: auto; height: 100%; }
+::view-transition-new(place-photo) { height: 100%; object-fit: cover; overflow: clip; animation-duration: 440ms; }
 
 /* Reduced motion: nothing loops, nothing glides. Code that scrolls or animates by itself checks the same query. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
+
+/* Home's map pin into the create-session screen, like entering a game (lib/enterGame.js). A red circle bursts out
+   of the pin and fills the screen, rings pulse out, then the red dissolves into the next screen. */
+.enter-game { position: fixed; inset: 0; z-index: 1000; pointer-events: none; background: radial-gradient(circle at var(--x) var(--y), var(--primary-bright), var(--primary) 45%, var(--primary-active)); clip-path: circle(0 at var(--x) var(--y)); }
+.enter-game.is-growing { clip-path: circle(var(--reach) at var(--x) var(--y)); transition: clip-path 650ms cubic-bezier(0.7, 0, 0.3, 1); }
+.enter-game.is-leaving { opacity: 0; filter: blur(12px); transform: scale(1.06); transition: opacity 700ms var(--ease-out), filter 700ms var(--ease-out), transform 700ms var(--ease-out); }
+.enter-game__ring { position: absolute; left: 50%; top: 50%; width: 120px; height: 120px; margin: -60px 0 0 -60px; border: 3px solid color-mix(in srgb, #fff 70%, transparent); border-radius: 50%; opacity: 0; }
+.is-growing .enter-game__ring { animation: enter-ring 900ms var(--ease-out) both; }
+.is-growing .enter-game__ring:nth-child(1) { animation-delay: 380ms; }
+.is-growing .enter-game__ring:nth-child(2) { animation-delay: 500ms; }
+.is-growing .enter-game__ring:nth-child(3) { animation-delay: 620ms; }
+@keyframes enter-ring { from { opacity: 0.9; transform: scale(0.3); } to { opacity: 0; transform: scale(5); } }
+
+/* A screen with GridPulse behind it (Leaderboard, Rewards, Profile):
+     <main class="screen grid-page"><GridPulse class="page-grid" /> ... </main>
+   The grid fills the window behind the page, and everything else sits above it. Three classes on the grid, so it
+   always beats the grid's own position. */
+.grid-page { position: relative; isolation: isolate; }
+.grid-page > :not(.page-grid) { position: relative; z-index: 1; }
+.grid-page > .grid-pulse.page-grid { position: fixed; inset: 0; }

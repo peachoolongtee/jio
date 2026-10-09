@@ -1,7 +1,9 @@
 <script setup>
-// Home: a greeting, then what Ian needs next. Three states:
-//   No active meetup        greeting, a short line about Jio, "Create meetup", and Your meetups (past ones, or an
-//                           empty state). "Create meetup" appears once on the page; the tab bar has its own.
+// Home: a band across the top with a muted dotted map of Singapore. Routes draw in from around the island and meet
+// in the middle, where the one main action sits (a PinButton, its tip on the meeting point) in a clearing in the dots, with the greeting above it. Below, on white, what
+// comes next. Three states:
+//   No active meetup        the band's action is a map pin, "Jio your friends"; below, Your meetups (past ones, or an empty state).
+//   A meetup going          the band's action is the same pin, "Open meetup", with the meetup's name and where it stands under it.
 //   Meetup, no midpoint     a "Your meetup" card: name, friends, where the midpoint stands, Open meetup.
 //   Meetup with a midpoint  the same card with the meeting area, and Places near your meetup below: places around
 //                           the midpoint, nearest first, with one Filter button.
@@ -10,7 +12,7 @@
 // Tapping a place opens it (?place=id): its card grows into PlaceDetail and shrinks back on close. If the place
 // cannot be loaded, PlaceDetail says so (or, for a link to a place that is not there, a note appears on Home).
 // A failed load of the meetups or of the nearby places shows a message with a Retry button, never a skeleton for ever.
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { format } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -19,8 +21,9 @@ import AvatarStack from '@/components/ui/AvatarStack.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
 import BottomSheet from '@/components/ui/BottomSheet.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import SingaporeMap from '@/components/ui/SingaporeMap.vue'
+import PinButton from '@/components/ui/PinButton.vue'
 import RangeSlider from '@/components/ui/RangeSlider.vue'
-import SampleNote from '@/components/ui/SampleNote.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
@@ -28,6 +31,7 @@ import PlaceCard from '@/components/event/PlaceCard.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SessionCard from '@/components/event/SessionCard.vue'
 import * as api from '@/lib/api.js'
+import { AREAS } from '@/lib/mock/places.js'
 import { canViewTransition, withViewTransition } from '@/lib/viewTransition.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -61,6 +65,7 @@ const filters = ref(emptyFilters())
 const today = format(new Date(), 'EEEE d MMMM')
 const editing = ref(emptyFilters())
 
+// How to call: loadHome() (on mount, and from Retry)
 async function loadHome() {
   loadError.value = false
   const jobs = [groups.loadPeople()]
@@ -83,12 +88,33 @@ const friends = computed(() => (meetup.value?.activeIds || []).filter((id) => id
 const friendPeople = computed(() => friends.value.map((id) => ({ id, name: nameOf(id) })))
 const friendsText = computed(() => `${friends.value.length} ${friends.value.length === 1 ? 'friend' : 'friends'}`)
 
-// Where the midpoint stands, in words, while there is none yet.
+// The routes on the map: friends from all round the island meeting in the middle (Toa Payoh), which is where the
+// band's button sits. Always these, spread out, rather than one meetup's starts (often a few stops apart).
+const at = (id) => AREAS.find((a) => a.id === id)
+// Until there is a midpoint (no meetup, or one still waiting on locations) Home has nothing below the band, so the
+// band fills the screen and Singapore is drawn large.
+const fullMap = computed(() => events.loaded && !area.value)
+// How much of the map always shows around the middle. Full screen: all of Singapore on a wide screen; on a phone a
+// little closer, so the island fills the width (only the tips of Tuas and Changi run off the sides).
+const narrow = ref(false)
+let narrowQuery = null
+const syncNarrow = () => { narrow.value = !!narrowQuery?.matches }
+onMounted(() => {
+  narrowQuery = typeof matchMedia === 'function' ? matchMedia('(max-width: 743px)') : null
+  syncNarrow()
+  narrowQuery?.addEventListener('change', syncNarrow)
+})
+onBeforeUnmount(() => narrowQuery?.removeEventListener('change', syncNarrow))
+const mapSpan = computed(() => (!fullMap.value ? [340, 260] : narrow.value ? [340, 300] : [400, 320]))
+const MEET = at('toa-payoh')
+const mapRoutes = ['boon-lay', 'jurong-east', 'woodlands', 'punggol', 'tampines', 'harbourfront'].map((id) => ({ from: at(id), to: MEET }))
+
+// Where the midpoint stands, in words, while there is none yet. Nothing while people are still being invited.
 const midpointStatus = computed(() => {
   const m = meetup.value
   if (!m || area.value) return ''
   if (m.findingMeeting) return 'Finding the fairest midpoint…'
-  if (m.status === 'inviting') return 'Midpoint comes once everyone shares where they start'
+  if (m.status === 'inviting') return ''
   const shared = m.activeIds.filter((id) => m.locations?.[id]?.start).length
   return `Waiting for locations · ${shared} of ${m.activeIds.length} shared`
 })
@@ -104,18 +130,18 @@ const openTo = computed(() => {
 
 // One line under the greeting, about where things stand.
 const blurb = computed(() => {
-  if (!meetup.value) return 'Plan a meetup with friends. Jio finds the fairest place for everyone to meet.'
+  if (!meetup.value) return 'Pick a day, invite your friends, and Jio finds the fairest place for everyone to meet.'
   if (area.value) return `Your group meets at ${area.value.name}. Here is what is nearby.`
-  return 'Once everyone shares where they are starting, Jio works out the fairest midpoint.'
+  return 'Once everyone shares where they are starting, Jio works out the midpoint.'
 })
 
-// Places near the midpoint, nearest first. Loaded again when the midpoint moves.
-// Only the answer for the area now showing counts, so a slow older answer never lands on a newer midpoint.
+// Places near the midpoint, nearest first. Loaded again when the midpoint moves. Only the answer for the area now
+// showing counts, so a slow older answer never lands on a newer midpoint.
+// How to call: loadPlaces(area.value.id)
 async function loadPlaces(areaId) {
   placesError.value = false
   if (!areaId) {
     places.value = []
-    loadingPlaces.value = false
     return
   }
   loadingPlaces.value = true
@@ -183,10 +209,6 @@ const route = useRoute()
 const router = useRouter()
 const openPlace = ref(null)
 const reviews = ref(null)
-// Why the open place could not be loaded, shown inside PlaceDetail. A link to a place that is not there has nothing
-// to open, so it leaves a dismissible note on Home instead.
-const placeError = ref('')
-const missingPlace = ref(false)
 // The card that carries the shared names right now: only around a transition, and only one.
 const morphId = ref('')
 
@@ -196,22 +218,36 @@ function inView(el) {
   return !!r && r.bottom > 0 && r.top < window.innerHeight && r.width > 0
 }
 
+// Why the open place could not be loaded, shown inside PlaceDetail. A link to a place that is not there has nothing
+// to open, so it leaves a dismissible note on Home instead.
+const placeError = ref('')
+const missingPlace = ref(false)
+
 async function showPlace(id) {
   const card = places.value.find((p) => p.id === id)
   reviews.value = null
   placeError.value = ''
   missingPlace.value = false
   const loading = api.getPlace(id, area.value?.id || auth.user.homeAreaId)
+  // Wait a moment for the details and reviews, so the view opens complete and nothing arrives mid-animation to
+  // make it jump. A slow answer is not waited for: the view opens with placeholders and fills in.
+  const early = await Promise.race([loading.catch(() => null), new Promise((resolve) => setTimeout(() => resolve(null), 350))])
+  if (route.query.place !== id) return
+  const first = early ? { ...card, ...early } : card
   if (card && canViewTransition() && inView(cardOf(id))) {
     morphId.value = id
     await nextTick()
     await withViewTransition(() => {
       morphId.value = ''
-      openPlace.value = card
+      openPlace.value = first
+      if (early) reviews.value = early.reviews
     })
   } else if (card) {
-    openPlace.value = card
+    openPlace.value = first
+    if (early) reviews.value = early.reviews
   }
+  // Opened from a link with no card on screen: the try below opens it with the details.
+  if (early && card) return
   try {
     const place = await loading
     if (route.query.place !== id) return
@@ -242,7 +278,6 @@ async function hidePlace() {
     openPlace.value = null
   }
   reviews.value = null
-  placeError.value = ''
   card?.focus({ preventScroll: true })
 }
 
@@ -265,67 +300,51 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 
 <template>
   <main class="screen home" data-testid="landing-view">
-    <header class="screen__header">
-      <div class="home__top">
-        <div class="screen__titles">
-          <p class="caption text-muted">{{ today }}</p>
-          <h1 class="display-xl">Hi, {{ auth.user.name }}</h1>
-          <p class="body-md text-muted home__blurb">{{ blurb }}</p>
-        </div>
-        <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
-          <UserAvatar :name="auth.user.name" :src="auth.user.photo" person="ian" :size="44" />
-        </RouterLink>
+    <!-- The band: a muted map of Singapore; the routes meet under the main action, in the middle. -->
+    <section class="hero" :class="{ 'has-meetup': meetup, 'hero--full': fullMap }" aria-labelledby="home-hello">
+      <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
+        <UserAvatar :name="auth.user.name" :src="auth.user.photo" person="ian" :size="44" />
+      </RouterLink>
+
+      <div class="hero__hello">
+        <p class="caption text-muted">{{ today }}</p>
+        <h1 id="home-hello" class="hello"><span class="hello__hi">Hi,</span> <span class="hello__name">{{ auth.user.name }}</span></h1>
+        <p class="body-md home__blurb">{{ blurb }}</p>
       </div>
-    </header>
 
-    <div class="screen__body">
-      <BannerNote v-if="missingPlace" tone="warning" icon="warning" dismissible @dismiss="missingPlace = false">That place could not be found.</BannerNote>
-
-      <SkeletonRow v-if="!events.loaded && !loadError" :lines="3" />
-      <EmptyState v-else-if="!events.loaded" title="Could not load your meetups" text="Check your connection and try again." role="alert">
-        <AppButton variant="secondary" @click="loadHome">Retry</AppButton>
-      </EmptyState>
-
-      <!-- No meetup going: one clear way to start. -->
-      <AppButton v-else-if="!meetup" class="home__create rise" to="/sessions/new">
-        <AppIcon name="plus" />
-        Create meetup
-      </AppButton>
-
-      <!-- The meetup going now. -->
-      <article v-else class="meetup rise" aria-labelledby="meetup-name">
-        <p class="meetup__label caption">Your meetup</p>
-        <h2 id="meetup-name" class="display-sm meetup__name">{{ meetup.title }}</h2>
-        <div class="meetup__meta">
-          <span class="meetup__row">
-            <AvatarStack v-if="friendPeople.length" :people="friendPeople" :size="24" :max="4" />
-            <span>{{ friendsText }}</span>
-          </span>
-          <span v-if="area" class="meetup__row">
-            <AppIcon name="pin" :size="16" />
-            <span>Meeting at <strong>{{ area.name }}</strong></span>
-          </span>
-          <span v-else class="meetup__row" :class="{ 'is-finding': meetup.findingMeeting }">
-            <span class="meetup__pulse" aria-hidden="true" />
-            <span>{{ midpointStatus }}</span>
-          </span>
+      <!-- The map, with the button where the routes meet. -->
+      <div class="hero__stage">
+        <SingaporeMap class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" hide-meet />
+        <div class="hero__action" :class="{ 'is-pin': events.loaded }">
+          <SkeletonRow v-if="!events.loaded && !loadError" :lines="1" />
+          <AppButton v-else-if="!events.loaded" variant="secondary" @click="loadHome">Could not load your meetups · Retry</AppButton>
+          <PinButton v-else-if="meetup" :to="openTo" big="Open" small="meetup" class="rise" />
+          <PinButton v-else to="/sessions/new" class="rise" />
         </div>
-        <AppButton class="meetup__open" :to="openTo">
-          Open meetup
-          <AppIcon name="chevron-right" :size="16" />
-        </AppButton>
-      </article>
 
-      <!-- No meetup going: the ones before, or a prompt to make the first. -->
-      <section v-if="events.loaded && !meetup" class="section rise" aria-labelledby="home-meetups">
+        <!-- The meetup going now, under the pin: who and what on one line, where it stands on the next. -->
+        <div v-if="meetup" class="hero__meetup">
+          <p class="hero__who">
+            <AvatarStack v-if="friendPeople.length" :people="friendPeople" :size="24" :max="4" />
+            <span class="title-sm truncate">{{ meetup.title }}</span>
+          </p>
+          <span v-if="area" class="hero__where"><AppIcon name="pin" :size="14" /> {{ area.name }}</span>
+          <span v-else-if="midpointStatus" class="hero__where" :class="{ 'is-finding': meetup.findingMeeting }"><span class="meetup__pulse" aria-hidden="true" /> {{ midpointStatus }}</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="screen__body home__body">
+      <BannerNote v-if="missingPlace" tone="warning" icon="warning" dismissible @dismiss="missingPlace = false">That place could not be found.</BannerNote>
+      <!-- No meetup going: the ones before. Nothing at all until there is one. -->
+      <section v-if="events.loaded && !meetup && past.length" class="section rise" aria-labelledby="home-meetups">
         <div class="section__head">
           <h2 id="home-meetups" class="display-sm">Your meetups</h2>
           <AppButton v-if="events.sessions.length > 3" variant="tertiary" underline to="/sessions">All meetups</AppButton>
         </div>
-        <ul v-if="past.length" class="grid-3">
+        <ul class="grid-3">
           <li v-for="s in past" :key="s.id"><SessionCard :session="s" :names="nameOf" /></li>
         </ul>
-        <EmptyState v-else title="No meetups yet" text="Start one and invite your friends. Jio finds the fairest place to meet." />
       </section>
 
       <!-- A midpoint: places around it, nearest first. -->
@@ -333,8 +352,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <div class="section__head">
           <div class="stack">
             <h2 id="home-places" class="display-sm">Places near your meetup</h2>
-            <p class="caption text-muted home__context"><AppIcon name="pin" :size="14" /> Around {{ area.name }}, the fairest midpoint for {{ meetup.activeIds.length }} people</p>
-            <SampleNote />
+            <p class="home__context"><AppIcon name="pin" :size="16" /> Around {{ area.name }}</p>
           </div>
           <button type="button" class="filter-btn" :class="{ 'is-on': activeCount }" :aria-label="activeCount ? `Filter, ${activeCount} on` : 'Filter'" title="Filter" @click="openFilter">
             <AppIcon name="filter" :size="18" />
@@ -342,12 +360,12 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
           </button>
         </div>
 
-        <div v-if="loadingPlaces" class="grid-3">
-          <SkeletonRow v-for="n in 6" :key="n" avatar />
-        </div>
-        <EmptyState v-else-if="placesError" title="Could not load places" text="Check your connection and try again." role="alert">
+        <EmptyState v-if="placesError" title="Could not load places" text="Check your connection and try again." role="alert">
           <AppButton variant="secondary" @click="loadPlaces(area.id)">Retry</AppButton>
         </EmptyState>
+        <div v-else-if="loadingPlaces" class="grid-3">
+          <SkeletonRow v-for="n in 6" :key="n" avatar />
+        </div>
         <EmptyState v-else-if="!filtered.length" title="No places match">
           <AppButton variant="secondary" @click="clearApplied">Clear all</AppButton>
         </EmptyState>
@@ -382,20 +400,79 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 </template>
 
 <style scoped>
-.home__top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-md); }
-.home__blurb { max-width: 560px; margin: var(--spacing-xs) 0 0; }
-.home__me { flex-shrink: 0; border-radius: var(--rounded-full); }
-.home__create { align-self: flex-start; }
-.home__context { display: inline-flex; align-items: center; gap: var(--spacing-xs); margin: 0; }
+/* The band: full width, a soft grey that fades to white at the bottom. The greeting sits at the top, centred; under
+   it the stage holds the map, whose centre (where the routes meet) is the stage's centre, and the button sits
+   exactly there. The map fades out towards the stage's edges, and also around the button, so the button sits in a
+   clearing and the routes fade into it rather than running underneath. */
+.hero { position: relative; display: flex; flex-direction: column; align-items: center; margin-bottom: var(--spacing-base); padding-top: var(--spacing-lg); text-align: center; }
+.hero::before { content: ""; position: absolute; inset: 0 auto 0 50%; width: 100vw; transform: translateX(-50%); background: linear-gradient(to bottom, var(--surface-soft) 75%, var(--canvas)); }
+.hero__hello { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xs); padding: 0 var(--gutter); }
+.home__blurb { max-width: 460px; margin: 0; color: var(--body); }
+/* The greeting: big and tight, the name in a sweep of brand pink to red that shines once as the page opens. */
+.hello { margin: var(--spacing-xs) 0; color: var(--ink); font: 800 clamp(44px, 9vw, 80px)/0.95 var(--font-sans); letter-spacing: -0.045em; text-wrap: balance; }
+.hello__name {
+  background: linear-gradient(100deg, var(--primary) 0%, var(--brand-logo) 35%, #ff8a5c 50%, var(--brand-logo) 65%, var(--primary) 100%);
+  background-size: 250% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: hello-shine 1.6s var(--ease-out) 200ms both;
+}
+@keyframes hello-shine { from { background-position: 100% 0; } to { background-position: 0 0; } }
+.hello__hi { display: inline-block; animation: rise 520ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.hello__name { display: inline-block; padding-bottom: 0.06em; }
+@media (prefers-reduced-motion: reduce) { .hello__name, .hello__hi { animation: none; } }
+.hero__stage { position: relative; align-self: stretch; height: 360px; }
+.hero__map {
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: min(100vw, 1440px);
+  transform: translateX(-50%);
+  /* Two masks: --edge fades the map out towards the stage's edges, --clearing around the button. */
+  --edge: radial-gradient(ellipse 50% 50% at 50% 50%, #000 60%, transparent 100%);
+  --clearing: radial-gradient(ellipse 230px 95px at 50% 50%, transparent 55%, #000 100%);
+  -webkit-mask-image: var(--edge), var(--clearing);
+  -webkit-mask-composite: source-in;
+  mask-image: var(--edge), var(--clearing);
+  mask-composite: intersect;
+}
+/* With a meetup, the clearing reaches down to take in the line under the button. */
+.has-meetup .hero__map { --clearing: radial-gradient(ellipse 250px 130px at 50% calc(50% + 26px), transparent 55%, #000 100%); }
+.hero__action { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+/* The pin stands on the meeting point: its tip, the bottom of its box, is where the routes meet. */
+.hero__action.is-pin { transform: translate(-50%, -100%); }
+.hero__meetup { position: absolute; left: 50%; top: calc(50% + 24px); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: var(--spacing-sm); max-width: calc(100% - var(--gutter) * 2); margin: 0; white-space: nowrap; }
+.hero__who { display: inline-flex; align-items: center; gap: var(--spacing-sm); max-width: 100%; margin: 0; }
+/* Where it stands: a white pill, ink and medium weight, so it reads clearly over the dotted map. */
+.hero__where { display: inline-flex; align-items: center; gap: var(--spacing-xs); max-width: 100%; padding: 6px 14px 6px 10px; border: 1px solid var(--hairline); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: 0 2px 8px rgb(0 0 0 / 0.06); color: var(--ink); font: var(--text-body-sm); font-weight: 600; }
+.home__me { position: absolute; z-index: 2; top: var(--spacing-md); right: var(--gutter); flex-shrink: 0; border-radius: var(--rounded-full); }
+@media (max-width: 743px) {
+  /* Phones: the avatar sits top right, so the greeting keeps clear of it on both sides (to stay centred). */
+  .hero__hello { align-self: stretch; padding-right: calc(var(--gutter) + 52px); padding-left: calc(var(--gutter) + 52px); }
+  /* The map is narrow here, so it fades out later, nearer the edges. */
+  .hero__map { --edge: radial-gradient(ellipse 70% 60% at 50% 50%, #000 70%, transparent 100%); }
+  /* A smaller clearing to match the smaller map. */
+  .hero__map { --clearing: radial-gradient(ellipse 160px 60px at 50% 50%, transparent 60%, #000 100%); }
+  .has-meetup .hero__map { --clearing: radial-gradient(ellipse 180px 90px at 50% calc(50% + 24px), transparent 60%, #000 100%); }
+}
+@media (min-width: 744px) {
+  .hero { padding-top: var(--spacing-xxl); }
+  .hero__stage { height: 440px; }
+  /* The top bar has Profile from here up. */
+  .home__me { display: none; }
+}
+/* No midpoint yet: the band fills the screen under the top bar (above the tab bar on phones), the stage takes all
+   the room under the greeting, and the map runs edge to edge, fading only at the very edges. */
+.hero--full { min-height: calc(100dvh - var(--topbar-height) - var(--tabbar-height)); margin-bottom: 0; }
+.hero--full .hero__stage { flex: 1 1 auto; height: auto; min-height: 420px; }
+.hero--full .hero__map { --edge: radial-gradient(ellipse 72% 72% at 50% 50%, #000 70%, transparent 100%); width: 100vw; }
+/* On a phone the map is drawn small, so its dots are drawn a little bigger to keep the island's shape clear. */
+@media (max-width: 743px) { .hero--full .hero__map :deep(.sgmap__dots) { stroke-width: 2.8; } }
+.home__body { padding-top: 0; }
+/* Where the places are: the area name in Rausch, bold, with its pin. */
+.home__context { display: inline-flex; align-items: center; gap: var(--spacing-xs); margin: 0; color: var(--primary); font: var(--text-title-md); font-weight: 700; }
 
-/* Your meetup: a white card that floats a little, like a reservation card. */
-.meetup { display: flex; flex-direction: column; gap: var(--spacing-md); max-width: 560px; padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); }
-.meetup__label { margin: 0; color: var(--muted); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
-.meetup__name { margin: 0; overflow-wrap: anywhere; }
-.meetup__meta { display: flex; flex-direction: column; gap: var(--spacing-sm); color: var(--body); font: var(--text-body-sm); }
-.meetup__row { display: inline-flex; align-items: center; gap: var(--spacing-sm); }
-.meetup__row strong { color: var(--ink); font-weight: 600; }
-.meetup__open { align-self: flex-start; }
 /* The midpoint is still to come: a soft Rausch pulse, quicker while the planner is working it out. */
 .meetup__pulse { position: relative; flex-shrink: 0; width: 10px; height: 10px; margin: 0 3px; border-radius: var(--rounded-full); background: var(--primary); }
 .meetup__pulse::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--primary-bright); animation: meetup-pulse 2s ease-out infinite; }

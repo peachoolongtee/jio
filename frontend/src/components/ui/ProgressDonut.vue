@@ -1,5 +1,5 @@
 <script setup>
-// Who has done something, as an ink donut with the count written beside it.
+// Who has done something, as a Rausch donut on a pale Rausch track, with the count written beside it.
 //   <ProgressDonut title="Locations" :people="[{ name: 'Ian', done: true }, { name: 'Darius', done: false }]" done-label="Submitted" />
 // Default: the donut with every name and its state listed beside it.
 // `compact`: a small donut with "4 of 6 located" beside it, for screens where the names are listed right below.
@@ -67,15 +67,15 @@ const dash = computed(() => (total.value ? (done.value / total.value) * circumfe
 .donut { display: flex; align-items: flex-start; gap: var(--spacing-lg); }
 .donut--compact { align-items: center; gap: var(--spacing-md); }
 .donut__chart { position: relative; flex-shrink: 0; display: flex; }
-.donut__track { stroke: var(--surface-strong); }
-.donut__arc { stroke: var(--ink); transition: stroke-dasharray var(--motion-fast) var(--ease-out); }
+.donut__track { stroke: color-mix(in srgb, var(--primary) 14%, var(--canvas)); }
+.donut__arc { stroke: var(--primary); transition: stroke-dasharray var(--motion-fast) var(--ease-out); }
 .donut__count { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .donut__line { display: flex; flex-direction: column; }
 .donut__text { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-sm); }
 .donut__list { display: flex; flex-direction: column; gap: var(--spacing-xs); }
 .donut__row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-sm); min-height: 24px; }
-.donut__mark { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border: 1.5px solid var(--border-strong); border-radius: var(--rounded-full); color: var(--on-selected); }
-.donut__row.is-done .donut__mark { border-color: var(--selected); background: var(--selected); }
+.donut__mark { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border: 1.5px solid var(--border-strong); border-radius: var(--rounded-full); color: var(--on-primary); }
+.donut__row.is-done .donut__mark { border-color: var(--primary); background: var(--primary); }
 .donut__state { color: var(--muted); }
 .donut__row.is-done .donut__state { color: var(--ink); }
 </style>

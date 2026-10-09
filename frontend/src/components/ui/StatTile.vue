@@ -1,7 +1,7 @@
 <script setup>
-// A big number with a label on a flat white card. For stats such as rank and points.
+// A big number with a label on a flat white card. For stats such as rank and JioCoins.
 //   <StatTile label="Successful meetups" :value="3" icon="trophy" />
-//   <StatTile label="Points" :value="320" icon="gift" hint="Spend them on café discounts" />
+//   <StatTile label="JioCoins" :value="320" icon="coin" hint="Spend them on café discounts" />
 import AppIcon from './AppIcon.vue'
 
 defineProps({
