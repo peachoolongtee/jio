@@ -30,6 +30,10 @@ Jio decides where a group should meet, fairly, and plans the outing around it. I
 
 Work is tracked in GitHub Issues on `peachoolongtee/jio`. The wayfinder map is issue #1 and the audit tracker is issue #47. See `docs/agents/issue-tracker.md`.
 
+### Design language
+
+`DESIGN.md` at the repo root records the design language as it ships: tokens, components, layout, motion, voice, and the known conflicts with this file's rules. Read it before building or changing any screen. Its machine-readable twin is `.impeccable/design.json`.
+
 ### Domain docs
 
 Single-context: one `CONTEXT.md` glossary at the repo root, and `docs/adr/` when a decision earns a record. See `docs/agents/domain.md`.
@@ -40,7 +44,7 @@ As of 2026-10-09. The Supabase foundation was built on branch `feat/supabase-fou
 
 | Area | State |
 |---|---|
-| Frontend screens | Sign-up, sessions, meeting area, voting, itinerary, photos, leaderboard with seasons, rewards, profiles. All data is in one browser's local storage, and everything invented is labelled as sample data. |
+| Frontend screens | Sign-up, sessions, meeting area, voting, itinerary, photos, leaderboard with seasons, rewards in JioCoins, profiles. A top bar from 744 px and a pill tab bar on phones. All data is in one browser's local storage. |
 | Backend planner | Built on `dev`: `/api/meeting-area`, `/api/converge`, `/api/roam`, `/api/search`. Travel times and weather are internal estimates. Open to anyone. |
 | Database | Session schema and access rules applied to the live `jio` project on 2026-10-09, then revised twice the same day after two reviews (three migrations). No app code reads or writes it yet. |
 | Login | Backend token check and `GET /api/me` built and hardened after two reviews. No login screen; the frontend sends no token. |
@@ -63,9 +67,9 @@ Each is recorded in full on the ticket named. Read the ticket before changing th
 - **Weather:** the planner scores against the live two-hour forecast and says where the weather came from in `weather.source`. A simulated forecast needs `ALLOW_SIMULATED_WEATHER=1` or stub mode; otherwise `weatherCase` is ignored, never refused, because the frontend sends it on every ranking.
 - **One error shape:** `{ error: '<code>', message }` on every route. Decided by the lead on 2026-10-09, replacing the nested shape on ticket #8.
 - **Rate limit:** the planner routes share a per-caller limit set in `index.js`. `createApp` applies none unless given `planRateLimit`, so tests are unaffected.
-- **Sample data is labelled.** Mock people, places, reviews and rewards carry a visible "Sample" note (`components/ui/SampleNote.vue`), rewards use invented café names, and distance-based times say "about". Keep it that way until the real source exists.
+- **Sample data: partly labelled, by the lead's decision of 2026-10-10.** The lead took the leaderboard pull request as shipped, which removed the "Sample" note from the leaderboard, Home's places and the Rewards banner. It remains on the place detail and on other people's profiles; rewards use invented café names; distance-based times say "about". Do not add or remove notes without the lead.
 - **Cut on 2026-10-09:** crowd estimates, "Ask AI", and the contacts and location steps in sign-up. Do not bring them back without the lead.
-- **Contrast:** white text sits only on colours that give 4.5:1 or better. `--primary` is the text-safe brand colour; `--primary-bright` is for decoration without text.
+- **Contrast: the brand red is `#ff385c`, by the lead's decision of 2026-10-10.** White text on it is 3.52:1, below the 4.5:1 minimum, and three category and three person colours are also under it. `DESIGN.md` lists each pair under "Known Conflicts". Do not darken them without the lead; do not add new white-on-red text without reading that section.
 - **Planner limits:** every list, string and number in a planner request has an upper bound, held in one `MAX` block in `backend/src/routes/plan-schemas.js`.
 - **Routes added to the Express app go in through `createApp({ mount })`**, because the "not found" handler is last.
 
@@ -76,6 +80,8 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 **Round 1, 2026-10-09, project initialisation: completed.** Four read-only agents reviewed the unpushed branch, the schema, the open frontend pull request, and ran the checks. They found three significant defects in the login check and a blocker in the schema.
 
 **Round 2, 2026-10-09, fixes: completed.** A backend agent hardened the login check; the lead revised the schema on the live project. An independent tester confirmed the results. A second review asked for more changes.
+
+**Round 7, 2026-10-10, audit of the leaderboard pull request and the design document: completed.** Two read-only reviewers and a documentation agent. The pull request was merged as it is; the findings are on the pull request and on a tracker ticket.
 
 **Rounds 5 and 6, 2026-10-09, audit of the session-flow pull request and its fixes: completed.** Three read-only reviewers, then four frontend agents on separate files. The pull request's commits, the fixes and round 4 went to `main` together from `feat/session-flow-integration`.
 
@@ -99,6 +105,7 @@ The tracker is the source of truth. Start from the audit tracker, issue #47: thr
 
 Recorded as tickets under issue #47. The ones that change how you work today:
 
+- **The demo tools are broken.** "Dev: create a demo account" and the demo panel's "Start over" fail, because the demo account has no date of birth. "Start over" erases everything first. Adding a `dob` to `frontend/src/components/dev/demoAccount.js` fixes both.
 - **Sign-up is still local.** The screens now collect a date of birth and a username the database accepts, but nothing is sent to Supabase and there is no login screen.
 - **The planner routes accept anyone.** The login check exists but is not applied to them, because the frontend sends no token yet.
 - **Points, season prizes and voucher codes are computed in the browser** and can be edited there. They are labelled as a demo and must not be presented as real.
@@ -132,13 +139,17 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-09 | `feat/session-flow-integration` after round 6 | `pnpm test` | 317 passed, 1 skipped, 18 files |
 | 2026-10-09 | `feat/session-flow-integration` after round 6 | `pnpm --filter jio-frontend test` | 186 passed, 20 files |
 | 2026-10-09 | `feat/session-flow-integration` after round 6 | `pnpm build` | Succeeded |
+| 2026-10-10 | `65567bb`, the leaderboard pull request's head | `pnpm test` | 317 passed, 1 skipped, 18 files |
+| 2026-10-10 | `65567bb` | `pnpm --filter jio-frontend test` | 192 passed, 22 files |
+| 2026-10-10 | `65567bb` | `pnpm build` | Succeeded |
 | 2026-10-09 | `feat/session-flow-integration` after round 6 | Browser check at 320, 375 and 1280 px | No horizontal overflow on six routes; sign-up completes with the date-of-birth step |
 
 Not yet verified: a real user's login token against `GET /api/me`, and anything end to end.
 
 ## Next Steps
 
-1. Bring `dev` level with `main` if `git log --oneline origin/dev..origin/main` shows commits.
-2. Build the session endpoints from the design on ticket #80, starting with a rolled-back test of its SQL.
-3. Frontend: the login screen and token, then moving the data layer to Supabase. That is what removes the hard-coded user and the browser-computed points.
-4. Real routing needs the OneMap account.
+1. Fix the demo account (see Known Issues), then decide the other findings on the audit ticket for the leaderboard pull request.
+2. Bring `dev` level with `main` if `git log --oneline origin/dev..origin/main` shows commits.
+3. Build the session endpoints from the design on ticket #80, starting with a rolled-back test of its SQL.
+4. Frontend: the login screen and token, then moving the data layer to Supabase.
+5. Real routing needs the OneMap account.
