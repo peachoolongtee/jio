@@ -76,7 +76,7 @@ async function next() {
       <div class="stack gap-sm">
         <div class="row between">
           <span id="date-label" class="caption text-muted">Date</span>
-          <span class="caption-sm text-brand">{{ dateText }}</span>
+          <span class="caption-sm">{{ dateText }}</span>
         </div>
         <div class="scroll-x days" role="radiogroup" aria-labelledby="date-label">
           <div v-for="day in days" :key="day.key" class="day">
@@ -113,7 +113,7 @@ async function next() {
 .bar-spacer { width: var(--tap-min); }
 .two-up { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
 
-/* The date strip: one column per day, a round 40px button that turns Lagoon when picked. */
+/* The date strip: one column per day, a round 44px button that turns ink when picked. */
 .days { padding: var(--spacing-xxs) var(--gutter) var(--spacing-xxs) var(--spacing-xxs); }
 .day { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xs); width: 44px; }
 .day__button {
@@ -127,7 +127,8 @@ async function next() {
   color: var(--ink);
   font: var(--text-body-sm);
 }
-.day__button.is-selected { border-color: var(--primary); background: var(--primary); color: var(--on-primary); }
+/* date-picker-day-selected: ink fill, white text. */
+.day__button.is-selected { border-color: var(--selected); background: var(--selected); color: var(--on-selected); }
 @media (hover: hover) { .day__button:not(.is-selected):hover { border-color: var(--ink); } }
 @media (min-width: 1128px) {
   .screen__footer { justify-content: stretch; }

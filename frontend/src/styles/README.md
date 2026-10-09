@@ -1,29 +1,33 @@
 # Jio design system
 
-How the look of the app is put together, and how to build a new screen with it.
+How the look of the app is put together, and how to build a new screen with it. The system follows the Airbnb design analysis (`DESIGN-airbnb.md`): a white canvas, near-black ink, and one accent, Rausch.
 
 ## Where things are
 
 - `styles/tokens.css`: every colour, spacing step, radius, type size and the one shadow, as CSS variables.
 - `styles/app.css`: the reset, the type classes, the screen layout and a few helper classes.
-- `components/ui/`: shared components, for example `AppButton`, `TextField`, `ChipButton`, `BottomSheet`, `ProgressDonut`, `SplitView`, `SideNav`.
+- `components/ui/`: shared components, for example `AppButton`, `TextField`, `ChipButton`, `BottomSheet`, `ProgressDonut`, `SplitView`, `TabBar`, `CountdownChip`, `MeetupGraph`, `PhotoViewer`, `SortableList`.
 - `components/event/`: session components: `SessionCard`, `SuggestionCard`, `StopCard`, `TravelConnector`, `PlaceCard`, `PollBar`.
 - `components/map/PlannerMap.vue`: every map (Leaflet on OneMap tiles).
-- `assets/fonts/`: Inter, the only typeface.
+- `assets/fonts/`: Inter, the documented stand-in for Airbnb Cereal VF (which is licensed to Airbnb).
 - `views/DesignSystemView.vue`: a page that shows everything. Open `/design-system` in the running app.
 - `views/CreateEventView.vue`: step 1 of a session, a short form built only from the pieces above.
 
 ## Rules
 
 1. Use a token, never a raw value. Write `color: var(--muted)`, not `color: #6a6a6a`.
-2. Lagoon (`--primary`) marks the main action and anything selected or in progress: selected chips, the active tab, switches, progress bars and the donut chart. Use colour with purpose: status pills, category tints (`--cat-*`) and crowd levels (`--crowd-*`) all come from tokens.
+2. Rausch (`--primary`, #d10027) is the single accent, used scarcely: the primary button, the create orb, the active tab icon, the meeting-area pin, "Live now", the Confirmed pill and the meetup graph. Most screens are white and ink with one or two Rausch moments. Anything selected is ink (`--selected`), not Rausch: selected chips and dates, the active tab underline, switches, progress bars, the donut chart, stars. Errors and warnings use `--primary-error-text` with words beside them.
+   `--primary` is deep enough for white text on it (5.6:1) and for its own colour as text on white or on its 11% tint (4.6:1, the current tab). The original brighter Rausch is kept as `--primary-bright` (#ff385c, 3.5:1 with white): use it only for decoration that carries no text, such as glows, washes and rings.
+   Data colours carry information, never actions: `--cat-*` for categories (category icons, a selected category chip, card stripes, stop numbers, map pins), `--person-*` for people (each person's avatar, map pin and line to the meeting area, from `lib/people.js`), and `--travel-*` on one good, middling, bad scale (`--scale-*`). Amber as a fill is `--scale-middle` (`--travel-medium`); amber as text is `--scale-middle-text` (`--travel-medium-text`, 4.5:1 or more on white and on the grey surfaces). The `--cat-*` and `--person-*` colours are dark enough for white numbers and initials on them (4.5:1 or more); keep that when you change one. Always pair them with words or a key (`CategoryKey`, the travel key), because the icon or the label still has to say what it is.
+   Motion: buttons and chips give a little when pressed and spring back (`--ease-spring`), cards that are links lift on hover (a card that is not clickable does not), lists ease in with `.rise`, and new screens rise into place. Everything still works, without movement, under reduced motion.
 3. Screens have side padding `--gutter` (24px on mobile, wider on tablet and desktop). Use the `.screen` classes and this is done for you. Desktop content sits in a column no wider than `--content-max-width`; forms use `.screen--form`.
-4. Buttons and inputs have an 8px radius. Cards have 14px. Sheets and dialogs have 20px. Chips and pills are fully round.
+4. Shape: buttons and inputs 8px (`--rounded-sm`), cards and photos 14px (`--rounded-md`), sheets and dialogs 20px (`--rounded-lg`); chips, pills, avatars and icon buttons are fully round. Surfaces are flat: white cards with a 1px `--hairline` border on a white canvas. There is one shadow, `--shadow-float`, for things that float (the tab bar, map overlays, menus, a dragged card, a card on hover). No gradients. Buttons are 48px tall and do not shrink when pressed; the pressed state is a darker colour.
 5. Every tap target is at least 44px. The components already do this.
 6. Show a `StatusPill` on every session card and at the top of every session screen.
-7. Copy is short and professional: labels, values and statuses. No exclamation marks, no emoji, no sentences that explain how the interface works. Full sentences only for errors, empty states, the meeting-area result line and the re-calculation banner.
-8. Anything tappable looks tappable: an unselected chip has a visible outline. Every control has a hover state and a visible focus state, and nothing is revealed by hover alone.
-9. One layout for every size. Breakpoints: mobile under 744px, tablet 744 to 1127px (mobile layout, wider margins), desktop 1128px and up (sidebar, list and map side by side, sheets open as dialogs). Switch layouts with CSS, never by re-creating the screen, so resizing keeps its state.
+7. Copy is short and professional: labels, values and statuses. No exclamation marks, no emoji, no sentences that explain how the interface works. Full sentences only for errors, empty states and the re-calculation banner.
+8. Prefer an icon on its own over an icon plus a word for secondary actions (edit, invite, filter, search). Use `IconButton`: its `label` is read out and shown as a tooltip. Keep words for primary actions and menu items.
+9. Anything tappable looks tappable: an unselected chip has a visible outline. Every control has a hover state and a visible focus state, and nothing is revealed by hover alone.
+10. One layout for every size. Breakpoints: mobile under 744px, tablet 744 to 1127px (mobile layout, wider margins), desktop 1128px and up (list and map side by side, sheets open as dialogs). The floating tab bar is the navigation at every size. Switch layouts with CSS, never by re-creating the screen, so resizing keeps its state.
 
 ## A new screen
 

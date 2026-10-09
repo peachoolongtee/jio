@@ -99,7 +99,7 @@ describe('scenario header in stub mode', () => {
     const res = await fetch(`${base}/probe`, { headers: { 'x-jio-scenario': 'snow' } })
 
     expect(res.status).toBe(400)
-    expect((await res.json()).error.code).toBe('unknown_scenario')
+    expect((await res.json()).error).toBe('unknown_scenario')
   })
 
   it('lets the browser send the header across origins', async () => {

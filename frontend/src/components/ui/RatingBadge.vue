@@ -1,5 +1,5 @@
 <script setup>
-// A star and a score out of 10, always with two decimals: 8.60.
+// A star and a score out of 10, always with one decimal: 8.6.
 // Usage: <RatingBadge :score="8.6" />
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
@@ -9,7 +9,7 @@ const props = defineProps({
   large: { type: Boolean, default: false },
 })
 
-const text = computed(() => props.score.toFixed(2))
+const text = computed(() => props.score.toFixed(1))
 </script>
 
 <template>

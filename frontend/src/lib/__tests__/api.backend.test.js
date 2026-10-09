@@ -8,7 +8,9 @@ import { HOST_ID } from '../mock/people.js'
 let server
 
 beforeAll(async () => {
-  server = createApp({ frontendOrigin: 'http://localhost:5173' }).listen(0)
+  // The rain test below fakes the forecast, so the server has to allow that. It also keeps these tests offline:
+  // the data layer sends a simulated forecast on every ranking, so the real forecast is never fetched.
+  server = createApp({ frontendOrigin: 'http://localhost:5173', allowSimulatedWeather: true }).listen(0)
   await new Promise((resolve) => server.once('listening', resolve))
   api.api.defaults.baseURL = `http://127.0.0.1:${server.address().port}`
 })
@@ -21,7 +23,7 @@ describe('a session planned by the backend', () => {
   const plan = () => api.getPlan(id)
 
   it('finds the meeting area from everyone\'s start', async () => {
-    await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', homeAreaId: 'tampines' })
+    await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2004-03-18', homeAreaId: 'tampines' })
     ;({ id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' }))
     await api.inviteFriends(id, ['jonathan', 'faith'])
     await api.startSession(id)
@@ -37,7 +39,7 @@ describe('a session planned by the backend', () => {
     const session = await api.getSession(id)
     expect(session.area.id).toBe('bishan')
     expect(session.meeting.maxMinutes).toBeGreaterThan(0)
-    expect(session.resultLine).toMatch(/^Fairest for 3 people: nobody travels more than \d+ minutes\.$/)
+    expect(session.resultLine).toMatch(/^Fairest for 3 people: nobody travels more than about \d+ minutes\.$/)
   })
 
   it('suggests three places per slot, best first, with what the cards show', async () => {
@@ -52,7 +54,7 @@ describe('a session planned by the backend', () => {
         expect(o.venue.category).toBe(slot.category)
         expect(typeof o.venue.price).toBe('number')
         expect(o.walk).toBeGreaterThanOrEqual(0)
-        expect(['quiet', 'moderate', 'busy', 'unknown']).toContain(o.crowd)
+        expect(o).not.toHaveProperty('crowd')
         expect(o.reasons.length).toBeLessThanOrEqual(2)
       }
     }
@@ -129,7 +131,8 @@ describe('a session planned by the backend', () => {
       expect(after.locations).toEqual(before.locations)
       expect(after.status).toBe(before.status)
       expect(after.plan).toEqual(before.plan)
-      await expect(plan()).rejects.toThrow(/Cannot reach the Jio planner/)
+      // A confirmed session's plan is read from storage, so it still answers.
+      await expect(plan()).resolves.toBeTruthy()
     } finally {
       api.api.defaults.baseURL = baseURL
     }

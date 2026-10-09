@@ -2,9 +2,11 @@ import express from 'express'
 import cors from 'cors'
 import { loadPlanData } from './db/venues.js'
 import { createMeRouter } from './routes/me.js'
+import { rateLimit } from './middleware/rate-limit.js'
 import { createPlanRouter } from './routes/plan.js'
 import { createHttp } from './services/http.js'
 import { scenarioMiddleware } from './services/scenario.js'
+import { createWeather } from './services/weather.js'
 
 // Builds the Express app without listening, so tests can start it on a free port.
 //
@@ -19,6 +21,12 @@ import { scenarioMiddleware } from './services/scenario.js'
 //   stub           - true answers external API calls from fixtures.
 //   http           - The HTTP helper to share. Defaults to one built from `stub`.
 //   planData       - Venues and settings the planner reads. Defaults to loadPlanData() (mock + curated + CDC).
+//   weather        - The weather service, from createWeather(). Defaults to one built on `http`.
+//   allowSimulatedWeather - true lets a planner request send `weatherCase` to fake the forecast. Stub mode
+//                    always allows it. Otherwise the field is ignored and the answer says so. index.js sets
+//                    it from ALLOW_SIMULATED_WEATHER=1.
+//   planRateLimit  - { windowMs, max } to limit how often one caller may use the planner routes, or leave
+//                    it out for no limit. index.js sets it outside stub mode.
 //   supabase       - The server's Supabase clients, from createSupabase(). Without it the routes that
 //                    need a login (GET /api/me) are not mounted.
 //   mount          - A function that adds extra routes. They must go in before the "not found" handler,
@@ -29,6 +37,9 @@ export function createApp({
   stub = false,
   http = createHttp({ stub }),
   planData = loadPlanData(),
+  weather = createWeather({ http }),
+  allowSimulatedWeather = false,
+  planRateLimit = null,
   supabase = null,
   mount = () => {},
 }) {
@@ -60,7 +71,15 @@ export function createApp({
   })
 
   // Planner: /api/meeting-area, /api/converge, /api/roam.
-  app.use('/api', createPlanRouter({ data: planData }))
+  app.use(
+    '/api',
+    createPlanRouter({
+      data: planData,
+      weather,
+      allowSimulatedWeather: allowSimulatedWeather || stub,
+      limiter: planRateLimit ? rateLimit(planRateLimit) : null,
+    }),
+  )
 
   // Routes that need a login. The planner routes above do not check one yet: the frontend has to
   // start sending the session token first.

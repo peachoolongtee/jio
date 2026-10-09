@@ -1,20 +1,30 @@
 <script setup>
 // The confirmed plan, on one screen. On the day itself it is titled "Today's plan".
-//   - Stops in order: time and duration on one line, name, category icon, price tier.
+//   - A timeline of stops: time and duration on one line, name, category icon, price tier, a photo, and the stop
+//     number in its category colour (the same as its pin; the map has a key).
 //   - Between stops: a visible Walk / MRT / Car switch, each with its own time. It moves every later stop.
-//   - The end point and each person's travel time home, with a warning for anyone over 60 minutes.
-//   - The AI button (an empty sheet for now) and "View map".
-//   - Edit: delete a stop, change a travel mode, or re-plan. "End plan" completes the session on the day.
-import { computed, onMounted, ref, watch } from 'vue'
+//     Two stops in the same building just say so.
+//   - On desktop the timeline is as tall as the map beside it, with the stops spread out.
+//   - In edit mode (the pencil toggle in the header; confirmed plans only) each stop has a delete button (two stops
+//     or more) and a drag handle, with a confirm dialog for delete. Focus lands on the next stop after a delete.
+//     Outside edit mode the stops carry no controls.
+//   - The end point, and each person's trip home (folded away; anyone over 60 minutes is flagged above).
+//   - In edit mode, drag a stop by its handle (or focus the handle and use the arrow keys) to rearrange the day. Times follow;
+//     a stop that would be closed at its new time, or an end far from the MRT, is flagged.
+//   - Edit mode also shows "Re-plan". "End plan" on the day.
+//   - The photo strip shows the latest pictures (loaded with the events store) and links to Photos.
+//   - Travel and trip-home times are estimates from distance, so they read "about" or "est.".
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
-import BottomSheet from '@/components/ui/BottomSheet.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import { RouterLink } from 'vue-router'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
+import SortableList from '@/components/ui/SortableList.vue'
 import SplitView from '@/components/ui/SplitView.vue'
 import ToastMessage from '@/components/ui/ToastMessage.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
@@ -36,7 +46,6 @@ const events = useEventsStore()
 
 const missing = ref(false)
 const editing = ref(false)
-const aiOpen = ref(false)
 const endOpen = ref(false)
 const replanOpen = ref(false)
 const removing = ref(null)
@@ -45,6 +54,26 @@ const error = ref('')
 const view = ref('list')
 const selected = ref('')
 const toast = ref(false)
+// Arrived straight from "Confirm plan": say so, big and clear, until dismissed. The flag in the history entry is
+// cleared as soon as it has been read, so a reload or Back to this page does not show the card again.
+const justConfirmed = ref(!!window.history.state?.justConfirmed)
+// A screen reader only reads a live region whose text changes after it is on the page, so the region is there from
+// the start, empty, and the words are put in once the card has appeared.
+const announcement = ref('')
+let announceTimer = 0
+function clearConfirmedFlag() {
+  if (window.history.state?.justConfirmed) window.history.replaceState({ ...window.history.state, justConfirmed: false }, '')
+}
+const confirmedLine = computed(() => {
+  const stops = itinerary.value?.stops || []
+  const summary = stops.length ? ` ${stops.length} ${stops.length === 1 ? 'stop' : 'stops'}, starting ${fromMinutes(stops[0].start)}.` : ''
+  return `Everyone in the group can see the itinerary now.${summary}`
+})
+function dismissConfirmed() {
+  justConfirmed.value = false
+  announcement.value = ''
+  clearConfirmedFlag()
+}
 
 async function load() {
   missing.value = false
@@ -55,7 +84,10 @@ async function load() {
     missing.value = true
   }
 }
-onMounted(load)
+onMounted(() => {
+  clearConfirmedFlag()
+  load()
+})
 watch(() => props.id, load)
 
 const session = computed(() => events.byId[props.id])
@@ -63,161 +95,238 @@ const itinerary = computed(() => events.itineraries[props.id])
 const status = computed(() => session.value?.status)
 const confirmed = computed(() => status.value === 'confirmed')
 const today = computed(() => confirmed.value && session.value?.isToday)
-const title = computed(() => (today.value ? "Today's plan" : ''))
 const longTrips = computed(() => (itinerary.value?.trips || []).filter((t) => t.long))
+const lastStop = computed(() => itinerary.value?.stops[itinerary.value.stops.length - 1])
+// A confirmed plan with two or more stops can be rearranged, and a stop deleted, while editing.
+const canMove = computed(() => confirmed.value && (itinerary.value?.stops.length || 0) > 1)
+const canEdit = computed(() => canMove.value && editing.value)
+
+// Put the "Plan confirmed" words into the live region once the card is on screen.
+watch(
+  () => justConfirmed.value && confirmed.value && !!itinerary.value,
+  (ready) => {
+    clearTimeout(announceTimer)
+    if (!ready) return
+    announceTimer = setTimeout(() => {
+      announcement.value = `Plan confirmed. ${confirmedLine.value}`
+    }, 400)
+  },
+  { immediate: true },
+)
+onBeforeUnmount(() => clearTimeout(announceTimer))
+
+// The latest pictures for the strip, from the events store (a session summary has only photoCount). A failed load
+// only leaves the strip without thumbnails; the count and the link stay.
+const photos = computed(() => events.photos[props.id] || [])
+const photoCount = computed(() => session.value?.photoCount || 0)
+const loadPhotos = () => photoCount.value && events.loadPhotos(props.id).catch(() => {})
+watch([() => props.id, photoCount], loadPhotos, { immediate: true })
 
 const mapPlaces = computed(() =>
   (itinerary.value?.stops || []).map((s, i) => ({ id: s.venue.id, name: s.venue.name, lat: s.venue.lat, lng: s.venue.lng, label: String(i + 1), category: s.category })),
 )
 const mapPeople = computed(() => (itinerary.value?.starts || []).map((p) => ({ id: p.id, name: p.name, lat: p.area.lat, lng: p.area.lng, areaName: p.area.name })))
 
-async function setMode(index, mode) {
+async function act(fn) {
   error.value = ''
   try {
-    await events.setTravelMode(props.id, index, mode)
+    await fn()
   } catch (e) {
     error.value = e.message
   }
 }
+const setMode = (index, mode) => act(() => events.setTravelMode(props.id, index, mode))
+const moveStop = (from, to) => act(() => events.reorderStops(props.id, from, to))
 
+// After a delete the focused button is gone, so focus moves to the heading of the stop that took its place (or the
+// new last stop), and to the list itself if there is none. A newer load can still be on its way when the delete
+// returns, so wait until the list has really lost a stop before looking for the heading.
+const timeline = ref(null)
+function whenShorterThan(count) {
+  return new Promise((resolve) => {
+    if ((itinerary.value?.stops.length ?? 0) < count) return resolve()
+    const stop = watch(() => itinerary.value?.stops.length ?? 0, (n) => n < count && done())
+    const timer = setTimeout(done, 2000)
+    function done() {
+      stop()
+      clearTimeout(timer)
+      resolve()
+    }
+  })
+}
 async function removeStop() {
   const index = removing.value
+  const count = itinerary.value?.stops.length ?? 0
   removing.value = null
-  error.value = ''
-  try {
-    await events.deleteStop(props.id, index)
-  } catch (e) {
-    error.value = e.message
-  }
+  await act(() => events.deleteStop(props.id, index))
+  if (error.value) return
+  await whenShorterThan(count)
+  await nextTick()
+  const names = timeline.value?.querySelectorAll('.stop__name') || []
+  const next = names[Math.min(index, names.length - 1)] || timeline.value
+  next?.focus()
 }
 
 async function replan() {
   busy.value = true
-  await events.replan(props.id)
-  busy.value = false
-  replanOpen.value = false
-  router.push(`/sessions/${props.id}/plan`)
+  error.value = ''
+  try {
+    await events.replan(props.id)
+    replanOpen.value = false
+    router.push(`/sessions/${props.id}/plan`)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    busy.value = false
+  }
 }
 
 async function endPlan() {
   busy.value = true
-  await events.endPlan(props.id)
-  busy.value = false
-  endOpen.value = false
-  editing.value = false
-  toast.value = true
+  error.value = ''
+  try {
+    await events.endPlan(props.id)
+    endOpen.value = false
+    editing.value = false
+    toast.value = true
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
 <template>
   <NotFoundView v-if="missing" />
   <main v-else-if="session" class="screen" data-testid="event-view">
-    <SessionHeader :session="session" :title="title" back="/" />
+    <SessionHeader :session="session" :title="today ? 'Today\'s plan' : ''" back="/">
+      <template v-if="session.plan" #actions>
+        <IconButton v-if="confirmed" label="Edit itinerary" :tone="editing ? 'brand' : ''" :aria-pressed="String(editing)" @click="editing = !editing">
+          <AppIcon :name="editing ? 'check' : 'edit'" />
+        </IconButton>
+      </template>
+    </SessionHeader>
 
     <div class="screen__body">
       <SessionNotices :session="session" />
 
-      <EmptyState v-if="!session.plan" title="No itinerary yet" text="The itinerary appears once the plan is confirmed.">
+      <EmptyState v-if="!session.plan" title="No itinerary yet">
         <AppButton variant="secondary" :to="`/sessions/${id}/plan`">Activities</AppButton>
       </EmptyState>
 
       <template v-else>
+        <p class="sr-only" role="status">{{ announcement }}</p>
+        <Transition name="celebrate" appear>
+          <section v-if="justConfirmed && confirmed" class="celebrate" aria-labelledby="celebrate-title">
+            <span class="celebrate__icon"><AppIcon name="check" :size="22" /></span>
+            <div class="celebrate__text">
+              <h2 id="celebrate-title" class="display-sm">Plan confirmed</h2>
+              <p class="body-sm">{{ confirmedLine }}</p>
+            </div>
+            <IconButton label="Dismiss" class="celebrate__close" @click="dismissConfirmed"><AppIcon name="close" :size="16" /></IconButton>
+          </section>
+        </Transition>
         <BannerNote v-if="status === 'completed'" icon="trophy">
-          Successful meetup · {{ POINTS_PER_MEETUP }} points for each person to spend on café discounts
+          Completed · +{{ POINTS_PER_MEETUP }} points each to spend on sample café vouchers
           <template #actions>
-            <AppButton small variant="secondary" to="/leaderboard#rewards">Café discounts</AppButton>
+            <AppButton small variant="secondary" to="/rewards">Rewards</AppButton>
           </template>
         </BannerNote>
-
-        <div class="tools">
-          <AppButton variant="secondary" small class="mobile-only" :to="`/sessions/${id}/map`">
-            <AppIcon name="map" />
-            View map
-          </AppButton>
-          <AppButton variant="secondary" small class="desktop-only" :to="`/sessions/${id}/map`">
-            <AppIcon name="expand" />
-            Full-screen map
-          </AppButton>
-          <AppButton variant="pill" @click="aiOpen = true">
-            <AppIcon name="sparkle" />
-            Ask AI
-          </AppButton>
-          <AppButton v-if="confirmed" :variant="editing ? 'primary' : 'secondary'" small :aria-pressed="String(editing)" @click="editing = !editing">
-            <AppIcon :name="editing ? 'check' : 'edit'" />
-            {{ editing ? 'Done' : 'Edit' }}
-          </AppButton>
-        </div>
-
         <BannerNote v-for="trip in longTrips" :key="trip.id" tone="warning" icon="warning">
-          Long trip home: {{ trip.name }}, {{ trip.minutes }} min to {{ trip.place }}
+          Long trip home: {{ trip.name }}, about {{ trip.minutes }} min
         </BannerNote>
+
+        <RouterLink v-if="photoCount" :to="`/sessions/${id}/photos`" class="strip" :aria-label="`${photoCount} ${photoCount === 1 ? 'photo' : 'photos'}`" title="Photos">
+          <img v-for="p in photos.slice(-4)" :key="p.id" :src="p.src" alt="" />
+          <span v-if="photoCount > 4" class="strip__more caption-sm">+{{ photoCount - 4 }}</span>
+        </RouterLink>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
-        <SplitView v-model:view="view" label="Itinerary">
+        <SplitView v-model:view="view" label="Itinerary" even>
           <template #list>
             <div v-if="!itinerary" class="stack gap-md">
               <SkeletonRow v-for="n in 3" :key="n" avatar />
             </div>
-            <ol v-else class="stops" aria-label="Stops">
-              <li v-for="(stop, i) in itinerary.stops" :key="stop.slotId" class="stops__item">
-                <TravelConnector
-                  v-if="i > 0"
-                  :options="itinerary.legs[i - 1].options"
-                  :mode="itinerary.legs[i - 1].mode"
-                  :readonly="!confirmed"
-                  :label="`Travel from ${itinerary.stops[i - 1].venue.name} to ${stop.venue.name}`"
-                  @change="setMode(i - 1, $event)"
-                />
-                <StopCard
-                  :number="i + 1"
-                  :time="stop.start"
-                  :duration="stop.duration"
-                  :name="stop.venue.name"
-                  :category="stop.category"
-                  :price="stop.venue.price"
-                  :area="stop.venue.area"
-                  :image="placeImage(stop.venue)"
-                  :lifted="selected === stop.venue.id"
+            <template v-else>
+              <div ref="timeline" class="timeline card" tabindex="-1">
+                <SortableList
+                  :items="itinerary.stops"
+                  :item-key="(s) => s.slotId"
+                  :item-label="(s) => s.venue.name"
+                  :disabled="!canEdit"
+                  label="Stops"
+                  @move="moveStop"
                 >
-                  <template v-if="editing && itinerary.stops.length > 1" #actions>
-                    <IconButton outline :label="`Delete stop: ${stop.venue.name}`" @click="removing = i"><AppIcon name="trash" /></IconButton>
+                  <template #item="{ item: stop, index: i, dragging, lifted, handle }">
+                    <!-- The legs belong to pairs of stops, so they step aside while a stop is dragged. -->
+                    <div v-if="i > 0" v-show="!dragging" class="timeline__leg">
+                      <TravelConnector
+                        :options="itinerary.legs[i - 1].options"
+                        :mode="itinerary.legs[i - 1].mode"
+                        :readonly="!confirmed"
+                        :label="`Travel from ${itinerary.stops[i - 1].venue.name} to ${stop.venue.name}`"
+                        @change="setMode(i - 1, $event)"
+                      />
+                    </div>
+                    <StopCard
+                      :number="i + 1"
+                      :time="stop.start"
+                      :duration="stop.duration"
+                      :name="stop.venue.name"
+                      :category="stop.category"
+                      :price="stop.venue.price"
+                      :area="stop.venue.area"
+                      :image="placeImage(stop.venue)"
+                      banner
+                      :warning="stop.open === false ? 'Closed at this time' : ''"
+                      :lifted="lifted || selected === stop.venue.id"
+                    >
+                      <template v-if="canEdit" #actions>
+                        <IconButton outline :label="`Delete stop: ${stop.venue.name}`" @click="removing = i"><AppIcon name="trash" /></IconButton>
+                      </template>
+                      <template v-if="canEdit" #handle>
+                        <button v-bind="handle" class="drag-handle"><AppIcon name="grip" /></button>
+                      </template>
+                    </StopCard>
                   </template>
-                </StopCard>
-              </li>
-            </ol>
-
-            <section v-if="itinerary?.end" class="card end" aria-labelledby="end-head">
-              <div class="row gap-sm">
-                <span class="end__icon"><AppIcon name="flag" /></span>
-                <div class="stack">
-                  <h2 id="end-head" class="title-md">End point</h2>
-                  <span class="caption-sm text-muted">
-                    {{ itinerary.end.name }} · {{ fromMinutes(itinerary.stops[itinerary.stops.length - 1].end) }} · {{ itinerary.end.mrtWalk }} min walk to {{ itinerary.end.mrt }} MRT
-                  </span>
+                </SortableList>
+                <div v-if="itinerary.end" class="timeline__end">
+                  <span class="timeline__flag" aria-hidden="true"><AppIcon name="flag" :size="14" /></span>
+                  <div class="stack">
+                    <span class="title-sm">Ends {{ fromMinutes(lastStop.end) }}</span>
+                    <span class="caption-sm text-muted">about {{ itinerary.end.mrtWalk }} min walk to {{ itinerary.end.mrt }} MRT</span>
+                    <span v-if="itinerary.end.farFromMrt" class="timeline__warning caption-sm"><AppIcon name="warning" :size="12" /> Far from the MRT</span>
+                  </div>
                 </div>
               </div>
-              <h3 class="caption text-muted">Travel time home</h3>
-              <ul class="trips">
-                <li v-for="trip in itinerary.trips" :key="trip.id" class="trips__row" :class="{ 'is-long': trip.long }">
-                  <span class="title-sm">{{ trip.name }}</span>
-                  <span class="caption-sm text-muted truncate">{{ trip.place }}</span>
-                  <span class="caption trips__min">
-                    <AppIcon v-if="trip.long" name="warning" :size="12" label="Over 60 minutes" />
-                    {{ trip.minutes }} min
-                  </span>
-                </li>
-              </ul>
-            </section>
 
-            <AppButton v-if="editing" variant="secondary" class="replan" @click="replanOpen = true">
-              <AppIcon name="swap" />
-              Re-plan
-            </AppButton>
+              <details v-if="itinerary.trips.length" class="home">
+                <summary class="home__summary">
+                  <span class="title-sm">Trips home</span>
+                  <span class="caption-sm text-muted">Longest about {{ Math.max(...itinerary.trips.map((t) => t.minutes)) }} min</span>
+                  <AppIcon name="chevron-down" class="home__chevron" />
+                </summary>
+                <ul class="home__list">
+                  <li v-for="trip in itinerary.trips" :key="trip.id" class="home__row" :class="{ 'is-long': trip.long }">
+                    <span class="body-sm">{{ trip.name }}</span>
+                    <span class="caption-sm text-muted truncate">{{ trip.place }}</span>
+                    <span class="caption home__min">about {{ trip.minutes }} min</span>
+                  </li>
+                </ul>
+              </details>
+
+              <AppButton v-if="editing && confirmed" variant="tertiary" underline class="replan" @click="replanOpen = true">Re-plan</AppButton>
+            </template>
           </template>
 
           <template #map>
-            <PlannerMap :places="mapPlaces" :people="mapPeople" :area="itinerary?.area" route label="Itinerary map" :selected="selected" @select="selected = $event" />
+            <PlannerMap :places="mapPlaces" :people="mapPeople" :area="itinerary?.area" route fit-to="places" label="Itinerary map" :selected="selected" @select="selected = $event" />
             <CategoryKey :categories="mapPlaces.map((p) => p.category)" />
+            <AppButton variant="secondary" small class="map-open" :to="`/sessions/${id}/map`">
+              <AppIcon name="expand" />
+              View map
+            </AppButton>
           </template>
         </SplitView>
       </template>
@@ -227,30 +336,30 @@ async function endPlan() {
       <AppButton block :disabled="busy" @click="endOpen = true">End plan</AppButton>
     </footer>
 
-    <BottomSheet v-model:open="aiOpen" title="Ask AI" />
-
     <ModalDialog v-model:open="endOpen" title="End plan?">
       <template #content>
-        <p class="body-md">Successful meetup · {{ POINTS_PER_MEETUP }} points each for {{ session.activeIds.length }} people, to spend on café discounts</p>
+        <p class="body-md">+{{ POINTS_PER_MEETUP }} points each for {{ session.activeIds.length }} people, to spend on sample café vouchers</p>
+        <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
       <AppButton block :disabled="busy" @click="endPlan">End plan</AppButton>
       <AppButton block variant="secondary" @click="endOpen = false">Not yet</AppButton>
     </ModalDialog>
 
     <ModalDialog :open="removing !== null" :title="removing !== null && itinerary ? `Delete ${itinerary.stops[removing]?.venue.name}?` : 'Delete stop?'" @update:open="(v) => !v && (removing = null)">
-      <AppButton block variant="secondary" @click="removing = null">Keep stop</AppButton>
-      <AppButton block variant="danger" @click="removeStop">Delete stop</AppButton>
+      <AppButton block variant="secondary" @click="removing = null">Keep</AppButton>
+      <AppButton block variant="danger" @click="removeStop">Delete</AppButton>
     </ModalDialog>
 
     <ModalDialog v-model:open="replanOpen" title="Re-plan?">
       <template #content>
-        <p class="body-md">Status returns to Voting · votes kept</p>
+        <p class="body-md">Back to voting. Votes are kept.</p>
+        <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
       <AppButton block variant="secondary" @click="replanOpen = false">Keep plan</AppButton>
       <AppButton block :disabled="busy" @click="replan">Re-plan</AppButton>
     </ModalDialog>
 
-    <ToastMessage v-model:show="toast" :text="`Session completed · +${POINTS_PER_MEETUP} points to spend on café discounts`" :offset="120" />
+    <ToastMessage v-model:show="toast" :text="`Completed · +${POINTS_PER_MEETUP} points to spend on sample café vouchers`" :offset="120" />
   </main>
   <main v-else class="screen" data-testid="event-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
@@ -260,14 +369,59 @@ async function endPlan() {
 </template>
 
 <style scoped>
-.tools { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
-.stops { display: flex; flex-direction: column; }
-.stops__item { display: flex; flex-direction: column; }
-.end { gap: var(--spacing-md); }
-.end__icon { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--rounded-full); background: var(--primary-tint); color: var(--primary-active); }
-.trips { display: flex; flex-direction: column; }
-.trips__row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 40px; border-bottom: 1px solid var(--hairline-soft); }
-.trips__min { display: inline-flex; align-items: center; gap: var(--spacing-xs); }
-.trips__row.is-long .trips__min { color: var(--warning-text); }
+/* The latest photos from the day, as a stack of thumbnails linking to Photos. */
+.strip { display: inline-flex; align-self: flex-start; align-items: center; min-height: var(--tap-min); text-decoration: none; }
+.strip img { width: 40px; height: 40px; border-radius: 12px; object-fit: cover; box-shadow: 0 0 0 2px var(--canvas); transform: rotate(-3deg); }
+.strip img:nth-child(even) { transform: rotate(3deg); }
+.strip img + img { margin-left: -12px; }
+.strip__more { margin-left: var(--spacing-sm); color: var(--muted); }
+/* Opens the full-screen map screen. On desktop SplitView's own expand control does this job. */
+.map-open { position: absolute; top: var(--spacing-md); right: var(--spacing-md); z-index: 500; box-shadow: var(--shadow-float); }
+@media (min-width: 1128px) { a.map-open, button.map-open { display: none; } }
+
+/* The timeline: one rail joins every stop, leg and the end point. */
+.timeline:focus { outline: none; }
+.timeline:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.timeline { position: relative; display: flex; flex-direction: column; gap: 0; padding: var(--spacing-base); }
+.timeline::before { content: ""; position: absolute; top: 34px; bottom: 34px; left: calc(var(--spacing-base) + 13px); width: 2px; border-radius: var(--rounded-full); background: var(--hairline); }
+.timeline__leg { position: relative; }
+.timeline__end { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: var(--spacing-md); padding-top: var(--spacing-sm); }
+.timeline__warning { display: inline-flex; align-items: center; gap: var(--spacing-xs); color: var(--primary-error-text); }
+.timeline__flag { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 2px solid var(--ink); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: 0 0 0 4px var(--canvas); color: var(--ink); }
+
+/* Trips home, folded away. */
+.home { padding: 0 var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+.home__summary { display: flex; align-items: center; gap: var(--spacing-md); min-height: 52px; list-style: none; cursor: pointer; }
+.home__summary::-webkit-details-marker { display: none; }
+.home__summary .caption-sm { margin-left: auto; }
+.home__chevron { color: var(--muted); transition: transform var(--motion-fast) var(--ease-out); }
+.home[open] .home__chevron { transform: rotate(180deg); }
+.home__summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: var(--rounded-sm); }
+.home__list { display: flex; flex-direction: column; padding-bottom: var(--spacing-sm); }
+.home__row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 36px; }
+.home__row.is-long .home__min { color: var(--primary-error-text); }
 .replan { align-self: flex-start; }
+
+/* "Plan confirmed", right after confirming: a warm card that pops in under the confetti. */
+.celebrate { position: relative; display: flex; align-items: center; gap: var(--spacing-base); padding: var(--spacing-base) calc(var(--tap-min) + var(--spacing-md)) var(--spacing-base) var(--spacing-base); border-radius: var(--rounded-md); background: linear-gradient(120deg, color-mix(in srgb, var(--primary-bright) 14%, var(--canvas)), color-mix(in srgb, var(--cat-shop-fg) 12%, var(--canvas))); }
+.celebrate__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary-bright) 18%, transparent); }
+.celebrate__text { display: flex; flex-direction: column; gap: var(--spacing-xxs); min-width: 0; }
+.celebrate__close { position: absolute; top: var(--spacing-xs); right: var(--spacing-xs); }
+.celebrate-enter-active { transition: opacity 400ms var(--ease-out), transform 600ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+.celebrate-enter-active .celebrate__icon { animation: celebrate-pop 700ms 150ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.celebrate-leave-active { transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out); }
+.celebrate-enter-from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+.celebrate-leave-to { opacity: 0; transform: scale(0.98); }
+@keyframes celebrate-pop { from { transform: scale(0) rotate(-45deg); } to { transform: scale(1) rotate(0); } }
+
+/* Desktop: the timeline fills the height of the map beside it (less the Trips home row below), with the stops
+   spread out, bigger photos and names, so the day reads at a glance. */
+@media (min-width: 1128px) {
+  .timeline { min-height: calc(min(820px, 100dvh - 120px) - 68px); padding: var(--spacing-lg); }
+  .timeline::before { top: 42px; bottom: 42px; left: calc(var(--spacing-lg) + 13px); }
+  .timeline :deep(.sortable) { flex: 1 1 auto; justify-content: space-around; gap: var(--spacing-sm); }
+  .timeline :deep(.stop__banner) { height: 150px; border-radius: var(--rounded-md); }
+  .timeline :deep(.stop .title-md) { font: var(--text-display-sm); }
+  .timeline :deep(.stop) { padding: var(--spacing-sm) 0; }
+}
 </style>

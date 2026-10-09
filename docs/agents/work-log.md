@@ -268,3 +268,156 @@ The lead asked for everything to be committed, the branch pushed, and the work m
 - **Committed:** 13 sequential commits for the code, SQL, glossary and agent docs (`2a67884` to `91b9434`), then this log and `CLAUDE.md`. Before committing, everything staged was scanned for secret-shaped values: none found.
 - **Tests at `91b9434`:** `pnpm test` 253 passed, 1 skipped, 16 files.
 - **Merge:** by pull request into `main`. The branch sits on `dev`, so the merge also takes `dev`'s 21 commits into `main`. The pull request and `git log` are the record of whether and when it merged.
+
+## Round 4: backend work that needs no decision (2026-10-09)
+
+Parent task: the lead asked for everything that is unblocked and needs no input. All frontend work waits on the session-flow pull request, which the lead has to merge. This round is backend and CI only, on branch `feat/weather-and-rate-limit`, cut from `dev`. Nothing is committed.
+
+| # | Role | Scope | May change | Depends on | Acceptance criteria | Status |
+|---|---|---|---|---|---|---|
+| 4.1 | Backend | The flat error shape decided on "Overhaul 3 of 7"; a rate limiter as a standalone middleware | `backend/src/middleware/auth.js`, `backend/src/middleware/rate-limit.js` (new), `backend/tests/auth.test.js`, `backend/tests/rate-limit.test.js` (new) | None | The login check answers `{ error, message }`; the limiter answers 429 with `Retry-After` after the limit and recovers after the window; all suites pass | **Completed** |
+| 4.2 | Backend | Real weather from data.gov.sg through the HTTP helper; the simulated forecast behind an env flag and marked in the response | `backend/src/services/weather.js`, `backend/src/routes/plan.js`, `backend/src/routes/plan-schemas.js`, `backend/src/app.js`, `backend/src/index.js`, `backend/.env.example`, `backend/src/services/stubs.js`, `backend/tests/fixtures/datagov/`, `backend/tests/weather.test.js` (new), other planner test files only where the weather change breaks them | None | With stubs on, a rainy forecast changes the order of results and the response says where the weather came from; `weatherCase` is refused unless the flag is set; the suite passes offline | **Completed**, with one criterion changed by the lead: see 4.2 below |
+| 4.3 | Architecture | Design the session endpoints of "Overhaul 5 of 7": the planner loading a session from the database, and the writes only the server may make | Nothing | None | Each endpoint has a method, path, who may call it, what it reads and writes, and its errors; open questions are listed | **Completed** |
+| 4.4 | Infrastructure, done by the lead | CI runs the frontend tests, and runs on pushes to `dev` | `.github/workflows/ci.yml`, root `package.json` | None | The workflow file names every step; the same commands pass locally | **Completed** |
+| 4.5 | Lead | Mount the limiter in `app.js` and merge both agents' doc text into `backend/docs/planner-api.md` | `backend/src/app.js`, `backend/docs/planner-api.md`, and the files named in 4.5 below | 4.1, 4.2 | All suites pass | **Completed** |
+
+### 4.4 CI: completed
+
+- **Done by the lead.** File changed: `.github/workflows/ci.yml`. The root `package.json` was left as it is.
+- **What changed:** the workflow also runs on pushes to `dev`, and has a new step, `pnpm --filter jio-frontend test`.
+- **Verified:** the file parses as YAML; the new step's command passes locally, 39 tests in 7 files. The workflow itself has not run on GitHub, because nothing is pushed.
+- **Not done, and why:** branch protection needs the lead and a paid plan or a public repo; aligning the two vitest majors touches `frontend/package.json`, which waits on the session-flow pull request.
+
+### 4.1 Error shape and rate limiter: completed
+
+- **Agent:** an implementer subagent, limited to four files.
+- **Verified by the lead:** only its four files changed (`auth.js`, `auth.test.js`, and the new `rate-limit.js` and `rate-limit.test.js`); the lead read the limiter and the `auth.js` diff, and reran its two test files: 74 of 74 passed (46 login check, 28 limiter).
+- **What changed:**
+  - The login check answers `{ error: 'unauthenticated', message }` and `{ error: 'auth_unavailable', message }`. Status codes, messages and `Retry-After: 5` are unchanged.
+  - `rateLimit({ windowMs, max, keyOf, now })` is a new in-memory, fixed-window middleware with no new dependency. It counts per signed-in user, or per address when no login check ran first, and answers 429 `rate_limited` with `Retry-After`. Expired records are swept at most once per window, by a request.
+- **Limits of the limiter, as reported and confirmed in the code:** counts are per process; a caller can make up to twice the limit across a window boundary; behind a proxy every anonymous caller shares one address unless Express is told to trust the proxy.
+- **Not mounted yet:** the lead mounts it in 4.5, after the weather agent has finished with `app.js`.
+
+### 4.2 Real weather: completed
+
+- **Agent:** an implementer subagent. It changed `services/weather.js`, `routes/plan.js`, `app.js`, `index.js`, `.env.example`, `tests/plan-routes.test.js`, `tests/limits.test.js`, and added `planner/live-weather.js` and `tests/weather.test.js`. The engine is untouched.
+- **What it built:** `createWeather({ http })` fetches the two-hour forecast through the HTTP helper, caches it for five minutes (30 seconds for a failure), and shares one fetch between concurrent callers. `/api/converge` and `/api/roam` score each venue from the nearest of the 47 forecast areas and answer with `weather: { source, validUntil? }`.
+- **Changed by the lead after review:** the brief told the agent to refuse `weatherCase` with a 400 when the simulated forecast is off. The frontend sends `weatherCase` on every ranking, so that would have broken every slot on any normal server. The server now ignores the field, uses the live forecast, and adds `weather.simulationIgnored: true`. The brief was wrong, not the agent.
+- **Verified by the lead:**
+  - Read the diffs of `plan.js` and `app.js`.
+  - One request against the real data.gov.sg service: `source: live`, 369 ms; a second, 6 ms from the cache; with `weatherCase` and the flag off, `simulationIgnored: true`.
+  - The agent reported up to two accidental real requests during its work, before it pointed the test servers at stubs. The suites as they stand make none.
+- **Left as reported:** the forecast's end time is not checked for staleness; `postranking.js` still reads the old region cases, and no route calls it.
+
+### 4.3 Session endpoint design: completed
+
+- **Agent:** an architect subagent, read-only.
+- **Result:** 18 endpoints with caller, status, reads, writes and errors; a mapping of every `api.js` function; two new columns and two new functions as proposed SQL; a file plan, test plan and eight build slices; ten questions with a default each. Posted in full on the ticket "Overhaul 5 of 7".
+- **Not verified:** nothing in it was run. The SQL is untested, and the lead has not checked each endpoint against the schema. It is a proposal.
+
+### 4.5 Integration: completed
+
+- **Done by the lead.** Files changed beyond the agents' work: `backend/src/app.js`, `backend/src/routes/plan.js`, `backend/src/index.js`, `backend/.env.example`, `backend/src/services/scenario.js`, `backend/tests/scenario.test.js`, `backend/tests/weather.test.js`, `backend/tests/rate-limit.test.js`, `backend/docs/planner-api.md`, `frontend/src/lib/__tests__/api.backend.test.js`.
+- **What changed:**
+  - The limiter is mounted on the four planner routes only, through `createApp({ planRateLimit })`. `index.js` sets 300 a minute per caller (`PLANNER_RATE_LIMIT_PER_MINUTE`), and none in stub mode. It is loose because one round of voting sends about 130 requests today.
+  - The scenario header check answered in the nested error shape; it is flat now.
+  - One frontend test starts the real backend and fakes rain. It now passes `allowSimulatedWeather: true`. Without that it failed, and it would have called data.gov.sg. The open frontend pull request does not touch that file.
+- **Results on the finished working tree:**
+
+| Step | Result |
+|---|---|
+| `pnpm test` | 317 passed, 1 skipped, 18 files |
+| `pnpm --filter jio-frontend test` | 39 passed, 7 files |
+| `pnpm build` | Succeeded |
+| Limiter on the real app, limit of 2 | Third planner request 429 with `Retry-After`; health check and unknown routes unaffected |
+
+- **Not verified:** the CI workflow on GitHub; the limiter behind a proxy; the weather under a real outage of data.gov.sg (tested with a failing fake only).
+
+## Round 5: audit of the session-flow pull request (2026-10-09)
+
+Parent task: the lead asked for an audit of the open pull request "Session flow: merge the backend planner and redesign the frontend" (head `9389a27`, 86 files, all under `frontend/`). The pull request is a teammate's and is read-only. It is checked out in a separate worktree outside the repo folder, so no agent touches the lead's working tree.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 5.1 | Code review | Correctness of the data layer, stores, router, planner libraries and the new views' logic | Nothing | Each finding has a file and line, a failure scenario, a severity, and whether it was traced | **Completed** |
+| 5.2 | Design review | Layout at phone and desktop widths, accessibility, motion, consistency of the new screens and navigation | Nothing | Each finding has a file and line and names the audit ticket it relates to, if any | **Completed** |
+| 5.3 | Security, honesty and fit | Forgeable points and vouchers, invented data shown as fact, privacy, fit with the lead's decisions of 9 Oct, test quality | Nothing | Each finding has a file and line; each earlier audit ticket is marked fixed, unchanged or worse | **Completed** |
+| 5.4 | Testing, done by the lead | Install, tests and build on the pull request's head, and on it merged with `dev` | Nothing | Real output for each command | **Completed** |
+
+### 5.1 and 5.3: completed. 5.2 still running.
+
+- **5.3, security and fit: "changes required".** The lead spot-checked the main claims in the code and they hold: vouchers attributed to real cafés with no sample label; the contacts and location steps, "Ask AI" and invented crowd levels still present after the lead cut them; sign-up without a date of birth and with dots in usernames; "Sign out" wiping everything unannounced; fabricated reviews headed "from Jio friends"; unlabelled travel times. Injection checks came back clean. Points, vouchers and season prizes are all computed and stored in the browser.
+- **5.1, logic: "merge with follow-ups".** No blocker. Five majors: photos as data URLs fill the storage quota and later writes then fail silently; reordering stops or adding a photo re-ranks every slot; a failed reorder is not rolled back; a save is trusted on its version number alone; ending a plan does not close an expired season first. Planner request count for a voting round is unchanged at about 130, and worse after confirmation.
+- **5.4, testing by the lead:** the pull request's commits merged onto round 4 on the local branch `feat/session-flow-integration`: `pnpm test` 317 passed, 1 skipped; `pnpm --filter jio-frontend test` 81 passed, 14 files; `pnpm build` succeeded.
+- **Not fixable in this round, left on their tickets:** points and prizes computed in the browser, one hard-coded user id, the browser sending the group to the planner, no login screen, confirming needing a second voter. These are the overhaul itself.
+
+## Round 6: fix the audit's findings (2026-10-09)
+
+Parent task: the lead said to fix what the audit found and then merge everything to `main`, unless something is a serious blocker. None is: every finding is either fixable here or already an overhaul ticket. Work is on `feat/session-flow-integration`.
+
+| # | Role | Scope | May change | Depends on | Acceptance criteria | Status |
+|---|---|---|---|---|---|---|
+| 6.1 | Frontend logic | The logic findings of 5.1 and the data-layer side of 5.3 | `frontend/src/lib/api.js`, `lib/season.js`, `lib/image.js`, `lib/planner/itinerary.js`, `stores/planner.js`, `stores/events.js`, the script of `components/ui/PolaroidLine.vue` and `MeetupGraph.vue`, tests under `lib/__tests__/` except `api.backend.test.js` | 5.1 | Each fix has a test that fails without it; frontend suite passes | **Completed**; verified with 6.3 in 6.4 |
+| 6.2 | Frontend views | The cuts the lead decided, honest labels, sign-up fields, error states | The views and components named in its brief, `lib/plannerApi.js`, `lib/planner/crowd.js` and its users, `lib/mock/rewards.js`, `lib/mock/people.js`, `stores/auth.js` | 5.3 | No cut feature remains; every invented value is labelled; sign-up collects a date of birth; frontend suite and build pass | **Completed**; verified with 6.3 in 6.4 |
+| 6.3 | Frontend design | The findings of 5.2 | The components, views and styles named in its brief; runs after 6.1 and 6.2 so no file is edited twice at once | 5.2, 6.1, 6.2 | The photo carousel can be paused and does not autoplay under reduced motion; photos can be changed and deleted safely without a pointer; the navigation fits at 320 px; text on the brand and category colours meets 4.5:1; dialogs trap focus; frontend suite and build pass | **Completed**, as two agents on separate files |
+| 6.4 | Lead | Verify, run every check, commit, push, merge to `main` | Docs and the tracker, and the small files named in 6.4 below | 6.1 to 6.3 | All suites pass; pull request merged | **Completed** up to the commits; the pull request and `git log` record the merge |
+
+### 5.2 Design review: completed, "changes required"
+
+- **Agent:** a design-reviewer subagent, read-only. It rendered nothing: contrast ratios are computed from token values, and layout findings marked "plausible" are inferred from the CSS.
+- **No blocker:** no main flow is impossible at a rubric width.
+- **Nine majors:**
+  - The photo carousel autoplays every 5 seconds with no pause, announces each step to screen readers, and ignores reduced motion.
+  - Deleting a photo is immediate, with no confirmation or undo.
+  - On touch devices the photo viewer has no previous and next buttons, so a screen-reader user cannot change photo.
+  - The floating navigation is wider than a 320 px screen when "Leaderboard" is the current tab (inferred).
+  - On desktop the leaderboard's pinned "you" row sits under the navigation.
+  - The new brand colour `#ff385c` gives white text 3.52:1, below the 4.5:1 minimum, on every primary button, the "Confirmed" pill and two chips.
+  - The current tab's label is 3.04:1.
+  - A stop card's text column is about 104 px wide at 320 px (inferred).
+  - The place detail and the modal dialog claim to be modal but do not trap focus.
+- **Twenty-four minors,** among them small touch targets, white text on three category colours and three person colours below 4.5:1, an undiscoverable keyboard reorder, four animations that ignore reduced motion, and one-off components that duplicate design-system primitives.
+- **Earlier audit points:** contrast, layout at rubric widths and hover motion on cards are worse; the bottom sheet's focus handling is unchanged and fine.
+
+### 6.1 Frontend logic: completed
+
+- **Agent:** a frontend-engineer subagent. Files changed: `lib/api.js`, `lib/season.js`, `stores/planner.js`, `stores/events.js`, the scripts of `PolaroidLine.vue` and `MeetupGraph.vue`, `season.test.js`, and four new test files.
+- **What changed:** a failed save rolls memory back and rejects with a message; at most 12 photos a session; a session summary carries `photoCount`, not the photos; reordering stops, photos and travel-mode changes no longer re-rank; a confirmed or completed session's plan is read from storage; a failed reorder is rolled back; a save is shape-checked; an expired season is closed before points are awarded; a demo-ended season ends at the next quarter boundary; one deterministic winner on a tie; `rank: null` at zero points; deleting the first stop keeps later stops on time; sign-up rules match the database and take a date of birth; no crowd; the planner store keeps `errors` and always resets `loading`.
+- **Reported by the agent:** 80 new tests; it reverted fixes 1, 2, 3, 4, 5 and 11 one at a time and saw tests fail each time. The polaroid and graph fixes have no tests.
+- **Left open by its contract:** views that still read `session.photos`; these go to 6.3.
+
+### 6.2 Frontend views: completed
+
+- **Agent:** a frontend-engineer subagent. It created `SampleNote.vue`, `lib/signupRules.js` and two test files, deleted `lib/planner/crowd.js`, and changed nine views, eight components, `plannerApi.js`, the planner library index and suggestions, two mock files, `stores/auth.js` and the tokens.
+- **What changed:** "Ask AI", the contacts and location steps and every crowd estimate are gone; vouchers use invented café names under a "Sample rewards" banner; reviews are headed "Sample reviews"; a "Sample data for the demo" note sits on other people's profiles, the leaderboard, Home's places and the place detail; travel times say "about"; a planner outage shows an error with "Try again", not "Not found"; developer text shows only in development; `weatherCase` is sent only when the rain switch is on; sign-out says it erases everything; sign-up has a date-of-birth step.
+- **Outside its brief, kept:** it changed `lib/planner/meetingArea.js` and its test so the meeting line says "about N minutes".
+- **Not verified by the agent:** nothing was rendered.
+- **State after both, run by the lead:** `pnpm --filter jio-frontend test` 180 passed, 1 failed (a stale assertion, assigned to 6.3); `pnpm build` succeeded.
+
+### 6.3 Design and accessibility: completed
+
+- **Agents:** two frontend-engineer subagents on separate files.
+- **6.3a, photos, navigation, dialogs, motion.** The carousel has a Pause/Play button, pauses on hover and focus, and does not autoplay under reduced motion; deleting a photo asks first; the viewer has previous and next buttons at every size; the Photos page's dead end has a link, and thumbnails open the viewer; the navigation is never wider than the screen less 8 px each side, and hides the current label under 400 px; one `useFocusTrap` composable now serves the bottom sheet, the modal dialog and the place detail; reduced-motion guards on the global rule, the router's scroll, the map and the viewer; touch targets raised to 44 px; the graph has a Reset button and an accurate role; the reorder handle says how to use it.
+- **6.3b, colour and views.** `--primary` went from `#ff385c` (white text 3.52:1) to `#d10027` (5.61:1), with the old value kept as `--primary-bright` for decoration without text; three category colours and three person colours darkened to 4.8:1 or better; a text-safe amber added; the leaderboard's pinned row sits above the navigation, its podium reads in rank order, and it has empty and error states; the stop card stacks at 480 px and below; the edit toggle now gates the delete, drag and re-plan controls; Home has error states and one fewer "Create meetup"; the profile's definition list is in the right order.
+- **Reported by the agents:** both ran the app in a headless browser at 320 and 1280 px and checked the carousel, viewer, delete dialog, place detail, navigation at ten widths, the itinerary in edit mode and focus after delete.
+- **Not verified by anyone:** the error and empty states that need a failing data layer; the leaderboard's pinned row at desktop width (the demo user was in the top ten).
+
+### 6.4 Verification and commits: completed
+
+- **Small fixes by the lead**, from the agents' "outside my scope" lists: the amber text token on the map's travel label; an unused class in `app.css`; "about" on the place detail's walk time; tighter travel-mode pills under 400 px; two stale comments; a dated note at the top of `frontend/docs/backend-integration.md` saying crowd is gone.
+- **Checked by the lead in a browser** (the built-in one, with the backend on a spare port because port 3000 was in use by another project):
+  - Sign-up end to end with a throwaway local account: eight steps, a date-of-birth step, the username hint without dots, no contacts or location step.
+  - Rewards: the sample banner and invented café names. Leaderboard: the sample note, and "No rank yet" at zero points. Profile: `dt` before `dd`.
+  - No horizontal overflow on Home, Rewards, Leaderboard, Profile, the create page and the design-system page at 320 px, on four of them at 375 px and at 1280 px. The navigation's computed width at 320 px is 304 px, and its tabs are 44 px tall.
+  - No console errors beyond the dev server's hot-reload socket.
+  - The lead did not walk the session flow itself (planner, itinerary, photos); the agents did, headless.
+- **Results on the committed tree:**
+
+| Step | Result |
+|---|---|
+| `pnpm test` | 317 passed, 1 skipped, 18 files |
+| `pnpm --filter jio-frontend test` | 186 passed, 20 files |
+| `pnpm build` | Succeeded |
+
+- **Commits:** 8 for round 4, one merge of the session-flow branch, 14 for the audit fixes, then this log and `CLAUDE.md`. Everything was scanned for secret-shaped values before committing: none found.
+- **Left on their tickets, not fixable here:** points, prizes and codes computed in the browser; one hard-coded user id; the browser sending the group to the planner; no login screen; confirming needs a second voter; the rollback that restores a whole session; no table for photos, seasons, points, vouchers or friends.

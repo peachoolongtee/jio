@@ -1,8 +1,15 @@
 <script setup>
-// One stop of an itinerary: the time and duration on one line ("15:00 · 45 min"), the name,
-// the category as an icon only, the price tier, and a photo of the kind of place when `image` is set.
+// One stop on the itinerary timeline: a numbered dot on the rail in the category colour (matching the stop's pin
+// on the map), the time and duration on one line ("15:00 · 45 min"), the name, the category as an icon,
+// where it is, the price tier, and a photo of the kind of place when `image` is set.
 //   <StopCard :number="1" time="15:00" :duration="45" name="Tiong Bahru Bakery" category="drink" :price="14" area="Tiong Bahru" :image="src" />
-// Slots: `actions` (buttons such as "Delete stop"), default (extra content).
+// Put several in a list with the .timeline class (EventView) so the rail joins them.
+// Slots: `handle` (a drag handle, on the right), `actions` (buttons such as "Delete stop"). On a phone (480px and
+// narrower) the photo and the controls drop under the text, so the name, time, area and price keep the full width.
+// The name can take focus from code (tabindex -1), for example to land on the next stop after one is deleted.
+// `warning` shows a short error-red line, for example "Closed at 15:00" after the stops were rearranged.
+// `banner` shows the photo as a wide strip above the details instead of a thumbnail beside them.
+import AppIcon from '../ui/AppIcon.vue'
 import CategoryIcon from '../ui/CategoryIcon.vue'
 import PriceTier from '../ui/PriceTier.vue'
 import { timeAndDuration } from '@/lib/planner/format.js'
@@ -13,45 +20,62 @@ defineProps({
   name: { type: String, required: true },
   category: { type: String, required: true },
   price: { type: Number, required: true },
-  // Where it is, for example "Bishan".
   area: { type: String, default: '' },
-  // The stop's number, matching its pin on the map.
   number: { type: Number, default: 0 },
-  // Lifts the card, for example while it is selected on the map.
+  warning: { type: String, default: '' },
+  // Highlights the stop: its pin is selected on the map, or it is being dragged.
   lifted: { type: Boolean, default: false },
   image: { type: String, default: '' },
+  banner: { type: Boolean, default: false },
 })
 </script>
 
 <template>
   <article class="stop" :class="{ 'is-lifted': lifted }" :aria-label="name">
-    <span v-if="number" class="stop__number" :class="`stop__number--${category}`" aria-hidden="true">{{ number }}</span>
-    <img v-if="image" class="stop__photo" :src="image" alt="" loading="lazy" width="64" height="64" />
-    <div class="stop__text">
-      <span class="caption text-brand">{{ timeAndDuration(time, duration) }}</span>
-      <h3 class="title-md clamp-2">{{ name }}</h3>
+    <span class="stop__dot" :class="`stop__dot--${category}`" aria-hidden="true">{{ number || '' }}</span>
+    <div class="stop__body">
+      <img v-if="image && banner" class="stop__banner" :src="image" alt="" loading="lazy" />
+      <span class="caption tnum">{{ timeAndDuration(time, duration) }}</span>
+      <h3 class="stop__name title-md clamp-2" tabindex="-1">{{ name }}</h3>
       <p class="stop__meta">
-        <CategoryIcon :category="category" :size="24" />
-        <PriceTier :price="price" />
+        <CategoryIcon :category="category" :size="22" />
         <span v-if="area" class="caption-sm text-muted truncate">{{ area }}</span>
+        <PriceTier :price="price" />
       </p>
+      <p v-if="warning" class="stop__warning caption-sm"><AppIcon name="warning" :size="12" /> {{ warning }}</p>
     </div>
-    <div v-if="$slots.actions" class="stop__actions"><slot name="actions" /></div>
-    <slot />
+    <img v-if="image && !banner" class="stop__photo" :src="image" alt="" loading="lazy" width="64" height="64" />
+    <div v-if="$slots.actions || $slots.handle" class="stop__actions">
+      <slot name="actions" />
+      <slot name="handle" />
+    </div>
   </article>
 </template>
 
 <style scoped>
-.stop { position: relative; display: flex; align-items: flex-start; gap: var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
-.stop.is-lifted { z-index: 2; border-color: var(--primary); box-shadow: var(--shadow-float); }
-.stop__number { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); font: var(--text-caption); }
-/* The number in the category colour, matching the stop's pin on the map. */
-.stop__number--eat { background: var(--cat-eat-fg); }
-.stop__number--drink { background: var(--cat-drink-fg); }
-.stop__number--shop { background: var(--cat-shop-fg); }
-.stop__number--activity { background: var(--cat-activity-fg); }
-.stop__photo { flex-shrink: 0; width: 64px; height: 64px; object-fit: cover; border-radius: var(--rounded-sm); background: var(--surface-strong); }
-.stop__text { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-xs); }
-.stop__meta { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }
-.stop__actions { flex-shrink: 0; display: flex; align-items: center; gap: var(--spacing-xs); }
+/* Dot | text | photo | actions, on one row. Phones stack them: see the media query at the end. */
+.stop { position: relative; display: grid; grid-auto-flow: column; grid-template-columns: 28px minmax(0, 1fr); grid-auto-columns: auto; align-items: start; gap: var(--spacing-md); padding: var(--spacing-xs) 0; border-radius: var(--rounded-sm); background: var(--canvas); }
+.stop__dot { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-top: 2px; border-radius: var(--rounded-full); background: var(--ink); box-shadow: 0 0 0 4px var(--canvas); color: var(--on-dark); font: var(--text-caption); }
+.stop__dot--eat { background: var(--cat-eat-fg); }
+.stop__dot--drink { background: var(--cat-drink-fg); }
+.stop__dot--shop { background: var(--cat-shop-fg); }
+.stop__dot--activity { background: var(--cat-activity-fg); }
+.stop__body { display: flex; flex-direction: column; gap: var(--spacing-xxs); min-width: 0; }
+.stop__meta { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; margin-top: var(--spacing-xxs); }
+.stop__warning { display: inline-flex; align-items: center; gap: var(--spacing-xs); margin-top: var(--spacing-xxs); color: var(--primary-error-text); }
+.stop__banner { display: block; width: 100%; height: 120px; margin-bottom: var(--spacing-sm); object-fit: cover; border-radius: var(--rounded-sm); background: var(--surface-strong); }
+.stop__photo { width: 64px; height: 64px; object-fit: cover; border-radius: var(--rounded-sm); background: var(--surface-strong); }
+.stop__actions { display: flex; align-items: center; gap: var(--spacing-xs); }
+.stop__name:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: var(--rounded-xs); }
+.stop.is-lifted .stop__dot { background: var(--primary); }
+
+/* 480px and narrower: dot | text on the first row; the photo and then the controls get a row of their own under the
+   text, so nothing squeezes the name. The controls sit at the end of their row. */
+@media (max-width: 480px) {
+  .stop { grid-auto-flow: row; grid-auto-columns: auto; row-gap: var(--spacing-xs); }
+  .stop__dot { grid-column: 1; grid-row: 1; }
+  .stop__body { grid-column: 2; grid-row: 1; }
+  .stop__photo { grid-column: 2; grid-row: auto; }
+  .stop__actions { grid-column: 2; grid-row: auto; justify-content: flex-end; }
+}
 </style>

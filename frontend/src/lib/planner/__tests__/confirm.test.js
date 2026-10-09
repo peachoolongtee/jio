@@ -72,3 +72,41 @@ describe('format', () => {
     expect(timeAndDuration(900, 120)).toBe('15:00 · 2 h')
   })
 })
+
+describe('rearranging the itinerary', () => {
+  const v = (id) => VENUES.find((x) => x.id === id)
+  const stops = [
+    { venue: v('bishan-library'), plannedStart: 900, duration: 120 },
+    { venue: v('junction-8'), plannedStart: 1020, duration: 90 },
+    { venue: v('ming-kee-chicken-rice'), plannedStart: 1110, duration: 90 },
+  ]
+
+  it('moves a stop to a new position', async () => {
+    const { moveItem } = await import('../itinerary.js')
+    expect(moveItem(['a', 'b', 'c'], 2, 0)).toEqual(['c', 'a', 'b'])
+    expect(moveItem(['a', 'b', 'c'], 0, 2)).toEqual(['b', 'c', 'a'])
+    expect(moveItem(['a', 'b', 'c'], 1, 1)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('keeps the plan start time and re-times every stop after a move', async () => {
+    const { moveItem } = await import('../itinerary.js')
+    const moved = moveItem(stops, 2, 0)
+    const { stops: timed } = buildItinerary(moved, [], 900)
+    expect(timed[0].venue.id).toBe('ming-kee-chicken-rice')
+    expect(timed[0].start).toBe(900)
+    expect(timed[1].start).toBe(timed[0].end + buildItinerary(moved, [], 900).legs[0].minutes)
+  })
+
+  it('flags a stop that would be closed at its new time', () => {
+    // Ming Kee Chicken Rice opens at 10:30: moved to start the day at 09:00 it is closed.
+    const { stops: timed } = buildItinerary([stops[2], stops[0]], [], 9 * 60)
+    expect(timed[0].open).toBe(false)
+    expect(buildItinerary(stops).stops.every((s) => s.open)).toBe(true)
+  })
+
+  it('warns when the new last stop is far from an MRT station', async () => {
+    const { endPoint } = await import('../itinerary.js')
+    expect(endPoint(v('bishan-amk-park')).farFromMrt).toBe(true)
+    expect(endPoint(v('junction-8')).farFromMrt).toBe(false)
+  })
+})
