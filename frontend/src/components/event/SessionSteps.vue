@@ -1,8 +1,9 @@
 <script setup>
-// Where a session is, as a progress bar of its five steps, which doubles as its navigation:
-//   Invite · Locate · Vote · Plan · Photos
+// Where a session is, as a progress bar of its four steps, which doubles as its navigation:
+//   Invite · Locate · Vote · Itinerary
 // Steps the session has reached are filled in Rausch and open their page (Invite and Locate are both the People
-// page); later steps are greyed out. The page you are on has its label in bold ink.
+// page); later steps are greyed out. The page you are on has its label in bold ink. The itinerary's own pages
+// (photos, the full map) count as the Itinerary step.
 //   <SessionSteps :session="session" />
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
@@ -14,27 +15,27 @@ const STEPS = [
   { key: 'invite', label: 'Invite', page: '' },
   { key: 'locate', label: 'Locate', page: '' },
   { key: 'vote', label: 'Vote', page: '/plan' },
-  { key: 'plan', label: 'Plan', page: '/itinerary' },
-  { key: 'photos', label: 'Photos', page: '/photos' },
+  { key: 'itinerary', label: 'Itinerary', page: '/itinerary' },
 ]
-const ORDER = ['inviting', 'locating', 'voting', 'confirmed', 'completed']
+const ORDER = ['inviting', 'locating', 'voting', 'confirmed']
 
 // The last step the session reached. A cancelled one stops where it was called off.
 const reached = computed(() => {
   const s = props.session
+  if (s.status === 'completed') return 3
   if (s.status !== 'cancelled') return ORDER.indexOf(s.status)
   if (s.plan) return 3
   if (s.meeting) return 2
   return s.activeIds?.length > 1 ? 1 : 0
 })
 
-// Photos opens on the day itself too, while the plan is still on.
-const canOpen = (i) => i <= reached.value || (i === 4 && props.session.status === 'confirmed')
+const canOpen = (i) => i <= reached.value
 
 // The step for the page on screen.
+const tail = computed(() => route.path.replace(`/sessions/${props.session.id}`, ''))
 const viewing = computed(() => {
-  const tail = route.path.replace(`/sessions/${props.session.id}`, '')
-  const index = STEPS.findIndex((step) => step.page && step.page === tail)
+  if (['/photos', '/map'].includes(tail.value)) return 3
+  const index = STEPS.findIndex((step) => step.page && step.page === tail.value)
   if (index >= 0) return index
   return reached.value >= 1 ? 1 : 0
 })
@@ -46,6 +47,8 @@ const steps = computed(() =>
     done: i <= reached.value,
     open: canOpen(i),
     here: i === viewing.value,
+    // On the step's own page (not one of its pages, such as photos): nothing to link to.
+    exact: i === viewing.value && tail.value === step.page,
   })),
 )
 </script>
@@ -55,10 +58,10 @@ const steps = computed(() =>
     <ol class="steps__list">
       <li v-for="(step, i) in steps" :key="step.key" class="steps__item" :class="{ 'is-done': step.done, 'is-here': step.here }">
         <RouterLink
-          v-if="step.open && !step.here"
+          v-if="step.open && !step.exact"
           :to="step.to"
           class="steps__step"
-          :aria-label="`Step ${i + 1} of 5: ${step.label}${step.done ? '' : ', not reached yet'}`"
+          :aria-label="`Step ${i + 1} of 4: ${step.label}${step.done ? '' : ', not reached yet'}`"
         >
           <span class="steps__bar" aria-hidden="true" />
           <span class="steps__label">{{ step.label }}</span>
@@ -77,7 +80,7 @@ const steps = computed(() =>
 
 <style scoped>
 .steps { margin-top: var(--spacing-sm); }
-.steps__list { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.steps__list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
 .steps__step { display: flex; flex-direction: column; gap: var(--spacing-xs); min-height: var(--tap-min); padding-top: var(--spacing-xs); color: var(--muted-soft); text-decoration: none; -webkit-tap-highlight-color: transparent; }
 /* The bar: grey until the session reaches the step, then Rausch. */
 .steps__bar { height: 6px; border-radius: var(--rounded-full); background: var(--surface-strong); transition: background-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }

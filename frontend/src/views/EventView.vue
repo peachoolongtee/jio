@@ -167,9 +167,17 @@ async function endPlan() {
           Long trip home: {{ trip.name }}, {{ trip.minutes }} min
         </BannerNote>
 
-        <RouterLink v-if="session.photos.length" :to="`/sessions/${id}/photos`" class="strip" :aria-label="`${session.photos.length} photos`" title="Photos">
-          <img v-for="p in session.photos.slice(-4)" :key="p.id" :src="p.src" alt="" />
-          <span v-if="session.photos.length > 4" class="strip__more caption-sm">+{{ session.photos.length - 4 }}</span>
+        <!-- Photos from the day: always here once the plan is set, so it is clear where to add them. -->
+        <RouterLink :to="`/sessions/${id}/photos`" class="photos-cta">
+          <span class="photos-cta__icon" aria-hidden="true"><AppIcon name="camera" :size="20" /></span>
+          <span class="photos-cta__text">
+            <span class="title-sm">Photos from the day</span>
+            <span class="caption-sm text-muted">{{ session.photos.length ? `${session.photos.length} ${session.photos.length === 1 ? 'photo' : 'photos'} so far. Add yours.` : 'Add your photos for everyone in the group to see.' }}</span>
+          </span>
+          <span v-if="session.photos.length" class="photos-cta__strip" aria-hidden="true">
+            <img v-for="p in session.photos.slice(-3)" :key="p.id" :src="p.src" alt="" />
+          </span>
+          <span class="photos-cta__go" aria-hidden="true"><span class="photos-cta__word">Add photos</span> <AppIcon name="arrow-right" :size="16" /></span>
         </RouterLink>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
@@ -300,11 +308,18 @@ async function endPlan() {
 
 <style scoped>
 /* The latest photos from the day, as a stack of thumbnails linking to Photos. */
-.strip { display: inline-flex; align-self: flex-start; align-items: center; min-height: var(--tap-min); text-decoration: none; }
-.strip img { width: 40px; height: 40px; border-radius: 12px; object-fit: cover; box-shadow: 0 0 0 2px var(--canvas); transform: rotate(-3deg); }
-.strip img:nth-child(even) { transform: rotate(3deg); }
-.strip img + img { margin-left: -12px; }
-.strip__more { margin-left: var(--spacing-sm); color: var(--muted); }
+/* Photos from the day: a row that leads to the photos page, with the latest few and "Add photos". */
+.photos-cta { display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); text-decoration: none; transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out); }
+@media (hover: hover) { .photos-cta:hover { border-color: var(--border-strong); box-shadow: var(--shadow-float); } .photos-cta:hover .photos-cta__go { text-decoration: underline; } }
+.photos-cta:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.photos-cta__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
+.photos-cta__text { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; }
+.photos-cta__strip { display: inline-flex; }
+.photos-cta__strip img { width: 36px; height: 36px; margin-left: -8px; border-radius: 10px; object-fit: cover; box-shadow: 0 0 0 2px var(--canvas); transform: rotate(-3deg); }
+.photos-cta__strip img:nth-child(even) { transform: rotate(3deg); }
+.photos-cta__go { flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; color: var(--primary-active); font: var(--text-button-sm); }
+/* Phones: no thumbnails, and just the arrow, so the words have room. */
+@media (max-width: 743px) { .photos-cta__strip, .photos-cta__word { display: none; } }
 /* Opens the full-screen map screen. On desktop SplitView's own expand control does this job. */
 .map-open { position: absolute; top: var(--spacing-md); right: var(--spacing-md); z-index: 500; box-shadow: var(--shadow-float); }
 @media (min-width: 1128px) { a.map-open, button.map-open { display: none; } }

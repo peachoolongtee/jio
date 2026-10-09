@@ -1,11 +1,12 @@
 <script setup>
-// The top of every session screen: back arrow, title, date, the session's steps as a progress bar you can click
-// through (SessionSteps), and a menu with Cancel session (and Invite friends once the session has started).
+// The top of every session screen: back arrow, title, date, and the session's steps as a progress bar you can click
+// through (SessionSteps). Top right: Invite (once the session has started, while people can still join) and a
+// "Hold to end" button: hold it until it fills, then confirm, to end the session for everyone.
 //   <SessionHeader :session="session" :title="'Today\'s plan'" />
 import { computed, ref } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
-import BottomSheet from '../ui/BottomSheet.vue'
+import HoldButton from '../ui/HoldButton.vue'
 import IconButton from '../ui/IconButton.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
 import CountdownChip from '../ui/CountdownChip.vue'
@@ -22,13 +23,12 @@ const props = defineProps({
 })
 
 const events = useEventsStore()
-const menuOpen = ref(false)
 const cancelOpen = ref(false)
 const inviteOpen = ref(false)
 const busy = ref(false)
 
 const status = computed(() => props.session.status)
-// While inviting, the page has its own Invite button, so the menu does not repeat it.
+// While inviting, the page has its own Invite button, so the header does not repeat it.
 const canInvite = computed(() => ['locating', 'voting'].includes(status.value))
 const canCancel = computed(() => !['completed', 'cancelled'].includes(status.value))
 
@@ -37,16 +37,6 @@ async function cancelSession() {
   await events.cancel(props.session.id)
   busy.value = false
   cancelOpen.value = false
-}
-
-function goInvite() {
-  menuOpen.value = false
-  inviteOpen.value = true
-}
-
-function askCancel() {
-  menuOpen.value = false
-  cancelOpen.value = true
 }
 </script>
 
@@ -57,7 +47,8 @@ function askCancel() {
       <span class="session-head__actions">
         <!-- Screen-specific icon actions, for example Ask AI and Edit on the itinerary. -->
         <slot name="actions" />
-        <IconButton v-if="canInvite || canCancel" label="Session options" @click="menuOpen = true"><AppIcon name="more" /></IconButton>
+        <IconButton v-if="canInvite" label="Invite friends" @click="inviteOpen = true"><AppIcon name="user-plus" /></IconButton>
+        <HoldButton v-if="canCancel" label="Hold to end" action="End session" @done="cancelOpen = true" />
         <span v-else-if="!$slots.actions" class="session-head__spacer" />
       </span>
     </div>
@@ -70,24 +61,12 @@ function askCancel() {
     </div>
     <SessionSteps :session="session" />
 
-    <BottomSheet v-model:open="menuOpen" title="Session options">
-      <AppButton v-if="canInvite" block variant="secondary" @click="goInvite">
-        <AppIcon name="user-plus" />
-        Invite friends
-      </AppButton>
-      <p v-if="canCancel" class="body-sm text-muted">Cancelling calls the meetup off for everyone in it. It cannot be undone.</p>
-      <AppButton v-if="canCancel" block variant="danger" @click="askCancel">
-        <AppIcon name="close" />
-        Cancel session
-      </AppButton>
-    </BottomSheet>
-
     <InviteDialog v-model:open="inviteOpen" :session="session" />
 
-    <ModalDialog v-model:open="cancelOpen" title="Cancel this session?">
-      <template #content><p class="body-md text-muted">The meetup is called off for everyone in it and moves to your past sessions. This cannot be undone.</p></template>
+    <ModalDialog v-model:open="cancelOpen" title="End this session?">
+      <template #content><p class="body-md text-muted">It ends for everyone in it and moves to your past sessions. This cannot be undone.</p></template>
       <AppButton block variant="secondary" @click="cancelOpen = false">Keep session</AppButton>
-      <AppButton block variant="danger" :disabled="busy" @click="cancelSession">Cancel session</AppButton>
+      <AppButton block variant="danger" :disabled="busy" @click="cancelSession">End session</AppButton>
     </ModalDialog>
   </header>
 </template>
