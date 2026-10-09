@@ -152,8 +152,6 @@ svg { display: block; flex-shrink: 0; }
 @keyframes page-out { to { opacity: 0; transform: scale(0.985); } }
 @keyframes page-in { from { opacity: 0; transform: translateY(16px); } }
 ::view-transition-group(app-tabs) { animation-duration: 0s; }
-/* The session tab underline slides to the new tab. */
-::view-transition-group(session-tab) { animation-duration: var(--motion-medium); }
 /* A photo grows out of the gallery into the viewer, and back. */
 ::view-transition-group(photo-hero) { animation-duration: 420ms; animation-timing-function: var(--ease-out); }
 ::view-transition-old(photo-hero),

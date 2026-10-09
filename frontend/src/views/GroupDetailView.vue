@@ -237,7 +237,7 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
       <AppButton v-else-if="status === 'locating'" block :disabled="!session.meeting || busy || loading" @click="useArea">
         {{ loading ? 'Finding the meeting point…' : session.meeting ? 'Confirm location' : 'Waiting for everyone' }}
       </AppButton>
-      <AppButton v-else-if="status === 'voting'" block :to="`/sessions/${id}/plan`">Activities</AppButton>
+      <AppButton v-else-if="status === 'voting'" block :to="`/sessions/${id}/plan`">Vote on places</AppButton>
       <AppButton v-else block :to="`/sessions/${id}/itinerary`">{{ session.isToday && status === 'confirmed' ? "Today's plan" : 'Itinerary' }}</AppButton>
     </footer>
 

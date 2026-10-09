@@ -10,7 +10,6 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
-import BannerNote from '@/components/ui/BannerNote.vue'
 import BottomSheet from '@/components/ui/BottomSheet.vue'
 import CategoryIcon from '@/components/ui/CategoryIcon.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
@@ -194,7 +193,6 @@ async function confirm() {
 
     <div class="screen__body">
       <SessionNotices :session="session" />
-      <BannerNote v-if="planner.conditions.rain && session.meeting" tone="warning" icon="rain">Rain expected</BannerNote>
 
       <div v-if="!session.meeting || ['inviting', 'locating'].includes(session.status)" class="empty-wrap">
         <EmptyState title="No meeting area yet">

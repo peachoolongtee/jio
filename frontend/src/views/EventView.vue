@@ -143,7 +143,7 @@ async function endPlan() {
       <SessionNotices :session="session" />
 
       <EmptyState v-if="!session.plan" title="No itinerary yet">
-        <AppButton variant="secondary" :to="`/sessions/${id}/plan`">Activities</AppButton>
+        <AppButton variant="secondary" :to="`/sessions/${id}/plan`">Vote on places</AppButton>
       </EmptyState>
 
       <template v-else>
