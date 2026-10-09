@@ -17,7 +17,7 @@ const showTabs = computed(() => showNav.value && route.meta.tabs === true)
 </script>
 
 <template>
-  <div class="app" :class="{ 'has-nav': showNav, 'has-tabs': showTabs }">
+  <div class="app" :class="{ 'has-tabs': showTabs }">
     <div class="app__main">
       <RouterView />
     </div>

@@ -28,7 +28,6 @@ svg { display: block; flex-shrink: 0; }
 @media (hover: hover) { a:hover { text-decoration-thickness: 2px; } }
 
 /* ── Type classes ─────────────────────────────────────────── */
-.rating-display { font: var(--text-rating-display); letter-spacing: -1px; }
 .display-xl { font: var(--text-display-xl); }
 .display-lg { font: var(--text-display-lg); letter-spacing: -0.44px; }
 .display-md { font: var(--text-display-md); }
@@ -177,6 +176,7 @@ svg { display: block; flex-shrink: 0; }
 ::view-transition-old(place-price),
 ::view-transition-new(place-price) { width: auto; height: 100%; }
 
+/* Reduced motion: nothing loops, nothing glides. Code that scrolls or animates by itself checks the same query. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }

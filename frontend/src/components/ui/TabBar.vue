@@ -2,7 +2,10 @@
 // The main navigation, at every screen size: a floating pill near the bottom of the screen. The current tab is
 // tinted Rausch and its name slides out beside the icon; the others are icons only (each keeps its name for screen
 // readers and as a tooltip). Create is always the Rausch +. The pill springs in when it first appears.
-// Home, Leaderboard, Create, Rewards, Profile.
+// Home, Leaderboard, Create, Rewards, Profile. Which tab is current comes from the route (router `meta.tab`), so
+// Home is current on the Sessions list too. Create opens a screen with no tab bar, so it is never current.
+// The pill is never wider than the screen less 8px each side. Under 400px the current tab shows only its icon
+// (its name stays for screen readers), so five tabs of at least 44px always fit.
 import { RouterLink, useRoute } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 
@@ -21,12 +24,7 @@ defineProps({
 
 const route = useRoute()
 
-function isActive(tab) {
-  const path = route.path
-  if (tab.id === 'home') return path === '/'
-  if (tab.id === 'create') return path === '/sessions/new'
-  return path === tab.to || path.startsWith(`${tab.to}/`)
-}
+const isActive = (tab) => route.meta.tab === tab.id
 </script>
 
 <template>
@@ -57,10 +55,11 @@ function isActive(tab) {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-  min-width: 320px;
-  max-width: 95vw;
+  width: max-content;
+  min-width: min(320px, calc(100% - var(--spacing-sm) * 2));
+  max-width: calc(100% - var(--spacing-sm) * 2);
   height: 56px;
-  padding: var(--spacing-sm);
+  padding: var(--spacing-xs);
   border: 1px solid var(--hairline);
   border-radius: var(--rounded-full);
   background: var(--canvas);
@@ -70,14 +69,14 @@ function isActive(tab) {
 }
 @keyframes tabbar-in { from { opacity: 0; transform: translateX(-50%) scale(0.9); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
 
-/* A tab: the icon, and its name folded away until the tab is current. */
+/* A tab: the icon, and its name folded away until the tab is current. It may shrink to 44px wide, never less. */
 .tabbar__tab {
-  flex: 1 0 auto;
+  flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 44px;
-  height: 40px;
+  min-width: var(--tap-min);
+  height: var(--tap-min);
   padding: 0 var(--spacing-md);
   border-radius: var(--rounded-full);
   color: var(--muted);
@@ -92,9 +91,15 @@ function isActive(tab) {
 @media (hover: hover) { .tabbar__tab:not(.is-active):hover { background: var(--surface-soft); color: var(--ink); } .tabbar__tab.is-create:not(.is-active):hover { color: var(--primary-active); } }
 
 /* The name grows from nothing to its width with a little spring, and fades in. */
-.tabbar__label { display: grid; grid-template-columns: 0fr; max-width: 84px; margin-left: 0; opacity: 0; transition: grid-template-columns 380ms var(--ease-spring), margin-left 190ms var(--ease-out), opacity 190ms var(--ease-out); }
+.tabbar__label { display: grid; grid-template-columns: 0fr; min-width: 0; max-width: 84px; margin-left: 0; opacity: 0; transition: grid-template-columns 380ms var(--ease-spring), margin-left 190ms var(--ease-out), opacity 190ms var(--ease-out); }
 .tabbar__label > span { min-width: 0; overflow: hidden; font: 600 12px/1.9 var(--font-sans); white-space: nowrap; text-overflow: ellipsis; }
 .tabbar__tab.is-active .tabbar__label { grid-template-columns: 1fr; margin-left: var(--spacing-sm); opacity: 1; }
+
+/* Narrow phones: the current tab is tinted but shows no name, so the pill fits whichever tab is current. */
+@media (max-width: 399.98px) {
+  .tabbar__label { display: none; }
+  .tabbar__tab { padding: 0 var(--spacing-sm); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .tabbar { animation: none; }
