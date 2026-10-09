@@ -8,9 +8,10 @@ import axios from 'axios'
 
 // Calls to the Jio backend (planner, geocode and weather proxy).
 // Attaching the Supabase session token waits on the JWT verification decision.
-// Without a frontend/.env, development talks to the local backend on its default port.
+// In development, leave VITE_API_BASE_URL blank: requests go to /api on the page's own address and the Vite dev
+// server forwards them to the backend (see vite.config.js). Deployed, it is the backend's URL.
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:3000' : undefined),
+  baseURL: import.meta.env.VITE_API_BASE_URL || '',
   timeout: 15000,
 })
 
@@ -22,8 +23,10 @@ api.interceptors.response.use(
     // origin, FRONTEND_ORIGIN). The browser reports both the same way, so name both.
     if (!err.response) {
       throw new Error(
-        `Cannot reach the Jio planner at ${api.defaults.baseURL}. Check the backend is running ("pnpm dev:backend") ` +
-          `and that this page is open at the address it allows (FRONTEND_ORIGIN, by default http://localhost:5173).`,
+        api.defaults.baseURL
+          ? `Cannot reach the Jio planner at ${api.defaults.baseURL}. Check the backend is running ("pnpm dev:backend") ` +
+              `and that this page is open at the address it allows (FRONTEND_ORIGIN, by default http://localhost:5173).`
+          : `Cannot reach the Jio planner. Check the backend is running in another terminal ("pnpm dev:backend").`,
       )
     }
     const issues = err.response.data?.issues?.map((i) => `${i.path}: ${i.message}`).join('; ')
