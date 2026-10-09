@@ -1,8 +1,9 @@
 <script setup>
-// Home: a band across the top with a muted dotted map of Singapore, where routes draw in from where friends start
-// to where they meet. It holds the greeting and the one main action. Below it, on white, what comes next.
-// Three states:
+// Home: a band across the top with a muted dotted map of Singapore. Routes draw in from around the island and meet
+// in the middle, where the one main action sits (a BeaconButton), with the greeting above it. Below, on white, what
+// comes next. Three states:
 //   No active meetup        the band's action is "Start a session"; below, Your meetups (past ones, or an empty state).
+//   A meetup going          the band's action is "Open meetup", with the meetup's name and where it stands under it.
 //   Meetup, no midpoint     a "Your meetup" card: name, friends, where the midpoint stands, Open meetup.
 //   Meetup with a midpoint  the same card with the meeting area, and Places near your meetup below: places around
 //                           the midpoint, nearest first, with one Filter button.
@@ -18,6 +19,7 @@ import AvatarStack from '@/components/ui/AvatarStack.vue'
 import BottomSheet from '@/components/ui/BottomSheet.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import SingaporeMap from '@/components/ui/SingaporeMap.vue'
+import BeaconButton from '@/components/ui/BeaconButton.vue'
 import RangeSlider from '@/components/ui/RangeSlider.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
@@ -74,16 +76,11 @@ const friends = computed(() => (meetup.value?.activeIds || []).filter((id) => id
 const friendPeople = computed(() => friends.value.map((id) => ({ id, name: nameOf(id) })))
 const friendsText = computed(() => `${friends.value.length} ${friends.value.length === 1 ? 'friend' : 'friends'}`)
 
-// The routes on the map: from where everyone in the meetup starts to where they meet. Before there is a meetup (or a
-// midpoint), friends from the four corners of the island meeting in the middle, to show what Jio does.
-const SAMPLE = { to: 'novena', from: ['jurong-east', 'woodlands', 'tampines', 'harbourfront'] }
+// The routes on the map: friends from all round the island meeting in the middle (Toa Payoh), which is where the
+// band's button sits. Always these, spread out, rather than one meetup's starts (often a few stops apart).
 const at = (id) => AREAS.find((a) => a.id === id)
-const mapRoutes = computed(() => {
-  const m = meetup.value
-  const starts = area.value ? m.activeIds.map((id) => m.locations?.[id]?.start).filter(Boolean) : []
-  if (starts.length) return starts.map((s) => ({ from: s, to: area.value }))
-  return SAMPLE.from.map((id) => ({ from: at(id), to: at(SAMPLE.to) }))
-})
+const MEET = at('toa-payoh')
+const mapRoutes = ['boon-lay', 'jurong-east', 'woodlands', 'punggol', 'tampines', 'harbourfront'].map((id) => ({ from: at(id), to: MEET }))
 
 // Where the midpoint stands, in words, while there is none yet.
 const midpointStatus = computed(() => {
@@ -249,46 +246,33 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 
 <template>
   <main class="screen home" data-testid="landing-view">
-    <!-- The band: a muted map of Singapore behind the greeting and the main action. -->
+    <!-- The band: a muted map of Singapore; the routes meet under the main action, in the middle. -->
     <section class="hero" aria-labelledby="home-hello">
-      <SingaporeMap class="hero__map" :routes="mapRoutes" />
-      <div class="hero__inner">
-        <div class="home__top">
-          <div class="screen__titles">
-            <p class="caption text-muted">{{ today }}</p>
-            <h1 id="home-hello" class="display-xl">Hi, {{ auth.user.name }}</h1>
-            <p class="body-md home__blurb">{{ blurb }}</p>
-          </div>
-          <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
-            <UserAvatar :name="auth.user.name" :src="auth.user.photo" person="ian" :size="44" />
-          </RouterLink>
+      <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
+        <UserAvatar :name="auth.user.name" :src="auth.user.photo" person="ian" :size="44" />
+      </RouterLink>
+
+      <div class="hero__hello">
+        <p class="caption text-muted">{{ today }}</p>
+        <h1 id="home-hello" class="display-xl">Hi, {{ auth.user.name }}</h1>
+        <p class="body-md home__blurb">{{ blurb }}</p>
+      </div>
+
+      <!-- The map, with the button where the routes meet. -->
+      <div class="hero__stage">
+        <SingaporeMap class="hero__map" :routes="mapRoutes" :center="MEET" :span="[340, 260]" hide-meet />
+        <div class="hero__action">
+          <SkeletonRow v-if="!events.loaded" :lines="1" />
+          <BeaconButton v-else :to="meetup ? openTo : '/sessions/new'" class="rise">{{ meetup ? 'Open meetup' : 'Start a session' }}</BeaconButton>
         </div>
 
-        <SkeletonRow v-if="!events.loaded" :lines="2" />
-
-        <!-- No meetup going: one clear way to start. -->
-        <AppButton v-else-if="!meetup" class="hero__cta rise" to="/sessions/new">Start a session</AppButton>
-
-        <!-- The meetup going now. -->
-        <article v-else class="meetup rise" aria-labelledby="meetup-name">
-          <p class="meetup__label caption">Your meetup</p>
-          <h2 id="meetup-name" class="display-sm meetup__name">{{ meetup.title }}</h2>
-          <div class="meetup__meta">
-            <span class="meetup__row">
-              <AvatarStack v-if="friendPeople.length" :people="friendPeople" :size="24" :max="4" />
-              <span>{{ friendsText }}</span>
-            </span>
-            <span v-if="area" class="meetup__row">
-              <AppIcon name="pin" :size="16" />
-              <span>Meeting at <strong>{{ area.name }}</strong></span>
-            </span>
-            <span v-else class="meetup__row" :class="{ 'is-finding': meetup.findingMeeting }">
-              <span class="meetup__pulse" aria-hidden="true" />
-              <span>{{ midpointStatus }}</span>
-            </span>
-          </div>
-          <AppButton class="meetup__open" :to="openTo">Open meetup</AppButton>
-        </article>
+        <!-- The meetup going now, in one line under the button. -->
+        <p v-if="meetup" class="hero__meetup">
+          <AvatarStack v-if="friendPeople.length" :people="friendPeople" :size="24" :max="4" />
+          <span class="title-sm truncate">{{ meetup.title }}</span>
+          <span v-if="area" class="hero__where"><AppIcon name="pin" :size="14" /> {{ area.name }}</span>
+          <span v-else class="hero__where" :class="{ 'is-finding': meetup.findingMeeting }"><span class="meetup__pulse" aria-hidden="true" /> {{ midpointStatus }}</span>
+        </p>
       </div>
     </section>
 
@@ -355,36 +339,41 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 </template>
 
 <style scoped>
-/* The band: full width, a soft grey that fades to white at the bottom, with the map behind. On a phone the map sits
-   above the words; from tablet up the words sit on the left and Singapore on the right. */
-.hero { position: relative; }
-.hero::before { content: ""; position: absolute; inset: 0 auto 0 50%; width: 100vw; transform: translateX(-50%); background: linear-gradient(to bottom, var(--surface-soft) 70%, var(--canvas)); }
-.hero__map { position: absolute; top: 0; left: 50%; width: 440px; height: 300px; transform: translateX(-50%); -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent); mask-image: linear-gradient(to bottom, #000 70%, transparent); }
-.hero__inner { position: relative; display: flex; flex-direction: column; gap: var(--spacing-lg); padding: 236px var(--gutter) var(--spacing-lg); }
-.home__top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-md); }
-.home__blurb { max-width: 440px; margin: var(--spacing-xs) 0 0; color: var(--body); }
-.home__me { flex-shrink: 0; border-radius: var(--rounded-full); }
-.hero__cta { align-self: flex-start; }
-/* Phones: the avatar sits on the map, top right. */
-.home__me { position: absolute; top: var(--spacing-md); right: var(--gutter); }
+/* The band: full width, a soft grey that fades to white at the bottom. The greeting sits at the top, centred; under
+   it the stage holds the map, whose centre (where the routes meet) is the stage's centre, and the button sits
+   exactly there. The map fades out towards the stage's edges. */
+.hero { position: relative; display: flex; flex-direction: column; align-items: center; margin-bottom: var(--spacing-base); padding-top: var(--spacing-lg); text-align: center; }
+.hero::before { content: ""; position: absolute; inset: 0 auto 0 50%; width: 100vw; transform: translateX(-50%); background: linear-gradient(to bottom, var(--surface-soft) 75%, var(--canvas)); }
+.hero__hello { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xs); padding: 0 var(--gutter); }
+.home__blurb { max-width: 460px; margin: 0; color: var(--body); }
+.hero__stage { position: relative; align-self: stretch; height: 360px; }
+.hero__map {
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: min(100vw, 1440px);
+  transform: translateX(-50%);
+  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 60%, transparent 100%);
+  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 60%, transparent 100%);
+}
+.hero__action { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.hero__meetup { position: absolute; left: 50%; top: calc(50% + 52px); transform: translateX(-50%); display: inline-flex; align-items: center; gap: var(--spacing-sm); max-width: calc(100% - var(--gutter) * 2); margin: 0; padding: var(--spacing-xs) var(--spacing-md) var(--spacing-xs) var(--spacing-xs); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: var(--shadow-float); white-space: nowrap; }
+.hero__where { display: inline-flex; align-items: center; gap: var(--spacing-xs); color: var(--muted); font: var(--text-body-sm); }
+.home__me { position: absolute; z-index: 2; top: var(--spacing-md); right: var(--gutter); flex-shrink: 0; border-radius: var(--rounded-full); }
+@media (max-width: 743px) {
+  /* Phones: the avatar sits top right, so the greeting keeps clear of it on both sides (to stay centred). */
+  .hero__hello { align-self: stretch; padding-right: calc(var(--gutter) + 52px); padding-left: calc(var(--gutter) + 52px); }
+  /* The map is narrow here, so it fades out later, nearer the edges. */
+  .hero__map { -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 70%, transparent 100%); mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 70%, transparent 100%); }
+}
 @media (min-width: 744px) {
-  .hero { min-height: 420px; display: flex; align-items: center; margin-bottom: var(--spacing-base); }
-  .hero__map { top: 0; bottom: 0; left: auto; right: calc(50% - 50vw); width: min(62vw, 900px); height: auto; transform: none; -webkit-mask-image: linear-gradient(to right, transparent, #000 30%), linear-gradient(to bottom, #000 75%, transparent); -webkit-mask-composite: source-in; mask-image: linear-gradient(to right, transparent, #000 30%), linear-gradient(to bottom, #000 75%, transparent); mask-composite: intersect; }
-  .hero__inner { flex: 1 1 auto; padding: var(--spacing-xxl) var(--gutter); }
+  .hero { padding-top: var(--spacing-xxl); }
+  .hero__stage { height: 440px; }
   /* The top bar has Profile from here up. */
   .home__me { display: none; }
 }
 .home__body { padding-top: 0; }
 .home__context { display: inline-flex; align-items: center; gap: var(--spacing-xs); margin: 0; }
 
-/* Your meetup: a white card that floats a little over the map, like a reservation card. */
-.meetup { display: flex; flex-direction: column; gap: var(--spacing-md); max-width: 460px; padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); }
-.meetup__label { margin: 0; color: var(--muted); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
-.meetup__name { margin: 0; overflow-wrap: anywhere; }
-.meetup__meta { display: flex; flex-direction: column; gap: var(--spacing-sm); color: var(--body); font: var(--text-body-sm); }
-.meetup__row { display: inline-flex; align-items: center; gap: var(--spacing-sm); }
-.meetup__row strong { color: var(--ink); font-weight: 600; }
-.meetup__open { align-self: flex-start; }
 /* The midpoint is still to come: a soft Rausch pulse, quicker while the planner is working it out. */
 .meetup__pulse { position: relative; flex-shrink: 0; width: 10px; height: 10px; margin: 0 3px; border-radius: var(--rounded-full); background: var(--primary); }
 .meetup__pulse::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--primary); animation: meetup-pulse 2s ease-out infinite; }
