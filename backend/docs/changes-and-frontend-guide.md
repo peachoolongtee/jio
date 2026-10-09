@@ -5,7 +5,7 @@ One file for the team: everything that changed on `feature/backend-engines`, and
 - Request and response details: [planner-api.md](planner-api.md)
 - Why each engine and data decision was made: [engine-integration.md](engine-integration.md)
 
-**Status (9 Oct 2026):** the frontend now calls the planner API (Jonathan, 8 Oct). The backend now uses **live NEA weather** and **real OneMap travel times**, and has **OneMap address search** (branch `feature/external-apis`). Two small frontend changes are needed to use them: see [Part D](#part-d-live-weather-travel-times-and-address-search-9-oct).
+**Status (9 Oct 2026):** the frontend now calls the planner API (Jonathan, 8 Oct). The backend now uses **live NEA weather** (Ian) and **real OneMap travel times**, and has **OneMap address search** (branch `feature/external-apis`). One optional frontend change uses the address search: see [Part D](#part-d-live-weather-travel-times-and-address-search-9-oct).
 
 ---
 
@@ -205,7 +205,7 @@ async function rankSlot(session, slot, slots) {
     centre: { lat: area.lat, lng: area.lng },
     lastStop: slots[slots.length - 1]?.id === slot.id,
     currentOptionIds: session.options[slot.id] || [],
-    ...(db.conditions.rain ? { weatherCase: 'rain' } : {}), // leave it out for live weather: see Part D
+    ...(db.conditions.rain ? { weatherCase: 'rain' } : {}), // only for the demo rain switch: see Part D
     unknownPolicy: 'lenient', // see "To decide" below
     topN: P.OPTIONS_MAX,
   })
@@ -391,33 +391,22 @@ The backend now uses real data (`backend/docs/external-apis.md` has every detail
 
 | What | Source | What the frontend has to do |
 |---|---|---|
-| Weather | Live NEA 2-hour forecast | **Change 1** below |
+| Weather | Live NEA 2-hour forecast (Ian) | Nothing: already done, see Change 1 |
 | Travel times | Real OneMap public transport routes | Nothing: same fields as before, just real numbers. `approximate: true` still means "estimate". |
 | Start and end points | OneMap address search | **Change 2** below (optional, but the mock list has only a few addresses) |
 
-## Change 1: stop sending `weatherCase: 'clear'`
+## Change 1: weather (already done)
 
-In `frontend/src/lib/plannerApi.js`, `rankSlot` sends `weatherCase: conditions.rain ? 'rain' : 'clear'`. Sending `'clear'` pins the weather to the demo's dry case, so **the live forecast is never used**. Send `weatherCase` only when the demo rain switch is on:
+Ian changed `frontend/src/lib/plannerApi.js` to send `weatherCase` only when the demo rain switch is on, so the live NEA forecast is used. Nothing more to do. On your own machine, set `ALLOW_SIMULATED_WEATHER=1` in `backend/.env` if you use the rain switch.
 
-```js
-// before
-weatherCase: conditions.rain ? 'rain' : 'clear',
-// after
-...(conditions.rain ? { weatherCase: 'rain' } : {}),
-```
-
-Do the same anywhere else that calls `/api/converge` or `/api/roam` with a `weatherCase`.
-
-Every answer now says which weather and travel times it used. Show them so nobody is misled:
+Every answer says which weather and travel times it used. Show them so nobody is misled:
 
 | Field | Show |
 |---|---|
-| `weather.source === 'nea'` | e.g. "Forecast 7.30 pm to 9.30 pm" (`weather.validText`) |
-| `weather.source === 'demo'` | "Demo weather" |
-| `weather.source === 'none'` | Nothing about weather. `reason: 'outside_forecast_period'` means the slot isn't in the next 2 hours (e.g. tomorrow), which is normal. |
+| `weather.source === 'live'` | e.g. "Forecast until 9.30 pm" (`weather.validUntil`) |
+| `weather.source === 'simulated'` | "Demo weather" |
+| `weather.source === 'unavailable'` | Nothing about weather: the forecast couldn't be fetched |
 | `travel.source === 'estimate'`, or a result's `approximate: true` | "about 25 min" |
-
-The 2-hour forecast only covers about the next 2 hours. So on most planning screens (a session days ahead) the weather source is `none`, and it becomes `nea` on the day. That's correct, not a bug.
 
 ## Change 2 (optional): address search with OneMap
 

@@ -126,8 +126,8 @@ const me = async (authorization, target = base) => {
 }
 const refused = (r) => {
   expect(r.status).toBe(401)
-  expect(r.body.error.code).toBe('unauthenticated')
-  expect(typeof r.body.error.message).toBe('string')
+  expect(r.body.error).toBe('unauthenticated')
+  expect(typeof r.body.message).toBe('string')
 }
 
 describe('GET /api/me', () => {
@@ -240,7 +240,8 @@ describe('when Supabase cannot be reached', () => {
   const expectUnavailable = (r) => {
     expect(r.status).toBe(503)
     expect(r.body).toEqual({
-      error: { code: 'auth_unavailable', message: 'Login cannot be checked right now. Try again shortly.' },
+      error: 'auth_unavailable',
+      message: 'Login cannot be checked right now. Try again shortly.',
     })
     expect(r.retryAfter).toBe('5')
   }

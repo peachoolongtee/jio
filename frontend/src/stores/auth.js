@@ -8,11 +8,11 @@ const emptyDraft = () => ({
   email: '',
   password: '',
   name: '',
+  // YYYY-MM-DD, from a date input.
+  dob: '',
   username: '',
   photo: '',
   homeAreaId: '',
-  locationAllowed: null,
-  contactsAllowed: null,
   friends: ['darius', 'jonathan', 'nicole', 'faith', 'darryl'],
 })
 

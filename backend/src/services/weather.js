@@ -1,127 +1,194 @@
-import { haversineKm } from '../planner/geo.js'
-import { createCache } from './cache.js'
+import { ExternalApiError } from './errors.js'
 import { currentScenario } from './scenario.js'
 
-// Live weather from NEA (National Environment Agency), through data.gov.sg. No API key is needed.
+// The two-hour weather forecast from data.gov.sg (NEA): one forecast sentence for each of 47 areas of
+// Singapore, issued every 30 minutes. The call needs no key. Unkeyed it allows 6 requests per 10 seconds,
+// so the forecast is cached here and never fetched per venue or per request.
+
+export const TWO_HR_FORECAST_URL = 'https://api-open.data.gov.sg/v2/real-time/api/two-hr-forecast'
+
+// How likely rain is, from 0 (none) to 1 (certain), for each forecast sentence NEA can send. The planner's
+// weather score multiplies it by how exposed a venue is, and treats 0.6 or more as "rain is likely".
 //
-// The 2-hour forecast gives a short text ("Fair (Day)", "Heavy Thundery Showers") for 47 named areas, each with
-// a point. This file turns that into what the planner reads: a rain risk from 0 to 1 per area, and the nearest
-// area for every venue. Every call goes through the shared HTTP helper, so stub mode answers from fixtures.
+// Keys are written the way normaliseForecast() returns them: lower case, with a trailing "(day)" or
+// "(night)" removed. So "Partly Cloudy (Night)" is looked up as "partly cloudy".
 //
-// Source: https://data.gov.sg/collections/1456/view (Weather Forecast, NEA).
+// The strings come from the NEA historical forecasts for 2021 and 2022 (17 distinct sentences) and NEA's
+// own code table; see ticket #4. The sentences marked "code table only" were never seen in the data but
+// NEA defines them, so they are kept to avoid a surprise.
+const RAIN_RISK = new Map([
+  // No rain.
+  ['fair', 0],
+  ['fair & warm', 0],
+  ['partly cloudy', 0],
+  ['sunny', 0], // Code table only.
+  // Grey or windy, but dry.
+  ['cloudy', 0.1],
+  ['overcast', 0.1], // Code table only.
+  ['hazy', 0.1],
+  ['slightly hazy', 0.1],
+  ['mist', 0.1],
+  ['fog', 0.1],
+  ['windy', 0.1],
+  ['windy, cloudy', 0.1], // Code table only.
+  ['windy, fair', 0.1], // Code table only.
+  ['strong winds', 0.1], // Code table only.
+  // Light rain: possible, and not worth moving a plan for.
+  ['light rain', 0.5],
+  ['light showers', 0.5],
+  ['passing showers', 0.5],
+  ['drizzle', 0.5], // Code table only.
+  // Rain.
+  ['showers', 0.8],
+  ['moderate rain', 0.8],
+  ['rain', 0.8], // Not an NEA sentence, kept as a harmless alias.
+  ['windy, rain', 0.8], // Code table only.
+  ['windy, showers', 0.8], // Code table only.
+  ['strong winds, rain', 0.8], // Code table only.
+  // Heavy rain or thunder.
+  ['heavy rain', 1],
+  ['heavy showers', 1],
+  ['thundery showers', 1],
+  ['heavy thundery showers', 1],
+  ['heavy thundery showers with gusty winds', 1],
+  ['strong winds, showers', 1], // Code table only.
+])
 
-export const TWO_HOUR_FORECAST_URL = 'https://api-open.data.gov.sg/v2/real-time/api/two-hr-forecast'
+// What an unknown sentence is worth: a middle value, below the 0.6 "rain is likely" line, so a sentence
+// we have not seen neither raises a rain warning nor claims the day is dry. Never 0.
+export const UNKNOWN_RAIN_RISK = 0.5
 
-// The forecast is refreshed every 30 minutes by NEA, so 5 minutes stale is fine and saves calls.
-const FORECAST_TTL_MS = 5 * 60 * 1000
+// Every sentence the table knows, in the form the table uses. Tests walk this list.
+export const KNOWN_FORECASTS = [...RAIN_RISK.keys()]
 
-// How likely rain is for each kind of NEA forecast text, from 0 to 1. Checked in order: the first match wins,
-// so the stronger words come first. These are our judgements, not NEA figures: NEA gives a word, not a percentage.
-// The words are NEA's published forecast abbreviations (FA, FN, PC, CL, LR, RA, HR, PS, LS, SH, HS, TL, HT...).
-const RAIN_RISK_RULES = [
-  [/heavy thundery/i, 0.95],
-  [/thundery/i, 0.9],
-  [/heavy (rain|showers)/i, 0.85],
-  [/^(rain|moderate rain)/i, 0.75],
-  [/^showers/i, 0.7],
-  [/(passing|light) showers|light rain|drizzle/i, 0.5],
-  [/cloudy/i, 0.15], // "Cloudy" and "Partly Cloudy"
-  [/fair|hazy|haze|windy|mist|fog|sunny|warm/i, 0.05],
-]
-
-// Unknown text is not "dry": a middle value, and the caller is told the text was not recognised.
-const UNKNOWN_RAIN_RISK = 0.3
-
-// Rain risk for one forecast text.
+// Trims, lower-cases, collapses spaces and drops a trailing "(Day)" or "(Night)", so the table does not
+// need a row for each.
 //
 // How to call:
-//   rainRiskOf('Heavy Thundery Showers') // { rainRisk: 0.95, known: true }
-//   rainRiskOf('Something new')          // { rainRisk: 0.3, known: false }
-export function rainRiskOf(text) {
-  for (const [pattern, risk] of RAIN_RISK_RULES) if (pattern.test(text ?? '')) return { rainRisk: risk, known: true }
-  return { rainRisk: UNKNOWN_RAIN_RISK, known: false }
+//   normaliseForecast('Partly Cloudy (Night)') // 'partly cloudy'
+//   normaliseForecast('  Fair & Warm ')        // 'fair & warm'
+export function normaliseForecast(text) {
+  return String(text ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/ \((day|night)\)$/, '')
 }
 
-// Reads the NEA answer into a plain shape. Throws if the answer is not the shape we expect, so a changed API
-// fails loudly instead of quietly giving every venue no weather.
+// Looks one forecast sentence up in the table. Never throws: an unknown sentence gets UNKNOWN_RAIN_RISK
+// and `known: false`, so the caller can log it.
 //
 // How to call:
-//   const forecast = parseTwoHourForecast(await http.getJson(TWO_HOUR_FORECAST_URL))
-//   forecast.areas[0]          // { name: 'Ang Mo Kio', lat: 1.375, lng: 103.839, forecast: 'Fair (Day)', rainRisk: 0.05 }
-//   forecast.validFrom         // '2026-10-05T09:30:00+08:00'
-export function parseTwoHourForecast(body) {
-  const data = body?.data
-  const item = data?.items?.[0]
-  if (!Array.isArray(data?.area_metadata) || !Array.isArray(item?.forecasts)) {
-    throw new Error('NEA two-hour forecast: unexpected answer shape (no area_metadata or forecasts)')
-  }
-  const textByArea = new Map(item.forecasts.map((f) => [f.area, f.forecast]))
-  const unknownTexts = new Set()
-  const areas = data.area_metadata
-    .filter((a) => textByArea.has(a.name))
-    .map((a) => {
-      const forecast = textByArea.get(a.name)
-      const { rainRisk, known } = rainRiskOf(forecast)
-      if (!known) unknownTexts.add(forecast)
-      return { name: a.name, lat: a.label_location.latitude, lng: a.label_location.longitude, forecast, rainRisk }
+//   rainRiskOf('Heavy Thundery Showers') // { risk: 1, known: true }
+//   rainRiskOf('Blizzard')               // { risk: 0.5, known: false }
+export function rainRiskOf(text) {
+  const risk = RAIN_RISK.get(normaliseForecast(text))
+  return risk === undefined ? { risk: UNKNOWN_RAIN_RISK, known: false } : { risk, known: true }
+}
+
+// Turns data.gov.sg's two-hour answer into the shape the planner uses. Each area comes with its own
+// coordinates, read by key because the order of latitude and longitude is not fixed.
+//
+// How to call. You normally never do: createWeather calls it. `onUnknown` hears each unknown sentence:
+//   const forecast = parseTwoHourForecast(await http.getJson(TWO_HR_FORECAST_URL))
+//   forecast.areas[0] // { area: 'Ang Mo Kio', lat: 1.375, lng: 103.839, forecast: 'Fair (Day)', rainRisk: 0 }
+//
+// Throws ExternalApiError when the answer does not look like a forecast, so a caller that falls back on
+// ExternalApiError also covers a changed response.
+export function parseTwoHourForecast(payload, { onUnknown = () => {} } = {}) {
+  const fail = (reason) =>
+    new ExternalApiError(`datagov sent an unexpected forecast: ${reason}`, {
+      service: 'datagov',
+      status: null,
+      url: TWO_HR_FORECAST_URL,
     })
-  if (areas.length === 0) throw new Error('NEA two-hour forecast: no area has a forecast')
+
+  if (payload?.code !== 0) throw fail(`code ${payload?.code ?? 'missing'}`)
+  const item = payload.data?.items?.[0]
+  const metadata = payload.data?.area_metadata
+  if (!item || !Array.isArray(item.forecasts) || !Array.isArray(metadata)) throw fail('no forecast or no areas')
+
+  const places = new Map()
+  for (const m of metadata) {
+    const lat = m?.label_location?.latitude
+    const lng = m?.label_location?.longitude
+    if (typeof m?.name === 'string' && Number.isFinite(lat) && Number.isFinite(lng)) places.set(m.name, { lat, lng })
+  }
+
+  // An area with no coordinates or no forecast is left out: the planner cannot place a venue in it.
+  const areas = []
+  for (const f of item.forecasts) {
+    const place = places.get(f?.area)
+    if (!place || typeof f.forecast !== 'string') continue
+    const { risk, known } = rainRiskOf(f.forecast)
+    if (!known) onUnknown(f.forecast)
+    areas.push({ area: f.area, lat: place.lat, lng: place.lng, forecast: f.forecast, rainRisk: risk })
+  }
+  if (areas.length === 0) throw fail('no area has both a forecast and a location')
+
+  const period = item.valid_period ?? {}
   return {
     areas,
-    validFrom: item.valid_period?.start ?? null,
-    validTo: item.valid_period?.end ?? null,
-    validText: item.valid_period?.text ?? null,
-    updatedAt: item.update_timestamp ?? item.timestamp ?? null,
-    unknownTexts: [...unknownTexts],
+    validPeriod: { start: period.start ?? null, end: period.end ?? null },
+    updatedAt: item.update_timestamp ?? null,
   }
-}
-
-// Is a local planner time ("2026-10-10T19:00", Singapore time) inside the forecast's period?
-// The 2-hour forecast says nothing about later in the day or another day, so it must not be used for them.
-//
-// How to call:
-//   coversTime(forecast, '2026-10-05T10:00') // true when the forecast runs 09:30 to 11:30 that day
-export function coversTime(forecast, dateTime) {
-  if (!forecast.validFrom || !forecast.validTo) return false
-  const t = Date.parse(`${dateTime}:00+08:00`)
-  return t >= Date.parse(forecast.validFrom) && t < Date.parse(forecast.validTo)
-}
-
-// The nearest NEA area to a point, by straight-line distance.
-//
-// How to call:
-//   nearestForecastArea({ lat: 1.3, lng: 103.85 }, forecast.areas) // { name: 'Downtown Core', ... }
-export function nearestForecastArea(point, areas) {
-  let best = null
-  let bestKm = Infinity
-  for (const a of areas) {
-    const km = haversineKm(point, a)
-    if (km < bestKm) [best, bestKm] = [a, km]
-  }
-  return best
 }
 
 // Builds the weather service.
 //
 // How to call:
-//   const weather = createWeather({ http: req.app.locals.http })
+//   const weather = createWeather({ http })                   // http from createHttp(), shared by the app.
 //   const forecast = await weather.twoHourForecast()
+//   forecast.validPeriod.end // '2026-10-05T11:30:00+08:00'
+//   forecast.areas           // 47 entries: { area, lat, lng, forecast, rainRisk }
+//
+// In a test, control the clock and watch the cache:
+//   const weather = createWeather({ http, now: () => clock })
 //
 // Options:
-//   http   - The shared HTTP helper (services/http.js). Stub mode answers from the fixtures.
-//   apiKey - Optional data.gov.sg key (DATAGOV_API_KEY). Not needed; it only raises the rate limit.
-//   cache  - Optional. Tests pass their own to check what is fetched.
-export function createWeather({ http, apiKey = null, cache = createCache({ ttlMs: FORECAST_TTL_MS }) }) {
-  const headers = apiKey ? { 'x-api-key': apiKey } : undefined
+//   http      - The shared HTTP helper. Every call goes through http.getJson, so stub mode answers from fixtures.
+//   now       - Returns the time in milliseconds. Defaults to Date.now.
+//   cacheMs   - How long a forecast is reused. Default 5 minutes. NEA issues one every 30 minutes.
+//   failureMs - How long a failed fetch is remembered, so a data.gov.sg outage costs one slow request
+//               rather than one per planner request. Default 30 seconds.
+//   warn      - Where to report an unknown forecast sentence. Defaults to console.warn.
+//
+// twoHourForecast() rejects with ExternalApiError when data.gov.sg fails (including a timeout). Callers
+// decide what to do then. Any other error, such as a missing stub, is a bug and is never cached.
+//
+// The scenario is part of the cache key. Outside stub mode it is always 'dry', so this changes nothing
+// there; in stub mode it stops a rain test from leaking its forecast into the next dry one.
+export function createWeather({ http, now = Date.now, cacheMs = 5 * 60 * 1000, failureMs = 30 * 1000, warn = console.warn }) {
+  // One entry per cache key: { at, failed, promise }. The promise is stored, not the result, so callers
+  // who arrive while a fetch is running share it instead of starting their own.
+  const entries = new Map()
+  // Each unknown sentence is reported once, not once per request.
+  const reported = new Set()
+
+  const onUnknown = (text) => {
+    if (reported.has(text)) return
+    reported.add(text)
+    warn(`Unknown two-hour forecast "${text}": scored as ${UNKNOWN_RAIN_RISK}. Add it to RAIN_RISK in services/weather.js.`)
+  }
+
+  const fetchForecast = async () => parseTwoHourForecast(await http.getJson(TWO_HR_FORECAST_URL), { onUnknown })
+
   return {
-    // The current 2-hour forecast, parsed. Cached for 5 minutes. The key includes the stub scenario, so a rain
-    // test never leaks its forecast into the next dry test (see services/scenario.js).
-    //
-    // How to call:
-    //   const { areas, validFrom, validTo } = await weather.twoHourForecast()
-    //
-    // Throws ExternalApiError when data.gov.sg fails. The planner routes catch it and plan without live weather.
-    twoHourForecast: () =>
-      cache.getOrSet(`two-hr-forecast:${currentScenario()}`, async () => parseTwoHourForecast(await http.getJson(TWO_HOUR_FORECAST_URL, { headers }))),
+    twoHourForecast() {
+      const key = `two-hr-forecast:${currentScenario()}`
+      const at = now()
+      const hit = entries.get(key)
+      if (hit && at - hit.at < (hit.failed ? failureMs : cacheMs)) return hit.promise
+
+      const entry = { at, failed: false, promise: null }
+      entry.promise = fetchForecast().catch((err) => {
+        // Remember an API failure briefly. Anything else is a bug: forget it so the next call retries.
+        if (err instanceof ExternalApiError) entry.failed = true
+        else if (entries.get(key) === entry) entries.delete(key)
+        throw err
+      })
+      entries.set(key, entry)
+      return entry.promise
+    },
   }
 }

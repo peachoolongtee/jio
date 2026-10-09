@@ -12,6 +12,7 @@ import SelectField from '../ui/SelectField.vue'
 import StatusPill from '../ui/StatusPill.vue'
 import ToggleSwitch from '../ui/ToggleSwitch.vue'
 import * as api from '@/lib/api.js'
+import { lastWeather } from '@/lib/plannerApi.js'
 import { FRIEND_PICKS, HOST_ID, PEOPLE } from '@/lib/mock/people.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -105,6 +106,34 @@ const simulateVoting = () => act('voting', async () => {
   if (!plan.slots.length) note.value = 'Friends picked categories. No slots yet.'
 })
 
+// Friends post photos from the day. Placeholder photography from picsum.photos, a mix of shapes.
+// A session holds up to PHOTOS_MAX photos, so this stops at the cap, and at the first photo that fails to save
+// (the browser's storage is full, say), and shows why in the note.
+const SHAPES = [[800, 1000], [800, 600], [800, 800], [800, 1100], [800, 560]]
+const simulatePhotos = () => act('photos', async () => {
+  const s = await api.getSession(session.value.id)
+  const room = api.PHOTOS_MAX - s.photoCount
+  if (room <= 0) {
+    note.value = `The session already holds ${api.PHOTOS_MAX} photos. Delete one first.`
+    return
+  }
+  const friends = friendsIn.value.slice(0, 5)
+  const posters = friends.slice(0, room)
+  let failure = ''
+  const jobs = posters.map((f, i) => async () => {
+    if (failure) return
+    const [w, h] = SHAPES[(i + s.photoCount) % SHAPES.length]
+    try {
+      await api.addPhoto(s.id, f, `https://picsum.photos/seed/jio-${s.id}-${f}-${s.photoCount}/${w}/${h}`)
+    } catch (e) {
+      failure = e.message
+    }
+  })
+  await spread(jobs, SPAN)
+  if (failure) note.value = failure
+  else if (posters.length < friends.length) note.value = `Posted ${posters.length}. A session holds up to ${api.PHOTOS_MAX} photos.`
+})
+
 const applyChange = () => act('change', async () => {
   const { personId, which, areaId } = change.value
   await api.setLocation(session.value.id, personId, which, { areaId })
@@ -114,6 +143,13 @@ const applyChange = () => act('change', async () => {
 const optOut = () => act('optout', async () => {
   await api.optOut(session.value.id, optOutId.value)
   note.value = `${nameOf(optOutId.value)} opted out.`
+})
+
+// The leaderboard season ends now instead of at the end of the quarter: first place wins the prize.
+const endSeason = () => act('season', async () => {
+  const ended = await api.endSeason()
+  const names = ended.winners.map((w) => w.name).join(' and ')
+  note.value = names ? `Season ${ended.number} ended. ${names} won ${ended.prize} points.` : `Season ${ended.number} ended. Nobody earned points, so nobody won.`
 })
 
 async function reset() {
@@ -150,6 +186,9 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       <AppButton block variant="secondary" :disabled="!session || status !== 'voting' || !!running" @click="simulateVoting">
         {{ running === 'voting' ? 'Voting' : 'Simulate friends voting' }}
       </AppButton>
+      <AppButton block variant="secondary" :disabled="!session || !['confirmed', 'completed'].includes(status) || !!running" @click="simulatePhotos">
+        {{ running === 'photos' ? 'Posting photos' : 'Simulate friends posting photos' }}
+      </AppButton>
     </section>
 
     <section class="demo-group">
@@ -170,9 +209,16 @@ const setCondition = (key, value) => planner.setCondition(key, value)
     </section>
 
     <section class="demo-group">
+      <h3 class="title-md">Leaderboard</h3>
+      <AppButton block variant="secondary" :disabled="!!running" @click="endSeason">
+        {{ running === 'season' ? 'Ending the season' : 'End the season now' }}
+      </AppButton>
+    </section>
+
+    <section class="demo-group">
       <h3 class="title-md">Conditions</h3>
       <ToggleSwitch :model-value="conditions.rain" label="Simulate rain" @update:model-value="setCondition('rain', $event)" />
-      <ToggleSwitch :model-value="conditions.crowd" label="Simulate crowd" @update:model-value="setCondition('crowd', $event)" />
+      <p v-if="conditions.rain && lastWeather?.simulationIgnored" class="body-sm text-muted" role="status">This server ignores simulated rain. Set ALLOW_SIMULATED_WEATHER=1 in backend/.env.</p>
       <ToggleSwitch :model-value="!conditions.routing" label="Routing unavailable" @update:model-value="setCondition('routing', !$event)" />
       <ToggleSwitch :model-value="conditions.sessionDay" label="It is the session day" @update:model-value="setCondition('sessionDay', $event)" />
     </section>
@@ -203,8 +249,6 @@ const setCondition = (key, value) => planner.setCondition(key, value)
   color: var(--on-dark);
   font: var(--text-button-sm);
 }
-/* Desktop: in the sidebar, above the profile row, clear of every screen's actions. */
-@media (min-width: 1128px) { .demo-fab { left: var(--spacing-base); right: auto; bottom: 96px; } }
 @media (hover: hover) { .demo-fab:hover { background: var(--body); } }
 .demo-target { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-md); border-radius: var(--rounded-md); background: var(--surface-soft); }
 .demo-group { display: flex; flex-direction: column; gap: var(--spacing-sm); padding-top: var(--spacing-base); border-top: 1px solid var(--hairline); }

@@ -3,13 +3,18 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '@/lib/api.js'
 import { HOST_ID } from '@/lib/mock/people.js'
+import { moveItem } from '@/lib/planner/itinerary.js'
 
 export const useEventsStore = defineStore('events', () => {
   const sessions = ref([])
   const byId = ref({})
   const itineraries = ref({})
+  // Photos by session, loaded with loadPhotos: a session summary carries only photoCount.
+  const photos = ref({})
   const loaded = ref(false)
   const seq = {}
+  const itinerarySeq = {}
+  const photoSeq = {}
 
   // Ian's current session: the newest one that is still going, otherwise the newest one.
   const current = computed(() => {
@@ -39,10 +44,22 @@ export const useEventsStore = defineStore('events', () => {
     return session
   }
 
+  // Only the newest load of an itinerary applies, so an older answer never overwrites a newer one.
   async function loadItinerary(id) {
+    const ticket = (itinerarySeq[id] = (itinerarySeq[id] || 0) + 1)
     const itinerary = await api.getItinerary(id)
+    if (ticket !== itinerarySeq[id]) return itineraries.value[id]
     itineraries.value = { ...itineraries.value, [id]: itinerary }
     return itinerary
+  }
+
+  // All the pictures of a session, oldest first. The same ticket rule as the others.
+  async function loadPhotos(id) {
+    const ticket = (photoSeq[id] = (photoSeq[id] || 0) + 1)
+    const list = await api.getPhotos(id)
+    if (ticket !== photoSeq[id]) return photos.value[id]
+    photos.value = { ...photos.value, [id]: list }
+    return list
   }
 
   const act = (fn) => async (id, ...args) => put(await fn(id, ...args))
@@ -59,9 +76,32 @@ export const useEventsStore = defineStore('events', () => {
   const replan = act(api.replan)
   const endPlan = act(api.endPlan)
 
+  const addPhoto = (id, src) => act(api.addPhoto)(id, HOST_ID, src)
+  const deletePhoto = act(api.deletePhoto)
+
   async function setTravelMode(id, legIndex, mode) {
     put(await api.setTravelMode(id, legIndex, mode))
     await loadItinerary(id)
+  }
+
+  // Moves the stop on screen straight away, then saves and re-times from the server's answer.
+  // If the save fails, the old order comes back, the itinerary is loaded again, and the error is thrown.
+  async function reorderStops(id, from, to) {
+    const before = itineraries.value[id]
+    if (before) {
+      // A load that started earlier must not put the old order back over the move.
+      itinerarySeq[id] = (itinerarySeq[id] || 0) + 1
+      itineraries.value = { ...itineraries.value, [id]: { ...before, stops: moveItem(before.stops, from, to) } }
+    }
+    try {
+      put(await api.reorderStops(id, from, to))
+      await loadItinerary(id)
+    } catch (err) {
+      if (before) itineraries.value = { ...itineraries.value, [id]: before }
+      // Show what is really stored. If that fails too, the first error is the one to report.
+      await loadItinerary(id).catch(() => {})
+      throw err
+    }
   }
 
   async function deleteStop(id, index) {
@@ -72,19 +112,21 @@ export const useEventsStore = defineStore('events', () => {
   api.subscribe(async (event) => {
     if (event.type === 'reset') {
       itineraries.value = {}
+      photos.value = {}
       await loadSessions()
       return
     }
     if (event.sessionId) {
       await loadSession(event.sessionId)
       if (itineraries.value[event.sessionId] !== undefined) await loadItinerary(event.sessionId)
+      if (event.type === 'photos' && photos.value[event.sessionId] !== undefined) await loadPhotos(event.sessionId)
     }
     if (event.type === 'user' || event.type === 'conditions') await loadSessions()
   })
 
   return {
-    sessions, byId, itineraries, loaded, current,
-    loadSessions, loadSession, loadItinerary,
-    create, invite, start, setMyLocation, useArea, cancel, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop,
+    sessions, byId, itineraries, photos, loaded, current,
+    loadSessions, loadSession, loadItinerary, loadPhotos,
+    create, invite, start, setMyLocation, useArea, cancel, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, addPhoto, deletePhoto,
   }
 })

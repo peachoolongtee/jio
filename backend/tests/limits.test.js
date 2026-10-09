@@ -2,6 +2,7 @@ import { once } from 'node:events'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../src/app.js'
 import { ExternalApiError } from '../src/services/errors.js'
+import { createHttp } from '../src/services/http.js'
 
 // Requests built to keep the server busy or break ranking. Every one must be refused quickly.
 // Before the limits existed, 800 distinct group constraints (a 15 kB body) blocked the server for 79 seconds.
@@ -9,7 +10,8 @@ const FRONTEND = 'http://localhost:5173'
 let server, base
 
 beforeAll(async () => {
-  server = createApp({ frontendOrigin: FRONTEND }).listen(0)
+  // Requests that pass validation reach the planner, which reads the forecast. Answer it from fixtures.
+  server = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }) }).listen(0)
   await once(server, 'listening')
   base = `http://127.0.0.1:${server.address().port}`
 })

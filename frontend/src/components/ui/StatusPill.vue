@@ -14,11 +14,11 @@ const LABELS = {
 // The status of a session. Show it on every session card and at the top of every session screen.
 // Usage: <StatusPill status="voting" />
 //   Inviting   outlined
-//   Locating   Lagoon tint
-//   Voting     Lagoon tint
-//   Confirmed  Lagoon fill
-//   Completed  ink
-//   Cancelled  error red
+//   Locating   soft grey
+//   Voting     soft grey
+//   Confirmed  Rausch fill
+//   Completed  ink fill
+//   Cancelled  error red outline
 import { computed } from 'vue'
 
 const props = defineProps({
@@ -33,6 +33,8 @@ const label = computed(() => LABELS[props.status])
 </template>
 
 <style scoped>
+/* Status badge: 11px semibold pill, like Airbnb's "Guest favorite" badge.
+   Inviting outlined; Locating and Voting soft grey; Confirmed Rausch; Completed ink; Cancelled error red. */
 .pill {
   flex-shrink: 0;
   display: inline-block;
@@ -42,9 +44,9 @@ const label = computed(() => LABELS[props.status])
   font: var(--text-badge);
   white-space: nowrap;
 }
-.pill--inviting { border-color: var(--ink); background: var(--canvas); color: var(--ink); }
-.pill--locating, .pill--voting { border-color: var(--primary-tint); background: var(--primary-tint); color: var(--primary-active); }
+.pill--inviting { border-color: var(--border-strong); background: var(--canvas); color: var(--ink); }
+.pill--locating, .pill--voting { border-color: var(--surface-strong); background: var(--surface-strong); color: var(--ink); }
 .pill--confirmed { border-color: var(--primary); background: var(--primary); color: var(--on-primary); }
 .pill--completed { border-color: var(--ink); background: var(--ink); color: var(--on-dark); }
-.pill--cancelled { border-color: var(--primary-error-text); background: var(--primary-error-text); color: var(--on-primary); }
+.pill--cancelled { border-color: var(--primary-error-text); background: var(--canvas); color: var(--primary-error-text); }
 </style>

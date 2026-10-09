@@ -1,5 +1,8 @@
 # Merging your frontend onto the backend planner
 
+> **Update, 9 Oct 2026.** Crowd estimates were cut: `lib/planner/crowd.js`, the "Simulate crowd" switch, the map's heat layer and the `crowd` field on options are gone, because there is no data source. The planner now uses the live weather forecast, and `weatherCase` is sent only when the demo rain switch is on. Where this guide mentions crowd, ignore it.
+
+
 For Darius, before you push your frontend work. Everyone else working on the frontend can use it too.
 
 **What happened:** `dev` now has Nicole and Faith's backend planner (`feature/backend-engines`), and the frontend uses it. The meeting area, the suggestions for each slot and "Search a place" come from `POST /api/meeting-area`, `/api/converge` and `/api/search` instead of the ranking code in `src/lib/planner/`. That old ranking is deleted, so there is one algorithm.

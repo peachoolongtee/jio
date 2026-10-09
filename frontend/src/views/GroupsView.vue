@@ -28,7 +28,7 @@ const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
     <header class="screen__header">
       <div class="screen__bar">
         <h1 class="display-xl">Sessions</h1>
-        <AppButton class="mobile-only" variant="pill" to="/sessions/new">
+        <AppButton variant="pill" to="/sessions/new">
           <AppIcon name="plus" :size="14" />
           Create
         </AppButton>
@@ -39,7 +39,7 @@ const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
       <div v-if="!events.loaded" class="stack">
         <SkeletonRow v-for="n in 3" :key="n" :lines="3" />
       </div>
-      <EmptyState v-else-if="!list.length" illustration="invite" :title="tab === 'past' ? 'No past sessions' : 'No upcoming sessions'" :text="tab === 'past' ? 'Completed and cancelled sessions show up here.' : 'Create a session and invite your friends.'">
+      <EmptyState v-else-if="!list.length" illustration="invite" :title="tab === 'past' ? 'No past sessions' : 'No upcoming sessions'" >
         <AppButton v-if="tab === 'upcoming'" variant="secondary" to="/sessions/new">Create session</AppButton>
       </EmptyState>
       <ul v-else class="grid-3">

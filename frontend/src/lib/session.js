@@ -1,5 +1,5 @@
 // Session helpers shared by the screens: where a session opens, its date line and each person's status.
-import { format, parseISO } from 'date-fns'
+import { differenceInCalendarDays, format, parseISO } from 'date-fns'
 
 // The screen a session card opens, by status.
 export function sessionPath(session) {
@@ -24,9 +24,28 @@ export function submissionStatus(session, personId, voterIds = []) {
   return 'Joined'
 }
 
-export const STATUS_TONE = { Joined: 'neutral', 'Location submitted': 'lagoon', Voted: 'lagoon', 'Opted out': 'error' }
+export const STATUS_TONE = { Joined: 'neutral', 'Location submitted': 'strong', Voted: 'strong', 'Opted out': 'error' }
 
 // A session pauses when fewer than 2 people are left before it ends.
 export function isPaused(session) {
   return ['locating', 'voting', 'confirmed'].includes(session.status) && session.activeIds.length < 2
+}
+
+// When the session starts, relative to now: "Starts in 50 min", "Starts in 3 h", "Tomorrow", "In 5 days",
+// "Live now" during the time window and "Ended" after it. Null for completed or cancelled sessions.
+// `isToday` (the demo's session-day switch) moves the session to today's date.
+export function startsIn(session, now = new Date()) {
+  if (!session?.date || ['completed', 'cancelled'].includes(session.status)) return null
+  const day = session.isToday ? format(now, 'yyyy-MM-dd') : session.date
+  const start = parseISO(`${day}T${session.start}`)
+  const end = parseISO(`${day}T${session.end}`)
+  const minutes = Math.round((start - now) / 60000)
+  if (now >= end) return { text: 'Ended', tone: 'muted' }
+  if (now >= start) return { text: 'Live now', tone: 'live' }
+  if (minutes < 60) return { text: `Starts in ${Math.max(1, minutes)} min`, tone: 'soon' }
+  if (minutes < 12 * 60) return { text: `Starts in ${Math.round(minutes / 60)} h`, tone: 'soon' }
+  const days = differenceInCalendarDays(start, now)
+  if (days <= 0) return { text: `Today, ${session.start}`, tone: 'soon' }
+  if (days === 1) return { text: `Tomorrow, ${session.start}`, tone: 'later' }
+  return { text: `In ${days} days`, tone: 'later' }
 }

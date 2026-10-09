@@ -1,13 +1,11 @@
-// The live data services: the cache, NEA weather, OneMap, and running the engine with real travel times.
+// The OneMap services: the cache, address search, public transport routes, and running the engine with real
+// travel times. NEA weather has its own tests (Ian's weather service).
 // Nothing here touches the network: stub mode answers from tests/fixtures/, and the rest use fake helpers.
 import { describe, expect, it, vi } from 'vitest'
 import { createCache } from '../src/services/cache.js'
 import { createHttp, ExternalApiError } from '../src/services/http.js'
 import { createOneMap, oneMapDateTime, WALK_ONLY_KM } from '../src/services/onemap.js'
-import { runWithScenario } from '../src/services/scenario.js'
 import { runWithRealTravel } from '../src/services/travel-times.js'
-import { coversTime, createWeather, nearestForecastArea, parseTwoHourForecast, rainRiskOf } from '../src/services/weather.js'
-import { loadFixture } from '../src/services/stubs.js'
 import { converge, meetingArea } from '../src/planner/engine.js'
 import { haversineKm } from '../src/planner/geo.js'
 import mock from '../src/db/mock/mock-data.json'
@@ -49,63 +47,6 @@ describe('createCache', () => {
     cache.set('c', 3)
     expect(cache.get('a')).toBeUndefined()
     expect(cache.size()).toBe(2)
-  })
-})
-
-// ---------------------------------------------------------------- weather
-describe('NEA weather', () => {
-  it('rainRiskOf: stronger words win, and an unknown text is not treated as dry', () => {
-    expect(rainRiskOf('Heavy Thundery Showers with Gusty Winds').rainRisk).toBe(0.95)
-    expect(rainRiskOf('Thundery Showers').rainRisk).toBe(0.9)
-    expect(rainRiskOf('Showers').rainRisk).toBe(0.7)
-    expect(rainRiskOf('Light Showers').rainRisk).toBe(0.5)
-    expect(rainRiskOf('Partly Cloudy (Night)').rainRisk).toBe(0.15)
-    expect(rainRiskOf('Fair (Day)').rainRisk).toBe(0.05)
-    expect(rainRiskOf('Snow')).toEqual({ rainRisk: 0.3, known: false })
-  })
-
-  it('parses the recorded forecast: 47 areas with points, texts and the 2-hour period', () => {
-    const f = parseTwoHourForecast(loadFixture('datagov/two-hr-forecast.dry.json'))
-    expect(f.areas).toHaveLength(47)
-    expect(f.areas[0]).toEqual({ name: 'Ang Mo Kio', lat: 1.375, lng: 103.839, forecast: 'Fair (Day)', rainRisk: 0.05 })
-    expect(f.validFrom).toBe('2026-10-05T09:30:00+08:00')
-    expect(f.unknownTexts).toEqual([])
-  })
-
-  it('fails loudly on an answer of the wrong shape, instead of giving no weather', () => {
-    expect(() => parseTwoHourForecast({ data: {} })).toThrow(/unexpected answer shape/)
-  })
-
-  it('coversTime: only times inside the 2-hour period use the forecast', () => {
-    const f = parseTwoHourForecast(loadFixture('datagov/two-hr-forecast.dry.json')) // 09:30 to 11:30 on 5 Oct
-    expect(coversTime(f, '2026-10-05T10:00')).toBe(true)
-    expect(coversTime(f, '2026-10-05T11:30')).toBe(false)
-    expect(coversTime(f, '2026-10-06T10:00')).toBe(false)
-  })
-
-  it('nearestForecastArea picks the closest named area', () => {
-    const f = parseTwoHourForecast(loadFixture('datagov/two-hr-forecast.dry.json'))
-    const area = nearestForecastArea(TAMPINES, f.areas)
-    expect(area.name).toBe('Tampines')
-    for (const a of f.areas) expect(haversineKm(TAMPINES, area)).toBeLessThanOrEqual(haversineKm(TAMPINES, a))
-  })
-
-  it('caches the forecast per stub scenario, so rain never leaks into a dry test', async () => {
-    const http = stubHttp()
-    const spy = vi.spyOn(http, 'getJson')
-    const weather = createWeather({ http })
-    const dry = await runWithScenario('dry', () => weather.twoHourForecast())
-    const wet = await runWithScenario('rain', () => weather.twoHourForecast())
-    await runWithScenario('dry', () => weather.twoHourForecast())
-    expect(dry.areas[0].rainRisk).toBe(0.05)
-    expect(wet.areas[0].rainRisk).toBe(0.95)
-    expect(spy).toHaveBeenCalledTimes(2)
-  })
-
-  it('sends the optional data.gov.sg key as a header', async () => {
-    const http = { getJson: vi.fn(async () => loadFixture('datagov/two-hr-forecast.dry.json')) }
-    await createWeather({ http, apiKey: 'test-key' }).twoHourForecast()
-    expect(http.getJson.mock.calls[0][1]).toEqual({ headers: { 'x-api-key': 'test-key' } })
   })
 })
 
