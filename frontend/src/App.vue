@@ -1,6 +1,6 @@
 <script setup>
-// The app frame: the screen, with the floating tab bar (TabBar) at the bottom of top-level screens, the same at
-// every size. Other screens have their own back button and, often, an action bar at the bottom.
+// The app frame: the screen, with the tab bar (TabBar) on top-level screens: a floating pill at the bottom on
+// mobile, a full-width bar along the top from tablet up. Other screens have their own back button and, often, an action bar at the bottom.
 import { computed, defineAsyncComponent } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import TabBar from '@/components/ui/TabBar.vue'

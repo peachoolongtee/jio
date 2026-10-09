@@ -56,10 +56,10 @@ svg { display: block; flex-shrink: 0; }
 .truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── App frame and screen layout ──────────────────────────── */
-/* The frame: the screen, with room at the bottom for the floating tab bar on top-level screens (any size). */
+/* The frame: the screen, with room for the tab bar on top-level screens: at the bottom on mobile, at the top from tablet up. */
 .app { min-height: 100dvh; background: var(--canvas); }
 .app__main { display: flex; flex-direction: column; min-width: 0; min-height: 100dvh; }
-.app.has-tabs .app__main { padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px)); }
+.app.has-tabs .app__main { padding-top: var(--topbar-height); padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px)); }
 
 /* A screen is a column: header, a body, and an optional footer that stays in view.
    On wide windows it sits in a centred column no wider than --content-max-width. */

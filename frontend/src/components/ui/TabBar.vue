@@ -1,7 +1,10 @@
 <script setup>
-// The main navigation, at every screen size: a floating pill near the bottom of the screen. The current tab is
-// tinted Rausch and its name slides out beside the icon; the others are icons only (each keeps its name for screen
-// readers and as a tooltip). Create is always the Rausch +. The pill springs in when it first appears.
+// The main navigation.
+// - Mobile: a floating pill near the bottom of the screen, where thumbs reach. The current tab is tinted Rausch and
+//   its name slides out beside the icon; the others are icons only (each keeps its name for screen readers and as a
+//   tooltip). Create is a solid Rausch circle with a white +. The pill springs in when it first appears.
+// - Tablet and up (744px): a full-width bar along the top: the Jio wordmark, every tab with its name, and
+//   "Create session" as a Rausch button on the right.
 // Home, Leaderboard, Create, Rewards, Profile.
 import { RouterLink, useRoute } from 'vue-router'
 import AppIcon from './AppIcon.vue'
@@ -31,6 +34,7 @@ function isActive(tab) {
 
 <template>
   <nav class="tabbar" aria-label="Main" style="view-transition-name: app-tabs">
+    <RouterLink to="/" class="tabbar__brand" aria-label="Jio home">Jio</RouterLink>
     <RouterLink
       v-for="tab in tabs"
       :key="tab.id"
@@ -43,6 +47,7 @@ function isActive(tab) {
     >
       <AppIcon :name="tab.icon" :size="22" />
       <span class="tabbar__label" aria-hidden="true"><span>{{ tab.label }}</span></span>
+      <span v-if="tab.name" class="tabbar__label tabbar__label--long" aria-hidden="true"><span>{{ tab.name }}</span></span>
     </RouterLink>
   </nav>
 </template>
@@ -96,6 +101,49 @@ function isActive(tab) {
 .tabbar__label { display: grid; grid-template-columns: 0fr; max-width: 84px; margin-left: 0; opacity: 0; transition: grid-template-columns 380ms var(--ease-spring), margin-left 190ms var(--ease-out), opacity 190ms var(--ease-out); }
 .tabbar__label > span { min-width: 0; overflow: hidden; font: 600 12px/1.9 var(--font-sans); white-space: nowrap; text-overflow: ellipsis; }
 .tabbar__tab.is-active .tabbar__label { grid-template-columns: 1fr; margin-left: var(--spacing-sm); opacity: 1; }
+
+/* Only the wide bar shows the wordmark and Create's longer name. */
+.tabbar__brand, .tabbar__label--long { display: none; }
+
+/* Tablet and up: a full-width bar along the top. The wordmark on the left, the tabs beside it with their names,
+   and Create as a Rausch button pushed to the right. */
+@media (min-width: 744px) {
+  .tabbar {
+    top: 0;
+    right: 0;
+    bottom: auto;
+    left: 0;
+    gap: var(--spacing-sm);
+    min-width: 0;
+    max-width: none;
+    height: var(--topbar-height);
+    padding: 0 max(var(--gutter), calc((100vw - var(--content-max-width)) / 2));
+    border: 0;
+    border-bottom: 1px solid var(--hairline);
+    border-radius: 0;
+    box-shadow: none;
+    transform: none;
+    animation: none;
+  }
+  .tabbar__brand { display: inline-flex; align-items: center; margin-right: var(--spacing-lg); color: var(--primary); font: 800 26px/1 var(--font-sans); letter-spacing: -0.02em; text-decoration: none; }
+  .tabbar__tab { flex: 0 0 auto; height: 44px; padding: 0 var(--spacing-base); }
+  .tabbar__tab:not(.is-active):not(.is-create) { color: var(--body); }
+  .tabbar__label, .tabbar__tab.is-active .tabbar__label { grid-template-columns: 1fr; max-width: none; margin-left: var(--spacing-sm); opacity: 1; transition: none; }
+  .tabbar__label > span { font: var(--text-nav-link); font-size: 15px; }
+  /* Create: last, on the right, as a Rausch button with its full name. */
+  .tabbar__tab.is-create { order: 1; margin-left: auto; padding: 0 var(--spacing-lg) 0 var(--spacing-base); }
+  .tabbar__tab.is-create .tabbar__label:not(.tabbar__label--long) { display: none; }
+  .tabbar__tab.is-create .tabbar__label--long { display: grid; }
+}
+/* Tablet: tighter tabs, and Create says just "Create", so the bar fits without scrolling. */
+@media (min-width: 744px) and (max-width: 1127px) {
+  .tabbar { gap: var(--spacing-xs); }
+  .tabbar__brand { margin-right: var(--spacing-sm); }
+  .tabbar__tab { padding: 0 var(--spacing-md); }
+  .tabbar__tab.is-create { padding: 0 var(--spacing-base) 0 var(--spacing-md); }
+  .tabbar__tab.is-create .tabbar__label:not(.tabbar__label--long) { display: grid; }
+  .tabbar__tab.is-create .tabbar__label--long { display: none; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .tabbar { animation: none; }
