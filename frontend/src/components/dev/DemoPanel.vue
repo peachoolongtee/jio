@@ -42,6 +42,13 @@ const friendOptions = computed(() => friendsIn.value.map((id) => ({ value: id, l
 const areaOptions = [...AREAS].sort((a, b) => a.name.localeCompare(b.name)).map((a) => ({ value: a.id, label: a.name }))
 const status = computed(() => session.value?.status)
 const live = computed(() => ['locating', 'voting', 'confirmed'].includes(status.value))
+// Why the friend buttons may be off, or what still has to happen, so a click never seems to do nothing.
+const hostLocated = computed(() => !!session.value?.locations?.[HOST_ID]?.start)
+const friendsHint = computed(() => {
+  if (status.value === 'inviting') return friendsIn.value.length ? 'Tap Start session on the session page first. Friends share their locations after that.' : 'Invite at least one friend and start the session first.'
+  if (status.value === 'locating' && !hostLocated.value) return 'The meeting point appears once everyone, you included, has shared where they start. Set your From location on the session page.'
+  return ''
+})
 
 watch(open, async (isOpen) => {
   if (isOpen) {
@@ -85,6 +92,7 @@ const simulateLocations = () => act('locations', async () => {
     waiting.map((id) => () => api.setLocation(s.id, id, 'start', { areaId: PEOPLE.find((p) => p.id === id).homeAreaId })),
     SPAN,
   )
+  if (waiting.length && !hostLocated.value) note.value = "Friends' locations are in. Set your own From location to find the meeting point."
 })
 
 const simulateVoting = () => act('voting', async () => {
@@ -160,9 +168,12 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       <StatusPill :status="session.status" />
     </div>
     <p v-else class="body-sm text-muted">No session yet.</p>
+    <!-- What the last action did (or why it could not), at the top so it is seen without scrolling. -->
+    <p v-if="note" class="body-sm demo-note" role="status">{{ note }}</p>
 
     <section class="demo-group">
       <h3 class="title-md">Friends</h3>
+      <p v-if="friendsHint" class="body-sm text-muted">{{ friendsHint }}</p>
       <AppButton block variant="secondary" :disabled="!session || !live || !!running" @click="simulateLocations">
         {{ running === 'locations' ? 'Submitting locations' : 'Simulate friends submitting locations' }}
       </AppButton>
@@ -206,7 +217,6 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       <ToggleSwitch :model-value="conditions.sessionDay" label="It is the session day" @update:model-value="setCondition('sessionDay', $event)" />
     </section>
 
-    <p v-if="note" class="body-sm" role="status">{{ note }}</p>
 
     <template #footer>
       <AppButton block variant="danger" @click="reset">Reset demo data</AppButton>
@@ -215,6 +225,7 @@ const setCondition = (key, value) => planner.setCondition(key, value)
 </template>
 
 <style scoped>
+.demo-note { padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--rounded-sm); background: var(--surface-soft); color: var(--ink); }
 .demo-fab {
   position: fixed;
   right: var(--spacing-base);
