@@ -35,6 +35,19 @@ export const useAuthStore = defineStore('auth', () => {
     return user.value
   }
 
+  // Demo tools: sign up with a ready-made profile, skipping the steps.
+  async function signUpAs(profile) {
+    user.value = await api.signUp(profile)
+    draft.value = emptyDraft()
+    return user.value
+  }
+
+  // Demo tools: wipe everything (account, meetups, leaderboard) and sign up again as a brand new account.
+  async function startOver(profile) {
+    await api.signOut()
+    return signUpAs(profile)
+  }
+
   async function update(patch) {
     user.value = await api.updateUser(patch)
   }
@@ -49,5 +62,5 @@ export const useAuthStore = defineStore('auth', () => {
     if (event.type === 'reset' || event.type === 'user') user.value = await api.getUser()
   })
 
-  return { user, ready, draft, signedIn, init, signUp, update, signOut }
+  return { user, ready, draft, signedIn, init, signUp, signUpAs, startOver, update, signOut }
 })

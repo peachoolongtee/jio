@@ -88,6 +88,18 @@ async function next() {
   else finish()
 }
 
+// Development builds only: skip the steps with a ready-made demo account. In a production build this is null, so the
+// button and the demo account are left out.
+const quickAccount = import.meta.env.DEV
+  ? async () => {
+      busy.value = true
+      const { DEMO_ACCOUNT } = await import('@/components/dev/demoAccount.js')
+      await auth.signUpAs(DEMO_ACCOUNT)
+      busy.value = false
+      router.replace('/')
+    }
+  : null
+
 async function finish() {
   busy.value = true
   await auth.signUp()
@@ -258,6 +270,7 @@ watch(() => draft.value.username, () => (usernameError.value = ''))
       <template v-else>
         <AppButton block :disabled="!canContinue || busy" @click="next">{{ step === 'friends' ? 'Finish' : 'Next' }}</AppButton>
       </template>
+      <AppButton v-if="quickAccount" variant="tertiary" underline small class="signup__dev" :disabled="busy" @click="quickAccount">Dev: create a demo account</AppButton>
     </footer>
   </main>
 </template>
@@ -265,6 +278,7 @@ watch(() => draft.value.username, () => (usernameError.value = ''))
 <style scoped>
 .signup { min-height: 100dvh; }
 .signup__body { padding-top: var(--spacing-lg); }
+.signup__dev { align-self: center; }
 /* The question heading takes focus for screen readers; it is not a control, so it shows no ring. */
 .signup__body h1:focus, .signup__body h1:focus-visible { outline: none; }
 .signup__peek { position: absolute; top: 6px; right: 6px; min-width: var(--tap-min); height: var(--tap-min); padding: 0 var(--spacing-md); border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--ink); font: var(--text-button-sm); text-decoration: underline; }

@@ -14,6 +14,8 @@ import StatusPill from '../ui/StatusPill.vue'
 import ToggleSwitch from '../ui/ToggleSwitch.vue'
 import * as api from '@/lib/api.js'
 import { FRIEND_PICKS, HOST_ID, PEOPLE } from '@/lib/mock/people.js'
+import { DEMO_ACCOUNT } from './demoAccount.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useEventsStore } from '@/stores/events.js'
 import { usePlannerStore } from '@/stores/planner.js'
@@ -24,6 +26,7 @@ const PATTERN = [0, 1, 0, 2, 0]
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const events = useEventsStore()
 const planner = usePlannerStore()
 
@@ -141,6 +144,14 @@ const endSeason = () => act('season', async () => {
   note.value = names ? `Season ${ended.number} ended. ${names} won ${coins(ended.prize)}.` : `Season ${ended.number} ended. Nobody earned JioCoins, so nobody won.`
 })
 
+// A brand new account: no meetups, nothing earned this season, then Home. This panel closes on the way, since it
+// only shows while signed in.
+async function startOver() {
+  open.value = false
+  await auth.startOver(DEMO_ACCOUNT)
+  router.push('/')
+}
+
 async function reset() {
   await api.resetDemo()
   note.value = 'Demo data reset.'
@@ -215,6 +226,12 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       <ToggleSwitch :model-value="conditions.sessionDay" label="It is the session day" @update:model-value="setCondition('sessionDay', $event)" />
     </section>
 
+
+    <section class="demo-group">
+      <h3 class="title-md">Account</h3>
+      <p class="body-sm text-muted">Reset demo data keeps your account and clears meetups. Start over also replaces the account, as if you had just signed up.</p>
+      <AppButton block variant="secondary" @click="startOver">Start over with a new account</AppButton>
+    </section>
 
     <template #footer>
       <AppButton block variant="danger" @click="reset">Reset demo data</AppButton>
