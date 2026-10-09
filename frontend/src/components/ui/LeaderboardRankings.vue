@@ -76,9 +76,9 @@ const last = computed(() => Math.min(props.rankings.length, (page.value + 1) * s
 .rankings__row.is-me { border-radius: var(--rounded-md); background: var(--surface-soft); box-shadow: inset 0 0 0 2px var(--ink); }
 .rankings__rank { color: var(--ink); font: var(--text-title-md); text-align: center; }
 .rankings__crown { display: inline-flex; }
-.is-top-1 .rankings__crown { color: var(--primary); }
-.is-top-2 .rankings__crown { color: var(--ink); }
-.is-top-3 .rankings__crown { color: var(--muted); }
+.is-top-1 .rankings__crown { color: var(--medal-gold-fg); }
+.is-top-2 .rankings__crown { color: var(--medal-silver-fg); }
+.is-top-3 .rankings__crown { color: var(--medal-bronze-fg); }
 .rankings__name { display: flex; flex-direction: column; justify-content: center; min-width: 0; min-height: var(--tap-min); color: var(--ink); text-decoration: none; }
 @media (hover: hover) { a.rankings__name:hover .title-md { text-decoration: underline; } }
 .rankings__value { white-space: nowrap; }

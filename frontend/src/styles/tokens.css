@@ -27,6 +27,17 @@
 
   /* Data colours. They carry information on maps, keys and stripes, never actions: Rausch stays the one accent.
      Always shown with words or a key, never as the only signal. */
+  /* Leaderboard places: gold, silver and bronze for 1st, 2nd and 3rd. -fg for crowns, rings and rank numbers
+     on white, -bg for the podium blocks, -on for the rank number on a block. Always beside the rank number. */
+  --medal-gold-fg: #c08a00;
+  --medal-gold-bg: #f2c14e;
+  --medal-gold-on: #5c4100;
+  --medal-silver-fg: #7a8699;
+  --medal-silver-bg: #c9d1dc;
+  --medal-silver-on: #3b4452;
+  --medal-bronze-fg: #b0602b;
+  --medal-bronze-bg: #dda274;
+  --medal-bronze-on: #5a2e10;
   /* Good, middling, bad: travel time to the meeting area and how crowded a place is. */
   --scale-good: #15803d;
   --scale-middle: #b7791f;

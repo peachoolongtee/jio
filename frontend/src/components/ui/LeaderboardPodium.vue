@@ -2,7 +2,7 @@
 // The top three on stepped blocks: 2nd on the left, 1st raised in the middle, 3rd on the right.
 //   <LeaderboardPodium :rankings="[{ userId: 'ian', userName: 'Ian', rank: 1, value: 300 }]" current-user-id="ian" />
 // Each ranking: { userId, userName, rank, value, photo?, to? }. `to` makes the spot a link (a profile).
-// The order passed in decides the block (1st, 2nd, 3rd); the number on it is the rank, so a tie shows
+// The order passed in decides the block (1st gold, 2nd silver, 3rd bronze); the number on it is the rank, so a tie shows
 // the shared rank on both blocks.
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
@@ -60,11 +60,14 @@ const spots = computed(() => {
 .podium__value { color: var(--muted); }
 /* The blocks: rounded tops, the rank near the top, stepping down 1st, 2nd, 3rd. */
 .podium__block { display: flex; justify-content: center; padding-top: var(--spacing-md); border-radius: var(--rounded-md) var(--rounded-md) 0 0; font: var(--text-display-sm); }
-.podium__spot--1 .podium__block { height: 136px; background: color-mix(in srgb, var(--primary) 14%, var(--canvas)); color: var(--primary-active); }
-.podium__spot--2 .podium__block { height: 104px; background: var(--surface-strong); color: var(--ink); }
-.podium__spot--3 .podium__block { height: 84px; background: var(--surface-soft); color: var(--muted); }
-.podium__spot--1 .podium__crown { color: var(--primary); }
-.podium__spot--2 .podium__crown { color: var(--ink); }
-.podium__spot--3 .podium__crown { color: var(--muted); }
-.podium__spot.is-me .podium__avatar :deep(.avatar) { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--ink); }
+.podium__spot--1 .podium__block { height: 136px; background: var(--medal-gold-bg); color: var(--medal-gold-on); }
+.podium__spot--2 .podium__block { height: 104px; background: var(--medal-silver-bg); color: var(--medal-silver-on); }
+.podium__spot--3 .podium__block { height: 84px; background: var(--medal-bronze-bg); color: var(--medal-bronze-on); }
+.podium__spot--1 .podium__crown { color: var(--medal-gold-fg); }
+.podium__spot--2 .podium__crown { color: var(--medal-silver-fg); }
+.podium__spot--3 .podium__crown { color: var(--medal-bronze-fg); }
+/* A gold, silver or bronze ring around the top three's avatars. */
+.podium__spot--1 .podium__avatar :deep(.avatar) { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--medal-gold-fg); }
+.podium__spot--2 .podium__avatar :deep(.avatar) { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--medal-silver-fg); }
+.podium__spot--3 .podium__avatar :deep(.avatar) { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--medal-bronze-fg); }
 </style>
