@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { createApp } from './app.js'
+import { createSupabase } from './db/supabase.js'
 import { assertStubAllowed, createHttp } from './services/http.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -26,7 +27,37 @@ try {
 
 const http = createHttp({ stub })
 
-createApp({ frontendOrigin, stub, http }).listen(port, () => {
+// Supabase: token checks and database access. All three values are needed. With none of them the server
+// still runs outside production, but the routes that need a login are switched off. With only some of them
+// it refuses to start, because that is a mistake in the settings, not a choice.
+//
+// SUPABASE_ALLOW_LEGACY_TOKENS=1 lets tokens signed with the old shared secret (HS256) be checked by
+// asking Supabase. Set it only if the project still issues them.
+const SUPABASE_SETTINGS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY']
+const missingSettings = SUPABASE_SETTINGS.filter((name) => !process.env[name])
+if (missingSettings.length > 0 && missingSettings.length < SUPABASE_SETTINGS.length) {
+  console.error(`Supabase is only partly configured. Missing: ${missingSettings.join(', ')}. Set all three or none.`)
+  process.exit(1)
+}
+if (missingSettings.length === SUPABASE_SETTINGS.length && isProduction) {
+  console.error(`Supabase is not configured. Set ${SUPABASE_SETTINGS.join(', ')} on the host.`)
+  process.exit(1)
+}
+const { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY } = process.env
+const supabase =
+  missingSettings.length === 0
+    ? createSupabase({
+        url: SUPABASE_URL,
+        anonKey: SUPABASE_ANON_KEY,
+        serviceKey: SUPABASE_SERVICE_ROLE_KEY,
+        allowLegacyTokens: process.env.SUPABASE_ALLOW_LEGACY_TOKENS === '1',
+      })
+    : null
+
+createApp({ frontendOrigin, stub, http, supabase }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
   if (stub) console.log('Stub mode is ON: external API calls are answered from fixtures.')
+  if (!supabase) {
+    console.log('Supabase is NOT configured: routes that need a login are off. Set SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY in backend/.env.')
+  }
 })

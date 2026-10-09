@@ -7,11 +7,30 @@ import { z } from 'zod'
 //   const schemas = makePlanSchemas(data)        // data = loadPlanData(), for the occasion and weather names
 //   const input = schemas.converge.parse(req.body) // throws a ZodError on bad input
 
+// Upper limits on everything a caller can send. Without them one request could keep the server busy
+// for minutes: the planner re-runs every filter once per group constraint, and it routes every venue
+// listed in currentOptionIds. Each limit is well above what the app sends.
+//
+// How to use: MAX.constraints, MAX.text and so on, in the schemas below.
+const MAX = {
+  text: 80, // ids, names and labels
+  members: 30,
+  listPerMember: 20, // cuisine likes and dislikes
+  constraints: 10, // group constraints
+  currentOptions: 30, // the app shows at most 6 options per slot
+  excludedVenues: 200,
+  categories: 4, // there are only 4 kinds of place
+  weight: 1000,
+  money: 10000,
+  minutes: 1440,
+}
+const text = (max = MAX.text) => z.string().min(1).max(max)
+
 // Singapore, with a little margin. Catches swapped lat/lng and (0, 0) from a failed geocode.
 const point = z.object({
   lat: z.number().min(1.1).max(1.5),
   lng: z.number().min(103.5).max(104.1),
-  label: z.string().optional(),
+  label: z.string().max(MAX.text).optional(),
 })
 
 // "2026-10-10T19:00": local time, no time zone, sliced not parsed (see filters.js).
@@ -24,26 +43,34 @@ const diet = z.string().transform((s) => s.toLowerCase()).pipe(z.enum(['halal', 
 
 const constraint = z
   .string()
+  .max(MAX.text)
   .regex(
-    /^(step_free|sockets|quiet|indoor_only|max_price_pp:\d+(\.\d+)?|near_mrt:\d+)$/,
+    /^(step_free|sockets|quiet|indoor_only|max_price_pp:\d{1,5}(\.\d{1,2})?|near_mrt:\d{1,3})$/,
     'one of step_free, sockets, quiet, indoor_only, max_price_pp:N, near_mrt:N',
   )
 
 const category = z.enum(['eat', 'drink', 'shop', 'activity'])
+// At most 4 (there are only 4 kinds), and a repeated kind counts once.
+const categories = z
+  .array(category)
+  .min(1)
+  .max(MAX.categories)
+  .transform((c) => [...new Set(c)])
+  .optional()
 
 const memberFields = {
-  id: z.string().min(1),
-  name: z.string().optional(),
+  id: text(),
+  name: z.string().max(MAX.text).optional(),
   home: point.optional(),
   start: point.optional(),
   end: point.optional(),
-  dietary: z.array(diet).default([]),
+  dietary: z.array(diet).max(3).default([]),
   prefersHealthy: z.boolean().default(false),
-  cuisineLikes: z.array(z.string()).default([]),
-  cuisineDislikes: z.array(z.string()).default([]),
-  budgetMaxPerPerson: z.number().positive().optional(),
-  maxReturnMinutes: z.number().positive().optional(),
-  travelDebtMinutes: z.number().default(0),
+  cuisineLikes: z.array(text()).max(MAX.listPerMember).default([]),
+  cuisineDislikes: z.array(text()).max(MAX.listPerMember).default([]),
+  budgetMaxPerPerson: z.number().positive().max(MAX.money).optional(),
+  maxReturnMinutes: z.number().positive().max(MAX.minutes).optional(),
+  travelDebtMinutes: z.number().min(-MAX.minutes * 10).max(MAX.minutes * 10).default(0),
 }
 const withName = (m) => ({ ...m, name: m.name ?? m.id })
 
@@ -58,7 +85,8 @@ const roamMember = z.object(memberFields).transform(withName)
 const uniqueIds = (members) => new Set(members.map((m) => m.id)).size === members.length
 
 // Weights must be 0 or more, and only for factors that engine computes (combine() throws on others).
-const weightsFor = (keys) => z.record(z.enum(keys), z.number().min(0)).optional()
+// They also have a ceiling: huge weights overflow to Infinity and turn every score into NaN.
+const weightsFor = (keys) => z.record(z.enum(keys), z.number().min(0).max(MAX.weight)).optional()
 const CONVERGE_FACTORS = ['worst', 'mean', 'returnWorst', 'occasion', 'preference', 'rating', 'weather', 'price', 'cdc', 'antiRepeat', 'crowd']
 const ROAM_FACTORS = ['distance', 'occasion', 'preference', 'rating', 'weather', 'price', 'cdc', 'antiRepeat', 'crowd']
 
@@ -71,22 +99,25 @@ export function makePlanSchemas(data) {
     occasion,
     dateTime,
     durationMinutes: z.number().int().min(0).max(720).optional(),
-    categories: z.array(category).min(1).optional(),
-    groupConstraints: z.array(constraint).default([]),
-    excludeVenueIds: z.array(z.string()).default([]),
+    categories,
+    groupConstraints: z.array(constraint).max(MAX.constraints).default([]),
+    excludeVenueIds: z.array(text()).max(MAX.excludedVenues).default([]),
     // The options the group is already voting on, so a rain swap never suggests one of them again.
-    currentOptionIds: z.array(z.string()).default([]),
+    currentOptionIds: z.array(text()).max(MAX.currentOptions).default([]),
     unknownPolicy: z.enum(['strict', 'lenient']).default('strict'),
     weatherCase,
-    groupId: z.string().optional(),
+    groupId: text().optional(),
     topN: z.number().int().min(1).max(20).optional(),
     travelCeilingMinutes: z.number().positive().max(180).optional(),
   }
 
   const groupFields = {
-    members: z.array(travellingMember).min(1).max(30).refine(uniqueIds, 'member ids must be unique'),
-    overrides: z.record(z.object({ start: point.optional(), end: point.optional() })).default({}),
-    optedOut: z.array(z.string()).default([]),
+    members: z.array(travellingMember).min(1).max(MAX.members).refine(uniqueIds, 'member ids must be unique'),
+    overrides: z
+      .record(text(), z.object({ start: point.optional(), end: point.optional() }))
+      .refine((o) => Object.keys(o).length <= MAX.members, `at most ${MAX.members} overrides`)
+      .default({}),
+    optedOut: z.array(text()).max(MAX.members).default([]),
   }
   const someoneLeft = (b) => b.members.some((m) => !b.optedOut.includes(m.id))
   const NOBODY = { message: 'everyone has opted out', path: ['optedOut'] }
@@ -112,7 +143,7 @@ export function makePlanSchemas(data) {
   const roam = z.object({
     ...rankFields,
     current: point,
-    members: z.array(roamMember).min(1).max(30).refine(uniqueIds, 'member ids must be unique'),
+    members: z.array(roamMember).min(1).max(MAX.members).refine(uniqueIds, 'member ids must be unique'),
     weights: weightsFor(ROAM_FACTORS),
   })
 
@@ -134,11 +165,11 @@ export function makePlanSchemas(data) {
     centre: point,
     dateTime,
     durationMinutes: z.number().int().min(0).max(720).optional(),
-    categories: z.array(category).min(1).optional(),
+    categories,
     lastStop: z.boolean().default(false),
     lastStopMrtWalkMinutes: z.number().int().min(1).max(30).optional(),
-    members: z.array(roamMember).max(30).default([]),
-    groupConstraints: z.array(constraint).default([]),
+    members: z.array(roamMember).max(MAX.members).default([]),
+    groupConstraints: z.array(constraint).max(MAX.constraints).default([]),
     unknownPolicy: z.enum(['strict', 'lenient']).default('strict'),
     maxKm: z.number().positive().max(30).optional(),
     limit: z.number().int().min(1).max(50).optional(),
