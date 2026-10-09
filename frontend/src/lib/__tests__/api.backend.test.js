@@ -25,15 +25,17 @@ describe('a session planned by the backend', () => {
     ;({ id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' }))
     await api.inviteFriends(id, ['jonathan', 'faith'])
     await api.startSession(id)
-    const [first, ...rest] = Object.entries(people)
-    await api.setLocation(id, first[0], 'start', { areaId: first[1] })
+    const entries = Object.entries(people)
+    for (const [person, areaId] of entries.slice(0, -1)) await api.setLocation(id, person, 'start', { areaId })
+    // The meeting area waits until everyone has shared where they start.
+    expect((await api.getSession(id)).meeting).toBeFalsy()
     // While the planner works out the meeting area, the session says so (the map shows an animation).
-    const saving = api.setLocation(id, rest[0][0], 'start', { areaId: rest[0][1] })
+    const [lastPerson, lastArea] = entries.at(-1)
+    const saving = api.setLocation(id, lastPerson, 'start', { areaId: lastArea })
     await new Promise((resolve) => setTimeout(resolve, 150))
     expect((await api.getSession(id)).findingMeeting).toBe(true)
     await saving
     expect((await api.getSession(id)).findingMeeting).toBe(false)
-    for (const [person, areaId] of rest.slice(1)) await api.setLocation(id, person, 'start', { areaId })
     const session = await api.getSession(id)
     expect(session.area.id).toBe('bishan')
     expect(session.meeting.maxMinutes).toBeGreaterThan(0)

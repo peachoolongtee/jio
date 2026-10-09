@@ -65,7 +65,7 @@ const progress = computed(() => {
   if (['voting', 'confirmed', 'completed'].includes(status.value)) {
     return { title: 'Votes', label: 'Voted', people: people.map((p) => ({ name: p.name, done: voterIds.value.includes(p.id) })) }
   }
-  return { title: 'Locations', label: 'Located', people: people.map((p) => ({ name: p.name, done: !!session.value.locations?.[p.id]?.start })) }
+  return { title: 'Locations', label: 'Submitted', people: people.map((p) => ({ name: p.name, done: !!session.value.locations?.[p.id]?.start })) }
 })
 
 // Map pins: each person's start AREA, with their travel time to the meeting area.
@@ -147,7 +147,7 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
         <SplitView v-model:view="view" label="Meeting area">
           <template #list>
             <!-- Step 5: the meeting area. While the planner works it out, the card says so and a bar sweeps across. -->
-            <section class="area" :class="{ 'is-finding': finding }" aria-labelledby="area-head" :role="finding ? 'status' : undefined">
+            <section v-if="finding || session.meeting" class="area" :class="{ 'is-finding': finding }" aria-labelledby="area-head" :role="finding ? 'status' : undefined">
               <template v-if="finding">
                 <div class="area__main">
                   <span class="area__pin area__pin--finding"><AppIcon name="pin" :size="18" /></span>
@@ -165,7 +165,6 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
                   <h2 id="area-head" class="display-lg">{{ session.area.name }}</h2>
                 </div>
               </div>
-              <h2 v-else id="area-head" class="title-md text-muted">Waiting for 2 locations</h2>
             </section>
             <p v-if="session.areaNote" class="caption-sm text-muted">{{ session.areaNote }}</p>
 
@@ -180,7 +179,6 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
           <template #map>
             <PlannerMap :people="mapPeople" :area="session.area" :finding="finding" spokes label="Meeting area map" />
             <div v-if="finding" class="map-wait map-wait--finding title-sm" role="status">Finding the fairest meeting point…</div>
-            <div v-else-if="!session.meeting" class="map-wait title-sm">Waiting for 2 locations</div>
           </template>
         </SplitView>
       </template>
@@ -191,7 +189,7 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
         {{ active.length < 2 ? 'Invite 1 more to start' : 'Start session' }}
       </AppButton>
       <AppButton v-else-if="status === 'locating'" block :disabled="!session.meeting || busy || finding" @click="useArea">
-        {{ finding ? 'Finding the meeting point…' : session.meeting ? `Meet at ${session.area.name}` : 'Waiting for locations' }}
+        {{ finding ? 'Finding the meeting point…' : session.meeting ? `Meet at ${session.area.name}` : 'Waiting for everyone' }}
       </AppButton>
       <AppButton v-else-if="status === 'voting'" block :to="`/sessions/${id}/plan`">Activities</AppButton>
       <AppButton v-else block :to="`/sessions/${id}/itinerary`">{{ session.isToday && status === 'confirmed' ? "Today's plan" : 'Itinerary' }}</AppButton>

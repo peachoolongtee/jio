@@ -146,6 +146,9 @@ const finding = new Set()
 async function computeMeeting(session) {
   const members = membersFor(session)
   if (members.length < P.MIN_LOCATIONS) return null
+  // While the group is collecting locations, the meeting point waits for everyone. Once the plan has moved on, a
+  // late location (someone invited later) is worked in through the re-plan prompt instead.
+  if (session.status === 'locating' && members.length < activeIds(session).length) return null
   // Show the new location and the "finding" animation straight away; the answer follows.
   finding.add(session.id)
   emit({ type: 'pending', sessionId: session.id })
@@ -624,7 +627,7 @@ export async function setLocation(id, personId, which, place) {
 export async function useMeetingArea(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
-  if (!session.meeting) throw new Error('The meeting area needs at least 2 locations.')
+  if (!session.meeting) throw new Error('Everyone needs to share where they are starting first.')
   return orUndo(session, async () => {
     session.status = 'voting'
     session.banner = null

@@ -56,7 +56,7 @@ const TONE = { Joined: 'wait', 'Location submitted': 'done', Voted: 'done', 'Opt
 @media (hover: hover) { .member__text:hover .title-sm { text-decoration: underline; } }
 .member__status { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: var(--rounded-full); }
 .member__status.is-wait { background: var(--surface-strong); color: var(--muted); }
-.member__status.is-done { background: var(--selected); color: var(--on-selected); }
+.member__status.is-done { background: var(--primary); color: var(--on-primary); }
 .member__status.is-out { border: 1px solid var(--primary-error-text); background: var(--canvas); color: var(--primary-error-text); }
 .member.is-out .member__text { opacity: 0.6; }
 .member__min { font-weight: 600; }
