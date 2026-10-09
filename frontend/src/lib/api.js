@@ -20,8 +20,10 @@ import { format } from 'date-fns'
 export { api } from './plannerApi.js'
 
 const STORAGE_KEY = 'jio-demo-v1'
-// 5: the backend planner (db.venues) and photos, itinerary order and seasons. Older saves start fresh.
-const VERSION = 5
+// 5: the backend planner (db.venues) and photos, itinerary order and seasons.
+// 6: full standings kept for past seasons, and each friend's fixed meetups this season (no ties in the demo).
+// Older saves start fresh, keeping the account and friends.
+const VERSION = 6
 // How many ranked places to ask for per slot: enough to top a slot up to its maximum.
 const RANKED_MAX = 10
 // meeting: the least time the "finding the meeting point" animation shows. The planner answers in milliseconds
