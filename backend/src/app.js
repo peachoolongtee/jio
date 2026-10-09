@@ -29,6 +29,8 @@ import { createWeather } from './services/weather.js'
 //   allowSimulatedWeather - true lets a planner request send `weatherCase` to fake the forecast. Stub mode
 //                    always allows it. Otherwise the field is ignored and the answer says so. index.js sets
 //                    it from ALLOW_SIMULATED_WEATHER=1.
+//   routingDeadlineMs - The most time one planner request waits for OneMap routes in total. Defaults to 8
+//                    seconds. Tests shorten it.
 //   planRateLimit  - { windowMs, max } to limit how often one caller may use the planner routes, or leave
 //                    it out for no limit. index.js sets it outside stub mode.
 //   supabase       - The server's Supabase clients, from createSupabase(). Without it the routes that
@@ -45,6 +47,7 @@ export function createApp({
   onemap = stub ? createOneMap({ http, stub: true }) : null,
   allowSimulatedWeather = false,
   planRateLimit = null,
+  routingDeadlineMs = undefined,
   supabase = null,
   mount = () => {},
 }) {
@@ -83,6 +86,7 @@ export function createApp({
       weather,
       onemap,
       allowSimulatedWeather: allowSimulatedWeather || stub,
+      routingDeadlineMs,
       limiter: planRateLimit ? rateLimit(planRateLimit) : null,
     }),
   )

@@ -2,9 +2,10 @@ import { Router } from 'express'
 import { ZodError } from 'zod'
 import { converge, meetingArea, roam, searchVenues } from '../planner/engine.js'
 import { LIVE_WEATHER_CASE, withLiveWeather } from '../planner/live-weather.js'
+import { OneMapUnavailableError } from '../services/budget.js'
 import { ExternalApiError } from '../services/errors.js'
 import { currentScenario } from '../services/scenario.js'
-import { runWithRealTravel } from '../services/travel-times.js'
+import { estimateTravel, ROUTING_DEADLINE_MS, runWithRealTravel } from '../services/travel-times.js'
 import { makePlanSchemas } from './plan-schemas.js'
 
 // The planner endpoints the frontend calls. Full request and response shapes: backend/docs/planner-api.md.
@@ -17,6 +18,9 @@ import { makePlanSchemas } from './plan-schemas.js'
 //
 // How to mount it (app.js does this):
 //   app.use('/api', createPlanRouter({ data: loadPlanData(), weather, onemap, allowSimulatedWeather: false }))
+//
+// To shorten the time one request waits for OneMap, for a test:
+//   createPlanRouter({ data, weather, onemap, routingDeadlineMs: 50 })
 //
 // Weather. /converge and /roam score each venue against the weather, and say where it came from in a top-level
 // `weather: { source, validUntil?, simulationIgnored? }`:
@@ -31,11 +35,13 @@ import { makePlanSchemas } from './plan-schemas.js'
 // `limiter` is an optional middleware (see middleware/rate-limit.js) that runs before each planner route.
 //
 // Travel times. /meeting-area, /converge and /roam say where theirs came from in a top-level
-// `travel: { source, routed, failed }`:
+// `travel: { source, asked, routed, cached, walked, failed, estimated }` (the numbers add up, see
+// services/travel-times.js):
 //   onemap    real public transport times from OneMap (services/onemap.js), fetched before the engine runs
 //             (services/travel-times.js). A trip OneMap could not answer falls back to the estimate, and that
 //             result is marked `approximate`.
 //   estimate  the engine's own estimate: there is no OneMap service, or it has no account, or every call failed.
+// One request makes at most 60 OneMap route calls, for whole venues or areas only. The rest keep the estimate.
 
 // Singapore local time now, as the planner writes it: "2026-10-10T19:00".
 const nowInSingapore = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16)
@@ -44,7 +50,17 @@ const nowInSingapore = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString(
 // 16 never missed the best area in 2,000 random groups (see docs/engine-integration.md), and it cuts the calls.
 const MEETING_CANDIDATES_WITH_ROUTING = 16
 
-export function createPlanRouter({ data, weather, onemap = null, allowSimulatedWeather = false, limiter = null }) {
+// Of those, only the 5 whose estimated result is best get real routes. The others keep the estimate.
+const MEETING_AREAS_ROUTED = 5
+
+export function createPlanRouter({
+  data,
+  weather,
+  onemap = null,
+  allowSimulatedWeather = false,
+  limiter = null,
+  routingDeadlineMs = ROUTING_DEADLINE_MS,
+}) {
   const schemas = makePlanSchemas(data)
   const router = Router()
 
@@ -77,14 +93,18 @@ export function createPlanRouter({ data, weather, onemap = null, allowSimulatedW
 
   // Runs the engine with real OneMap travel times when routing is on, and with the estimate otherwise.
   //
+  // `options` go to runWithRealTravel: { maxCandidates, rankByEstimate } for the meeting area's shortlist.
+  //
   // How to call:
   //   const { result, travel } = await runWithTravel(input, planData, converge)
-  async function runWithTravel(input, planData, run) {
+  async function runWithTravel(input, planData, run, options = {}) {
     if (!onemap?.routingEnabled) {
-      return { result: run(input, planData, depsFor()), travel: { source: 'estimate', routed: 0, failed: 0 } }
+      return { result: run(input, planData, depsFor()), travel: estimateTravel() }
     }
     return runWithRealTravel({
+      ...options,
       onemap,
+      deadlineMs: routingDeadlineMs,
       dateTime: input.dateTime ?? nowInSingapore(),
       run: (deps) => run(input, planData, deps),
     })
@@ -99,10 +119,11 @@ export function createPlanRouter({ data, weather, onemap = null, allowSimulatedW
   // Wraps a handler: checks the body, runs the engine, answers 400 with the field errors on bad input.
   // With `usesWeather` it also resolves the weather first and adds `weather` to the answer.
   // With `usesTravel` it runs the engine with real OneMap travel times when it can, and adds `travel`.
+  // `travelOptions` are passed on to runWithRealTravel.
   //
   // How to call:
   //   router.post('/converge', handle(schemas.converge, converge, { usesWeather: true, usesTravel: true }))
-  const handle = (schema, run, { usesWeather = false, usesTravel = false } = {}) => async (req, res, next) => {
+  const handle = (schema, run, { usesWeather = false, usesTravel = false, travelOptions = {} } = {}) => async (req, res, next) => {
     try {
       const input = schema.parse(req.body ?? {})
       if (!usesWeather) {
@@ -110,7 +131,7 @@ export function createPlanRouter({ data, weather, onemap = null, allowSimulatedW
           res.json(await run(input, data, depsFor()))
           return
         }
-        const { result, travel } = await runWithTravel(input, data, run)
+        const { result, travel } = await runWithTravel(input, data, run, travelOptions)
         res.json({ ...result, travel })
         return
       }
@@ -120,7 +141,7 @@ export function createPlanRouter({ data, weather, onemap = null, allowSimulatedW
         simulationIgnored ? { ...input, weatherCase: undefined } : input,
       )
       const { result, travel } = usesTravel
-        ? await runWithTravel({ ...input, weatherCase }, planData, run)
+        ? await runWithTravel({ ...input, weatherCase }, planData, run, travelOptions)
         : { result: await run({ ...input, weatherCase }, planData, depsFor()) }
       res.json({
         ...result,
@@ -153,13 +174,20 @@ export function createPlanRouter({ data, weather, onemap = null, allowSimulatedW
       deps,
     )
 
-  router.post('/meeting-area', ...guard, handle(schemas.meetingArea, meetingAreaWithRouting, { usesTravel: true }))
+  // The meeting area tries many areas, so only the best few by estimate get real routes (see travel-times.js).
+  const meetingAreaTravel = { rankByEstimate: true, maxCandidates: MEETING_AREAS_ROUTED }
+  router.post(
+    '/meeting-area',
+    ...guard,
+    handle(schemas.meetingArea, meetingAreaWithRouting, { usesTravel: true, travelOptions: meetingAreaTravel }),
+  )
   router.post('/converge', ...guard, handle(schemas.converge, converge, { usesWeather: true, usesTravel: true }))
   router.post('/roam', ...guard, handle(schemas.roam, roam, { usesWeather: true, usesTravel: true }))
   router.post('/search', ...guard, handle(schemas.search, (input, planData) => ({ results: searchVenues(input, planData) })))
 
   // GET /api/places/search?q=520201 -> { results: [{ name, address, postal, lat, lng }] }, at most 10.
   // For start and end points. Answers 503 when OneMap cannot be reached or this server has no OneMap service.
+  // When the server's shared OneMap call budget is used up it also sends Retry-After, in whole seconds.
   router.get('/places/search', ...guard, async (req, res, next) => {
     try {
       const { q } = schemas.placeSearch.parse(req.query)
@@ -172,6 +200,9 @@ export function createPlanRouter({ data, weather, onemap = null, allowSimulatedW
       if (err instanceof ZodError) {
         invalid(res, err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })))
       } else if (err instanceof ExternalApiError) {
+        if (err instanceof OneMapUnavailableError && err.retryAfterSeconds !== null) {
+          res.set('Retry-After', String(err.retryAfterSeconds))
+        }
         res.status(503).json({ error: 'search_unavailable', message: 'Address search is not available right now. Try again soon.' })
       } else {
         next(err)
