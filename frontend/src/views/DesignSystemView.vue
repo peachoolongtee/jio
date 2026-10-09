@@ -193,7 +193,7 @@ const toast = ref(false)
         <ProgressDonut title="Locations" :people="[{ name: 'Ian', done: true }, { name: 'Darius', done: true }, { name: 'Jonathan', done: false }, { name: 'Nicole', done: true }]" done-label="Submitted" />
         <div class="two">
           <StatTile label="Successful meetups" :value="3" icon="trophy" />
-          <StatTile label="Points" :value="300" icon="gift" />
+          <StatTile label="JioCoins" :value="300" icon="coin" />
         </div>
         <BannerNote dismissible @dismiss="toast = true">Meeting area moved from Bishan to Serangoon because Jonathan opted out.</BannerNote>
         <BannerNote tone="error" icon="people">Not enough people. Invite someone or cancel.</BannerNote>

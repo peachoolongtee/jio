@@ -1,7 +1,7 @@
 <script setup>
 // Profiles, across the whole page.
 //   The top: a banner in the person's own colour (the same as their avatar and map pin), their avatar overlapping
-//   it, name, @username and home area, a strip of three numbers (meetups, season rank, points) and one big button:
+//   it, name, @username and home area, a strip of three numbers (meetups, season rank, JioCoins) and one big button:
 //   "Create meetup" on Ian's own, "Add friend" / "Friends" on someone else's.
 //   Then the meetup graph, and Ian's sessions or the other person's recent activity.
 //   Ian's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back.
@@ -101,8 +101,8 @@ async function signOut() {
                   <dt class="caption-sm">Season rank</dt>
                 </div>
                 <div class="stats__item">
-                  <dd class="stats__value tnum"><AppIcon name="star" :size="18" />{{ person.points }}</dd>
-                  <dt class="caption-sm">Points</dt>
+                  <dd class="stats__value tnum"><AppIcon name="coin" :size="18" />{{ person.points }}</dd>
+                  <dt class="caption-sm">JioCoins</dt>
                 </div>
               </dl>
               <AppButton v-if="isMe" block to="/sessions/new"><AppIcon name="plus" />Create meetup</AppButton>

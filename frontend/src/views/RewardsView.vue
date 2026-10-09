@@ -1,9 +1,10 @@
 <script setup>
-// Rewards: spend points on café vouchers.
+// Rewards: spend JioCoins on café vouchers.
 //   - Your points: the balance, how far to the next voucher you cannot afford yet, and how points are earned.
 //   - Café vouchers: redeeming one asks first, then shows its code and lowers the balance. A voucher that costs
-//     more than the balance is disabled and says how many points are missing.
+//     more than the balance is disabled and says how many JioCoins are missing.
 //   - Your vouchers: every code redeemed so far, to show at the counter.
+import { coins } from '@/lib/currency.js'
 import { computed, onMounted, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -45,26 +46,26 @@ async function redeem() {
   <main class="screen" data-testid="rewards-view">
     <header class="screen__header">
       <h1 class="display-xl">Rewards</h1>
-      <p class="body-sm text-muted">Spend your points on café discounts.</p>
+      <p class="body-sm text-muted">Spend your JioCoins on café discounts.</p>
     </header>
 
     <div class="screen__body">
       <!-- Your points: the balance, the next voucher, and how points are earned. -->
       <section class="wallet rise" aria-labelledby="wallet-head">
         <div class="wallet__balance">
-          <h2 id="wallet-head" class="caption wallet__label">Your points</h2>
+          <h2 id="wallet-head" class="caption wallet__label">Your JioCoins</h2>
           <p class="wallet__points tnum">{{ points }}</p>
           <p class="body-sm wallet__note">
-            <template v-if="next">{{ next.cost - points }} more points for your next voucher: {{ next.offer }}, {{ next.cafe }}</template>
+            <template v-if="next">{{ coins(next.cost - points) }} more for your next voucher: {{ next.offer }}, {{ next.cafe }}</template>
             <template v-else-if="groups.rewards.length">Enough for every voucher below</template>
           </p>
           <div v-if="next" class="wallet__bar" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100" :aria-label="`${progress}% of the way to the next voucher`">
             <span :style="{ width: `${progress}%` }" />
           </div>
         </div>
-        <ul class="earn" aria-label="How to earn points">
-          <li><span class="earn__icon"><AppIcon name="check" :size="16" /></span><span class="body-sm"><strong>{{ POINTS_PER_MEETUP }} points</strong> for every meetup you finish</span></li>
-          <li><span class="earn__icon"><AppIcon name="trophy" :size="16" /></span><span class="body-sm"><strong>{{ prize }} points</strong> for first place when a leaderboard season ends</span></li>
+        <ul class="earn" aria-label="How to earn JioCoins">
+          <li><span class="earn__icon"><AppIcon name="check" :size="16" /></span><span class="body-sm"><strong>{{ coins(POINTS_PER_MEETUP) }}</strong> for every meetup you finish</span></li>
+          <li><span class="earn__icon"><AppIcon name="trophy" :size="16" /></span><span class="body-sm"><strong>{{ coins(prize) }}</strong> for first place when a leaderboard season ends</span></li>
           <li><span class="earn__icon"><AppIcon name="drink" :size="16" /></span><span class="body-sm">Claim a voucher below and show the code at the counter</span></li>
         </ul>
       </section>
@@ -82,12 +83,12 @@ async function redeem() {
           <li v-for="(reward, i) in groups.rewards" :key="reward.id" class="voucher rise" :class="{ 'is-short': reward.cost > points }" :style="{ '--i': i }">
             <div class="voucher__top">
               <span class="voucher__icon"><AppIcon name="drink" :size="20" /></span>
-              <span class="voucher__cost caption">{{ reward.cost }} pts</span>
+              <span class="voucher__cost caption">{{ coins(reward.cost) }}</span>
             </div>
             <h3 class="title-md">{{ reward.offer }}</h3>
             <p class="caption-sm text-muted">{{ reward.cafe }}</p>
             <AppButton v-if="reward.cost <= points" small @click="confirming = reward">Claim</AppButton>
-            <AppButton v-else variant="secondary" small disabled>{{ reward.cost - points }} points short</AppButton>
+            <AppButton v-else variant="secondary" small disabled>{{ coins(reward.cost - points) }} short</AppButton>
           </li>
         </ul>
       </section>
@@ -106,10 +107,10 @@ async function redeem() {
       </section>
     </div>
 
-    <ModalDialog :open="!!confirming" :title="confirming ? `Claim for ${confirming.cost} points?` : ''" @update:open="(v) => !v && (confirming = null)">
+    <ModalDialog :open="!!confirming" :title="confirming ? `Claim for ${coins(confirming.cost)}?` : ''" @update:open="(v) => !v && (confirming = null)">
       <template #content>
         <p v-if="confirming" class="body-md">{{ confirming.offer }} · {{ confirming.cafe }}</p>
-        <p v-if="confirming" class="caption text-muted">You will have {{ points - confirming.cost }} points left.</p>
+        <p v-if="confirming" class="caption text-muted">You will have {{ coins(points - confirming.cost) }} left.</p>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
       <AppButton block :disabled="busy" @click="redeem">Claim voucher</AppButton>
@@ -121,7 +122,7 @@ async function redeem() {
         <div v-if="redeemed" class="stack gap-sm">
           <span class="body-md">{{ redeemed.reward.offer }} · {{ redeemed.reward.cafe }}</span>
           <code class="code code--big">{{ redeemed.code }}</code>
-          <span class="caption text-muted">Show this at the counter. Balance {{ redeemed.points }} points.</span>
+          <span class="caption text-muted">Show this at the counter. Balance {{ coins(redeemed.points) }}.</span>
         </div>
       </template>
       <AppButton block @click="redeemed = null">Done</AppButton>

@@ -5,6 +5,7 @@
 // When Supabase exists, replace the bodies of these functions; the screens and stores do not change.
 //
 // Every function is async, like a network call. Writes notify subscribers, the way Supabase live updates will.
+import { coins } from './currency.js'
 import { ADDRESSES, AREAS } from './mock/places.js'
 import { VENUES } from './mock/venues.js'
 import { HOST_ID, PAST_ACTIVITY, PEOPLE, POINTS_PER_MEETUP, STARTING_MEETUPS } from './mock/people.js'
@@ -367,7 +368,7 @@ export async function getPerson(id) {
     ...(PAST_ACTIVITY[id] || []),
     ...db.pastSeasons
       .filter((x) => x.winners.some((w) => w.id === id))
-      .map((x) => ({ date: format(new Date(x.endsAt), 'yyyy-MM-dd'), text: `Won season ${x.number} · +${x.prize} points` })),
+      .map((x) => ({ date: format(new Date(x.endsAt), 'yyyy-MM-dd'), text: `Won season ${x.number} · +${coins(x.prize)}` })),
   ].sort((a, b) => b.date.localeCompare(a.date))
   // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned).
   const counts = {}
@@ -392,7 +393,9 @@ function closeSeason(at) {
   const ended = { ...db.season, endsAt: at }
   const winners = Season.seasonWinners(PEOPLE.map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints })))
   for (const id of winners) db.stats[id].points += Season.SEASON_PRIZE
-  db.pastSeasons.unshift({ ...ended, prize: Season.SEASON_PRIZE, winners: winners.map((id) => ({ id, seasonPoints: db.stats[id].seasonPoints })) })
+  // standings: everyone's season total, so the leaderboard can show a past season in full.
+  const standings = PEOPLE.map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints }))
+  db.pastSeasons.unshift({ ...ended, prize: Season.SEASON_PRIZE, winners: winners.map((id) => ({ id, seasonPoints: db.stats[id].seasonPoints })), standings })
   for (const p of PEOPLE) db.stats[p.id].seasonPoints = 0
   db.season = Season.nextSeason(db.season, at)
 }
@@ -434,11 +437,24 @@ export async function endSeason() {
 export async function getLeaderboard() {
   await wait(DELAY.read)
   if (catchUpSeasons()) emit({ type: 'stats' })
-  const rows = PEOPLE.map((p) => ({ ...publicPerson(p.id), seasonPoints: db.stats[p.id].seasonPoints }))
+  return ranked(PEOPLE.map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints })))
+}
+
+// A past season's final ranking, the same shape as getLeaderboard. [] for a season with no standings kept.
+export async function getSeasonStandings(number) {
+  await wait(DELAY.read)
+  const past = db.pastSeasons.find((s) => s.number === number)
+  return past?.standings ? ranked(past.standings) : []
+}
+
+// rows: [{ id, seasonPoints }], ranked highest first. Ties share a rank; the host goes first in a tie.
+function ranked(rows) {
+  const sorted = rows
+    .map((r) => ({ ...publicPerson(r.id), seasonPoints: r.seasonPoints }))
     .sort((a, b) => b.seasonPoints - a.seasonPoints || (a.id === HOST_ID ? -1 : b.id === HOST_ID ? 1 : a.name.localeCompare(b.name)))
   let rank = 0
   let last = null
-  return rows.map((row, i) => {
+  return sorted.map((row, i) => {
     if (row.seasonPoints !== last) {
       rank = i + 1
       last = row.seasonPoints
@@ -1013,7 +1029,7 @@ export async function redeemReward(rewardId) {
   const reward = REWARDS.find((r) => r.id === rewardId)
   const stats = db.stats[HOST_ID]
   if (!reward) throw new Error('This voucher does not exist.')
-  if (stats.points < reward.cost) throw new Error(`You need ${reward.cost - stats.points} more points for this voucher.`)
+  if (stats.points < reward.cost) throw new Error(`You need ${coins(reward.cost - stats.points)} more for this voucher.`)
   stats.points -= reward.cost
   const code = `JIO-${Math.random().toString(36).slice(2, 6).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
   const redemption = { id: `v${db.seq++}`, rewardId, code, at: Date.now() }

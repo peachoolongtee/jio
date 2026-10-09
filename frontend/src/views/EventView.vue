@@ -10,6 +10,7 @@
 //   - Drag a stop by its handle (or focus the handle and use the arrow keys) to rearrange the day. Times follow;
 //     a stop that would be closed at its new time, or an end far from the MRT, is flagged.
 //   - Map, Ask AI (an empty sheet for now) and Edit: re-plan. "End plan" on the day.
+import { coins } from '@/lib/currency.js'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -269,7 +270,7 @@ async function endPlan() {
 
     <ModalDialog v-model:open="endOpen" title="End plan?">
       <template #content>
-        <p class="body-md">+{{ POINTS_PER_MEETUP }} points each for {{ session.activeIds.length }} people, to spend on café discounts</p>
+        <p class="body-md">+{{ coins(POINTS_PER_MEETUP) }} each for {{ session.activeIds.length }} people, to spend on café discounts</p>
       </template>
       <AppButton block :disabled="busy" @click="endPlan">End plan</AppButton>
       <AppButton block variant="secondary" @click="endOpen = false">Not yet</AppButton>
@@ -288,7 +289,7 @@ async function endPlan() {
       <AppButton block :disabled="busy" @click="replan">Re-plan</AppButton>
     </ModalDialog>
 
-    <ToastMessage v-model:show="toast" :text="`Completed · +${POINTS_PER_MEETUP} points to spend on café discounts`" :offset="120" />
+    <ToastMessage v-model:show="toast" :text="`Completed · +${coins(POINTS_PER_MEETUP)} to spend on café discounts`" :offset="120" />
   </main>
   <main v-else class="screen" data-testid="event-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">

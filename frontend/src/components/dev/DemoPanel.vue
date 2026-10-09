@@ -2,6 +2,7 @@
 // Demo tools. Only in development builds (App.vue loads this file behind import.meta.env.DEV).
 // Friends cannot act in a single-user build, so these buttons act for them through lib/api.js,
 // the same way their own phones would.
+import { coins } from '@/lib/currency.js'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '../ui/AppButton.vue'
@@ -131,7 +132,7 @@ const optOut = () => act('optout', async () => {
 const endSeason = () => act('season', async () => {
   const ended = await api.endSeason()
   const names = ended.winners.map((w) => w.name).join(' and ')
-  note.value = names ? `Season ${ended.number} ended. ${names} won ${ended.prize} points.` : `Season ${ended.number} ended. Nobody earned points, so nobody won.`
+  note.value = names ? `Season ${ended.number} ended. ${names} won ${coins(ended.prize)}.` : `Season ${ended.number} ended. Nobody earned JioCoins, so nobody won.`
 })
 
 async function reset() {

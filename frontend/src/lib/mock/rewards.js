@@ -1,4 +1,4 @@
-// Café vouchers that can be redeemed with points. Each successful meetup earns 100 points.
+// Café vouchers that can be redeemed with JioCoins. Each successful meetup earns 100 JioCoins.
 
 export const REWARDS = [
   { id: 'r-nylon', cafe: 'Nylon Coffee Roasters', offer: 'SGD 3 off any coffee', cost: 60 },
