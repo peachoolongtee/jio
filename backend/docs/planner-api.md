@@ -132,7 +132,7 @@ Response (real output for the request above):
 }
 ```
 
-Pass `centre` to `/api/converge`. `approximate: true` means OneMap could not answer some trips and estimates were used. Say "about" in the UI. The answer also carries `travel` (see [Travel times](#travel-times)).
+Pass `centre` to `/api/converge`. `approximate: true` means some trips used the estimate, because OneMap could not answer them or because they were left out of the per-request cap or the shortlist. Say "about" in the UI. The answer also carries `travel` (see [Travel times](#travel-times)).
 
 ## POST /api/converge
 
@@ -223,7 +223,7 @@ What to show for each result:
 | `reasons` | Up to two tags, same ones and same order as the frontend: "Indoor" (when it rains), "Easy trip home" (last stop, everyone home within 35 min), "Near MRT", "Quiet at 12:30", "Short walk", "Hidden gem", "Budget friendly". |
 | `warnings` | `["rain"]` when rain is likely (risk 0.6 or more) at an open-air or exposed venue. |
 | `swap` | With a rain warning: `{ "venueId", "name" }` of an indoor alternative that is not already shown or in `currentOptionIds`, or `null` if none is within 3 km. |
-| `approximate` | Travel times are estimates because routing failed. |
+| `approximate` | At least one travel time is an estimate: routing failed for it, or its venue did not fit the per-request cap on OneMap calls. |
 | `regret` (top level) | "Picking X instead would add N minutes to Y's journey". `null` when there is nothing to say. |
 | `current` (top level) | The `currentOptionIds` that still fit, as results (same fields), ranked among every scored venue. An id missing here no longer fits the slot. `[]` when none were sent. |
 | `notice` (top level) | `{ "type": "few_options", "found": 1, "widenToKm": 4 }` when fewer than 3 venues are within 3 km. |
@@ -336,16 +336,34 @@ Every error has the same flat body: `{ "error": "<code>", "message": "<text>" }`
 `POST /api/meeting-area`, `POST /api/converge` and `POST /api/roam` answer with a top-level field:
 
 ```json
-"travel": { "source": "onemap", "routed": 9, "failed": 0 }
+"travel": { "source": "onemap", "asked": 20, "routed": 12, "cached": 4, "walked": 2, "failed": 0, "estimated": 2 }
 ```
 
 | `source` | Meaning |
 |---|---|
-| `onemap` | Real public transport times from OneMap. `routed` trips were answered; `failed` trips fell back to the engine's estimate, and those results are `approximate: true`. |
-| `estimate` | The engine's own estimate: the server has no OneMap account yet, or every OneMap call failed. Say "about" in the UI. |
+| `onemap` | At least one trip got a real public transport time from OneMap (`routed` or `cached`). |
+| `estimate` | The engine's own estimate: the server has no OneMap account yet, or no trip got a OneMap time. Say "about" in the UI. |
+
+The counts always add up: `asked = routed + cached + walked + failed + estimated`. A trip and its reverse count once.
+
+| Field | Meaning |
+|---|---|
+| `asked` | Distinct trips the planner wanted a time for. |
+| `routed` | Real OneMap answers fetched for this request. Cached and walked trips are not counted here. |
+| `cached` | Answered from the server's route cache (6 hours). No call. |
+| `walked` | Under 400 m, so walked. No call. |
+| `failed` | OneMap was asked and gave no time (an error, or no route), or the cache remembers "no route". The engine used its estimate. |
+| `estimated` | Never asked, so the engine used its estimate. Its venue or area did not fit the per-request cap (or the meeting-area shortlist), or OneMap was not available (the shared call budget was used up, routing was paused after repeated failures, the login failed), or this request waited its 8 seconds. |
+
+`approximate: true` on a result (or on the meeting area) means at least one of its trips used the estimate, whether it `failed` or was `estimated`. A result that is not approximate has real times for every trip. `diagnostics.routingCalls` is the engine's own count of the trips it asked about; `travel` is what was really fetched.
 
 How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 - The engine runs once to find the trips it needs. Those are fetched from OneMap, 6 at a time, and the engine runs again with the real times.
+- **One request makes at most 60 OneMap route calls.** Whole venues (or whole candidate areas) are routed, in the engine's own priority order, until the next one would pass 60; the rest keep the estimate and are `approximate`. A venue is real for every member or an estimate for every member, never half and half. Cached and walked trips are free. `currentOptionIds` venues count like any other. With 30 members one venue (up to 60 trips) uses the whole cap.
+- **The meeting area routes only the best 5 areas** by estimated result, within the same cap. With 30 members that is 2 areas. The answer is then `approximate: true`, and the area it names may be one that only has an estimate, so say "about". If a single area would pass the cap, nothing is routed.
+- **The whole server shares a OneMap budget**: at most 6 calls in flight, and `ONEMAP_CALLS_PER_MINUTE` a minute (default 240) for routing, address search and login together. A routing trip that finds it used up keeps the estimate at once. See [external-apis.md](external-apis.md#keeping-the-shared-account-safe).
+- **One request waits at most 8 seconds** for OneMap routes in total. Trips not answered by then keep the estimate, and the request is still answered.
+- After 5 failed route calls in a row, routing is paused for 30 seconds and every trip keeps the estimate. A rejected login token is replaced once and the call retried; a failed login is not retried for 60 seconds.
 - A trip under 400 m is walked; no route is asked for.
 - The way back is taken to be as long as the way there, so one route serves both. Most members end where they started, so this halves the calls.
 - Times are for the start of the slot's hour. Routes are cached for 6 hours, by points rounded to about 110 m.
@@ -356,13 +374,13 @@ How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 
 `GET /api/places/search?q=520201` → `{ "results": [{ "name", "address", "postal", "lat", "lng" }] }`, at most 10.
 
-For start and end points: an address, postal code or building name, searched with OneMap. It needs no OneMap account. Results are cached for a day. The rate limit applies.
+For start and end points: an address, postal code or building name, searched with OneMap. It needs no OneMap account. Results are cached for a day. The rate limit applies, and so does the server's shared OneMap call budget (the same one routing draws from).
 
 | Status | When |
 |---|---|
 | 200 | Results, possibly empty. |
-| 400 `invalid_input` | `q` is missing, blank, or over 80 characters. |
-| 503 `search_unavailable` | OneMap could not be reached, or this server has no address search. Show "search is not available, try again soon". |
+| 400 `invalid_input` | `q` is missing, blank, given more than once (an array), or over 80 characters. The issue is on `q`. |
+| 503 `search_unavailable` | OneMap could not be reached, or this server has no address search. Show "search is not available, try again soon". When the server's shared OneMap call budget for the minute is used up, the answer also carries `Retry-After` in whole seconds: wait that long before searching again. |
 
 ## Limits
 
