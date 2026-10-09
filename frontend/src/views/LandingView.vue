@@ -1,6 +1,6 @@
 <script setup>
 // Home: a band across the top with a muted dotted map of Singapore. Routes draw in from around the island and meet
-// in the middle, where the one main action sits (a BeaconButton), with the greeting above it. Below, on white, what
+// in the middle, where the one main action sits (a HeroButton) in a clearing in the dots, with the greeting above it. Below, on white, what
 // comes next. Three states:
 //   No active meetup        the band's action is "Start a session"; below, Your meetups (past ones, or an empty state).
 //   A meetup going          the band's action is "Open meetup", with the meetup's name and where it stands under it.
@@ -19,7 +19,7 @@ import AvatarStack from '@/components/ui/AvatarStack.vue'
 import BottomSheet from '@/components/ui/BottomSheet.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import SingaporeMap from '@/components/ui/SingaporeMap.vue'
-import BeaconButton from '@/components/ui/BeaconButton.vue'
+import HeroButton from '@/components/ui/HeroButton.vue'
 import RangeSlider from '@/components/ui/RangeSlider.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
@@ -247,7 +247,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 <template>
   <main class="screen home" data-testid="landing-view">
     <!-- The band: a muted map of Singapore; the routes meet under the main action, in the middle. -->
-    <section class="hero" aria-labelledby="home-hello">
+    <section class="hero" :class="{ 'has-meetup': meetup }" aria-labelledby="home-hello">
       <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
         <UserAvatar :name="auth.user.name" :src="auth.user.photo" person="ian" :size="44" />
       </RouterLink>
@@ -263,7 +263,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <SingaporeMap class="hero__map" :routes="mapRoutes" :center="MEET" :span="[340, 260]" hide-meet />
         <div class="hero__action">
           <SkeletonRow v-if="!events.loaded" :lines="1" />
-          <BeaconButton v-else :to="meetup ? openTo : '/sessions/new'" class="rise">{{ meetup ? 'Open meetup' : 'Start a session' }}</BeaconButton>
+          <HeroButton v-else :to="meetup ? openTo : '/sessions/new'" class="rise">{{ meetup ? 'Open meetup' : 'Start a session' }}</HeroButton>
         </div>
 
         <!-- The meetup going now, in one line under the button. -->
@@ -341,7 +341,8 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 <style scoped>
 /* The band: full width, a soft grey that fades to white at the bottom. The greeting sits at the top, centred; under
    it the stage holds the map, whose centre (where the routes meet) is the stage's centre, and the button sits
-   exactly there. The map fades out towards the stage's edges. */
+   exactly there. The map fades out towards the stage's edges, and also around the button, so the button sits in a
+   clearing and the routes fade into it rather than running underneath. */
 .hero { position: relative; display: flex; flex-direction: column; align-items: center; margin-bottom: var(--spacing-base); padding-top: var(--spacing-lg); text-align: center; }
 .hero::before { content: ""; position: absolute; inset: 0 auto 0 50%; width: 100vw; transform: translateX(-50%); background: linear-gradient(to bottom, var(--surface-soft) 75%, var(--canvas)); }
 .hero__hello { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xs); padding: 0 var(--gutter); }
@@ -352,18 +353,26 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
   inset: 0 auto 0 50%;
   width: min(100vw, 1440px);
   transform: translateX(-50%);
-  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 60%, transparent 100%);
-  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 60%, transparent 100%);
+  --clearing: radial-gradient(ellipse 230px 95px at 50% 50%, transparent 55%, #000 100%);
+  -webkit-mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 60%, transparent 100%), var(--clearing);
+  -webkit-mask-composite: source-in;
+  mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 60%, transparent 100%), var(--clearing);
+  mask-composite: intersect;
 }
+/* With a meetup, the clearing reaches down to take in the line under the button. */
+.has-meetup .hero__map { --clearing: radial-gradient(ellipse 250px 130px at 50% calc(50% + 26px), transparent 55%, #000 100%); }
 .hero__action { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
-.hero__meetup { position: absolute; left: 50%; top: calc(50% + 52px); transform: translateX(-50%); display: inline-flex; align-items: center; gap: var(--spacing-sm); max-width: calc(100% - var(--gutter) * 2); margin: 0; padding: var(--spacing-xs) var(--spacing-md) var(--spacing-xs) var(--spacing-xs); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: var(--shadow-float); white-space: nowrap; }
+.hero__meetup { position: absolute; left: 50%; top: calc(50% + 48px); transform: translateX(-50%); display: inline-flex; align-items: center; gap: var(--spacing-sm); max-width: calc(100% - var(--gutter) * 2); margin: 0; white-space: nowrap; }
 .hero__where { display: inline-flex; align-items: center; gap: var(--spacing-xs); color: var(--muted); font: var(--text-body-sm); }
 .home__me { position: absolute; z-index: 2; top: var(--spacing-md); right: var(--gutter); flex-shrink: 0; border-radius: var(--rounded-full); }
 @media (max-width: 743px) {
   /* Phones: the avatar sits top right, so the greeting keeps clear of it on both sides (to stay centred). */
   .hero__hello { align-self: stretch; padding-right: calc(var(--gutter) + 52px); padding-left: calc(var(--gutter) + 52px); }
   /* The map is narrow here, so it fades out later, nearer the edges. */
-  .hero__map { -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 70%, transparent 100%); mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 70%, transparent 100%); }
+  .hero__map { -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 70%, transparent 100%), var(--clearing); mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 70%, transparent 100%), var(--clearing); }
+  /* A smaller clearing to match the smaller map. */
+  .hero__map { --clearing: radial-gradient(ellipse 160px 60px at 50% 50%, transparent 60%, #000 100%); }
+  .has-meetup .hero__map { --clearing: radial-gradient(ellipse 180px 90px at 50% calc(50% + 24px), transparent 60%, #000 100%); }
 }
 @media (min-width: 744px) {
   .hero { padding-top: var(--spacing-xxl); }
