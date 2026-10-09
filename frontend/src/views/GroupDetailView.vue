@@ -178,22 +178,22 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
              Only he sees the exact place. -->
         <dl class="route" aria-label="Your locations">
           <div class="route__stop">
-            <span class="route__dot route__dot--from" aria-hidden="true"><AppIcon name="home" :size="18" /></span>
+            <span class="route__dot route__dot--from" aria-hidden="true"><AppIcon name="home" :size="16" /></span>
             <div class="route__text">
               <dt class="caption text-muted">Starting from</dt>
               <dd class="title-sm truncate" :class="{ 'text-muted': !myLoc.start }">{{ myLoc.start?.label || 'Not set yet' }}</dd>
             </div>
             <AppButton v-if="!locked && !myLoc.start" variant="pill" @click="openSheet('start')">Set</AppButton>
-            <IconButton v-else-if="!locked" label="Change start location" @click="openSheet('start')"><AppIcon name="edit" /></IconButton>
+            <AppButton v-else-if="!locked" variant="tertiary" underline aria-label="Change start location" @click="openSheet('start')">Change</AppButton>
           </div>
           <span class="route__line" aria-hidden="true" />
           <div class="route__stop">
-            <span class="route__dot route__dot--to" aria-hidden="true"><AppIcon name="flag" :size="18" /></span>
+            <span class="route__dot route__dot--to" aria-hidden="true"><AppIcon name="flag" :size="16" /></span>
             <div class="route__text">
               <dt class="caption text-muted">Heading to after</dt>
               <dd class="title-sm truncate">{{ myLoc.end ? myLoc.end.label : 'Back to where you started' }}</dd>
             </div>
-            <IconButton v-if="!locked" label="Change end location" @click="openSheet('end')"><AppIcon name="edit" /></IconButton>
+            <AppButton v-if="!locked" variant="tertiary" underline aria-label="Change end location" @click="openSheet('end')">Change</AppButton>
           </div>
         </dl>
 
@@ -215,7 +215,7 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
             </section>
             <p v-if="session.areaNote" class="caption-sm text-muted">{{ session.areaNote }}</p>
 
-            <section class="section card" aria-label="People">
+            <section class="section people" aria-label="People">
               <ProgressDonut v-if="progress" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
               <MemberList :session="session" :names="nameOf" :voters="voterIds" />
               <p v-if="session.meeting && !loading" class="travel-key" aria-label="Travel time colours">
@@ -251,26 +251,30 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 </template>
 
 <style scoped>
+/* The people under the meeting point: no card, a hairline between them. Before there is a meeting point the
+   route's own hairline is enough. */
+.area ~ .people { padding-top: var(--spacing-lg); border-top: 1px solid var(--hairline); }
 .invite-hint { margin: 0; }
-/* Your route: a soft Rausch-tinted card. Start (a Rausch home) and end (an ink flag) joined by a dotted line:
-   stacked on phones, side by side from tablet up. */
-.route { display: flex; flex-direction: column; margin: 0; padding: var(--spacing-sm) var(--spacing-base); border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--hairline)); border-radius: var(--rounded-lg); background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 6%, var(--canvas)), var(--canvas) 70%); }
-.route__stop { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 64px; }
+/* Your route: plain, no card. Start (a small Rausch home) and end (an ink flag) joined by a dotted line, each
+   with a Change link: stacked on phones, side by side from tablet up. A hairline under it ends the block. */
+.route { display: flex; flex-direction: column; margin: 0; padding-bottom: var(--spacing-base); border-bottom: 1px solid var(--hairline); }
+.route__stop { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 52px; }
 .route__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .route__text dd { margin: 0; }
-.route__dot { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--rounded-full); }
-.route__dot--from { background: var(--primary); color: var(--on-primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 15%, transparent); }
-.route__dot--to { border: 2px solid var(--ink); background: var(--canvas); color: var(--ink); }
-.route__line { width: 0; height: 18px; margin-left: 19px; border-left: 2px dashed color-mix(in srgb, var(--primary) 45%, var(--hairline)); }
+.route__dot { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--rounded-full); }
+.route__dot--from { background: var(--primary); color: var(--on-primary); }
+.route__dot--to { border: 1.5px solid var(--ink); color: var(--ink); }
+.route__line { width: 0; height: 12px; margin-left: 15px; border-left: 2px dotted var(--border-strong); }
 @media (min-width: 744px) {
-  .route { flex-direction: row; align-items: center; gap: var(--spacing-base); padding: var(--spacing-md) var(--spacing-lg); }
-  .route__stop { flex: 1; }
-  .route__line { flex: 0 0 48px; width: 48px; height: 0; margin: 0; border-left: 0; border-top: 2px dashed color-mix(in srgb, var(--primary) 45%, var(--hairline)); }
+  .route { flex-direction: row; align-items: center; gap: var(--spacing-lg); }
+  .route__stop { flex: 0 1 auto; }
+  /* The dotted line takes the space between the two ends, so each Set or Change stays next to its place. */
+  .route__line { flex: 1 1 40px; min-width: 40px; max-width: 200px; height: 0; margin: 0; border-left: 0; border-top: 2px dotted var(--border-strong); }
 }
-/* The meeting area: a reservation-card style block. The pin is the screen's Rausch moment besides the CTA. */
-.area { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); }
+/* The meeting point: no box, just the pin and the place in large type. The pin is the screen's Rausch moment. */
+.area { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-xs) 0; }
 .area__main { display: flex; align-items: center; gap: var(--spacing-md); min-width: 0; }
-.area__pin { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
+.area__pin { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
 /* Finding the meeting point: a title over the segmented bar. When it is found, the place pops in. */
 .area.is-finding { flex-direction: column; align-items: stretch; gap: var(--spacing-base); }
 .area__main--reveal { animation: area-reveal 420ms var(--ease-spring) both; }
