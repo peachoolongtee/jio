@@ -7,6 +7,8 @@
 //   </SortableList>
 // Pointer: press and drag the handle (mouse, pen or touch). The other items slide out of the way; drop to place.
 // Keyboard: focus the handle and press the up or down arrow to move the item one place. Escape cancels a drag.
+// While it can be rearranged (not `disabled`, two items or more) a short hint above the list says how; pass `hint=""`
+// to leave it out, or your own words to replace it. Each handle's name also says how, for screen readers.
 // `dragging` is true while any item is being dragged, so the parent can hide things between items.
 // Positions are written straight to each element's transform while dragging, not through reactive state.
 import { nextTick, onBeforeUpdate, ref } from 'vue'
@@ -17,6 +19,7 @@ const props = defineProps({
   itemLabel: { type: Function, default: (item) => String(item) },
   label: { type: String, required: true },
   disabled: { type: Boolean, default: false },
+  hint: { type: String, default: 'Drag the grip to reorder, or focus it and press the up or down arrow key.' },
 })
 const emit = defineEmits(['move'])
 
@@ -124,9 +127,9 @@ function handleProps(index) {
   return {
     'data-sortable-handle': '',
     type: 'button',
-    'aria-label': `Move ${props.itemLabel(props.items[index])}`,
+    'aria-label': `Move ${props.itemLabel(props.items[index])}. Use the up and down arrow keys.`,
     'aria-keyshortcuts': 'ArrowUp ArrowDown',
-    title: 'Move',
+    title: 'Drag, or use the up and down arrow keys',
     onPointerdown: (e) => onPointerDown(e, index),
     onPointermove: onPointerMove,
     onPointerup: () => finish(true),
@@ -138,6 +141,7 @@ function handleProps(index) {
 </script>
 
 <template>
+  <p v-if="hint && !disabled && items.length > 1" class="sortable__hint caption-sm text-muted">{{ hint }}</p>
   <ol ref="list" class="sortable" :class="{ 'is-sorting': dragging >= 0 }" :aria-label="label">
     <li v-for="(item, i) in items" :key="itemKey(item)" :ref="(el) => setEl(el, i)" class="sortable__item">
       <slot name="item" :item="item" :index="i" :dragging="dragging >= 0" :lifted="dragging === i" :handle="handleProps(i)" />
@@ -147,6 +151,7 @@ function handleProps(index) {
 </template>
 
 <style scoped>
+.sortable__hint { margin-bottom: var(--spacing-sm); }
 .sortable { position: relative; display: flex; flex-direction: column; }
 .sortable__item { position: relative; }
 .sortable.is-sorting .sortable__item { transition: transform var(--motion-fast) var(--ease-out); user-select: none; }
