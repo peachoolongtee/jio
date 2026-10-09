@@ -388,7 +388,9 @@ onMounted(() => {
         const x = px(m.week + off, -0.3)
         const tw = ctx.measureText(m.label).width
         if (x < edge || x + tw > W) continue
-        ctx.fillText(m.label, x, py(m.week + off, -0.3, 0) - 3)
+        // A fixed 6px above the top row, not a share of the cell: on wide cards the cells are big, and a share of
+        // one pushed the labels out past the 24px the frame keeps for them.
+        ctx.fillText(m.label, x, py(m.week + off, off, 0) - 6)
         edge = x + tw + 6
       }
       ctx.textAlign = 'right'
