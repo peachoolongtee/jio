@@ -5,6 +5,7 @@ import { createMeRouter } from './routes/me.js'
 import { rateLimit } from './middleware/rate-limit.js'
 import { createPlanRouter } from './routes/plan.js'
 import { createHttp } from './services/http.js'
+import { createOneMap } from './services/onemap.js'
 import { scenarioMiddleware } from './services/scenario.js'
 import { createWeather } from './services/weather.js'
 
@@ -22,6 +23,9 @@ import { createWeather } from './services/weather.js'
 //   http           - The HTTP helper to share. Defaults to one built from `stub`.
 //   planData       - Venues and settings the planner reads. Defaults to loadPlanData() (mock + curated + CDC).
 //   weather        - The weather service, from createWeather(). Defaults to one built on `http`.
+//   onemap         - OneMap search and public transport routing, from createOneMap(). Defaults to the stub
+//                    routes in stub mode and to none otherwise, so a test app never calls OneMap. index.js
+//                    passes the real one.
 //   allowSimulatedWeather - true lets a planner request send `weatherCase` to fake the forecast. Stub mode
 //                    always allows it. Otherwise the field is ignored and the answer says so. index.js sets
 //                    it from ALLOW_SIMULATED_WEATHER=1.
@@ -38,6 +42,7 @@ export function createApp({
   http = createHttp({ stub }),
   planData = loadPlanData(),
   weather = createWeather({ http }),
+  onemap = stub ? createOneMap({ http, stub: true }) : null,
   allowSimulatedWeather = false,
   planRateLimit = null,
   supabase = null,
@@ -70,12 +75,13 @@ export function createApp({
     res.status(200).json({ ok: true })
   })
 
-  // Planner: /api/meeting-area, /api/converge, /api/roam.
+  // Planner: /api/meeting-area, /api/converge, /api/roam, /api/search, /api/places/search.
   app.use(
     '/api',
     createPlanRouter({
       data: planData,
       weather,
+      onemap,
       allowSimulatedWeather: allowSimulatedWeather || stub,
       limiter: planRateLimit ? rateLimit(planRateLimit) : null,
     }),

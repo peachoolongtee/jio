@@ -10,8 +10,9 @@ Base URL: `VITE_API_BASE_URL` (locally `http://localhost:3000`). Every request a
 | `POST /api/converge` | Once per itinerary slot: rank venues for the group around the meeting point. |
 | `POST /api/roam` | "What next?": rank venues near one person's current point. |
 | `POST /api/search` | Find a place by name to add as an option, and say whether it fits the slot. |
+| `GET /api/places/search?q=` | Find an address, postal code or building with OneMap, for start and end points. |
 
-Travel times are still an estimate (no OneMap yet), so every number in minutes is approximate until `services/onemap.js` lands. The request and response shapes will not change when it does.
+Travel times are real OneMap public transport times once the server has a OneMap account (`ONEMAP_EMAIL`, `ONEMAP_PASSWORD`), and the engine's estimate until then. Every answer says which it used: see [Travel times](#travel-times). Weather: see [Weather](#weather).
 
 ## How it fits the frontend's slot flow
 
@@ -131,7 +132,7 @@ Response (real output for the request above):
 }
 ```
 
-Pass `centre` to `/api/converge`. `approximate: true` means routing failed for some trips and estimates were used. Say "about" in the UI.
+Pass `centre` to `/api/converge`. `approximate: true` means OneMap could not answer some trips and estimates were used. Say "about" in the UI. The answer also carries `travel` (see [Travel times](#travel-times)).
 
 ## POST /api/converge
 
@@ -330,6 +331,39 @@ Every error has the same flat body: `{ "error": "<code>", "message": "<text>" }`
 
 `/api/meeting-area` and `/api/search` do not use weather and have no `weather` field.
 
+## Travel times
+
+`POST /api/meeting-area`, `POST /api/converge` and `POST /api/roam` answer with a top-level field:
+
+```json
+"travel": { "source": "onemap", "routed": 9, "failed": 0 }
+```
+
+| `source` | Meaning |
+|---|---|
+| `onemap` | Real public transport times from OneMap. `routed` trips were answered; `failed` trips fell back to the engine's estimate, and those results are `approximate: true`. |
+| `estimate` | The engine's own estimate: the server has no OneMap account yet, or every OneMap call failed. Say "about" in the UI. |
+
+How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
+- The engine runs once to find the trips it needs. Those are fetched from OneMap, 6 at a time, and the engine runs again with the real times.
+- A trip under 400 m is walked; no route is asked for.
+- The way back is taken to be as long as the way there, so one route serves both. Most members end where they started, so this halves the calls.
+- Times are for the start of the slot's hour. Routes are cached for 6 hours, by points rounded to about 110 m.
+- The OneMap login token lasts 3 days. The server gets a new one an hour before it runs out.
+- With routing on, the meeting area tries the 16 areas nearest the fairest point, unless `maxCandidates` is sent. 16 never missed the best area in 2,000 random groups. `/api/meeting-area` also accepts `dateTime`, for when the group sets off; without it, the server uses the time now.
+
+## GET /api/places/search
+
+`GET /api/places/search?q=520201` → `{ "results": [{ "name", "address", "postal", "lat", "lng" }] }`, at most 10.
+
+For start and end points: an address, postal code or building name, searched with OneMap. It needs no OneMap account. Results are cached for a day. The rate limit applies.
+
+| Status | When |
+|---|---|
+| 200 | Results, possibly empty. |
+| 400 `invalid_input` | `q` is missing, blank, or over 80 characters. |
+| 503 `search_unavailable` | OneMap could not be reached, or this server has no address search. Show "search is not available, try again soon". |
+
 ## Limits
 
 Every list and number has an upper limit, so one request cannot keep the server busy. Going over any of them is a 400 naming the field.
@@ -353,4 +387,5 @@ Every list and number has an upper limit, so one request cannot keep the server 
 Start the backend with `STUB_EXTERNALS=1 pnpm dev:backend`. Then send the `x-jio-scenario` header on `/api/**` requests:
 
 - `rain`: the forecast fixture says heavy thundery showers everywhere, unless the body sends `weatherCase`.
-- `routing-fail`: every trip falls back to the estimate, so results come back with `approximate: true`.
+- `routing-fail`: every OneMap route fails, so travel falls back to the estimate (`travel.source: 'estimate'`) and results come back with `approximate: true`.
+- No header (`dry`): routes are generated from distance in OneMap's format, so `travel.source` is `onemap`.

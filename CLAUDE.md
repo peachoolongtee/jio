@@ -48,7 +48,7 @@ As of 2026-10-09. The Supabase foundation was built on branch `feat/supabase-fou
 | Backend planner | Built on `dev`: `/api/meeting-area`, `/api/converge`, `/api/roam`, `/api/search`. Travel times and weather are internal estimates. Open to anyone. |
 | Database | Session schema and access rules applied to the live `jio` project on 2026-10-09, then revised twice the same day after two reviews (three migrations). No app code reads or writes it yet. |
 | Login | Backend token check and `GET /api/me` built and hardened after two reviews. No login screen; the frontend sends no token. |
-| External APIs | The planner uses the live data.gov.sg forecast through the HTTP helper. Routing is still an estimate. No OneMap account yet. |
+| External APIs | The planner uses the live data.gov.sg forecast through the HTTP helper. OneMap is on `feature/external-apis` (not merged yet): address search (`GET /api/places/search`, no account needed) and public transport routing, which switches on with `ONEMAP_EMAIL` and `ONEMAP_PASSWORD` (Faith has an account). See `backend/docs/external-apis.md`. |
 | End-to-end tests, deploy | Not started. |
 
 ## Architecture Decisions
@@ -143,6 +143,10 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-10 | `65567bb` | `pnpm --filter jio-frontend test` | 192 passed, 22 files |
 | 2026-10-10 | `65567bb` | `pnpm build` | Succeeded |
 | 2026-10-09 | `feat/session-flow-integration` after round 6 | Browser check at 320, 375 and 1280 px | No horizontal overflow on six routes; sign-up completes with the date-of-birth step |
+| 2026-10-09 | `feature/external-apis` merged with `main` (working tree) | `pnpm test` | 334 passed, 1 skipped, 19 files |
+| 2026-10-09 | `feature/external-apis` merged with `main` (working tree) | `pnpm --filter jio-frontend test` | 186 passed, 20 files |
+| 2026-10-09 | `feature/external-apis` merged with `main` (working tree) | `pnpm build` | Succeeded |
+| 2026-10-09 | `feature/external-apis` merged with `main`, real OneMap account | Live server: roam, meeting area, address search | Roam: live weather, 9 of 9 trips routed by OneMap. Meeting area for Tampines + Clementi: Bugis, 28 min worst, 32 routes. Address search found Bishan MRT |
 
 Not yet verified: a real user's login token against `GET /api/me`, and anything end to end.
 

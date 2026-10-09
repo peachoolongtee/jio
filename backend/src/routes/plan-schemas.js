@@ -152,6 +152,8 @@ export function makePlanSchemas(data) {
       ...groupFields,
       method: z.enum(['station', 'weighted_centroid', 'centroid', 'minimax']).default('station'),
       maxCandidates: z.number().int().min(1).max(50).optional(),
+      // When the group sets off, for real public transport times. Without it, the server uses the time now.
+      dateTime: dateTime.optional(),
     })
     .refine(someoneLeft, NOBODY)
     .refine((b) => b.method !== 'minimax' || b.members.length <= 12, {
@@ -175,5 +177,8 @@ export function makePlanSchemas(data) {
     limit: z.number().int().min(1).max(50).optional(),
   })
 
-  return { converge, roam, meetingArea, search }
+  // GET /api/places/search?q=... : an address, postal code or building name, sent to OneMap.
+  const placeSearch = z.object({ q: z.string().trim().min(1).max(MAX.text) })
+
+  return { converge, roam, meetingArea, search, placeSearch }
 }

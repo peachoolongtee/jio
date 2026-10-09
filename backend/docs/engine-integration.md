@@ -217,7 +217,7 @@ Two tests were checked by breaking the code on purpose, to make sure they can fa
 7. **Keep the venues the API returns:** results include mock and CDC venues that aren't in the frontend's 63, so `venueById` must look in a cache of API venues too (for add, swap and the itinerary).
 8. **Search:** `searchVenuesForSlot` calls `/api/search`, and "Add" uses its `fits`.
 9. **Unknown crowd:** handle `crowd: 'unknown'` in `SuggestionCard` (`CROWD_TONE`, `CROWD_LABELS`), or it shows "undefined · est.".
-10. **Demo switches:** rain → `weatherCase`; routing off → `method: 'centroid'`; simulate crowd → a `crowd` weight.
+10. **Demo switches:** rain → `weatherCase: 'rain'` (leave `weatherCase` out when the switch is off, so the live NEA forecast is used; see [external-apis.md](external-apis.md)); routing off → `method: 'centroid'`; simulate crowd → a `crowd` weight.
 11. **Then delete the frontend's ranking:** `scoreVenue`, `rankForSlot`, `unfitReason`, `indoorSwap`, `chooseMeetingArea`, `crowdScore`, `crowdLevel`. **Keep** slots, voting (`reconcileOptions`, `moreOptions`), `travel.js` (the itinerary uses it) and the display helpers (`crowdText`, `meetingResultLine`).
 
 **Backend, later:**
