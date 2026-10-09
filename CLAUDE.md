@@ -44,7 +44,7 @@ As of 2026-10-09. The Supabase foundation was built on branch `feat/supabase-fou
 | Backend planner | Built on `dev`: `/api/meeting-area`, `/api/converge`, `/api/roam`, `/api/search`. Travel times and weather are internal estimates. Open to anyone. |
 | Database | Session schema and access rules applied to the live `jio` project on 2026-10-09, then revised twice the same day after two reviews (three migrations). No app code reads or writes it yet. |
 | Login | Backend token check and `GET /api/me` built and hardened after two reviews. No login screen; the frontend sends no token. |
-| External APIs | The planner uses the live data.gov.sg forecast through the HTTP helper. OneMap is on `feature/external-apis` (not merged yet): address search (`GET /api/places/search`, no account needed) and public transport routing, which switches on with `ONEMAP_EMAIL` and `ONEMAP_PASSWORD` (Faith has an account). See `backend/docs/external-apis.md`. |
+| External APIs | The planner uses the live data.gov.sg forecast through the HTTP helper. OneMap is on `feature/external-apis` (not merged yet): address search (`GET /api/places/search`, no account needed) and public transport routing, which switches on with `ONEMAP_EMAIL` and `ONEMAP_PASSWORD` (Faith has an account). See `backend/docs/external-apis.md`. On `feature/onemap-places` (stacked on it): ~460 places from OneMap themes (sport centres, attractions, museums, libraries, theatres, parks, hawker centres) as a committed snapshot, and NEA hawker closure dates that the filters respect. |
 | End-to-end tests, deploy | Not started. |
 
 ## Architecture Decisions

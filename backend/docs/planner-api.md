@@ -290,6 +290,7 @@ Places that fit come first, then by walking time. `distanceKm` is rounded here. 
 | `diet:halal` etc. | Doesn't meet someone's diet (or no data, in strict mode). |
 | `capacity` | Too small for the group. |
 | `far` | More than `maxKm` from the meeting point. |
+| `closed_for_cleaning` | A hawker centre's NEA cleaning or repair day. |
 
 ## Errors
 
@@ -330,6 +331,20 @@ Every error has the same flat body: `{ "error": "<code>", "message": "<text>" }`
 **Rain risk.** Each forecast sentence maps to a risk from 0 to 1, multiplied by how exposed the venue is. At 0.6 or more the planner adds the rain warning and suggests an indoor swap. A sentence the server does not recognise scores 0.5 and is logged once.
 
 `/api/meeting-area` and `/api/search` do not use weather and have no `weather` field.
+
+## Venues from OneMap
+
+About 460 places come from OneMap's government lists: sport centres, tourist attractions, museums, libraries, theatres, parks and hawker centres (see [external-apis.md](external-apis.md)). They have `source: 'onemap'` and a few extra fields the cards can use:
+
+| Field | What |
+|---|---|
+| `photoUrl`, `photoCredit` | A real photo (attractions, libraries, hawker centres). Show the credit under it. |
+| `address`, `postalCode` | The street address. |
+| `description`, `website` | Attractions' text and official links. |
+| `openingHoursText` | OneMap's own hours text, e.g. "Daily from 7am – 12pm, and 6pm – 9pm". `openingHours` is the version the planner reads. |
+| `kind` | `sports`, `attraction`, `museum`, `library`, `theatre`, `park` or `hawker`. `theatre` is new to the frontend's photo list. |
+| `closures` | Hawker centres: NEA cleaning and repair days, `[{ from, to, reason }]`, as `YYYY-MM-DD`. The planner leaves the centre out on those days. |
+| `dataQuality` | Which fields are typical values (`hoursAssumed`, `priceAssumed`) rather than real ones. |
 
 ## Travel times
 

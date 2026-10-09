@@ -8,10 +8,11 @@ Every outside service Jio uses, whether it is built, and how to set it up. All c
 | **OneMap search** | Address, postal code and building search for start and end points | None | ✅ Built |
 | **OneMap routing** | Real public transport times, instead of the estimate | Free OneMap account: `ONEMAP_EMAIL`, `ONEMAP_PASSWORD` | ✅ Built, **switched on once the account is in `backend/.env`** |
 | **OneMap map tiles** | The map's background | None | ✅ Used by the frontend map |
+| **OneMap themes** | ~460 more places: SportSG sport centres, tourist attractions, museums, libraries, theatres, parks, hawker centres | OneMap account (only to take the snapshot) | ✅ Built (`feature/onemap-places`) |
 | Google Places (New) | Photos, opening hours and ratings for venues | Google Maps key (Demo Key to try, a billed key with a quota cap for the final app) | ⬜ Next |
 | TikTok oEmbed | "Save from a TikTok link": the caption, to find the place | None | ⬜ Next |
 | Google Maps share links | "Save from a Maps link": the place name and point from the link | None (not an API) | ⬜ Next |
-| NEA hawker centre closures (data.gov.sg dataset) | Don't suggest a hawker centre on its cleaning days | None | ⬜ Next |
+| **NEA hawker centre closures** (data.gov.sg dataset) | Don't suggest a hawker centre on its cleaning or repair days | None | ✅ Built (`feature/onemap-places`) |
 | LTA DataMall | MRT station crowd levels | Free key, by request | ⏸ On hold (team decision) |
 | Instagram oEmbed | — | — | ❌ Dropped: only posts whose owners allow it can be read |
 
@@ -59,6 +60,29 @@ Built by Ian in `backend/src/services/weather.js` and `backend/src/planner/live-
   - Routes are cached 6 hours, by points rounded to about 110 m and the hour.
   - The meeting area tries 16 areas, not 37.
 - **Without an account:** routing stays off and travel is the estimate (`travel.source: 'estimate'`). The server prints this at startup.
+
+### OneMap themes and hawker closures (a snapshot, not a call per request)
+
+- **What:** OneMap's government place lists, converted into venues by `backend/src/planner/onemap-adapter.js`:
+
+  | Theme | Becomes | Kept |
+  |---|---|---|
+  | SportSG sport facilities | activity, `sports` | 45 |
+  | Tourist attractions | activity, `attraction` (with **real opening hours** for 61, and photos) | 107 |
+  | Museums | activity, `museum` | 11 |
+  | Libraries | activity, `library` (with photos) | 28 |
+  | Theatres | activity, `theatre` | 36 |
+  | Parks | activity, `park`: real parks, gardens and nature areas only (playgrounds, fitness corners, open spaces, car parks left out) | 134 of 462 |
+  | Hawker centres | food, `hawker` (photos, number of stalls): open ones only | 122 of 129 |
+
+  Monuments and community clubs are left out on purpose: they're buildings to look at, or classes, rather than outings. Each is one line in `THEMES` if the team wants them.
+- **Closures:** NEA's "Dates of Hawker Centres Closure" (data.gov.sg, no key) lists each centre's quarterly cleaning days and longer repairs. `backend/src/planner/hawker-closures.js` attaches them to the centre and its large CDC site, and the filters leave the centre out on those days (reason `closed_for_cleaning`).
+- **Snapshot:** `pnpm --filter jio-backend build:onemap-places` (needs the OneMap account) writes `backend/src/db/mock/onemap-places.json`. These lists change a few times a year, so calling OneMap per request would only spend its rate limit. Re-run it when the lists or the next year's closure dates change, and commit the file.
+- **Merging** (`backend/src/db/venues.js`):
+  - A place the hand-made lists already have (e.g. Tiong Bahru Market) is skipped: 20 skipped.
+  - OneMap's hawker centres replace their CDC copies, the same way the frontend's do.
+- **What's a guess:** OneMap gives no price, rating or diet, and most themes give no hours. Those are typical values for the kind of place, labelled in `dataQuality` (`hoursAssumed`, `priceAssumed`…). Tourist attractions with hours in OneMap use those, and keep the original text in `openingHoursText`.
+- **Credit:** contains information from OneMap (Singapore Land Authority) and the National Environment Agency, under the [Singapore Open Data Licence](https://data.gov.sg/open-data-licence). Tourist attraction photos carry their own `photoCredit`.
 
 ## To set up (manual steps)
 
