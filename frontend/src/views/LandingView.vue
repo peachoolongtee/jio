@@ -275,10 +275,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
             <span>{{ midpointStatus }}</span>
           </span>
         </div>
-        <AppButton class="meetup__open" :to="openTo">
-          Open meetup
-          <AppIcon name="chevron-right" :size="16" />
-        </AppButton>
+        <AppButton class="meetup__open" :to="openTo">Open meetup</AppButton>
       </article>
 
       <!-- No meetup going: the ones before, or a prompt to make the first. -->

@@ -23,6 +23,7 @@ const ICONS = {
   camera: { body: '<path d="M2 5.5h2.5l1-1.75h5l1 1.75H14v7H2Z"/><circle cx="8" cy="8.75" r="2.25"/>' },
   grip: { body: '<circle cx="5.5" cy="3.5" r="1.25"/><circle cx="10.5" cy="3.5" r="1.25"/><circle cx="5.5" cy="8" r="1.25"/><circle cx="10.5" cy="8" r="1.25"/><circle cx="5.5" cy="12.5" r="1.25"/><circle cx="10.5" cy="12.5" r="1.25"/>', filled: true },
   star: { body: '<path d="M6 .8l1.6 3.3 3.6.5-2.6 2.5.6 3.6L6 9l-3.2 1.7.6-3.6L.8 4.6l3.6-.5z"/>', box: 12, filled: true },
+  'arrow-right': { body: '<path d="M3 8h10M9 4l4 4-4 4"/>', stroke: 1.75 },
   'chevron-right': { body: '<path d="m6 4 4 4-4 4"/>', stroke: 2 },
   home: { body: '<path d="M2.5 7.5 8 3l5.5 4.5v6H10V10H6v3.5H2.5Z"/>' },
   filter: { body: '<path d="M2.5 4h11M4.5 8h7M6.5 12h3"/>', stroke: 1.75 },

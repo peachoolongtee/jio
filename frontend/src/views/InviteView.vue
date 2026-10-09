@@ -141,6 +141,5 @@ function done() {
 @media (min-width: 744px) {
   .screen__body { flex: 0 0 auto; }
   .screen__footer { position: static; flex-direction: row; justify-content: flex-end; padding-top: 0; border-top: 0; }
-  .screen__footer > :deep(.btn) { width: auto; min-width: 200px; }
 }
 </style>
