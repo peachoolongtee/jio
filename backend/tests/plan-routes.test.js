@@ -240,13 +240,16 @@ describe('OneMap: travel times and address search', () => {
     const meet = await post('/meeting-area', { members: group }, { url: stubBase })
     expect(meet.body.travel.source).toBe('onemap')
     const plain = await post('/converge', slot) // no OneMap service: the engine's estimate
-    expect(plain.body.travel).toEqual({ source: 'estimate', routed: 0, failed: 0 })
+    expect(plain.body.travel).toEqual({ source: 'estimate', asked: 0, routed: 0, cached: 0, walked: 0, failed: 0, estimated: 0 })
   })
 
   it('routing-fail: OneMap routes fail, travel falls back to the estimate and results are marked approximate', async () => {
     const res = await post('/converge', slot, { url: stubBase, headers: { [SCENARIO_HEADER]: 'routing-fail' } })
     expect(res.body.travel.source).toBe('estimate')
-    expect(res.body.travel.failed).toBeGreaterThan(0)
+    // Earlier requests to this server already failed enough calls to pause routing, so some trips are failed
+    // calls and the rest were never asked. Together they are every trip.
+    expect(res.body.travel.asked).toBeGreaterThan(0)
+    expect(res.body.travel.failed + res.body.travel.estimated).toBe(res.body.travel.asked)
     if (res.body.status === 'ok') res.body.results.forEach((r) => expect(r.approximate).toBe(true))
   })
 

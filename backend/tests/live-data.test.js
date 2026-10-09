@@ -121,7 +121,7 @@ describe('runWithRealTravel', () => {
     const run = vi.fn((deps) => converge(input, data, deps))
     const { result, travel } = await runWithRealTravel({ onemap: null, dateTime: input.dateTime, run })
     expect(run).toHaveBeenCalledTimes(1)
-    expect(travel).toEqual({ source: 'estimate', routed: 0, failed: 0 })
+    expect(travel).toEqual({ source: 'estimate', asked: 0, routed: 0, cached: 0, walked: 0, failed: 0, estimated: 0 })
     expect(result.results.every((r) => r.approximate === false)).toBe(true)
   })
 
