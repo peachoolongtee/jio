@@ -19,6 +19,7 @@ const MAX = {
   constraints: 10, // group constraints
   currentOptions: 30, // the app shows at most 6 options per slot
   excludedVenues: 200,
+  categories: 4, // there are only 4 kinds of place
   weight: 1000,
   money: 10000,
   minutes: 1440,
@@ -49,6 +50,13 @@ const constraint = z
   )
 
 const category = z.enum(['eat', 'drink', 'shop', 'activity'])
+// At most 4 (there are only 4 kinds), and a repeated kind counts once.
+const categories = z
+  .array(category)
+  .min(1)
+  .max(MAX.categories)
+  .transform((c) => [...new Set(c)])
+  .optional()
 
 const memberFields = {
   id: text(),
@@ -91,7 +99,7 @@ export function makePlanSchemas(data) {
     occasion,
     dateTime,
     durationMinutes: z.number().int().min(0).max(720).optional(),
-    categories: z.array(category).min(1).optional(),
+    categories,
     groupConstraints: z.array(constraint).max(MAX.constraints).default([]),
     excludeVenueIds: z.array(text()).max(MAX.excludedVenues).default([]),
     // The options the group is already voting on, so a rain swap never suggests one of them again.
@@ -157,7 +165,7 @@ export function makePlanSchemas(data) {
     centre: point,
     dateTime,
     durationMinutes: z.number().int().min(0).max(720).optional(),
-    categories: z.array(category).min(1).optional(),
+    categories,
     lastStop: z.boolean().default(false),
     lastStopMrtWalkMinutes: z.number().int().min(1).max(30).optional(),
     members: z.array(roamMember).max(MAX.members).default([]),
