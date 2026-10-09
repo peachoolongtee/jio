@@ -298,6 +298,7 @@ Places that fit come first, then by walking time. `distanceKm` is rounded here. 
 | 400 | `{ "error": "invalid_json" }` | The body is not JSON. |
 | 404 | `{ "error": "not_found" }` | No route at that address, or the wrong method. |
 | 413 | `{ "error": "too_large" }` | The body is over 100 kB. |
+| 4xx | `{ "error": "bad_request" }` | Another mistake in how the request was sent, for example 415 for a body encoding the server cannot read. |
 | 500 | `{ "error": "server_error" }` | A bug on our side. The server log has the details. |
 
 ## Limits
@@ -310,6 +311,7 @@ Every list and number has an upper limit, so one request cannot keep the server 
 | `groupConstraints` | 10 |
 | `currentOptionIds` | 30 (the app shows at most 6 options per slot) |
 | `excludeVenueIds` | 200 |
+| `categories` | 4 (repeats are removed) |
 | `cuisineLikes`, `cuisineDislikes` | 20 each per member |
 | any id, name or label | 80 characters |
 | any weight | 1000 |
