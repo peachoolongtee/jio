@@ -10,6 +10,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import AvatarStack from '@/components/ui/AvatarStack.vue'
+import UserAvatar from '@/components/ui/UserAvatar.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
 import SegmentedProgress from '@/components/ui/SegmentedProgress.vue'
@@ -57,6 +59,15 @@ const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
 const voterIds = computed(() => (session.value ? votersOf(session.value.votes, active.value) : []))
 const locked = computed(() => ['confirmed', 'completed', 'cancelled'].includes(status.value))
+// While inviting: everyone in, the host first, with @username and home area (as on the invite page).
+const joined = computed(() =>
+  active.value.map((pid) => {
+    const p = pid === 'ian' ? { username: auth.user.username, homeArea: auth.user.homeAreaName } : groups.people.find((x) => x.id === pid) || {}
+    return { id: pid, name: nameOf(pid), host: pid === 'ian', username: p.username || '', homeArea: p.homeArea || '' }
+  }),
+)
+const ready = computed(() => active.value.length >= 2)
+
 const myLoc = computed(() => session.value?.locations?.ian || { start: null, end: null })
 const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAreaId, name: auth.user.homeAreaName } : null))
 
@@ -163,14 +174,35 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
     <div class="screen__body">
       <SessionNotices :session="session" />
 
-      <!-- Inviting: the people list and Start session. -->
-      <section v-if="status === 'inviting'" class="section" aria-labelledby="people-head">
-        <div class="section__head">
-          <h2 id="people-head" class="title-md">People <span class="text-muted">{{ active.length }}</span></h2>
+      <!-- Inviting: who is in, whether the session can start, and Start session below. -->
+      <section v-if="status === 'inviting'" class="card lobby" aria-labelledby="lobby-head">
+        <header class="lobby__head">
+          <AvatarStack :people="joined" :size="36" :max="6" />
+          <div class="lobby__title">
+            <h2 id="lobby-head" class="title-md lobby__state" :class="{ 'is-ready': ready }">
+              <span class="lobby__dot" aria-hidden="true" />{{ ready ? 'Ready to start' : 'Waiting for friends' }}
+            </h2>
+            <p class="body-sm text-muted">
+              {{ ready ? `Everyone is in. Start the session when you're ready, then each of you shares where you're starting from.` : 'Invite at least one friend to start. Everyone you invite joins straight away.' }}
+            </p>
+          </div>
           <AppButton variant="secondary" small :to="`/sessions/${id}/invite`"><AppIcon name="user-plus" :size="16" />Invite</AppButton>
+        </header>
+
+        <div class="lobby__group">
+          <h3 class="caption text-muted">In this session <span class="tnum">· {{ joined.length }}</span></h3>
+          <ul class="lobby__list">
+            <li v-for="(person, i) in joined" :key="person.id" class="lobby__row rise" :style="{ '--i': i }">
+              <UserAvatar :name="person.name" :person="person.id" :size="44" />
+              <RouterLink :to="person.host ? '/profile' : `/people/${person.id}`" class="lobby__who">
+                <span class="title-sm truncate">{{ person.name }}<template v-if="person.host"> (you)</template></span>
+                <span class="caption-sm text-muted truncate"><template v-if="person.username">@{{ person.username }}</template><template v-if="person.username && person.homeArea"> · </template>{{ person.homeArea }}</span>
+              </RouterLink>
+              <span v-if="person.host" class="lobby__tag lobby__tag--host"><AppIcon name="crown" :size="14" />Host</span>
+              <span v-else class="lobby__tag"><AppIcon name="check" :size="14" />Joined</span>
+            </li>
+          </ul>
         </div>
-        <MemberList :session="session" :names="nameOf" compact />
-        <p v-if="active.length < 2" class="body-sm text-muted invite-hint">Invite at least one friend to start. Everyone you invite joins straight away; then each of you shares where you're starting from.</p>
       </section>
 
       <template v-else>
@@ -251,7 +283,32 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 </template>
 
 <style scoped>
-.invite-hint { margin: 0; }
+/* Inviting: a card like the invite page's. A header says whether the session can start (a Rausch dot that pulses
+   once everyone needed is in), then who is in, each with a Host or Joined tag. */
+.lobby { gap: var(--spacing-lg); }
+.lobby__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-md) var(--spacing-base); padding-bottom: var(--spacing-lg); border-bottom: 1px solid var(--hairline); }
+.lobby__title { flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lobby__title p { margin: 0; }
+/* Phones: avatars and Invite share the top row; the state and its line sit under them. */
+@media (max-width: 743px) {
+  .lobby__head > :last-child { margin-left: auto; }
+  .lobby__title { order: 3; flex-basis: 100%; }
+}
+.lobby__state { display: inline-flex; align-items: center; gap: var(--spacing-sm); margin: 0; }
+.lobby__dot { position: relative; width: 10px; height: 10px; border-radius: var(--rounded-full); background: var(--muted-soft); }
+.lobby__state.is-ready .lobby__dot { background: var(--primary); }
+.lobby__state.is-ready .lobby__dot::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--primary); animation: lobby-pulse 2s ease-out infinite; }
+@keyframes lobby-pulse { from { transform: scale(1); opacity: 0.6; } to { transform: scale(2.8); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .lobby__state.is-ready .lobby__dot::after { animation: none; } }
+.lobby__group { display: flex; flex-direction: column; gap: var(--spacing-xs); }
+.lobby__group h3 { margin: 0; }
+.lobby__list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.lobby__row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 68px; }
+.lobby__row + .lobby__row { border-top: 1px solid var(--hairline-soft); }
+.lobby__who { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; color: var(--ink); text-decoration: none; }
+@media (hover: hover) { .lobby__who:hover .title-sm { text-decoration: underline; } }
+.lobby__tag { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: var(--rounded-full); color: var(--body); font: var(--text-caption); }
+.lobby__tag--host { border-color: color-mix(in srgb, var(--primary) 35%, var(--canvas)); color: var(--primary-active); }
 /* Your route: a soft Rausch-tinted card. Start (a Rausch home) and end (an ink flag) joined by a dotted line:
    stacked on phones, side by side from tablet up. */
 .route { display: flex; flex-direction: column; margin: 0; padding: var(--spacing-sm) var(--spacing-base); border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--hairline)); border-radius: var(--rounded-lg); background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 6%, var(--canvas)), var(--canvas) 70%); }

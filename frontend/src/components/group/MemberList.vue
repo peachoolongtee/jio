@@ -13,8 +13,6 @@ const props = defineProps({
   session: { type: Object, required: true },
   names: { type: Function, required: true },
   voters: { type: Array, default: () => [] },
-  // Hide area, travel time and the status icon, for example while inviting (nobody shares a location yet).
-  compact: { type: Boolean, default: false },
 })
 
 const rows = computed(() =>
@@ -23,8 +21,8 @@ const rows = computed(() =>
     const minutes = props.session.meeting?.times?.[member.id]
     const status = submissionStatus(props.session, member.id, props.voters)
     const out = member.state === 'opted_out'
-    const meta = props.compact || out ? '' : start?.name || 'No location yet'
-    const travel = !props.compact && !out && start && minutes != null ? { minutes, tone: travelTone(minutes) } : null
+    const meta = out ? '' : start?.name || 'No location yet'
+    const travel = !out && start && minutes != null ? { minutes, tone: travelTone(minutes) } : null
     return { id: member.id, name: props.names(member.id), host: member.role === 'host', meta, travel, status, out }
   }),
 )
@@ -41,7 +39,7 @@ const TONE = { Joined: 'wait', 'Location submitted': 'done', Voted: 'done', 'Opt
         <span class="title-sm truncate">{{ row.name }}<span v-if="row.host" class="caption-sm text-muted"> (host)</span></span>
         <span v-if="row.meta" class="caption-sm text-muted truncate">{{ row.meta }}<template v-if="row.travel"> · <span class="member__min" :class="`is-${row.travel.tone}`">{{ row.travel.minutes }} min</span></template></span>
       </RouterLink>
-      <span v-if="!compact" class="member__status" :class="`is-${TONE[row.status]}`" role="img" :aria-label="row.status" :title="row.status">
+      <span class="member__status" :class="`is-${TONE[row.status]}`" role="img" :aria-label="row.status" :title="row.status">
         <AppIcon :name="ICON[row.status]" :size="14" />
       </span>
     </li>
