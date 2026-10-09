@@ -4,7 +4,10 @@
 //   it, name, @username and home area, a strip of three numbers (meetups, season rank, points) and one big button:
 //   "Create meetup" on Ian's own, "Add friend" / "Friends" on someone else's.
 //   Then the meetup graph, and Ian's sessions or the other person's recent activity.
-//   Ian's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back.
+//   Ian's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
+//   the demo" note, because other people's profiles are hand-written.
+//   Signing out erases everything saved in this browser, so its dialog says so. A person with no season points has no
+//   rank: it reads "No rank yet".
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { format, parseISO } from 'date-fns'
@@ -13,6 +16,7 @@ import AppIcon from '@/components/ui/AppIcon.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
+import SampleNote from '@/components/ui/SampleNote.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import MeetupGraph from '@/components/ui/MeetupGraph.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
@@ -67,9 +71,19 @@ async function toggleFriend() {
   friendBusy.value = false
 }
 
+const signingOut = ref(false)
+const signOutError = ref('')
 async function signOut() {
-  await auth.signOut()
-  router.replace('/signup')
+  signingOut.value = true
+  signOutError.value = ''
+  try {
+    await auth.signOut()
+    router.replace('/signup')
+  } catch (err) {
+    signOutError.value = err?.message || 'Could not sign out. Try again.'
+  } finally {
+    signingOut.value = false
+  }
 }
 </script>
 
@@ -89,20 +103,21 @@ async function signOut() {
             <div class="hero__who">
               <h1 class="hero__name">{{ person.name }}<span v-if="isMe" class="hero__you caption">You</span></h1>
               <p class="body-md text-muted">@{{ person.username }}<template v-if="person.homeArea"> · {{ person.homeArea }}</template></p>
+              <SampleNote v-if="!isMe" />
             </div>
             <div class="hero__side">
               <dl class="stats">
                 <div class="stats__item">
-                  <dd class="stats__value tnum"><AppIcon name="people" :size="18" />{{ person.meetups }}</dd>
                   <dt class="caption-sm">Meetups</dt>
+                  <dd class="stats__value tnum"><AppIcon name="people" :size="18" />{{ person.meetups }}</dd>
                 </div>
                 <div class="stats__item">
-                  <dd class="stats__value tnum"><AppIcon name="trophy" :size="18" />{{ rank ? ordinal(rank) : '–' }}</dd>
                   <dt class="caption-sm">Season rank</dt>
+                  <dd class="stats__value tnum" :class="{ 'stats__value--none': rank == null }"><AppIcon name="trophy" :size="18" />{{ rank == null ? 'No rank yet' : ordinal(rank) }}</dd>
                 </div>
                 <div class="stats__item">
-                  <dd class="stats__value tnum"><AppIcon name="star" :size="18" />{{ person.points }}</dd>
                   <dt class="caption-sm">Points</dt>
+                  <dd class="stats__value tnum"><AppIcon name="star" :size="18" />{{ person.points }}</dd>
                 </div>
               </dl>
               <AppButton v-if="isMe" block to="/sessions/new"><AppIcon name="plus" />Create meetup</AppButton>
@@ -154,9 +169,13 @@ async function signOut() {
     </template>
     <div v-else class="screen__body profile__loading"><SkeletonRow v-for="n in 3" :key="n" avatar /></div>
 
-    <ModalDialog v-model:open="signOutOpen" title="Sign out?">
+    <ModalDialog v-model:open="signOutOpen" title="Erase everything and sign out?">
+      <template #content>
+        <p class="body-md">Signing out erases everything saved in this browser: your account, meetups, votes and points. There is no way to sign back in to get it back.</p>
+        <p v-if="signOutError" class="body-sm text-error" role="alert">{{ signOutError }}</p>
+      </template>
       <AppButton block variant="secondary" @click="signOutOpen = false">Stay signed in</AppButton>
-      <AppButton block variant="danger" @click="signOut">Sign out</AppButton>
+      <AppButton block variant="danger" :disabled="signingOut" @click="signOut">Erase and sign out</AppButton>
     </ModalDialog>
   </main>
 </template>
@@ -191,7 +210,10 @@ async function signOut() {
 .stats__item + .stats__item { border-left: 1px solid var(--hairline); }
 .stats__value { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--ink); font: var(--text-display-sm); }
 .stats__value :deep(svg) { color: var(--pc); }
-.stats__item dt { color: var(--muted); }
+.stats__value--none { font: var(--text-title-md); }
+/* The label comes first in the markup (for screen readers) and shows under its number. */
+.stats__item dt { order: 2; color: var(--muted); }
+.stats__item dd { order: 1; }
 
 .graph-card { overflow: hidden; padding: var(--spacing-base); }
 .activity { display: flex; flex-direction: column; }

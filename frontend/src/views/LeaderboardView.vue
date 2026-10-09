@@ -2,10 +2,16 @@
 // Leaderboard: one ranking, the points earned this season. A season is a calendar quarter; when it ends,
 // first place wins points to spend, and season points start again from 0 (points to spend are kept).
 // The rule, the countdown and the last few winners are on this screen. Ian's row is pinned at the bottom
-// when he is outside the top 10. Spending points is on Rewards.
-import { computed, onMounted } from 'vue'
+// when he is outside the top 10. Spending points is on Rewards. The other rows are hand-written, so a "Sample data
+// for the demo" note says so. Someone with no season points has no rank (null): it reads "No rank yet".
+// States: skeleton rows while loading, a message with Retry if loading fails, and a message when there is no one to rank.
+// The podium is in the order 1st, 2nd, 3rd for screen readers and the keyboard; CSS `order` puts 2nd on the left.
+import { computed, onMounted, ref } from 'vue'
+import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
+import SampleNote from '@/components/ui/SampleNote.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import StatTile from '@/components/ui/StatTile.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
@@ -18,7 +24,21 @@ const TOP = 10
 
 const groups = useGroupsStore()
 
-onMounted(() => Promise.all([groups.loadLeaderboard(), groups.loadSeason()]))
+// The store's own loading flag stays on if a load fails, so this view keeps its own.
+const loading = ref(true)
+const loadError = ref(false)
+async function load() {
+  loading.value = true
+  loadError.value = false
+  try {
+    await Promise.all([groups.loadLeaderboard(), groups.loadSeason()])
+  } catch {
+    loadError.value = true
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
 
 const now = useNow()
 const season = computed(() => groups.season)
@@ -28,12 +48,15 @@ const endDate = computed(() => (season.value ? format(lastDay(season.value), 'd 
 const winnerNames = (past) => (past.winners.length ? past.winners.map((w) => (w.isMe ? 'You' : w.name)).join(' and ') : 'Nobody')
 
 const top = computed(() => groups.leaderboard.slice(0, TOP))
-// The top three on a podium (2nd, 1st, 3rd), everyone else in the list below.
-const podium = computed(() => {
-  const [a, b, c] = top.value
-  return [b, a, c].filter(Boolean).map((row) => ({ ...row, place: row === a ? 1 : row === b ? 2 : 3 }))
-})
-const rest = computed(() => top.value.slice(3))
+// The top three on a podium, everyone else in the list below. Nobody without a rank is on the podium.
+const podiumRows = computed(() => top.value.slice(0, 3).filter((r) => r.rank != null))
+// In reading order (1st, 2nd, 3rd); the CSS puts 1st in the middle.
+const podium = computed(() => podiumRows.value.map((row, i) => ({ ...row, place: i + 1 })))
+const rest = computed(() => top.value.filter((r) => !podiumRows.value.includes(r)))
+// What a screen reader and the eye get for a rank that may be null.
+const rankText = (rank) => (rank == null ? '–' : rank)
+const rankLabel = (rank) => (rank == null ? 'No rank yet' : `Rank ${rank}`)
+const yourRank = computed(() => (!groups.me ? '-' : groups.me.rank == null ? 'No rank yet' : ordinal(groups.me.rank)))
 const pinned = computed(() => {
   const me = groups.me
   return me && !top.value.some((r) => r.isMe) ? me : null
@@ -53,6 +76,7 @@ const ordinal = (n) => {
         <p class="body-sm text-muted">Season {{ season.number }} · {{ seasonRange(season) }} · points this season</p>
         <span class="season-chip"><AppIcon name="clock" :size="13" /><span class="tnum">{{ endsIn }}</span></span>
       </div>
+      <SampleNote />
     </header>
 
     <div class="screen__body">
@@ -63,16 +87,22 @@ const ordinal = (n) => {
             First place on {{ endDate }} wins <strong>{{ season.prize }} points</strong> to spend on Rewards.
             Then everyone's season points start again from 0.
           </BannerNote>
-          <div v-if="groups.loading.leaderboard && !groups.leaderboard.length" class="stack">
+          <div v-if="loading && !groups.leaderboard.length" class="stack" aria-busy="true">
             <SkeletonRow v-for="n in 6" :key="n" avatar />
           </div>
- <template v-else>
-          <ol class="podium rise" aria-label="Top three">
+          <EmptyState v-else-if="loadError" title="Could not load the leaderboard" text="Check your connection and try again." role="alert">
+            <AppButton variant="secondary" :disabled="loading" @click="load">Retry</AppButton>
+          </EmptyState>
+          <EmptyState v-else-if="!top.length" title="No one to rank yet" text="Finish a meetup to earn season points. Everyone who does shows up here.">
+            <AppButton variant="secondary" to="/sessions/new">Create meetup</AppButton>
+          </EmptyState>
+          <template v-else>
+          <ol v-if="podium.length" class="podium rise" aria-label="Top three">
             <li v-for="row in podium" :key="row.id" class="podium__spot rise" :class="[`podium__spot--${row.place}`, { 'is-me': row.isMe }]" :style="{ '--i': row.place === 1 ? 0 : row.place }">
-              <RouterLink :to="row.isMe ? '/profile' : `/people/${row.id}`" class="podium__link" :aria-label="`Rank ${row.rank}: ${row.name}, ${row.seasonPoints} points this season`">
+              <RouterLink :to="row.isMe ? '/profile' : `/people/${row.id}`" class="podium__link" :aria-label="`${rankLabel(row.rank)}: ${row.name}, ${row.seasonPoints} points this season`">
                 <span class="podium__avatar">
                   <UserAvatar :name="row.name" :src="row.photo" :person="row.id" :size="row.place === 1 ? 72 : 56" />
-                  <span class="podium__rank">{{ row.rank }}</span>
+                  <span class="podium__rank">{{ rankText(row.rank) }}</span>
                 </span>
                 <span class="title-sm truncate">{{ row.name }}</span>
                 <span class="podium__count"><span class="display-sm tnum">{{ row.seasonPoints }}</span> <span class="caption-sm text-muted">pts</span></span>
@@ -80,8 +110,8 @@ const ordinal = (n) => {
             </li>
           </ol>
           <ol v-if="rest.length" class="board card">
-            <li v-for="(row, i) in rest" :key="row.id" class="board__row rise" :class="{ 'is-me': row.isMe, 'is-podium': row.rank <= 3 }" :style="{ '--i': i + 3 }">
-              <span class="board__rank" :aria-label="`Rank ${row.rank}`">{{ row.rank }}</span>
+            <li v-for="(row, i) in rest" :key="row.id" class="board__row rise" :class="{ 'is-me': row.isMe, 'is-podium': row.rank != null && row.rank <= 3 }" :style="{ '--i': i + 3 }">
+              <span class="board__rank" :aria-label="rankLabel(row.rank)">{{ rankText(row.rank) }}</span>
               <UserAvatar :name="row.name" :src="row.photo" :person="row.id" :size="40" />
               <RouterLink :to="row.isMe ? '/profile' : `/people/${row.id}`" class="board__name">
                 <span class="title-sm truncate">{{ row.name }}<template v-if="row.isMe"> (you)</template></span>
@@ -96,7 +126,7 @@ const ordinal = (n) => {
           </template>
           <div v-if="pinned" class="board__pinned">
             <div class="board__row is-me">
-              <span class="board__rank" :aria-label="`Rank ${pinned.rank}`">{{ pinned.rank }}</span>
+              <span class="board__rank" :aria-label="rankLabel(pinned.rank)">{{ rankText(pinned.rank) }}</span>
               <UserAvatar :name="pinned.name" :src="pinned.photo" :person="pinned.id" :size="40" />
               <RouterLink to="/profile" class="board__name"><span class="title-sm truncate">{{ pinned.name }} (you)</span></RouterLink>
               <span class="board__count"><span class="title-md tnum">{{ pinned.seasonPoints }}</span><span class="caption-sm text-muted">pts</span></span>
@@ -106,7 +136,7 @@ const ordinal = (n) => {
 
         <aside class="side">
           <div class="me-stats" aria-label="Your standing">
-            <StatTile label="Your rank" :value="groups.me ? ordinal(groups.me.rank) : '-'" icon="trophy" :hint="groups.me ? `of ${groups.leaderboard.length} this season` : ''" />
+            <StatTile label="Your rank" :value="yourRank" icon="trophy" :hint="groups.me?.rank != null ? `of ${groups.leaderboard.length} this season` : ''" />
             <StatTile label="Season points" :value="groups.me?.seasonPoints ?? 0" icon="sparkle" :hint="endsIn" />
           </div>
           <section v-if="season?.past.length" class="past card" aria-labelledby="past-head">
@@ -150,6 +180,10 @@ const ordinal = (n) => {
 .podium__avatar :deep(.avatar) { box-shadow: 0 0 0 3px var(--canvas), 0 0 0 4px var(--hairline); }
 .podium__rank { position: absolute; left: 50%; bottom: -8px; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; transform: translateX(-50%); border-radius: var(--rounded-full); background: var(--ink); box-shadow: 0 0 0 2px var(--canvas); color: var(--on-dark); font: var(--text-badge); }
 .podium__spot { border-radius: var(--rounded-md) var(--rounded-md) 0 0; background: var(--canvas); }
+/* The list reads 1st, 2nd, 3rd; the podium shows 2nd, 1st, 3rd. */
+.podium__spot--1 { order: 2; }
+.podium__spot--2 { order: 1; }
+.podium__spot--3 { order: 3; }
 .podium__spot--1 { padding-bottom: var(--spacing-xl); background: var(--surface-soft); }
 .podium__spot--2, .podium__spot--3 { padding-bottom: var(--spacing-base); }
 .podium__count { color: var(--ink); }
@@ -163,6 +197,6 @@ const ordinal = (n) => {
 .board__name { display: flex; flex-direction: column; min-width: 0; min-height: var(--tap-min); justify-content: center; color: var(--ink); text-decoration: none; }
 @media (hover: hover) { .board__name:hover .title-sm { text-decoration: underline; } }
 .board__count { display: flex; flex-direction: column; align-items: flex-end; }
-.board__pinned { position: sticky; bottom: var(--tabbar-height); margin-top: var(--spacing-sm); padding-top: var(--spacing-sm); border-top: 2px solid var(--ink); background: var(--canvas); }
-@media (min-width: 1128px) { .board__pinned { bottom: 0; } }
+/* Pinned above the floating tab bar at every width: the same room the page leaves under the bar (App's .app__main). */
+.board__pinned { position: sticky; bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px)); margin-top: var(--spacing-sm); padding-top: var(--spacing-sm); border-top: 2px solid var(--ink); background: var(--canvas); }
 </style>

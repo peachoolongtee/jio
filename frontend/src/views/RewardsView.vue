@@ -1,12 +1,13 @@
 <script setup>
-// Rewards: spend points on café vouchers.
+// Rewards: spend points on sample café vouchers. A note at the top says they are not real offers.
 //   - Your points: the balance, how far to the next voucher you cannot afford yet, and how points are earned.
 //   - Café vouchers: redeeming one asks first, then shows its code and lowers the balance. A voucher that costs
-//     more than the balance is disabled and says how many points are missing.
-//   - Your vouchers: every code redeemed so far, to show at the counter.
+//     more than the balance has a disabled Claim button, and the points that are missing are written beside it as text.
+//   - Your vouchers: every code redeemed so far.
 import { computed, onMounted, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import BannerNote from '@/components/ui/BannerNote.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
@@ -45,10 +46,12 @@ async function redeem() {
   <main class="screen" data-testid="rewards-view">
     <header class="screen__header">
       <h1 class="display-xl">Rewards</h1>
-      <p class="body-sm text-muted">Spend your points on café discounts.</p>
+      <p class="body-sm text-muted">Spend your points on sample café vouchers.</p>
     </header>
 
     <div class="screen__body">
+      <BannerNote icon="info" data-testid="rewards-sample-note">Sample rewards for the demo. These are not real offers, and no café will accept the codes.</BannerNote>
+
       <!-- Your points: the balance, the next voucher, and how points are earned. -->
       <section class="wallet rise" aria-labelledby="wallet-head">
         <div class="wallet__balance">
@@ -65,7 +68,7 @@ async function redeem() {
         <ul class="earn" aria-label="How to earn points">
           <li><span class="earn__icon"><AppIcon name="check" :size="16" /></span><span class="body-sm"><strong>{{ POINTS_PER_MEETUP }} points</strong> for every meetup you finish</span></li>
           <li><span class="earn__icon"><AppIcon name="trophy" :size="16" /></span><span class="body-sm"><strong>{{ prize }} points</strong> for first place when a leaderboard season ends</span></li>
-          <li><span class="earn__icon"><AppIcon name="drink" :size="16" /></span><span class="body-sm">Claim a voucher below and show the code at the counter</span></li>
+          <li><span class="earn__icon"><AppIcon name="drink" :size="16" /></span><span class="body-sm">Claim a sample voucher below to get a demo code</span></li>
         </ul>
       </section>
 
@@ -86,8 +89,13 @@ async function redeem() {
             </div>
             <h3 class="title-md">{{ reward.offer }}</h3>
             <p class="caption-sm text-muted">{{ reward.cafe }}</p>
-            <AppButton v-if="reward.cost <= points" small @click="confirming = reward">Claim</AppButton>
-            <AppButton v-else variant="secondary" small disabled>{{ reward.cost - points }} points short</AppButton>
+            <div class="voucher__action">
+              <AppButton v-if="reward.cost <= points" small @click="confirming = reward">Claim</AppButton>
+              <template v-else>
+                <AppButton variant="secondary" small disabled :aria-describedby="`short-${reward.id}`">Claim</AppButton>
+                <span :id="`short-${reward.id}`" class="caption voucher__short">{{ reward.cost - points }} points short</span>
+              </template>
+            </div>
           </li>
         </ul>
       </section>
@@ -121,7 +129,7 @@ async function redeem() {
         <div v-if="redeemed" class="stack gap-sm">
           <span class="body-md">{{ redeemed.reward.offer }} · {{ redeemed.reward.cafe }}</span>
           <code class="code code--big">{{ redeemed.code }}</code>
-          <span class="caption text-muted">Show this at the counter. Balance {{ redeemed.points }} points.</span>
+          <span class="caption text-muted">A demo code only. Balance {{ redeemed.points }} points.</span>
         </div>
       </template>
       <AppButton block @click="redeemed = null">Done</AppButton>
@@ -131,21 +139,22 @@ async function redeem() {
 
 <style scoped>
 /* Your points: the balance on a soft Rausch wash, and how points are earned beside it. */
-.wallet { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-lg); padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 9%, var(--canvas)), var(--canvas) 60%); }
+.wallet { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-lg); padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); background: linear-gradient(135deg, color-mix(in srgb, var(--primary-bright) 9%, var(--canvas)), var(--canvas) 60%); }
 @media (min-width: 744px) { .wallet { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; } }
 .wallet__balance { display: flex; flex-direction: column; gap: var(--spacing-xs); }
 .wallet__label { margin: 0; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
 .wallet__points { margin: 0; color: var(--primary); font: 700 64px/1 var(--font-sans); letter-spacing: -0.03em; }
 .wallet__note { margin: var(--spacing-xs) 0 0; color: var(--body); }
-.wallet__bar { height: 8px; margin-top: var(--spacing-sm); overflow: hidden; border-radius: var(--rounded-full); background: color-mix(in srgb, var(--primary) 14%, var(--canvas)); }
+.wallet__bar { height: 8px; margin-top: var(--spacing-sm); overflow: hidden; border-radius: var(--rounded-full); background: color-mix(in srgb, var(--primary-bright) 14%, var(--canvas)); }
 .wallet__bar > span { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width 600ms var(--ease-out); }
 .earn { display: flex; flex-direction: column; gap: var(--spacing-sm); margin: 0; padding: 0; list-style: none; }
 .earn li { display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--rounded-md); background: var(--canvas); border: 1px solid var(--hairline-soft); }
 .earn__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
 
-.voucher { display: flex; flex-direction: column; gap: var(--spacing-sm); height: 100%; padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); transition: box-shadow var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
-@media (hover: hover) { .voucher:not(.is-short):hover { box-shadow: var(--shadow-float); transform: translateY(-2px); } }
-.voucher > :last-child { margin-top: auto; align-self: flex-start; }
+.voucher { display: flex; flex-direction: column; gap: var(--spacing-sm); height: 100%; padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+.voucher > :last-child { margin-top: auto; }
+.voucher__action { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm) var(--spacing-md); }
+.voucher__short { color: var(--muted); }
 .voucher__top { display: flex; align-items: center; justify-content: space-between; }
 .voucher__icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--rounded-full); background: var(--cat-drink-bg); color: var(--cat-drink-fg); }
 .voucher__cost { padding: var(--spacing-xxs) var(--spacing-sm); border: 1px solid var(--ink); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font: var(--text-badge); }
