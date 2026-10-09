@@ -26,6 +26,27 @@ describe('google-adapter', () => {
     expect(kindOf({ primaryType: 'restaurant' })).toMatchObject({ kind: 'restaurant', cuisine: 'restaurant' })
   })
 
+  it('kindOf: malls, department stores and markets are shops; a restaurant inside a mall is still food', () => {
+    expect(kindOf({ primaryType: 'shopping_mall', types: ['shopping_mall', 'point_of_interest'] })).toEqual({ category: 'shop', kind: 'mall', cuisine: 'mall' })
+    expect(kindOf({ primaryType: 'department_store' })).toMatchObject({ category: 'shop', kind: 'mall' })
+    expect(kindOf({ primaryType: 'market' })).toMatchObject({ category: 'shop', kind: 'market' })
+    expect(kindOf({ primaryType: 'japanese_restaurant', types: ['japanese_restaurant', 'restaurant', 'shopping_mall'] })).toMatchObject({ category: 'eat', cuisine: 'japanese' })
+    expect(kindOf({ primaryType: 'food_court', types: ['food_court', 'shopping_mall'] })).toMatchObject({ category: 'eat', kind: 'hawker' })
+  })
+
+  it('a Google mall has no diet (so diet filters skip it, like the frontend\'s malls)', () => {
+    const mall = fromGooglePlace({ ...byName('Good Bites'), primaryType: 'shopping_mall', types: ['shopping_mall'] }, '2026-10-10T14:00')
+    expect(mall).toMatchObject({ category: 'shop', kind: 'mall', diet: null })
+    expect(mall.dataQuality.dietUnknown).toBe(false)
+  })
+
+  it('leaves out a shop with under 50 reviews, and any place whose name says it has closed', () => {
+    const tiny = { ...byName('Good Bites'), primaryType: 'shopping_mall', types: ['shopping_mall'], userRatingCount: 12 }
+    expect(fromGooglePlace(tiny, '2026-10-10T14:00')).toBeNull()
+    const shut = { ...byName('Good Bites'), displayName: { text: 'Wisma Drug Store (No longer in operation)' } }
+    expect(fromGooglePlace(shut, '2026-10-10T14:00')).toBeNull()
+  })
+
   it('weekdayOf reads the date only (0 is Sunday)', () => {
     expect(weekdayOf('2026-10-10T23:59')).toBe(6) // a Saturday
     expect(weekdayOf('2026-10-11T00:30')).toBe(0)
@@ -83,6 +104,8 @@ describe('createGooglePlaces', () => {
   it('asks for the nearest food places with only the fields Jio uses, and the key in a header', async () => {
     const http = fakeHttp()
     await createGooglePlaces({ http, apiKey: 'k' }).nearby(BISHAN, { categories: ['eat'] })
+    await createGooglePlaces({ http, apiKey: 'k' }).nearby(BISHAN, { categories: ['shop'] })
+    expect(http.postJson.mock.calls[1][1].includedTypes).toEqual(['shopping_mall'])
     const [url, body, { headers }] = http.postJson.mock.calls[0]
     expect(url).toBe('https://places.googleapis.com/v1/places:searchNearby')
     expect(body).toMatchObject({ includedTypes: ['dessert_shop', 'food_court', 'restaurant'], maxResultCount: 20, rankPreference: 'DISTANCE' })
@@ -96,7 +119,7 @@ describe('createGooglePlaces', () => {
     await places.nearby(BISHAN, { categories: ['eat', 'drink'] })
     await places.nearby({ lat: BISHAN.lat + 0.0002, lng: BISHAN.lng }, { categories: ['drink', 'eat'] })
     expect(http.postJson).toHaveBeenCalledTimes(1)
-    expect(await places.nearby(BISHAN, { categories: ['shop', 'activity'] })).toEqual([])
+    expect(await places.nearby(BISHAN, { categories: ['activity'] })).toEqual([])
     expect(http.postJson).toHaveBeenCalledTimes(1)
   })
 
@@ -146,7 +169,14 @@ describe('Google places in the planner routes', () => {
     for (const r of fromGoogle) expect(['central', 'north', 'south', 'east', 'west', 'northeast']).not.toContain(r.venue.forecastArea)
   })
 
-  it('is not used for shop or activity slots, and is off on a server without a key', async () => {
+  it('only adds places of the slot\'s category: a drink slot gets no restaurants', async () => {
+    const { body } = await post(stubUrl, '/converge', { ...slot(['drink']), centre: { lat: 1.3497, lng: 103.8507 } })
+    expect(body.google.source).toBe('google')
+    for (const r of body.results.filter((x) => x.venue.source === 'google')) expect(r.venue.category).toBe('drink')
+  })
+
+  it('shop slots ask Google too; activity slots do not, and a server without a key does not', async () => {
+    expect((await post(stubUrl, '/converge', slot(['shop']))).body.google.source).toBe('google')
     expect((await post(stubUrl, '/converge', slot(['activity']))).body.google).toEqual({ source: 'not_needed', added: 0 })
     const plain = await start({})
     expect((await post(plain, '/converge', slot(['eat']))).body.google).toEqual({ source: 'off', added: 0 })

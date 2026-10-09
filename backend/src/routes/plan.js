@@ -49,12 +49,12 @@ const nowInSingapore = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString(
 // 16 never missed the best area in 2,000 random groups (see docs/engine-integration.md), and it cuts the calls.
 const MEETING_CANDIDATES_WITH_ROUTING = 16
 
-// Google places. /converge and /roam add restaurants, cafés, bars and dessert shops from Google near the point they
+// Google places. /converge and /roam add restaurants, cafés, bars, dessert shops and malls from Google near the point they
 // rank around, for that request only (Google's terms do not allow saving them), and say so in
 // `google: { source, added }`:
 //   google        `added` places came from Google (places the venue list already has are skipped)
 //   off           this server has no GOOGLE_MAPS_API_KEY
-//   not_needed    the request asked only for shop or activity, which Google is not used for
+//   not_needed    the request asked only for activities, which come from OneMap's lists instead
 //   unavailable   Google could not be reached; the planner answers with its other venues
 
 export function createPlanRouter({ data, weather, onemap = null, places = null, allowSimulatedWeather = false, limiter = null }) {
@@ -105,7 +105,7 @@ export function createPlanRouter({ data, weather, onemap = null, places = null, 
   // How to call:
   //   const { planData: withGoogle, google } = await addGooglePlaces(input, planData, forecast)
   async function addGooglePlaces(input, planData, forecast) {
-    const wanted = (input.categories ?? (input.current ? ['eat', 'drink', 'activity'] : ['eat', 'drink'])).filter((c) => c === 'eat' || c === 'drink')
+    const wanted = (input.categories ?? (input.current ? ['eat', 'drink', 'activity'] : ['eat', 'drink'])).filter((c) => c === 'eat' || c === 'drink' || c === 'shop')
     if (!places?.enabled) return { planData, google: { source: 'off', added: 0 } }
     if (wanted.length === 0) return { planData, google: { source: 'not_needed', added: 0 } }
     const point = rankingPoint(input)
@@ -118,7 +118,11 @@ export function createPlanRouter({ data, weather, onemap = null, places = null, 
       console.warn(`Google Places unavailable, planning without it: ${err.message}`)
       return { planData, google: { source: 'unavailable', added: 0 } }
     }
-    let fresh = dropKnownPlaces(raw.map((p) => fromGooglePlace(p, input.dateTime)).filter(Boolean), planData.venues)
+    // Only places of the categories this request is for: a dessert shop Google sends for a café search is food.
+    let fresh = dropKnownPlaces(
+      raw.map((p) => fromGooglePlace(p, input.dateTime)).filter((v) => v && wanted.includes(v.category)),
+      planData.venues,
+    )
     if (forecast) fresh = withLiveWeather({ ...planData, venues: fresh }, forecast).venues
     fresh = fresh.map((v) => withEstimatedMrtWalk(v, data.areas))
     return { planData: { ...planData, venues: [...planData.venues, ...fresh] }, google: { source: 'google', added: fresh.length } }

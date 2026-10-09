@@ -9,7 +9,7 @@ Every outside service Jio uses, whether it is built, and how to set it up. All c
 | **OneMap routing** | Real public transport times, instead of the estimate | Free OneMap account: `ONEMAP_EMAIL`, `ONEMAP_PASSWORD` | ✅ Built, **switched on once the account is in `backend/.env`** |
 | **OneMap map tiles** | The map's background | None | ✅ Used by the frontend map |
 | **OneMap themes** | ~460 more places: SportSG sport centres, tourist attractions, museums, libraries, theatres, parks, hawker centres | OneMap account (only to take the snapshot) | ✅ Built (`feature/onemap-places`) |
-| **Google Places (New)** | Restaurants, cafés, bars and dessert shops near the meeting point, with ratings, price level, opening hours per day, and photos | `GOOGLE_MAPS_API_KEY` (Demo Key to try; a billed key with a quota cap for the final app) | ✅ Built (`feature/google-places`) |
+| **Google Places (New)** | Restaurants, cafés, bars, dessert shops and shopping malls near the meeting point, with ratings, price level, opening hours per day, and photos | `GOOGLE_MAPS_API_KEY` (Demo Key to try; a billed key with a quota cap for the final app) | ✅ Built (`feature/google-places`) |
 | TikTok oEmbed | "Save from a TikTok link": the caption, to find the place | None | ⬜ Next |
 | Google Maps share links | "Save from a Maps link": the place name and point from the link | None (not an API) | ⬜ Next |
 | **NEA hawker centre closures** (data.gov.sg dataset) | Don't suggest a hawker centre on its cleaning or repair days | None | ✅ Built (`feature/onemap-places`) |
@@ -87,7 +87,7 @@ Built by Ian in `backend/src/services/weather.js` and `backend/src/planner/live-
 ### Google Places (New)
 
 - **Calls:**
-  - `POST https://places.googleapis.com/v1/places:searchNearby`: one per Converge or Roam request that needs food or drink.
+  - `POST https://places.googleapis.com/v1/places:searchNearby`: one per Converge or Roam request that needs food, drink or shopping.
   - `GET https://places.googleapis.com/v1/{photo name}/media`: one per photo shown.
 
   Docs: [Nearby Search (New)](https://developers.google.com/maps/documentation/places/web-service/nearby-search).
@@ -96,11 +96,12 @@ Built by Ian in `backend/src/services/weather.js` and `backend/src/planner/live-
   - `backend/src/planner/google-adapter.js`: turns a Google place into a venue.
   - `backend/src/routes/plan.js`: adds the places to a request, and serves the photo route.
 - **Get → merge → massage → show:**
-  - **get** up to 20 of the **nearest** restaurants, cafés, bars and dessert shops within 1 km of the point the request ranks around
+  - **get** up to 20 of the **nearest** restaurants, cafés, bars and dessert shops (food and drink slots) or shopping malls (shop slots) within 1 km of the point the request ranks around
   - **merge** them with the venue list, skipping places it already has
   - **massage**: place each in its NEA forecast area, read that **day of the week's** opening hours (a place shut on Mondays is left out on a Monday), turn the price level into a typical price
   - **show** them ranked with everything else
 - **Why per request, not a snapshot:** Google's terms allow storing a place's id, not its details. So these are never saved to a file, only cached in memory for 10 minutes.
+- **Shops:** shop slots ask for `shopping_mall` only. `department_store` and `market` brought back single jewellery shops and grocers. A mall needs 50+ reviews, and names like "(No longer in operation)" are dropped. Checked live near Newton: Scotts Square, Far East Plaza, Pacific Plaza and COMO Orchard, and at 08:44 the malls that open at 8am (before, the 15 hand-listed malls were all still closed).
 - **Why "nearest first":** the planner looks within 500 m first and only widens when it has fewer than 3 options. Google's default ("most popular") returned places 300–800 m away, which the planner never reached. Checked live near Bishan: with "nearest", Din Tai Fung, Pepper Grill, Stuff'd and Shake Shack at Junction 8 made the top 6.
 - **Cost control:**
   - One request per slot at most, cached by points about 110 m apart.
@@ -116,7 +117,7 @@ Built by Ian in `backend/src/services/weather.js` and `backend/src/planner/live-
 - **Every answer says** `google: { source, added }`:
   - `google`: places were added
   - `off`: no key
-  - `not_needed`: a shop or activity slot
+  - `not_needed`: an activity slot (activities come from OneMap's lists)
   - `unavailable`: Google is down; the planner answers with its other venues
 
 ## To set up (manual steps)

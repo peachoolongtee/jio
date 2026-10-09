@@ -1,8 +1,8 @@
 import { createCache } from './cache.js'
 import { currentScenario } from './scenario.js'
 
-// Google Places API (New): restaurants, cafés, bars and dessert shops near a point, with ratings, a price level and
-// opening hours. Needs GOOGLE_MAPS_API_KEY. Without it the service is off and the planner uses its other venues.
+// Google Places API (New): restaurants, cafés, bars, dessert shops and shopping malls near a point, with ratings, a
+// price level and opening hours. Needs GOOGLE_MAPS_API_KEY. Without it the service is off and the planner uses its other venues.
 // Every call goes through the shared HTTP helper, so stub mode answers from tests/fixtures/google/.
 //
 // Cost and terms:
@@ -32,10 +32,12 @@ export const NEARBY_FIELDS = [
   'places.businessStatus',
 ].join(',')
 
-// Google's place types for each Jio category.
-const TYPES_BY_CATEGORY = {
+// Google's place types for each Jio category. Activities come from OneMap's lists instead (sport centres, parks...).
+export const TYPES_BY_CATEGORY = {
   eat: ['restaurant', 'food_court', 'dessert_shop'],
   drink: ['cafe', 'coffee_shop', 'bar'],
+  // Malls only: 'department_store' and 'market' brought back single jewellery shops and grocers, not outings.
+  shop: ['shopping_mall'],
 }
 
 // A photo address as Google gives it: places/<place id>/photos/<photo id>.
@@ -62,7 +64,7 @@ export function createGooglePlaces({ http, apiKey = null, stub = false, now = Da
   const photoCache = createCache({ ttlMs: 30 * 60 * 1000, maxItems: 2000, now })
   const headers = (fieldMask) => ({ 'X-Goog-Api-Key': apiKey ?? 'stub', ...(fieldMask && { 'X-Goog-FieldMask': fieldMask }) })
 
-  // Google's raw places near a point, for the Jio categories given (only 'eat' and 'drink' have Google types).
+  // Google's raw places near a point, for the Jio categories given ('eat', 'drink' and 'shop' have Google types).
   // Returns [] when no category needs Google. At most 20 places: Google's limit for one request.
   //
   // How to call:

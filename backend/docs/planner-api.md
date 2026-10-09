@@ -348,7 +348,7 @@ About 460 places come from OneMap's government lists: sport centres, tourist att
 
 ## Venues from Google
 
-With `GOOGLE_MAPS_API_KEY` set, `/api/converge` and `/api/roam` add up to 20 of the nearest restaurants, cafés, bars and dessert shops from Google Places, for food and drink slots. They're added for that request only, never saved, because Google's terms don't allow it. Every answer says:
+With `GOOGLE_MAPS_API_KEY` set, `/api/converge` and `/api/roam` add up to 20 of the nearest places from Google Places: restaurants, cafés, bars and dessert shops for food and drink slots, and shopping malls for shop slots. Only places of the slot's category are added. A mall needs at least 50 Google reviews (fewer usually means one small store), and a place whose name says it has closed is left out. They're added for that request only, never saved, because Google's terms don't allow it. Every answer says:
 
 ```json
 "google": { "source": "google", "added": 16 }
@@ -358,7 +358,7 @@ With `GOOGLE_MAPS_API_KEY` set, `/api/converge` and `/api/roam` add up to 20 of 
 |---|---|
 | `google` | `added` places came from Google (places the venue list already had were skipped) |
 | `off` | The server has no Google key |
-| `not_needed` | A shop or activity slot: Google isn't used for those |
+| `not_needed` | An activity slot: activities come from OneMap's lists instead |
 | `unavailable` | Google couldn't be reached; the answer uses the other venues |
 
 A Google venue has `source: 'google'`, `googlePlaceId`, a real `rating` and `ratingCount`, `address`, and that **day of the week's** `openingHours`. It may also have `photo: { name, credit }`:

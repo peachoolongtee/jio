@@ -1,6 +1,6 @@
 // google-adapter.js: turns places from Google Places API (New) into engine venues.
 //
-// Google fills the gap OneMap and CDC leave: restaurants, cafés, bars and dessert shops, with real ratings, a price
+// Google fills the gap OneMap and CDC leave: restaurants, cafés, bars, dessert shops and malls, with real ratings, a price
 // level and opening hours per day of the week. It says nothing about diet or access, so those stay UNKNOWN, and
 // the "how quiet / romantic / lively" attributes are defaults for the kind of place, labelled in dataQuality.
 //
@@ -25,9 +25,13 @@ const PRICE_BY_LEVEL = {
 // Cuisine words the members' likes use (mock-data.json), read from Google's place type: "italian_restaurant" -> italian.
 const CUISINES = ['japanese', 'korean', 'chinese', 'indian', 'malay', 'thai', 'italian', 'western', 'vietnamese', 'indonesian', 'french', 'mexican'];
 
+// Google types that make a place a shop. Checked on the PRIMARY type first, because a mall's food court is food.
+const MALL_TYPES = ['shopping_mall', 'department_store'];
+const MARKET_TYPES = ['market'];
+
 /**
  * Which kind of place, and which Jio category, a Google place is.
- * Cafés, coffee and bars are 'drink' and dessert is 'eat', the same as the frontend's own list.
+ * Cafés, coffee and bars are 'drink', dessert is 'eat', malls and markets are 'shop', the same as the frontend's own list.
  *
  * How to call:
  *   kindOf({ primaryType: 'italian_restaurant', types: [...] }) // { category: 'eat', kind: 'restaurant', cuisine: 'italian' }
@@ -37,11 +41,16 @@ function kindOf(place) {
   const has = (...t) => types.some(x => t.includes(x));
   const cuisine = CUISINES.find(c => types.some(t => t.startsWith(`${c}_`))) ??
     (types.some(t => /chinese_noodle|dim_sum|hot_pot/.test(t)) ? 'chinese' : null);
+  if (MALL_TYPES.includes(place.primaryType)) return { category: 'shop', kind: 'mall', cuisine: 'mall' };
+  if (MARKET_TYPES.includes(place.primaryType)) return { category: 'shop', kind: 'market', cuisine: 'market' };
   if (has('food_court')) return { category: 'eat', kind: 'hawker', cuisine: 'hawker' };
   if (has('bar', 'pub', 'wine_bar', 'cocktail_bar', 'night_club')) return { category: 'drink', kind: 'bar', cuisine: 'bar' };
   if (has('dessert_shop', 'ice_cream_shop', 'dessert_restaurant', 'bakery', 'confectionery')) return { category: 'eat', kind: 'dessert', cuisine: 'dessert' };
   if (has('cafe', 'coffee_shop', 'tea_house', 'cat_cafe')) return { category: 'drink', kind: 'cafe', cuisine: 'cafe' };
-  return { category: 'eat', kind: 'restaurant', cuisine: cuisine ?? 'restaurant' };
+  if (has('restaurant', 'food', 'meal_takeaway', 'meal_delivery') || cuisine) return { category: 'eat', kind: 'restaurant', cuisine: cuisine ?? 'restaurant' };
+  if (has(...MALL_TYPES)) return { category: 'shop', kind: 'mall', cuisine: 'mall' };
+  if (has(...MARKET_TYPES)) return { category: 'shop', kind: 'market', cuisine: 'market' };
+  return { category: 'eat', kind: 'restaurant', cuisine: 'restaurant' };
 }
 
 const hhmm = t => `${String(t.hour ?? 0).padStart(2, '0')}:${String(t.minute ?? 0).padStart(2, '0')}`;
@@ -77,16 +86,25 @@ function weekdayOf(dateTime) {
 
 /**
  * One Google place -> one engine venue, for a visit on a given date-time (the hours are that day's).
- * Returns null for a place that has closed down or has no location.
+ * Returns null for a place that has closed down (by Google's status or its own name), has no location, or is a shop
+ * with fewer than 50 reviews.
  *
  * How to call:
  *   const venue = fromGooglePlace(place, '2026-10-10T19:00')
  */
+// A shop needs this many Google reviews: fewer usually means one small store, not a mall worth going to.
+const MIN_SHOP_REVIEWS = 50;
+
+// Google sometimes still marks a place open while its own name says it has shut ("... (No longer in operation)").
+const CLOSED_NAME = /no longer in operation|permanently closed|\bclosed down\b/i;
+
 function fromGooglePlace(place, dateTime) {
   const lat = place.location?.latitude, lng = place.location?.longitude;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (place.businessStatus && place.businessStatus !== 'OPERATIONAL') return null;
+  if (CLOSED_NAME.test(place.displayName?.text ?? '')) return null;
   const { category, kind, cuisine } = kindOf(place);
+  if (category === 'shop' && (place.userRatingCount ?? 0) < MIN_SHOP_REVIEWS) return null;
   const d = KIND_DEFAULTS[kind] ?? KIND_DEFAULTS.restaurant;
   const price = PRICE_BY_LEVEL[place.priceLevel];
   const dayHours = hoursOnDay(place.regularOpeningHours, weekdayOf(dateTime));
@@ -98,7 +116,8 @@ function fromGooglePlace(place, dateTime) {
     category, kind, cuisine,
     avgPricePerPerson: price ?? 20, priceBand: price === undefined ? 2 : price <= 8 ? 1 : price <= 20 ? 2 : price <= 40 ? 3 : 4,
     rating: typeof place.rating === 'number' ? place.rating : null, ratingCount: place.userRatingCount ?? null,
-    diet: { halal: 'unknown', vegetarian: 'unknown', vegan: 'unknown', healthy: d.healthy ?? 2 },
+    // Shops have no diet, so dietary filters skip them (like the frontend's malls). Food and drink: unknown.
+    diet: category === 'shop' ? null : { halal: 'unknown', vegetarian: 'unknown', vegan: 'unknown', healthy: d.healthy ?? 2 },
     setting: 'indoor', exposure: 1, aircon: kind !== 'hawker',
     stepFree: null, sockets: null, wifi: null, cdcAccepted: false,
     maxGroupSize: d.maxGroupSize, hasPrivateRoom: false, cakeFriendly: false, longStayOk: d.longStayOk,
@@ -111,7 +130,7 @@ function fromGooglePlace(place, dateTime) {
     source: 'google',
     dataQuality: {
       hoursAssumed: dayHours === null, hoursForWeekday: weekdayOf(dateTime), priceAssumed: price === undefined, priceFromLevel: price !== undefined,
-      attributesAreDefaults: true, dietUnknown: true, accessUnknown: true, forecastAreaApprox: true,
+      attributesAreDefaults: true, dietUnknown: category !== 'shop', accessUnknown: true, forecastAreaApprox: true,
     },
   };
 }
