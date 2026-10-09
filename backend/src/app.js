@@ -74,8 +74,10 @@ export function createApp({
   })
 
   // Errors always come back as JSON, never as an HTML page.
-  // A body that is not valid JSON (400) or is too big (413) is the caller's mistake.
-  // Anything else is a bug on our side (500).
+  // A body that is not valid JSON (400) or is too big (413) is the caller's mistake, and so is any other 4xx
+  // the body parser raises (for example 415 for an encoding it cannot read). Those are http-errors objects with a
+  // string `type`. Any other error is logged and answers 500, even when it carries a 4xx `status`: an
+  // ExternalApiError holds the upstream service's status, which is not the caller's mistake.
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
     if (err.type === 'entity.parse.failed') {
@@ -84,6 +86,11 @@ export function createApp({
     }
     if (err.type === 'entity.too.large') {
       res.status(413).json({ error: 'too_large', message: 'The request body is too big. The limit is 100 kB.' })
+      return
+    }
+    const status = err.status ?? err.statusCode
+    if (typeof err.type === 'string' && Number.isInteger(status) && status >= 400 && status <= 499) {
+      res.status(status).json({ error: 'bad_request', message: 'The request could not be read.' })
       return
     }
     console.error(err)
