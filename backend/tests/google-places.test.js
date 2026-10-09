@@ -40,6 +40,22 @@ describe('google-adapter', () => {
     expect(mall.dataQuality.dietUnknown).toBe(false)
   })
 
+  it('kindOf: bowling, cinemas, karaoke, arcades and galleries are activities, with no diet', () => {
+    expect(kindOf({ primaryType: 'bowling_alley' })).toEqual({ category: 'activity', kind: 'sports', cuisine: 'bowling_alley' })
+    expect(kindOf({ primaryType: 'movie_theater' })).toMatchObject({ category: 'activity', kind: 'cinema' })
+    expect(kindOf({ primaryType: 'art_gallery' })).toMatchObject({ category: 'activity', kind: 'museum' })
+    expect(kindOf({ primaryType: 'karaoke', types: ['karaoke', 'bar'] })).toMatchObject({ category: 'activity', kind: 'attraction' })
+    const bowling = fromGooglePlace({ ...byName('Good Bites'), primaryType: 'bowling_alley', types: ['bowling_alley'], userRatingCount: 300 }, '2026-10-10T14:00')
+    expect(bowling).toMatchObject({ category: 'activity', diet: null })
+    expect(fromGooglePlace({ ...byName('Good Bites'), primaryType: 'bowling_alley', types: ['bowling_alley'], userRatingCount: 10 }, '2026-10-10T14:00')).toBeNull()
+
+    const activity = (text, type = 'art_gallery') => fromGooglePlace({ ...byName('Good Bites'), displayName: { text }, primaryType: type, types: [type], userRatingCount: 400 }, '2026-10-10T14:00')
+    expect(activity('LouisArtStory - Luxury Watch Protection Film/ Artisan Workmanship in Orchard/Risks Transfer on Fine Arts')).toBeNull()
+    expect(activity('ELITE Sports Academy', 'amusement_center')).toBeNull()
+    expect(activity('The FRIENDS Experience: The One in Singapore', 'amusement_center')).not.toBeNull()
+    expect(activity('Golden Village Bishan', 'movie_theater')).not.toBeNull()
+  })
+
   it('leaves out a shop with under 50 reviews, and any place whose name says it has closed', () => {
     const tiny = { ...byName('Good Bites'), primaryType: 'shopping_mall', types: ['shopping_mall'], userRatingCount: 12 }
     expect(fromGooglePlace(tiny, '2026-10-10T14:00')).toBeNull()
@@ -106,6 +122,10 @@ describe('createGooglePlaces', () => {
     await createGooglePlaces({ http, apiKey: 'k' }).nearby(BISHAN, { categories: ['eat'] })
     await createGooglePlaces({ http, apiKey: 'k' }).nearby(BISHAN, { categories: ['shop'] })
     expect(http.postJson.mock.calls[1][1].includedTypes).toEqual(['shopping_mall'])
+    await createGooglePlaces({ http, apiKey: 'k' }).nearby(BISHAN, { categories: ['activity'] })
+    expect(http.postJson.mock.calls[2][1].includedTypes).toEqual(
+      ['amusement_center', 'amusement_park', 'aquarium', 'art_gallery', 'bowling_alley', 'karaoke', 'movie_theater', 'video_arcade', 'zoo'],
+    )
     const [url, body, { headers }] = http.postJson.mock.calls[0]
     expect(url).toBe('https://places.googleapis.com/v1/places:searchNearby')
     expect(body).toMatchObject({ includedTypes: ['dessert_shop', 'food_court', 'restaurant'], maxResultCount: 20, rankPreference: 'DISTANCE' })
@@ -119,7 +139,7 @@ describe('createGooglePlaces', () => {
     await places.nearby(BISHAN, { categories: ['eat', 'drink'] })
     await places.nearby({ lat: BISHAN.lat + 0.0002, lng: BISHAN.lng }, { categories: ['drink', 'eat'] })
     expect(http.postJson).toHaveBeenCalledTimes(1)
-    expect(await places.nearby(BISHAN, { categories: ['activity'] })).toEqual([])
+    expect(await places.nearby(BISHAN, { categories: [] })).toEqual([])
     expect(http.postJson).toHaveBeenCalledTimes(1)
   })
 
@@ -175,9 +195,9 @@ describe('Google places in the planner routes', () => {
     for (const r of body.results.filter((x) => x.venue.source === 'google')) expect(r.venue.category).toBe('drink')
   })
 
-  it('shop slots ask Google too; activity slots do not, and a server without a key does not', async () => {
+  it('shop and activity slots ask Google too, and a server without a key does not', async () => {
     expect((await post(stubUrl, '/converge', slot(['shop']))).body.google.source).toBe('google')
-    expect((await post(stubUrl, '/converge', slot(['activity']))).body.google).toEqual({ source: 'not_needed', added: 0 })
+    expect((await post(stubUrl, '/converge', slot(['activity']))).body.google.source).toBe('google')
     const plain = await start({})
     expect((await post(plain, '/converge', slot(['eat']))).body.google).toEqual({ source: 'off', added: 0 })
   })

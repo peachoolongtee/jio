@@ -49,12 +49,13 @@ const nowInSingapore = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString(
 // 16 never missed the best area in 2,000 random groups (see docs/engine-integration.md), and it cuts the calls.
 const MEETING_CANDIDATES_WITH_ROUTING = 16
 
-// Google places. /converge and /roam add restaurants, cafés, bars, dessert shops and malls from Google near the point they
+// Google places. /converge and /roam add restaurants, cafés, bars, dessert shops, malls and private activities (bowling,
+// cinemas, karaoke, arcades, galleries...) from Google near the point they
 // rank around, for that request only (Google's terms do not allow saving them), and say so in
 // `google: { source, added }`:
 //   google        `added` places came from Google (places the venue list already has are skipped)
 //   off           this server has no GOOGLE_MAPS_API_KEY
-//   not_needed    the request asked only for activities, which come from OneMap's lists instead
+//   not_needed    the request asked for no category Google is used for
 //   unavailable   Google could not be reached; the planner answers with its other venues
 
 export function createPlanRouter({ data, weather, onemap = null, places = null, allowSimulatedWeather = false, limiter = null }) {
@@ -105,7 +106,7 @@ export function createPlanRouter({ data, weather, onemap = null, places = null, 
   // How to call:
   //   const { planData: withGoogle, google } = await addGooglePlaces(input, planData, forecast)
   async function addGooglePlaces(input, planData, forecast) {
-    const wanted = (input.categories ?? (input.current ? ['eat', 'drink', 'activity'] : ['eat', 'drink'])).filter((c) => c === 'eat' || c === 'drink' || c === 'shop')
+    const wanted = (input.categories ?? (input.current ? ['eat', 'drink', 'activity'] : ['eat', 'drink'])).filter((c) => ['eat', 'drink', 'shop', 'activity'].includes(c))
     if (!places?.enabled) return { planData, google: { source: 'off', added: 0 } }
     if (wanted.length === 0) return { planData, google: { source: 'not_needed', added: 0 } }
     const point = rankingPoint(input)

@@ -32,12 +32,14 @@ export const NEARBY_FIELDS = [
   'places.businessStatus',
 ].join(',')
 
-// Google's place types for each Jio category. Activities come from OneMap's lists instead (sport centres, parks...).
+// Google's place types for each Jio category. For activities, OneMap's lists already have the government places
+// (parks, SportSG centres, museums, libraries, theatres), so Google adds the private ones OneMap does not list.
 export const TYPES_BY_CATEGORY = {
   eat: ['restaurant', 'food_court', 'dessert_shop'],
   drink: ['cafe', 'coffee_shop', 'bar'],
   // Malls only: 'department_store' and 'market' brought back single jewellery shops and grocers, not outings.
   shop: ['shopping_mall'],
+  activity: ['bowling_alley', 'movie_theater', 'karaoke', 'video_arcade', 'amusement_center', 'amusement_park', 'art_gallery', 'aquarium', 'zoo'],
 }
 
 // A photo address as Google gives it: places/<place id>/photos/<photo id>.
@@ -64,7 +66,7 @@ export function createGooglePlaces({ http, apiKey = null, stub = false, now = Da
   const photoCache = createCache({ ttlMs: 30 * 60 * 1000, maxItems: 2000, now })
   const headers = (fieldMask) => ({ 'X-Goog-Api-Key': apiKey ?? 'stub', ...(fieldMask && { 'X-Goog-FieldMask': fieldMask }) })
 
-  // Google's raw places near a point, for the Jio categories given ('eat', 'drink' and 'shop' have Google types).
+  // Google's raw places near a point, for the Jio categories given (every category has Google types).
   // Returns [] when no category needs Google. At most 20 places: Google's limit for one request.
   //
   // How to call:
