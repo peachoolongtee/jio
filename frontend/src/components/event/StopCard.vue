@@ -4,7 +4,9 @@
 // where it is, the price tier, and a photo of the kind of place when `image` is set.
 //   <StopCard :number="1" time="15:00" :duration="45" name="Tiong Bahru Bakery" category="drink" :price="14" area="Tiong Bahru" :image="src" />
 // Put several in a list with the .timeline class (EventView) so the rail joins them.
-// Slots: `handle` (a drag handle, on the right), `actions` (buttons such as "Delete stop").
+// Slots: `handle` (a drag handle, on the right), `actions` (buttons such as "Delete stop"). On a phone (480px and
+// narrower) the photo and the controls drop under the text, so the name, time, area and price keep the full width.
+// The name can take focus from code (tabindex -1), for example to land on the next stop after one is deleted.
 // `warning` shows a short error-red line, for example "Closed at 15:00" after the stops were rearranged.
 // `banner` shows the photo as a wide strip above the details instead of a thumbnail beside them.
 import AppIcon from '../ui/AppIcon.vue'
@@ -34,7 +36,7 @@ defineProps({
     <div class="stop__body">
       <img v-if="image && banner" class="stop__banner" :src="image" alt="" loading="lazy" />
       <span class="caption tnum">{{ timeAndDuration(time, duration) }}</span>
-      <h3 class="title-md clamp-2">{{ name }}</h3>
+      <h3 class="stop__name title-md clamp-2" tabindex="-1">{{ name }}</h3>
       <p class="stop__meta">
         <CategoryIcon :category="category" :size="22" />
         <span v-if="area" class="caption-sm text-muted truncate">{{ area }}</span>
@@ -51,7 +53,7 @@ defineProps({
 </template>
 
 <style scoped>
-/* Dot | text | photo | actions, on one row. */
+/* Dot | text | photo | actions, on one row. Phones stack them: see the media query at the end. */
 .stop { position: relative; display: grid; grid-auto-flow: column; grid-template-columns: 28px minmax(0, 1fr); grid-auto-columns: auto; align-items: start; gap: var(--spacing-md); padding: var(--spacing-xs) 0; border-radius: var(--rounded-sm); background: var(--canvas); }
 .stop__dot { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-top: 2px; border-radius: var(--rounded-full); background: var(--ink); box-shadow: 0 0 0 4px var(--canvas); color: var(--on-dark); font: var(--text-caption); }
 .stop__dot--eat { background: var(--cat-eat-fg); }
@@ -64,5 +66,16 @@ defineProps({
 .stop__banner { display: block; width: 100%; height: 120px; margin-bottom: var(--spacing-sm); object-fit: cover; border-radius: var(--rounded-sm); background: var(--surface-strong); }
 .stop__photo { width: 64px; height: 64px; object-fit: cover; border-radius: var(--rounded-sm); background: var(--surface-strong); }
 .stop__actions { display: flex; align-items: center; gap: var(--spacing-xs); }
+.stop__name:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: var(--rounded-xs); }
 .stop.is-lifted .stop__dot { background: var(--primary); }
+
+/* 480px and narrower: dot | text on the first row; the photo and then the controls get a row of their own under the
+   text, so nothing squeezes the name. The controls sit at the end of their row. */
+@media (max-width: 480px) {
+  .stop { grid-auto-flow: row; grid-auto-columns: auto; row-gap: var(--spacing-xs); }
+  .stop__dot { grid-column: 1; grid-row: 1; }
+  .stop__body { grid-column: 2; grid-row: 1; }
+  .stop__photo { grid-column: 2; grid-row: auto; }
+  .stop__actions { grid-column: 2; grid-row: auto; justify-content: flex-end; }
+}
 </style>

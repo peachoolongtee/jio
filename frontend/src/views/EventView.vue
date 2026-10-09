@@ -5,17 +5,20 @@
 //   - Between stops: a visible Walk / MRT / Car switch, each with its own time. It moves every later stop.
 //     Two stops in the same building just say so.
 //   - On desktop the timeline is as tall as the map beside it, with the stops spread out.
-//   - Each stop has a delete button once the plan is confirmed (two stops or more), with a confirm dialog.
+//   - In edit mode (the pencil toggle in the header; confirmed plans only) each stop has a delete button (two stops
+//     or more) and a drag handle, with a confirm dialog for delete. Focus lands on the next stop after a delete.
+//     Outside edit mode the stops carry no controls.
 //   - The end point, and each person's trip home (folded away; anyone over 60 minutes is flagged above).
-//   - Drag a stop by its handle (or focus the handle and use the arrow keys) to rearrange the day. Times follow;
+//   - In edit mode, drag a stop by its handle (or focus the handle and use the arrow keys) to rearrange the day. Times follow;
 //     a stop that would be closed at its new time, or an end far from the MRT, is flagged.
-//   - Map, Ask AI (an empty sheet for now) and Edit: re-plan. "End plan" on the day.
-import { computed, onMounted, ref, watch } from 'vue'
+//   - Edit mode also shows "Re-plan". "End plan" on the day.
+//   - The photo strip shows the latest pictures (loaded with the events store) and links to Photos.
+//   - Travel and trip-home times are estimates from distance, so they read "about" or "est.".
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
-import BottomSheet from '@/components/ui/BottomSheet.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { RouterLink } from 'vue-router'
@@ -43,7 +46,6 @@ const events = useEventsStore()
 
 const missing = ref(false)
 const editing = ref(false)
-const aiOpen = ref(false)
 const endOpen = ref(false)
 const replanOpen = ref(false)
 const removing = ref(null)
@@ -52,8 +54,16 @@ const error = ref('')
 const view = ref('list')
 const selected = ref('')
 const toast = ref(false)
-// Arrived straight from "Confirm plan": say so, big and clear, until dismissed.
+// Arrived straight from "Confirm plan": say so, big and clear, until dismissed. The flag in the history entry is
+// cleared as soon as it has been read, so a reload or Back to this page does not show the card again.
 const justConfirmed = ref(!!window.history.state?.justConfirmed)
+// A screen reader only reads a live region whose text changes after it is on the page, so the region is there from
+// the start, empty, and the words are put in once the card has appeared.
+const announcement = ref('')
+let announceTimer = 0
+function clearConfirmedFlag() {
+  if (window.history.state?.justConfirmed) window.history.replaceState({ ...window.history.state, justConfirmed: false }, '')
+}
 const confirmedLine = computed(() => {
   const stops = itinerary.value?.stops || []
   const summary = stops.length ? ` ${stops.length} ${stops.length === 1 ? 'stop' : 'stops'}, starting ${fromMinutes(stops[0].start)}.` : ''
@@ -61,7 +71,8 @@ const confirmedLine = computed(() => {
 })
 function dismissConfirmed() {
   justConfirmed.value = false
-  window.history.replaceState({ ...window.history.state, justConfirmed: false }, '')
+  announcement.value = ''
+  clearConfirmedFlag()
 }
 
 async function load() {
@@ -73,7 +84,10 @@ async function load() {
     missing.value = true
   }
 }
-onMounted(load)
+onMounted(() => {
+  clearConfirmedFlag()
+  load()
+})
 watch(() => props.id, load)
 
 const session = computed(() => events.byId[props.id])
@@ -83,8 +97,30 @@ const confirmed = computed(() => status.value === 'confirmed')
 const today = computed(() => confirmed.value && session.value?.isToday)
 const longTrips = computed(() => (itinerary.value?.trips || []).filter((t) => t.long))
 const lastStop = computed(() => itinerary.value?.stops[itinerary.value.stops.length - 1])
-// A confirmed plan with two or more stops can be rearranged by dragging a stop's handle.
+// A confirmed plan with two or more stops can be rearranged, and a stop deleted, while editing.
 const canMove = computed(() => confirmed.value && (itinerary.value?.stops.length || 0) > 1)
+const canEdit = computed(() => canMove.value && editing.value)
+
+// Put the "Plan confirmed" words into the live region once the card is on screen.
+watch(
+  () => justConfirmed.value && confirmed.value && !!itinerary.value,
+  (ready) => {
+    clearTimeout(announceTimer)
+    if (!ready) return
+    announceTimer = setTimeout(() => {
+      announcement.value = `Plan confirmed. ${confirmedLine.value}`
+    }, 400)
+  },
+  { immediate: true },
+)
+onBeforeUnmount(() => clearTimeout(announceTimer))
+
+// The latest pictures for the strip, from the events store (a session summary has only photoCount). A failed load
+// only leaves the strip without thumbnails; the count and the link stay.
+const photos = computed(() => events.photos[props.id] || [])
+const photoCount = computed(() => session.value?.photoCount || 0)
+const loadPhotos = () => photoCount.value && events.loadPhotos(props.id).catch(() => {})
+watch([() => props.id, photoCount], loadPhotos, { immediate: true })
 
 const mapPlaces = computed(() =>
   (itinerary.value?.stops || []).map((s, i) => ({ id: s.venue.id, name: s.venue.name, lat: s.venue.lat, lng: s.venue.lng, label: String(i + 1), category: s.category })),
@@ -102,27 +138,62 @@ async function act(fn) {
 const setMode = (index, mode) => act(() => events.setTravelMode(props.id, index, mode))
 const moveStop = (from, to) => act(() => events.reorderStops(props.id, from, to))
 
+// After a delete the focused button is gone, so focus moves to the heading of the stop that took its place (or the
+// new last stop), and to the list itself if there is none. A newer load can still be on its way when the delete
+// returns, so wait until the list has really lost a stop before looking for the heading.
+const timeline = ref(null)
+function whenShorterThan(count) {
+  return new Promise((resolve) => {
+    if ((itinerary.value?.stops.length ?? 0) < count) return resolve()
+    const stop = watch(() => itinerary.value?.stops.length ?? 0, (n) => n < count && done())
+    const timer = setTimeout(done, 2000)
+    function done() {
+      stop()
+      clearTimeout(timer)
+      resolve()
+    }
+  })
+}
 async function removeStop() {
   const index = removing.value
+  const count = itinerary.value?.stops.length ?? 0
   removing.value = null
   await act(() => events.deleteStop(props.id, index))
+  if (error.value) return
+  await whenShorterThan(count)
+  await nextTick()
+  const names = timeline.value?.querySelectorAll('.stop__name') || []
+  const next = names[Math.min(index, names.length - 1)] || timeline.value
+  next?.focus()
 }
 
 async function replan() {
   busy.value = true
-  await events.replan(props.id)
-  busy.value = false
-  replanOpen.value = false
-  router.push(`/sessions/${props.id}/plan`)
+  error.value = ''
+  try {
+    await events.replan(props.id)
+    replanOpen.value = false
+    router.push(`/sessions/${props.id}/plan`)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    busy.value = false
+  }
 }
 
 async function endPlan() {
   busy.value = true
-  await events.endPlan(props.id)
-  busy.value = false
-  endOpen.value = false
-  editing.value = false
-  toast.value = true
+  error.value = ''
+  try {
+    await events.endPlan(props.id)
+    endOpen.value = false
+    editing.value = false
+    toast.value = true
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -131,8 +202,7 @@ async function endPlan() {
   <main v-else-if="session" class="screen" data-testid="event-view">
     <SessionHeader :session="session" :title="today ? 'Today\'s plan' : ''" back="/">
       <template v-if="session.plan" #actions>
-        <IconButton label="Ask AI" class="ai-btn" @click="aiOpen = true"><AppIcon name="sparkle" /></IconButton>
-        <IconButton v-if="confirmed" :label="editing ? 'Done editing' : 'Edit itinerary'" :tone="editing ? 'brand' : ''" :aria-pressed="String(editing)" @click="editing = !editing">
+        <IconButton v-if="confirmed" label="Edit itinerary" :tone="editing ? 'brand' : ''" :aria-pressed="String(editing)" @click="editing = !editing">
           <AppIcon :name="editing ? 'check' : 'edit'" />
         </IconButton>
       </template>
@@ -146,29 +216,30 @@ async function endPlan() {
       </EmptyState>
 
       <template v-else>
+        <p class="sr-only" role="status">{{ announcement }}</p>
         <Transition name="celebrate" appear>
-          <section v-if="justConfirmed && confirmed" class="celebrate" role="status">
+          <section v-if="justConfirmed && confirmed" class="celebrate" aria-labelledby="celebrate-title">
             <span class="celebrate__icon"><AppIcon name="check" :size="22" /></span>
             <div class="celebrate__text">
-              <h2 class="display-sm">Plan confirmed</h2>
+              <h2 id="celebrate-title" class="display-sm">Plan confirmed</h2>
               <p class="body-sm">{{ confirmedLine }}</p>
             </div>
             <IconButton label="Dismiss" class="celebrate__close" @click="dismissConfirmed"><AppIcon name="close" :size="16" /></IconButton>
           </section>
         </Transition>
         <BannerNote v-if="status === 'completed'" icon="trophy">
-          Completed · +{{ POINTS_PER_MEETUP }} points each to spend on café discounts
+          Completed · +{{ POINTS_PER_MEETUP }} points each to spend on sample café vouchers
           <template #actions>
             <AppButton small variant="secondary" to="/rewards">Rewards</AppButton>
           </template>
         </BannerNote>
         <BannerNote v-for="trip in longTrips" :key="trip.id" tone="warning" icon="warning">
-          Long trip home: {{ trip.name }}, {{ trip.minutes }} min
+          Long trip home: {{ trip.name }}, about {{ trip.minutes }} min
         </BannerNote>
 
-        <RouterLink v-if="session.photos.length" :to="`/sessions/${id}/photos`" class="strip" :aria-label="`${session.photos.length} photos`" title="Photos">
-          <img v-for="p in session.photos.slice(-4)" :key="p.id" :src="p.src" alt="" />
-          <span v-if="session.photos.length > 4" class="strip__more caption-sm">+{{ session.photos.length - 4 }}</span>
+        <RouterLink v-if="photoCount" :to="`/sessions/${id}/photos`" class="strip" :aria-label="`${photoCount} ${photoCount === 1 ? 'photo' : 'photos'}`" title="Photos">
+          <img v-for="p in photos.slice(-4)" :key="p.id" :src="p.src" alt="" />
+          <span v-if="photoCount > 4" class="strip__more caption-sm">+{{ photoCount - 4 }}</span>
         </RouterLink>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
@@ -178,12 +249,12 @@ async function endPlan() {
               <SkeletonRow v-for="n in 3" :key="n" avatar />
             </div>
             <template v-else>
-              <div class="timeline card">
+              <div ref="timeline" class="timeline card" tabindex="-1">
                 <SortableList
                   :items="itinerary.stops"
                   :item-key="(s) => s.slotId"
                   :item-label="(s) => s.venue.name"
-                  :disabled="!canMove"
+                  :disabled="!canEdit"
                   label="Stops"
                   @move="moveStop"
                 >
@@ -211,10 +282,10 @@ async function endPlan() {
                       :warning="stop.open === false ? 'Closed at this time' : ''"
                       :lifted="lifted || selected === stop.venue.id"
                     >
-                      <template v-if="canMove" #actions>
+                      <template v-if="canEdit" #actions>
                         <IconButton outline :label="`Delete stop: ${stop.venue.name}`" @click="removing = i"><AppIcon name="trash" /></IconButton>
                       </template>
-                      <template v-if="canMove" #handle>
+                      <template v-if="canEdit" #handle>
                         <button v-bind="handle" class="drag-handle"><AppIcon name="grip" /></button>
                       </template>
                     </StopCard>
@@ -224,7 +295,7 @@ async function endPlan() {
                   <span class="timeline__flag" aria-hidden="true"><AppIcon name="flag" :size="14" /></span>
                   <div class="stack">
                     <span class="title-sm">Ends {{ fromMinutes(lastStop.end) }}</span>
-                    <span class="caption-sm text-muted">{{ itinerary.end.mrtWalk }} min walk to {{ itinerary.end.mrt }} MRT</span>
+                    <span class="caption-sm text-muted">about {{ itinerary.end.mrtWalk }} min walk to {{ itinerary.end.mrt }} MRT</span>
                     <span v-if="itinerary.end.farFromMrt" class="timeline__warning caption-sm"><AppIcon name="warning" :size="12" /> Far from the MRT</span>
                   </div>
                 </div>
@@ -233,19 +304,19 @@ async function endPlan() {
               <details v-if="itinerary.trips.length" class="home">
                 <summary class="home__summary">
                   <span class="title-sm">Trips home</span>
-                  <span class="caption-sm text-muted">Longest {{ Math.max(...itinerary.trips.map((t) => t.minutes)) }} min</span>
+                  <span class="caption-sm text-muted">Longest about {{ Math.max(...itinerary.trips.map((t) => t.minutes)) }} min</span>
                   <AppIcon name="chevron-down" class="home__chevron" />
                 </summary>
                 <ul class="home__list">
                   <li v-for="trip in itinerary.trips" :key="trip.id" class="home__row" :class="{ 'is-long': trip.long }">
                     <span class="body-sm">{{ trip.name }}</span>
                     <span class="caption-sm text-muted truncate">{{ trip.place }}</span>
-                    <span class="caption home__min">{{ trip.minutes }} min</span>
+                    <span class="caption home__min">about {{ trip.minutes }} min</span>
                   </li>
                 </ul>
               </details>
 
-              <AppButton v-if="editing" variant="tertiary" underline class="replan" @click="replanOpen = true">Re-plan</AppButton>
+              <AppButton v-if="editing && confirmed" variant="tertiary" underline class="replan" @click="replanOpen = true">Re-plan</AppButton>
             </template>
           </template>
 
@@ -265,11 +336,10 @@ async function endPlan() {
       <AppButton block :disabled="busy" @click="endOpen = true">End plan</AppButton>
     </footer>
 
-    <BottomSheet v-model:open="aiOpen" title="Ask AI" />
-
     <ModalDialog v-model:open="endOpen" title="End plan?">
       <template #content>
-        <p class="body-md">+{{ POINTS_PER_MEETUP }} points each for {{ session.activeIds.length }} people, to spend on café discounts</p>
+        <p class="body-md">+{{ POINTS_PER_MEETUP }} points each for {{ session.activeIds.length }} people, to spend on sample café vouchers</p>
+        <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
       <AppButton block :disabled="busy" @click="endPlan">End plan</AppButton>
       <AppButton block variant="secondary" @click="endOpen = false">Not yet</AppButton>
@@ -283,12 +353,13 @@ async function endPlan() {
     <ModalDialog v-model:open="replanOpen" title="Re-plan?">
       <template #content>
         <p class="body-md">Back to voting. Votes are kept.</p>
+        <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
       <AppButton block variant="secondary" @click="replanOpen = false">Keep plan</AppButton>
       <AppButton block :disabled="busy" @click="replan">Re-plan</AppButton>
     </ModalDialog>
 
-    <ToastMessage v-model:show="toast" :text="`Completed · +${POINTS_PER_MEETUP} points to spend on café discounts`" :offset="120" />
+    <ToastMessage v-model:show="toast" :text="`Completed · +${POINTS_PER_MEETUP} points to spend on sample café vouchers`" :offset="120" />
   </main>
   <main v-else class="screen" data-testid="event-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
@@ -309,6 +380,8 @@ async function endPlan() {
 @media (min-width: 1128px) { a.map-open, button.map-open { display: none; } }
 
 /* The timeline: one rail joins every stop, leg and the end point. */
+.timeline:focus { outline: none; }
+.timeline:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .timeline { position: relative; display: flex; flex-direction: column; gap: 0; padding: var(--spacing-base); }
 .timeline::before { content: ""; position: absolute; top: 34px; bottom: 34px; left: calc(var(--spacing-base) + 13px); width: 2px; border-radius: var(--rounded-full); background: var(--hairline); }
 .timeline__leg { position: relative; }
@@ -330,8 +403,8 @@ async function endPlan() {
 .replan { align-self: flex-start; }
 
 /* "Plan confirmed", right after confirming: a warm card that pops in under the confetti. */
-.celebrate { position: relative; display: flex; align-items: center; gap: var(--spacing-base); padding: var(--spacing-base) var(--spacing-xl) var(--spacing-base) var(--spacing-base); border-radius: var(--rounded-md); background: linear-gradient(120deg, color-mix(in srgb, var(--primary) 14%, var(--canvas)), color-mix(in srgb, var(--cat-shop-fg) 12%, var(--canvas))); }
-.celebrate__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary) 18%, transparent); }
+.celebrate { position: relative; display: flex; align-items: center; gap: var(--spacing-base); padding: var(--spacing-base) calc(var(--tap-min) + var(--spacing-md)) var(--spacing-base) var(--spacing-base); border-radius: var(--rounded-md); background: linear-gradient(120deg, color-mix(in srgb, var(--primary-bright) 14%, var(--canvas)), color-mix(in srgb, var(--cat-shop-fg) 12%, var(--canvas))); }
+.celebrate__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary-bright) 18%, transparent); }
 .celebrate__text { display: flex; flex-direction: column; gap: var(--spacing-xxs); min-width: 0; }
 .celebrate__close { position: absolute; top: var(--spacing-xs); right: var(--spacing-xs); }
 .celebrate-enter-active { transition: opacity 400ms var(--ease-out), transform 600ms cubic-bezier(0.34, 1.56, 0.64, 1); }

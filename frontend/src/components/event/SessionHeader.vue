@@ -64,7 +64,7 @@ function askCancel() {
       <IconButton label="Back" :to="back"><AppIcon name="back" /></IconButton>
       <StatusPill :status="session.status" />
       <span class="session-head__actions">
-        <!-- Screen-specific icon actions, for example Ask AI and Edit on the itinerary. -->
+        <!-- Screen-specific icon actions, for example Map and Edit on the itinerary. -->
         <slot name="actions" />
         <IconButton v-if="canInvite || canCancel" label="Session options" @click="menuOpen = true"><AppIcon name="more" /></IconButton>
         <span v-else-if="!$slots.actions" class="session-head__spacer" />

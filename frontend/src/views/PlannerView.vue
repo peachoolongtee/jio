@@ -5,7 +5,9 @@
 //   6b  For each slot, 3 suggested places near the meeting area. Anyone can add more (up to 6).
 //       One vote per person per slot; a second tap changes it. The leader is highlighted.
 //   Step 7  "Confirm plan" once at least 2 people have voted.
-// The list and the map show the same suggestions; the map has a crowd heat layer.
+// The list and the map show the same suggestions.
+// Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
+// shows the message and the rest of the page stays usable.
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -23,7 +25,6 @@ import ProgressDonut from '@/components/ui/ProgressDonut.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
 import TextField from '@/components/ui/TextField.vue'
-import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
@@ -31,7 +32,6 @@ import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
 import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { distanceText, fromMinutes, timeAndDuration } from '@/lib/planner/format.js'
-import { crowdText, crowdTone } from '@/lib/planner/crowd.js'
 import { placeImage } from '@/lib/placeImages.js'
 import { confetti } from '@/lib/confetti.js'
 import { mealWindow, MEAL_WINDOWS } from '@/lib/planner/timeOfDay.js'
@@ -50,10 +50,11 @@ const planner = usePlannerStore()
 
 const missing = ref(false)
 const error = ref('')
+// Why the session or its plan did not load. The planner store keeps the plan's own message in planner.errors.
+const loadError = ref('')
 const view = ref('list')
 const mapSlot = ref('')
 const selected = ref('')
-const showHeat = ref(true)
 const deleting = ref(null)
 const confirmOpen = ref(false)
 const busy = ref(false)
@@ -62,11 +63,20 @@ const loadingMore = ref('')
 
 async function load() {
   missing.value = false
+  loadError.value = ''
   try {
-    await Promise.all([events.loadSession(props.id), groups.loadPeople(), planner.loadConditions()])
+    await events.loadSession(props.id)
+  } catch (e) {
+    // A session that is not there is "Not found". Anything else is a failure to show and retry.
+    if (/does not exist/i.test(e.message)) missing.value = true
+    else loadError.value = e.message
+    return
+  }
+  try {
+    await Promise.all([groups.loadPeople(), planner.loadConditions()])
     await planner.loadPlan(props.id)
-  } catch {
-    missing.value = true
+  } catch (e) {
+    loadError.value = e.message || 'The plan could not be loaded.'
   }
 }
 onMounted(load)
@@ -75,6 +85,7 @@ watch(() => props.id, load)
 const session = computed(() => events.byId[props.id])
 const plan = computed(() => planner.plans[props.id])
 const loading = computed(() => planner.loading[props.id] && !plan.value?.slots?.length)
+const planError = computed(() => loadError.value || planner.errors?.[props.id] || '')
 const voting = computed(() => session.value?.status === 'voting')
 const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
@@ -107,7 +118,12 @@ const stayValue = (m) => (fromMinutes(m) === session.value?.end ? null : m)
 async function deleteSlot() {
   const slot = deleting.value
   deleting.value = null
-  await planner.deleteSlot(props.id, slot.id)
+  error.value = ''
+  try {
+    await planner.deleteSlot(props.id, slot.id)
+  } catch (e) {
+    error.value = e.message
+  }
 }
 
 // ── 6b ──
@@ -122,12 +138,23 @@ async function vote(slot, option) {
 
 async function more(slot) {
   loadingMore.value = slot.id
-  await planner.addMore(props.id, slot.id)
-  loadingMore.value = ''
+  error.value = ''
+  try {
+    await planner.addMore(props.id, slot.id)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    loadingMore.value = ''
+  }
 }
 
 async function swap(slot, option) {
-  await planner.swapOption(props.id, slot.id, option.id, option.swap.id)
+  error.value = ''
+  try {
+    await planner.swapOption(props.id, slot.id, option.id, option.swap.id)
+  } catch (e) {
+    error.value = e.message
+  }
 }
 
 function openAdd(slot) {
@@ -195,8 +222,10 @@ function leadText(slot) {
 // Why a slot has nothing, in words.
 function emptyText(slot) {
   const e = slot.empty
-  if (e?.reason === 'outside_max_radius' && radius.value) return `Nothing that fits is within ${radiusLabel(radius.value)}. The nearest is ${e.nearestKm.toFixed(1)} km away.`
-  if (e?.reason === 'outside_max_radius') return `Nothing that fits is within 3 km. The nearest is ${e.nearestKm.toFixed(1)} km away.`
+  // The nearest distance may be missing, so the sentence about it is optional.
+  const nearest = e?.nearestKm != null ? ` The nearest is ${e.nearestKm.toFixed(1)} km away.` : ''
+  if (e?.reason === 'outside_max_radius' && radius.value) return `Nothing that fits is within ${radiusLabel(radius.value)}.${nearest}`
+  if (e?.reason === 'outside_max_radius') return `Nothing that fits is within 3 km.${nearest}`
   return 'Jio found no place that is open and fits this time.'
 }
 
@@ -205,7 +234,6 @@ const currentMapSlot = computed(() => slots.value.find((s) => s.id === mapSlot.v
 const mapPlaces = computed(() =>
   (currentMapSlot.value?.options || []).map((o) => ({ id: o.id, name: o.venue.name, lat: o.venue.lat, lng: o.venue.lng, category: o.venue.category, highlight: currentMapSlot.value.leader === o.id, muted: !!currentMapSlot.value.leader && currentMapSlot.value.leader !== o.id })),
 )
-const heatPoints = computed(() => (currentMapSlot.value?.options || []).map((o) => ({ lat: o.venue.lat, lng: o.venue.lng, level: o.crowd })))
 const selectedOption = computed(() => currentMapSlot.value?.options.find((o) => o.id === selected.value) || null)
 
 // ── Confirm ──
@@ -241,6 +269,12 @@ async function confirm() {
     <div class="screen__body">
       <SessionNotices :session="session" />
       <BannerNote v-if="planner.conditions.rain && session.meeting" tone="warning" icon="rain">Rain expected</BannerNote>
+      <BannerNote v-if="planError" tone="error" icon="warning" role="alert" data-testid="plan-error">
+        {{ planError }}
+        <template #actions>
+          <AppButton small variant="secondary" :disabled="!!planner.loading[id]" @click="load">Try again</AppButton>
+        </template>
+      </BannerNote>
 
       <div v-if="!session.meeting || ['inviting', 'locating'].includes(session.status)" class="empty-wrap">
         <EmptyState title="No meeting area yet">
@@ -290,7 +324,7 @@ async function confirm() {
             <div v-if="loading" class="stack gap-md">
               <SkeletonRow v-for="n in 3" :key="n" avatar :lines="3" />
             </div>
-            <EmptyState v-else-if="!slots.length" title="No slots yet" text="Pick a category to start." />
+            <EmptyState v-else-if="!slots.length && !planError" title="No slots yet" text="Pick a category to start." />
             <section v-for="(slot, si) in slots" v-else :key="slot.id" class="slot rise" :style="{ '--i': si }" :aria-labelledby="`slot-${slot.id}`">
               <header class="slot__head">
                 <CategoryIcon :category="slot.category" :size="32" />
@@ -342,9 +376,8 @@ async function confirm() {
                   {{ slot.time }}
                 </ChipButton>
               </div>
-              <ToggleSwitch v-model="showHeat" label="Crowd" class="map-tools__heat" />
             </div>
-            <PlannerMap :area="session.area" :places="mapPlaces" :heat="showHeat" :heat-points="heatPoints" :radius="radius || 0" :selected="selected" label="Places map" @select="selected = $event" />
+            <PlannerMap :area="session.area" :places="mapPlaces" :radius="radius || 0" :selected="selected" label="Places map" @select="selected = $event" />
             <div v-if="selectedOption" class="pin-card" role="dialog" :aria-label="selectedOption.venue.name">
               <div class="row between gap-sm">
                 <img class="pin-card__photo" :src="placeImage(selectedOption.venue)" alt="" width="56" height="56" />
@@ -353,9 +386,8 @@ async function confirm() {
               </div>
               <div class="row gap-sm wrap">
                 <CategoryIcon :category="selectedOption.venue.category" :size="24" />
-                <span class="caption-sm">{{ selectedOption.walk }} min walk · {{ distanceText(selectedOption.distanceM) }}</span>
+                <span class="caption-sm">about {{ selectedOption.walk }} min walk · {{ distanceText(selectedOption.distanceM) }}</span>
                 <PriceTier :price="selectedOption.venue.price" />
-                <InfoTag :tone="crowdTone(selectedOption.crowd)">{{ crowdText(selectedOption.crowd) }}</InfoTag>
                 <InfoTag v-if="currentMapSlot.leader === selectedOption.id" tone="strong" icon="trophy">Leading</InfoTag>
               </div>
               <div class="row between">
@@ -364,12 +396,6 @@ async function confirm() {
                   {{ currentMapSlot.myVote === selectedOption.id ? 'Voted' : 'Vote' }}
                 </ChipButton>
               </div>
-            </div>
-            <div v-else-if="showHeat" class="heat-key" aria-label="Crowd, estimated">
-              <span class="heat-key__item"><span class="heat-key__dot heat-key__dot--quiet" />Quiet</span>
-              <span class="heat-key__item"><span class="heat-key__dot heat-key__dot--moderate" />Moderate</span>
-              <span class="heat-key__item"><span class="heat-key__dot heat-key__dot--busy" />Busy</span>
-              <span class="text-muted">est.</span>
             </div>
           </template>
         </SplitView>
@@ -415,7 +441,7 @@ async function confirm() {
           <span class="add-row__text">
             <span class="title-sm truncate">{{ r.name }}</span>
             <span v-if="r.unfit" class="caption-sm text-error">{{ unfitText(r, adding.slot) }}</span>
-            <span v-else class="caption-sm text-muted">{{ r.walk }} min walk</span>
+            <span v-else class="caption-sm text-muted">about {{ r.walk }} min walk</span>
           </span>
           <InfoTag v-if="r.added" tone="strong">Added</InfoTag>
           <AppButton v-else variant="secondary" small :disabled="!!r.unfit || addSlotFull" :aria-label="`Add ${r.name}`" @click="add(r)">Add</AppButton>
@@ -426,7 +452,13 @@ async function confirm() {
   </main>
   <main v-else class="screen" data-testid="planner-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
-      <SkeletonRow v-for="n in 4" :key="n" avatar />
+      <BannerNote v-if="loadError" tone="error" icon="warning" role="alert">
+        {{ loadError }}
+        <template #actions>
+          <AppButton small variant="secondary" @click="load">Try again</AppButton>
+        </template>
+      </BannerNote>
+      <SkeletonRow v-for="n in 4" v-else :key="n" avatar />
     </div>
   </main>
 </template>
@@ -449,15 +481,8 @@ async function confirm() {
 .map-tools > * { pointer-events: auto; }
 .map-tools__slots { display: flex; flex-wrap: wrap; gap: 0 var(--spacing-xs); }
 .map-tools__slots :deep(.chip__pill) { box-shadow: var(--shadow-float); }
-.map-tools__heat { padding: 0 var(--spacing-md); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: var(--shadow-float); }
 @media (min-width: 1128px) { .map-tools { right: 150px; } }
 .pin-card { position: absolute; left: var(--spacing-sm); right: var(--spacing-sm); bottom: var(--spacing-xl); z-index: 600; display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md) var(--spacing-md) var(--spacing-sm) var(--spacing-base); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); }
-.heat-key { position: absolute; left: var(--spacing-sm); bottom: var(--spacing-xl); z-index: 500; display: flex; align-items: center; gap: var(--spacing-sm); padding: var(--spacing-xs) var(--spacing-md); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: var(--shadow-float); font: var(--text-caption-sm); }
-.heat-key__item { display: inline-flex; align-items: center; gap: var(--spacing-xs); }
-.heat-key__dot { width: 10px; height: 10px; border-radius: var(--rounded-full); }
-.heat-key__dot--quiet { background: var(--crowd-quiet); }
-.heat-key__dot--moderate { background: var(--crowd-moderate); }
-.heat-key__dot--busy { background: var(--crowd-busy); }
 .radius { display: flex; flex-direction: column; gap: var(--spacing-xs); }
 /* Who leads the slot: an ink pill, like the "Leading" tag on the card and the label on the map. */
 .lead-line { display: inline-flex; align-items: center; gap: var(--spacing-xs); align-self: flex-start; margin: 0; padding: var(--spacing-xxs) var(--spacing-sm); border-radius: var(--rounded-full); background: var(--ink); color: var(--on-dark); font: var(--text-caption); }

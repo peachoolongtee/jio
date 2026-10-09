@@ -1,22 +1,26 @@
 <script setup>
 // Home: a greeting, then what Ian needs next. Three states:
 //   No active meetup        greeting, a short line about Jio, "Create meetup", and Your meetups (past ones, or an
-//                           empty state with a create prompt).
+//                           empty state). "Create meetup" appears once on the page; the tab bar has its own.
 //   Meetup, no midpoint     a "Your meetup" card: name, friends, where the midpoint stands, Open meetup.
 //   Meetup with a midpoint  the same card with the meeting area, and Places near your meetup below: places around
 //                           the midpoint, nearest first, with one Filter button.
 // The filter has toggles (Touristy spots, Hidden gems, CDC Vouchers accepted, Food, Café),
 // a budget slider (the most to spend per person) and a distance slider (from the midpoint).
-// Tapping a place opens it (?place=id): its card grows into PlaceDetail and shrinks back on close.
+// Tapping a place opens it (?place=id): its card grows into PlaceDetail and shrinks back on close. If the place
+// cannot be loaded, PlaceDetail says so (or, for a link to a place that is not there, a note appears on Home).
+// A failed load of the meetups or of the nearby places shows a message with a Retry button, never a skeleton for ever.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { format } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AvatarStack from '@/components/ui/AvatarStack.vue'
+import BannerNote from '@/components/ui/BannerNote.vue'
 import BottomSheet from '@/components/ui/BottomSheet.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import RangeSlider from '@/components/ui/RangeSlider.vue'
+import SampleNote from '@/components/ui/SampleNote.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
@@ -46,6 +50,8 @@ const groups = useGroupsStore()
 
 const places = ref([])
 const loadingPlaces = ref(false)
+const placesError = ref(false)
+const loadError = ref(false)
 const filterOpen = ref(false)
 const shown = ref(PAGE)
 
@@ -55,11 +61,17 @@ const filters = ref(emptyFilters())
 const today = format(new Date(), 'EEEE d MMMM')
 const editing = ref(emptyFilters())
 
-onMounted(async () => {
+async function loadHome() {
+  loadError.value = false
   const jobs = [groups.loadPeople()]
   if (!events.loaded) jobs.push(events.loadSessions())
-  await Promise.all(jobs)
-})
+  try {
+    await Promise.all(jobs)
+  } catch {
+    loadError.value = true
+  }
+}
+onMounted(loadHome)
 
 // ── The meetup ──
 const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
@@ -98,19 +110,25 @@ const blurb = computed(() => {
 })
 
 // Places near the midpoint, nearest first. Loaded again when the midpoint moves.
-watch(
-  () => area.value?.id,
-  async (areaId) => {
-    if (!areaId) {
-      places.value = []
-      return
-    }
-    loadingPlaces.value = true
-    places.value = await api.nearbyPlaces(areaId)
+// Only the answer for the area now showing counts, so a slow older answer never lands on a newer midpoint.
+async function loadPlaces(areaId) {
+  placesError.value = false
+  if (!areaId) {
+    places.value = []
     loadingPlaces.value = false
-  },
-  { immediate: true },
-)
+    return
+  }
+  loadingPlaces.value = true
+  try {
+    const list = await api.nearbyPlaces(areaId)
+    if (area.value?.id === areaId) places.value = list
+  } catch {
+    if (area.value?.id === areaId) placesError.value = true
+  } finally {
+    if (area.value?.id === areaId) loadingPlaces.value = false
+  }
+}
+watch(() => area.value?.id, loadPlaces, { immediate: true })
 
 function countOn(f) {
   return TOGGLES.filter((t) => f[t.key]).length + (f.budget < BUDGET.max ? 1 : 0) + (f.distance < DISTANCE.max ? 1 : 0)
@@ -165,6 +183,10 @@ const route = useRoute()
 const router = useRouter()
 const openPlace = ref(null)
 const reviews = ref(null)
+// Why the open place could not be loaded, shown inside PlaceDetail. A link to a place that is not there has nothing
+// to open, so it leaves a dismissible note on Home instead.
+const placeError = ref('')
+const missingPlace = ref(false)
 // The card that carries the shared names right now: only around a transition, and only one.
 const morphId = ref('')
 
@@ -177,6 +199,8 @@ function inView(el) {
 async function showPlace(id) {
   const card = places.value.find((p) => p.id === id)
   reviews.value = null
+  placeError.value = ''
+  missingPlace.value = false
   const loading = api.getPlace(id, area.value?.id || auth.user.homeAreaId)
   if (card && canViewTransition() && inView(cardOf(id))) {
     morphId.value = id
@@ -193,9 +217,14 @@ async function showPlace(id) {
     if (route.query.place !== id) return
     openPlace.value = { ...(openPlace.value || {}), ...place }
     reviews.value = place.reviews
-  } catch {
-    // A link to a place that does not exist: just show Home.
-    router.replace({ query: {} })
+  } catch (e) {
+    if (route.query.place !== id) return
+    if (openPlace.value) {
+      placeError.value = e?.message || 'This place could not be loaded.'
+    } else {
+      missingPlace.value = true
+      router.replace({ query: {} })
+    }
   }
 }
 
@@ -213,6 +242,7 @@ async function hidePlace() {
     openPlace.value = null
   }
   reviews.value = null
+  placeError.value = ''
   card?.focus({ preventScroll: true })
 }
 
@@ -249,7 +279,12 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
     </header>
 
     <div class="screen__body">
-      <SkeletonRow v-if="!events.loaded" :lines="3" />
+      <BannerNote v-if="missingPlace" tone="warning" icon="warning" dismissible @dismiss="missingPlace = false">That place could not be found.</BannerNote>
+
+      <SkeletonRow v-if="!events.loaded && !loadError" :lines="3" />
+      <EmptyState v-else-if="!events.loaded" title="Could not load your meetups" text="Check your connection and try again." role="alert">
+        <AppButton variant="secondary" @click="loadHome">Retry</AppButton>
+      </EmptyState>
 
       <!-- No meetup going: one clear way to start. -->
       <AppButton v-else-if="!meetup" class="home__create rise" to="/sessions/new">
@@ -291,13 +326,6 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
           <li v-for="s in past" :key="s.id"><SessionCard :session="s" :names="nameOf" /></li>
         </ul>
         <EmptyState v-else title="No meetups yet" text="Start one and invite your friends. Jio finds the fairest place to meet." />
-        <RouterLink to="/sessions/new" class="home__new">
-          <span class="home__new-icon"><AppIcon name="plus" :size="22" /></span>
-          <span class="stack">
-            <span class="title-md">Create meetup</span>
-            <span class="caption-sm text-muted">Pick a day, invite friends, and let Jio find the midpoint.</span>
-          </span>
-        </RouterLink>
       </section>
 
       <!-- A midpoint: places around it, nearest first. -->
@@ -306,6 +334,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
           <div class="stack">
             <h2 id="home-places" class="display-sm">Places near your meetup</h2>
             <p class="caption text-muted home__context"><AppIcon name="pin" :size="14" /> Around {{ area.name }}, the fairest midpoint for {{ meetup.activeIds.length }} people</p>
+            <SampleNote />
           </div>
           <button type="button" class="filter-btn" :class="{ 'is-on': activeCount }" :aria-label="activeCount ? `Filter, ${activeCount} on` : 'Filter'" title="Filter" @click="openFilter">
             <AppIcon name="filter" :size="18" />
@@ -316,6 +345,9 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <div v-if="loadingPlaces" class="grid-3">
           <SkeletonRow v-for="n in 6" :key="n" avatar />
         </div>
+        <EmptyState v-else-if="placesError" title="Could not load places" text="Check your connection and try again." role="alert">
+          <AppButton variant="secondary" @click="loadPlaces(area.id)">Retry</AppButton>
+        </EmptyState>
         <EmptyState v-else-if="!filtered.length" title="No places match">
           <AppButton variant="secondary" @click="clearApplied">Clear all</AppButton>
         </EmptyState>
@@ -345,7 +377,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         </div>
       </template>
     </BottomSheet>
-    <PlaceDetail v-if="openPlace" :place="openPlace" :reviews="reviews" :from="area?.name || 'home'" @close="closePlace" />
+    <PlaceDetail v-if="openPlace" :place="openPlace" :reviews="reviews" :error="placeError" :from="area?.name || 'home'" @close="closePlace" />
   </main>
 </template>
 
@@ -366,7 +398,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 .meetup__open { align-self: flex-start; }
 /* The midpoint is still to come: a soft Rausch pulse, quicker while the planner is working it out. */
 .meetup__pulse { position: relative; flex-shrink: 0; width: 10px; height: 10px; margin: 0 3px; border-radius: var(--rounded-full); background: var(--primary); }
-.meetup__pulse::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--primary); animation: meetup-pulse 2s ease-out infinite; }
+.meetup__pulse::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--primary-bright); animation: meetup-pulse 2s ease-out infinite; }
 .is-finding .meetup__pulse::after { animation-duration: 0.9s; }
 @keyframes meetup-pulse { from { transform: scale(1); opacity: 0.6; } to { transform: scale(3); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .meetup__pulse::after { animation: none; } }
@@ -374,9 +406,6 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 /* A place card is a link to its detail view. */
 .place-link { display: block; border-radius: var(--rounded-md); color: inherit; text-decoration: none; }
 .place-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.home__new { display: flex; align-items: center; gap: var(--spacing-base); max-width: 640px; padding: var(--spacing-lg); border: 1px dashed var(--border-strong); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); text-decoration: none; }
-.home__new-icon { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
-@media (hover: hover) { .home__new:hover { border-color: var(--ink); box-shadow: var(--shadow-float); } }
 .home__more { align-self: center; }
 .filter-btn {
   position: relative;
