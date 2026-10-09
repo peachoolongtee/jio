@@ -121,7 +121,9 @@ function isActive(tab) {
     right: 0;
     bottom: auto;
     left: 0;
-    gap: var(--spacing-sm);
+    gap: var(--spacing-md);
+    /* Full width again: the phone pill's width: max-content must not shrink the top bar to its tabs. */
+    width: auto;
     min-width: 0;
     max-width: none;
     height: var(--topbar-height);
@@ -133,7 +135,7 @@ function isActive(tab) {
     transform: none;
     animation: none;
   }
-  .tabbar__brand { display: inline-flex; align-items: center; margin-right: var(--spacing-lg); color: var(--primary); font: 800 26px/1 var(--font-sans); letter-spacing: -0.02em; text-decoration: none; }
+  .tabbar__brand { display: inline-flex; align-items: center; margin-right: var(--spacing-xl); color: var(--primary); font: 800 26px/1 var(--font-sans); letter-spacing: -0.02em; text-decoration: none; }
   .tabbar__tab { flex: 0 0 auto; height: 44px; padding: 0 var(--spacing-base); }
   .tabbar__tab:not(.is-active):not(.is-create) { color: var(--body); }
   .tabbar__label, .tabbar__tab.is-active .tabbar__label { grid-template-columns: 1fr; max-width: none; margin-left: var(--spacing-sm); opacity: 1; transition: none; }
