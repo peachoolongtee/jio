@@ -8,7 +8,7 @@
 import { coins } from './currency.js'
 import { ADDRESSES, AREAS } from './mock/places.js'
 import { VENUES } from './mock/venues.js'
-import { HOST_ID, PAST_ACTIVITY, PEOPLE, POINTS_PER_MEETUP, SEASON_MEETUPS, STARTING_MEETUPS, isCommunity } from './mock/people.js'
+import { HOST_ID, PAST_ACTIVITY, PEOPLE, LAST_SEASON_MEETUPS, POINTS_PER_MEETUP, SEASON_MEETUPS, STARTING_MEETUPS, isCommunity } from './mock/people.js'
 import { REWARDS } from './mock/rewards.js'
 import { pastMeetupDates } from './mock/history.js'
 import { reviewsFor } from './mock/reviews.js'
@@ -23,7 +23,8 @@ const STORAGE_KEY = 'jio-demo-v1'
 // 5: the backend planner (db.venues) and photos, itinerary order and seasons.
 // 6: full standings kept for past seasons, and each friend's fixed meetups this season (no ties in the demo).
 // Older saves start fresh, keeping the account and friends.
-const VERSION = 7
+// 8: everyone starts with points this season and a finished last season.
+const VERSION = 8
 // How many ranked places to ask for per slot: enough to top a slot up to its maximum.
 const RANKED_MAX = 10
 // meeting: the least time the "finding the meeting point" loading bar shows (long enough for it to fill up). The planner answers in milliseconds
@@ -35,29 +36,43 @@ const STORAGE_FULL = "Could not save: this browser's storage is full. Remove som
 
 // ── Storage ────────────────────────────────────────────────────────────────
 
-// The leaderboard season now, and how many points each person earned in it so far: their past meetups since
-// the season began (the same dates as their profile graph).
+// The leaderboard season now, the one before it, and how many points each person earned in each: their past
+// meetups in those dates (the same dates as their profile graph). The last season is already finished, with the
+// friends' standings kept and its winner paid, the way closeSeason leaves one.
 function freshSeason(now = new Date()) {
-  const season = { number: 1, ...Season.quarterOf(now) }
-  const since = format(new Date(season.startsAt), 'yyyy-MM-dd')
-  const earned = (id) => pastMeetupDates(id, STARTING_MEETUPS[id], now, SEASON_MEETUPS[id]).filter((d) => d >= since).length * POINTS_PER_MEETUP
-  return { season, earned }
+  const quarter = Season.quarterOf(now)
+  const season = { number: 2, ...quarter }
+  const last = { number: 1, ...Season.quarterOf(new Date(quarter.startsAt - 1)) }
+  const day = (at) => format(new Date(at), 'yyyy-MM-dd')
+  const dates = (id) => pastMeetupDates(id, STARTING_MEETUPS[id], now, SEASON_MEETUPS[id], LAST_SEASON_MEETUPS[id])
+  const earned = (id) => dates(id).filter((d) => d >= day(season.startsAt)).length * POINTS_PER_MEETUP
+  const earnedLast = (id) => dates(id).filter((d) => d >= day(last.startsAt) && d < day(last.endsAt)).length * POINTS_PER_MEETUP
+  const standings = PEOPLE.filter((p) => !isCommunity(p.id)).map((p) => ({ id: p.id, name: p.name, seasonPoints: earnedLast(p.id), allTime: STARTING_MEETUPS[p.id] * POINTS_PER_MEETUP }))
+  const winners = Season.seasonWinners(standings)
+  const pastSeason = {
+    ...last,
+    prize: Season.SEASON_PRIZE,
+    winners: winners.map((id) => ({ id, seasonPoints: earnedLast(id) })),
+    standings: standings.map(({ id, seasonPoints }) => ({ id, seasonPoints })),
+  }
+  return { season, earned, pastSeason }
 }
 
 const defaultConditions = () => ({ rain: false, routing: true, sessionDay: false })
 
 function freshDb(keep = {}) {
-  const { season, earned } = freshSeason()
+  const { season, earned, pastSeason } = freshSeason()
+  const prize = (id) => (pastSeason.winners.some((w) => w.id === id) ? pastSeason.prize : 0)
   return {
     version: VERSION,
     user: keep.user || null,
     friends: keep.friends || [],
     sessions: [],
     // points: what each person can spend. seasonPoints: what they earned this season, for the leaderboard.
-    stats: Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: STARTING_MEETUPS[p.id], points: STARTING_MEETUPS[p.id] * POINTS_PER_MEETUP, seasonPoints: earned(p.id) }])),
+    stats: Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: STARTING_MEETUPS[p.id], points: STARTING_MEETUPS[p.id] * POINTS_PER_MEETUP + prize(p.id), seasonPoints: earned(p.id) }])),
     season,
-    // Past seasons, latest first: { number, startsAt, endsAt, winners: [{ id, seasonPoints }], prize }.
-    pastSeasons: [],
+    // Past seasons, latest first: { number, startsAt, endsAt, winners: [{ id, seasonPoints }], prize, standings }.
+    pastSeasons: [pastSeason],
     redemptions: [],
     conditions: defaultConditions(),
     // Every venue the planner has sent, by id. Suggestions can be any of the backend's venues, not only VENUES.
@@ -570,7 +585,7 @@ export async function getPerson(id) {
   ].sort((a, b) => b.date.localeCompare(a.date))
   // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned).
   const counts = {}
-  for (const date of pastMeetupDates(id, STARTING_MEETUPS[id], new Date(), SEASON_MEETUPS[id])) counts[date] = (counts[date] || 0) + 1
+  for (const date of pastMeetupDates(id, STARTING_MEETUPS[id], new Date(), SEASON_MEETUPS[id], LAST_SEASON_MEETUPS[id])) counts[date] = (counts[date] || 0) + 1
   for (const s of sessions.filter((x) => x.status === 'completed')) counts[s.date] = (counts[s.date] || 0) + 1
   const planned = sessions.filter((x) => !['completed', 'cancelled'].includes(x.status)).map((x) => x.date)
   const history = Object.entries(counts).map(([date, count]) => ({ date, count }))

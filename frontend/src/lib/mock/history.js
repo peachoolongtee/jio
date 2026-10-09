@@ -17,19 +17,26 @@ export function seeded(text) {
 const WEEKDAY_WEIGHT = [0.25, 0.05, 0.05, 0.06, 0.08, 0.18, 0.33]
 
 // `count` meetup dates (yyyy-MM-dd, oldest first) in the 182 days before `today`. Exactly `thisSeason` of them fall
-// in the current leaderboard season (the calendar quarter `today` is in, up to yesterday); the rest come before it.
-// On a season's first day there is no yesterday in it yet, so its meetups are dated today.
-export function pastMeetupDates(personId, count, today = new Date(), thisSeason = 0) {
+// in the current leaderboard season (the calendar quarter `today` is in, up to yesterday) and `lastSeason` in the
+// quarter before it; the rest come before that. On a season's first day there is no yesterday in it yet, so its
+// meetups are dated today.
+export function pastMeetupDates(personId, count, today = new Date(), thisSeason = 0, lastSeason = 0) {
   const random = seeded(personId)
-  const intoSeason = differenceInCalendarDays(today, startOfQuarter(today))
+  const seasonStart = startOfQuarter(today)
+  const intoSeason = differenceInCalendarDays(today, seasonStart)
   const recent = Math.min(thisSeason, count)
   const dates = []
   for (let i = 0; i < recent; i++) {
     const day = intoSeason > 0 ? subDays(today, 1 + Math.floor(random() * intoSeason)) : today
     dates.push(format(day, 'yyyy-MM-dd'))
   }
-  const before = subDays(today, intoSeason)
-  const span = Math.max(1, 182 - intoSeason)
+  // Last season: any day of the previous quarter, so its count is exact.
+  const lastSpan = differenceInCalendarDays(seasonStart, startOfQuarter(subDays(seasonStart, 1)))
+  const previous = Math.min(lastSeason, count - recent)
+  for (let i = 0; i < previous; i++) dates.push(format(subDays(seasonStart, 1 + Math.floor(random() * lastSpan)), 'yyyy-MM-dd'))
+  // The rest: before last season when it was asked for, otherwise anywhere before this one.
+  const before = subDays(seasonStart, lastSeason ? lastSpan : 0)
+  const span = Math.max(1, 182 - differenceInCalendarDays(today, before))
   let guard = 0
   while (dates.length < count && guard < 5000) {
     guard += 1

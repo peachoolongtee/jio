@@ -30,10 +30,12 @@ export const PEOPLE = [...CIRCLE, ...COMMUNITY]
 
 // Successful meetups before the demo starts (the last six months). Each one earned POINTS_PER_MEETUP points.
 // Their dates come from lib/mock/history.js, so the profile graph matches these counts.
-export const STARTING_MEETUPS = { ian: 0, darius: 24, nicole: 19, darryl: 12, faith: 8, jonathan: 5, meiling: 30, arjun: 16, siti: 22, weijie: 27, priya: 14, kai: 18 }
-// How many of those fall in the current leaderboard season. All different, so the demo leaderboard has no ties
-// (whoever Ian adds), and for the circle in the same order as the totals above, so the most active friends lead.
-export const SEASON_MEETUPS = { ian: 0, darius: 5, nicole: 4, darryl: 3, faith: 2, jonathan: 1, meiling: 8, arjun: 6, siti: 7, weijie: 9, priya: 10, kai: 11 }
+export const STARTING_MEETUPS = { ian: 10, darius: 24, nicole: 19, darryl: 12, faith: 8, jonathan: 5, meiling: 30, arjun: 16, siti: 22, weijie: 27, priya: 14, kai: 18 }
+// How many of those fall in the current leaderboard season, and how many in the season before it. Everyone has
+// some in both, so nobody opens the demo unranked. All different within a season, so the demo leaderboard has no
+// ties (whoever Ian adds), and for the friends in the same order as the totals above, so the most active lead.
+export const SEASON_MEETUPS = { ian: 4, darius: 6, nicole: 5, darryl: 3, faith: 2, jonathan: 1, meiling: 8, arjun: 7, siti: 9, weijie: 10, priya: 11, kai: 12 }
+export const LAST_SEASON_MEETUPS = { ian: 4, darius: 9, nicole: 7, darryl: 5, faith: 3, jonathan: 1, meiling: 12, arjun: 8, siti: 10, weijie: 11, priya: 2, kai: 6 }
 export const POINTS_PER_MEETUP = 100
 
 // What each friend picks when the demo simulates them choosing categories and how long they can stay.
