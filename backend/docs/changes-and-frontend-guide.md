@@ -5,7 +5,7 @@ One file for the team: everything that changed on `feature/backend-engines`, and
 - Request and response details: [planner-api.md](planner-api.md)
 - Why each engine and data decision was made: [engine-integration.md](engine-integration.md)
 
-**Status (7 Oct 2026):** the backend is done and tested (183 tests). The frontend has **not** been switched yet, so the app still uses its own ranking and its own 63 places. No external API (OneMap, NEA) is connected yet: travel times are estimates and weather is mock.
+**Status (9 Oct 2026):** the frontend now calls the planner API (Jonathan, 8 Oct). The backend now uses **live NEA weather** (Ian) and **real OneMap travel times**, and has **OneMap address search** (branch `feature/external-apis`). One optional frontend change uses the address search: see [Part D](#part-d-live-weather-travel-times-and-address-search-9-oct).
 
 ---
 
@@ -205,7 +205,7 @@ async function rankSlot(session, slot, slots) {
     centre: { lat: area.lat, lng: area.lng },
     lastStop: slots[slots.length - 1]?.id === slot.id,
     currentOptionIds: session.options[slot.id] || [],
-    weatherCase: db.conditions.rain ? 'rain' : 'clear',
+    ...(db.conditions.rain ? { weatherCase: 'rain' } : {}), // only for the demo rain switch: see Part D
     unknownPolicy: 'lenient', // see "To decide" below
     topN: P.OPTIONS_MAX,
   })
@@ -335,7 +335,7 @@ return data.results.map((r) => ({
 
 | Switch | Send |
 |---|---|
-| Rain | `weatherCase: 'rain'`, else `'clear'` (step 3) |
+| Rain | `weatherCase: 'rain'`. When the switch is off, **leave `weatherCase` out** so the live NEA forecast is used (Part D). |
 | Routing off | `method: 'centroid'` on `/api/meeting-area` (step 2). For Playwright, the backend's stub `routing-fail` scenario is more realistic: results come back `approximate: true`. |
 | Simulate crowd | No exact equivalent. The backend has no "+0.4 boost". Closest: send `weights: { worst: 25, mean: 5, occasion: 25, preference: 10, rating: 10, weather: 12, price: 8, cdc: 3, antiRepeat: 2, crowd: 20 }` so crowd counts in the ranking. |
 
@@ -384,6 +384,69 @@ Once steps 2–8 work, delete the frontend's ranking so there's only one algorit
 - Reload the page: options and the itinerary still show their venues.
 
 ---
+
+# Part D: live weather, travel times and address search (9 Oct)
+
+The backend now uses real data (`backend/docs/external-apis.md` has every detail):
+
+| What | Source | What the frontend has to do |
+|---|---|---|
+| Weather | Live NEA 2-hour forecast (Ian) | Nothing: already done, see Change 1 |
+| Travel times | Real OneMap public transport routes | Nothing: same fields as before, just real numbers. `approximate: true` still means "estimate". |
+| Start and end points | OneMap address search | **Change 2** below (optional, but the mock list has only a few addresses) |
+
+## Change 1: weather (already done)
+
+Ian changed `frontend/src/lib/plannerApi.js` to send `weatherCase` only when the demo rain switch is on, so the live NEA forecast is used. Nothing more to do. On your own machine, set `ALLOW_SIMULATED_WEATHER=1` in `backend/.env` if you use the rain switch.
+
+Every answer says which weather and travel times it used. Show them so nobody is misled:
+
+| Field | Show |
+|---|---|
+| `weather.source === 'live'` | e.g. "Forecast until 9.30 pm" (`weather.validUntil`) |
+| `weather.source === 'simulated'` | "Demo weather" |
+| `weather.source === 'unavailable'` | Nothing about weather: the forecast couldn't be fetched |
+| `travel.source === 'estimate'`, or a result's `approximate: true` | "about 25 min" |
+
+## Change 2 (optional): address search with OneMap
+
+`searchPlaces(query)` in `frontend/src/lib/api.js` searches a short mock list (`ADDRESSES`). The backend's `GET /api/places/search?q=` searches all of Singapore through OneMap:
+
+```js
+// GET /api/places/search?q=520201
+// -> { results: [{ name, address, postal, lat, lng }] }   at most 10. 503 when OneMap can't be reached.
+```
+
+The app shows other people only someone's **area**, never their exact place, so match each result to its nearest area. Keep the area matches, and fall back to the mock list if the backend doesn't answer:
+
+```js
+export async function searchPlaces(query) {
+  const q = query.trim()
+  if (!q) return []
+  const areas = AREAS.filter((a) => a.name.toLowerCase().includes(q.toLowerCase()))
+    .map((a) => ({ id: a.id, label: a.name, sub: 'MRT station and area', areaId: a.id }))
+  try {
+    const { data } = await planner.api.get('/api/places/search', { params: { q } })
+    const places = data.results.map((p, i) => {
+      const area = P.nearest(p, AREAS)
+      // lat and lng are the exact place: only the person themselves and the server should keep them.
+      return { id: `onemap-${p.postal ?? i}`, label: p.name, sub: `${p.address} · ${area.name}`, areaId: area.id, lat: p.lat, lng: p.lng }
+    })
+    return [...areas, ...places].slice(0, 8)
+  } catch {
+    // Backend or OneMap down: the old mock search, so the screen still works.
+    const addresses = ADDRESSES.filter((a) => a.label.toLowerCase().includes(q.toLowerCase()) || a.postal.startsWith(q))
+      .map((a) => ({ id: a.id, label: a.label, sub: `Singapore ${a.postal} · ${areaById(a.areaId).name}`, areaId: a.areaId }))
+    return [...areas, ...addresses].slice(0, 8)
+  }
+}
+```
+
+`planner.api` is the axios client `api.js` already imports from `plannerApi.js`, and `P.nearest` and `AREAS` are already imported there. Remove the `await wait(DELAY.read)` fake delay, since this is a real call now.
+
+## Nothing to set up on the frontend
+
+No keys go in the frontend. OneMap's login lives only in `backend/.env` (and in Render's settings for the live server).
 
 # Part C: to decide as a team
 

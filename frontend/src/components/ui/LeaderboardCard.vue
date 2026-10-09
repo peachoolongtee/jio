@@ -84,4 +84,10 @@ const active = computed({
   cursor: pointer;
 }
 .lb__picker:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* On a phone the card gives its sides to the names: less padding, and the picker drops under the title if they do not fit. */
+@media (max-width: 480px) {
+  .lb { padding: var(--spacing-lg) var(--spacing-md); }
+  .lb__head { flex-wrap: wrap; }
+  .lb__picker { max-width: 100%; }
+}
 </style>

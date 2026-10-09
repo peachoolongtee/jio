@@ -568,7 +568,7 @@ Every component file opens with a comment that shows how to call it. Paths are u
 | `ui/IconButton.vue` | A 44px circle holding one icon. | `label` (required; read out and shown as a tooltip), `outline` (false), `tone` (`''` or `'brand'`), `to`. | Hover, pressed (`scale(0.9)`), disabled. | Secondary actions such as back, close, edit, filter. Use `tone="brand"` for the one main icon action on a screen. |
 | `ui/ChipButton.vue` | A 32px pill inside a 44px tap area. Outlined at rest, ink when selected. | `selected`, `radio`, `check`, `disabled` (all false). Slot `leading` for an avatar or icon (the pill becomes 40px). CSS variable `--chip-on` replaces ink with another fill. | Hover, pressed (`scale(0.94)`), selected (pops in), disabled. | Filters and picks from a short set. For two or three views of the same content use `SegmentTabs`. |
 | `ui/PinButton.vue` | The Home map's main action: a red map pin, 128px wide, with the logo or two lines of words in its head. | `to` (required), `label` (`''`), `big` (`''`), `small` (`'your friends'`). | Bobs while idle, lifts on hover, squashes on press, plays the "entering a game" move on click. | Home only, placed with its bottom edge on the meeting point. One per screen. |
-| `ui/HoldButton.vue` | Press and hold to confirm something that cannot be undone. A red-tinted fill sweeps across while held. | `label` (required), `action` (`''`, said to screen readers), `icon` (`'close'`), `duration` (1200). Emits `done`. | Idle, holding (label reads "Keep holding"), released early (fill runs back). | Ending a session, from `SessionHeader`. Follow `done` with a `ModalDialog`. For an ordinary destructive choice use `AppButton variant="danger"` inside a dialog. |
+| `ui/HoldButton.vue` | Press and hold to confirm something that cannot be undone. A red-tinted fill sweeps across while held. | `label` (required), `action` (`''`, said to screen readers), `icon` (`'close'`), `duration` (1200). Emits `done` after a full hold, or at once for an activation that is not a press (a click with `detail` 0, which is what a screen reader, switch control or voice control sends). Its accessible name contains the visible label. | Idle, holding (label reads "Keep holding"), released early (fill runs back). | Ending a session, from `SessionHeader`. Follow `done` with a `ModalDialog`. For an ordinary destructive choice use `AppButton variant="danger"` inside a dialog. |
 | `ui/HeroButton.vue` | A 60px red pill with a white circle holding an arrow. | `to` (required). | Hover (lifts 2px), pressed, focus (a white then ink ring). | Defined and not used by any screen at this commit. |
 
 ### Inputs and pickers
@@ -579,7 +579,7 @@ Every component file opens with a comment that shows how to call it. Paths are u
 | `ui/SelectField.vue` | A labelled dropdown that matches `TextField`. | `label`, `options` (required), `placeholder`, `error`, `id`. `v-model`. | Focus, empty (muted text), invalid. | A choice from a long list. For a short set use chips. |
 | `ui/ToggleSwitch.vue` | An on/off switch, 48 by 28px, with its label on the left. Ink when on. | `label` (required), `hint`, `disabled`. `v-model`. | Off, on, hover, disabled. | A setting that takes effect at once. |
 | `ui/RangeSlider.vue` | A labelled slider with its value written at the right. Ink track, white thumb. | `label` (required), `min` (0), `max` (100), `step` (1), `format`. `v-model`. | Hover (ink thumb border), focus. | A number within bounds, such as budget or distance. |
-| `ui/CalendarPicker.vue` | A month calendar for one day. Weeks start on Monday. | `label` (`'Date'`), `min` (`''`, meaning today), `max` (`''`). `v-model` as `yyyy-MM-dd`. | Today (outlined), selected (red fill, white number), outside the month (muted), disabled (struck through). | Picking a session's day. New in this pull request. |
+| `ui/CalendarPicker.vue` | A month calendar for one day. Weeks start on Monday. | `label` (`'Date'`), `min` (`''`, meaning today), `max` (`''`). `v-model` as `yyyy-MM-dd`. | Today (outlined, and `aria-current="date"`), selected (red fill, white number), outside the month (muted), disabled (struck through). A day fills its cell's width and is 44px tall. The grid is one tab stop: arrow keys move by day and week, Home and End by week, Page Up and Page Down by month. | Picking a session's day. New in this pull request. |
 | `ui/RadialTimePicker.vue` | A 24-hour time in a round pill. On hover or tap, eight buttons orbit out 125px to add or take off 15m, 30m, 1h, 2h. The time can also be typed. | `label` (required), `fallback` (`'09:00'`), `hint`, `error`. `v-model` as `HH:mm`. | Closed, open, focused, error. | A session's start and end. New in this pull request. |
 | `ui/SortableList.vue` | A list reordered by dragging a handle or with the arrow keys. | `items`, `itemKey`, `label` (required), `itemLabel`, `disabled`, `hint`. Emits `move`. Slot `item`. | Idle, sorting, dragging (the item lifts with `--shadow-float`). | Reordering stops on the itinerary. Bind the slot's `handle` to a `.drag-handle` button. |
 
@@ -643,7 +643,7 @@ Every component file opens with a comment that shows how to call it. Paths are u
 |---|---|---|
 | `event/SessionCard.vue` | A session on Home, Sessions and a profile. The whole card is a link and lifts on hover. | `session`, `names` (required), `hero` (false; the large card, with a photo band when the day has photos). |
 | `event/SessionHeader.vue` | The top of every session screen: back arrow, title, date, `SessionSteps`, Invite, and "Hold to end". | `session` (required), `title`, `back` (`'/'`). |
-| `event/SessionNotices.vue` | Re-plan, not enough people, and cancelled notices. | `session` (required). |
+| `event/SessionNotices.vue` | Re-plan, not enough people, and cancelled notices, and, while voting, one dismissible `BannerNote` when the meeting area moved and votes were cleared. | `session` (required). |
 | `event/PlaceCard.vue` | A place near the meetup: photo, category, name, area, price tier, rating. | `place` (required), `morph` (false). |
 | `event/SuggestionCard.vue` | One suggested place with its vote, a category stripe, and "about N min walk". | `option` (required), `leading`, `behind`, `mine`, `closed`, `selected`. Emits `vote`, `swap`. |
 | `event/StopCard.vue` | One stop on the itinerary: a numbered dot in the category colour, time and duration, name, area, price tier. | `time`, `duration`, `name`, `category`, `price` (required), `area`, `number`, `warning`, `lifted`, `image`, `banner`. Slots `handle`, `actions`. |
@@ -655,7 +655,7 @@ Every component file opens with a comment that shows how to call it. Paths are u
 | Component | What it is for | Props |
 |---|---|---|
 | `ui/LeaderboardCard.vue` | Title, date range, an optional season picker, the podium, and the paged list. | `fromDate`, `toDate`, `podiumRankings`, `rankings` (required), `title` (`'Leaderboard'`), `currentUserId`, `runOptions`, `pageSize` (10). `v-model:selectedRunId`. |
-| `ui/LeaderboardPodium.vue` | The top three on stepped blocks 136, 104 and 84px tall, ordered 2 · 1 · 3. | `rankings` (required), `currentUserId`. |
+| `ui/LeaderboardPodium.vue` | The top three on stepped blocks 136, 104 and 84px tall. They look ordered 2 · 1 · 3 and are written, and read aloud, 1 · 2 · 3 (CSS `order`). | `rankings` (required), `currentUserId`. |
 | `ui/LeaderboardRankings.vue` | The full ranking in pages. The current user's row has a 2px ink outline. | `rankings` (required), `currentUserId`, `showPagination`, `defaultPageSize` (10). |
 
 ### Maps and signature pieces
@@ -818,11 +818,26 @@ No template contains an exclamation mark, an emoji or an upper-case label.
 - **The focus trap.** `useFocusTrap(open, panel, { restoreOnUnmount })` in `frontend/src/lib/useFocusTrap.js` moves focus into a panel when it opens, keeps Tab and Shift+Tab inside it, and returns focus to the control that opened it. A composable is a function that a Vue component calls to share behaviour. It is used by `BottomSheet`, `ModalDialog`, `PopoverPanel` and `PlaceDetail`. `PhotoViewer` keeps focus inside itself with its own code. Each of the five closes on Escape.
 - **Dialog roles.** `BottomSheet`, `ModalDialog` and `PlaceDetail` have `role="dialog"`, `aria-modal="true"` and `aria-labelledby`. `PopoverPanel` has `role="dialog"` without `aria-modal`.
 - **Labels.** `IconButton` requires `label` and sets it as both `aria-label` and `title`. `TextField` and `SelectField` require `label` and tie hints and errors to the input with `aria-describedby`; errors have `role="alert"`. Tabs carry `aria-current="page"`. `ChipButton` sets `aria-pressed`, or `role="radio"` with `aria-checked`. `ToggleSwitch` has `role="switch"`. `ProgressBar` and `SegmentedProgress` have `role="progressbar"`. `CoinBadge` reads as "500 JioCoins". Decoration (`SingaporeMap`, `GridPulse`, the enter-game cover, confetti) is hidden with `aria-hidden`.
-- **Keyboard.** `SortableList` moves an item with the arrow keys from its handle. `HoldButton` works with Space or Enter held. Map pins in `PlannerMap` take focus and select on Enter. `MeetupGraph` is one focusable element that reads out the day the arrow keys land on. `AuthView` moves focus to each new question's heading.
+- **Keyboard.** `SortableList` moves an item with the arrow keys from its handle. `HoldButton` works with Space or Enter held, and with a single activation from assistive technology. `CalendarPicker` moves between days with the arrow keys. Map pins in `PlannerMap` take focus and select on Enter. `MeetupGraph` is one focusable element that reads out the day the arrow keys land on. `AuthView` moves focus to each new question's heading.
 - **Target size.** `--tap-min` is 44px. Shapes that look smaller reach it by padding: a 32px chip in a 44px button, a 28px switch with a pseudo-element that extends it. The exceptions are under Known Conflicts.
 - **Touch.** Links and buttons have `-webkit-tap-highlight-color: transparent` and `touch-action: manipulation`. Hover styles sit inside `@media (hover: hover)`, and nothing is revealed by hover alone: the next button is filled from the start on touch screens, and `RadialTimePicker` opens on tap.
 - **Reduced motion.** See Motion: one global rule, plus a check in every script that animates except the `HoldButton` fill.
 - **Language.** `frontend/index.html` sets `lang="en"`.
+
+## Changes since this was recorded
+
+On 10 Oct 2026, after this document was written from commit `65567bb`, nine defects from the audit of that pull request were fixed. The tables above describe the fixed code. What changed, in one place:
+
+- `HoldButton` also answers a single activation from assistive technology.
+- `CalendarPicker` days are 44px tall with arrow-key movement and one tab stop; today carries `aria-current="date"`.
+- `LeaderboardPodium` reads 1 · 2 · 3; rank labels are real text for screen readers.
+- At 480px and below, `LeaderboardRankings` puts the amount under the name, and `LeaderboardCard` wraps its season picker under the title.
+- `LeaderboardView` keeps the season picker mounted while a past season loads, and shows an error with "Try again" if it fails.
+- `SessionNotices` shows a "votes were cleared" banner while voting.
+- `GroupDetailView` has a "Waiting for N people" card; the host can continue without someone, behind a confirmation dialog.
+- An account made through the sign-up form starts with no meetups, JioCoins or rank. Only the one-click demo account (`demo: true`) carries the sample history.
+
+No token, colour or copy rule changed.
 
 ## Known Conflicts
 
@@ -843,7 +858,7 @@ Each item is a place where the shipped code departs from a rule written in `CLAU
 ### The "Sample data" note
 
 8. `CLAUDE.md` says "Mock people, places, reviews and rewards carry a visible 'Sample' note (`components/ui/SampleNote.vue`)". `SampleNote` is rendered in two places: `PlaceDetail` (under the place's name) and `ProfileView` (on someone else's profile only).
-9. This pull request removed `SampleNote` from `LandingView` and from `LeaderboardView`. `LeaderboardView`'s opening comment still says a "Sample data for the demo" note is shown; the template has none. The other ranked people are hand-written (per that comment).
+9. This pull request removed `SampleNote` from `LandingView` and from `LeaderboardView`. The other ranked people are hand-written. (A stale comment in `LeaderboardView` that claimed a note was shown has since been corrected.)
 10. It is not rendered on the Home place cards (`PlaceCard`), in `InviteView` or `InviteDialog` (people), or in `RewardsView`, where the intro line says "sample café vouchers" in words instead.
 
 ### The README's rules against the code
@@ -857,7 +872,7 @@ This pull request edited `frontend/src/styles/README.md` in two places: the hex 
 15. **Rule 4, "There is one shadow, `--shadow-float`".** Eight files write their own shadows; see Elevation & Depth.
 16. **Rule 4, "Buttons … do not shrink when pressed".** `AppButton` scales to 0.97 when pressed, `IconButton` to 0.9, `ChipButton` to 0.94. The same README's motion paragraph says buttons "give a little when pressed".
 17. **Rule 4, "buttons and inputs 8px".** The `next` and `pill` variants, `HeroButton` and `HoldButton` are fully round.
-18. **Rule 5, "Every tap target is at least 44px".** The close button of `PopoverPanel` is 36px. Legend swatches in `MeetupGraph` are 24px. Tabs in `TabBar` may be 40px wide under 380px. Calendar days are at most 44px and shrink with the column.
+18. **Rule 5, "Every tap target is at least 44px".** The close button of `PopoverPanel` is 36px. Legend swatches in `MeetupGraph` are 24px. Tabs in `TabBar` may be 40px wide under 380px. Calendar days are 44px tall and as wide as their column, which is about 36px at 320px wide.
 19. **Rule 6, "Show a `StatusPill` … at the top of every session screen".** This pull request removed `StatusPill` from `SessionHeader` and `InviteView`; `SessionSteps` now shows where the session is. `StatusPill` remains on `SessionCard` and in `SessionMapView`.
 20. **Rule 10, "The floating tab bar is the navigation at every size".** From 744px it is a bar along the top. The comment in `tokens.css` was updated; the README was not.
 21. **Rule 1, "Use a token, never a raw value".** See "Colours hard-coded outside the tokens", "Sizes written outside the scale", the raw radii under Shapes, the raw shadows under Elevation & Depth and the raw curves under Motion.

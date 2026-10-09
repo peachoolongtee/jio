@@ -2,6 +2,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '@/lib/api.js'
+import { profileProblem } from '@/lib/signupRules.js'
 
 const emptyDraft = () => ({
   step: 0,
@@ -19,6 +20,8 @@ const emptyDraft = () => ({
 export const useAuthStore = defineStore('auth', () => {
   const user = ref(null)
   const ready = ref(false)
+  // Why "Start over" left the person signed out, shown on the sign-up page.
+  const startOverError = ref('')
   const draft = ref(emptyDraft())
 
   const signedIn = computed(() => !!user.value)
@@ -38,14 +41,26 @@ export const useAuthStore = defineStore('auth', () => {
   // Demo tools: sign up with a ready-made profile, skipping the steps.
   async function signUpAs(profile) {
     user.value = await api.signUp(profile)
+    startOverError.value = ''
     draft.value = emptyDraft()
     return user.value
   }
 
-  // Demo tools: wipe everything (account, meetups, leaderboard) and sign up again as a brand new account.
+  // Demo tools: wipe everything (account, meetups, leaderboard) and sign up again with the demo account.
+  // The profile is checked first, so a bad one rejects before anything is erased. If sign-up still fails after the
+  // wipe, the person is signed out (the sign-up page can take over), the reason is kept in startOverError, and this rejects.
   async function startOver(profile) {
+    const problem = profileProblem(profile)
+    if (problem) throw new Error(problem)
+    startOverError.value = ''
     await api.signOut()
-    return signUpAs(profile)
+    user.value = null
+    try {
+      return await signUpAs(profile)
+    } catch (err) {
+      startOverError.value = err?.message || 'Could not create the demo account.'
+      throw err
+    }
   }
 
   async function update(patch) {
@@ -62,5 +77,5 @@ export const useAuthStore = defineStore('auth', () => {
     if (event.type === 'reset' || event.type === 'user') user.value = await api.getUser()
   })
 
-  return { user, ready, draft, signedIn, init, signUp, signUpAs, startOver, update, signOut }
+  return { user, ready, startOverError, draft, signedIn, init, signUp, signUpAs, startOver, update, signOut }
 })

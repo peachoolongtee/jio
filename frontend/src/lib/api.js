@@ -36,18 +36,28 @@ const STORAGE_FULL = "Could not save: this browser's storage is full. Remove som
 
 // ── Storage ────────────────────────────────────────────────────────────────
 
+// A starting number from mock/people.js. Ian is the signed-in person: only the demo account starts with the sample
+// history, a person who signed up through the form starts with none. How to call: seeded(STARTING_MEETUPS, 'ian', false) -> 0
+const seeded = (table, id, demo) => (id === HOST_ID && !demo ? 0 : table[id])
+
+// Past meetup dates for a person, as the profile graph and the season standings both read them.
+// How to call: historyOf('darius', false) -> ['2026-08-02', ...]
+function historyOf(id, demo, now = new Date()) {
+  return pastMeetupDates(id, seeded(STARTING_MEETUPS, id, demo), now, seeded(SEASON_MEETUPS, id, demo), seeded(LAST_SEASON_MEETUPS, id, demo))
+}
+
 // The leaderboard season now, the one before it, and how many points each person earned in each: their past
 // meetups in those dates (the same dates as their profile graph). The last season is already finished, with the
-// friends' standings kept and its winner paid, the way closeSeason leaves one.
-function freshSeason(now = new Date()) {
+// friends' standings kept and its winner paid, the way closeSeason leaves one. `demo`: Ian has the sample history.
+function freshSeason(now = new Date(), demo = false) {
   const quarter = Season.quarterOf(now)
   const season = { number: 2, ...quarter }
   const last = { number: 1, ...Season.quarterOf(new Date(quarter.startsAt - 1)) }
   const day = (at) => format(new Date(at), 'yyyy-MM-dd')
-  const dates = (id) => pastMeetupDates(id, STARTING_MEETUPS[id], now, SEASON_MEETUPS[id], LAST_SEASON_MEETUPS[id])
+  const dates = (id) => historyOf(id, demo, now)
   const earned = (id) => dates(id).filter((d) => d >= day(season.startsAt)).length * POINTS_PER_MEETUP
   const earnedLast = (id) => dates(id).filter((d) => d >= day(last.startsAt) && d < day(last.endsAt)).length * POINTS_PER_MEETUP
-  const standings = PEOPLE.filter((p) => !isCommunity(p.id)).map((p) => ({ id: p.id, name: p.name, seasonPoints: earnedLast(p.id), allTime: STARTING_MEETUPS[p.id] * POINTS_PER_MEETUP }))
+  const standings = PEOPLE.filter((p) => !isCommunity(p.id)).map((p) => ({ id: p.id, name: p.name, seasonPoints: earnedLast(p.id), allTime: seeded(STARTING_MEETUPS, p.id, demo) * POINTS_PER_MEETUP }))
   const winners = Season.seasonWinners(standings)
   const pastSeason = {
     ...last,
@@ -61,7 +71,8 @@ function freshSeason(now = new Date()) {
 const defaultConditions = () => ({ rain: false, routing: true, sessionDay: false })
 
 function freshDb(keep = {}) {
-  const { season, earned, pastSeason } = freshSeason()
+  const { season, earned, pastSeason } = freshSeason(new Date(), !!keep.user?.demo)
+  const meetups = (id) => seeded(STARTING_MEETUPS, id, !!keep.user?.demo)
   const prize = (id) => (pastSeason.winners.some((w) => w.id === id) ? pastSeason.prize : 0)
   return {
     version: VERSION,
@@ -69,7 +80,7 @@ function freshDb(keep = {}) {
     friends: keep.friends || [],
     sessions: [],
     // points: what each person can spend. seasonPoints: what they earned this season, for the leaderboard.
-    stats: Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: STARTING_MEETUPS[p.id], points: STARTING_MEETUPS[p.id] * POINTS_PER_MEETUP + prize(p.id), seasonPoints: earned(p.id) }])),
+    stats: Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: meetups(p.id), points: meetups(p.id) * POINTS_PER_MEETUP + prize(p.id), seasonPoints: earned(p.id) }])),
     season,
     // Past seasons, latest first: { number, startsAt, endsAt, winners: [{ id, seasonPoints }], prize, standings }.
     pastSeasons: [pastSeason],
@@ -406,6 +417,11 @@ async function syncOptions(session) {
   session.votes = nextVotes
 }
 
+// The sentence that follows a banner when the meeting area moved and took the votes with it.
+const VOTES_CLEARED = 'Votes for places were cleared.'
+// Does a session hold any vote for a place? How to call: hasVotes(session) -> true
+const hasVotes = (session) => Object.values(session.votes || {}).some((votes) => Object.keys(votes).length > 0)
+
 // A start or end location changed, a late location arrived, or someone opted out.
 async function applyTrigger(session, trigger) {
   const isLatest = takeTicket(session, 'meeting')
@@ -426,10 +442,12 @@ async function applyTrigger(session, trigger) {
   }
   if (outcome.mode !== 'apply') return
   session.meeting = next
+  // Votes that were there and are gone: the banner says so, and SessionNotices shows it (votesCleared).
+  const cleared = outcome.clearVotes && hasVotes(session)
   if (outcome.clearVotes) session.votes = {}
   if (outcome.refreshSuggestions) session.options = {}
   await syncOptions(session)
-  if (outcome.banner) session.banner = { text: outcome.banner, at: Date.now() }
+  if (outcome.banner) session.banner = { text: cleared ? `${outcome.banner} ${VOTES_CLEARED}` : outcome.banner, at: Date.now(), ...(cleared ? { votesCleared: true } : {}) }
 }
 
 // For a write that needs the planner: if the planner cannot answer, put the session back as it was, so nothing
@@ -504,15 +522,17 @@ function assertDob(dob) {
   if (dob < DOB_MIN) throw new Error('Your date of birth cannot be before 1900.')
 }
 
-// profile: { email, name, username, dob ('YYYY-MM-DD'), photo?, homeAreaId, friends? }. Rejects with a message fit
+// profile: { email, name, username, dob ('YYYY-MM-DD'), photo?, homeAreaId, friends?, demo? }. Rejects with a message fit
 // to show under the field when the name, username or date of birth breaks a rule.
+// `demo: true` is for the demo tools' account only: it starts with the sample history in mock/people.js (10 meetups
+// and 1,000 JioCoins). Anyone else starts with no meetups, no JioCoins and no rank.
 export async function signUp(profile) {
   await wait(DELAY.write)
   assertName(profile.name)
   assertUsername(profile.username)
   assertDob(profile.dob)
   // The real app creates a Supabase account here. The demo account is always the host, Ian's id.
-  db.user = {
+  const user = {
     id: HOST_ID,
     email: profile.email,
     name: profile.name.trim(),
@@ -520,8 +540,12 @@ export async function signUp(profile) {
     dob: profile.dob,
     photo: profile.photo || '',
     homeAreaId: profile.homeAreaId,
+    ...(profile.demo ? { demo: true } : {}),
   }
-  db.friends = [...(profile.friends || [])]
+  // Ian's starting numbers (stats, season standings) depend on the kind of account, so they are made again for it.
+  const { conditions } = db
+  db = freshDb({ user, friends: [...(profile.friends || [])] })
+  db.conditions = conditions
   emit({ type: 'user' })
   return account()
 }
@@ -585,7 +609,7 @@ export async function getPerson(id) {
   ].sort((a, b) => b.date.localeCompare(a.date))
   // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned).
   const counts = {}
-  for (const date of pastMeetupDates(id, STARTING_MEETUPS[id], new Date(), SEASON_MEETUPS[id], LAST_SEASON_MEETUPS[id])) counts[date] = (counts[date] || 0) + 1
+  for (const date of historyOf(id, !!db.user?.demo)) counts[date] = (counts[date] || 0) + 1
   for (const s of sessions.filter((x) => x.status === 'completed')) counts[s.date] = (counts[s.date] || 0) + 1
   const planned = sessions.filter((x) => !['completed', 'cancelled'].includes(x.status)).map((x) => x.date)
   const history = Object.entries(counts).map(([date, count]) => ({ date, count }))
@@ -1262,17 +1286,19 @@ async function reopenVoting(session, trigger) {
   delete session.confirmedRanking
   session.meeting = next
   const moved = (previous?.areaId ?? null) !== (next?.areaId ?? null)
+  // Votes that were there and are gone: say so, even when the re-plan was asked for by hand (no trigger).
+  const cleared = moved && hasVotes(session)
   if (moved) {
     session.votes = {}
     session.options = {}
   }
   await syncOptions(session)
-  session.banner = trigger
-    ? {
-        text: P.recalcBanner({ previousName: previous ? areaById(previous.areaId).name : null, nextName: next ? areaById(next.areaId).name : null, trigger }),
-        at: Date.now(),
-      }
-    : null
+  if (!trigger && !cleared) {
+    session.banner = null
+    return
+  }
+  const text = P.recalcBanner({ previousName: previous ? areaById(previous.areaId).name : null, nextName: next ? areaById(next.areaId).name : null, trigger: trigger || { kind: 'replan' } })
+  session.banner = { text: cleared ? `${text} ${VOTES_CLEARED}` : text, at: Date.now(), ...(cleared ? { votesCleared: true } : {}) }
 }
 
 export async function endPlan(id) {
