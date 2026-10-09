@@ -1,8 +1,8 @@
 <script setup>
 // Profiles, across the whole page.
 //   The top: a banner in the person's own colour (the same as their avatar and map pin), their avatar overlapping
-//   it, name, @username and home area, a strip of three numbers (meetups, season rank, JioCoins) and one big button:
-//   "Create meetup" on Ian's own, "Add friend" / "Friends" on someone else's.
+//   it, name, @username and home area, and a strip of three numbers (meetups, season rank, JioCoins). Someone else's
+//   also has "Add friend" / "Friends". Ian's own has no create button: the navbar has one.
 //   Then the meetup graph, and Ian's sessions or the other person's recent activity.
 //   Ian's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back.
 import { computed, onMounted, ref, watch } from 'vue'
@@ -105,8 +105,7 @@ async function signOut() {
                   <dt class="caption-sm">JioCoins</dt>
                 </div>
               </dl>
-              <AppButton v-if="isMe" block to="/sessions/new"><AppIcon name="plus" />Create meetup</AppButton>
-              <AppButton v-else block :variant="person.isFriend ? 'secondary' : 'primary'" :disabled="friendBusy" :aria-pressed="String(person.isFriend)" @click="toggleFriend">
+              <AppButton v-if="!isMe" block :variant="person.isFriend ? 'secondary' : 'primary'" :disabled="friendBusy" :aria-pressed="String(person.isFriend)" @click="toggleFriend">
                 <AppIcon :name="person.isFriend ? 'check' : 'plus'" />
                 {{ person.isFriend ? 'Friends' : 'Add friend' }}
               </AppButton>
