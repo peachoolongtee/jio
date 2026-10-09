@@ -1,6 +1,10 @@
 import { Router } from 'express'
 import { ZodError } from 'zod'
-import { converge, meetingArea, roam, searchVenues } from '../planner/engine.js'
+import { converge, meetingArea, resolveMembers, roam, searchVenues } from '../planner/engine.js'
+import { fromGooglePlace } from '../planner/google-adapter.js'
+import { centroid, fairnessWeights } from '../planner/geo.js'
+import { dropKnownPlaces, withEstimatedMrtWalk } from '../db/venues.js'
+import { PHOTO_NAME } from '../services/google-places.js'
 import { LIVE_WEATHER_CASE, withLiveWeather } from '../planner/live-weather.js'
 import { ExternalApiError } from '../services/errors.js'
 import { currentScenario } from '../services/scenario.js'
@@ -14,9 +18,10 @@ import { makePlanSchemas } from './plan-schemas.js'
 //   POST /api/roam          rank venues near one person's current point ("What next?")
 //   POST /api/search        find a venue by name to add as an option, and say whether it fits the slot
 //   GET  /api/places/search find an address, postal code or building with OneMap, for start and end points
+//   GET  /api/places/photo  a Google place photo, by its name (redirects to the image; the key stays on the server)
 //
 // How to mount it (app.js does this):
-//   app.use('/api', createPlanRouter({ data: loadPlanData(), weather, onemap, allowSimulatedWeather: false }))
+//   app.use('/api', createPlanRouter({ data: loadPlanData(), weather, onemap, places, allowSimulatedWeather: false }))
 //
 // Weather. /converge and /roam score each venue against the weather, and say where it came from in a top-level
 // `weather: { source, validUntil?, simulationIgnored? }`:
@@ -44,7 +49,15 @@ const nowInSingapore = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString(
 // 16 never missed the best area in 2,000 random groups (see docs/engine-integration.md), and it cuts the calls.
 const MEETING_CANDIDATES_WITH_ROUTING = 16
 
-export function createPlanRouter({ data, weather, onemap = null, allowSimulatedWeather = false, limiter = null }) {
+// Google places. /converge and /roam add restaurants, cafés, bars and dessert shops from Google near the point they
+// rank around, for that request only (Google's terms do not allow saving them), and say so in
+// `google: { source, added }`:
+//   google        `added` places came from Google (places the venue list already has are skipped)
+//   off           this server has no GOOGLE_MAPS_API_KEY
+//   not_needed    the request asked only for shop or activity, which Google is not used for
+//   unavailable   Google could not be reached; the planner answers with its other venues
+
+export function createPlanRouter({ data, weather, onemap = null, places = null, allowSimulatedWeather = false, limiter = null }) {
   const schemas = makePlanSchemas(data)
   const router = Router()
 
@@ -66,6 +79,7 @@ export function createPlanRouter({ data, weather, onemap = null, allowSimulatedW
         validUntil: forecast.validPeriod.end ?? undefined,
         weatherCase: LIVE_WEATHER_CASE,
         planData: withLiveWeather(data, forecast),
+        forecast,
       }
     } catch (err) {
       // Only an API failure falls back. A bug must still reach the error handler.
@@ -73,6 +87,41 @@ export function createPlanRouter({ data, weather, onemap = null, allowSimulatedW
       console.warn(`Weather unavailable, planning as if clear: ${err.message}`)
       return { source: 'unavailable', weatherCase: 'clear', planData: data }
     }
+  }
+
+  // The point a request ranks around: Roam's current point, Converge's given centre, or else the group's
+  // fairness-weighted centre (the engine's default seed).
+  function rankingPoint(input) {
+    if (input.current) return input.current
+    if (input.centre) return input.centre
+    const members = resolveMembers(input.members, input.overrides, input.optedOut)
+    return members.length ? centroid(members.map((m) => m.start), fairnessWeights(members)) : null
+  }
+
+  // Adds Google's restaurants and cafés near the ranking point to this request's plan data. Places the venue list
+  // already has are skipped. With a live forecast, each is placed in its forecast area the way every other venue is.
+  // Never throws because Google is down.
+  //
+  // How to call:
+  //   const { planData: withGoogle, google } = await addGooglePlaces(input, planData, forecast)
+  async function addGooglePlaces(input, planData, forecast) {
+    const wanted = (input.categories ?? (input.current ? ['eat', 'drink', 'activity'] : ['eat', 'drink'])).filter((c) => c === 'eat' || c === 'drink')
+    if (!places?.enabled) return { planData, google: { source: 'off', added: 0 } }
+    if (wanted.length === 0) return { planData, google: { source: 'not_needed', added: 0 } }
+    const point = rankingPoint(input)
+    if (!point) return { planData, google: { source: 'not_needed', added: 0 } }
+    let raw
+    try {
+      raw = await places.nearby(point, { categories: wanted, radiusMeters: input.radiusMeters ?? 1000 })
+    } catch (err) {
+      if (!(err instanceof ExternalApiError)) throw err
+      console.warn(`Google Places unavailable, planning without it: ${err.message}`)
+      return { planData, google: { source: 'unavailable', added: 0 } }
+    }
+    let fresh = dropKnownPlaces(raw.map((p) => fromGooglePlace(p, input.dateTime)).filter(Boolean), planData.venues)
+    if (forecast) fresh = withLiveWeather({ ...planData, venues: fresh }, forecast).venues
+    fresh = fresh.map((v) => withEstimatedMrtWalk(v, data.areas))
+    return { planData: { ...planData, venues: [...planData.venues, ...fresh] }, google: { source: 'google', added: fresh.length } }
   }
 
   // Runs the engine with real OneMap travel times when routing is on, and with the estimate otherwise.
@@ -116,15 +165,17 @@ export function createPlanRouter({ data, weather, onemap = null, allowSimulatedW
       }
       // A simulated forecast the server does not allow is dropped, and the answer says so.
       const simulationIgnored = input.weatherCase !== undefined && !allowSimulatedWeather
-      const { source, validUntil, weatherCase, planData } = await resolveWeather(
+      const { source, validUntil, weatherCase, planData: weatherData, forecast } = await resolveWeather(
         simulationIgnored ? { ...input, weatherCase: undefined } : input,
       )
+      const { planData, google } = await addGooglePlaces(input, weatherData, forecast)
       const { result, travel } = usesTravel
         ? await runWithTravel({ ...input, weatherCase }, planData, run)
         : { result: await run({ ...input, weatherCase }, planData, depsFor()) }
       res.json({
         ...result,
         ...(travel && { travel }),
+        google,
         weather: {
           source,
           ...(validUntil !== undefined && { validUntil }),
@@ -173,6 +224,36 @@ export function createPlanRouter({ data, weather, onemap = null, allowSimulatedW
         invalid(res, err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })))
       } else if (err instanceof ExternalApiError) {
         res.status(503).json({ error: 'search_unavailable', message: 'Address search is not available right now. Try again soon.' })
+      } else {
+        next(err)
+      }
+    }
+  })
+
+  // GET /api/places/photo?name=places/<id>/photos/<id>&maxWidth=400 -> a redirect to the image.
+  // A Google venue carries `photo.name`; the browser asks here, the server asks Google with the key, and the
+  // browser is sent to the short-lived image link Google returns. Show `photo.credit` with the image.
+  router.get('/places/photo', ...guard, async (req, res, next) => {
+    try {
+      const name = String(req.query.name ?? '')
+      const maxWidth = Math.min(Math.max(Number(req.query.maxWidth) || 400, 100), 1600)
+      if (!PHOTO_NAME.test(name)) {
+        invalid(res, [{ path: 'name', message: 'a Google photo name, like places/<id>/photos/<id>' }])
+        return
+      }
+      if (!places?.enabled) {
+        res.status(503).json({ error: 'photos_unavailable', message: 'Place photos are not set up on this server.' })
+        return
+      }
+      const url = await places.photoUrl(name, maxWidth)
+      if (!url) {
+        res.status(404).json({ error: 'not_found', message: 'Google has no image for that photo.' })
+        return
+      }
+      res.redirect(302, url)
+    } catch (err) {
+      if (err instanceof ExternalApiError) {
+        res.status(503).json({ error: 'photos_unavailable', message: 'Place photos are not available right now.' })
       } else {
         next(err)
       }

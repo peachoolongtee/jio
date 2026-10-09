@@ -1,0 +1,686 @@
+{
+ "places": [
+  {
+   "id": "ChIJUVukECoX2jERljPE4j6MVYA",
+   "displayName": {
+    "text": "Good Bites",
+    "languageCode": "en"
+   },
+   "location": {
+    "latitude": 1.3555789,
+    "longitude": 103.8513296
+   },
+   "types": [
+    "cafe",
+    "western_restaurant",
+    "dessert_restaurant",
+    "restaurant",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "primaryType": "cafe",
+   "formattedAddress": "5 Bishan St 14, #03-01, Singapore 579783",
+   "priceLevel": "PRICE_LEVEL_MODERATE",
+   "rating": 4.9,
+   "userRatingCount": 22274,
+   "regularOpeningHours": {
+    "periods": [
+     {
+      "open": {
+       "day": 0,
+       "hour": 9,
+       "minute": 0
+      },
+      "close": {
+       "day": 1,
+       "hour": 5,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 1,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 2,
+       "hour": 5,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 2,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 3,
+       "hour": 5,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 3,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 4,
+       "hour": 5,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 4,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 5,
+       "hour": 5,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 5,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 6,
+       "hour": 5,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 6,
+       "hour": 9,
+       "minute": 0
+      },
+      "close": {
+       "day": 0,
+       "hour": 5,
+       "minute": 0
+      }
+     }
+    ]
+   },
+   "businessStatus": "OPERATIONAL",
+   "photos": [
+    {
+     "name": "places/ChIJUVukECoX2jERljPE4j6MVYA/photos/STUB_PHOTO",
+     "widthPx": 800,
+     "heightPx": 600,
+     "authorAttributions": [
+      {
+       "displayName": "A Google user",
+       "uri": "https://maps.google.com/maps/contrib/stub"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ChIJNdXV03QX2jERQwV9thQce6c",
+   "displayName": {
+    "text": "Wingstop Bishan",
+    "languageCode": "en"
+   },
+   "location": {
+    "latitude": 1.3510818,
+    "longitude": 103.84255239999999
+   },
+   "types": [
+    "chicken_wings_restaurant",
+    "chicken_restaurant",
+    "restaurant",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "primaryType": "chicken_wings_restaurant",
+   "formattedAddress": "59 Jln Pemimpin, Kitchen 24, #01-03 & #01-04, Singapore 577218",
+   "priceLevel": "PRICE_LEVEL_MODERATE",
+   "rating": 2.7,
+   "userRatingCount": 264,
+   "regularOpeningHours": {
+    "periods": [
+     {
+      "open": {
+       "day": 0,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 0,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 1,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 1,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 2,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 2,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 3,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 3,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 4,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 4,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 5,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 5,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 6,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 6,
+       "hour": 22,
+       "minute": 0
+      }
+     }
+    ]
+   },
+   "businessStatus": "OPERATIONAL"
+  },
+  {
+   "id": "ChIJ4UIS3D0X2jERNNeOcuEPgQY",
+   "displayName": {
+    "text": "Trattoria da Mimmo Restaurant and Pizzeria",
+    "languageCode": "en"
+   },
+   "location": {
+    "latitude": 1.3501277999999999,
+    "longitude": 103.842873
+   },
+   "types": [
+    "italian_restaurant",
+    "meal_takeaway",
+    "european_restaurant",
+    "pizza_delivery",
+    "meal_delivery",
+    "food_delivery",
+    "food_store",
+    "store",
+    "restaurant",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "primaryType": "italian_restaurant",
+   "formattedAddress": "3 Clover Wy, Singapore 579078",
+   "priceLevel": "PRICE_LEVEL_MODERATE",
+   "rating": 4.6,
+   "userRatingCount": 856,
+   "regularOpeningHours": {
+    "periods": [
+     {
+      "open": {
+       "day": 0,
+       "hour": 11,
+       "minute": 30
+      },
+      "close": {
+       "day": 0,
+       "hour": 14,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 0,
+       "hour": 17,
+       "minute": 30
+      },
+      "close": {
+       "day": 0,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 1,
+       "hour": 11,
+       "minute": 30
+      },
+      "close": {
+       "day": 1,
+       "hour": 14,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 1,
+       "hour": 17,
+       "minute": 30
+      },
+      "close": {
+       "day": 1,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 3,
+       "hour": 11,
+       "minute": 30
+      },
+      "close": {
+       "day": 3,
+       "hour": 14,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 3,
+       "hour": 17,
+       "minute": 30
+      },
+      "close": {
+       "day": 3,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 4,
+       "hour": 11,
+       "minute": 30
+      },
+      "close": {
+       "day": 4,
+       "hour": 14,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 4,
+       "hour": 17,
+       "minute": 30
+      },
+      "close": {
+       "day": 4,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 5,
+       "hour": 11,
+       "minute": 30
+      },
+      "close": {
+       "day": 5,
+       "hour": 14,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 5,
+       "hour": 17,
+       "minute": 30
+      },
+      "close": {
+       "day": 5,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 6,
+       "hour": 11,
+       "minute": 30
+      },
+      "close": {
+       "day": 6,
+       "hour": 14,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 6,
+       "hour": 17,
+       "minute": 30
+      },
+      "close": {
+       "day": 6,
+       "hour": 22,
+       "minute": 0
+      }
+     }
+    ]
+   },
+   "businessStatus": "OPERATIONAL"
+  },
+  {
+   "id": "ChIJHbIP6hkX2jERZqlNioNZAhM",
+   "displayName": {
+    "text": "Kim San Leng Food Centre Bishan",
+    "languageCode": "en"
+   },
+   "location": {
+    "latitude": 1.3492216,
+    "longitude": 103.84990169999999
+   },
+   "types": [
+    "food_court",
+    "coffee_shop",
+    "cafe",
+    "food_store",
+    "store",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "primaryType": "food_court",
+   "formattedAddress": "511 Bishan St. 13, #01-522, Singapore 570511",
+   "priceLevel": "PRICE_LEVEL_INEXPENSIVE",
+   "rating": 3.9,
+   "userRatingCount": 2258,
+   "regularOpeningHours": {
+    "periods": [
+     {
+      "open": {
+       "day": 0,
+       "hour": 0,
+       "minute": 0
+      }
+     }
+    ]
+   },
+   "businessStatus": "OPERATIONAL"
+  },
+  {
+   "id": "ChIJlU1sIyYV2jERZ_plMDpdCcU",
+   "displayName": {
+    "text": "Charcoal Mookata No 1 Clover Way - The Addiction Bistro",
+    "languageCode": "en"
+   },
+   "location": {
+    "latitude": 1.3503351,
+    "longitude": 103.84298539999999
+   },
+   "types": [
+    "thai_restaurant",
+    "restaurant",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "primaryType": "thai_restaurant",
+   "formattedAddress": "1 Clover Wy, Singapore 579077",
+   "priceLevel": "PRICE_LEVEL_MODERATE",
+   "rating": 4.8,
+   "userRatingCount": 1957,
+   "regularOpeningHours": {
+    "periods": [
+     {
+      "open": {
+       "day": 0,
+       "hour": 8,
+       "minute": 30
+      },
+      "close": {
+       "day": 0,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 1,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 1,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 2,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 2,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 3,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 3,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 4,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 4,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 5,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 5,
+       "hour": 22,
+       "minute": 30
+      }
+     },
+     {
+      "open": {
+       "day": 6,
+       "hour": 8,
+       "minute": 30
+      },
+      "close": {
+       "day": 6,
+       "hour": 22,
+       "minute": 30
+      }
+     }
+    ]
+   },
+   "businessStatus": "OPERATIONAL"
+  },
+  {
+   "id": "ChIJfcv__xMX2jERwhmrLXYOi1c",
+   "displayName": {
+    "text": "Starbucks Bishan Community Club",
+    "languageCode": "en"
+   },
+   "location": {
+    "latitude": 1.3496761,
+    "longitude": 103.85072079999999
+   },
+   "types": [
+    "cafe",
+    "breakfast_restaurant",
+    "restaurant",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "primaryType": "cafe",
+   "formattedAddress": "51 Bishan St. 13, #01-02 Bishan Community Club, Singapore 579799",
+   "priceLevel": "PRICE_LEVEL_INEXPENSIVE",
+   "rating": 3.9,
+   "userRatingCount": 635,
+   "regularOpeningHours": {
+    "periods": [
+     {
+      "open": {
+       "day": 0,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 0,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 1,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 1,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 2,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 2,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 3,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 3,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 4,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 4,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 5,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 5,
+       "hour": 23,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 6,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 6,
+       "hour": 23,
+       "minute": 0
+      }
+     }
+    ]
+   },
+   "businessStatus": "OPERATIONAL"
+  }
+ ]
+}
