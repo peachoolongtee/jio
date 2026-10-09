@@ -1,7 +1,7 @@
 <script setup>
 // Sign-up: one question per screen, with a back arrow and a progress bar.
-// Email, password with a live checklist, name, username, profile photo (can be skipped), home area,
-// location permission, contacts permission, suggested friends. It ends on Home.
+// Email, password with a live checklist, name, date of birth, username, profile photo (can be skipped), home area,
+// suggested friends. It ends on Home.
 // The answers live in the auth store's draft, so nothing is lost if the window is resized.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -9,16 +9,16 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import IllustrationBlob from '@/components/ui/IllustrationBlob.vue'
 import ListRow from '@/components/ui/ListRow.vue'
 import ProgressBar from '@/components/ui/ProgressBar.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import * as api from '@/lib/api.js'
+import { DOB_MIN, fieldForSignUpError, NAME_MAX, todayIso, USERNAME_HINT, validateDob, validateName, validateUsername } from '@/lib/signupRules.js'
 import { useAuthStore } from '@/stores/auth.js'
 
-const STEPS = ['email', 'password', 'name', 'username', 'photo', 'home', 'location', 'contacts', 'friends']
+const STEPS = ['email', 'password', 'name', 'dob', 'username', 'photo', 'home', 'friends']
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -27,7 +27,11 @@ const step = computed(() => STEPS[draft.value.step])
 
 const areas = ref([])
 const people = ref([])
+// Messages under a field: from the data layer, shown on the question they belong to.
 const usernameError = ref('')
+const nameError = ref('')
+const dobError = ref('')
+const submitError = ref('')
 const photoError = ref('')
 const busy = ref(false)
 const showPassword = ref(false)
@@ -53,15 +57,18 @@ const checks = computed(() => [
   { label: 'A number', ok: /\d/.test(draft.value.password) },
   { label: 'A symbol', ok: /[^a-z0-9]/i.test(draft.value.password) },
 ])
-const usernamePattern = /^[a-z0-9._]{3,20}$/
+const today = todayIso()
+// A date input is empty until it holds a whole date, so only a full but impossible date shows a message.
+const dobInvalid = computed(() => (draft.value.dob ? validateDob(draft.value.dob) : ''))
 
 const canContinue = computed(() => {
   const d = draft.value
   switch (step.value) {
     case 'email': return emailValid.value
     case 'password': return checks.value.every((c) => c.ok)
-    case 'name': return d.name.trim().length > 0
-    case 'username': return usernamePattern.test(d.username)
+    case 'name': return !validateName(d.name)
+    case 'dob': return !validateDob(d.dob)
+    case 'username': return !validateUsername(d.username)
     case 'home': return !!d.homeAreaId
     default: return true
   }
@@ -90,9 +97,22 @@ async function next() {
 
 async function finish() {
   busy.value = true
-  await auth.signUp()
-  busy.value = false
-  router.replace('/')
+  submitError.value = ''
+  try {
+    await auth.signUp()
+    router.replace('/')
+  } catch (err) {
+    // Show the data layer's message under the question it is about; otherwise above the button.
+    const message = err?.message || 'Could not create your account. Try again.'
+    const field = fieldForSignUpError(message)
+    if (field === 'username') usernameError.value = message
+    else if (field === 'name') nameError.value = message
+    else if (field === 'dob') dobError.value = message
+    else submitError.value = message
+    if (field) draft.value.step = STEPS.indexOf(field)
+  } finally {
+    busy.value = false
+  }
 }
 
 function onPhoto(event) {
@@ -123,26 +143,14 @@ function onPhoto(event) {
   reader.readAsDataURL(file)
 }
 
-function askLocation(allow) {
-  draft.value.locationAllowed = allow
-  if (allow && navigator.geolocation) {
-    // Asks the browser for permission. The answer only matters later, when Ian uses his current location.
-    navigator.geolocation.getCurrentPosition(() => {}, () => {}, { timeout: 8000 })
-  }
-  next()
-}
-
-function askContacts(allow) {
-  draft.value.contactsAllowed = allow
-  next()
-}
-
 function toggleFriend(id) {
   const list = draft.value.friends
   draft.value.friends = list.includes(id) ? list.filter((f) => f !== id) : [...list, id]
 }
 
 watch(() => draft.value.username, () => (usernameError.value = ''))
+watch(() => draft.value.name, () => (nameError.value = ''))
+watch(() => draft.value.dob, () => (dobError.value = ''))
 </script>
 
 <template>
@@ -180,7 +188,21 @@ watch(() => draft.value.username, () => (usernameError.value = ''))
 
       <template v-else-if="step === 'name'">
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Your name</h1>
-        <TextField v-model="draft.name" label="Name" autocomplete="given-name" placeholder="Ian" />
+        <TextField v-model="draft.name" label="Name" autocomplete="given-name" placeholder="Ian" :maxlength="NAME_MAX" :hint="`Up to ${NAME_MAX} characters`" :error="nameError" />
+      </template>
+
+      <template v-else-if="step === 'dob'">
+        <h1 ref="stepTitle" tabindex="-1" class="display-xl">Date of birth</h1>
+        <TextField
+          v-model="draft.dob"
+          label="Date of birth"
+          type="date"
+          autocomplete="bday"
+          :min="DOB_MIN"
+          :max="today"
+          hint="We need this to create your account."
+          :error="dobError || dobInvalid"
+        />
       </template>
 
       <template v-else-if="step === 'username'">
@@ -191,7 +213,7 @@ watch(() => draft.value.username, () => (usernameError.value = ''))
           autocomplete="username"
           autocapitalize="none"
           placeholder="ian"
-          hint="3 to 20 letters, numbers, dots or underscores"
+          :hint="USERNAME_HINT"
           :error="usernameError"
           @input="draft.username = draft.username.toLowerCase()"
         />
@@ -216,18 +238,6 @@ watch(() => draft.value.username, () => (usernameError.value = ''))
         <SelectField v-model="draft.homeAreaId" label="Area" placeholder="Choose an area" :options="areaOptions" />
       </template>
 
-      <template v-else-if="step === 'location'">
-        <IllustrationBlob name="invite" />
-        <h1 ref="stepTitle" tabindex="-1" class="display-xl">Location</h1>
-        <p class="body-md text-muted">Friends only see your area.</p>
-      </template>
-
-      <template v-else-if="step === 'contacts'">
-        <IllustrationBlob name="profile" />
-        <h1 ref="stepTitle" tabindex="-1" class="display-xl">Contacts</h1>
-
-      </template>
-
       <template v-else-if="step === 'friends'">
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Suggested friends</h1>
         <ul>
@@ -240,19 +250,12 @@ watch(() => draft.value.username, () => (usernameError.value = ''))
             </template>
           </ListRow>
         </ul>
+        <p v-if="submitError" class="body-sm text-error" role="alert">{{ submitError }}</p>
       </template>
     </form>
 
     <footer class="screen__footer signup__footer">
-      <template v-if="step === 'location'">
-        <AppButton block @click="askLocation(true)">Allow location</AppButton>
-        <AppButton block variant="secondary" @click="askLocation(false)">Not now</AppButton>
-      </template>
-      <template v-else-if="step === 'contacts'">
-        <AppButton block @click="askContacts(true)">Allow contacts</AppButton>
-        <AppButton block variant="secondary" @click="askContacts(false)">Not now</AppButton>
-      </template>
-      <template v-else-if="step === 'photo'">
+      <template v-if="step === 'photo'">
         <AppButton block @click="next">{{ draft.photo ? 'Next' : 'Skip' }}</AppButton>
       </template>
       <template v-else>
@@ -277,8 +280,6 @@ watch(() => draft.value.username, () => (usernameError.value = ''))
 .signup__upload { display: inline-flex; align-items: center; gap: var(--spacing-sm); min-height: 48px; padding: 0 var(--spacing-lg); border: 1px solid var(--ink); border-radius: var(--rounded-sm); font: var(--text-button-md); cursor: pointer; }
 .signup__upload:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
 @media (hover: hover) { .signup__upload:hover { background: var(--surface-soft); } }
-.signup__uses { display: grid; grid-template-columns: auto 1fr; gap: var(--spacing-sm) var(--spacing-base); align-items: baseline; margin: 0; }
-.signup__uses dd { margin: 0; }
 /* On desktop the footer buttons stay in the form column. */
 @media (min-width: 1128px) {
   .signup__footer { flex-direction: column; align-items: stretch; border-top: 0; }
