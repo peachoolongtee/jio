@@ -59,12 +59,14 @@ const toEntry = (row) => ({
   rank: row.rank,
   value: row.seasonPoints,
   photo: row.photo,
-  byline: `${row.homeArea} · ${row.meetups} ${row.meetups === 1 ? 'meetup' : 'meetups'}`,
+  // The meetups behind this season's JioCoins, so the line under a name always explains its number.
+  byline: `${row.homeArea} · ${row.seasonMeetups} ${row.seasonMeetups === 1 ? 'meetup' : 'meetups'} ${isPast.value ? 'that season' : 'this season'}`,
   to: row.isMe ? '/profile' : `/people/${row.id}`,
 })
 const meId = computed(() => rows.value.find((r) => r.isMe)?.id || '')
 const entries = computed(() => rows.value.map(toEntry))
-const podium = computed(() => entries.value.slice(0, 3))
+// The podium is for people who earned something: nobody stands on it with 0 JioCoins.
+const podium = computed(() => entries.value.slice(0, 3).filter((e) => e.value > 0))
 const loading = computed(() => (isPast.value ? pastLoading.value : groups.loading.leaderboard && !groups.leaderboard.length))
 
 </script>

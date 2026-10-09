@@ -2,8 +2,8 @@
 // The top three on stepped blocks: 2nd on the left, 1st raised in the middle, 3rd on the right.
 //   <LeaderboardPodium :rankings="[{ userId: 'ian', userName: 'Ian', rank: 1, value: 300 }]" current-user-id="ian" />
 // Each ranking: { userId, userName, rank, value, photo?, to? }. `to` makes the spot a link (a profile).
-// The order passed in decides the block (1st gold, 2nd silver, 3rd bronze); the number on it is the rank, so a tie shows
-// the shared rank on both blocks.
+// The order passed in decides where each person stands (2 · 1 · 3). The medal (gold, silver, bronze), the block's
+// height and the number on it follow the rank, so two people tied for first both stand on gold.
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
 import UserAvatar from './UserAvatar.vue'
@@ -21,12 +21,12 @@ const spots = computed(() => {
 </script>
 
 <template>
-  <ol class="podium" aria-label="Top three">
+  <ol class="podium" :style="{ '--spots': spots.length }" aria-label="Top three">
     <li
       v-for="spot in spots"
       :key="spot.userId"
       class="podium__spot rise"
-      :class="[`podium__spot--${spot.place}`, { 'is-me': spot.userId === currentUserId }]"
+      :class="[`podium__spot--${Math.min(spot.rank, 3)}`, { 'is-me': spot.userId === currentUserId }]"
       :style="{ '--i': spot.place === 1 ? 0 : spot.place }"
     >
       <component
@@ -36,7 +36,7 @@ const spots = computed(() => {
         :aria-label="`Rank ${spot.rank}: ${spot.userName}${spot.userId === currentUserId ? ' (you)' : ''}, ${spot.value} ${COIN}`"
       >
         <span class="podium__avatar">
-          <UserAvatar :name="spot.userName" :src="spot.photo || ''" :person="spot.userId" :size="spot.place === 1 ? 64 : 56" />
+          <UserAvatar :name="spot.userName" :src="spot.photo || ''" :person="spot.userId" :size="spot.rank === 1 ? 64 : 56" />
           <span class="podium__crown"><AppIcon name="crown" :size="14" /></span>
         </span>
         <span class="podium__name title-sm truncate">{{ spot.userId === currentUserId ? 'You' : spot.userName }}</span>
@@ -49,7 +49,8 @@ const spots = computed(() => {
 
 <style scoped>
 /* Narrower than the card, like a real podium: three equal columns that sit on one floor. */
-.podium { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: var(--spacing-md); width: 100%; max-width: 440px; margin: 0 auto; padding: 0; list-style: none; }
+/* As many columns as people on it (fewer than three early in a season), kept centred. */
+.podium { display: grid; grid-template-columns: repeat(var(--spots, 3), minmax(0, 1fr)); align-items: end; gap: var(--spacing-md); width: 100%; max-width: calc(var(--spots, 3) * 148px); margin: 0 auto; padding: 0; list-style: none; }
 .podium__spot { display: flex; flex-direction: column; min-width: 0; }
 .podium__person { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; padding-bottom: var(--spacing-md); color: var(--ink); text-align: center; text-decoration: none; }
 @media (hover: hover) { a.podium__person:hover .podium__name { text-decoration: underline; } }

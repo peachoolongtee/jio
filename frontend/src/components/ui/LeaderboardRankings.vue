@@ -28,8 +28,9 @@ watch(() => props.rankings, () => { page.value = myPage() })
 
 const visible = computed(() => props.rankings.slice(page.value * size.value, (page.value + 1) * size.value))
 const first = computed(() => page.value * size.value + 1)
-// A row's position in the whole list, from 1. Crowns follow position, so a tie on 3rd crowns one row, not four.
-const place = (i) => page.value * size.value + i + 1
+// The crown a row gets: its rank's medal (1 gold, 2 silver, 3 bronze), so people tied on a rank share one.
+// Nobody gets a crown for 0.
+const medal = (row) => (row.rank <= 3 && row.value > 0 ? row.rank : 0)
 const last = computed(() => Math.min(props.rankings.length, (page.value + 1) * size.value))
 </script>
 
@@ -40,11 +41,11 @@ const last = computed(() => Math.min(props.rankings.length, (page.value + 1) * s
         v-for="(row, i) in visible"
         :key="row.userId"
         class="rankings__row rise"
-        :class="[{ 'is-me': row.userId === currentUserId }, place(i) <= 3 ? `is-top-${place(i)}` : '']"
+        :class="[{ 'is-me': row.userId === currentUserId }, medal(row) ? `is-top-${medal(row)}` : '']"
         :style="{ '--i': i + 3 }"
       >
         <span class="rankings__rank tnum" :aria-label="`Rank ${row.rank}`">{{ row.rank }}</span>
-        <span class="rankings__crown"><AppIcon v-if="place(i) <= 3" name="crown" :size="20" /></span>
+        <span class="rankings__crown"><AppIcon v-if="medal(row)" name="crown" :size="20" /></span>
         <UserAvatar :name="row.userName" :src="row.photo || ''" :person="row.userId" :size="40" />
         <component :is="row.to ? 'RouterLink' : 'span'" :to="row.to || undefined" class="rankings__name">
           <span class="title-md truncate">{{ row.userId === currentUserId ? 'You' : row.userName }}</span>

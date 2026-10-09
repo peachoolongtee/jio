@@ -450,11 +450,13 @@ export async function getSeasonStandings(number) {
   return past?.standings ? ranked(past.standings) : []
 }
 
-// rows: [{ id, seasonPoints }], ranked highest first. Ties share a rank; the host goes first in a tie.
+// rows: [{ id, seasonPoints }], ranked highest first. Ties share a rank; within a tie, whoever has more meetups
+// overall is listed first, then by name. seasonMeetups: meetups finished this season. Season JioCoins only come
+// from finished meetups, so it is always seasonPoints / POINTS_PER_MEETUP and the two never disagree.
 function ranked(rows) {
   const sorted = rows
-    .map((r) => ({ ...publicPerson(r.id), seasonPoints: r.seasonPoints }))
-    .sort((a, b) => b.seasonPoints - a.seasonPoints || (a.id === HOST_ID ? -1 : b.id === HOST_ID ? 1 : a.name.localeCompare(b.name)))
+    .map((r) => ({ ...publicPerson(r.id), seasonPoints: r.seasonPoints, seasonMeetups: Math.round(r.seasonPoints / POINTS_PER_MEETUP) }))
+    .sort((a, b) => b.seasonPoints - a.seasonPoints || b.meetups - a.meetups || a.name.localeCompare(b.name))
   let rank = 0
   let last = null
   return sorted.map((row, i) => {
