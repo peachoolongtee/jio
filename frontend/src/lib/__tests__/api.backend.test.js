@@ -8,7 +8,9 @@ import { HOST_ID } from '../mock/people.js'
 let server
 
 beforeAll(async () => {
-  server = createApp({ frontendOrigin: 'http://localhost:5173' }).listen(0)
+  // The rain test below fakes the forecast, so the server has to allow that. It also keeps these tests offline:
+  // the data layer sends a simulated forecast on every ranking, so the real forecast is never fetched.
+  server = createApp({ frontendOrigin: 'http://localhost:5173', allowSimulatedWeather: true }).listen(0)
   await new Promise((resolve) => server.once('listening', resolve))
   api.api.defaults.baseURL = `http://127.0.0.1:${server.address().port}`
 })
