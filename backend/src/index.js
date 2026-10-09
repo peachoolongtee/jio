@@ -27,13 +27,32 @@ try {
 
 const http = createHttp({ stub })
 
-// Supabase: token checks and database access. All three values are needed. Without them the server
-// still runs, but the routes that need a login are switched off.
+// Supabase: token checks and database access. All three values are needed. With none of them the server
+// still runs outside production, but the routes that need a login are switched off. With only some of them
+// it refuses to start, because that is a mistake in the settings, not a choice.
+//
+// SUPABASE_ALLOW_LEGACY_TOKENS=1 lets tokens signed with the old shared secret (HS256) be checked by
+// asking Supabase. Set it only if the project still issues them.
+const SUPABASE_SETTINGS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY']
+const missingSettings = SUPABASE_SETTINGS.filter((name) => !process.env[name])
+if (missingSettings.length > 0 && missingSettings.length < SUPABASE_SETTINGS.length) {
+  console.error(`Supabase is only partly configured. Missing: ${missingSettings.join(', ')}. Set all three or none.`)
+  process.exit(1)
+}
+if (missingSettings.length === SUPABASE_SETTINGS.length && isProduction) {
+  console.error(`Supabase is not configured. Set ${SUPABASE_SETTINGS.join(', ')} on the host.`)
+  process.exit(1)
+}
 const { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY } = process.env
-const supabaseReady = SUPABASE_URL && SUPABASE_ANON_KEY && SUPABASE_SERVICE_ROLE_KEY
-const supabase = supabaseReady
-  ? createSupabase({ url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY, serviceKey: SUPABASE_SERVICE_ROLE_KEY })
-  : null
+const supabase =
+  missingSettings.length === 0
+    ? createSupabase({
+        url: SUPABASE_URL,
+        anonKey: SUPABASE_ANON_KEY,
+        serviceKey: SUPABASE_SERVICE_ROLE_KEY,
+        allowLegacyTokens: process.env.SUPABASE_ALLOW_LEGACY_TOKENS === '1',
+      })
+    : null
 
 createApp({ frontendOrigin, stub, http, supabase }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
