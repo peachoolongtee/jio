@@ -3,7 +3,7 @@
 // ranked at zero. The planner is stubbed; the clock is set, with timers left real.
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { STORAGE_KEY, confirmedSave, loadApi, loadConfirmed, stubPlanner } from './planFixture.js'
-import { PEOPLE } from '../mock/people.js'
+import { PEOPLE, isCommunity } from '../mock/people.js'
 import { seasonRange } from '../season.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn() }))
@@ -101,7 +101,8 @@ describe('the leaderboard rank', () => {
   it('is null for everyone at zero points', async () => {
     const { api } = await withStats({})
     const rows = await api.getLeaderboard()
-    expect(rows).toHaveLength(PEOPLE.length)
+    // Other people on Jio join the leaderboard only once they are a friend, so everyone else is on it.
+    expect(rows).toHaveLength(PEOPLE.filter((p) => !isCommunity(p.id)).length)
     expect(rows.every((r) => r.rank === null)).toBe(true)
   })
 

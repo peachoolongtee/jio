@@ -16,7 +16,7 @@ describe('other people on Jio', () => {
   })
 
   it('join the leaderboard once added as a friend, with no ties', async () => {
-    await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', homeAreaId: 'bishan', friends: ['darius', 'jonathan', 'nicole', 'faith', 'darryl'] })
+    await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2004-03-18', homeAreaId: 'bishan', friends: ['darius', 'jonathan', 'nicole', 'faith', 'darryl'] })
     const before = await api.getLeaderboard()
     expect(before.some((r) => isCommunity(r.id))).toBe(false)
     expect((await api.listPeople()).find((p) => p.id === 'meiling').isFriend).toBe(false)

@@ -10,7 +10,7 @@ describe('pending invites', () => {
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-09T10:00:00'))
-    await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', homeAreaId: 'bishan' })
+    await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2004-03-18', homeAreaId: 'bishan' })
     ;({ id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' }))
   })
   afterEach(() => vi.useRealTimers())
