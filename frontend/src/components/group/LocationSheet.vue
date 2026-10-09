@@ -5,7 +5,7 @@
 import { ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
-import BottomSheet from '../ui/BottomSheet.vue'
+import PopoverPanel from '../ui/PopoverPanel.vue'
 import TextField from '../ui/TextField.vue'
 import * as api from '@/lib/api.js'
 
@@ -67,7 +67,7 @@ function useCurrent() {
 </script>
 
 <template>
-  <BottomSheet v-model:open="open" :title="which === 'end' ? 'End location' : 'Start location'" tall>
+  <PopoverPanel v-model:open="open" :title="which === 'end' ? 'Where you head after' : 'Where you start'" :width="400">
     <TextField v-model="query" label="Place or postal code" hide-label placeholder="Search a place or postal code" type="text" inputmode="search" autocomplete="off" enterkeyhint="search">
       <template #trailing><AppIcon class="loc__search" name="search" /></template>
     </TextField>
@@ -99,7 +99,7 @@ function useCurrent() {
     </ul>
     <p v-else-if="query.trim()" class="body-sm text-muted">No places match "{{ query.trim() }}".</p>
     <p class="caption-sm text-muted loc__privacy"><AppIcon name="lock" :size="12" /> Friends see the area name only</p>
-  </BottomSheet>
+  </PopoverPanel>
 </template>
 
 <style scoped>
@@ -109,5 +109,5 @@ function useCurrent() {
 .loc__result { display: flex; align-items: center; gap: var(--spacing-md); width: 100%; min-height: 56px; padding: var(--spacing-sm); border: 0; border-bottom: 1px solid var(--hairline-soft); background: transparent; color: var(--ink); text-align: left; }
 .loc__text { display: flex; flex-direction: column; min-width: 0; }
 @media (hover: hover) { .loc__result:hover { background: var(--surface-soft); } }
-.loc__privacy { display: flex; align-items: center; gap: var(--spacing-xs); margin-top: auto; }
+.loc__privacy { display: flex; align-items: center; gap: var(--spacing-xs); }
 </style>

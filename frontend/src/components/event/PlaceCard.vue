@@ -24,11 +24,11 @@ const vt = (name) => (props.morph ? { viewTransitionName: name } : null)
     </div>
     <div class="place__text">
       <div class="place__top">
-        <h3 class="title-md clamp-2" :style="vt('place-name')">{{ place.name }}</h3>
-        <RatingBadge v-if="place.rating != null" :style="vt('place-rating')" :score="place.rating" />
+        <h3 class="title-md clamp-2">{{ place.name }}</h3>
+        <RatingBadge v-if="place.rating != null" :score="place.rating" />
       </div>
       <p class="caption-sm text-muted">{{ place.area }} · {{ place.distanceKm }} km</p>
-      <PriceTier class="place__price" :style="vt('place-price')" :price="place.price" />
+      <PriceTier class="place__price" :price="place.price" />
     </div>
   </article>
 </template>

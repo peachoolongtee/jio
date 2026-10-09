@@ -49,15 +49,19 @@ const expanded = ref(false)
 
 @media (min-width: 1128px) {
   /* The map takes the larger share: it is where the group sees who travels how far and where everything is. */
-  .split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: start; gap: var(--spacing-lg); }
+  /* The two columns share one height: the map grows to match the list (at least 420px, at most a screen), and when
+     the list is the shorter one its last card stretches to meet the map's bottom edge. A list longer than a screen
+     scrolls past a map that stays in view. */
+  .split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: stretch; gap: var(--spacing-lg); }
+  .split__list > :last-child { flex-grow: 1; }
   .split__switch { display: none; }
   .split--list .split__map, .split--map .split__list { display: flex; }
-  .split__map { position: sticky; top: var(--spacing-lg); display: block; height: min(820px, calc(100dvh - 120px)); }
+  .split__map { position: sticky; top: var(--spacing-lg); display: block; height: auto; min-height: 420px; max-height: calc(100dvh - 120px); }
   .split--list .split__map { display: block; }
   .split--even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .split.is-expanded { grid-template-columns: minmax(0, 1fr); }
   .split.is-expanded .split__list { display: none; }
-  .split.is-expanded .split__map { height: calc(100dvh - 140px); }
+  .split.is-expanded .split__map { height: calc(100dvh - 140px); max-height: none; }
   .split__expand {
     position: absolute;
     top: var(--spacing-md);

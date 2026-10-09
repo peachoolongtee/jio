@@ -9,9 +9,10 @@ import { ref } from 'vue'
 
 // Calls to the Jio backend (planner, geocode and weather proxy).
 // Attaching the Supabase session token waits on the JWT verification decision.
-// Without a frontend/.env, development talks to the local backend on its default port.
+// In development, leave VITE_API_BASE_URL blank: requests go to /api on the page's own address and the Vite dev
+// server forwards them to the backend (see vite.config.js). Deployed, it is the backend's URL.
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:3000' : undefined),
+  baseURL: import.meta.env.VITE_API_BASE_URL || '',
   timeout: 15000,
 })
 
@@ -23,10 +24,12 @@ export function plannerErrorMessage(err, { dev = import.meta.env.DEV, baseURL = 
   // No answer at all: the backend is not running, or it refused this page's address (CORS allows one
   // origin, FRONTEND_ORIGIN). The browser reports both the same way, so name both in development.
   if (!err?.response) {
-    return dev
+    if (!dev) return 'Cannot reach the Jio planner right now. Check your connection and try again.'
+    // No base URL: the Vite dev server forwards /api to the backend, so only the backend can be missing.
+    return baseURL
       ? `Cannot reach the Jio planner at ${baseURL}. Check the backend is running ("pnpm dev:backend") ` +
           `and that this page is open at the address it allows (FRONTEND_ORIGIN, by default http://localhost:5173).`
-      : 'Cannot reach the Jio planner right now. Check your connection and try again.'
+      : 'Cannot reach the Jio planner. Check the backend is running in another terminal ("pnpm dev:backend").'
   }
   const { status, data } = err.response
   if (status === 429) return 'Too many requests. Wait a few seconds and try again.'

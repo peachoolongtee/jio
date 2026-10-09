@@ -27,7 +27,7 @@ export function recalcBanner({ previousName, nextName, trigger }) {
   if (previousName && nextName && previousName !== nextName) return `Meeting area moved from ${previousName} to ${nextName} because ${reason}.`
   if (previousName && nextName) return `Meeting area stays at ${previousName}. ${capitalise(reason)}.`
   if (!previousName && nextName) return `Meeting area set to ${nextName} because ${reason}.`
-  if (previousName && !nextName) return `Meeting area cleared because ${reason}. It needs at least 2 locations.`
+  if (previousName && !nextName) return `Meeting area cleared because ${reason}. It comes back once everyone has shared where they start.`
   return `${capitalise(reason)}.`
 }
 

@@ -27,26 +27,28 @@ describe('a session planned by the backend', () => {
     ;({ id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' }))
     await api.inviteFriends(id, ['jonathan', 'faith'])
     await api.startSession(id)
-    const [first, ...rest] = Object.entries(people)
-    await api.setLocation(id, first[0], 'start', { areaId: first[1] })
+    const entries = Object.entries(people)
+    for (const [person, areaId] of entries.slice(0, -1)) await api.setLocation(id, person, 'start', { areaId })
+    // The meeting area waits until everyone has shared where they start.
+    expect((await api.getSession(id)).meeting).toBeFalsy()
     // While the planner works out the meeting area, the session says so (the map shows an animation).
-    const saving = api.setLocation(id, rest[0][0], 'start', { areaId: rest[0][1] })
+    const [lastPerson, lastArea] = entries.at(-1)
+    const saving = api.setLocation(id, lastPerson, 'start', { areaId: lastArea })
     await new Promise((resolve) => setTimeout(resolve, 150))
     expect((await api.getSession(id)).findingMeeting).toBe(true)
     await saving
     expect((await api.getSession(id)).findingMeeting).toBe(false)
-    for (const [person, areaId] of rest.slice(1)) await api.setLocation(id, person, 'start', { areaId })
     const session = await api.getSession(id)
     expect(session.area.id).toBe('bishan')
     expect(session.meeting.maxMinutes).toBeGreaterThan(0)
     expect(session.resultLine).toMatch(/^Fairest for 3 people: nobody travels more than about \d+ minutes\.$/)
   })
 
-  it('suggests three places per slot, best first, with what the cards show', async () => {
+  it('suggests three places in every category, best first, with what the cards show', async () => {
     await api.useMeetingArea(id)
     for (const person of Object.keys(people)) await api.setPreferences(id, person, { categories: ['eat', 'activity'], until: null })
     const { slots } = await plan()
-    expect(slots.map((s) => s.category).sort()).toEqual(['activity', 'eat'])
+    expect(slots.map((s) => s.category).sort()).toEqual(['activity', 'drink', 'eat', 'shop'])
     for (const slot of slots) {
       expect(slot.options).toHaveLength(3)
       expect(slot.options.map((o) => o.score)).toEqual([...slot.options.map((o) => o.score)].sort((a, b) => a - b))
@@ -105,6 +107,15 @@ describe('a session planned by the backend', () => {
     expect(after.options.map((o) => o.id)).toContain(outdoor.swap.id)
     expect(after.options.map((o) => o.id)).not.toContain(outdoor.id)
     await api.setConditions({ rain: false })
+  })
+
+  it('plans only the categories people voted in, and a second tap takes a vote back', async () => {
+    const [person] = Object.keys(people)
+    const eat = (await plan()).slots.find((s) => s.category === 'eat')
+    await api.vote(id, eat.id, person, eat.options[0].id)
+    expect((await plan()).planned.map((s) => s.category)).toEqual(['eat'])
+    await api.vote(id, eat.id, person, eat.options[0].id)
+    expect((await plan()).planned).toEqual([])
   })
 
   it('confirms the voted places into an itinerary', async () => {

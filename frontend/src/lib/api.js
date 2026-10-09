@@ -5,9 +5,10 @@
 // When Supabase exists, replace the bodies of these functions; the screens and stores do not change.
 //
 // Every function is async, like a network call. Writes notify subscribers, the way Supabase live updates will.
+import { coins } from './currency.js'
 import { ADDRESSES, AREAS } from './mock/places.js'
 import { VENUES } from './mock/venues.js'
-import { HOST_ID, PAST_ACTIVITY, PEOPLE, POINTS_PER_MEETUP, STARTING_MEETUPS } from './mock/people.js'
+import { HOST_ID, PAST_ACTIVITY, PEOPLE, LAST_SEASON_MEETUPS, POINTS_PER_MEETUP, SEASON_MEETUPS, STARTING_MEETUPS, isCommunity } from './mock/people.js'
 import { REWARDS } from './mock/rewards.js'
 import { pastMeetupDates } from './mock/history.js'
 import { reviewsFor } from './mock/reviews.js'
@@ -19,42 +20,59 @@ import { format } from 'date-fns'
 export { api } from './plannerApi.js'
 
 const STORAGE_KEY = 'jio-demo-v1'
-// 5: the backend planner (db.venues) and photos, itinerary order and seasons. Older saves start fresh.
-const VERSION = 5
+// 5: the backend planner (db.venues) and photos, itinerary order and seasons.
+// 6: full standings kept for past seasons, and each friend's fixed meetups this season (no ties in the demo).
+// Older saves start fresh, keeping the account and friends.
+// 8: everyone starts with points this season and a finished last season.
+const VERSION = 8
 // How many ranked places to ask for per slot: enough to top a slot up to its maximum.
 const RANKED_MAX = 10
-// meeting: the least time the "finding the meeting point" animation shows. The planner answers in milliseconds
+// meeting: the least time the "finding the meeting point" loading bar shows (long enough for it to fill up). The planner answers in milliseconds
 // with estimated travel times; with real routing it takes longer on its own.
-const DELAY = { read: 80, plan: 300, write: 40, meeting: 700 }
+const DELAY = { read: 80, plan: 300, write: 40, meeting: 1200 }
 // Photos are stored as data URLs in local storage, which holds only a few megabytes, so a session keeps a few.
 export const PHOTOS_MAX = 12
 const STORAGE_FULL = "Could not save: this browser's storage is full. Remove some photos and try again."
 
 // ── Storage ────────────────────────────────────────────────────────────────
 
-// The leaderboard season now, and how many points each person earned in it so far: their past meetups since
-// the season began (the same dates as their profile graph).
+// The leaderboard season now, the one before it, and how many points each person earned in each: their past
+// meetups in those dates (the same dates as their profile graph). The last season is already finished, with the
+// friends' standings kept and its winner paid, the way closeSeason leaves one.
 function freshSeason(now = new Date()) {
-  const season = { number: 1, ...Season.quarterOf(now) }
-  const since = format(new Date(season.startsAt), 'yyyy-MM-dd')
-  const earned = (id) => pastMeetupDates(id, STARTING_MEETUPS[id], now).filter((d) => d >= since).length * POINTS_PER_MEETUP
-  return { season, earned }
+  const quarter = Season.quarterOf(now)
+  const season = { number: 2, ...quarter }
+  const last = { number: 1, ...Season.quarterOf(new Date(quarter.startsAt - 1)) }
+  const day = (at) => format(new Date(at), 'yyyy-MM-dd')
+  const dates = (id) => pastMeetupDates(id, STARTING_MEETUPS[id], now, SEASON_MEETUPS[id], LAST_SEASON_MEETUPS[id])
+  const earned = (id) => dates(id).filter((d) => d >= day(season.startsAt)).length * POINTS_PER_MEETUP
+  const earnedLast = (id) => dates(id).filter((d) => d >= day(last.startsAt) && d < day(last.endsAt)).length * POINTS_PER_MEETUP
+  const standings = PEOPLE.filter((p) => !isCommunity(p.id)).map((p) => ({ id: p.id, name: p.name, seasonPoints: earnedLast(p.id), allTime: STARTING_MEETUPS[p.id] * POINTS_PER_MEETUP }))
+  const winners = Season.seasonWinners(standings)
+  const pastSeason = {
+    ...last,
+    prize: Season.SEASON_PRIZE,
+    winners: winners.map((id) => ({ id, seasonPoints: earnedLast(id) })),
+    standings: standings.map(({ id, seasonPoints }) => ({ id, seasonPoints })),
+  }
+  return { season, earned, pastSeason }
 }
 
 const defaultConditions = () => ({ rain: false, routing: true, sessionDay: false })
 
 function freshDb(keep = {}) {
-  const { season, earned } = freshSeason()
+  const { season, earned, pastSeason } = freshSeason()
+  const prize = (id) => (pastSeason.winners.some((w) => w.id === id) ? pastSeason.prize : 0)
   return {
     version: VERSION,
     user: keep.user || null,
     friends: keep.friends || [],
     sessions: [],
     // points: what each person can spend. seasonPoints: what they earned this season, for the leaderboard.
-    stats: Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: STARTING_MEETUPS[p.id], points: STARTING_MEETUPS[p.id] * POINTS_PER_MEETUP, seasonPoints: earned(p.id) }])),
+    stats: Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: STARTING_MEETUPS[p.id], points: STARTING_MEETUPS[p.id] * POINTS_PER_MEETUP + prize(p.id), seasonPoints: earned(p.id) }])),
     season,
-    // Past seasons, latest first: { number, startsAt, endsAt, winners: [{ id, seasonPoints }], prize }.
-    pastSeasons: [],
+    // Past seasons, latest first: { number, startsAt, endsAt, winners: [{ id, seasonPoints }], prize, standings }.
+    pastSeasons: [pastSeason],
     redemptions: [],
     conditions: defaultConditions(),
     // Every venue the planner has sent, by id. Suggestions can be any of the backend's venues, not only VENUES.
@@ -200,6 +218,8 @@ export function subscribe(fn) {
 // ── Lookups ────────────────────────────────────────────────────────────────
 
 const personById = (id) => PEOPLE.find((p) => p.id === id)
+// Who is on Ian's leaderboard: his circle, and anyone else on Jio once he has added them as a friend.
+const leaderboardPeople = () => PEOPLE.filter((p) => !isCommunity(p.id) || db.friends.includes(p.id))
 const areaById = (id) => AREAS.find((a) => a.id === id)
 const venueById = (id) => db.venues[id] || VENUES.find((v) => v.id === id)
 
@@ -211,7 +231,31 @@ function nameOf(id) {
 function sessionById(id) {
   const session = db.sessions.find((s) => s.id === id)
   if (!session) throw new Error('This session does not exist.')
+  settleInvites(session)
   return session
+}
+
+// Pending invites. In the demo a friend accepts on their own a moment after being invited (their phone would ask
+// them): each invite stores when it will be accepted, a timer accepts it then, and reading a session accepts any
+// whose time has passed (after a reload, the timers are gone). Returns true when someone joined.
+const ACCEPT_AFTER = 1400
+const ACCEPT_GAP = 900
+function settleInvites(session, now = Date.now()) {
+  let changed = false
+  for (const member of session.members) {
+    if (member.state === 'invited' && member.acceptAt <= now) {
+      member.state = 'joined'
+      delete member.acceptAt
+      changed = true
+    }
+  }
+  return changed
+}
+function scheduleAccept(session, at) {
+  setTimeout(() => {
+    const current = db.sessions.find((s) => s.id === session.id)
+    if (current && settleInvites(current)) touch(current, 'session')
+  }, Math.max(0, at - Date.now()) + 20)
 }
 
 const activeIds = (session) => session.members.filter((m) => m.state === 'joined').map((m) => m.id)
@@ -245,6 +289,9 @@ const finding = new Set()
 async function computeMeeting(session) {
   const members = membersFor(session)
   if (members.length < P.MIN_LOCATIONS) return null
+  // While the group is collecting locations, the meeting point waits for everyone. Once the plan has moved on, a
+  // late location (someone invited later) is worked in through the re-plan prompt instead.
+  if (session.status === 'locating' && members.length < activeIds(session).length) return null
   // Show the new location and the "finding" animation straight away; the answer follows.
   finding.add(session.id)
   let data
@@ -273,8 +320,29 @@ function activePrefs(session) {
   return Object.fromEntries(Object.entries(session.prefs).filter(([id]) => ids.includes(id)))
 }
 
+// What people browse and vote on: every category at once, so nobody has to pick categories first. Each is ranked
+// as if it were the only stop: Eat at lunch or dinner, the others in the middle of the session (at its start most
+// shops and bars are not open yet). Slot ids are the category names.
 function slotsOf(session) {
-  return P.buildSlots({ prefs: activePrefs(session), ...windowOf(session), deleted: session.deletedSlots })
+  const prefs = activePrefs(session)
+  const window = windowOf(session)
+  return P.CATEGORIES.filter((c) => !session.deletedSlots.includes(c)).flatMap((c) => {
+    const everyone = Object.fromEntries(activeIds(session).map((id) => [id, { categories: [c], until: prefs[id]?.until ?? null }]))
+    return P.buildSlots({ prefs: everyone, ...window }).map((slot) => {
+      if (c === 'eat') return slot
+      const planEnd = P.groupStayUntil(everyone, window.windowEnd)
+      const start = window.windowStart + Math.floor((planEnd - window.windowStart - slot.duration) / 2 / 15) * 15
+      return { ...slot, start, time: P.fromMinutes(start) }
+    })
+  })
+}
+
+// The plan the votes make: only the categories someone voted in, laid out back to back in the session window.
+function planSlotsOf(session) {
+  const prefs = activePrefs(session)
+  const voted = P.CATEGORIES.filter((c) => Object.keys(session.votes[c] || {}).length && !session.deletedSlots.includes(c))
+  const everyone = Object.fromEntries(activeIds(session).map((id) => [id, { categories: voted, until: prefs[id]?.until ?? null }]))
+  return P.buildSlots({ prefs: everyone, ...windowOf(session) })
 }
 
 function endPlaceOf(session, id) {
@@ -302,6 +370,8 @@ async function rankSlot(session, slot, slots, currentOptionIds = session.options
 }
 
 const rankAll = (session, slots) => Promise.all(slots.map((slot) => rankSlot(session, slot, slots)))
+// The categories people browse are not stops in a plan yet, so none is ranked as the last stop (near an MRT).
+const rankBrowse = (session, slots) => Promise.all(slots.map((slot) => rankSlot(session, slot, [])))
 
 // Friends can change things while the planner is still answering (the demo panel does this on purpose).
 // Each sync takes a ticket, and only the latest one for a session applies its answer.
@@ -321,7 +391,7 @@ async function syncOptions(session) {
   if (!session.meeting || session.status !== 'voting') return
   const slots = slotsOf(session)
   const isLatest = takeTicket(session, 'options')
-  const rankings = await rankAll(session, slots)
+  const rankings = await rankBrowse(session, slots)
   // Applied once every slot is ranked, to the session as it is now, so a vote cast meanwhile is kept.
   if (!isLatest() || session.status !== 'voting') return
   const ids = activeIds(session)
@@ -511,11 +581,11 @@ export async function getPerson(id) {
     ...(PAST_ACTIVITY[id] || []),
     ...db.pastSeasons
       .filter((x) => x.winners.some((w) => w.id === id))
-      .map((x) => ({ date: format(new Date(x.endsAt), 'yyyy-MM-dd'), text: `Won season ${x.number} · +${x.prize} points` })),
+      .map((x) => ({ date: format(new Date(x.endsAt), 'yyyy-MM-dd'), text: `Won season ${x.number} · +${coins(x.prize)}` })),
   ].sort((a, b) => b.date.localeCompare(a.date))
   // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned).
   const counts = {}
-  for (const date of pastMeetupDates(id, STARTING_MEETUPS[id])) counts[date] = (counts[date] || 0) + 1
+  for (const date of pastMeetupDates(id, STARTING_MEETUPS[id], new Date(), SEASON_MEETUPS[id], LAST_SEASON_MEETUPS[id])) counts[date] = (counts[date] || 0) + 1
   for (const s of sessions.filter((x) => x.status === 'completed')) counts[s.date] = (counts[s.date] || 0) + 1
   const planned = sessions.filter((x) => !['completed', 'cancelled'].includes(x.status)).map((x) => x.date)
   const history = Object.entries(counts).map(([date, count]) => ({ date, count }))
@@ -538,9 +608,11 @@ const standingOf = (id) => ({ id, name: nameOf(id), seasonPoints: db.stats[id].s
 // End the current season at `at`: the winner get the prize to spend, then season points start again.
 function closeSeason(at) {
   const ended = { ...db.season, endsAt: at }
-  const winners = Season.seasonWinners(PEOPLE.map((p) => standingOf(p.id)))
+  const winners = Season.seasonWinners(leaderboardPeople().map((p) => standingOf(p.id)))
   for (const id of winners) db.stats[id].points += Season.SEASON_PRIZE
-  db.pastSeasons.unshift({ ...ended, prize: Season.SEASON_PRIZE, winners: winners.map((id) => ({ id, seasonPoints: db.stats[id].seasonPoints })) })
+  // standings: everyone's season total, so the leaderboard can show a past season in full.
+  const standings = leaderboardPeople().map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints }))
+  db.pastSeasons.unshift({ ...ended, prize: Season.SEASON_PRIZE, winners: winners.map((id) => ({ id, seasonPoints: db.stats[id].seasonPoints })), standings })
   for (const p of PEOPLE) db.stats[p.id].seasonPoints = 0
   db.season = Season.nextSeason(db.season, at)
 }
@@ -585,11 +657,28 @@ export async function endSeason() {
 export async function getLeaderboard() {
   await wait(DELAY.read)
   if (catchUpSeasons()) emit({ type: 'stats' })
-  const rows = PEOPLE.map((p) => ({ ...publicPerson(p.id), seasonPoints: db.stats[p.id].seasonPoints }))
-    .sort((a, b) => Season.compareStandings(standingOf(a.id), standingOf(b.id)))
+  return ranked(leaderboardPeople().map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints })))
+}
+
+// A past season's final ranking, the same shape as getLeaderboard. [] for a season with no standings kept.
+export async function getSeasonStandings(number) {
+  await wait(DELAY.read)
+  const past = db.pastSeasons.find((s) => s.number === number)
+  return past?.standings ? ranked(past.standings) : []
+}
+
+// rows: [{ id, seasonPoints }], ranked highest first by Season.compareStandings (this season, then all-time, then
+// name). Ties on this season's JioCoins share a rank; anyone with none this season has no rank yet (rank null).
+// seasonMeetups: meetups finished this season. Season JioCoins only come from finished meetups, so it is always
+// seasonPoints / POINTS_PER_MEETUP and the two never disagree.
+// How to call: ranked([{ id: 'ian', seasonPoints: 300 }]) -> [{ ...person, seasonPoints, seasonMeetups, rank, isMe }]
+function ranked(rows) {
+  const sorted = rows
+    .map((r) => ({ ...publicPerson(r.id), seasonPoints: r.seasonPoints, seasonMeetups: Math.round(r.seasonPoints / POINTS_PER_MEETUP) }))
+    .sort((a, b) => Season.compareStandings({ ...a, allTime: a.meetups * POINTS_PER_MEETUP }, { ...b, allTime: b.meetups * POINTS_PER_MEETUP }))
   let rank = 0
   let last = null
-  return rows.map((row, i) => {
+  return sorted.map((row, i) => {
     if (!row.seasonPoints) return { ...row, rank: null, isMe: row.id === HOST_ID }
     if (row.seasonPoints !== last) {
       rank = i + 1
@@ -664,7 +753,8 @@ function publicLocations(session) {
 // A session as the screens read it. Photos are big (data URLs), so a session carries only their count:
 // getPhotos has the pictures.
 function summary(session) {
-  const slots = session.status === 'voting' && session.meeting ? slotsOf(session) : []
+  // The plan forming so far: the categories with votes, at their times.
+  const slots = session.status === 'voting' && session.meeting ? planSlotsOf(session) : []
   const area = session.meeting ? areaById(session.meeting.areaId) : null
   const { photos, confirmedRanking, ...rest } = session
   return {
@@ -687,6 +777,7 @@ function summary(session) {
 
 export async function listSessions() {
   await wait(DELAY.read)
+  db.sessions.forEach((s) => settleInvites(s))
   return db.sessions.map(summary).sort((a, b) => b.createdAt - a.createdAt)
 }
 
@@ -725,13 +816,28 @@ export async function createSession({ title, date, start, end }) {
 }
 
 // Invited friends accept automatically: they already have the app.
-export async function inviteFriends(id, personIds) {
+// Invite friends. By default they join straight away (tests and demo scripts). With { pending: true }, as the app
+// does, each one is Invited until they accept, which in the demo they do on their own, one after another.
+export async function inviteFriends(id, personIds, { pending = false } = {}) {
   await wait(DELAY.write)
   const session = sessionById(id)
+  let at = Date.now() + ACCEPT_AFTER
   for (const personId of personIds) {
-    const member = session.members.find((m) => m.id === personId)
-    if (member) member.state = 'joined'
-    else session.members.push({ id: personId, role: 'guest', state: 'joined' })
+    let member = session.members.find((m) => m.id === personId)
+    if (member?.state === 'joined') continue
+    if (!member) {
+      member = { id: personId, role: 'guest' }
+      session.members.push(member)
+    }
+    if (pending) {
+      member.state = 'invited'
+      member.acceptAt = at
+      scheduleAccept(session, at)
+      at += ACCEPT_GAP
+    } else {
+      member.state = 'joined'
+      delete member.acceptAt
+    }
   }
   return touch(session, 'session')
 }
@@ -740,6 +846,8 @@ export async function startSession(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (activeIds(session).length < 2) throw new Error('A session needs at least 2 people.')
+  // Invites nobody accepted yet lapse: the session goes ahead with whoever is in.
+  session.members = session.members.filter((m) => m.state !== 'invited')
   session.status = 'locating'
   return touch(session, 'session')
 }
@@ -763,7 +871,7 @@ export async function setLocation(id, personId, which, place) {
 export async function useMeetingArea(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
-  if (!session.meeting) throw new Error('The meeting area needs at least 2 locations.')
+  if (!session.meeting) throw new Error('Everyone needs to share where they are starting first.')
   return orUndo(session, async () => {
     session.status = 'voting'
     session.banner = null
@@ -853,7 +961,7 @@ export async function addMoreOptions(id, slotId) {
   const session = sessionById(id)
   const slots = slotsOf(session)
   const slot = slots.find((s) => s.id === slotId)
-  const ranked = await rankSlot(session, slot, slots)
+  const ranked = await rankSlot(session, slot, [])
   session.options[slotId] = P.moreOptions(session.options[slotId] || [], rankedIds(ranked))
   return touch(session, 'options')
 }
@@ -871,7 +979,7 @@ export async function searchVenuesForSlot(id, slotId, query) {
     centre: areaById(session.meeting.areaId),
     date: session.date,
     slot,
-    lastStop: slots[slots.length - 1]?.id === slotId,
+    lastStop: false,
     maxKm: session.radius ? session.radius / 1000 : undefined,
   })
   return results.map((r) => ({ ...r, added: (session.options[slotId] || []).includes(r.id) }))
@@ -886,7 +994,7 @@ export async function addOption(id, slotId, venueId) {
   if (options.includes(venueId)) return touch(session, 'options')
   if (options.length >= P.OPTIONS_MAX) throw new Error('A slot holds up to 6 options.')
   // The planner scores current options whenever they fit, so ask it with this place included.
-  const ranked = await rankSlot(session, slot, slots, [...options, venueId])
+  const ranked = await rankSlot(session, slot, [], [...options, venueId])
   if (!ranked.current.some((o) => o.venue.id === venueId)) throw new Error(`${venueById(venueId)?.name || 'This place'} does not fit this slot.`)
   session.options[slotId] = [...(session.options[slotId] || []), venueId]
   return touch(session, 'options')
@@ -902,13 +1010,17 @@ export async function swapOption(id, slotId, fromId, toId) {
   return touch(session, 'options')
 }
 
-// One vote per person per slot. Voting again in the same slot changes the vote.
+// One vote per person per category. Voting for another place in it moves the vote; voting for the same place
+// again takes it back (a category nobody votes in stays out of the plan).
 export async function vote(id, slotId, personId, venueId) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (session.status !== 'voting') throw new Error('Votes are read-only once the plan is confirmed.')
   if (!(session.options[slotId] || []).includes(venueId)) throw new Error('That place is no longer an option.')
-  session.votes[slotId] = { ...(session.votes[slotId] || {}), [personId]: venueId }
+  const votes = { ...(session.votes[slotId] || {}) }
+  if (votes[personId] === venueId) delete votes[personId]
+  else votes[personId] = venueId
+  session.votes[slotId] = votes
   return touch(session, 'vote')
 }
 
@@ -953,7 +1065,7 @@ export async function getPlan(id) {
   const slots = slotsOf(session)
   const area = areaById(session.meeting.areaId)
   const settled = session.status !== 'voting'
-  const rankings = settled ? null : await rankAll(session, slots)
+  const rankings = settled ? null : await rankBrowse(session, slots)
   const view = slots.map((slot, i) => {
     const ranked = settled ? { options: [], current: [], widened: false, few: null, empty: null } : rankings[i]
     const byId = settled ? storedOptions(session, slot, area) : Object.fromEntries([...ranked.options, ...ranked.current].map((o) => [o.venue.id, o]))
@@ -1011,6 +1123,8 @@ export async function getPlan(id) {
     stayUntil: P.groupStayUntil(activePrefs(session), windowOf(session).windowEnd),
     deletedSlots: [...session.deletedSlots],
     stayOptions: P.stayOptions(windowOf(session).windowStart, windowOf(session).windowEnd),
+    // The stops the votes so far would make: { category, time, duration } in order.
+    planned: planSlotsOf(session).map((s) => ({ category: s.category, start: s.start, time: s.time, duration: s.duration })),
   }
 }
 
@@ -1022,7 +1136,8 @@ export async function confirmPlan(id) {
   const ids = activeIds(session)
   if (session.status !== 'voting') throw new Error('Only a session in Voting can be confirmed.')
   if (!P.canConfirm(session.votes, ids)) throw new Error('At least 2 people need to vote first.')
-  const slots = slotsOf(session)
+  const slots = planSlotsOf(session)
+  if (!slots.length) throw new Error('Vote for at least one place first.')
   const rankings = await rankAll(session, slots)
   if (session.status !== 'voting') throw new Error('Only a session in Voting can be confirmed.')
   const stops = []
@@ -1224,7 +1339,7 @@ export async function redeemReward(rewardId) {
   const reward = REWARDS.find((r) => r.id === rewardId)
   const stats = db.stats[HOST_ID]
   if (!reward) throw new Error('This voucher does not exist.')
-  if (stats.points < reward.cost) throw new Error(`You need ${reward.cost - stats.points} more points for this voucher.`)
+  if (stats.points < reward.cost) throw new Error(`You need ${coins(reward.cost - stats.points)} more for this voucher.`)
   stats.points -= reward.cost
   const code = `JIO-${Math.random().toString(36).slice(2, 6).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
   const redemption = { id: `v${db.seq++}`, rewardId, code, at: Date.now() }

@@ -1,8 +1,8 @@
 <script setup>
 // Profiles, across the whole page.
 //   The top: a banner in the person's own colour (the same as their avatar and map pin), their avatar overlapping
-//   it, name, @username and home area, a strip of three numbers (meetups, season rank, points) and one big button:
-//   "Create meetup" on Ian's own, "Add friend" / "Friends" on someone else's.
+//   it, name, @username and home area, and a strip of three numbers (meetups, season rank, JioCoins). Someone else's
+//   also has "Add friend" / "Friends". Ian's own has no create button: the navbar has one.
 //   Then the meetup graph, and Ian's sessions or the other person's recent activity.
 //   Ian's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
 //   the demo" note, because other people's profiles are hand-written.
@@ -13,7 +13,9 @@ import { useRouter } from 'vue-router'
 import { format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import CoinBadge from '@/components/ui/CoinBadge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import GridPulse from '@/components/ui/GridPulse.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
 import SampleNote from '@/components/ui/SampleNote.vue'
@@ -89,7 +91,8 @@ async function signOut() {
 
 <template>
   <NotFoundView v-if="missing" />
-  <main v-else class="screen profile" data-testid="profile-view">
+  <main v-else class="screen profile grid-page" data-testid="profile-view">
+    <GridPulse class="page-grid" />
     <template v-if="person">
       <!-- The top: banner, avatar, who they are, three numbers and one action. -->
       <section class="hero" :style="{ '--pc': colour }" aria-label="About">
@@ -101,7 +104,7 @@ async function signOut() {
           <UserAvatar class="hero__avatar" :name="person.name" :src="person.photo" :person="person.id" :size="104" labelled />
           <div class="hero__grid">
             <div class="hero__who">
-              <h1 class="hero__name">{{ person.name }}<span v-if="isMe" class="hero__you caption">You</span></h1>
+              <h1 class="hero__name" data-grid-avoid>{{ person.name }}<span v-if="isMe" class="hero__you caption">You</span></h1>
               <p class="body-md text-muted">@{{ person.username }}<template v-if="person.homeArea"> · {{ person.homeArea }}</template></p>
               <SampleNote v-if="!isMe" />
             </div>
@@ -116,12 +119,11 @@ async function signOut() {
                   <dd class="stats__value tnum" :class="{ 'stats__value--none': rank == null }"><AppIcon name="trophy" :size="18" />{{ rank == null ? 'No rank yet' : ordinal(rank) }}</dd>
                 </div>
                 <div class="stats__item">
-                  <dt class="caption-sm">Points</dt>
-                  <dd class="stats__value tnum"><AppIcon name="star" :size="18" />{{ person.points }}</dd>
+                  <dt class="caption-sm">Balance</dt>
+                  <dd class="stats__value tnum"><CoinBadge :size="18" />{{ person.points }}</dd>
                 </div>
               </dl>
-              <AppButton v-if="isMe" block to="/sessions/new"><AppIcon name="plus" />Create meetup</AppButton>
-              <AppButton v-else block :variant="person.isFriend ? 'secondary' : 'primary'" :disabled="friendBusy" :aria-pressed="String(person.isFriend)" @click="toggleFriend">
+              <AppButton v-if="!isMe" block :variant="person.isFriend ? 'secondary' : 'primary'" :disabled="friendBusy" :aria-pressed="String(person.isFriend)" @click="toggleFriend">
                 <AppIcon :name="person.isFriend ? 'check' : 'plus'" />
                 {{ person.isFriend ? 'Friends' : 'Add friend' }}
               </AppButton>
@@ -136,15 +138,12 @@ async function signOut() {
           <MeetupGraph :history="person.history" :planned="person.planned" />
         </section>
 
-        <!-- Ian: his sessions -->
-        <section v-if="isMe" class="section" aria-labelledby="my-sessions">
+        <!-- Ian: his sessions, once he has some. -->
+        <section v-if="isMe && (!events.loaded || events.sessions.length)" class="section" aria-labelledby="my-sessions">
           <div class="section__head">
             <h2 id="my-sessions" class="display-sm">Sessions</h2>
           </div>
           <div v-if="!events.loaded" class="stack"><SkeletonRow v-for="n in 2" :key="n" :lines="3" /></div>
-          <EmptyState v-else-if="!events.sessions.length" title="No sessions yet">
-            <AppButton variant="secondary" to="/sessions/new">Create session</AppButton>
-          </EmptyState>
           <ul v-else class="grid-3">
             <li v-for="s in events.sessions" :key="s.id"><SessionCard :session="s" :names="nameOf" /></li>
           </ul>

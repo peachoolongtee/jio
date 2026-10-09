@@ -85,6 +85,23 @@ function placeIcon(place) {
   })
 }
 
+// A gentle arc from a person to the hub, as points for a polyline, so the lines read as people heading in rather
+// than as the map's own straight transit lines. Every arc bows the same way round, so they fan in neatly.
+// How to call: arc({ lat, lng }, { lat, lng }) -> [[lat, lng], ...]
+function arc(from, to, steps = 32) {
+  const dLat = to.lat - from.lat
+  const dLng = to.lng - from.lng
+  // The control point: off the middle of the straight line, sideways by a fifth of its length.
+  const c = { lat: from.lat + dLat / 2 - dLng * 0.2, lng: from.lng + dLng / 2 + dLat * 0.2 }
+  const points = []
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps
+    const u = 1 - t
+    points.push([u * u * from.lat + 2 * u * t * c.lat + t * t * to.lat, u * u * from.lng + 2 * u * t * c.lng + t * t * to.lng])
+  }
+  return points
+}
+
 function draw() {
   if (!map) return
   layers.base.clearLayers()
@@ -97,10 +114,21 @@ function draw() {
     : null
   const hub = middle || (props.spokes ? props.area : null)
   if (hub) {
-    for (const person of props.people) {
-      const className = `pm-spoke pm-c-${personIndex(person.id)}${middle ? ' pm-spoke--finding' : ''}`
-      L.polyline([[person.lat, person.lng], [hub.lat, hub.lng]], { className, interactive: false }).addTo(layers.base)
-    }
+    props.people.forEach((person, i) => {
+      // Three strokes on one arc: a white casing that lifts it off the map, the line in the person's colour, and a
+      // short streak of light that glides along it to the hub.
+      const tone = `pm-c-${personIndex(person.id)}${middle ? ' pm-spoke--finding' : ''}`
+      const path = arc(person, hub)
+      L.polyline(path, { className: 'pm-spoke-casing', interactive: false }).addTo(layers.base)
+      L.polyline(path, { className: `pm-spoke ${tone}`, interactive: false }).addTo(layers.base)
+      const comet = L.polyline(path, { className: `pm-spoke-comet ${tone}`, interactive: false }).addTo(layers.base)
+      const el = comet.getElement()
+      if (el) {
+        // Measured along the line as 0 to 1, so the streak is the same share of every line, long or short.
+        el.setAttribute('pathLength', '1')
+        el.style.setProperty('--i', i)
+      }
+    })
   }
   if (middle) {
     const icon = L.divIcon({ className: 'pm', html: '<span class="pm-finding"><span></span><span></span><span></span></span>', iconSize: [96, 96], iconAnchor: [48, 48] })
@@ -293,7 +321,17 @@ defineExpose({ refit })
 .pm-tip::before { display: none; }
 .pm-tip--area { font: var(--text-caption); font-weight: 600; }
 .pm-route { stroke: var(--ink); stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.pm-spoke { stroke: var(--pc, var(--ink)); stroke-width: 2.5; stroke-dasharray: 6 8; stroke-linecap: round; fill: none; opacity: 0.85; animation: pm-march 1.4s linear infinite; }
+/* Each person's way in: a smooth arc, solid in their colour on a white casing, so it never reads as one of the
+   map's dashed transit lines. A streak of light glides along it to the meeting point, each on its own beat. */
+.pm-spoke-casing { stroke: var(--canvas); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; fill: none; opacity: 0.9; }
+.pm-spoke { stroke: var(--pc, var(--ink)); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; fill: none; opacity: 0.9; }
+.pm-spoke-comet { stroke: var(--canvas); stroke-width: 2.5; stroke-linecap: round; fill: none; stroke-dasharray: 0.06 2; stroke-dashoffset: 0.06; opacity: 0; animation: pm-comet 3s cubic-bezier(0.45, 0, 0.25, 1) infinite; animation-delay: calc(var(--i, 0) * 0.45s); }
+@keyframes pm-comet {
+  0% { stroke-dashoffset: 0.06; opacity: 0; }
+  10% { opacity: 0.95; }
+  70% { stroke-dashoffset: -0.94; opacity: 0.95; }
+  80%, 100% { stroke-dashoffset: -0.94; opacity: 0; }
+}
 /* Travel time: the minutes in their travel colour; a long trip also rings the pin. */
 .pm-person--short .pm-person__min { color: var(--travel-short); font-weight: 600; }
 .pm-person--medium .pm-person__min { color: var(--travel-medium-text); font-weight: 600; }
@@ -317,11 +355,11 @@ defineExpose({ refit })
 .pm-finding > span:nth-child(2) { animation-delay: 0.6s; }
 .pm-finding > span:nth-child(3) { animation-delay: 1.2s; }
 .pm-finding::after { content: ""; position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 3px solid var(--canvas); border-radius: var(--rounded-full); background: var(--primary); box-shadow: var(--shadow-float); }
-.pm-spoke--finding { opacity: 1; animation-duration: 0.7s; }
+.pm-spoke-comet.pm-spoke--finding { animation-duration: 1.2s; }
 @keyframes pm-pulse { 0% { transform: scale(0.2); opacity: 0.9; } 100% { transform: scale(1); opacity: 0; } }
-@keyframes pm-march { to { stroke-dashoffset: -28; } }
 @media (prefers-reduced-motion: reduce) {
-  .pm-finding > span, .pm-spoke { animation: none; }
+  .pm-finding > span { animation: none; }
+  .pm-spoke-comet { display: none; }
   .pm-finding > span:first-child { opacity: 0.5; transform: scale(0.7); }
 }
 </style>

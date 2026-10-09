@@ -28,7 +28,7 @@ pnpm dev:frontend   # http://localhost:5173
 
 The backend serves the planner at `POST /api/meeting-area`, `/api/converge`, `/api/roam` and `/api/search`. Requests and responses are in [backend/docs/planner-api.md](backend/docs/planner-api.md); how the engine and the venue data fit together is in [backend/docs/engine-integration.md](backend/docs/engine-integration.md). Every change on the engine branch, and how to switch the frontend over to the API, is in [backend/docs/changes-and-frontend-guide.md](backend/docs/changes-and-frontend-guide.md). The frontend now uses that API; how to merge frontend work on top of it without conflicts is in [frontend/docs/backend-integration.md](frontend/docs/backend-integration.md).
 
-The frontend must run on `http://localhost:5173`, the one origin the backend allows (`FRONTEND_ORIGIN`). If Vite starts on 5174, another dev server is using 5173.
+In development the frontend calls `/api` on its own address and the Vite dev server forwards those calls to the backend on port 3000, so leave `VITE_API_BASE_URL` blank in `frontend/.env`. This also works in a GitHub codespace, where the page opens at a forwarded address. Only a deployed frontend calls the backend directly, from the one origin it allows (`FRONTEND_ORIGIN`).
 
 ## Test
 

@@ -80,7 +80,10 @@ export async function confirmedSave() {
   await api.useMeetingArea(id)
   for (const person of ['ian', 'jonathan']) await api.setPreferences(id, person, { categories: ['eat', 'activity'], until: null })
   const { slots } = await api.getPlan(id)
-  for (const slot of slots) for (const person of ['ian', 'jonathan']) await api.vote(id, slot.id, person, slot.options[0].id)
+  // Every category is offered at once; voting only in Eat and Activity makes those the plan's two stops.
+  for (const slot of slots.filter((s) => ['eat', 'activity'].includes(s.category))) {
+    for (const person of ['ian', 'jonathan']) await api.vote(id, slot.id, person, slot.options[0].id)
+  }
   await api.confirmPlan(id)
   built = { text: api.storage.store[STORAGE_KEY], id }
   return built

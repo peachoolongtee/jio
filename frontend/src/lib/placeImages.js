@@ -32,3 +32,9 @@ export function placeKind(venue) {
 export function placeImage(venue) {
   return PHOTOS[placeKind(venue)]
 }
+
+// The photo for a kind of place ('park', 'hawker', ...), or the restaurant one for a kind it does not know.
+// How to call: photoOfKind('park')
+export function photoOfKind(kind) {
+  return PHOTOS[kind] || PHOTOS.restaurant
+}

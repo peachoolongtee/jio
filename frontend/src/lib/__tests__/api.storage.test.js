@@ -150,8 +150,11 @@ describe('a confirmed plan', () => {
     planner.rankSlot.mockClear()
     const plan = await api.getPlan(id)
     expect(planner.rankSlot).not.toHaveBeenCalled()
-    expect(plan.slots).toHaveLength(2)
-    for (const slot of plan.slots) {
+    // Every category is still shown; the two that were voted on are the plan's stops.
+    expect(plan.slots).toHaveLength(4)
+    const voted = plan.slots.filter((s) => ['eat', 'activity'].includes(s.category))
+    expect(voted).toHaveLength(2)
+    for (const slot of voted) {
       expect(slot.options).toHaveLength(3)
       const [option] = slot.options
       expect(option.votes).toBe(2)
@@ -165,7 +168,7 @@ describe('a confirmed plan', () => {
     const { api, id } = await loadConfirmed()
     await api.endPlan(id)
     planner.rankSlot.mockClear()
-    expect((await api.getPlan(id)).slots).toHaveLength(2)
+    expect((await api.getPlan(id)).slots).toHaveLength(4)
     expect(planner.rankSlot).not.toHaveBeenCalled()
   })
 
@@ -204,23 +207,23 @@ describe('a confirmed plan', () => {
 describe('deleting stops', () => {
   it('starts the plan at the new first stop when the first one goes', async () => {
     const { api, id } = await loadConfirmed()
-    const { slots } = await api.getPlan(id)
     const before = await api.getItinerary(id)
     expect(before.stops).toHaveLength(2)
-    expect(before.stops[0].start).toBe(slots[0].start)
+    // The second stop's own planned time, from the stored plan.
+    const secondPlanned = (await api.getSession(id)).plan.stops[1].plannedStart
+    expect(secondPlanned).toBeGreaterThan(before.stops[0].start)
     await api.deleteStop(id, 0)
     const after = await api.getItinerary(id)
     expect(after.stops).toHaveLength(1)
-    // Not pulled forward to the old start.
-    expect(after.stops[0].start).toBe(slots[1].start)
-    expect(slots[1].start).toBeGreaterThan(slots[0].start)
+    // Starts at the remaining stop's own time, not pulled forward to the old start.
+    expect(after.stops[0].start).toBe(secondPlanned)
   })
 
   it('keeps the start when a later stop goes', async () => {
     const { api, id } = await loadConfirmed()
-    const { slots } = await api.getPlan(id)
+    const before = await api.getItinerary(id)
     await api.deleteStop(id, 1)
-    expect((await api.getItinerary(id)).stops[0].start).toBe(slots[0].start)
+    expect((await api.getItinerary(id)).stops[0].start).toBe(before.stops[0].start)
   })
 
   it('rejects, with a clear message, when the session has no plan', async () => {
