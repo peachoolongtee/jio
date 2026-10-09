@@ -8,7 +8,7 @@
 import { coins } from './currency.js'
 import { ADDRESSES, AREAS } from './mock/places.js'
 import { VENUES } from './mock/venues.js'
-import { HOST_ID, PAST_ACTIVITY, PEOPLE, POINTS_PER_MEETUP, SEASON_MEETUPS, STARTING_MEETUPS } from './mock/people.js'
+import { HOST_ID, PAST_ACTIVITY, PEOPLE, POINTS_PER_MEETUP, SEASON_MEETUPS, STARTING_MEETUPS, isCommunity } from './mock/people.js'
 import { REWARDS } from './mock/rewards.js'
 import { pastMeetupDates } from './mock/history.js'
 import { reviewsFor } from './mock/reviews.js'
@@ -23,7 +23,7 @@ const STORAGE_KEY = 'jio-demo-v1'
 // 5: the backend planner (db.venues) and photos, itinerary order and seasons.
 // 6: full standings kept for past seasons, and each friend's fixed meetups this season (no ties in the demo).
 // Older saves start fresh, keeping the account and friends.
-const VERSION = 6
+const VERSION = 7
 // How many ranked places to ask for per slot: enough to top a slot up to its maximum.
 const RANKED_MAX = 10
 // meeting: the least time the "finding the meeting point" loading bar shows (long enough for it to fill up). The planner answers in milliseconds
@@ -103,6 +103,8 @@ export function subscribe(fn) {
 // ── Lookups ────────────────────────────────────────────────────────────────
 
 const personById = (id) => PEOPLE.find((p) => p.id === id)
+// Who is on Ian's leaderboard: his circle, and anyone else on Jio once he has added them as a friend.
+const leaderboardPeople = () => PEOPLE.filter((p) => !isCommunity(p.id) || db.friends.includes(p.id))
 const areaById = (id) => AREAS.find((a) => a.id === id)
 const venueById = (id) => db.venues[id] || VENUES.find((v) => v.id === id)
 
@@ -443,10 +445,10 @@ export async function setFriend(id, isFriend) {
 // End the current season at `at`: the winners get the prize to spend, then season points start again.
 function closeSeason(at) {
   const ended = { ...db.season, endsAt: at }
-  const winners = Season.seasonWinners(PEOPLE.map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints })))
+  const winners = Season.seasonWinners(leaderboardPeople().map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints })))
   for (const id of winners) db.stats[id].points += Season.SEASON_PRIZE
   // standings: everyone's season total, so the leaderboard can show a past season in full.
-  const standings = PEOPLE.map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints }))
+  const standings = leaderboardPeople().map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints }))
   db.pastSeasons.unshift({ ...ended, prize: Season.SEASON_PRIZE, winners: winners.map((id) => ({ id, seasonPoints: db.stats[id].seasonPoints })), standings })
   for (const p of PEOPLE) db.stats[p.id].seasonPoints = 0
   db.season = Season.nextSeason(db.season, at)
@@ -489,7 +491,7 @@ export async function endSeason() {
 export async function getLeaderboard() {
   await wait(DELAY.read)
   if (catchUpSeasons()) emit({ type: 'stats' })
-  return ranked(PEOPLE.map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints })))
+  return ranked(leaderboardPeople().map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints })))
 }
 
 // A past season's final ranking, the same shape as getLeaderboard. [] for a season with no standings kept.

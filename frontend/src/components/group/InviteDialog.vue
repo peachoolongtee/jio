@@ -1,9 +1,10 @@
 <script setup>
 // Invite friends without leaving the session: a dialog over the page, so who is already in stays in view behind it.
 //   <InviteDialog v-model:open="inviteOpen" :session="session" />
-// An icon and a close button at the top, the title and a line on what happens, a search box, then friends (and
-// suggested people) who are not in the session yet, each picked with a tap. At the bottom: how many are picked and
-// Send invites (the close button is the way out, so there is no Cancel as well). Invites are pending until each friend accepts.
+// An icon and a close button at the top, the title and a line on what happens, a search box, then friends (and,
+// when searching, other people on Jio) who are not in the session yet, each picked with a tap. At the bottom: how
+// many are picked and Send invites (the close button is the way out, so there is no Cancel as well). Invites are
+// pending until each friend accepts.
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
@@ -49,7 +50,8 @@ const matches = (p) => {
 const lists = computed(() =>
   [
     { id: 'friends', title: 'Friends', people: groups.friends.filter((p) => !taken(p.id) && matches(p)) },
-    { id: 'suggested', title: 'Suggested', people: groups.suggested.filter((p) => !taken(p.id) && matches(p)) },
+    // Other people on Jio only when you search for them; the list is about your friends.
+    { id: 'suggested', title: 'Other people on Jio', people: query.value.trim() ? groups.suggested.filter((p) => !taken(p.id) && matches(p)) : [] },
   ].filter((l) => l.people.length),
 )
 const nobodyLeft = computed(() => !query.value.trim() && !lists.value.length)

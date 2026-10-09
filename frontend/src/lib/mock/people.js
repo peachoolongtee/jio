@@ -1,9 +1,10 @@
-// The six people in the demo. No other names appear anywhere in the app.
-// Ian is the host and signs up in the app; the five friends already have the app.
+// The people in the demo. Ian is the host and signs up in the app; his five friends already have the app, and so do
+// a few other people he does not know yet (COMMUNITY). No other names appear anywhere in the app.
 
 export const HOST_ID = 'ian'
 
-export const PEOPLE = [
+// Ian's circle: the people the demo is about. They start as his friends.
+const CIRCLE = [
   { id: 'ian', name: 'Ian', username: 'ian', homeAreaId: 'tiong-bahru' },
   { id: 'darius', name: 'Darius', username: 'darius', homeAreaId: 'bugis' },
   { id: 'jonathan', name: 'Jonathan', username: 'jonathan', homeAreaId: 'jurong-east' },
@@ -12,12 +13,27 @@ export const PEOPLE = [
   { id: 'darryl', name: 'Darryl', username: 'darryl', homeAreaId: 'bishan' },
 ]
 
+// Other people on Jio, not Ian's friends to begin with. They write reviews of places, and Ian can add them as
+// friends (from a review, their profile, or sign-up's suggestions). Once added they show on his leaderboard too.
+export const COMMUNITY = [
+  { id: 'meiling', name: 'Mei Ling', username: 'meiling', homeAreaId: 'toa-payoh' },
+  { id: 'arjun', name: 'Arjun', username: 'arjun.k', homeAreaId: 'clementi' },
+  { id: 'siti', name: 'Siti', username: 'siti.r', homeAreaId: 'bedok' },
+  { id: 'weijie', name: 'Wei Jie', username: 'weijie', homeAreaId: 'ang-mo-kio' },
+  { id: 'priya', name: 'Priya', username: 'priya', homeAreaId: 'little-india' },
+  { id: 'kai', name: 'Kai', username: 'kai.tan', homeAreaId: 'serangoon' },
+]
+const COMMUNITY_IDS = new Set(COMMUNITY.map((p) => p.id))
+export const isCommunity = (id) => COMMUNITY_IDS.has(id)
+
+export const PEOPLE = [...CIRCLE, ...COMMUNITY]
+
 // Successful meetups before the demo starts (the last six months). Each one earned POINTS_PER_MEETUP points.
 // Their dates come from lib/mock/history.js, so the profile graph matches these counts.
-export const STARTING_MEETUPS = { ian: 0, darius: 24, nicole: 19, darryl: 12, faith: 8, jonathan: 5 }
-// How many of those fall in the current leaderboard season. All different, so the demo leaderboard has no ties,
-// and in the same order as the totals above, so the most active friends lead.
-export const SEASON_MEETUPS = { ian: 0, darius: 5, nicole: 4, darryl: 3, faith: 2, jonathan: 1 }
+export const STARTING_MEETUPS = { ian: 0, darius: 24, nicole: 19, darryl: 12, faith: 8, jonathan: 5, meiling: 30, arjun: 16, siti: 22, weijie: 27, priya: 14, kai: 18 }
+// How many of those fall in the current leaderboard season. All different, so the demo leaderboard has no ties
+// (whoever Ian adds), and for the circle in the same order as the totals above, so the most active friends lead.
+export const SEASON_MEETUPS = { ian: 0, darius: 5, nicole: 4, darryl: 3, faith: 2, jonathan: 1, meiling: 8, arjun: 6, siti: 7, weijie: 9, priya: 10, kai: 11 }
 export const POINTS_PER_MEETUP = 100
 
 // What each friend picks when the demo simulates them choosing categories and how long they can stay.

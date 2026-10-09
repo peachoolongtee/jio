@@ -1,6 +1,7 @@
 <script setup>
 // A place opened from its card on Home: the photo, name, rating and price, the exact address apart from the
-// distance, "Navigate" (Google Maps directions in a new tab), and reviews.
+// distance, "Navigate" (Google Maps directions in a new tab), and reviews: your friends' first, then other people on
+// Jio. A friend's review is tagged Friend; anyone else's has Add friend, so you can add them from here.
 //   <PlaceDetail :place="place" :reviews="reviews" @close="close" />
 // `place` is the card's own data, so the view draws at once; `reviews` follow from api.getPlace (null while loading).
 // The panel, photo, name, rating and price carry the same view-transition names as a PlaceCard with `morph`,
@@ -17,6 +18,7 @@ import RatingBadge from '../ui/RatingBadge.vue'
 import SkeletonRow from '../ui/SkeletonRow.vue'
 import UserAvatar from '../ui/UserAvatar.vue'
 import { directionsUrl } from '@/lib/maps.js'
+import { useGroupsStore } from '@/stores/groups.js'
 import { placeImage, placeKind } from '@/lib/placeImages.js'
 
 const KIND_LABELS = {
@@ -37,6 +39,19 @@ const panel = ref(null)
 const kind = computed(() => KIND_LABELS[placeKind(props.place)])
 const mapsUrl = computed(() => directionsUrl(props.place))
 const reviewDate = (date) => format(new Date(date), 'd MMM yyyy')
+
+// Who is a friend, from the people list (loaded here if Home has not yet).
+const groups = useGroupsStore()
+if (!groups.people.length) groups.loadPeople()
+const isFriend = (id) => !!groups.people.find((p) => p.id === id)?.isFriend
+const adding = ref('')
+const sorted = computed(() => (props.reviews ? [...props.reviews].sort((a, b) => isFriend(b.personId) - isFriend(a.personId)) : null))
+const friendCount = computed(() => (props.reviews || []).filter((r) => isFriend(r.personId)).length)
+async function addFriend(id) {
+  adding.value = id
+  await groups.setFriend(id, true)
+  adding.value = ''
+}
 
 // Keep the page behind still (and its scroll position), and keep its scrollbar's space so nothing shifts.
 onMounted(async () => {
@@ -95,17 +110,23 @@ onBeforeUnmount(() => {
           <section class="pd__reviews" :aria-labelledby="`${titleId}-reviews`">
             <div class="pd__reviews-head">
               <h3 :id="`${titleId}-reviews`" class="title-md">Reviews</h3>
-              <span v-if="reviews" class="caption text-muted">{{ reviews.length }} from Jio friends</span>
+              <span v-if="reviews" class="caption text-muted">{{ reviews.length }} {{ reviews.length === 1 ? 'review' : 'reviews' }} · {{ friendCount }} from friends</span>
             </div>
             <div v-if="!reviews" class="stack gap-md">
               <SkeletonRow v-for="n in 3" :key="n" avatar :lines="2" />
             </div>
             <ul v-else class="pd__list">
-              <li v-for="review in reviews" :key="review.id" class="review">
+              <li v-for="review in sorted" :key="review.id" class="review">
                 <div class="review__top">
                   <UserAvatar :name="review.name" :person="review.personId" :size="32" />
                   <span class="review__who">
-                    <span class="title-sm">{{ review.name }}</span>
+                    <span class="review__name">
+                      <RouterLink :to="`/people/${review.personId}`" class="title-sm review__link">{{ review.name }}</RouterLink>
+                      <span v-if="isFriend(review.personId)" class="review__friend caption-sm"><AppIcon name="check" :size="12" />Friend</span>
+                      <button v-else type="button" class="review__add caption" :disabled="adding === review.personId" @click="addFriend(review.personId)">
+                        <AppIcon name="user-plus" :size="14" />Add friend
+                      </button>
+                    </span>
                     <span class="caption-sm text-muted">{{ reviewDate(review.date) }}</span>
                   </span>
                   <RatingBadge :score="review.rating" />
@@ -152,5 +173,13 @@ onBeforeUnmount(() => {
 .review + .review { border-top: 1px solid var(--hairline-soft); }
 .review__top { display: flex; align-items: center; gap: var(--spacing-md); }
 .review__who { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; }
+.review__name { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--spacing-sm); }
+.review__link { color: var(--ink); text-decoration: none; }
+@media (hover: hover) { .review__link:hover { text-decoration: underline; } }
+/* A friend: a quiet tag. Anyone else: a small outlined Add friend button. */
+.review__friend { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--body); }
+.review__add { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); cursor: pointer; }
+@media (hover: hover) { .review__add:not(:disabled):hover { border-color: var(--ink); } }
+.review__add:disabled { opacity: 0.6; cursor: default; }
 .review__text { margin: 0; color: var(--body); }
 </style>

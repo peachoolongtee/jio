@@ -1,11 +1,12 @@
-// Sample reviews for the place detail view, written by Jio's demo friends after their meetups.
+// Sample reviews for the place detail view, written by people on Jio after their meetups: some by Ian's friends,
+// some by people he does not know yet (who he can add as friends from their review).
 // Mock data, generated the same way every time for a place (seeded by its id). The texts are about the
 // kind of place, not claims about the real venue. Replace with real reviews when the backend has them.
 //
 // A review: { id, personId, name, rating (out of 10, like venue ratings), text, date (yyyy-MM-dd) }.
 import { format, subDays } from 'date-fns'
 import { seeded } from './history.js'
-import { PEOPLE } from './people.js'
+import { PEOPLE, isCommunity } from './people.js'
 
 const TEXTS = {
   hawker: [
@@ -88,18 +89,25 @@ const TEXTS = {
   ],
 }
 
-const REVIEWERS = PEOPLE.filter((p) => p.id !== 'ian')
+const CIRCLE = PEOPLE.filter((p) => p.id !== 'ian' && !isCommunity(p.id))
+const OTHERS = PEOPLE.filter((p) => isCommunity(p.id))
 
-// 3 to 5 reviews for a venue, newest first. Ratings sit around the venue's own rating.
+// 3 to 5 reviews for a venue, newest first: one or two from Ian's circle, the rest from other people on Jio.
+// Ratings sit around the venue's own rating.
 export function reviewsFor(venue, today = new Date()) {
   const random = seeded(`reviews:${venue.id}`)
   const texts = [...(TEXTS[venue.kind] || TEXTS.restaurant)]
-  const people = [...REVIEWERS]
-  const count = Math.min(texts.length, people.length, 3 + Math.floor(random() * 3))
+  const count = Math.min(texts.length, 3 + Math.floor(random() * 3))
+  const pick = (list, n) => {
+    const pool = [...list]
+    return Array.from({ length: n }, () => pool.splice(Math.floor(random() * pool.length), 1)[0])
+  }
+  const friends = 1 + Math.floor(random() * 2)
+  const people = [...pick(CIRCLE, friends), ...pick(OTHERS, count - friends)]
   const base = venue.rating ?? 8
   const reviews = []
   for (let i = 0; i < count; i++) {
-    const person = people.splice(Math.floor(random() * people.length), 1)[0]
+    const person = people[i]
     const text = texts.splice(Math.floor(random() * texts.length), 1)[0]
     // Within a point of the venue's rating, in halves, between 5 and 10.
     const rating = Math.min(10, Math.max(5, Math.round((base + (random() * 2 - 1)) * 2) / 2))
