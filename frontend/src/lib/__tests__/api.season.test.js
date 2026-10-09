@@ -5,6 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { STORAGE_KEY, confirmedSave, loadApi, loadConfirmed, stubPlanner } from './planFixture.js'
 import { PEOPLE, isCommunity } from '../mock/people.js'
 import { seasonRange } from '../season.js'
+import { DEMO_ACCOUNT } from '../../components/dev/demoAccount.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn() }))
 vi.mock('../plannerApi.js', () => planner)
@@ -55,8 +56,10 @@ describe('ending a plan after the season ran out', () => {
 })
 
 describe('a fresh demo', () => {
+  // The demo account starts with sample history; an account made through the sign-up form starts unranked (accountStart.test.js).
   it('ranks everyone this season and last season, and paid last season\'s winner', async () => {
     const api = await loadApi()
+    await api.signUp(DEMO_ACCOUNT)
     const now = await api.getLeaderboard()
     expect(now.every((r) => r.rank !== null)).toBe(true)
     expect(new Set(now.map((r) => r.seasonPoints)).size).toBe(now.length)
