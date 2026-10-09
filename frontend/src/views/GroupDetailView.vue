@@ -5,6 +5,8 @@
 //   Locating  Ian's start and end, the meeting area with a map, and one list of everyone with
 //             their area, travel time (coloured by length, with a key) and status. While the planner works
 //             out the area, the card and the map say so.
+//             While the meeting area waits for people who have not set a start, a card lists them. The host can
+//             carry on without each one (after a confirmation); others only see who it is waiting for.
 //   Later     the same, read-only once the plan is confirmed
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -13,6 +15,7 @@ import AppIcon from '@/components/ui/AppIcon.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
 import SegmentedProgress from '@/components/ui/SegmentedProgress.vue'
+import ModalDialog from '@/components/ui/ModalDialog.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
@@ -25,7 +28,7 @@ import NotFoundView from './NotFoundView.vue'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
 import { TRAVEL_TONES } from '@/lib/planner/travel.js'
 import { useAuthStore } from '@/stores/auth.js'
-import { useEventsStore } from '@/stores/events.js'
+import { useEventsStore, waitingFor } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 
 const props = defineProps({ id: { type: String, required: true } })
@@ -165,6 +168,18 @@ async function run(fn, after) {
   busy.value = false
 }
 
+// Who the meeting area is waiting for. Only the host can carry on without someone, and never without themself.
+const waiting = computed(() => (session.value ? waitingFor(session.value) : []).map((id) => ({ id, name: nameOf(id), me: id === auth.user?.id })))
+const isHost = computed(() => !!session.value && session.value.hostId === auth.user?.id)
+const skipOpen = ref(false)
+const skipTarget = ref(null)
+function askSkip(person) {
+  error.value = ''
+  skipTarget.value = person
+  skipOpen.value = true
+}
+const continueWithout = () => run(() => events.optOut(props.id, skipTarget.value.id), () => { skipOpen.value = false })
+
 const startSession = () => run(() => events.start(props.id))
 const useArea = () => run(() => events.useArea(props.id), () => router.push(`/sessions/${props.id}/plan`))
 </script>
@@ -253,6 +268,20 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
             </section>
             <p v-if="session.areaNote" class="caption-sm text-muted">{{ session.areaNote }}</p>
 
+            <!-- Locating, and the meeting area is waiting for people who have not set a start. -->
+            <section v-if="waiting.length && !loading" class="section card" aria-labelledby="waiting-head">
+              <h2 id="waiting-head" class="title-md">Waiting for {{ waiting.length }} {{ waiting.length === 1 ? 'person' : 'people' }}</h2>
+              <p class="body-sm text-muted">The meeting point appears once everyone has shared where they start.<template v-if="isHost"> If someone is not going to, you can carry on without them.</template></p>
+              <ul class="waiting" aria-label="People who have not set a start">
+                <li v-for="person in waiting" :key="person.id" class="waiting__row">
+                  <UserAvatar :name="person.name" :person="person.id" :size="36" />
+                  <span class="title-sm truncate waiting__name">{{ person.me ? 'You' : person.name }}</span>
+                  <span v-if="person.me" class="caption-sm text-muted">Add where you are starting, above</span>
+                  <AppButton v-else-if="isHost" small variant="secondary" :disabled="busy" @click="askSkip(person)">Continue without {{ person.name }}</AppButton>
+                </li>
+              </ul>
+            </section>
+
             <section class="section card" aria-label="People">
               <ProgressDonut v-if="progress" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
               <MemberList :session="session" :names="nameOf" :voters="voterIds" />
@@ -280,6 +309,11 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
     </footer>
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
+    <ModalDialog v-model:open="skipOpen" :title="`Continue without ${skipTarget?.name || 'them'}?`" text="They leave this session, and the meeting point is worked out from the people who have shared where they start. This cannot be undone.">
+      <template #content><p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p></template>
+      <AppButton block variant="secondary" @click="skipOpen = false">Keep waiting</AppButton>
+      <AppButton block variant="danger" :disabled="busy" @click="continueWithout">Continue without {{ skipTarget?.name }}</AppButton>
+    </ModalDialog>
     <LocationSheet v-model:open="sheet.open" :which="sheet.which" :home="homeArea" @select="saveLocation" />
   </main>
   <main v-else class="screen" data-testid="group-detail-view">
@@ -331,6 +365,11 @@ button.route__row:focus-visible { outline: 2px solid var(--ink); outline-offset:
 .area__main--reveal { animation: area-reveal 420ms var(--ease-spring) both; }
 @keyframes area-reveal { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .area__main--reveal { animation: none; } }
+/* Who the meeting area is waiting for: name on the left, the host's action after it (it wraps under the name on a narrow screen). */
+.waiting { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.waiting__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm) var(--spacing-md); padding: var(--spacing-sm) 0; }
+.waiting__row + .waiting__row { border-top: 1px solid var(--hairline-soft); }
+.waiting__name { flex: 1 1 120px; min-width: 0; }
 /* The key for the travel-time colours in the people list. */
 .travel-key { display: flex; flex-wrap: wrap; gap: var(--spacing-xs) var(--spacing-base); margin: 0; font: var(--text-caption-sm); color: var(--muted); }
 .travel-key__item { display: inline-flex; align-items: center; gap: var(--spacing-xs); }

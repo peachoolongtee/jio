@@ -5,6 +5,13 @@ import * as api from '@/lib/api.js'
 import { HOST_ID } from '@/lib/mock/people.js'
 import { moveItem } from '@/lib/planner/itinerary.js'
 
+// Who a session in Locating is waiting for: the people in it who have not set where they start. The meeting area
+// appears once this is empty. How to call: waitingFor(session) -> ['faith']
+export function waitingFor(session) {
+  if (session.status !== 'locating' || session.meeting) return []
+  return (session.activeIds || []).filter((id) => !session.locations?.[id]?.start)
+}
+
 export const useEventsStore = defineStore('events', () => {
   const sessions = ref([])
   const byId = ref({})
@@ -71,6 +78,8 @@ export const useEventsStore = defineStore('events', () => {
   const setMyLocation = (id, which, place) => act(api.setLocation)(id, HOST_ID, which, place)
   const useArea = act(api.useMeetingArea)
   const cancel = act(api.cancelSession)
+  // The host carries on without a member who has not shared where they start (they opt out of this session).
+  const optOut = act(api.optOut)
   const dismissBanner = act(api.dismissBanner)
   const confirm = act(api.confirmPlan)
   const respondReplan = act(api.respondReplan)
@@ -128,6 +137,6 @@ export const useEventsStore = defineStore('events', () => {
   return {
     sessions, byId, itineraries, photos, loaded, current,
     loadSessions, loadSession, loadItinerary, loadPhotos,
-    create, invite, start, setMyLocation, useArea, cancel, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, addPhoto, deletePhoto,
+    create, invite, start, setMyLocation, useArea, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, addPhoto, deletePhoto,
   }
 })
