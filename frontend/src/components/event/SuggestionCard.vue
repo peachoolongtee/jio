@@ -1,9 +1,9 @@
 <script setup>
 // One suggested place in a slot, with its vote.
 //   <SuggestionCard :option="option" leading mine @vote="vote" @swap="swap" />
-// A photo of the kind of place with its category icon, the name, walking time, price tier, crowd (an estimate, left
-// out when there is none), up to two reasons, a rain warning with an indoor swap, and who voted.
-// Colour coding: a stripe in the category colour, and crowd on the data scale. `leading` outlines the card in ink
+// A photo of the kind of place with its category icon, the name, walking time, price tier,
+// up to two reasons, a rain warning with an indoor swap, and who voted.
+// Colour coding: a stripe in the category colour. `leading` outlines the card in ink
 // and tags it "Leading"; `behind` (another place leads) mutes the vote count. `closed` makes the vote read-only.
 import { computed } from 'vue'
 import AppButton from '../ui/AppButton.vue'
@@ -13,7 +13,6 @@ import CategoryIcon from '../ui/CategoryIcon.vue'
 import ChipButton from '../ui/ChipButton.vue'
 import InfoTag from '../ui/InfoTag.vue'
 import PriceTier from '../ui/PriceTier.vue'
-import { crowdText, crowdTone } from '@/lib/planner/crowd.js'
 import { distanceText } from '@/lib/planner/format.js'
 import { placeImage } from '@/lib/placeImages.js'
 
@@ -27,7 +26,7 @@ const props = defineProps({
 })
 defineEmits(['vote', 'swap'])
 
-// The crowd tag already says "Quiet", so a "Quiet at 15:00" reason would repeat it.
+// Nothing measures how busy a place is, so a "Quiet at 15:00" reason from the planner is not shown.
 const reasons = computed(() => props.option.reasons.filter((r) => !r.startsWith('Quiet at')))
 </script>
 
@@ -41,7 +40,7 @@ const reasons = computed(() => props.option.reasons.filter((r) => !r.startsWith(
       <div class="sugg__title">
         <h4 class="title-md clamp-2">{{ option.venue.name }}</h4>
         <p class="sugg__meta caption-sm text-muted">
-          <span>{{ option.walk }} min walk<template v-if="option.distanceM != null"> · {{ distanceText(option.distanceM) }}</template></span>
+          <span>about {{ option.walk }} min walk<template v-if="option.distanceM != null"> · {{ distanceText(option.distanceM) }}</template></span>
           <PriceTier :price="option.venue.price" />
         </p>
       </div>
@@ -49,7 +48,6 @@ const reasons = computed(() => props.option.reasons.filter((r) => !r.startsWith(
 
     <div class="sugg__tags">
       <InfoTag v-if="leading" tone="strong" icon="trophy">Leading</InfoTag>
-      <InfoTag v-if="option.crowd !== 'unknown'" :tone="crowdTone(option.crowd)">{{ crowdText(option.crowd) }}</InfoTag>
       <InfoTag v-for="reason in reasons" :key="reason">{{ reason }}</InfoTag>
       <InfoTag v-if="option.warnings.includes('rain')" tone="warning" icon="rain">Outdoor, rain expected</InfoTag>
     </div>
@@ -71,8 +69,7 @@ const reasons = computed(() => props.option.reasons.filter((r) => !r.startsWith(
 </template>
 
 <style scoped>
-.sugg { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); transition: box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
-@media (hover: hover) { .sugg:hover { transform: translateY(-2px); } }
+.sugg { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); transition: box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
 /* A stripe on the left in the category colour, matching the place's pin on the map. */
 .sugg--eat { --sugg-cat: var(--cat-eat-fg); }
 .sugg--drink { --sugg-cat: var(--cat-drink-fg); }
@@ -91,7 +88,8 @@ const reasons = computed(() => props.option.reasons.filter((r) => !r.startsWith(
 .sugg__title { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-xxs); }
 .sugg__meta { display: flex; align-items: center; gap: var(--spacing-sm); }
 .sugg__tags { display: flex; flex-wrap: wrap; gap: var(--spacing-xs); }
-.sugg__swap { align-self: flex-start; }
+/* A long place name wraps inside the card instead of pushing the button past its edge. */
+.sugg .sugg__swap.btn { align-self: flex-start; max-width: 100%; height: auto; min-height: var(--tap-min); padding-block: var(--spacing-xs); white-space: normal; text-align: left; }
 .sugg__vote { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); margin: 0 calc(var(--spacing-xs) * -1) -6px 0; }
 .sugg__lead { font-weight: 700; }
 .sugg__count { display: inline-flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }

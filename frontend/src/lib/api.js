@@ -29,6 +29,9 @@ const RANKED_MAX = 10
 // meeting: the least time the "finding the meeting point" loading bar shows (long enough for it to fill up). The planner answers in milliseconds
 // with estimated travel times; with real routing it takes longer on its own.
 const DELAY = { read: 80, plan: 300, write: 40, meeting: 1200 }
+// Photos are stored as data URLs in local storage, which holds only a few megabytes, so a session keeps a few.
+export const PHOTOS_MAX = 12
+const STORAGE_FULL = "Could not save: this browser's storage is full. Remove some photos and try again."
 
 // ── Storage ────────────────────────────────────────────────────────────────
 
@@ -40,6 +43,8 @@ function freshSeason(now = new Date()) {
   const earned = (id) => pastMeetupDates(id, STARTING_MEETUPS[id], now, SEASON_MEETUPS[id]).filter((d) => d >= since).length * POINTS_PER_MEETUP
   return { season, earned }
 }
+
+const defaultConditions = () => ({ rain: false, routing: true, sessionDay: false })
 
 function freshDb(keep = {}) {
   const { season, earned } = freshSeason()
@@ -54,19 +59,68 @@ function freshDb(keep = {}) {
     // Past seasons, latest first: { number, startsAt, endsAt, winners: [{ id, seasonPoints }], prize }.
     pastSeasons: [],
     redemptions: [],
-    conditions: { rain: false, crowd: false, routing: true, sessionDay: false },
+    conditions: defaultConditions(),
     // Every venue the planner has sent, by id. Suggestions can be any of the backend's venues, not only VENUES.
     venues: {},
     seq: 1,
   }
 }
 
+const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
+const isCount = (v) => typeof v === 'number' && Number.isFinite(v)
+const isList = (v, check) => Array.isArray(v) && v.every(check)
+
+// The account in a save, when it looks like one. How to call: validUser({ id: 'ian', name: 'Ian', username: 'ian' }) -> true
+const validUser = (u) => isObject(u) && ['id', 'name', 'username'].every((key) => typeof u[key] === 'string')
+
+// A session in a save, when every field the screens read without checking is there.
+const validSession = (s) =>
+  isObject(s) &&
+  typeof s.id === 'string' &&
+  Array.isArray(s.members) &&
+  Array.isArray(s.deletedSlots) &&
+  ['locations', 'prefs', 'options', 'votes'].every((key) => isObject(s[key]))
+
+// Does a save with the current version hold every top-level field freshDb() makes, of the right kind?
+// A version number alone is not proof: a hand-edited or half-written save would crash the first screen that reads it.
+// How to call: hasShape(JSON.parse(localStorage.getItem('jio-demo-v1'))) -> true
+function hasShape(saved) {
+  return (
+    isObject(saved) &&
+    saved.version === VERSION &&
+    (saved.user === null || validUser(saved.user)) &&
+    isList(saved.friends, (f) => typeof f === 'string') &&
+    isList(saved.sessions, validSession) &&
+    isObject(saved.stats) &&
+    PEOPLE.every((p) => isObject(saved.stats[p.id]) && ['meetups', 'points', 'seasonPoints'].every((key) => isCount(saved.stats[p.id][key]))) &&
+    isObject(saved.season) &&
+    ['number', 'startsAt', 'endsAt'].every((key) => isCount(saved.season[key])) &&
+    isList(saved.pastSeasons, (x) => isObject(x) && isCount(x.endsAt) && Array.isArray(x.winners)) &&
+    isList(saved.redemptions, isObject) &&
+    isObject(saved.conditions) &&
+    isObject(saved.venues) &&
+    isCount(saved.seq)
+  )
+}
+
+// What a replaced save keeps: the account and friends, when they look right.
+const keepable = (saved) => ({
+  user: validUser(saved.user) ? saved.user : null,
+  friends: isList(saved.friends, (f) => typeof f === 'string') ? saved.friends : [],
+})
+
 function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY))
-    if (saved && saved.version === VERSION) return saved
+    if (hasShape(saved)) {
+      // Only the switches the demo knows (a save from before the crowd switch was cut still has one).
+      const defaults = defaultConditions()
+      for (const key of Object.keys(defaults)) if (typeof saved.conditions[key] === 'boolean') defaults[key] = saved.conditions[key]
+      return { ...saved, conditions: defaults }
+    }
     // An older save: its sessions point at venues this version cannot look up. Keep the account, start fresh.
-    if (saved && saved.version < VERSION) return freshDb({ user: saved.user, friends: saved.friends })
+    // A save of this version that fails the shape check is treated the same way.
+    if (isObject(saved) && saved.version <= VERSION) return freshDb(keepable(saved))
   } catch {
     // No storage, or something unreadable: start fresh.
   }
@@ -74,21 +128,67 @@ function load() {
 }
 
 let db = load()
+// The state as last saved (or loaded), as text. A write that cannot be saved puts the demo back to this.
+let stored = JSON.stringify(db)
 const listeners = new Set()
 
-// Returns false when storage refuses the write (full, or a private window). The demo still works for this visit.
-function save() {
+// Can storage take a small write at all? Without it (no storage, or a private window that refuses everything),
+// the demo keeps working in memory for this visit. How to call: if (storageWorks()) ...
+function storageWorks() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(db))
+    localStorage.setItem(`${STORAGE_KEY}:probe`, '1')
+    localStorage.removeItem(`${STORAGE_KEY}:probe`)
     return true
   } catch {
     return false
   }
 }
 
-function emit(event) {
-  save()
+// Returns false only when storage works but refuses this write because it is full.
+function save() {
+  const text = JSON.stringify(db)
+  try {
+    localStorage.setItem(STORAGE_KEY, text)
+  } catch {
+    if (storageWorks()) return false
+  }
+  stored = text
+  return true
+}
+
+// Swap the contents of an object in place, so everyone holding a reference sees the change.
+function replaceContents(target, source) {
+  for (const key of Object.keys(target)) delete target[key]
+  Object.assign(target, source)
+}
+
+// Put the in-memory state back to what is stored. Sessions are restored in place: a write still waiting on the
+// planner keeps working on the same object.
+function rollback() {
+  const saved = JSON.parse(stored)
+  const live = new Map(db.sessions.map((s) => [s.id, s]))
+  saved.sessions = saved.sessions.map((s) => {
+    const same = live.get(s.id)
+    if (!same) return s
+    replaceContents(same, s)
+    return same
+  })
+  replaceContents(db, saved)
+}
+
+function broadcast(event) {
   for (const fn of listeners) fn(event)
+}
+
+// Save, then tell subscribers. When the save fails the state goes back to what is stored and this throws, so
+// the write that called it rejects: nothing fails silently, and nothing is half-saved.
+// How to call: emit({ type: 'session', sessionId: 's1' })
+function emit(event) {
+  if (!save()) {
+    rollback()
+    throw new Error(STORAGE_FULL)
+  }
+  broadcast(event)
 }
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -179,9 +279,9 @@ async function computeMeeting(session) {
   if (session.status === 'locating' && members.length < activeIds(session).length) return null
   // Show the new location and the "finding" animation straight away; the answer follows.
   finding.add(session.id)
-  emit({ type: 'pending', sessionId: session.id })
   let data
   try {
+    emit({ type: 'pending', sessionId: session.id })
     ;[data] = await Promise.all([planner.meetingArea({ members, routing: db.conditions.routing }), wait(DELAY.meeting)])
   } finally {
     finding.delete(session.id)
@@ -327,7 +427,9 @@ async function orUndo(session, change) {
     for (const key of Object.keys(session)) delete session[key]
     Object.assign(session, before)
     // Save the session as it was, and show it again (a "pending" update may have shown the change already).
-    emit({ type: 'pending', sessionId: session.id })
+    // If storage refuses even that, the caller still gets the first error, which is the one worth reading.
+    save()
+    broadcast({ type: 'pending', sessionId: session.id })
     throw err
   }
 }
@@ -352,17 +454,57 @@ export async function getUser() {
   return account()
 }
 
+// Sign-up rules, the same as the database's: a username is 3 to 20 lowercase letters, numbers or underscores,
+// a name is 1 to 50 characters, and a date of birth is a real date from 1900 up to today.
+// Each message is shown under its field, so it names the field.
+const USERNAME_PATTERN = /^[a-z0-9_]{3,20}$/
+const NAME_MAX = 50
+const DOB_MIN = '1900-01-01'
+
+// How to call: assertUsername('ian_99') (throws an Error with a message for the field when it is not allowed)
+function assertUsername(username) {
+  if (typeof username !== 'string' || !USERNAME_PATTERN.test(username)) {
+    throw new Error('Username must be 3 to 20 characters: lowercase letters, numbers or underscores.')
+  }
+}
+
+// How to call: assertName('Ian')
+function assertName(name) {
+  const text = typeof name === 'string' ? name.trim() : ''
+  if (!text) throw new Error('Enter your name.')
+  if (text.length > NAME_MAX) throw new Error(`Your name can be up to ${NAME_MAX} characters.`)
+}
+
+// How to call: assertDob('2004-03-18')
+function assertDob(dob) {
+  const match = typeof dob === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(dob) : null
+  if (!match) throw new Error('Enter your date of birth as YYYY-MM-DD.')
+  const [year, month, day] = match.slice(1).map(Number)
+  // Date rolls 31 February over to March, so a real date is one that survives the round trip.
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+    throw new Error('That date of birth does not exist.')
+  }
+  if (dob > todayKey()) throw new Error('Your date of birth cannot be in the future.')
+  if (dob < DOB_MIN) throw new Error('Your date of birth cannot be before 1900.')
+}
+
+// profile: { email, name, username, dob ('YYYY-MM-DD'), photo?, homeAreaId, friends? }. Rejects with a message fit
+// to show under the field when the name, username or date of birth breaks a rule.
 export async function signUp(profile) {
   await wait(DELAY.write)
+  assertName(profile.name)
+  assertUsername(profile.username)
+  assertDob(profile.dob)
   // The real app creates a Supabase account here. The demo account is always the host, Ian's id.
   db.user = {
     id: HOST_ID,
     email: profile.email,
-    name: profile.name,
+    name: profile.name.trim(),
     username: profile.username,
+    dob: profile.dob,
     photo: profile.photo || '',
     homeAreaId: profile.homeAreaId,
-    permissions: { location: !!profile.locationAllowed, contacts: !!profile.contactsAllowed },
   }
   db.friends = [...(profile.friends || [])]
   emit({ type: 'user' })
@@ -382,9 +524,11 @@ export async function signOut() {
   emit({ type: 'reset' })
 }
 
+// Rejects with a message fit to show under the field when the username breaks the rules.
 export async function checkUsername(username) {
   await wait(DELAY.read)
-  const taken = PEOPLE.some((p) => p.id !== HOST_ID && p.username === username.toLowerCase())
+  assertUsername(username)
+  const taken = PEOPLE.some((p) => p.id !== HOST_ID && p.username === username)
   return { available: !taken }
 }
 
@@ -442,10 +586,14 @@ export async function setFriend(id, isFriend) {
 
 // ── Seasons ────────────────────────────────────────────────────────────────
 
-// End the current season at `at`: the winners get the prize to spend, then season points start again.
+// What decides a season: points earned this season, then all-time points from meetups, then the name.
+// How to call: standingOf('ian') -> { id, name, seasonPoints, allTime }
+const standingOf = (id) => ({ id, name: nameOf(id), seasonPoints: db.stats[id].seasonPoints, allTime: db.stats[id].meetups * POINTS_PER_MEETUP })
+
+// End the current season at `at`: the winner get the prize to spend, then season points start again.
 function closeSeason(at) {
   const ended = { ...db.season, endsAt: at }
-  const winners = Season.seasonWinners(leaderboardPeople().map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints })))
+  const winners = Season.seasonWinners(leaderboardPeople().map((p) => standingOf(p.id)))
   for (const id of winners) db.stats[id].points += Season.SEASON_PRIZE
   // standings: everyone's season total, so the leaderboard can show a past season in full.
   const standings = leaderboardPeople().map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints }))
@@ -455,13 +603,13 @@ function closeSeason(at) {
 }
 
 // Seasons that ran out while nobody had the app open end now, in order. Returns true when one ended.
+// It changes memory only: the caller saves it, together with the rest of its write.
 function catchUpSeasons(now = Date.now()) {
   let ended = false
   while (now >= db.season.endsAt) {
     closeSeason(db.season.endsAt)
     ended = true
   }
-  if (ended) save()
   return ended
 }
 
@@ -480,14 +628,17 @@ export async function getSeason() {
 }
 
 // Demo: end the season now instead of waiting for the end of the quarter. Returns the season that ended.
+// The next season runs to the end of the calendar quarter it starts in.
 export async function endSeason() {
   await wait(DELAY.write)
+  catchUpSeasons()
   closeSeason(Date.now())
   emit({ type: 'stats' })
   return publicSeason(db.pastSeasons[0])
 }
 
-// One ranking: points earned this season. Ties share a rank.
+// One ranking: points earned this season. Ties share a rank, in the order that picks the season's winner.
+// Nobody is ranked at 0 points: `rank` is null until a person has earned some.
 export async function getLeaderboard() {
   await wait(DELAY.read)
   if (catchUpSeasons()) emit({ type: 'stats' })
@@ -501,16 +652,19 @@ export async function getSeasonStandings(number) {
   return past?.standings ? ranked(past.standings) : []
 }
 
-// rows: [{ id, seasonPoints }], ranked highest first. Ties share a rank; within a tie, whoever has more meetups
-// overall is listed first, then by name. seasonMeetups: meetups finished this season. Season JioCoins only come
-// from finished meetups, so it is always seasonPoints / POINTS_PER_MEETUP and the two never disagree.
+// rows: [{ id, seasonPoints }], ranked highest first by Season.compareStandings (this season, then all-time, then
+// name). Ties on this season's JioCoins share a rank; anyone with none this season has no rank yet (rank null).
+// seasonMeetups: meetups finished this season. Season JioCoins only come from finished meetups, so it is always
+// seasonPoints / POINTS_PER_MEETUP and the two never disagree.
+// How to call: ranked([{ id: 'ian', seasonPoints: 300 }]) -> [{ ...person, seasonPoints, seasonMeetups, rank, isMe }]
 function ranked(rows) {
   const sorted = rows
     .map((r) => ({ ...publicPerson(r.id), seasonPoints: r.seasonPoints, seasonMeetups: Math.round(r.seasonPoints / POINTS_PER_MEETUP) }))
-    .sort((a, b) => b.seasonPoints - a.seasonPoints || b.meetups - a.meetups || a.name.localeCompare(b.name))
+    .sort((a, b) => Season.compareStandings({ ...a, allTime: a.meetups * POINTS_PER_MEETUP }, { ...b, allTime: b.meetups * POINTS_PER_MEETUP }))
   let rank = 0
   let last = null
   return sorted.map((row, i) => {
+    if (!row.seasonPoints) return { ...row, rank: null, isMe: row.id === HOST_ID }
     if (row.seasonPoints !== last) {
       rank = i + 1
       last = row.seasonPoints
@@ -581,15 +735,18 @@ function publicLocations(session) {
   )
 }
 
+// A session as the screens read it. Photos are big (data URLs), so a session carries only their count:
+// getPhotos has the pictures.
 function summary(session) {
   // The plan forming so far: the categories with votes, at their times.
   const slots = session.status === 'voting' && session.meeting ? planSlotsOf(session) : []
   const area = session.meeting ? areaById(session.meeting.areaId) : null
+  const { photos, confirmedRanking, ...rest } = session
   return {
-    ...clone(session),
+    ...clone(rest),
     locations: publicLocations(session),
     area: area ? { ...area } : null,
-    photos: (session.photos || []).map((p) => ({ ...p, name: nameOf(p.personId) })),
+    photoCount: (photos || []).length,
     resultLine: area ? P.meetingResultLine(session.meeting, area.name) : '',
     // Only the routing fallback needs explaining on screen; the fairest result speaks for itself.
     areaNote: session.meeting?.method === 'centre' ? 'Routing unavailable. Showing the geographic centre.' : '',
@@ -852,7 +1009,37 @@ export async function vote(id, slotId, personId, venueId) {
   return touch(session, 'vote')
 }
 
-// Everything the voting screen needs, ranked with the current weather and crowd.
+// What a ranked option says about a place, kept when the plan is confirmed so the confirmed plan can be shown
+// again without asking the planner. How to call: rankedDetail(option)
+const rankedDetail = (o) => ({
+  score: o.score,
+  walk: o.walk,
+  reasons: o.reasons,
+  warnings: o.warnings,
+  swap: o.swap,
+  explanation: o.explanation,
+  dietUnknown: o.dietUnknown,
+  verify: o.verify,
+  approximate: o.approximate,
+})
+
+// The options of a confirmed or completed slot, from what was stored: no planner call, so nothing is re-ranked
+// for a plan that cannot change. A plan confirmed before the details were kept shows its places without them.
+// How to call: storedOptions(session, slot, area) -> { [venueId]: { venue, score, walk, ... } }
+function storedOptions(session, slot, area) {
+  const kept = session.confirmedRanking?.[slot.id] || {}
+  const found = {}
+  for (const venueId of session.options[slot.id] || []) {
+    const venue = venueById(venueId)
+    if (!venue) continue
+    const detail = kept[venueId] || { score: 0, walk: P.walkMinutes(area, venue), reasons: [], warnings: [], swap: null, explanation: '', dietUnknown: [], verify: [], approximate: false }
+    found[venueId] = { venue, ...detail }
+  }
+  return found
+}
+
+// Everything the voting screen needs, ranked with the current weather. Once the plan is confirmed the stored
+// options are returned as they were: only a session in Voting asks the planner.
 export async function getPlan(id) {
   await wait(DELAY.plan)
   const session = sessionById(id)
@@ -862,10 +1049,11 @@ export async function getPlan(id) {
   }
   const slots = slotsOf(session)
   const area = areaById(session.meeting.areaId)
-  const rankings = await rankBrowse(session, slots)
+  const settled = session.status !== 'voting'
+  const rankings = settled ? null : await rankBrowse(session, slots)
   const view = slots.map((slot, i) => {
-    const ranked = rankings[i]
-    const byId = Object.fromEntries([...ranked.options, ...ranked.current].map((o) => [o.venue.id, o]))
+    const ranked = settled ? { options: [], current: [], widened: false, few: null, empty: null } : rankings[i]
+    const byId = settled ? storedOptions(session, slot, area) : Object.fromEntries([...ranked.options, ...ranked.current].map((o) => [o.venue.id, o]))
     const optionIds = (session.options[slot.id] || []).filter((v) => byId[v])
     const votes = session.votes[slot.id] || {}
     const counts = P.tally(votes)
@@ -879,7 +1067,6 @@ export async function getPlan(id) {
           walk: o.walk,
           // As the crow flies from the meeting area, for the card ("180 m").
           distanceM: Math.round(P.distanceKm(area, o.venue) * 1000),
-          crowd: o.crowd,
           reasons: o.reasons,
           warnings: o.warnings,
           votes: counts[venueId] || 0,
@@ -897,7 +1084,7 @@ export async function getPlan(id) {
       ...slot,
       isLast: slots[slots.length - 1].id === slot.id,
       options,
-      canAddMore: options.length < P.OPTIONS_MAX && rankedIds(ranked).length > options.length,
+      canAddMore: !settled && options.length < P.OPTIONS_MAX && rankedIds(ranked).length > options.length,
       widened: ranked.widened,
       // Why the slot has no options: { reason, nearestKm, widenToKm } from the planner, or null.
       empty: ranked.empty ? { reason: ranked.empty.reason, nearestKm: ranked.empty.hints?.nearestKm ?? null, widenToKm: ranked.empty.hints?.widenToKm ?? null } : null,
@@ -939,13 +1126,18 @@ export async function confirmPlan(id) {
   const rankings = await rankAll(session, slots)
   if (session.status !== 'voting') throw new Error('Only a session in Voting can be confirmed.')
   const stops = []
+  const confirmedRanking = {}
   slots.forEach((slot, i) => {
+    const ranked = [...rankings[i].options, ...rankings[i].current]
+    // What the cards said when the group confirmed, so the confirmed plan does not need the planner again.
+    confirmedRanking[slot.id] = Object.fromEntries(ranked.filter((o) => (session.options[slot.id] || []).includes(o.venue.id)).map((o) => [o.venue.id, rankedDetail(o)]))
     // pickWinner breaks a tie on the higher score. The planner's score is a penalty, so flip it.
     const scores = Object.fromEntries([...rankings[i].options, ...rankings[i].current].map((o) => [o.venue.id, -o.score]))
     const winner = P.pickWinner(session.options[slot.id] || [], session.votes[slot.id], scores)
     if (winner) stops.push({ slotId: slot.id, category: slot.category, venueId: winner, plannedStart: slot.start, duration: slot.duration })
   })
   session.plan = { stops, modes: [], startAt: stops[0]?.plannedStart ?? null }
+  session.confirmedRanking = confirmedRanking
   session.status = 'confirmed'
   session.banner = null
   session.replan = null
@@ -977,9 +1169,16 @@ export async function getItinerary(id) {
   }
 }
 
+// The plan of a session that has one. How to call: planOf(session) -> { stops, modes, startAt }
+function planOf(session) {
+  if (!session.plan) throw new Error('This session has no plan yet. Confirm one first.')
+  return session.plan
+}
+
 export async function setTravelMode(id, legIndex, mode) {
   await wait(DELAY.write)
   const session = sessionById(id)
+  planOf(session)
   const modes = [...(session.plan.modes || [])]
   modes[legIndex] = mode
   session.plan.modes = modes
@@ -1003,9 +1202,13 @@ export async function reorderStops(id, from, to) {
 export async function deleteStop(id, index) {
   await wait(DELAY.write)
   const session = sessionById(id)
-  const { stops, modes = [] } = session.plan
+  const { stops, modes = [] } = planOf(session)
+  if (!Number.isInteger(index) || index < 0 || index >= stops.length) throw new Error('This stop does not exist.')
   if (stops.length <= 1) throw new Error('A plan needs at least one stop.')
   session.plan.stops = stops.filter((_, i) => i !== index)
+  // The plan starts when its first stop does: if the first stop goes, the next one starts at its own planned time
+  // instead of being pulled forward to the old start.
+  if (index === 0) session.plan.startAt = session.plan.stops[0].plannedStart
   // The legs on either side of the removed stop merge into one, which starts with its default mode.
   const nextModes = [...modes]
   if (index === 0) nextModes.splice(0, 1)
@@ -1041,6 +1244,7 @@ async function reopenVoting(session, trigger) {
   const next = await computeMeeting(session)
   session.status = 'voting'
   session.plan = null
+  delete session.confirmedRanking
   session.meeting = next
   const moved = (previous?.areaId ?? null) !== (next?.areaId ?? null)
   if (moved) {
@@ -1060,6 +1264,8 @@ export async function endPlan(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can be ended.')
+  // A season that ran out before today closes first, so these points count for the season they were earned in.
+  catchUpSeasons()
   session.status = 'completed'
   session.completedAt = Date.now()
   session.replan = null
@@ -1074,17 +1280,24 @@ export async function endPlan(id) {
 
 // ── Photos: everyone in a session can post pictures from the day ────────────
 
+// Everyone in a session can post up to PHOTOS_MAX pictures. src is a data URL (see image.js).
 export async function addPhoto(id, personId, src) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (!['confirmed', 'completed'].includes(session.status)) throw new Error('Photos open once the plan is confirmed.')
+  if ((session.photos || []).length >= PHOTOS_MAX) throw new Error(`A session holds up to ${PHOTOS_MAX} photos. Delete one to add another.`)
   session.photos = [...(session.photos || []), { id: `p${db.seq++}`, personId, src, at: Date.now() }]
-  if (!save()) {
-    // Local storage is full: drop the new photo so the rest of the demo keeps saving.
-    session.photos.pop()
-    throw new Error('There is no room left for more photos in this demo.')
-  }
+  // One save: if storage is full it puts the photo back and this rejects.
   return touch(session, 'photos')
+}
+
+// The pictures of a session, oldest first, each with the poster's name. `latest` keeps only the newest few
+// (the strip on the session and the card thumbnails). A session summary has only photoCount.
+// How to call: await getPhotos('s1') or await getPhotos('s1', { latest: 4 })
+export async function getPhotos(id, { latest } = {}) {
+  await wait(DELAY.read)
+  const photos = sessionById(id).photos || []
+  return (latest ? photos.slice(-latest) : photos).map((p) => ({ ...p, name: nameOf(p.personId) }))
 }
 
 export async function deletePhoto(id, photoId) {
@@ -1120,16 +1333,18 @@ export async function redeemReward(rewardId) {
   return { ...redemption, reward: clone(reward), points: stats.points }
 }
 
-// ── Demo conditions (weather, crowd, routing, the session day) ─────────────
+// ── Demo conditions (weather, routing, the session day) ────────────────────
 
 export async function getConditions() {
   return clone(db.conditions)
 }
 
 export async function setConditions(patch) {
-  db.conditions = { ...db.conditions, ...patch }
+  // The crowd switch is gone: an old caller asking for it changes nothing.
+  const { crowd: _crowd, ...known } = patch
+  db.conditions = { ...db.conditions, ...known }
   // Routing changes how the meeting area is found, so sessions still locating are re-calculated.
-  if ('routing' in patch) {
+  if ('routing' in known) {
     for (const session of db.sessions.filter((s) => s.status === 'locating')) session.meeting = await computeMeeting(session)
   }
   emit({ type: 'conditions' })

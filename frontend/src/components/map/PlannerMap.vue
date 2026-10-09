@@ -1,13 +1,12 @@
 <script setup>
 // Every map in the app. Leaflet, on OneMap's base map from the Singapore Land Authority.
 //   <PlannerMap :people="[{ id, name, lat, lng, minutes }]" :area="{ name, lat, lng }" spokes />
-//   <PlannerMap :places="[{ id, name, lat, lng, label: '1' }]" route :heat="showHeat" :heat-points="points" @select="open" />
+//   <PlannerMap :places="[{ id, name, lat, lng, label: '1' }]" route @select="open" />
 // people     each person's start AREA (never an exact address), with their travel time when known
 // area       the meeting area pin
 // places     venues: numbered pins when `label` is set, otherwise category dots
 // route      join the places in order with a line
 // spokes     a dashed line from each person to the meeting area, in their colour, moving towards it
-// heat       show the crowd heat layer; heatPoints are { lat, lng, level: quiet | moderate | busy }
 // finding    the meeting area is being worked out: a pulse between everyone instead of the area pin
 // radius     metres: a circle around the meeting area showing how far suggestions may be; it grows or shrinks
 //            smoothly to a new size
@@ -21,14 +20,15 @@ import 'leaflet/dist/leaflet.css'
 import { travelTone } from '@/lib/planner/travel.js'
 import { personIndex } from '@/lib/people.js'
 
+// People who asked for less motion get a map that jumps to its new view instead of gliding there.
+const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+
 const props = defineProps({
   people: { type: Array, default: () => [] },
   area: { type: Object, default: null },
   places: { type: Array, default: () => [] },
   route: { type: Boolean, default: false },
   spokes: { type: Boolean, default: false },
-  heat: { type: Boolean, default: false },
-  heatPoints: { type: Array, default: () => [] },
   selected: { type: String, default: '' },
   label: { type: String, default: 'Map' },
   // What the view fits to: 'all' (default), or 'places' to frame the stops and the meeting area only.
@@ -139,16 +139,14 @@ function draw() {
     focus.push([place.lat, place.lng])
   }
 
-  drawHeat()
-
   // Fit the view when the set of things on the map changes, not on every small update.
   const frame = props.fitTo === 'places' && focus.length ? focus : points
   const key = frame.map((p) => p.join(',')).sort().join('|')
   if (key !== fittedKey) {
     fittedKey = key
-    if (frame.length > 1) map.fitBounds(L.latLngBounds(frame), { padding: [64, 64], maxZoom: 16, animate: true })
-    else if (frame.length === 1) map.setView(frame[0], 15)
-    else map.setView(SINGAPORE, 11)
+    if (frame.length > 1) map.fitBounds(L.latLngBounds(frame), { padding: [64, 64], maxZoom: 16, animate: !reducedMotion() })
+    else if (frame.length === 1) map.setView(frame[0], 15, reducedMotion() ? { animate: false } : undefined)
+    else map.setView(SINGAPORE, 11, reducedMotion() ? { animate: false } : undefined)
   }
 }
 
@@ -190,7 +188,7 @@ function drawRadius() {
     circle.setRadius(r)
     circleLabel.setLatLng(topOf(area, r))
   }
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || from === target) {
+  if (reducedMotion() || from === target) {
     set(target)
     return keepInView()
   }
@@ -210,28 +208,15 @@ function keepInView() {
   if (!circle || !map) return
   const bounds = circle.getBounds()
   if (map.getBounds().pad(-0.05).contains(bounds)) return
-  map.fitBounds(bounds.extend(map.getBounds()), { padding: [24, 24], maxZoom: 16, animate: true })
-}
-
-function drawHeat() {
-  layers.heat.clearLayers()
-  if (!props.heat) return
-  const radius = { quiet: 160, moderate: 260, busy: 380 }
-  for (const point of props.heatPoints) {
-    // No crowd data for the place (crowd 'unknown'): nothing to draw.
-    if (!radius[point.level]) continue
-    for (const scale of [1, 0.6]) {
-      L.circle([point.lat, point.lng], { radius: radius[point.level] * scale, className: `pm-heat pm-heat--${point.level}`, interactive: false }).addTo(layers.heat)
-    }
-  }
+  map.fitBounds(bounds.extend(map.getBounds()), { padding: [24, 24], maxZoom: 16, animate: !reducedMotion() })
 }
 
 onMounted(() => {
   // OneMap serves zoom 11 and up; below that, Leaflet scales the zoom 11 tiles so a phone can see the whole island.
-  map = L.map(el.value, { center: SINGAPORE, zoom: 11, minZoom: 10, maxZoom: 18, zoomSnap: 0.25, zoomControl: false, maxBounds: BOUNDS })
+  map = L.map(el.value, { center: SINGAPORE, zoom: 11, minZoom: 10, maxZoom: 18, zoomSnap: 0.25, zoomControl: false, maxBounds: BOUNDS, zoomAnimation: !reducedMotion(), fadeAnimation: !reducedMotion(), markerZoomAnimation: !reducedMotion() })
   L.control.zoom({ position: props.zoomPosition }).addTo(map)
   L.tileLayer(TILES, { attribution: ATTRIBUTION, minZoom: 10, minNativeZoom: 11, maxZoom: 19, bounds: BOUNDS }).addTo(map)
-  layers = { base: L.layerGroup().addTo(map), heat: L.layerGroup().addTo(map), radius: L.layerGroup().addTo(map) }
+  layers = { base: L.layerGroup().addTo(map), radius: L.layerGroup().addTo(map) }
   draw()
   drawRadius()
   // The map can start hidden (the List / Map switch on phones). Re-measure whenever its box changes.
@@ -258,7 +243,6 @@ onBeforeUnmount(() => {
 
 watch(() => [props.people, props.area, props.places, props.route, props.spokes, props.selected, props.finding, props.radius], draw, { deep: true })
 watch(() => [props.area?.lat, props.area?.lng, props.radius, props.finding], () => map && drawRadius())
-watch(() => [props.heat, props.heatPoints], () => map && drawHeat(), { deep: true })
 
 // Called by a parent after the map container becomes visible.
 function refit() {
@@ -282,7 +266,8 @@ defineExpose({ refit })
 /* Leaflet draws markers outside Vue's scope, so these styles are global. All values come from tokens. */
 .leaflet-container { font: var(--text-caption-sm); }
 .leaflet-container a { color: var(--ink); }
-.leaflet-bar a { width: 36px; height: 36px; line-height: 36px; color: var(--ink); }
+/* The zoom buttons are 44px, on touch screens too (Leaflet's own touch rule is more specific, so it is matched). */
+.leaflet-container .leaflet-bar a, .leaflet-container.leaflet-touch .leaflet-bar a { width: var(--tap-min); height: var(--tap-min); line-height: var(--tap-min); color: var(--ink); }
 .leaflet-control-zoom a:focus-visible, .leaflet-marker-icon:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .pm { background: transparent; border: 0; }
 .pm-person, .pm-area, .pm-stop, .pm-venue { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: var(--rounded-full); box-shadow: var(--shadow-float); font: var(--text-micro-label); }
@@ -311,7 +296,7 @@ defineExpose({ refit })
 .pm-spoke { stroke: var(--pc, var(--ink)); stroke-width: 2.5; stroke-dasharray: 6 8; stroke-linecap: round; fill: none; opacity: 0.85; animation: pm-march 1.4s linear infinite; }
 /* Travel time: the minutes in their travel colour; a long trip also rings the pin. */
 .pm-person--short .pm-person__min { color: var(--travel-short); font-weight: 600; }
-.pm-person--medium .pm-person__min { color: var(--travel-medium); font-weight: 600; }
+.pm-person--medium .pm-person__min { color: var(--travel-medium-text); font-weight: 600; }
 .pm-person--long .pm-person__min { color: var(--travel-long); font-weight: 600; }
 .pm-person--long { box-shadow: 0 0 0 2px var(--travel-long), var(--shadow-float); }
 /* Numbered stops in their category colour, matching the stop numbers on the itinerary. */
@@ -339,8 +324,4 @@ defineExpose({ refit })
   .pm-finding > span, .pm-spoke { animation: none; }
   .pm-finding > span:first-child { opacity: 0.5; transform: scale(0.7); }
 }
-.pm-heat { stroke: none; fill-opacity: 0.18; }
-.pm-heat--quiet { fill: var(--crowd-quiet); }
-.pm-heat--moderate { fill: var(--crowd-moderate); }
-.pm-heat--busy { fill: var(--crowd-busy); fill-opacity: 0.24; }
 </style>

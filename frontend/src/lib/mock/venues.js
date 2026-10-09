@@ -1,5 +1,5 @@
-// Real Singapore places, with mock opening hours, prices (SGD per person), crowd and ratings.
-// They stand in for OneMap search and LTA crowd data until the backend exists.
+// Real Singapore places, with mock opening hours, prices (SGD per person) and ratings.
+// They stand in for OneMap search until the backend supplies places. The app labels them as sample data.
 //
 //   category  eat | drink | shop | activity
 //   kind      hawker | restaurant | cafe | dessert | bar | mall | market | park | museum | cinema | library | sports | attraction

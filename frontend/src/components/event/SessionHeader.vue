@@ -45,7 +45,7 @@ async function cancelSession() {
     <div class="screen__bar">
       <IconButton label="Back" :to="back"><AppIcon name="back" /></IconButton>
       <span class="session-head__actions">
-        <!-- Screen-specific icon actions, for example Ask AI and Edit on the itinerary. -->
+        <!-- Screen-specific icon actions, for example Map and Edit on the itinerary. -->
         <slot name="actions" />
         <IconButton v-if="canInvite" label="Invite friends" @click="inviteOpen = true"><AppIcon name="user-plus" /></IconButton>
         <HoldButton v-if="canCancel" label="Hold to end" action="End session" @done="cancelOpen = true" />

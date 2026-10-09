@@ -11,7 +11,7 @@
 //   danger    Error-red fill, for an action that cannot be undone, for example "Cancel session".
 // `small` makes primary and secondary buttons 44px tall with smaller text, for actions inside cards.
 // Pass `to` to make it a router link, or `href` for a link to another site (add target="_blank" to open a new tab;
-// it gets rel="noopener"). A disabled button always renders as a real <button>.
+// it gets rel="noopener noreferrer"). A disabled button always renders as a real <button>.
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import AppIcon from './AppIcon.vue'
@@ -36,7 +36,7 @@ const isAnchor = computed(() => !!props.href && !props.disabled)
 // Only the attributes each element uses. Passing href: undefined to a RouterLink overrode the href it renders,
 // which left an <a> with no href: not reachable with Tab, and not a link to screen readers.
 const attrs = computed(() =>
-  isLink.value ? { to: props.to } : isAnchor.value ? { href: props.href, rel: 'noopener' } : { type: props.type, disabled: props.disabled },
+  isLink.value ? { to: props.to } : isAnchor.value ? { href: props.href, rel: 'noopener noreferrer' } : { type: props.type, disabled: props.disabled },
 )
 </script>
 

@@ -1,0 +1,618 @@
+-- Jio database schema: tables, functions and triggers for the session model.
+--
+-- How to apply:
+--   1. Run this file, then db/policies.sql, in the Supabase SQL editor (or as one migration).
+--   2. Apply the same pair to the test project.
+--
+-- Run the two files together as ONE transaction (one migration, or one paste into the SQL editor).
+-- Row-level security is switched on in db/policies.sql, so between the two files the new tables
+-- would be open to any signed-in user. Both files are safe to run more than once.
+--
+-- On the "jio" project the account tables, the sign-up trigger and username_available() already
+-- exist and are left as they are: this file only adds columns to profile_private, and
+-- db/policies.sql sets the same permissions on them that the project already had.
+--
+-- These files describe a fresh build. "create table if not exists" does not change a table that is
+-- already there, so a change to an existing table's columns needs its own migration.
+--
+-- Venue ids are text because venues still live in the backend's JSON files (for example
+-- "cdc_560160"). Area ids are text for the same reason (for example "bishan").
+
+-- Needed for gen_random_bytes, which makes the invite tokens.
+create extension if not exists pgcrypto with schema extensions;
+
+-- ── Accounts ────────────────────────────────────────────────────────────
+-- These two tables, the sign-up trigger and username_available() were created on the "jio" project
+-- on 6 Oct 2026, straight in the dashboard. They are reproduced here unchanged so the test project
+-- can be built from this file. On "jio" itself every statement in this section does nothing.
+
+-- The public half of an account: what other signed-in users may see.
+create table if not exists public.profiles (
+  id uuid not null,
+  -- 3 to 20 lowercase letters, numbers and underscores. Set at sign-up and not editable.
+  username text not null,
+  display_name text,
+  avatar_url text,
+  created_at timestamptz not null default now(),
+  constraint profiles_pkey primary key (id),
+  constraint profiles_id_fkey foreign key (id) references auth.users (id) on delete cascade,
+  constraint profiles_username_key unique (username),
+  constraint username_format check (username ~ '^[a-z0-9_]{3,20}$'),
+  constraint display_name_length check (char_length(display_name) >= 1 and char_length(display_name) <= 50)
+);
+
+-- The private half: only the owner can read it. The server reads planner needs from it with the service key.
+create table if not exists public.profile_private (
+  id uuid not null,
+  dob date not null,
+  constraint profile_private_pkey primary key (id),
+  constraint profile_private_id_fkey foreign key (id) references public.profiles (id) on delete cascade,
+  constraint dob_range check (dob >= '1900-01-01'::date)
+);
+
+-- Creates both profile rows when someone signs up. The username and date of birth come from the sign-up call:
+--   supabase.auth.signUp({ email, password, options: { data: { username, dob: '2003-05-17' } } })
+-- Sign-up fails without both, or with a username that is taken or badly formed, so call
+-- username_available first.
+do $accounts$
+begin
+  if not exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'handle_new_user'
+  ) then
+    execute $fn$
+      create function public.handle_new_user()
+      returns trigger
+      language plpgsql security definer set search_path = ''
+      as $body$
+      declare
+        v_username text := lower(trim(new.raw_user_meta_data ->> 'username'));
+        v_dob date := (new.raw_user_meta_data ->> 'dob')::date;
+      begin
+        if v_username is null or v_dob is null then
+          raise exception 'A username and date of birth are required to sign up';
+        end if;
+        if v_dob > current_date then
+          raise exception 'Date of birth cannot be in the future';
+        end if;
+
+        insert into public.profiles (id, username, display_name)
+        values (new.id, v_username, v_username);
+
+        insert into public.profile_private (id, dob)
+        values (new.id, v_dob);
+
+        return new;
+      end;
+      $body$
+    $fn$;
+  end if;
+
+  -- Is this username free? Callable before signing up.
+  --   const { data: free } = await supabase.rpc('username_available', { p_username: 'ian' })
+  if not exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'username_available'
+  ) then
+    execute $fn$
+      create function public.username_available(p_username text)
+      returns boolean
+      language sql stable security definer set search_path = ''
+      as $body$
+        select not exists (
+          select 1 from public.profiles where username = lower(trim(p_username))
+        );
+      $body$
+    $fn$;
+  end if;
+
+  if not exists (
+    select 1 from pg_trigger
+    where tgname = 'on_auth_user_created' and tgrelid = 'auth.users'::regclass and not tgisinternal
+  ) then
+    create trigger on_auth_user_created after insert on auth.users
+      for each row execute function public.handle_new_user();
+  end if;
+end;
+$accounts$;
+
+-- Added for the planner. All optional, so existing rows and the sign-up trigger are unaffected.
+-- Private: only the owner and the server read these. home_area_id is here, not on profiles, because
+-- every signed-in user can read profiles and where someone lives is not for strangers.
+alter table public.profile_private
+  add column if not exists home_area_id text
+    constraint home_area_length check (char_length(home_area_id) <= 60),
+  add column if not exists dietary text[] not null default '{}'
+    constraint dietary_values check (dietary <@ array['halal', 'vegetarian', 'vegan']::text[]),
+  add column if not exists budget_max_per_person numeric(6, 2)
+    constraint budget_positive check (budget_max_per_person > 0),
+  add column if not exists needs_step_free boolean not null default false;
+
+-- True when a list has no repeated entry. Used by the check on session_members.categories, so one
+-- person cannot count three times by sending the same category three times.
+--   select public.array_is_unique(array['eat', 'drink']);  -- true
+create or replace function public.array_is_unique(items text[])
+returns boolean
+language sql immutable set search_path = ''
+as $$
+  select cardinality(items) = (select count(distinct item) from unnest(items) as item);
+$$;
+
+-- ── Sessions ────────────────────────────────────────────────────────────
+
+-- One outing. Status moves inviting → locating → voting → confirmed → completed, or to cancelled.
+-- A signed-in host creates the row, renames it, changes its date and times while it is still
+-- "inviting", starts it and cancels it. Everything else is written by the server.
+create table if not exists public.sessions (
+  id uuid primary key default gen_random_uuid(),
+  -- A host's account cannot be deleted while they host a session: that would erase other people's history.
+  host_id uuid not null references public.profiles (id) on delete restrict,
+  title text not null check (char_length(btrim(title)) between 1 and 80),
+  date date not null,
+  start_time time not null,
+  end_time time not null,
+  status text not null default 'inviting'
+    check (status in ('inviting', 'locating', 'voting', 'confirmed', 'completed', 'cancelled')),
+  -- The search radius the group chose, or null to let the planner widen on its own. Server only:
+  -- changing it re-ranks every slot.
+  radius_meters integer check (radius_meters between 100 and 3000),
+  -- The meeting area. Server only, written after the planner has run.
+  meeting_area_id text,
+  meeting_method text check (meeting_method in ('same', 'fairest', 'centre')),
+  meeting_max_minutes integer,
+  meeting_total_minutes integer,
+  meeting_count integer,
+  -- True when the travel times behind the meeting area are estimates, not real routes.
+  meeting_approximate boolean,
+  meeting_computed_at timestamptz,
+  -- A one-line notice for the group, and a pending "plan again?" prompt. Server only.
+  banner jsonb,
+  replan jsonb,
+  completed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (end_time > start_time)
+);
+create index if not exists sessions_host_id_idx on public.sessions (host_id);
+
+-- Who is in a session and what they want to do. Every member can read every row here, so it holds
+-- only what the group may see: the area someone starts from, never the exact place.
+-- A member edits their own areas and picks while the session is open. state, role and
+-- travel_minutes are server only: opting out changes the meeting area, so the server does it.
+create table if not exists public.session_members (
+  session_id uuid not null references public.sessions (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  role text not null default 'guest' check (role in ('host', 'guest')),
+  state text not null default 'joined' check (state in ('joined', 'opted_out')),
+  -- The MRT area the person sets off from and goes to afterwards, for example "bugis".
+  -- A null end area means "same as the start".
+  start_area_id text check (char_length(start_area_id) <= 60),
+  end_area_id text check (char_length(end_area_id) <= 60),
+  -- What the person picked on the Activities screen: at most one of each category.
+  categories text[] not null default '{}'
+    check (
+      categories <@ array['eat', 'drink', 'shop', 'activity']::text[]
+      and cardinality(categories) <= 4
+      and public.array_is_unique(categories)
+    ),
+  stay_until time,
+  -- Set by a trigger whenever categories or stay_until change.
+  preferences_set_at timestamptz,
+  -- Minutes from this person's start to the meeting area. Server only.
+  travel_minutes integer,
+  joined_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (session_id, user_id)
+);
+create index if not exists session_members_user_id_idx on public.session_members (user_id);
+
+-- Shape limits on the two lists the planner reads. Added as named constraints so that running this
+-- file again adds them to tables that already exist.
+--   dietary: one flat list, no repeats, at most 3. The planner refuses a longer list, and one
+--     member's bad list would fail planning for the whole group.
+--   categories: one flat list. '{{eat},{drink}}' would otherwise pass the checks above.
+-- array_ndims() is null for an empty list, which is allowed.
+do $shape$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'dietary_shape' and conrelid = 'public.profile_private'::regclass
+  ) then
+    alter table public.profile_private add constraint dietary_shape check (
+      coalesce(array_ndims(dietary), 1) = 1
+      and cardinality(dietary) <= 3
+      and public.array_is_unique(dietary)
+    );
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'categories_one_dimension' and conrelid = 'public.session_members'::regclass
+  ) then
+    alter table public.session_members add constraint categories_one_dimension check (
+      coalesce(array_ndims(categories), 1) = 1
+    );
+  end if;
+end;
+$shape$;
+
+-- The exact place behind a member's start and end: the address they typed, or their coordinates.
+-- Only the owner and the server read this table. The rest of the group sees the area on
+-- session_members and nothing more. Coordinates must fall inside Singapore.
+create table if not exists public.session_member_places (
+  session_id uuid not null,
+  user_id uuid not null,
+  start_label text check (char_length(start_label) <= 120),
+  start_lat double precision check (start_lat between 1.1 and 1.5),
+  start_lng double precision check (start_lng between 103.5 and 104.1),
+  end_label text check (char_length(end_label) <= 120),
+  end_lat double precision check (end_lat between 1.1 and 1.5),
+  end_lng double precision check (end_lng between 103.5 and 104.1),
+  updated_at timestamptz not null default now(),
+  primary key (session_id, user_id),
+  foreign key (session_id, user_id) references public.session_members (session_id, user_id) on delete cascade,
+  -- A latitude always comes with its longitude.
+  check ((start_lat is null) = (start_lng is null)),
+  check ((end_lat is null) = (end_lng is null))
+);
+
+-- Invite links. The token is 32 random bytes, so links cannot be guessed or counted through.
+create table if not exists public.invites (
+  token text primary key
+    default translate(encode(extensions.gen_random_bytes(32), 'base64'), '+/=', '-_'),
+  session_id uuid not null references public.sessions (id) on delete cascade,
+  created_by uuid not null references public.profiles (id) on delete cascade,
+  expires_at timestamptz,
+  revoked boolean not null default false,
+  -- How many people have joined with this link.
+  uses integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists invites_session_id_idx on public.invites (session_id);
+create index if not exists invites_created_by_idx on public.invites (created_by);
+
+-- ── Planning ────────────────────────────────────────────────────────────
+-- Everything in this section is written by the server only. Members read it, and vote.
+
+-- One time slot per category the group picked. Built from everyone's preferences.
+create table if not exists public.slots (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references public.sessions (id) on delete cascade,
+  category text not null check (category in ('eat', 'drink', 'shop', 'activity')),
+  -- Minutes after midnight.
+  start_minute integer not null check (start_minute between 0 and 1439),
+  duration_minutes integer not null check (duration_minutes between 1 and 720),
+  -- How many people picked this category.
+  picks integer not null default 0,
+  is_last boolean not null default false,
+  -- The host can remove a slot and restore it later, through the server: removing a slot also
+  -- clears its options and votes.
+  deleted boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (session_id, category)
+);
+
+-- The places the group is voting on for a slot. The planner ranks them. A member can ask for one
+-- to be added, through the server, which checks that the venue exists and fits the slot.
+create table if not exists public.slot_options (
+  slot_id uuid not null references public.slots (id) on delete cascade,
+  venue_id text not null check (char_length(venue_id) <= 80),
+  rank integer,
+  -- The planner's score. It is a penalty: lower is better.
+  score numeric,
+  source text not null default 'planner' check (source in ('planner', 'member')),
+  added_by uuid references public.profiles (id) on delete set null,
+  -- What the planner said about this place: explanation, walking minutes, crowd, and the caveats
+  -- (approximate, dietUnknown, verify) that the screens must show.
+  details jsonb not null default '{}',
+  created_at timestamptz not null default now(),
+  primary key (slot_id, venue_id)
+);
+create index if not exists slot_options_added_by_idx on public.slot_options (added_by);
+
+-- One vote per person per slot. This is the one planning table a member writes: their own vote,
+-- while voting is open. A vote follows its option if the option is swapped, and goes when it goes.
+create table if not exists public.votes (
+  slot_id uuid not null,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  venue_id text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (slot_id, user_id),
+  foreign key (slot_id, venue_id) references public.slot_options (slot_id, venue_id)
+    on update cascade on delete cascade
+);
+create index if not exists votes_user_id_idx on public.votes (user_id);
+
+-- The confirmed itinerary, in order. Written when the host confirms.
+create table if not exists public.stops (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references public.sessions (id) on delete cascade,
+  seq integer not null check (seq >= 0),
+  slot_id uuid references public.slots (id) on delete set null,
+  category text check (category in ('eat', 'drink', 'shop', 'activity')),
+  venue_id text not null check (char_length(venue_id) <= 80),
+  -- Minutes after midnight.
+  planned_start_minute integer not null check (planned_start_minute between 0 and 1439),
+  duration_minutes integer not null check (duration_minutes between 1 and 720),
+  -- How the group gets here from the stop before, and how long that takes.
+  travel_mode text check (travel_mode in ('walk', 'mrt', 'car')),
+  travel_minutes integer,
+  arrived_at timestamptz,
+  created_at timestamptz not null default now(),
+  -- Checked at the end of the transaction, so stops can swap places in one go. Because it is
+  -- deferrable it cannot be the target of "on conflict": to rewrite an itinerary, delete the
+  -- session's stops and insert the new ones.
+  unique (session_id, seq) deferrable initially deferred
+);
+create index if not exists stops_slot_id_idx on public.stops (slot_id);
+
+-- ── Fairness and routing ────────────────────────────────────────────────
+
+-- How far each person travelled for a session: in, between stops, and home. Written by the server
+-- when the session ends. delta_from_mean is positive for someone who travelled more than the
+-- group's average. A person with ledger rows cannot be deleted: everyone's delta depends on theirs.
+create table if not exists public.commute_ledger (
+  session_id uuid not null references public.sessions (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete restrict,
+  minutes_in integer not null default 0 check (minutes_in >= 0),
+  minutes_between integer not null default 0 check (minutes_between >= 0),
+  minutes_home integer not null default 0 check (minutes_home >= 0),
+  total_minutes integer generated always as (minutes_in + minutes_between + minutes_home) stored,
+  delta_from_mean numeric not null default 0,
+  created_at timestamptz not null default now(),
+  primary key (session_id, user_id)
+);
+create index if not exists commute_ledger_user_id_idx on public.commute_ledger (user_id);
+
+-- Routes already fetched from OneMap, so the same trip is not paid for twice. Server only.
+-- origin_key is the start point rounded to 3 decimal places; dest_key is a venue or area id.
+create table if not exists public.route_cache (
+  origin_key text not null,
+  dest_key text not null,
+  hour_bucket smallint not null check (hour_bucket between 0 and 23),
+  mode text not null check (mode in ('pt', 'walk')),
+  duration_minutes integer not null check (duration_minutes >= 0),
+  transfers integer,
+  fetched_at timestamptz not null default now(),
+  primary key (origin_key, dest_key, hour_bucket, mode)
+);
+
+-- ── Helper functions for the access rules ───────────────────────────────
+-- Each returns ids that belong to the signed-in user and nothing else, so calling one tells a
+-- caller nothing about anybody else's sessions. They run with the owner's rights (security definer)
+-- so a rule on session_members can ask about session_members without calling itself in a loop.
+-- A rule uses them as "session_id in (select public.my_session_ids())", which runs once per query.
+
+-- The sessions the signed-in user is in, whether joined or opted out. Used for reading.
+create or replace function public.my_session_ids()
+returns setof uuid
+language sql stable security definer set search_path = ''
+as $$
+  select m.session_id from public.session_members m where m.user_id = (select auth.uid());
+$$;
+
+-- The sessions the signed-in user has joined that can still be changed. Used for writing: an
+-- opted-out member, and anyone in a confirmed or finished session, edits nothing.
+create or replace function public.my_open_session_ids()
+returns setof uuid
+language sql stable security definer set search_path = ''
+as $$
+  select m.session_id
+  from public.session_members m
+  join public.sessions s on s.id = m.session_id
+  where m.user_id = (select auth.uid())
+    and m.state = 'joined'
+    and s.status in ('inviting', 'locating', 'voting');
+$$;
+
+-- The slots of the signed-in user's sessions. Used for reading options and votes.
+create or replace function public.my_slot_ids()
+returns setof uuid
+language sql stable security definer set search_path = ''
+as $$
+  select sl.id
+  from public.slots sl
+  join public.session_members m on m.session_id = sl.session_id
+  where m.user_id = (select auth.uid());
+$$;
+
+-- The slots the signed-in user may vote in right now: they have joined, the session is in the
+-- Voting stage, and the slot has not been removed.
+create or replace function public.my_votable_slot_ids()
+returns setof uuid
+language sql stable security definer set search_path = ''
+as $$
+  select sl.id
+  from public.slots sl
+  join public.sessions s on s.id = sl.session_id
+  join public.session_members m on m.session_id = sl.session_id
+  where m.user_id = (select auth.uid())
+    and m.state = 'joined'
+    and s.status = 'voting'
+    and not sl.deleted;
+$$;
+
+-- True when the signed-in user hosts the session.
+--   select public.is_session_host('<session id>');
+create or replace function public.is_session_host(sid uuid)
+returns boolean
+language sql stable security definer set search_path = ''
+as $$
+  select exists (
+    select 1 from public.sessions s
+    where s.id = sid and s.host_id = (select auth.uid())
+  );
+$$;
+
+-- ── Functions the app calls ─────────────────────────────────────────────
+
+-- What an invite link leads to, for the join page. Callable when logged out.
+-- Returns no row when the link is revoked or expired, or the session can no longer be joined.
+--   const { data } = await supabase.rpc('invite_preview', { invite_token: token })
+create or replace function public.invite_preview(invite_token text)
+returns table (session_id uuid, title text, date date, start_time time, end_time time, host_name text, member_count bigint)
+language sql stable security definer set search_path = ''
+as $$
+  select s.id, s.title, s.date, s.start_time, s.end_time, coalesce(p.display_name, p.username),
+         (select count(*) from public.session_members m where m.session_id = s.id and m.state = 'joined')
+  from public.invites i
+  join public.sessions s on s.id = i.session_id
+  join public.profiles p on p.id = s.host_id
+  where i.token = invite_token
+    and not i.revoked
+    and (i.expires_at is null or i.expires_at > now())
+    and s.status in ('inviting', 'locating', 'voting');
+$$;
+
+-- Join a session with an invite link. Returns the session id.
+-- Raises an error when the link is revoked or expired, or the session is already confirmed or over.
+-- Someone already in the session, opted out or not, is left exactly as they are.
+--   const { data: sessionId, error } = await supabase.rpc('join_session', { invite_token: token })
+create or replace function public.join_session(invite_token text)
+returns uuid
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  me uuid := (select auth.uid());
+  target uuid;
+  added integer;
+begin
+  if me is null then
+    raise exception 'Sign in to join a session.' using errcode = '28000';
+  end if;
+
+  select i.session_id into target
+  from public.invites i
+  join public.sessions s on s.id = i.session_id
+  where i.token = invite_token
+    and not i.revoked
+    and (i.expires_at is null or i.expires_at > now())
+    and s.status in ('inviting', 'locating', 'voting');
+
+  if target is null then
+    raise exception 'This invite link is no longer valid.' using errcode = 'P0002';
+  end if;
+
+  insert into public.session_members (session_id, user_id, role, state)
+  values (target, me, 'guest', 'joined')
+  on conflict (session_id, user_id) do nothing;
+  get diagnostics added = row_count;
+
+  if added = 1 then
+    update public.invites set uses = uses + 1 where token = invite_token;
+  end if;
+  return target;
+end;
+$$;
+
+-- Each joined member's private planner needs, for the server only (the service key). The backend
+-- first loads the session as the signed-in user, which proves they are a member, then calls this.
+--   const { data } = await serviceClient.rpc('session_member_needs', { sid: sessionId })
+create or replace function public.session_member_needs(sid uuid)
+returns table (user_id uuid, home_area_id text, dietary text[], budget_max_per_person numeric, needs_step_free boolean)
+language sql stable security definer set search_path = ''
+as $$
+  select m.user_id, pp.home_area_id, pp.dietary, pp.budget_max_per_person, pp.needs_step_free
+  from public.session_members m
+  join public.profile_private pp on pp.id = m.user_id
+  where m.session_id = sid and m.state = 'joined';
+$$;
+
+-- ── Triggers ────────────────────────────────────────────────────────────
+
+-- Keeps updated_at current on every change.
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql set search_path = ''
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+create or replace trigger sessions_set_updated_at before update on public.sessions
+  for each row execute function public.set_updated_at();
+create or replace trigger session_members_set_updated_at before update on public.session_members
+  for each row execute function public.set_updated_at();
+create or replace trigger session_member_places_set_updated_at before update on public.session_member_places
+  for each row execute function public.set_updated_at();
+create or replace trigger slots_set_updated_at before update on public.slots
+  for each row execute function public.set_updated_at();
+create or replace trigger votes_set_updated_at before update on public.votes
+  for each row execute function public.set_updated_at();
+
+-- Records when a member last changed their picks, so the client cannot set that time itself.
+create or replace function public.touch_member_preferences()
+returns trigger
+language plpgsql set search_path = ''
+as $$
+begin
+  if new.categories is distinct from old.categories or new.stay_until is distinct from old.stay_until then
+    new.preferences_set_at := now();
+  end if;
+  return new;
+end;
+$$;
+
+create or replace trigger session_members_touch_preferences before update on public.session_members
+  for each row execute function public.touch_member_preferences();
+
+-- Adds the host as the first member of a new session.
+create or replace function public.add_host_membership()
+returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  insert into public.session_members (session_id, user_id, role, state)
+  values (new.id, new.host_id, 'host', 'joined');
+  return new;
+end;
+$$;
+
+create or replace trigger sessions_add_host after insert on public.sessions
+  for each row execute function public.add_host_membership();
+
+-- Limits what anyone but the server can change on a session. The server (the service key) and
+-- database owners are let through; every other role is held to these rules:
+--   - A completed or cancelled session cannot be changed at all.
+--   - The only status changes are starting (inviting → locating, with at least two people joined)
+--     and cancelling. Voting, confirmed and completed are set by the server after the planner has run.
+--   - The date and times can change only while the session is still "inviting".
+create or replace function public.guard_session_changes()
+returns trigger
+language plpgsql set search_path = ''
+as $$
+begin
+  if current_user in ('service_role', 'postgres', 'supabase_admin') then
+    return new;
+  end if;
+
+  if old.status in ('completed', 'cancelled') then
+    raise exception 'A % session cannot be changed.', old.status using errcode = '42501';
+  end if;
+
+  if new.status is distinct from old.status then
+    if new.status = 'locating' and old.status = 'inviting' then
+      if (select count(*) from public.session_members m
+          where m.session_id = old.id and m.state = 'joined') < 2 then
+        raise exception 'A session needs at least two people before it can start.' using errcode = '42501';
+      end if;
+    elsif new.status <> 'cancelled' then
+      raise exception 'A session cannot go from % to % directly.', old.status, new.status
+        using errcode = '42501';
+    end if;
+  end if;
+
+  if old.status <> 'inviting'
+     and (new.date, new.start_time, new.end_time) is distinct from (old.date, old.start_time, old.end_time) then
+    raise exception 'The date and times can only change before the session starts.' using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+create or replace trigger sessions_guard_changes before update on public.sessions
+  for each row execute function public.guard_session_changes();

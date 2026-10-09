@@ -2,12 +2,16 @@
 // Leaderboard: one ranking, the JioCoins earned this season. A season is a calendar quarter; when it ends,
 // first place wins JioCoins to spend, and season totals start again from 0 (JioCoins to spend are kept).
 // The rule, the countdown and the last few winners are on this screen; the picker shows a past season's
-// final ranking. Spending JioCoins is on Rewards.
+// final ranking. Spending JioCoins is on Rewards. The other people are hand-written, so a "Sample data for the demo"
+// note says so. Someone with nothing this season has no rank yet (rank null).
+// States: skeleton rows while loading, a message with Retry if loading fails, and a message when no one is ranked.
 import { computed, onMounted, ref, watch } from 'vue'
+import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import LeaderboardCard from '@/components/ui/LeaderboardCard.vue'
+import SampleNote from '@/components/ui/SampleNote.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import { useGroupsStore } from '@/stores/groups.js'
 import * as api from '@/lib/api.js'
@@ -17,7 +21,22 @@ import { useNow } from '@/lib/useNow.js'
 
 const groups = useGroupsStore()
 
-onMounted(() => Promise.all([groups.loadLeaderboard(), groups.loadSeason()]))
+// The store's own loading flag stays on if a load fails, so this view keeps its own.
+// How to call: load() (on mount, and from Retry)
+const loadingNow = ref(true)
+const loadError = ref(false)
+async function load() {
+  loadingNow.value = true
+  loadError.value = false
+  try {
+    await Promise.all([groups.loadLeaderboard(), groups.loadSeason()])
+  } catch {
+    loadError.value = true
+  } finally {
+    loadingNow.value = false
+  }
+}
+onMounted(load)
 
 const now = useNow()
 const season = computed(() => groups.season)
@@ -67,7 +86,9 @@ const meId = computed(() => rows.value.find((r) => r.isMe)?.id || '')
 const entries = computed(() => rows.value.map(toEntry))
 // The podium is for people who earned something: nobody stands on it with 0 JioCoins.
 const podium = computed(() => entries.value.slice(0, 3).filter((e) => e.value > 0))
-const loading = computed(() => (isPast.value ? pastLoading.value : groups.loading.leaderboard && !groups.leaderboard.length))
+const loading = computed(() => (isPast.value ? pastLoading.value : loadingNow.value && !groups.leaderboard.length))
+// Nobody has earned anything this season yet.
+const nobody = computed(() => !isPast.value && !entries.value.some((e) => e.value > 0))
 
 </script>
 
@@ -82,7 +103,10 @@ const loading = computed(() => (isPast.value ? pastLoading.value : groups.loadin
 
     <div class="screen__body">
       <div class="board-layout" :class="{ 'has-side': season?.past.length }">
-        <div v-if="!season || loading" class="stack" aria-busy="true">
+        <EmptyState v-if="loadError" title="Could not load the leaderboard" text="Check your connection and try again." role="alert">
+          <AppButton variant="secondary" :disabled="loadingNow" @click="load">Retry</AppButton>
+        </EmptyState>
+        <div v-else-if="!season || loading" class="stack" aria-busy="true">
           <SkeletonRow v-for="n in 6" :key="n" avatar />
         </div>
         <section v-else class="board" aria-label="Ranking">
@@ -92,6 +116,7 @@ const loading = computed(() => (isPast.value ? pastLoading.value : groups.loadin
           <BannerNote v-else icon="trophy">
             <strong>{{ winnerNames(shown) }}</strong> won this season<template v-if="shown.winners.length"> and took home {{ coins(shown.prize) }}</template>.
           </BannerNote>
+          <EmptyState v-if="nobody" title="No one ranked yet" text="Finish a meetup to earn JioCoins this season. Everyone who does is ranked here." />
           <LeaderboardCard
             v-model:selected-run-id="run"
             :title="`Season ${shown.number}`"
@@ -106,6 +131,7 @@ const loading = computed(() => (isPast.value ? pastLoading.value : groups.loadin
               <EmptyState v-if="!entries.length" title="No ranking saved" text="This season ended before Jio kept full rankings. Only its winner is remembered." />
             </template>
           </LeaderboardCard>
+          <SampleNote />
         </section>
 
         <aside v-if="season?.past.length" class="side">

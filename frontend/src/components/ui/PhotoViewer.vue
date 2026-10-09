@@ -9,7 +9,8 @@
 //   - Swipe or drag sideways: the photo follows the finger. A short, slow drag springs back; a long one or a
 //     quick flick moves on, finishing at the speed of the flick. Past the first or last photo it pulls like elastic.
 //   - Drag down to close. Tap the photo to hide or show the controls; tap the space around it to close.
-//   - Desktop: previous and next buttons, the arrow keys, and Escape.
+//   - Everywhere: previous and next buttons (bottom right on phones, at the sides on wider screens), the arrow keys,
+//     and Escape. Tab brings the controls back when a tap has hidden them, and hidden controls cannot be focused.
 // While dragging, positions go straight to CSS variables on the elements, never through Vue state.
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
@@ -55,6 +56,7 @@ const last = computed(() => props.photos.length - 1)
 const where = computed(() => (photo.value ? props.place(photo.value) : ''))
 const time = (at) => new Date(at).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: false })
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n))
+const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
 function inView(el) {
   const r = el.getBoundingClientRect()
@@ -108,6 +110,8 @@ function go(step) {
   const el = track.value
   if (!el) return
   if (next === index.value) {
+    // At either end the photo bumps, unless motion is reduced.
+    if (reducedMotion()) return
     el.style.setProperty('--slide-ms', '180ms')
     el.style.setProperty('--dx', `${-step * 28}px`)
     setTimeout(() => el.style.setProperty('--dx', '0px'), 180)
@@ -117,23 +121,28 @@ function go(step) {
   index.value = next
 }
 
+// The page behind stays still: no scrolling, and the scrollbar's space is kept so nothing shifts when it opens.
+function lockPage(on) {
+  const root = document.documentElement
+  root.style.overflow = on ? 'hidden' : ''
+  root.style.scrollbarGutter = on ? 'stable' : ''
+}
+
 // Open: lock the page behind, show the controls, take focus. Closed: give everything back.
 watch(isOpen, async (now) => {
   if (now) {
     opener ??= document.activeElement
-    document.documentElement.style.overflow = 'hidden'
+    lockPage(true)
     chrome.value = true
     await nextTick()
     root.value?.focus({ preventScroll: true })
   } else {
-    document.documentElement.style.overflow = ''
+    lockPage(false)
     opener?.focus?.({ preventScroll: true })
     opener = null
   }
 })
-onBeforeUnmount(() => {
-  document.documentElement.style.overflow = ''
-})
+onBeforeUnmount(() => lockPage(false))
 
 // When someone posts or deletes a photo while the viewer is open, stay on the same photo.
 watch(
@@ -230,7 +239,17 @@ function onPointerUp(e) {
   }
 }
 
-function onKeydown(e) {
+async function onKeydown(e) {
+  if (e.key === 'Tab' && !chrome.value) {
+    // The controls are hidden and cannot take focus: Tab brings them back and lands on the first one.
+    e.preventDefault()
+    const backwards = e.shiftKey
+    chrome.value = true
+    await nextTick()
+    const items = [...root.value.querySelectorAll('button:not([disabled])')]
+    ;(backwards ? items.at(-1) : items[0])?.focus()
+    return
+  }
   if (e.key === 'Escape') {
     e.preventDefault()
     close()
@@ -264,7 +283,6 @@ function onKeydown(e) {
         class="viewer"
         role="dialog"
         aria-modal="true"
-        aria-roledescription="carousel"
         :aria-label="`Photos, ${index + 1} of ${photos.length}`"
         tabindex="-1"
         @keydown="onKeydown"
@@ -284,7 +302,7 @@ function onKeydown(e) {
           @pointerup="onPointerUp"
           @pointercancel="onPointerUp"
         >
-          <div ref="track" class="viewer__track" :style="{ '--index': index }">
+          <div ref="track" class="viewer__track" role="group" aria-roledescription="carousel" aria-label="Photos" :style="{ '--index': index }">
             <figure
               v-for="(p, i) in photos"
               :key="p.id"
@@ -307,7 +325,7 @@ function onKeydown(e) {
           </div>
         </div>
 
-        <div class="viewer__chrome" :class="{ 'is-hidden': !chrome }">
+        <div class="viewer__chrome" :class="{ 'is-hidden': !chrome }" :inert="!chrome">
           <header class="viewer__top">
             <IconButton label="Close" class="viewer__btn" @click="close"><AppIcon name="close" /></IconButton>
             <span class="viewer__count caption tnum" aria-live="polite">{{ index + 1 }} / {{ photos.length }}</span>
@@ -321,7 +339,7 @@ function onKeydown(e) {
           <footer class="viewer__meta">
             <UserAvatar :name="photo.name" :person="photo.personId" :size="36" />
             <span class="viewer__who">
-              <span class="title-sm">{{ photo.name }}</span>
+              <span class="title-sm truncate">{{ photo.name }}</span>
               <span class="caption-sm viewer__soft truncate"><span class="tnum">{{ time(photo.at) }}</span><template v-if="where"> · {{ where }}</template></span>
             </span>
           </footer>
@@ -363,14 +381,19 @@ function onKeydown(e) {
 @media (hover: hover) { .viewer__btn:not(:disabled):hover { background: color-mix(in srgb, var(--on-dark) 24%, transparent); } }
 .viewer__btn:focus-visible { outline-color: var(--on-dark); }
 
-/* Previous and next: on screens with a mouse only. Touch screens swipe. */
-.viewer__nav { position: absolute; top: 50%; display: none; width: 48px; height: 48px; margin-top: -24px; }
-.viewer__nav--prev { left: var(--spacing-lg); }
-.viewer__nav--next { right: var(--spacing-lg); }
-@media (hover: hover) and (min-width: 744px) { .viewer__nav { display: inline-flex; } }
+/* Previous and next, on every screen and for every kind of input (swiping works too). On phones they sit at the
+   bottom right, level with the poster's name, so they never cover the photo. From 744px they sit at the sides. */
+.viewer__nav { position: absolute; bottom: calc(var(--spacing-lg) + env(safe-area-inset-bottom, 0px) - 4px); }
+.viewer__nav--prev { right: calc(var(--spacing-base) + var(--tap-min) + var(--spacing-sm)); }
+.viewer__nav--next { right: var(--spacing-base); }
+@media (min-width: 744px) {
+  .viewer__nav { top: 50%; bottom: auto; width: 48px; height: 48px; margin-top: -24px; }
+  .viewer__nav--prev { right: auto; left: var(--spacing-lg); }
+  .viewer__nav--next { right: var(--spacing-lg); }
+}
 
-.viewer__meta { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-base) var(--spacing-lg) calc(var(--spacing-lg) + env(safe-area-inset-bottom, 0px)); }
-@media (min-width: 744px) { .viewer__meta { justify-content: center; } }
+.viewer__meta { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-base) calc(var(--spacing-base) + var(--tap-min) * 2 + var(--spacing-sm) + var(--spacing-md)) calc(var(--spacing-lg) + env(safe-area-inset-bottom, 0px)) var(--spacing-lg); }
+@media (min-width: 744px) { .viewer__meta { justify-content: center; padding-right: var(--spacing-lg); } }
 .viewer__who { display: flex; flex-direction: column; min-width: 0; }
 .viewer__soft { color: color-mix(in srgb, var(--on-dark) 72%, transparent); }
 
@@ -380,4 +403,11 @@ function onKeydown(e) {
 .viewer-leave-active { transition: opacity 180ms var(--ease-out); }
 .viewer-enter-from, .viewer-leave-to { opacity: 0; }
 .viewer-enter-from .viewer__stage { transform: scale(0.96); }
+
+/* Reduced motion: photos change place at once, the controls do not fade, and nothing grows or settles. */
+@media (prefers-reduced-motion: reduce) {
+  .viewer__track, .viewer__slide.is-current, .viewer__chrome, .viewer__btn, .viewer__stage,
+  .viewer-enter-active, .viewer-leave-active, .viewer-enter-active .viewer__stage, .ambient-enter-active, .ambient-leave-active { transition: none; }
+  .viewer-enter-from .viewer__stage { transform: none; }
+}
 </style>

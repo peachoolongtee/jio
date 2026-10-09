@@ -1,5 +1,6 @@
 <script setup>
-// Everyone in a session: name, their area and travel time (coloured by length: up to 30, 31 to 45, over 45 min),
+// Everyone in a session: name, their area and travel time ("about 25 min", an estimate from distance, coloured by
+// length: up to 30, 31 to 45, over 45 min),
 // and their status as an icon
 // (Joined, Location submitted, Voted, Opted out; the name is the icon's label). Others' locations are the area name only.
 //   <MemberList :session="session" :names="nameOf" :voters="voterIds" />
@@ -37,7 +38,7 @@ const TONE = { Joined: 'wait', 'Location submitted': 'done', Voted: 'done', 'Opt
       <UserAvatar :name="row.name" :person="row.id" :size="36" />
       <RouterLink :to="row.id === 'ian' ? '/profile' : `/people/${row.id}`" class="member__text">
         <span class="title-sm truncate">{{ row.name }}<span v-if="row.host" class="caption-sm text-muted"> (host)</span></span>
-        <span v-if="row.meta" class="caption-sm text-muted truncate">{{ row.meta }}<template v-if="row.travel"> · <span class="member__min" :class="`is-${row.travel.tone}`">{{ row.travel.minutes }} min</span></template></span>
+        <span v-if="row.meta" class="caption-sm text-muted truncate">{{ row.meta }}<template v-if="row.travel"> · <span class="member__min" :class="`is-${row.travel.tone}`">about {{ row.travel.minutes }} min</span></template></span>
       </RouterLink>
       <span class="member__status" :class="`is-${TONE[row.status]}`" role="img" :aria-label="row.status" :title="row.status">
         <AppIcon :name="ICON[row.status]" :size="14" />
@@ -59,6 +60,6 @@ const TONE = { Joined: 'wait', 'Location submitted': 'done', Voted: 'done', 'Opt
 .member.is-out .member__text { opacity: 0.6; }
 .member__min { font-weight: 600; }
 .member__min.is-short { color: var(--travel-short); }
-.member__min.is-medium { color: var(--travel-medium); }
+.member__min.is-medium { color: var(--travel-medium-text); }
 .member__min.is-long { color: var(--travel-long); }
 </style>

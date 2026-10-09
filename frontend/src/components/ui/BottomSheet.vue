@@ -5,9 +5,10 @@
 // It is never a full-width sheet on desktop.
 // It closes on the backdrop, the close button and the Escape key.
 // Use the `footer` slot for a button that stays in view while the content scrolls.
-import { nextTick, ref, useId, watch } from 'vue'
+import { ref, useId } from 'vue'
 import AppIcon from './AppIcon.vue'
 import IconButton from './IconButton.vue'
+import { useFocusTrap } from '@/lib/useFocusTrap.js'
 
 const open = defineModel('open', { type: Boolean, default: false })
 defineProps({
@@ -23,40 +24,14 @@ const emit = defineEmits(['close'])
 
 const titleId = `sheet-${useId()}`
 const panel = ref(null)
-let opener = null
 
 function close() {
   open.value = false
   emit('close')
 }
 
-// Keep Tab inside the sheet while it is open.
-function trap(event) {
-  if (event.key !== 'Tab' || !panel.value) return
-  const items = [...panel.value.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
-  if (!items.length) return
-  const first = items[0]
-  const last = items[items.length - 1]
-  if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.value)) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
-}
-
-// Move focus into the sheet when it opens, and back to where it was when it closes.
-watch(open, async (isOpen) => {
-  if (isOpen) {
-    opener = document.activeElement
-    await nextTick()
-    panel.value?.focus()
-  } else if (opener && typeof opener.focus === 'function') {
-    opener.focus()
-    opener = null
-  }
-})
+// Focus moves into the sheet when it opens, Tab stays inside it, and focus goes back to the opener on close.
+const { onKeydown: trap } = useFocusTrap(open, panel)
 </script>
 
 <template>

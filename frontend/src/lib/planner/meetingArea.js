@@ -19,5 +19,5 @@ export function meetingResultLine(result, areaName) {
   if (result.method === 'centre') {
     return `Routing is unavailable, so ${areaName} is the geographic centre for ${people}. The longest trip is about ${result.maxMinutes} minutes.`
   }
-  return `Fairest for ${people}: nobody travels more than ${result.maxMinutes} minutes.`
+  return `Fairest for ${people}: nobody travels more than about ${result.maxMinutes} minutes.`
 }

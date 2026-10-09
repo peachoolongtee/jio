@@ -2,6 +2,7 @@ import { once } from 'node:events'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { loadPlanData } from '../src/db/venues.js'
+import { createHttp } from '../src/services/http.js'
 import { SCENARIO_HEADER } from '../src/services/scenario.js'
 
 // The planner endpoints over real HTTP, on the joined mock + curated + CDC data.
@@ -15,7 +16,8 @@ const listen = async (app) => {
 }
 
 beforeAll(async () => {
-  ;[server, base] = await listen(createApp({ frontendOrigin: FRONTEND }))
+  // The plain server still answers its forecast from fixtures: a test must never call data.gov.sg.
+  ;[server, base] = await listen(createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }) }))
   ;[stubServer, stubBase] = await listen(createApp({ frontendOrigin: FRONTEND, stub: true }))
 })
 afterAll(() => Promise.all([server, stubServer].map((s) => new Promise((resolve) => s.close(resolve)))))
@@ -176,19 +178,27 @@ describe('stub mode scenarios (for Playwright)', () => {
     expect(meet.body.approximate).toBe(true)
   })
 
-  it('rain: uses the rain weather case unless the body picks one', async () => {
+  it('rain: the live forecast from the rain fixture, unless the body picks a weather case', async () => {
     const { weatherCases } = loadPlanData()
     const roamBody = { ...body, current: { lat: 1.30065, lng: 103.85585 }, members: [{ id: 'ian' }] }
-    // weather penalty = rainRisk of the venue's area x exposure / 5 x 100 (scoring.js weatherPenalty)
-    const expected = (r, weatherCase) => weatherCases[weatherCase][r.venue.forecastArea].rainRisk * (r.venue.exposure / 5) * 100
-    const check = (res, weatherCase) =>
-      res.body.results.forEach((r) => expect(r.breakdown.weather.value).toBeCloseTo(expected(r, weatherCase), 9))
+    // weather penalty = rainRisk x exposure / 5 x 100 (scoring.js weatherPenalty)
+    const penalty = (r, rainRisk) => rainRisk * (r.venue.exposure / 5) * 100
+    // Live: the dry fixture says "Fair (Day)" everywhere (risk 0), the rain one "Heavy Thundery Showers" (risk 1).
+    const checkLive = (res, rainRisk) => {
+      expect(res.body.weather.source).toBe('live')
+      res.body.results.forEach((r) => expect(r.breakdown.weather.value).toBeCloseTo(penalty(r, rainRisk), 9))
+    }
+    // Simulated: the old case table, looked up by the venue's region.
+    const checkSimulated = (res, weatherCase) => {
+      expect(res.body.weather).toEqual({ source: 'simulated' })
+      res.body.results.forEach((r) => expect(r.breakdown.weather.value).toBeCloseTo(penalty(r, weatherCases[weatherCase][r.venue.forecastArea].rainRisk), 9))
+    }
 
     const wet = await post('/roam', roamBody, { url: stubBase, headers: { [SCENARIO_HEADER]: 'rain' } })
     expect(wet.body.results.some((r) => r.venue.exposure > 0)).toBe(true) // otherwise this test proves nothing
-    check(wet, 'rain')
-    check(await post('/roam', roamBody, { url: stubBase }), 'clear')
-    check(await post('/roam', { ...roamBody, weatherCase: 'clear' }, { url: stubBase, headers: { [SCENARIO_HEADER]: 'rain' } }), 'clear')
+    checkLive(wet, 1)
+    checkLive(await post('/roam', roamBody, { url: stubBase }), 0)
+    checkSimulated(await post('/roam', { ...roamBody, weatherCase: 'clear' }, { url: stubBase, headers: { [SCENARIO_HEADER]: 'rain' } }), 'clear')
   })
 })
 

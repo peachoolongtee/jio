@@ -51,7 +51,7 @@ export const PAST_ACTIVITY = {
   darius: [
     { date: '2026-09-26', text: 'Successful meetup at Bugis' },
     { date: '2026-09-12', text: 'Successful meetup at City Hall' },
-    { date: '2026-08-30', text: 'Redeemed a voucher at Tiong Bahru Bakery' },
+    { date: '2026-08-30', text: 'Redeemed a sample voucher' },
   ],
   jonathan: [{ date: '2026-09-19', text: 'Successful meetup at Jurong East' }],
   nicole: [

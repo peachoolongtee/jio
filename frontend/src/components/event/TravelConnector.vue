@@ -5,7 +5,8 @@ const MODES = { walk: 'Walk', mrt: 'MRT', car: 'Car' }
 
 <script setup>
 // The link between two stops: a line and a visible three-way switch, Walk, MRT and Car,
-// each with its own time. Choosing one moves every later stop.
+// each with its own time. Choosing one moves every later stop. The times are estimates from the distance between
+// the stops, so they read "about" (or are marked "est." beside the switch).
 //   <TravelConnector :options="{ walk: 12, mrt: 9, car: 7 }" mode="walk" @change="setMode(index, $event)" />
 // Set `readonly` where the mode cannot be changed: only the chosen mode is shown.
 // Two stops in the same place (every mode 0 min) just say so: there is nothing to choose.
@@ -34,15 +35,18 @@ const together = computed(() => Object.values(props.options).every((m) => m === 
     </span>
     <span v-else-if="readonly" class="leg__fixed caption-sm text-muted">
       <AppIcon :name="mode" :size="14" />
-      {{ MODES[mode] }} {{ options[mode] }} min
+      {{ MODES[mode] }} about {{ options[mode] }} min
     </span>
-    <div v-else class="leg__switch" role="radiogroup" :aria-label="label">
-      <label v-for="(text, key) in MODES" :key="key" class="leg__opt" :class="{ 'is-on': mode === key }">
-        <input class="sr-only" type="radio" :name="`leg-${id}`" :value="key" :checked="mode === key" @change="$emit('change', key)" />
-        <AppIcon :name="key" :size="14" />
-        <span class="leg__name">{{ text }}</span>
-        <span class="leg__min">{{ options[key] }} min</span>
-      </label>
+    <div v-else class="leg__group">
+      <div class="leg__switch" role="radiogroup" :aria-label="label">
+        <label v-for="(text, key) in MODES" :key="key" class="leg__opt" :class="{ 'is-on': mode === key }">
+          <input class="sr-only" type="radio" :name="`leg-${id}`" :value="key" :checked="mode === key" @change="$emit('change', key)" />
+          <AppIcon :name="key" :size="14" />
+          <span class="leg__name">{{ text }}</span>
+          <span class="leg__min"><span class="sr-only">about </span>{{ options[key] }} min</span>
+        </label>
+      </div>
+      <span class="leg__est caption-sm text-muted" aria-hidden="true">est.</span>
     </div>
   </div>
 </template>
@@ -50,7 +54,8 @@ const together = computed(() => Object.values(props.options).every((m) => m === 
 <style scoped>
 .leg { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: var(--spacing-md); padding: var(--spacing-xs) 0; }
 .leg__fixed { display: inline-flex; align-items: center; gap: var(--spacing-xs); min-height: 32px; }
-.leg__switch { display: inline-flex; justify-self: start; gap: 2px; padding: 2px; border-radius: var(--rounded-full); background: var(--surface-strong); }
+.leg__group { display: flex; flex-wrap: wrap; align-items: center; justify-self: start; gap: var(--spacing-xs) var(--spacing-sm); min-width: 0; }
+.leg__switch { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--rounded-full); background: var(--surface-strong); }
 .leg__opt { position: relative; display: inline-flex; align-items: center; gap: var(--spacing-xs); min-height: 36px; padding: 0 var(--spacing-md); border-radius: var(--rounded-full); color: var(--body); font: var(--text-caption-sm); white-space: nowrap; cursor: pointer; transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
 /* The tap area reaches 44px without making the pill taller. */
 .leg__opt::after { content: ""; position: absolute; inset: -4px 0; }
@@ -59,6 +64,11 @@ const together = computed(() => Object.values(props.options).every((m) => m === 
 @media (max-width: 743.98px) {
   .leg__name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .leg__opt { padding: 0 var(--spacing-md) 0 var(--spacing-sm); }
+}
+/* Narrow phones: tighter pills, so the three modes stay inside the card at 320px. */
+@media (max-width: 399.98px) {
+  .leg { gap: var(--spacing-sm); }
+  .leg__opt { gap: 2px; padding: 0 var(--spacing-sm) 0 var(--spacing-xs); }
 }
 .leg__opt.is-on { background: var(--selected); color: var(--on-selected); font-weight: 600; }
 .leg__opt.is-on .leg__min { color: var(--on-selected); }

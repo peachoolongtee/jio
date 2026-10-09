@@ -5,7 +5,7 @@
 //   <SessionCard :session="session" :names="nameOf" hero />   the large card at the top of Home,
 //                                                             photo-first when the day has photos
 // Both are flat white cards with a hairline, like Airbnb's reservation card; they lift on hover.
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import AppIcon from '../ui/AppIcon.vue'
 import AvatarStack from '../ui/AvatarStack.vue'
@@ -14,6 +14,7 @@ import CountdownChip from '../ui/CountdownChip.vue'
 import StatusPill from '../ui/StatusPill.vue'
 import { dateLine, sessionPath } from '@/lib/session.js'
 import { durationLabel } from '@/lib/planner/format.js'
+import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({
   session: { type: Object, required: true },
@@ -29,7 +30,18 @@ const where = computed(() => {
   if (s.status === 'inviting' || s.status === 'cancelled') return ''
   return 'Area pending'
 })
-const photos = computed(() => (props.session.photos || []).slice(-3).reverse())
+
+// A session summary has only photoCount, so the hero card loads the pictures (the store keeps them fresh).
+// The band is decoration: if they do not load, the card simply has no band.
+const events = useEventsStore()
+watch(
+  () => [props.hero, props.session.id, props.session.photoCount],
+  ([hero, id, count]) => {
+    if (hero && count) events.loadPhotos(id).catch(() => {})
+  },
+  { immediate: true },
+)
+const photos = computed(() => (props.session.photoCount ? events.photos[props.session.id] || [] : []).slice(-3).reverse())
 </script>
 
 <template>

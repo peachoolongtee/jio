@@ -7,9 +7,11 @@
 // the flat one the first time the graph scrolls into sight.
 // Shades of Rausch show how many meetups a day had; planned meetups are hatched in ink, and a ring marks today.
 // Hover or tap a day for its count, arrow keys walk the grid, hover a legend swatch to pick out that level, and
-// in 3D drag to turn it (double-click resets). Without motion, every change simply happens.
+// in 3D drag to turn it (the Reset view button, or a double-click, turns it back). The graph is one focusable,
+// interactive element (role "application") that reads out the day the arrow keys land on.
+// Without motion, every change simply happens.
 // The maths lives in lib/skyline.js.
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { format } from 'date-fns'
 import {
   ELEV_3D, ELEV_RANGE, YAW_3D, YAW_RANGE, barHeight, buildGrid, camera, computeStats, dayMs, easeInOutCubic,
@@ -53,8 +55,14 @@ const tip = ref(null)
 
 const meetups = (n) => (n === 1 ? 'meetup' : 'meetups')
 const weeksWord = (n) => (n === 1 ? 'week' : 'weeks')
-const short = (d) => format(new Date(dayMs(d) + new Date().getTimezoneOffset() * 60000), 'd MMM')
-const long = (d) => format(new Date(dayMs(d) + new Date().getTimezoneOffset() * 60000), 'EEE d MMM yyyy')
+// A day is stored as midnight UTC. To print it, build the same calendar day in local time: the offset must be
+// the one on that day (it changes with daylight saving), not today's.
+const localDay = (d) => {
+  const utc = new Date(dayMs(d))
+  return new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate())
+}
+const short = (d) => format(localDay(d), 'd MMM')
+const long = (d) => format(localDay(d), 'EEE d MMM yyyy')
 const range = (a, b) => (a && b ? `${short(a)} – ${short(b)}` : '–')
 function describe(i) {
   const c = model.value.cells[i]
@@ -76,8 +84,13 @@ const statBlocks = computed(() => {
 const corners = computed(() => width.value >= 560)
 const showRow = computed(() => !(scene3d.value && corners.value))
 const bigSize = computed(() => Math.round(Math.max(28, Math.min(48, width.value * 0.058))))
-const hint = computed(() => (is3d.value ? 'Drag to turn · double-click to reset' : 'Hover a day for details · arrow keys to explore'))
-const label = computed(() => `${stats.value.total} ${meetups(stats.value.total)} in the last ${months.value} months, shown as a ${is3d.value ? '3D skyline' : 'heat map'}. Use the arrow keys to read individual days.`)
+// No "double-click" here: touch screens have none. The Reset view button does the same.
+const hint = computed(() => (is3d.value ? 'Drag to turn' : 'Hover or tap a day for details · arrow keys to explore'))
+const label = computed(() => `Meetups per day: ${stats.value.total} ${meetups(stats.value.total)} in the last ${months.value} months, shown as a ${is3d.value ? '3D skyline' : 'heat map'}`)
+const hintId = `sky-hint-${useId()}`
+const keysId = `sky-keys-${useId()}`
+// Back to the first angle, when the skyline has been turned.
+const resetView = () => engine?.reset()
 
 let engine = null
 
@@ -663,6 +676,7 @@ onMounted(() => {
       kick()
     },
     kick,
+    reset: onDbl,
     load: () => {
       load()
       relayout()
@@ -719,7 +733,7 @@ watch(active, async () => {
     <div class="sky__frame">
       <div class="sky__wrap">
         <div ref="stage" class="sky__stage">
-          <canvas ref="canvas" class="sky__canvas" tabindex="0" role="img" :aria-label="label" :style="{ touchAction: is3d ? 'pan-y' : 'auto' }" />
+          <canvas ref="canvas" class="sky__canvas" tabindex="0" role="application" aria-roledescription="interactive graph" :aria-label="label" :aria-describedby="`${keysId} ${hintId}`" :style="{ touchAction: is3d ? 'pan-y' : 'auto' }" />
           <template v-if="corners">
             <div class="sky__corner sky__corner--top" :class="{ 'is-shown': scene3d }" :aria-hidden="String(!scene3d)" :style="{ transitionDelay: scene3d ? `${Math.round(DURATION * 0.55)}ms` : '0ms' }">
               <div v-for="b in statBlocks.slice(0, 2)" :key="b.label" class="stat stat--end">
@@ -758,7 +772,11 @@ watch(active, async () => {
       </div>
 
       <div class="sky__foot">
-        <span class="sky__hint">{{ hint }}</span>
+        <span class="sky__notes">
+          <span :id="hintId" class="sky__hint">{{ hint }}</span>
+          <button v-if="scene3d" type="button" class="sky__reset" @click="resetView">Reset view</button>
+        </span>
+        <span :id="keysId" class="sr-only">Use the left and right arrow keys to move a week, the up and down arrow keys to move a day, Home and End for the first and last day, and Escape to clear.</span>
         <div class="sky__legend" @mouseleave="legendLevel = -1">
           <span>Less</span>
           <button
@@ -766,7 +784,7 @@ watch(active, async () => {
             :key="i"
             type="button"
             class="sky__swatch"
-            :style="{ background: c }"
+            :style="{ backgroundColor: c }"
             :aria-label="`Pick out days with ${LEVEL_NAMES[i].toLowerCase()}`"
             :aria-pressed="String(legendLevel === i)"
             :title="LEVEL_NAMES[i]"
@@ -793,9 +811,11 @@ watch(active, async () => {
 .sky__title strong { font-weight: 600; }
 /* 2D / 3D: an ink thumb slides between the two. */
 .sky__toggle { position: relative; display: inline-flex; padding: 2px; border: 1px solid var(--hairline); border-radius: var(--rounded-sm); }
-.sky__thumb { position: absolute; top: 2px; bottom: 2px; left: 2px; width: 32px; border-radius: 6px; background: var(--ink); transition: transform 500ms cubic-bezier(0.65, 0, 0.35, 1); }
+.sky__thumb { position: absolute; top: 2px; bottom: 2px; left: 2px; width: var(--tap-min); border-radius: 6px; background: var(--ink); transition: transform 500ms cubic-bezier(0.65, 0, 0.35, 1); }
 .sky__thumb.is-3d { transform: translateX(100%); }
-.sky__view { position: relative; z-index: 1; display: grid; place-items: center; width: 32px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; transition: color 500ms; }
+.sky__view { position: relative; z-index: 1; display: grid; place-items: center; width: var(--tap-min); height: 28px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; transition: color 500ms; }
+/* The button looks 44 by 28; its tap area reaches 44px tall. */
+.sky__view::after { content: ""; position: absolute; inset: -8px 0; }
 .sky__view.is-on { color: var(--on-dark); }
 .sky__view:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
@@ -837,11 +857,18 @@ watch(active, async () => {
 .sky__tip-arrow { position: absolute; top: 100%; left: var(--arrow, 50%); width: 0; height: 0; margin-left: -5px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid var(--ink); }
 
 .sky__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm) var(--spacing-base); padding: var(--spacing-md); color: var(--muted); font: var(--text-caption-sm); }
-.sky__legend { display: flex; align-items: center; gap: 5px; }
-.sky__swatch { width: 11px; height: 11px; padding: 0; border: 0; border-radius: 3px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.06); cursor: pointer; transition: transform 200ms var(--ease-out); }
+.sky__notes { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 var(--spacing-md); }
+/* Text button; its tap area is 44px tall, and the negative margin keeps the footer from growing. */
+.sky__reset { min-height: var(--tap-min); margin-block: -14px; padding: 0 var(--spacing-xs); border: 0; background: transparent; color: var(--ink); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.sky__reset:focus-visible { outline: 2px solid var(--ink); outline-offset: 0; }
+.sky__legend { display: flex; flex-wrap: wrap; align-items: center; }
+/* A swatch looks 11px; the button around it is 24px, and the swatches are 24px apart, so each is an easy target. */
+.sky__swatch { position: relative; width: 24px; height: 24px; padding: 6.5px; border: 0; background-clip: content-box; background-color: transparent; cursor: pointer; transition: transform 200ms var(--ease-out); }
+.sky__swatch::after { content: ""; position: absolute; inset: 6.5px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.06); }
 .sky__swatch:hover { transform: scale(1.25); }
-.sky__swatch:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
-.sky__swatch--planned { margin-left: var(--spacing-sm); background: repeating-linear-gradient(-45deg, var(--ink) 0 1.2px, var(--canvas) 1.2px 4px); box-shadow: inset 0 0 0 1px var(--ink); cursor: default; }
+.sky__swatch:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.sky__swatch--planned { width: 11px; height: 11px; padding: 0; margin-inline: var(--spacing-sm) var(--spacing-xs); border-radius: 3px; background: repeating-linear-gradient(-45deg, var(--ink) 0 1.2px, var(--canvas) 1.2px 4px); box-shadow: inset 0 0 0 1px var(--ink); cursor: default; }
+.sky__swatch--planned::after { display: none; }
 .sky__swatch--planned:hover { transform: none; }
 
 @media (prefers-reduced-motion: reduce) {

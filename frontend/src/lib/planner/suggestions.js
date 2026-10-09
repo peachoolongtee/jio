@@ -1,6 +1,6 @@
 // Diverge, part 2: the options each slot puts to a vote.
 //
-// The ranking itself (what fits a slot, crowd, rain, the last stop near an MRT) runs on the backend planner:
+// The ranking itself (what fits a slot, rain, the last stop near an MRT) runs on the backend planner:
 // backend/src/planner, called through lib/plannerApi.js. These rules decide which ranked places are options.
 //
 // Rules

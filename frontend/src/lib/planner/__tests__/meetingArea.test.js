@@ -5,7 +5,7 @@ import { meetingResultLine } from '../meetingArea.js'
 
 describe('meeting area result line', () => {
   it('says nobody travels more than the longest trip', () => {
-    expect(meetingResultLine({ method: 'fairest', maxMinutes: 32, count: 6 }, 'Bishan')).toBe('Fairest for 6 people: nobody travels more than 32 minutes.')
+    expect(meetingResultLine({ method: 'fairest', maxMinutes: 32, count: 6 }, 'Bishan')).toBe('Fairest for 6 people: nobody travels more than about 32 minutes.')
   })
 
   it('says when routing is unavailable and the area is the geographic centre', () => {
