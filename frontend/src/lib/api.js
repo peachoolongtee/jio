@@ -8,7 +8,7 @@
 import { coins } from './currency.js'
 import { ADDRESSES, AREAS } from './mock/places.js'
 import { VENUES } from './mock/venues.js'
-import { HOST_ID, PAST_ACTIVITY, PEOPLE, POINTS_PER_MEETUP, STARTING_MEETUPS } from './mock/people.js'
+import { HOST_ID, PAST_ACTIVITY, PEOPLE, POINTS_PER_MEETUP, SEASON_MEETUPS, STARTING_MEETUPS } from './mock/people.js'
 import { REWARDS } from './mock/rewards.js'
 import { pastMeetupDates } from './mock/history.js'
 import { reviewsFor } from './mock/reviews.js'
@@ -35,7 +35,7 @@ const DELAY = { read: 80, plan: 300, write: 40, meeting: 700 }
 function freshSeason(now = new Date()) {
   const season = { number: 1, ...Season.quarterOf(now) }
   const since = format(new Date(season.startsAt), 'yyyy-MM-dd')
-  const earned = (id) => pastMeetupDates(id, STARTING_MEETUPS[id], now).filter((d) => d >= since).length * POINTS_PER_MEETUP
+  const earned = (id) => pastMeetupDates(id, STARTING_MEETUPS[id], now, SEASON_MEETUPS[id]).filter((d) => d >= since).length * POINTS_PER_MEETUP
   return { season, earned }
 }
 
@@ -375,7 +375,7 @@ export async function getPerson(id) {
   ].sort((a, b) => b.date.localeCompare(a.date))
   // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned).
   const counts = {}
-  for (const date of pastMeetupDates(id, STARTING_MEETUPS[id])) counts[date] = (counts[date] || 0) + 1
+  for (const date of pastMeetupDates(id, STARTING_MEETUPS[id], new Date(), SEASON_MEETUPS[id])) counts[date] = (counts[date] || 0) + 1
   for (const s of sessions.filter((x) => x.status === 'completed')) counts[s.date] = (counts[s.date] || 0) + 1
   const planned = sessions.filter((x) => !['completed', 'cancelled'].includes(x.status)).map((x) => x.date)
   const history = Object.entries(counts).map(([date, count]) => ({ date, count }))

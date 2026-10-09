@@ -15,6 +15,9 @@ export const PEOPLE = [
 // Successful meetups before the demo starts (the last six months). Each one earned POINTS_PER_MEETUP points.
 // Their dates come from lib/mock/history.js, so the profile graph matches these counts.
 export const STARTING_MEETUPS = { ian: 0, darius: 24, nicole: 19, darryl: 12, faith: 8, jonathan: 5 }
+// How many of those fall in the current leaderboard season. All different, so the demo leaderboard has no ties,
+// and in the same order as the totals above, so the most active friends lead.
+export const SEASON_MEETUPS = { ian: 0, darius: 5, nicole: 4, darryl: 3, faith: 2, jonathan: 1 }
 export const POINTS_PER_MEETUP = 100
 
 // What each friend picks when the demo simulates them choosing categories and how long they can stay.
