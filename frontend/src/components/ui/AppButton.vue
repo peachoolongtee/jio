@@ -7,7 +7,7 @@
 //   danger    Error-red fill, for an action that cannot be undone, for example "Cancel session".
 // `small` makes primary and secondary buttons 44px tall with smaller text, for actions inside cards.
 // Pass `to` to make it a router link, or `href` for a link to another site (add target="_blank" to open a new tab;
-// it gets rel="noopener"). A disabled button always renders as a real <button>.
+// it gets rel="noopener noreferrer"). A disabled button always renders as a real <button>.
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 
@@ -33,7 +33,7 @@ const isAnchor = computed(() => !!props.href && !props.disabled)
     :class="[`btn--${variant}`, { 'btn--block': block, 'btn--underline': underline, 'btn--small': small }]"
     :to="isLink ? to : undefined"
     :href="isAnchor ? href : undefined"
-    :rel="isAnchor ? 'noopener' : undefined"
+    :rel="isAnchor ? 'noopener noreferrer' : undefined"
     :type="isLink || isAnchor ? undefined : type"
     :disabled="isLink || isAnchor ? undefined : disabled"
   >
@@ -58,7 +58,7 @@ const isAnchor = computed(() => !!props.href && !props.disabled)
 /* The press shows at once (darker, and the button gives a little); letting go springs back. */
 .btn:not(:disabled):active { transform: scale(0.97); transition-duration: 0ms, 0ms, 0ms, 80ms, 0ms; }
 @media (hover: hover) {
-  .btn--primary:not(:disabled):hover { box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--primary) 60%, transparent); }
+  .btn--primary:not(:disabled):hover { box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--primary-bright) 60%, transparent); }
 }
 .btn--block { display: flex; width: 100%; }
 

@@ -42,7 +42,7 @@ import TravelConnector from '@/components/event/TravelConnector.vue'
 import { moveItem } from '@/lib/planner/itinerary.js'
 
 const COLOURS = [
-  ['primary', 'Rausch. Main action.'], ['primary-active', 'Rausch pressed.'], ['primary-disabled', 'Disabled, pale wash.'], ['primary-error-text', 'Errors, warnings.'],
+  ['primary', 'Rausch. Main action.'], ['primary-active', 'Rausch pressed.'], ['primary-bright', 'Bright Rausch. Decoration only, no text.'], ['primary-disabled', 'Disabled, pale wash.'], ['primary-error-text', 'Errors, warnings.'], ['scale-middle', 'Amber fills, no text.'], ['scale-middle-text', 'Amber as text.'],
   ['ink', 'Text, selected.'], ['body', 'Running text.'], ['muted', 'Secondary text.'], ['border-strong', 'Chip outlines.'],
   ['hairline', 'Borders.'], ['surface-strong', 'Icon circles, plates.'], ['surface-soft', 'Banners.'], ['canvas', 'Background.'],
 ]
@@ -59,14 +59,13 @@ const OPTION = {
   id: 'o',
   venue: { name: 'Bishan Public Library', category: 'activity', area: 'Bishan', price: 0 },
   walk: 3,
-  crowd: 'quiet',
-  reasons: ['Near MRT', 'Quiet at 15:00'],
+  reasons: ['Near MRT', 'Budget friendly'],
   warnings: [],
   votes: 3,
   voters: ['Darius', 'Nicole', 'Darryl'],
   swap: null,
 }
-const RAIN_OPTION = { ...OPTION, id: 'r', venue: { name: 'Bishan-Ang Mo Kio Park', category: 'activity', area: 'Bishan', price: 0 }, walk: 21, crowd: 'moderate', reasons: ['Budget friendly'], warnings: ['rain'], votes: 1, voters: ['Faith'], swap: { id: 's', name: 'Toa Payoh Public Library' } }
+const RAIN_OPTION = { ...OPTION, id: 'r', venue: { name: 'Bishan-Ang Mo Kio Park', category: 'activity', area: 'Bishan', price: 0 }, walk: 21, reasons: ['Budget friendly'], warnings: ['rain'], votes: 1, voters: ['Faith'], swap: { id: 's', name: 'Toa Payoh Public Library' } }
 
 // Example data for the countdown (starts in about 50 minutes) and the graph.
 const in50 = new Date(Date.now() + 50 * 60000)
@@ -172,7 +171,7 @@ const toast = ref(false)
         </div>
         <div class="row gap-xs wrap">
           <InfoTag>Near MRT</InfoTag>
-          <InfoTag tone="strong" icon="people">Quiet · est.</InfoTag>
+          <InfoTag tone="strong" icon="trophy">Leading</InfoTag>
           <InfoTag tone="warning" icon="rain">Outdoor · rain expected</InfoTag>
           <InfoTag tone="error">Opted out</InfoTag>
           <PriceTier :price="8" />

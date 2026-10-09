@@ -2,7 +2,7 @@
    Every colour, size, radius and shadow in the app comes from here.
    Change a value in this file and every screen follows. Do not hard-code these values elsewhere.
 
-   The system in one line: a white canvas, near-black ink, and a single voltage of Rausch (#ff385c)
+   The system in one line: a white canvas, near-black ink, and a single voltage of Rausch (#d10027)
    for the primary action. Rausch is used scarcely: most screens are white + ink with one or two Rausch moments.
    Anything selected is ink, not Rausch (like Airbnb's selected date and active tab). */
 
@@ -17,8 +17,9 @@
 
 :root {
   /* Brand */
-  --primary: #ff385c; /* Rausch. Primary CTAs, the create orb, the wordmark, the meeting-area pin, "Live now". */
-  --primary-active: #e00b41; /* Rausch pressed. */
+  --primary: #d10027; /* Rausch. Primary CTAs, the create orb, the wordmark, the meeting-area pin, "Live now". White on it is 5.6:1, and it is 4.6:1 on its own 11% tint (the current tab), so it is safe for text. */
+  --primary-bright: #ff385c; /* The original, brighter Rausch (3.5:1 with white). Decoration that carries no text only: glows, washes, rings. */
+  --primary-active: #aa001f; /* Rausch pressed. */
   --primary-disabled: #ffd1da; /* Disabled CTAs, and the palest Rausch wash (illustrations, the lightest graph level). */
   --primary-error-text: #c13515; /* Error text, Cancelled, Opted out, warnings. Always pair it with words. */
   --primary-error-text-hover: #b32505;
@@ -27,33 +28,34 @@
 
   /* Data colours. They carry information on maps, keys and stripes, never actions: Rausch stays the one accent.
      Always shown with words or a key, never as the only signal. */
-  /* Good, middling, bad: travel time to the meeting area and how crowded a place is. */
+  /* Good, middling, bad: travel time to the meeting area. */
   --scale-good: #15803d;
-  --scale-middle: #b7791f;
+  --scale-middle: #b7791f; /* Fills that carry no text (key dots, stripes). For text use --scale-middle-text. */
+  --scale-middle-text: #97641a; /* Amber that is safe as text: 5.1:1 on white, 4.7:1 on Surface Soft, 4.5:1 on Surface Strong. */
   --scale-bad: #dc2626;
   --travel-short: var(--scale-good); /* Up to 30 min. */
-  --travel-medium: var(--scale-middle); /* 31 to 45 min. */
+  --travel-medium: var(--scale-middle); /* 31 to 45 min, as a fill. */
+  --travel-medium-text: var(--scale-middle-text); /* 31 to 45 min, as text. */
   --travel-long: var(--scale-bad); /* Over 45 min. */
-  --crowd-quiet: var(--scale-good);
-  --crowd-moderate: var(--scale-middle);
-  --crowd-busy: var(--scale-bad);
-  /* Categories: card stripes, stop numbers, itinerary pins and the category key. The icon still names the category. */
-  --cat-eat-fg: #ea580c;
+  /* Categories: card stripes, stop numbers, itinerary pins and the category key. The icon still names the category.
+     Each is dark enough for white numbers on it (4.5:1 or more). */
+  --cat-eat-fg: #c44a0a;
   --cat-eat-bg: color-mix(in srgb, var(--cat-eat-fg) 12%, var(--canvas));
-  --cat-drink-fg: #0284c7;
+  --cat-drink-fg: #0277b4;
   --cat-drink-bg: color-mix(in srgb, var(--cat-drink-fg) 12%, var(--canvas));
   --cat-shop-fg: #9333ea;
   --cat-shop-bg: color-mix(in srgb, var(--cat-shop-fg) 12%, var(--canvas));
-  --cat-activity-fg: #059669;
+  --cat-activity-fg: #04825b;
   --cat-activity-bg: color-mix(in srgb, var(--cat-activity-fg) 12%, var(--canvas));
-  /* People: each person keeps one colour everywhere, on their map pin and their avatar (lib/people.js). */
+  /* People: each person keeps one colour everywhere, on their map pin and their avatar (lib/people.js).
+     Each is dark enough for a white initial on it (4.5:1 or more). */
   --person-1: #2563eb;
   --person-2: #7c3aed;
-  --person-3: #0d9488;
+  --person-3: #0b7f75;
   --person-4: #c026d3;
-  --person-5: #ea580c;
+  --person-5: #c44a0a;
   --person-6: #4d7c0f;
-  --person-7: #0891b2;
+  --person-7: #077c99;
   --person-8: #a16207;
 
   /* Text */
@@ -107,8 +109,7 @@
   /* Type. Use the classes in app.css, or these shorthands: font: var(--text-body-sm).
      Display weights stay modest (500 to 700); the layout, not type muscle, carries hierarchy. */
   --font-sans: "Airbnb Cereal VF", Circular, Inter, -apple-system, system-ui, Roboto, "Helvetica Neue", sans-serif;
-  --font-display: ui-serif, "New York", "Iowan Old Style", Georgia, "Times New Roman", serif; /* Only the Home headline: the device's own serif, nothing to download. */
-  --text-rating-display: 700 64px/1.1 var(--font-sans); /* The one loud number: a profile's meetup count. */
+  --font-display: ui-serif, "New York", "Iowan Old Style", Georgia, "Times New Roman", serif; /* The device's own serif, nothing to download. Used by the photo captions and titles in PolaroidLine. */
   --text-display-xl: 700 28px/1.4 var(--font-sans); /* Screen titles. */
   --text-display-lg: 500 22px/1.18 var(--font-sans); /* Card hero titles. */
   --text-display-md: 700 21px/1.4 var(--font-sans); /* Big values: stat numbers. */
@@ -122,7 +123,6 @@
   --text-link: 400 14px/1.43 var(--font-sans);
   --text-micro-label: 700 12px/1.33 var(--font-sans);
   --text-badge: 600 11px/1.18 var(--font-sans); /* Status pills. */
-  --text-uppercase-tag: 700 8px/1.25 var(--font-sans); /* Tiny uppercase tags. */
   --text-button-md: 500 16px/1.25 var(--font-sans);
   --text-button-sm: 500 14px/1.29 var(--font-sans);
   --text-nav-link: 600 16px/1.25 var(--font-sans);
