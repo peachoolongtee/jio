@@ -13,13 +13,13 @@ import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
-import BottomSheet from '@/components/ui/BottomSheet.vue'
 import CategoryIcon from '@/components/ui/CategoryIcon.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InfoTag from '@/components/ui/InfoTag.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
+import PopoverPanel from '@/components/ui/PopoverPanel.vue'
 import PriceTier from '@/components/ui/PriceTier.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
@@ -332,7 +332,7 @@ async function confirm() {
       <AppButton block variant="secondary" @click="confirmOpen = false">Not yet</AppButton>
     </ModalDialog>
 
-    <BottomSheet v-model:open="adding.open" :title="adding.slot ? `Add to ${CATEGORY_LABELS[adding.slot.category]}` : 'Add a place'" tall>
+    <PopoverPanel v-model:open="adding.open" :title="adding.slot ? `Add to ${CATEGORY_LABELS[adding.slot.category]}` : 'Add a place'" :width="420">
       <TextField v-model="adding.query" label="Search places" hide-label placeholder="Search places" type="text" inputmode="search" autocomplete="off" />
       <p v-if="addSlotFull" class="body-sm text-error" role="alert">{{ CATEGORY_LABELS[adding.slot.category] }} already has 6 places.</p>
       <ul v-if="adding.results.length" class="add-results">
@@ -348,7 +348,7 @@ async function confirm() {
         </li>
       </ul>
       <p v-else-if="adding.query.trim()" class="body-sm text-muted">No places match "{{ adding.query.trim() }}".</p>
-    </BottomSheet>
+    </PopoverPanel>
   </main>
   <main v-else class="screen" data-testid="planner-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">

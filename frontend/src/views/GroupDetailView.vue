@@ -11,7 +11,6 @@ import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
-import IconButton from '@/components/ui/IconButton.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
 import SegmentedProgress from '@/components/ui/SegmentedProgress.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
@@ -204,28 +203,37 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
       </section>
 
       <template v-else>
-        <!-- Ian's own start and end, as a little route: where he starts, a dotted line, where he heads after.
-             Only he sees the exact place. -->
-        <dl class="route" aria-label="Your locations">
-          <div class="route__stop">
-            <span class="route__dot route__dot--from" aria-hidden="true"><AppIcon name="home" :size="18" /></span>
-            <div class="route__text">
-              <dt class="caption text-muted">Starting from</dt>
-              <dd class="title-sm truncate" :class="{ 'text-muted': !myLoc.start }">{{ myLoc.start?.label || 'Not set yet' }}</dd>
-            </div>
-            <AppButton v-if="!locked && !myLoc.start" variant="pill" @click="openSheet('start')">Set</AppButton>
-            <IconButton v-else-if="!locked" label="Change start location" @click="openSheet('start')"><AppIcon name="edit" /></IconButton>
-          </div>
-          <span class="route__line" aria-hidden="true" />
-          <div class="route__stop">
-            <span class="route__dot route__dot--to" aria-hidden="true"><AppIcon name="flag" :size="18" /></span>
-            <div class="route__text">
-              <dt class="caption text-muted">Heading to after</dt>
-              <dd class="title-sm truncate">{{ myLoc.end ? myLoc.end.label : 'Back to where you started' }}</dd>
-            </div>
-            <IconButton v-if="!locked" label="Change end location" @click="openSheet('end')"><AppIcon name="edit" /></IconButton>
-          </div>
-        </dl>
+        <!-- Ian's own start and end, like a ride's pickup and drop-off: two rows joined by a dotted line. Each whole
+             row is the button for its own place, so it is clear which one you are changing. Only he sees the exact place. -->
+        <div class="route" role="group" aria-label="Your locations">
+          <component
+            :is="locked ? 'div' : 'button'"
+            :type="locked ? undefined : 'button'"
+            class="route__row"
+            :class="{ 'is-empty': !myLoc.start }"
+            @click="!locked && openSheet('start')"
+          >
+            <span class="route__mark route__mark--from" aria-hidden="true" />
+            <span class="route__text">
+              <span class="caption-sm text-muted">Starting from</span>
+              <span class="route__value truncate">{{ myLoc.start?.label || 'Add where you are starting' }}</span>
+            </span>
+            <AppIcon v-if="!locked" class="route__go" :name="myLoc.start ? 'chevron-right' : 'plus'" :size="18" />
+          </component>
+          <component
+            :is="locked ? 'div' : 'button'"
+            :type="locked ? undefined : 'button'"
+            class="route__row"
+            @click="!locked && openSheet('end')"
+          >
+            <span class="route__mark route__mark--to" aria-hidden="true" />
+            <span class="route__text">
+              <span class="caption-sm text-muted">Heading to after</span>
+              <span class="route__value truncate">{{ myLoc.end ? myLoc.end.label : 'Back to where you started' }}</span>
+            </span>
+            <AppIcon v-if="!locked" class="route__go" name="chevron-right" :size="18" />
+          </component>
+        </div>
 
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
@@ -298,21 +306,22 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 /* Invited, not joined yet: a dashed tag and a faded row, until they accept. */
 .lobby__tag--pending { border-style: dashed; color: var(--muted); }
 .lobby__row.is-pending .lobby__who, .lobby__row.is-pending :deep(.avatar) { opacity: 0.55; }
-/* Your route: a soft Rausch-tinted card. Start (a Rausch home) and end (an ink flag) joined by a dotted line:
-   stacked on phones, side by side from tablet up. */
-.route { display: flex; flex-direction: column; margin: 0; padding: var(--spacing-sm) var(--spacing-base); border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--hairline)); border-radius: var(--rounded-lg); background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 6%, var(--canvas)), var(--canvas) 70%); }
-.route__stop { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 64px; }
+/* Your route: a plain white card with two rows, start over end, like a ride's pickup and drop-off. A filled Rausch
+   dot marks the start, an ink ring the end, and a dotted line joins them down the left. */
+.route { position: relative; display: flex; flex-direction: column; max-width: 560px; padding: var(--spacing-xs); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); background: var(--canvas); }
+.route::before { content: ""; position: absolute; left: calc(var(--spacing-xs) + var(--spacing-base) + 5px); top: 50%; height: 30px; margin-top: -15px; border-left: 2px dotted var(--border-strong); }
+.route__row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-base); min-height: 60px; padding: var(--spacing-sm) var(--spacing-base); border: 0; border-radius: var(--rounded-md); background: transparent; color: var(--ink); font: inherit; text-align: left; }
+button.route__row { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background-color var(--motion-fast) var(--ease-out); }
+@media (hover: hover) { button.route__row:hover { background: var(--surface-soft); } }
+button.route__row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.route__mark { width: 12px; height: 12px; border-radius: var(--rounded-full); }
+.route__mark--from { background: var(--primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 18%, transparent); }
+.route__mark--to { border: 2px solid var(--ink); background: var(--canvas); }
 .route__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.route__text dd { margin: 0; }
-.route__dot { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--rounded-full); }
-.route__dot--from { background: var(--primary); color: var(--on-primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 15%, transparent); }
-.route__dot--to { border: 2px solid var(--ink); background: var(--canvas); color: var(--ink); }
-.route__line { width: 0; height: 18px; margin-left: 19px; border-left: 2px dashed color-mix(in srgb, var(--primary) 45%, var(--hairline)); }
-@media (min-width: 744px) {
-  .route { flex-direction: row; align-items: center; gap: var(--spacing-base); padding: var(--spacing-md) var(--spacing-lg); }
-  .route__stop { flex: 1; }
-  .route__line { flex: 0 0 48px; width: 48px; height: 0; margin: 0; border-left: 0; border-top: 2px dashed color-mix(in srgb, var(--primary) 45%, var(--hairline)); }
-}
+.route__value { font: var(--text-title-sm); }
+.route__go { color: var(--muted); }
+/* No start yet: the row asks for it, in Rausch. */
+.route__row.is-empty .route__value, .route__row.is-empty .route__go { color: var(--primary); }
 /* The meeting area: a reservation-card style block. The pin is the screen's Rausch moment besides the CTA. */
 .area { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); }
 .area__main { display: flex; align-items: center; gap: var(--spacing-md); min-width: 0; }
