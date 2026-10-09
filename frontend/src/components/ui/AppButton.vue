@@ -83,9 +83,11 @@ const isAnchor = computed(() => !!props.href && !props.disabled)
 }
 /* Touch screens: no hover to reveal it, so start filled, with the arrow. */
 @media (hover: none) {
+  /* Nothing to animate without hover: switch straight between states, for example disabled to ready. */
+  .btn__dot, .btn__label, .btn__reveal { transition: none; }
   .btn--primary:not(:disabled) { border-color: var(--primary); }
   .btn--primary:not(:disabled) .btn__dot { top: 0; left: 0; width: 100%; height: 100%; border-radius: 0; transform: scale(1.8); transition: none; }
-  .btn--primary:not(:disabled) .btn__label { opacity: 0; }
+  .btn--primary:not(:disabled) .btn__label { opacity: 0; transition: none; }
   .btn--primary:not(:disabled) .btn__reveal { opacity: 1; transform: none; transition: none; }
   .btn--primary:not(:disabled):active .btn__dot { background: var(--primary-active); }
 }
