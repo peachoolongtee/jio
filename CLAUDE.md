@@ -44,7 +44,7 @@ As of 2026-10-09. The Supabase foundation was built on branch `feat/supabase-fou
 | Backend planner | Built on `dev`: `/api/meeting-area`, `/api/converge`, `/api/roam`, `/api/search`. Travel times and weather are internal estimates. Open to anyone. |
 | Database | Session schema and access rules applied to the live `jio` project on 2026-10-09, then revised twice the same day after two reviews (three migrations). No app code reads or writes it yet. |
 | Login | Backend token check and `GET /api/me` built and hardened after two reviews. No login screen; the frontend sends no token. |
-| External APIs | The HTTP helper with stub mode is merged. Nothing calls it. No OneMap account yet. |
+| External APIs | On `feature/external-apis` (not merged): live NEA 2-hour forecast and OneMap search are wired into the planner; OneMap routing is built and switches on once `ONEMAP_EMAIL` and `ONEMAP_PASSWORD` are set. See `backend/docs/external-apis.md`. No OneMap account yet. |
 | End-to-end tests, deploy | Not started. |
 
 ## Architecture Decisions
@@ -116,7 +116,10 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-09 | `91b9434` (round 3) | `pnpm build` | Succeeded |
 | 2026-10-09 | live `jio` database, round 3 changes | 13-step test, rolled back | 13 of 13 passed, no rows left |
 
-Not yet verified: a real user's login token against `GET /api/me`, and anything end to end.
+| 2026-10-09 | `feature/external-apis` working tree | `pnpm test` | 278 passed, 1 skipped, 17 files |
+| 2026-10-09 | `feature/external-apis` working tree | live NEA forecast and OneMap search, no account | 47 areas parsed; slot at 20:00 used the live forecast; next-day slot answered `outside_forecast_period`; postal code 520201 found |
+
+Not yet verified: a real user's login token against `GET /api/me`, OneMap routing with a real account, and anything end to end.
 
 ## Next Steps
 

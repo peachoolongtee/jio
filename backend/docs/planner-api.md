@@ -10,8 +10,9 @@ Base URL: `VITE_API_BASE_URL` (locally `http://localhost:3000`). Every request a
 | `POST /api/converge` | Once per itinerary slot: rank venues for the group around the meeting point. |
 | `POST /api/roam` | "What next?": rank venues near one person's current point. |
 | `POST /api/search` | Find a place by name to add as an option, and say whether it fits the slot. |
+| `GET /api/places/search?q=` | Find an address, postal code or building with OneMap, for start and end points. |
 
-Travel times are still an estimate (no OneMap yet), so every number in minutes is approximate until `services/onemap.js` lands. The request and response shapes will not change when it does.
+**Live data.** Weather is the live NEA forecast when the slot falls inside its 2-hour period. Travel times are real OneMap public transport times once the server has a OneMap account (`ONEMAP_EMAIL`, `ONEMAP_PASSWORD`); until then they are the engine's estimate. Every Converge and Roam answer says which it used, in `weather` and `travel` (see [Live data in every answer](#live-data-in-every-answer)). How each API is called: [external-apis.md](external-apis.md).
 
 ## How it fits the frontend's slot flow
 
@@ -58,7 +59,7 @@ Venue and option fields have different names from the frontend's:
 | `venue.kind`, `venue.popularity` | the same, but only on the frontend's 63 places |
 
 The demo switches map to request fields:
-- rain → `weatherCase: 'rain'`
+- rain → `weatherCase: 'rain'`. **When the switch is off, leave `weatherCase` out** (don't send `'clear'`): then the live NEA forecast is used. Sending `'clear'` pins the weather to the demo's dry case.
 - routing off → `method: 'centroid'` on `/api/meeting-area`
 - simulate crowd → a `crowd` weight
 
@@ -165,7 +166,7 @@ Request (one slot; the response below is real output for these two members with 
 | `unknownPolicy` | no | `strict` (default): a venue with no data on a diet need, step-free access or sockets is left out. `lenient`: it is kept, and `dietUnknown` says what we don't know. |
 | `groupConstraints` | no | `step_free`, `sockets`, `quiet`, `indoor_only`, `max_price_pp:N`, `near_mrt:N`. |
 | `weights` | no | Override scoring weights, all 0 or more. Keys: `worst`, `mean`, `returnWorst`, `occasion`, `preference`, `rating`, `weather`, `price`, `cdc`, `antiRepeat`, `crowd`. `crowd` has no weight by default, so it doesn't change the ranking unless you send one. |
-| `weatherCase` | no | `clear`, `rain`, `rain_east` (mock forecasts until the NEA service exists). |
+| `weatherCase` | no | Leave it out for the **live NEA forecast**. Send `clear`, `rain` or `rain_east` only for the demo switch: it pins the weather to that mock case. |
 | `currentOptionIds` | no | The options the group is already voting on. Each one that passes the hard filters and is within 3 km is always scored, even past the shortlist (a place added by search, or swapped in for rain), and comes back in `current`. A rain swap never suggests one of these. |
 | `radiusMeters` | no | The search radius the group chose, 100 to 3000. Only places inside it are suggested or kept in `current`. Without it, the search widens on its own (500 m, 1, 2, then 3 km). Search takes the same limit as `maxKm`. |
 | `optedOut`, `overrides`, `excludeVenueIds`, `groupId`, `topN`, `seed`, `travelCeilingMinutes` | no | As in the engine (`backend/src/planner/engine.js`). |
@@ -290,6 +291,47 @@ Places that fit come first, then by walking time. `distanceKm` is rounded here. 
 | `capacity` | Too small for the group. |
 | `far` | More than `maxKm` from the meeting point. |
 
+## Live data in every answer
+
+Converge and Roam answers carry two extra fields, so the UI can say where the numbers came from. `/api/meeting-area` carries `travel`.
+
+**`weather`**
+
+| `source` | Meaning | Other fields |
+|---|---|---|
+| `nea` | The live NEA 2-hour forecast. Each venue was matched to its nearest of NEA's 47 areas (`venue.forecastArea` is that area's name). | `validFrom`, `validTo`, `validText` (e.g. "7.30 pm to 9.30 pm"), `updatedAt`, `unknownTexts` (forecast words we have no rain rule for) |
+| `demo` | The request sent `weatherCase`, so that mock case was used. | `case` |
+| `none` | No live forecast was used, and the weather is the dry baseline. Show no weather claims. | `reason`: `outside_forecast_period` (the slot is not in the next 2 hours, e.g. tomorrow), `forecast_unavailable` (NEA could not be reached), or `live_weather_off` (the server has no weather service) |
+
+The 2-hour forecast only covers about the next 2 hours, so a slot later today or another day gets `none`. That is deliberate: it never shows tonight's rain for tomorrow's plan.
+
+How the forecast becomes a rain risk (`backend/src/services/weather.js`): "Heavy Thundery Showers" 0.95, "Thundery Showers" 0.9, "Heavy Rain/Showers" 0.85, "Moderate Rain" 0.75, "Showers" 0.7, "Light/Passing Showers" and "Light Rain" 0.5, "Cloudy" and "Partly Cloudy" 0.15, "Fair", "Hazy", "Windy", "Mist" 0.05. An unknown word gets 0.3 and is listed in `unknownTexts`. These are our judgements: NEA gives words, not percentages.
+
+**`travel`**
+
+| `source` | Meaning |
+|---|---|
+| `onemap` | Real public transport times from OneMap. `routed` trips answered, `failed` trips fell back to the estimate (those results are `approximate: true`). |
+| `estimate` | The engine's own estimate: the server has no OneMap account yet, or every OneMap call failed. |
+
+Notes on the OneMap times:
+- A trip under 400 m is walked; no route is asked for.
+- The way back is taken to be as long as the way there, so one route serves both. Most members end where they started, so this halves the calls.
+- Times are for the start of the slot's hour, and are cached for 6 hours by points rounded to about 110 m.
+- With routing on, the meeting area tries the 16 areas nearest the fairest point (16 never missed the best one in 2,000 random groups), unless `maxCandidates` is sent. `/api/meeting-area` also accepts `dateTime` for when the group sets off; without it, the server uses the time now.
+
+## GET /api/places/search
+
+`GET /api/places/search?q=520201` → `{ "results": [{ "name", "address", "postal", "lat", "lng" }] }`, at most 10.
+
+For start and end points: search an address, postal code or building name with OneMap. It needs no OneMap account. Results are cached for a day.
+
+| Status | When |
+|---|---|
+| 200 | Results, possibly empty. |
+| 400 | `q` is missing, blank, or over 80 characters. |
+| 503 `{ "error": "search_unavailable" }` | OneMap could not be reached, or this server has no address search. Show "search is not available, try again soon". |
+
 ## Errors
 
 | Status | Body | When |
@@ -323,5 +365,6 @@ Every list and number has an upper limit, so one request cannot keep the server 
 
 Start the backend with `STUB_EXTERNALS=1 pnpm dev:backend`. Then send the `x-jio-scenario` header on `/api/**` requests:
 
-- `rain`: uses the `rain` weather case, unless the body sends `weatherCase`.
-- `routing-fail`: every trip falls back to the estimate, so results come back with `approximate: true`.
+- `rain`: the NEA forecast says "Heavy Thundery Showers" everywhere (the rain fixture), unless the body sends `weatherCase`. In stub mode the fixture forecast stands for any time, so the slot's date doesn't matter.
+- `routing-fail`: every OneMap route fails, so travel falls back to the estimate and results come back with `approximate: true`.
+- No header (`dry`): "Fair (Day)" everywhere, and routes are generated from distance in OneMap's format, so `travel.source` is `onemap`.
