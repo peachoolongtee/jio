@@ -9,13 +9,11 @@ import BannerNote from '@/components/ui/BannerNote.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import LeaderboardCard from '@/components/ui/LeaderboardCard.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
-import StatTile from '@/components/ui/StatTile.vue'
 import { useGroupsStore } from '@/stores/groups.js'
 import * as api from '@/lib/api.js'
 import { coins } from '@/lib/currency.js'
-import { endsInText, lastDay, seasonRange } from '@/lib/season.js'
+import { endsInText, lastDay } from '@/lib/season.js'
 import { useNow } from '@/lib/useNow.js'
-import { format } from 'date-fns'
 
 const groups = useGroupsStore()
 
@@ -24,7 +22,6 @@ onMounted(() => Promise.all([groups.loadLeaderboard(), groups.loadSeason()]))
 const now = useNow()
 const season = computed(() => groups.season)
 const endsIn = computed(() => (season.value ? endsInText(season.value, now.value) : ''))
-const endDate = computed(() => (season.value ? format(lastDay(season.value), 'd MMM') : ''))
 // "Darius" or "Darius and Nicole"; "Nobody" when nobody earned JioCoins that season.
 const winnerNames = (past) => (past.winners.length ? past.winners.map((w) => (w.isMe ? 'You' : w.name)).join(' and ') : 'Nobody')
 
@@ -70,32 +67,25 @@ const entries = computed(() => rows.value.map(toEntry))
 const podium = computed(() => entries.value.slice(0, 3))
 const loading = computed(() => (isPast.value ? pastLoading.value : groups.loading.leaderboard && !groups.leaderboard.length))
 
-const ordinal = (n) => {
-  const s = ['th', 'st', 'nd', 'rd']
-  const v = n % 100
-  return n + (s[(v - 20) % 10] || s[v] || s[0])
-}
 </script>
 
 <template>
   <main class="screen">
     <header class="screen__header">
-      <h1 class="display-xl">Leaderboard</h1>
-      <div v-if="season" class="season-line">
-        <p class="body-sm text-muted">Season {{ season.number }} · {{ seasonRange(season) }}</p>
-        <span class="season-chip"><AppIcon name="clock" :size="13" /><span class="tnum">{{ endsIn }}</span></span>
+      <div class="title-line">
+        <h1 class="display-xl">Leaderboard</h1>
+        <span v-if="season" class="days-left tnum"><AppIcon name="clock" :size="14" />{{ endsIn }}</span>
       </div>
     </header>
 
     <div class="screen__body">
-      <div class="board-layout">
+      <div class="board-layout" :class="{ 'has-side': season?.past.length }">
         <div v-if="!season || loading" class="stack" aria-busy="true">
           <SkeletonRow v-for="n in 6" :key="n" avatar />
         </div>
         <section v-else class="board" aria-label="Ranking">
           <BannerNote v-if="!isPast" icon="trophy">
-            First place on {{ endDate }} wins <strong>{{ coins(season.prize) }}</strong> to spend on Rewards.
-            Then everyone's season total starts again from 0.
+            First place wins <strong>{{ coins(season.prize) }}</strong>
           </BannerNote>
           <BannerNote v-else icon="trophy">
             <strong>{{ winnerNames(shown) }}</strong> won this season<template v-if="shown.winners.length"> and took home {{ coins(shown.prize) }}</template>.
@@ -116,12 +106,8 @@ const ordinal = (n) => {
           </LeaderboardCard>
         </section>
 
-        <aside class="side">
-          <div class="me-stats" aria-label="Your standing">
-            <StatTile label="Your rank" :value="groups.me ? ordinal(groups.me.rank) : '-'" icon="trophy" :hint="groups.me ? `of ${groups.leaderboard.length} this season` : ''" />
-            <StatTile label="JioCoins this season" :value="groups.me?.seasonPoints ?? 0" icon="coin" :hint="endsIn" />
-          </div>
-          <section v-if="season?.past.length" class="past card" aria-labelledby="past-head">
+        <aside v-if="season?.past.length" class="side">
+          <section class="past card" aria-labelledby="past-head">
             <h2 id="past-head" class="title-md">Past seasons</h2>
             <ol class="past__list">
               <li v-for="past in season.past" :key="past.number" class="past__row">
@@ -143,13 +129,12 @@ const ordinal = (n) => {
 
 <style scoped>
 .board-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-lg); }
-@media (min-width: 1128px) { .board-layout { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; } }
+@media (min-width: 1128px) { .board-layout.has-side { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; } }
 .board { display: flex; flex-direction: column; gap: var(--spacing-base); min-width: 0; }
 .side { display: flex; flex-direction: column; gap: var(--spacing-lg); }
-.me-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
-/* The season: which one, its dates, and a countdown chip like the session countdown. */
-.season-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); }
-.season-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); font: var(--text-badge); font-size: 12px; white-space: nowrap; }
+/* The title, with the days the season has left in a Rausch pill beside it. */
+.title-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm) var(--spacing-md); }
+.days-left { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); font: var(--text-badge); font-size: 13px; white-space: nowrap; }
 .past { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-base); }
 .past__list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 .past__row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 52px; }

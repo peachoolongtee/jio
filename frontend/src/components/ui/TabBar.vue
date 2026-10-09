@@ -86,10 +86,11 @@ function isActive(tab) {
 }
 .tabbar__tab:active { transform: scale(0.94); transition-duration: 200ms, 200ms, 80ms; }
 .tabbar__tab.is-active { background: color-mix(in srgb, var(--primary) 11%, var(--canvas)); color: var(--primary); }
-/* Create is always the Rausch +, current or not. */
-.tabbar__tab.is-create { color: var(--primary); }
+/* Create is a solid Rausch circle with a white +, current or not, so it stands out from the other tabs. */
+.tabbar__tab.is-create { background: var(--primary); color: var(--on-primary); }
+.tabbar__tab.is-create.is-active { background: var(--primary-active); color: var(--on-primary); }
 .tabbar__tab:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-@media (hover: hover) { .tabbar__tab:not(.is-active):hover { background: var(--surface-soft); color: var(--ink); } .tabbar__tab.is-create:not(.is-active):hover { color: var(--primary-active); } }
+@media (hover: hover) { .tabbar__tab:not(.is-active):hover { background: var(--surface-soft); color: var(--ink); } .tabbar__tab.is-create:not(.is-active):hover { background: var(--primary-active); color: var(--on-primary); } }
 
 /* The name grows from nothing to its width with a little spring, and fades in. */
 .tabbar__label { display: grid; grid-template-columns: 0fr; max-width: 84px; margin-left: 0; opacity: 0; transition: grid-template-columns 380ms var(--ease-spring), margin-left 190ms var(--ease-out), opacity 190ms var(--ease-out); }
