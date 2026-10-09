@@ -346,6 +346,28 @@ About 460 places come from OneMap's government lists: sport centres, tourist att
 | `closures` | Hawker centres: NEA cleaning and repair days, `[{ from, to, reason }]`, as `YYYY-MM-DD`. The planner leaves the centre out on those days. |
 | `dataQuality` | Which fields are typical values (`hoursAssumed`, `priceAssumed`) rather than real ones. |
 
+## Venues from Google
+
+With `GOOGLE_MAPS_API_KEY` set, `/api/converge` and `/api/roam` add up to 20 of the nearest restaurants, cafés, bars and dessert shops from Google Places, for food and drink slots. They're added for that request only, never saved, because Google's terms don't allow it. Every answer says:
+
+```json
+"google": { "source": "google", "added": 16 }
+```
+
+| `source` | Meaning |
+|---|---|
+| `google` | `added` places came from Google (places the venue list already had were skipped) |
+| `off` | The server has no Google key |
+| `not_needed` | A shop or activity slot: Google isn't used for those |
+| `unavailable` | Google couldn't be reached; the answer uses the other venues |
+
+A Google venue has `source: 'google'`, `googlePlaceId`, a real `rating` and `ratingCount`, `address`, and that **day of the week's** `openingHours`. It may also have `photo: { name, credit }`:
+
+- Show the photo with `GET /api/places/photo?name=<photo.name>&maxWidth=400`. It redirects to the image, and the key never reaches the browser. 400 for a bad name; 503 when the server has no Google key or Google is down.
+- Show `photo.credit.displayName`, linked to `photo.credit.uri`, with the photo. Google requires it.
+
+The Demo Key returns no photos. A billed key does.
+
 ## Travel times
 
 `POST /api/meeting-area`, `POST /api/converge` and `POST /api/roam` answer with a top-level field:
