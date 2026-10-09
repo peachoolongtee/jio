@@ -4,8 +4,9 @@
 //     <AppButton block @click="confirm">Confirm plan</AppButton>
 //     <AppButton block variant="secondary" @click="showConfirm = false">Not yet</AppButton>
 //   </ModalDialog>
-// Put the safer choice first. It closes on the backdrop and the Escape key.
-import { nextTick, ref, useId, watch } from 'vue'
+// Put the safer choice first. It closes on the backdrop and the Escape key, and keeps Tab inside while it is open.
+import { ref, useId } from 'vue'
+import { useFocusTrap } from '@/lib/useFocusTrap.js'
 
 const open = defineModel('open', { type: Boolean, default: false })
 defineProps({
@@ -16,29 +17,20 @@ const emit = defineEmits(['close'])
 
 const titleId = `modal-${useId()}`
 const panel = ref(null)
-let opener = null
 
 function close() {
   open.value = false
   emit('close')
 }
 
-watch(open, async (isOpen) => {
-  if (isOpen) {
-    opener = document.activeElement
-    await nextTick()
-    panel.value?.focus()
-  } else if (opener && typeof opener.focus === 'function') {
-    opener.focus()
-    opener = null
-  }
-})
+// Focus moves into the dialog when it opens, Tab stays inside it, and focus goes back to the opener on close.
+const { onKeydown } = useFocusTrap(open, panel)
 </script>
 
 <template>
   <Teleport to="body">
   <Transition name="modal">
-    <div v-if="open" class="modal" @keydown.esc="close">
+    <div v-if="open" class="modal" @keydown.esc="close" @keydown="onKeydown">
       <button class="modal__scrim" type="button" tabindex="-1" aria-label="Close" @click="close" />
       <section ref="panel" class="modal__panel" role="dialog" aria-modal="true" :aria-labelledby="titleId" tabindex="-1">
         <div class="modal__text">
@@ -54,7 +46,8 @@ watch(open, async (isOpen) => {
 </template>
 
 <style scoped>
-.modal { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; padding: var(--spacing-lg); }
+/* Above the photo viewer (40), so a question about a photo can be asked on top of it. */
+.modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: var(--spacing-lg); }
 .modal__scrim { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: var(--scrim); opacity: 0.5; cursor: default; }
 .modal__panel {
   position: relative;
