@@ -62,8 +62,10 @@ function isActive(tab) {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-  min-width: 320px;
-  max-width: 95vw;
+  /* As wide as its tabs (left: 50% would otherwise leave it only half the screen to size into, so it stuck at its
+     old 320px minimum and cut the last tab off), and never wider than the screen. */
+  width: max-content;
+  max-width: calc(100vw - var(--spacing-base));
   height: 56px;
   padding: var(--spacing-sm);
   border: 1px solid var(--hairline);
@@ -101,6 +103,12 @@ function isActive(tab) {
 .tabbar__label { display: grid; grid-template-columns: 0fr; max-width: 84px; margin-left: 0; opacity: 0; transition: grid-template-columns 380ms var(--ease-spring), margin-left 190ms var(--ease-out), opacity 190ms var(--ease-out); }
 .tabbar__label > span { min-width: 0; overflow: hidden; font: 600 12px/1.9 var(--font-sans); white-space: nowrap; text-overflow: ellipsis; }
 .tabbar__tab.is-active .tabbar__label { grid-template-columns: 1fr; margin-left: var(--spacing-sm); opacity: 1; }
+
+/* Small phones: tighter tabs, so all five fit on a 320px screen. */
+@media (max-width: 379px) {
+  .tabbar { gap: 2px; padding: var(--spacing-xs); }
+  .tabbar__tab { min-width: 40px; padding: 0 var(--spacing-sm); }
+}
 
 /* Only the wide bar shows the wordmark and Create's longer name. */
 .tabbar__brand, .tabbar__label--long { display: none; }
