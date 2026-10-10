@@ -82,8 +82,9 @@ const hhmm = t => `${String(t.hour ?? 0).padStart(2, '0')}:${String(t.minute ?? 
  *   hoursOnDay(place.regularOpeningHours, 6)   // Saturday: [['11:00', '22:00']]
  */
 function hoursOnDay(opening, weekday) {
-  const periods = opening?.periods;
-  if (!Array.isArray(periods) || periods.length === 0) return null;
+  // Entries that are not objects (a null in the list) are ignored.
+  const periods = Array.isArray(opening?.periods) ? opening.periods.filter(p => p !== null && typeof p === 'object') : [];
+  if (periods.length === 0) return null;
   if (periods.length === 1 && !periods[0].close) return [['00:00', '24:00']];
   const ranges = [];
   for (const p of periods) {
@@ -131,16 +132,20 @@ function fromGooglePlace(place, dateTime) {
   const name = place.displayName?.text ?? '';
   if (category === 'activity' && (ADVERT_NAME(name) || LESSONS_NAME.test(name))) return null;
   const d = KIND_DEFAULTS[kind] ?? KIND_DEFAULTS.restaurant;
-  const price = PRICE_BY_LEVEL[place.priceLevel];
+  const price = Object.hasOwn(PRICE_BY_LEVEL, place.priceLevel) ? PRICE_BY_LEVEL[place.priceLevel] : undefined;
   const dayHours = hoursOnDay(place.regularOpeningHours, weekdayOf(dateTime));
-  const photo = place.photos?.[0];
+  const photo = Array.isArray(place.photos) ? place.photos[0] : null;
+  // Every author Google names for the photo: Google requires all of them to be shown with it. `credit` is the first.
+  const credits = Array.isArray(photo?.authorAttributions) ? photo.authorAttributions.filter(a => a !== null && typeof a === 'object') : [];
   return {
     id: `google_${place.id}`, googlePlaceId: place.id,
-    name: place.displayName?.text ?? 'Unnamed place', area: place.formattedAddress ?? '', address: place.formattedAddress ?? null,
+    name: typeof place.displayName?.text === 'string' ? place.displayName.text : 'Unnamed place',
+    area: typeof place.formattedAddress === 'string' ? place.formattedAddress : '',
+    address: typeof place.formattedAddress === 'string' ? place.formattedAddress : null,
     nearestMrt: null, lat, lng, forecastArea: approxRegion({ lat, lng }),
     category, kind, cuisine,
     avgPricePerPerson: price ?? 20, priceBand: price === undefined ? 2 : price <= 8 ? 1 : price <= 20 ? 2 : price <= 40 ? 3 : 4,
-    rating: typeof place.rating === 'number' ? place.rating : null, ratingCount: place.userRatingCount ?? null,
+    rating: typeof place.rating === 'number' ? place.rating : null, ratingCount: typeof place.userRatingCount === 'number' ? place.userRatingCount : null,
     // Shops and activities have no diet, so dietary filters skip them (like the frontend's). Food and drink: unknown.
     diet: category === 'shop' || category === 'activity' ? null : { halal: 'unknown', vegetarian: 'unknown', vegan: 'unknown', healthy: d.healthy ?? 2 },
     setting: 'indoor', exposure: 1, aircon: kind !== 'hawker',
@@ -151,7 +156,7 @@ function fromGooglePlace(place, dateTime) {
     openingHours: dayHours ?? [['11:00', '21:00']],
     mealPeriods: [], // Google's hours already say when it is open; no separate meal rule
     attributes: Object.fromEntries(ATTRIBUTE_KEYS.map((k, i) => [k, d.attributes[i]])),
-    photo: photo ? { name: photo.name, credit: photo.authorAttributions?.[0] ?? null } : null,
+    photo: typeof photo?.name === 'string' ? { name: photo.name, credit: credits[0] ?? null, credits } : null,
     source: 'google',
     dataQuality: {
       hoursAssumed: dayHours === null, hoursForWeekday: weekdayOf(dateTime), priceAssumed: price === undefined, priceFromLevel: price !== undefined,
@@ -160,4 +165,28 @@ function fromGooglePlace(place, dateTime) {
   };
 }
 
-export { fromGooglePlace, kindOf, hoursOnDay, weekdayOf, PRICE_BY_LEVEL };
+/**
+ * Google's places -> engine venues, for a visit on a given date-time. Never throws because of what Google sent: an
+ * entry that is not an object, has no string id, has no numeric location, or fails to convert is skipped, and so is
+ * a place fromGooglePlace leaves out.
+ *
+ * How to call:
+ *   const venues = fromGooglePlaces(raw, '2026-10-10T19:00')
+ */
+function fromGooglePlaces(places, dateTime) {
+  if (!Array.isArray(places)) return [];
+  const venues = [];
+  for (const place of places) {
+    if (place === null || typeof place !== 'object' || typeof place.id !== 'string' || place.id === '') continue;
+    if (!Number.isFinite(place.location?.latitude) || !Number.isFinite(place.location?.longitude)) continue;
+    try {
+      const venue = fromGooglePlace(place, dateTime);
+      if (venue) venues.push(venue);
+    } catch {
+      // One odd place must not cost the request its other venues.
+    }
+  }
+  return venues;
+}
+
+export { fromGooglePlace, fromGooglePlaces, kindOf, hoursOnDay, weekdayOf, PRICE_BY_LEVEL };

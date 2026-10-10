@@ -194,7 +194,8 @@ const rules = [
     method: 'POST',
     host: 'places.googleapis.com',
     path: '/v1/places:searchNearby',
-    // Six real places near Bishan, recorded with the Maps Demo Key. Same answer wherever the search is.
+    // Six invented places near Bishan MRT (made-up ids, names, addresses and ratings, not a recording). Same answer
+    // wherever the search is.
     respond: () => loadFixture('google/places-nearby.json'),
   },
   {

@@ -48,16 +48,17 @@ export function assertStubAllowed({ stub, nodeEnv }) {
 // Options:
 //   stub        - true answers from backend/tests/fixtures/ instead of the network.
 //   fetchImpl   - The function that makes the request. Defaults to Node's fetch.
-//   timeoutMs   - How long to wait for an answer before giving up. Default 10 seconds.
+//   timeoutMs   - How long to wait for an answer before giving up. Default 10 seconds. A single call can set its
+//                 own with the `timeoutMs` request option (Google Places uses 3 seconds).
 //   getScenario - Returns the stub scenario for the current request.
 export function createHttp({
   stub = false,
   fetchImpl = fetch,
-  timeoutMs = 10000,
+  timeoutMs: defaultTimeoutMs = 10000,
   getScenario = currentScenario,
 } = {}) {
   // Shared by getJson and postJson. Returns the parsed JSON body, or throws.
-  async function request(method, url, { headers, body } = {}) {
+  async function request(method, url, { headers, body, timeoutMs = defaultTimeoutMs } = {}) {
     // Stub mode: answer from fixtures, never touch the network.
     if (stub) return resolveStub(method, url, getScenario())
 
@@ -106,8 +107,11 @@ export function createHttp({
     // With headers, for example OneMap's token:
     //   const route = await http.getJson(routeUrl, { headers: { Authorization: token } })
     //
+    // With a shorter wait than the default, for an API that must not hold a request up:
+    //   const photo = await http.getJson(url, { headers, timeoutMs: 3000 })
+    //
     // Throws ExternalApiError when the API fails.
-    getJson: (url, { headers } = {}) => request('GET', url, { headers }),
+    getJson: (url, { headers, timeoutMs } = {}) => request('GET', url, { headers, timeoutMs }),
 
     // Sends a POST request with a JSON body and returns the parsed JSON.
     //
@@ -117,7 +121,9 @@ export function createHttp({
     //     { email, password },
     //   )
     //
+    // The `timeoutMs` option works here too.
+    //
     // Throws ExternalApiError when the API fails.
-    postJson: (url, body, { headers } = {}) => request('POST', url, { headers, body }),
+    postJson: (url, body, { headers, timeoutMs } = {}) => request('POST', url, { headers, body, timeoutMs }),
   }
 }
