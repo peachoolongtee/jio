@@ -1,14 +1,16 @@
 import fs from 'node:fs'
 import { matchVenueToCdc, nameSimilarity } from '../planner/cdc-adapter.js'
 import { haversineKm, walkMinutes } from '../planner/geo.js'
-import { attachClosures } from '../planner/hawker-closures.js'
+import { attachClosures, closureCoverage, closureStaleWarning } from '../planner/hawker-closures.js'
+import { dedupeOneMapVenues, preparePool } from '../planner/onemap-adapter.js'
 
 // Builds the one `data` object the planner engine reads, from the venue sources we have today:
 //   mock-data.json       36 fictional venues + members, occasion profiles, weather cases, visit history
 //   curated-venues.json  63 real places from the frontend team's list (built by scripts/build-venues.js)
-//   onemap-places.json   ~480 places from OneMap's government lists: sport centres, attractions, museums, libraries,
-//                        theatres, parks and hawker centres, plus NEA's hawker closure dates
-//                        (built by scripts/build-onemap-places.js; optional, skipped when the file is missing)
+//   onemap-places.json   483 places saved from OneMap's government lists (sport centres, attractions, museums, libraries,
+//                        theatres, parks and hawker centres), plus NEA's hawker closure dates. Fewer reach the planner:
+//                        loadPlanData sets aside the ones a group cannot go to and keeps one row of any place listed twice.
+//                        (built by scripts/build-onemap-places.js; optional, skipped with a warning when the file is missing)
 //   cdc-venues.json      1,422 CDC voucher food sites (built by scripts/build-cdc.js)
 // plus areas.json, the named MRT stations and neighbourhoods used as meeting-area candidates.
 //
@@ -27,20 +29,54 @@ let cached = null
 // site ("Food stalls at 1 Kadayanallur Street"). Keep the named curated venue and drop the CDC copy.
 // Uses matchVenueToCdc: a hawker centre within 150 m of a large CDC site, or a matching stall name within 80 m.
 // The frontend marks single stalls as kind 'hawker' too, so "is this a whole centre?" comes from the name.
+// Every OneMap row of kind hawker IS a centre (NEA's list has nothing else), whatever its name: "Bedok North Street 1
+// Blk 216" is a centre though it says neither "market" nor "food centre".
 const CENTRE_NAME = /market|food cent(re|er)|hawker|makan place|food court|food republic|kopitiam|complex/i
 
+// How well a diet need is known, best first. A OneMap centre knows none of them; the CDC site it replaces may know 'likely'.
+const DIET_RANK = ['none', 'unknown', 'likely', 'options', 'full']
+const betterDiet = (a, b) => (DIET_RANK.indexOf(b ?? 'unknown') > DIET_RANK.indexOf(a ?? 'unknown') ? b : a)
+
+/**
+ * What a OneMap centre keeps from the CDC site it replaces, so replacing loses nothing: the better diet level for each
+ * need (halal "likely" from the stall names stays, or a halal group would lose the centre), the stalls (searching for a
+ * stall by name still finds its centre) and the site's kind.
+ *
+ * How to call:
+ *   const kept = carryOverFromCdcSite(oneMapCentre, cdcSite) // { diet, stalls, siteKind, dataQuality }
+ */
+export function carryOverFromCdcSite(venue, site) {
+  const diet = { ...venue.diet }
+  for (const need of ['halal', 'vegetarian', 'vegan']) diet[need] = betterDiet(venue.diet?.[need], site.diet?.[need])
+  const known = ['halal', 'vegetarian', 'vegan'].some((need) => !['unknown', undefined].includes(diet[need]))
+  return {
+    diet,
+    stalls: site.stalls ?? [],
+    siteKind: site.siteKind,
+    dataQuality: { ...venue.dataQuality, dietUnknown: !known, dietFromNames: known },
+  }
+}
+
+/**
+ * Joins hawker centres to their CDC sites. A centre replaces its site (the site is dropped); a stall keeps the centre's site.
+ *
+ * How to call:
+ *   const { venues, droppedCdcIds } = mergeCuratedWithCdc(curatedVenues, cdcSites)
+ */
 export function mergeCuratedWithCdc(curated, cdc) {
   const dropped = new Set()
   const merged = curated.map((venue) => {
     if (venue.category !== 'eat') return venue
-    const isCentre = CENTRE_NAME.test(venue.name)
+    const isCentre = CENTRE_NAME.test(venue.name) || (venue.source === 'onemap' && venue.kind === 'hawker')
     const match = matchVenueToCdc({ ...venue, type: isCentre ? 'hawker_centre' : undefined }, cdc)
     if (!match.cdcAccepted) return venue
     // Drop the CDC copy only when it is the same place: a whole centre, or a CDC entry that is one stall.
     // A stall inside a centre (Jian Bo Shui Kueh in Tiong Bahru Market) keeps the centre's CDC site.
     const site = cdc.find((s) => s.id === match.siteId)
-    if (isCentre || site.siteKind === 'food_stall') dropped.add(site.id)
-    return { ...venue, cdcAccepted: true, cdc: { siteId: site.id, match: match.cdcAccepted, stallCount: site.cdc.stallCount } }
+    const replacesSite = isCentre || site.siteKind === 'food_stall'
+    if (replacesSite) dropped.add(site.id)
+    const carried = replacesSite && venue.source === 'onemap' ? carryOverFromCdcSite(venue, site) : {}
+    return { ...venue, ...carried, cdcAccepted: true, cdc: { siteId: site.id, match: match.cdcAccepted, stallCount: site.cdc.stallCount } }
   })
   return { venues: merged, droppedCdcIds: [...dropped] }
 }
@@ -57,19 +93,66 @@ export function withEstimatedMrtWalk(venue, stations) {
   return { ...venue, nearestMrt: venue.nearestMrt ?? nearest.name, mrtWalkMinutes: walkMinutes(venue, nearest), mrtWalkEstimated: true }
 }
 
-// A OneMap place that a hand-made list already has (the frontend's Tiong Bahru Market, the mock data's museum) is
-// left out, so a place is never suggested twice. Same place = within 300 m with a similar name, or the same
-// kind of place within 50 m.
+/**
+ * The ways a place can be called: "Smith Street Blk 335 (Chinatown Complex Market)" is also "Chinatown Complex Market".
+ *
+ * How to call:
+ *   namesOf({ name: 'Redhill Lane Blk 79 (Redhill Market)' }) // [whole, 'Redhill Lane Blk 79', 'Redhill Market']
+ */
+function namesOf(venue) {
+  const names = new Set([venue.name, venue.officialName].filter(Boolean))
+  for (const name of [...names]) {
+    const m = /^(.*?)\s*\(([^()]+)\)\s*$/.exec(name)
+    if (m) { names.add(m[1]); names.add(m[2]) }
+  }
+  return [...names]
+}
+
+/**
+ * A OneMap place that a hand-made list already has (the frontend's Tiong Bahru Market, the mock data's museum) is
+ * left out, so a place is never suggested twice. Same place = within 300 m with a similar name, or the same kind of
+ * place within 50 m. A name is compared in every way the place is written, so the name in a hawker centre's bracket
+ * counts: curated "Chinatown Complex Food Centre" is OneMap's "Smith Street Blk 335 (Chinatown Complex Market)", 60 m
+ * away, and curated "Kovan 209 Market and Food Centre" is "Hougang Street 21 Blk 209 (Kovan Hougang Market and Food
+ * Centre)", 140 m away. Distance alone is not enough for two hawker centres: neighbouring blocks are different centres.
+ *
+ * How to call:
+ *   const fresh = dropKnownPlaces(oneMapVenues, [...mockVenues, ...curatedVenues])
+ */
 export function dropKnownPlaces(candidates, known, { meters = 300, minSimilarity = 0.5, sameKindMeters = 50 } = {}) {
   return candidates.filter((c) => !known.some((k) => {
     const m = haversineKm(c, k) * 1000
-    return (m <= meters && nameSimilarity(c.name, k.name) >= minSimilarity) || (m <= sameKindMeters && c.kind && c.kind === (k.kind ?? k.cuisine))
+    const similar = namesOf(c).some((a) => namesOf(k).some((b) => nameSimilarity(a, b) >= minSimilarity))
+    return (m <= meters && similar) || (m <= sameKindMeters && c.kind && c.kind === (k.kind ?? k.cuisine))
   }))
 }
 
 const readOptionalJson = (name) => (fs.existsSync(new URL(name, MOCK_DIR)) ? readJson(name) : null)
 
-export function loadPlanData({ fresh = false } = {}) {
+// Today in Singapore as "YYYY-MM-DD" (the date strings the planner takes are Singapore local time).
+const singaporeToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' })
+
+/**
+ * The attribution the Singapore Open Data Licence asks for, to show wherever OneMap's or NEA's data is shown.
+ *
+ * How to call:
+ *   dataAttribution('2026-10-09T15:06:48.452Z') // 'Contains information from OneMap themes (Singapore Land Authority) ...'
+ */
+export function dataAttribution(fetchedAt) {
+  const accessed = typeof fetchedAt === 'string' ? fetchedAt.slice(0, 10) : 'unknown date'
+  return 'Contains information from OneMap themes, Singapore Land Authority, and from "Dates of Hawker Centres Closure", National Environment Agency, '
+    + `accessed ${accessed} from OneMap and data.gov.sg, made available under the terms of the Singapore Open Data Licence version 1.0 (https://data.gov.sg/open-data-licence).`
+}
+
+/**
+ * The one object the planner reads. Cached after the first call; `fresh: true` reads the files again. `today` is the
+ * date ("YYYY-MM-DD") the hawker closure dates are checked against, and defaults to today in Singapore.
+ *
+ * How to call:
+ *   const data = loadPlanData()
+ *   const again = loadPlanData({ fresh: true, today: '2027-01-05' }) // logs the stale-closures warning
+ */
+export function loadPlanData({ fresh = false, today = singaporeToday() } = {}) {
   if (cached && !fresh) return cached
   const mock = readJson('mock-data.json')
   const curated = readJson('curated-venues.json').venues
@@ -77,18 +160,37 @@ export function loadPlanData({ fresh = false } = {}) {
   const { areas } = readJson('areas.json')
 
   const onemapFile = readOptionalJson('onemap-places.json')
+  if (!onemapFile) console.warn('venues: onemap-places.json is missing, so there are no OneMap places and no hawker closure dates. Build it with pnpm build:onemap-places (run in backend/).')
   const mockVenues = mock.venues.map((v) => ({ ...v, source: v.source ?? 'mock' }))
 
   // The frontend's hawker centres replace their CDC copies, and so do OneMap's (which have photos and stall counts).
   const { venues: curatedMerged, droppedCdcIds } = mergeCuratedWithCdc(curated, cdc)
-  const onemapNew = dropKnownPlaces(onemapFile?.venues ?? [], [...mockVenues, ...curatedMerged])
+
+  // OneMap places: set aside the ones a group cannot go to, keep one row per place, drop the ones the hand-made lists have.
+  // A group of rows for one place goes whole when the hand-made lists have any of them.
+  const savedOnemap = onemapFile?.venues ?? []
+  const { pool, excluded } = preparePool(savedOnemap)
+  const knownList = [...mockVenues, ...curatedMerged]
+  const stillNew = new Set(dropKnownPlaces(pool, knownList).map((v) => v.id))
+  const { venues: unique, clusters } = dedupeOneMapVenues(pool)
+  const knownGroups = new Set(clusters.filter((ids) => ids.some((id) => !stillNew.has(id))).map((ids) => ids[0]))
+  const onemapNew = unique.filter((v) => stillNew.has(v.id) && !knownGroups.has(v.id))
   const { venues: onemapMerged, droppedCdcIds: droppedByOnemap } = mergeCuratedWithCdc(onemapNew, cdc)
   const dropped = new Set([...droppedCdcIds, ...droppedByOnemap])
+  const mergedIntoOnemap = droppedByOnemap.filter((id) => !droppedCdcIds.includes(id))
 
-  const venues = attachClosures(
+  const closures = onemapFile?.hawkerClosures ?? []
+  const withClosures = attachClosures(
     [...mockVenues, ...curatedMerged, ...onemapMerged, ...cdc.filter((v) => !dropped.has(v.id))],
-    onemapFile?.hawkerClosures ?? [],
-  ).map((v) => withEstimatedMrtWalk(v, areas))
+    closures,
+  )
+  const venues = withClosures.map((v) => withEstimatedMrtWalk(v, areas))
+
+  // The closure dates run out: say when, and say so in the log once, because after that every centre looks open on its cleaning days.
+  const coverage = closureCoverage(closures)
+  const staleWarning = onemapFile ? closureStaleWarning(coverage, today) : null
+  if (staleWarning) console.warn(`venues: ${staleWarning}`)
+  const closureRows = new Set(withClosures.map((v) => v.closuresFrom).filter(Boolean))
 
   cached = {
     venues,
@@ -103,11 +205,25 @@ export function loadPlanData({ fresh = false } = {}) {
         mock: mock.venues.length,
         curated: curated.length,
         onemap: onemapMerged.length,
-        onemapSkippedAsKnown: (onemapFile?.venues.length ?? 0) - onemapNew.length,
+        // Of the places saved from OneMap: set aside as not somewhere to go, one of several rows for a place, already in a hand-made list.
+        onemapSaved: savedOnemap.length,
+        onemapExcluded: excluded.length,
+        onemapDuplicates: pool.length - unique.length,
+        onemapSkippedAsKnown: unique.length - onemapNew.length,
         cdc: cdc.length - dropped.size,
-        cdcMergedIntoCurated: dropped.size,
-        hawkerClosures: onemapFile?.hawkerClosures.length ?? 0,
+        // CDC sites replaced by a curated centre, and by a OneMap centre (they used to be counted together).
+        cdcMergedIntoCurated: droppedCdcIds.length,
+        cdcMergedIntoOnemap: mergedIntoOnemap.length,
+        hawkerClosures: closures.length,
       },
+      onemapExcluded: excluded,
+      // The dates hawker closures cover. After lastCleaning they say nothing, and every centre looks open.
+      closures: {
+        ...(coverage ?? { from: null, to: null, lastCleaning: null, rows: 0, periods: 0 }),
+        rowsWithoutVenue: closures.filter((c) => !closureRows.has(c.name)).map((c) => c.name),
+        stale: staleWarning !== null,
+      },
+      onemap: onemapFile ? { fetchedAt: onemapFile._meta?.fetchedAt ?? null, attribution: dataAttribution(onemapFile._meta?.fetchedAt) } : null,
     },
   }
   return cached

@@ -101,7 +101,16 @@ function streetLabel(address) {
   return titleCase(first || a);
 }
 
-const validCoord = r => Number.isFinite(r.LAT) && Number.isFinite(r.LON) && r.LAT > 1.15 && r.LAT < 1.48 && r.LON > 103.6 && r.LON < 104.05;
+// Singapore's bounds, with room for its far islands (Pulau Unum, a OneMap park, is at lng 104.054).
+/**
+ * Is the point on the main island or one of its islands? Used by the CDC build and the OneMap adapter.
+ *
+ * How to call:
+ *   withinSingapore({ lat: 1.3, lng: 103.85 }) // true
+ *   withinSingapore({ lat: 0, lng: 0 })        // false
+ */
+const withinSingapore = ({ lat, lng }) => Number.isFinite(lat) && Number.isFinite(lng) && lat > 1.15 && lat < 1.48 && lng > 103.6 && lng < 104.1;
+const validCoord = r => withinSingapore({ lat: r.LAT, lng: r.LON });
 
 /**
  * Clean the raw snapshot. Returns kept records plus a report of what was dropped and why.
@@ -220,17 +229,24 @@ function jaccard(a, b) {
  * Does a venue from ANOTHER source (OneMap, seeded list) accept CDC vouchers? This is how the original plan
  * ("a CDC flag on seeded venues") becomes real.
  *   - same postal code or within maxMeters AND a stall name that matches  -> 'stall'
- *   - the venue is a hawker centre within siteMeters of a CDC food site   -> 'site' (centre participates, stalls vary)
+ *   - the venue is a hawker centre within siteMeters of a CDC food site, or has its postal code -> 'site' (centre
+ *     participates, stalls vary). Several sites in reach: same postal code first, then a large site, then the nearest.
  *     (venue.type === 'hawker_centre' comes from the other source, e.g. OneMap's hawker centre layer)
  *   - otherwise                                                           -> false
  * Never guesses from distance alone: a cafe next to a hawker centre does not accept CDC vouchers.
+ *
+ * How to call:
+ *   matchVenueToCdc({ ...centre, type: 'hawker_centre' }, cdcVenues) // { cdcAccepted: 'site', siteId: 'cdc_198783', meters: 0 }
  */
 function matchVenueToCdc(venue, cdcVenues, { maxMeters = 80, siteMeters = 150, minSimilarity = 0.5 } = {}) {
   const vt = tokens(venue.name);
   let best = null;
+  const siteCandidates = [];
   for (const site of cdcVenues) {
     const d = haversineKm(venue, site) * 1000;
-    const samePostal = venue.postalCode && venue.postalCode === site.postalCode;
+    const samePostal = !!venue.postalCode && venue.postalCode === site.postalCode;
+    // A hawker centre and its CDC site share a postal code, so that counts at any distance. Without a postal code, 150 m.
+    const siteInReach = venue.type === 'hawker_centre' && site.siteKind !== 'food_stall' && (d <= siteMeters || samePostal);
     if (!samePostal && d > Math.max(maxMeters, siteMeters)) continue;
     if (samePostal || d <= maxMeters) {
       for (const st of site.stalls) {
@@ -238,9 +254,16 @@ function matchVenueToCdc(venue, cdcVenues, { maxMeters = 80, siteMeters = 150, m
         if (sim >= minSimilarity && (!best || sim > best.similarity)) best = { match: 'stall', siteId: site.id, stall: st.name, similarity: sim, meters: Math.round(d) };
       }
     }
-    if (!best && venue.type === 'hawker_centre' && d <= siteMeters && site.siteKind !== 'food_stall') {
-      best = { match: 'site', siteId: site.id, similarity: null, meters: Math.round(d) };
-    }
+    if (siteInReach) siteCandidates.push({ site, d, samePostal });
+  }
+  // A matching stall name wins. Otherwise the site is the best of those in reach: the one with the same postal code,
+  // then a large site (the centre itself, not a coffee shop beside it), then the nearest. The first in file order is not a
+  // reason: Redhill Blk 85 used to take Blk 79's site because it came first.
+  if (!best && siteCandidates.length > 0) {
+    siteCandidates.sort((a, b) => Number(b.samePostal) - Number(a.samePostal)
+      || Number(b.site.siteKind === 'large_site') - Number(a.site.siteKind === 'large_site') || a.d - b.d);
+    const { site, d } = siteCandidates[0];
+    best = { match: 'site', siteId: site.id, similarity: null, meters: Math.round(d) };
   }
   return best ? { cdcAccepted: best.match, ...best } : { cdcAccepted: false };
 }
@@ -250,5 +273,5 @@ const nameSimilarity = (a, b) => jaccard(tokens(a), tokens(b));
 
 export {
   classifyStall, cuisineHint, dietHints, displayName, streetLabel, cleanRecords, buildCdcVenues, matchVenueToCdc,
-  nearestArea, approxRegion, titleCase, nameSimilarity,
+  nearestArea, approxRegion, titleCase, nameSimilarity, withinSingapore,
 };
