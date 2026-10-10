@@ -722,3 +722,51 @@ The lead chose both from a short list of options: the action that starts a meetu
 ## Round 14: decisions on meeting spots and Roam, and a handoff (2026-10-11)
 
 The lead took the recommended answer to ten questions on how converge and roam should work. The decisions, the contract, six slices and the delegation briefs are in `docs/handoffs/meeting-spots-and-roam.md`, written for a fresh session. Nothing is built.
+
+## Round 15: meeting spots the group suggests and votes on, slices 1 and 2 (2026-10-11)
+
+Parent task: the lead said to continue the feature in `docs/handoffs/meeting-spots-and-roam.md` on a second machine (Windows). The decisions are on the tracker ticket peachoolongtee/jio#94; tickets #94 to #99 sit under the wayfinder map.
+
+The first attempt, on the first machine, was never committed or pushed, so nothing of it reached this machine: no baseline test, no schema fields. This round starts both slices again. The handoff in the repository was replaced with its later revision (the one that records the pause), and the six new words went into `CONTEXT.md` again.
+
+Work is on branch `feat/meeting-spots`, cut from `main` at `2e1643d`, which now carries the Google Places work (peachoolongtee/jio#91 and #100). The showcase branch `feat/demo-showcase` is not on the remote, so `createSession` and `inviteFriends` are as `main` has them.
+
+This machine:
+
+- The global `pnpm` (11.9.0) cannot start the pinned 12.4.1, so the root scripts fail. The suites are run directly: `node node_modules/vitest/vitest.mjs run` in `backend/` and in `frontend/`, and `node node_modules/vite/bin/vite.js build` in `frontend/`. Running the pinned pnpm through its Node entry point works but adds `@pnpm/exe` to `pnpm-lock.yaml`; that change was put back and is not part of this work.
+- Two backend tests built a script path from `new URL(...).pathname`, which gives `C:\C:\...` on Windows. Both now use `fileURLToPath` (`onemap-limits.test.js`, `onemap-snapshot.test.js`); three failures became one.
+- One backend test still fails here and only here: "the real saved file is already repaired: another run changes no byte" in `onemap-snapshot.test.js`. Git checks `onemap-places.json` out with CRLF line endings on this machine (`core.autocrlf` is true) and the repair script writes LF. Left alone: the fix is a `.gitattributes` rule, which is the lead's to decide.
+
+Baseline before any source change, run by the lead agent: backend 546 passed, 1 failed (the line-ending test above), 1 skipped, 24 files; frontend 324 passed, 30 files; build succeeded.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 15.1 | Backend | `alternatives`, `include` and `candidates` on `POST /api/meeting-area` (ticket #94), with a baseline test recorded first | `backend/` only | Old requests answer exactly as before; bounds tested; at most 60 route calls with 30 members, 3 alternatives and 8 included areas; suite passes with outbound calls blocked; docs updated | **Done and checked by the lead** (results below) |
+| 15.2 | Frontend | Spots, approvals, confirm, known place and the version bump in the local data layer (ticket #95) | `frontend/src/lib/`, `frontend/src/stores/` and their tests | One test per rule in the decisions; an old save loads; frontend suite and build pass; no existing test deleted, skipped or weakened | **Done and checked by the lead** (results below) |
+| 15.3 | Lead | Verify both reports, record results | Docs | Both suites and the build run by the lead; the baseline test run on an untouched `main`; the riskiest claim in each report read in the code | Done |
+
+### 15.1 result: runners-up and named areas on `/api/meeting-area`
+
+- **Built (backend agent):** `alternatives` (0 to 3) and `include` (up to 8 area ids) on the request, `candidates` on the answer, both bounds in the `MAX` block after `members`. Changed `plan-schemas.js`, `engine.js` (`areasToTry`, `meetingAreaPlan`, `candidates` in `meetingArea`), `travel-times.js` (`namedAreas`, `routingOrderWithNamedAreas`), `plan.js`, `backend/docs/planner-api.md`. New tests: `meeting-area-baseline.test.js` with a fixture of 84 recorded requests, and `meeting-area-candidates.test.js` (46 tests).
+- **Run by the lead:** the backend suite, 677 passed, 1 failed, 2 skipped, 26 files, and the same with outbound calls blocked, with no `BLOCKED_OUTBOUND` line. The one failure is the line-ending test named above. The second skip is the baseline's recorder, which runs only when asked to.
+- **Checked by the lead:** the baseline test and its fixture, copied into an untouched export of `origin/main` (`git archive`, no `alternatives` anywhere in its schema), passed three times, 85 of 85. The fixture's sha256 is `b1f0fd82…5687`, as the agent reported. The lead read the whole diff of `backend/src`: extra areas are measured on a separate count, so the top-level answer cannot change; the cap loop in `travel-times.js` is the same loop, fed a different order.
+- **Not checked by the lead:** the route-call count of 60 at the widest setting rests on the agent's test (which asserts at or under `MAX_ROUTED_TRIPS_PER_REQUEST` and that the cap did bite); the agent's two mutation checks; anything against the real OneMap.
+- **Differences from the brief, accepted:**
+  - `approximate` at the top level is true when any area the ranking compared used an estimate, not only the chosen one. It had to stay as it is, so each candidate's `approximate` is about that area's own trips, and `candidates[0].approximate` can be false while the top-level flag is true.
+  - The routing order is: the meeting point of a non-station method, then the usual best five by estimate, then included areas in the order sent, each only if it fits the cap whole. With 12 or more members the five fill the cap, so a member's suggested spot shows estimated times ("about"). With 10 members the first included area gets real routes and the second does not.
+  - For a non-station method a runner-up can have a shorter longest trip than the chosen area, because the centre is not chosen by the station rule.
+  - `candidates` appears whenever either field is sent, including `alternatives: 0`.
+
+### 15.2 result: meeting spots in the local data layer
+
+- **Built (frontend agent):** `suggestSpot`, `withdrawSpot`, `approveSpot`, `confirmSpot` and `setKnownPlace` in `lib/api.js`, with store wrappers in `stores/events.js` (`suggestMySpot`, `withdrawMySpot`, `approveMySpot`, `confirmSpot`, `setKnownPlace`). `VERSION` is 9. `meetingArea` in `plannerApi.js` takes `alternatives` and `include`; `meetingResultLine` has words for `voted` and `chosen`; `nextStepFor` answers "Confirm the spot", "Say which spots work for you" and "Waiting for the host". New `meetingSpots.test.js` (48 tests), three added to `plannerApi.test.js`, one to `api.backend.test.js` that goes through the real backend app.
+- **What the screens read:** `session.spots` is `{ list, approvals, suggestions, appMethod, preselectedAreaId }`. Each spot in `list` has `areaId`, `by` (`'app'` or a person id), `byName`, `here`, `worstMinutes`, `meanMinutes`, `times`, `approximate`, `area` (the area's own name and coordinates), `approvedBy` and `approvalCount`. `session.findingSpots` is true while the planner works the spots out. A banner that removed approvals carries `approvalsRemoved: true`. A known place set before anyone shared a start has `worstMinutes` and `meanMinutes` of null and no `times`.
+- **Run by the lead:** the frontend suite, 376 passed, 31 files; the build succeeded. `pnpm-lock.yaml` is unchanged, and only `frontend/src/lib/`, `frontend/src/stores/` and their tests changed.
+- **Checked by the lead:** the diff of every existing test file is additions only. The lead read the whole diff of `lib/api.js`: a call to `meetingArea` without the new arguments posts the body it always did; the spots view carries an area's coordinates and never a member's label or place; `approveSpot` and `withdrawSpot` make no planner call; `suggestSpot`, `confirmSpot` and `setKnownPlace` run inside `orUndo`.
+- **Not checked by the lead:** the run with outbound calls blocked (the agent reports 376 passed and no blocked call); anything on a screen, because no screen uses these functions yet.
+- **Beyond the brief, accepted for now and for the lead to confirm:**
+  - `spots` also stores `suggestions` (who suggested which area) and `appMethod`. A spot the app lists is `by: 'app'` even when a member suggested it too.
+  - A confirmed area with method `voted` or `chosen` is pinned: a later start, opt-out or re-plan only updates travel times and never moves it. The brief asked for this for a known place; the agent applied it to a voted spot as well. The app's first spot confirmed with no approvals keeps the planner's method and can still move, as today.
+  - With no approvals, the preselected spot is the one with the shortest longest trip, which can be a member's suggestion.
+  - The group can hold at most 8 different suggested areas, the planner's `include` limit.
+- **Known gaps:** `suggestSpot` does not take the "latest request wins" ticket that a location change takes, so a suggestion racing a location change could apply the older answer. After a known place, when some members have a start and others do not, places are ranked for the ones with a start only.

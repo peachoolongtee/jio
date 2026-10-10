@@ -92,6 +92,8 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 
 **Round 14, 2026-10-11, decisions on meeting spots and Roam.** Nothing built; the handoff is `docs/handoffs/meeting-spots-and-roam.md`.
 
+**Round 15, 2026-10-11, meeting spots, slices 1 and 2: built on `feat/meeting-spots`, not committed.** A backend agent added runners-up and named areas to `/api/meeting-area`; a frontend agent added spots, approvals, confirm and the known place to the data layer (save version 9). The lead checked both. No screen uses them yet; slice 3 is next.
+
 **Rounds 10 and 11, 2026-10-10, Home as a map of every meetup, and four problems the lead found by using the app: completed.** One frontend agent each. Both went to `main` from `feat/home-meetups-map`.
 
 **Round 9, 2026-10-10, OneMap made safe and everything reconciled: completed.** A backend agent capped OneMap calls per request and per process and fixed the token handling. The defect fixes, the external-APIs pull request and these changes went to `main` together from `feat/onemap-and-defect-fixes`.
@@ -165,6 +167,10 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-11 | `feat/google-places-integration` after round 12 | `pnpm test`, also with outbound calls blocked | 547 passed, 1 skipped, 24 files, both times |
 | 2026-10-11 | `feat/google-places-integration` after round 12 | `pnpm --filter jio-frontend test`; `pnpm build` | 324 passed, 30 files; succeeded |
 | 2026-10-11 | the pull request before the fixes, and `main` | OneMap route calls for one meeting-area request, 30 members, stubbed | 60 on both (round 9 recorded 59; the cap is 60) |
+| 2026-10-11 | `feat/meeting-spots` at `2e1643d`, before round 15, on the Windows machine | backend suite; frontend suite; build | 546 passed, 1 failed, 1 skipped, 24 files; 324 passed, 30 files; succeeded. The failure is a line-ending test (see round 15) |
+| 2026-10-11 | `feat/meeting-spots`, working tree after round 15 | backend suite, also with outbound calls blocked | 677 passed, 1 failed (the same test), 2 skipped, 26 files, both times |
+| 2026-10-11 | `feat/meeting-spots`, working tree after round 15 | frontend suite; build | 376 passed, 31 files; succeeded |
+| 2026-10-11 | an untouched export of `origin/main` at `2e1643d` | `meeting-area-baseline.test.js` with its fixture, three times | 85 of 85 passed each time |
 | 2026-10-10 | `fix/leaderboard-audit-defects`, working tree | `pnpm --filter jio-frontend test` | 229 passed, 25 files |
 | 2026-10-10 | `fix/leaderboard-audit-defects`, working tree | `pnpm test`, `pnpm build` | 317 passed, 1 skipped; succeeded |
 | 2026-10-10 | external-APIs pull request merged with `main`, throwaway worktree | `pnpm test`, also with outbound calls blocked | 334 passed, 1 skipped, both times |
