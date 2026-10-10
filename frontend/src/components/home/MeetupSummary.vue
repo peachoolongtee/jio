@@ -4,8 +4,9 @@
 // the popover on a map pin, so it is written once.
 //   <MeetupSummary :meetup="m" my-id="ian" :names="nameOf" title-id="home-detail-title" />
 //   <MeetupSummary :meetup="m" my-id="ian" :names="nameOf" compact />      the small one, for a popover
-// compact: a smaller title (a paragraph, not a heading), the date on one line, the people and next step on one row,
-// and a small button. titleId: the id of the title, for something that labels itself by it.
+// compact: a smaller title (a paragraph, not a heading, cut with an ellipsis and carrying the whole title as its
+// tooltip), the date on one line, the people and next step on one row, and a small button. The full-size title wraps,
+// however long. titleId: the id of the title, for something that labels itself by it.
 // Only areas are shown, never a member's exact place.
 import { computed } from 'vue'
 import AppButton from '../ui/AppButton.vue'
@@ -45,7 +46,7 @@ const peopleText = computed(() => {
       <StatusPill :status="meetup.status" />
       <CountdownChip :session="meetup" />
     </div>
-    <component :is="compact ? 'p' : 'h2'" :id="titleId || undefined" class="sum__title truncate" :class="compact ? 'title-md' : 'display-sm'">{{ meetup.title }}</component>
+    <component :is="compact ? 'p' : 'h2'" :id="titleId || undefined" class="sum__title" :class="compact ? 'title-md truncate' : 'display-sm'" :title="compact ? meetup.title : undefined">{{ meetup.title }}</component>
     <p class="body-sm text-muted tnum">{{ dateLine(meetup) }}</p>
 
     <p class="sum__where" :class="{ 'is-finding': where.kind === 'finding' }">
@@ -74,7 +75,9 @@ const peopleText = computed(() => {
 <style scoped>
 .sum { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; }
 .sum__top { display: flex; align-items: center; gap: var(--spacing-sm); }
-.sum__title { margin: var(--spacing-xs) 0 0; }
+/* The card under the map wraps the whole title, so it is the place to read one that is cut elsewhere; the small card on a pin cuts it with an ellipsis and has the whole title as its tooltip. */
+.sum__title { margin: var(--spacing-xs) 0 0; overflow-wrap: anywhere; }
+.sum__title.truncate { overflow-wrap: normal; }
 .sum__where { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing-xs) var(--spacing-sm); margin: var(--spacing-xs) 0 0; }
 .sum__area { min-width: 0; overflow-wrap: anywhere; }
 .sum__status { color: var(--ink); font-weight: 600; }

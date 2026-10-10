@@ -472,7 +472,11 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 }
 @keyframes hello-shine { from { background-position: 100% 0; } to { background-position: 0 0; } }
 .hello__hi { display: inline-block; animation: rise 520ms cubic-bezier(0.16, 1, 0.3, 1) both; }
-.hello__name { display: inline-block; padding-bottom: 0.06em; }
+/* Text painted through background-clip is visible only inside its own box. The line is 0.95 tall and the letter-spacing
+   is negative, so descenders (g, j, p, q, y) fall below the box and a wide last letter (W) runs past its right edge.
+   The padding gives the paint room and the negative margin takes the same room back, so the layout is as before
+   (0.06em under the name, as it always was). The gradient keeps spanning the text alone (origin: content-box). */
+.hello__name { display: inline-block; padding: 0.12em 0.1em 0.22em 0.06em; margin: -0.12em -0.1em -0.16em -0.06em; background-origin: content-box; }
 @media (prefers-reduced-motion: reduce) { .hello__name, .hello__hi { animation: none; } }
 .hero__stage { position: relative; align-self: stretch; height: 360px; }
 .hero__map {
