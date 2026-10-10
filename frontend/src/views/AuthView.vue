@@ -33,6 +33,8 @@ const usernameError = ref('')
 const nameError = ref('')
 const dobError = ref('')
 const submitError = ref('')
+// Why the demo tools' account (or "Start over") could not be created, shown above the buttons on every question.
+const demoError = ref('')
 const photoError = ref('')
 const busy = ref(false)
 const showPassword = ref(false)
@@ -101,10 +103,16 @@ async function next() {
 const quickAccount = import.meta.env.DEV
   ? async () => {
       busy.value = true
-      const { DEMO_ACCOUNT } = await import('@/components/dev/demoAccount.js')
-      await auth.signUpAs(DEMO_ACCOUNT)
-      busy.value = false
-      router.replace('/')
+      demoError.value = ''
+      try {
+        const { DEMO_ACCOUNT } = await import('@/components/dev/demoAccount.js')
+        await auth.signUpAs(DEMO_ACCOUNT)
+        router.replace('/')
+      } catch (err) {
+        demoError.value = err?.message || 'Could not create the demo account. Try again.'
+      } finally {
+        busy.value = false
+      }
     }
   : null
 
@@ -267,6 +275,7 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
     </form>
 
     <footer class="screen__footer signup__footer">
+      <p v-if="demoError || auth.startOverError" class="body-sm text-error" role="alert">{{ demoError || auth.startOverError }}</p>
       <template v-if="step === 'photo'">
         <AppButton next block @click="next">{{ draft.photo ? 'Next' : 'Skip' }}</AppButton>
       </template>

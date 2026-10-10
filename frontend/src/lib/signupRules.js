@@ -43,6 +43,13 @@ export function validateDob(value, now = new Date()) {
   return ''
 }
 
+// The first thing wrong with a whole profile, or '' when the data layer will accept it. Checked before anything is
+// erased and re-created, so a bad profile cannot leave a person signed out.
+// How to call: profileProblem({ name: 'Ian', username: 'ian', dob: '2000-01-01' }) -> ''
+export function profileProblem(profile, now = new Date()) {
+  return validateName(profile?.name) || validateUsername(profile?.username) || validateDob(profile?.dob, now)
+}
+
 // Which sign-up question a message from the data layer belongs to, so the message can be shown under that field.
 // Falls back to '' when it names none of them.
 // How to call: fieldForSignUpError('Username can only use lowercase letters.') -> 'username'

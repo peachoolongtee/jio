@@ -1,7 +1,8 @@
 <script setup>
 // The top of every session screen: back arrow, title, date, and the session's steps as a progress bar you can click
 // through (SessionSteps). Top right: Invite (once the session has started, while people can still join) and a
-// "Hold to end" button: hold it until it fills, then confirm, to end the session for everyone.
+// "Hold to end" button: hold it until it fills, then confirm, to end the session for everyone. A screen reader,
+// switch or voice control activates it with one press; the confirmation follows either way.
 //   <SessionHeader :session="session" :title="'Today\'s plan'" />
 import { computed, ref } from 'vue'
 import AppButton from '../ui/AppButton.vue'

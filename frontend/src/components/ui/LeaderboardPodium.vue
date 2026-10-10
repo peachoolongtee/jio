@@ -1,8 +1,9 @@
 <script setup>
-// The top three on stepped blocks: 2nd on the left, 1st raised in the middle, 3rd on the right.
+// The top three on stepped blocks: 2nd on the left, 1st raised in the middle, 3rd on the right. The list is in rank
+// order (1st, 2nd, 3rd) for screen readers and keyboards; CSS `order` puts the spots in that arrangement.
 //   <LeaderboardPodium :rankings="[{ userId: 'ian', userName: 'Ian', rank: 1, value: 300 }]" current-user-id="ian" />
 // Each ranking: { userId, userName, rank, value, photo?, to? }. `to` makes the spot a link (a profile).
-// The order passed in decides where each person stands (2 · 1 · 3). The medal (gold, silver, bronze), the block's
+// The order passed in decides who stands where: first, second, third. The medal (gold, silver, bronze), the block's
 // height and the number on it follow the rank, so two people tied for first both stand on gold.
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
@@ -17,7 +18,7 @@ const props = defineProps({
 
 const spots = computed(() => {
   const [a, b, c] = props.rankings
-  return [b && { ...b, place: 2 }, a && { ...a, place: 1 }, c && { ...c, place: 3 }].filter(Boolean)
+  return [a && { ...a, place: 1 }, b && { ...b, place: 2 }, c && { ...c, place: 3 }].filter(Boolean)
 })
 </script>
 
@@ -27,12 +28,13 @@ const spots = computed(() => {
       v-for="spot in spots"
       :key="spot.userId"
       class="podium__spot rise"
-      :class="[`podium__spot--${Math.min(spot.rank, 3)}`, { 'is-me': spot.userId === currentUserId }]"
+      :class="[`podium__spot--${Math.min(spot.rank, 3)}`, `podium__spot--place-${spot.place}`, { 'is-me': spot.userId === currentUserId }]"
       :style="{ '--i': spot.place === 1 ? 0 : spot.place }"
     >
       <component
         :is="spot.to ? 'RouterLink' : 'div'"
         :to="spot.to || undefined"
+        :role="spot.to ? undefined : 'group'"
         class="podium__person"
         :aria-label="`Rank ${spot.rank}: ${spot.userName}${spot.userId === currentUserId ? ' (you)' : ''}, ${spot.value} ${COIN}`"
       >
@@ -53,6 +55,10 @@ const spots = computed(() => {
 /* As many columns as people on it (fewer than three early in a season), kept centred. */
 .podium { display: grid; grid-template-columns: repeat(var(--spots, 3), minmax(0, 1fr)); align-items: end; gap: var(--spacing-md); width: 100%; max-width: calc(var(--spots, 3) * 148px); margin: 0 auto; padding: 0; list-style: none; }
 .podium__spot { display: flex; flex-direction: column; min-width: 0; }
+/* The list is 1st, 2nd, 3rd; the podium stands 2nd, 1st, 3rd. */
+.podium__spot--place-2 { order: 1; }
+.podium__spot--place-1 { order: 2; }
+.podium__spot--place-3 { order: 3; }
 .podium__person { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; padding-bottom: var(--spacing-md); color: var(--ink); text-align: center; text-decoration: none; }
 @media (hover: hover) { a.podium__person:hover .podium__name { text-decoration: underline; } }
 .podium__avatar { position: relative; margin-bottom: var(--spacing-sm); }

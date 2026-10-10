@@ -172,11 +172,20 @@ const endSeason = () => act('season', async () => {
   note.value = names ? `Season ${ended.number} ended. ${names} won ${coins(ended.prize)}.` : `Season ${ended.number} ended. Nobody earned JioCoins, so nobody won.`
 })
 
-// A brand new account: no meetups, nothing earned this season, then Home. This panel closes on the way, since it
-// only shows while signed in.
+// A new demo account with the sample history (10 meetups and 1,000 JioCoins), then Home. This panel closes on the way,
+// since it only shows while signed in. If the profile is rejected nothing is erased, so the panel opens again with the
+// reason. If sign-up fails after the wipe, the person is sent to the sign-up page, which shows the reason.
 async function startOver() {
   open.value = false
-  await auth.startOver(DEMO_ACCOUNT)
+  note.value = ''
+  try {
+    await auth.startOver(DEMO_ACCOUNT)
+  } catch (e) {
+    note.value = e.message
+    if (auth.signedIn) open.value = true
+    else router.replace('/signup')
+    return
+  }
   router.push('/')
 }
 
@@ -257,7 +266,7 @@ const setCondition = (key, value) => planner.setCondition(key, value)
 
     <section class="demo-group">
       <h3 class="title-md">Account</h3>
-      <p class="body-sm text-muted">Reset demo data keeps your account and clears meetups. Start over also replaces the account, as if you had just signed up.</p>
+      <p class="body-sm text-muted">Reset demo data keeps your account and clears meetups. Start over also replaces the account with a new demo account that starts with sample history: 10 meetups and 1,000 JioCoins.</p>
       <AppButton block variant="secondary" @click="startOver">Start over with a new account</AppButton>
     </section>
 

@@ -463,3 +463,91 @@ Parent task: the lead asked to merge the new pull request "Feat/leaderboard jioc
 
 - The pull request is merged into `main` as `9bd2b90`, with no frontend change by the lead or any agent.
 - `CLAUDE.md` now points to `DESIGN.md` and records that the lead took the brighter brand red and the reduced sample notes as shipped.
+
+## Round 8: fix the leaderboard audit's defects, and audit the external-APIs pull request (2026-10-10)
+
+Parent task: the lead asked for every defect from round 7 to be fixed, and for the other open pull request, "Feature/external apis" (head `4903c4f`, 15 files, all backend and docs), to be audited. The fixes are on branch `fix/leaderboard-audit-defects`, cut from `main`. The four items the ticket lists as decisions for the lead are not touched: the brand red, the sample labels, the controls removed from the voting page, and the planner request count.
+
+| # | Role | Scope | May change | Depends on | Acceptance criteria | Status |
+|---|---|---|---|---|---|---|
+| 8.1 | Frontend | The nine defects on the ticket "Settle the findings from the leaderboard pull request's audit" | The files named in its brief, under `frontend/src/` | Round 7 | Each defect has a test or a stated browser check; the demo account and "Start over" work; frontend suite and build pass | **Completed** |
+| 8.2 | Code review | The external-APIs pull request: OneMap search and routing, travel times, the cache, and how it sits with the live weather already on `main` | Nothing | None | Each finding has a file and line, a failure scenario and a severity | **Completed** |
+| 8.3 | Testing, done by the lead | The external-APIs pull request's head, and the same merged with `main` | Nothing (a throwaway worktree) | None | Real output for each command | **Completed** |
+| 8.4 | Lead | Verify 8.1 in a browser; bring `DESIGN.md` in step; post the audit of 8.2 on its pull request | `DESIGN.md`, docs, the tracker | 8.1, 8.2 | The checks pass; the audit is posted | **Completed** |
+
+### 8.2 and 8.3 External-APIs pull request: audited, "changes required"
+
+- **Agent:** a code-reviewer subagent, read-only, reading the pull request's head in a separate worktree. It ran nothing.
+- **Run by the lead, on the pull request merged with `main` in a throwaway worktree:**
+
+| Check | Result |
+|---|---|
+| Merge with `main` | Clean, including `CLAUDE.md`. The review expected a conflict there; there is none. |
+| `pnpm test` | 334 passed, 1 skipped, 19 files |
+| `pnpm test` with every outbound network call blocked | 334 passed; no blocked call was logged |
+| `pnpm --filter jio-frontend test`, `pnpm build` | 192 passed; succeeded |
+
+- **Blocker, reproduced by the lead** with stubbed HTTP and a counter on OneMap calls: one `/api/meeting-area` request with 30 members causes 480 route calls by default and 1,108 with `maxCandidates: 37`; a `/api/converge` with 5 members causes 10, or 20 when ends differ from starts. The account allows 300 calls a minute in total; the planner's limit counts requests, and the six-at-a-time limit is per request.
+- **Majors, traced by the reviewer and not reproduced:** no 401 retry, and a failed login is retried on every trip; no deadline, circuit breaker or failure cache during an outage; the token is not fetched at start-up and a wrong password leaves no log line; the address search can spend the whole shared budget.
+- **Clean:** every call goes through `services/http.js`; the engine stays synchronous; the scenario is in every cache key; no secret or real-looking credential in code, tests or docs; nothing of the pull request's first, duplicate weather service remains.
+- **Posted** in full on the pull request. It was not merged: the lead asked for an audit only, and it has a blocker.
+
+### 8.1 Leaderboard defects: completed
+
+- **Agent:** a frontend-engineer subagent. It changed 18 files under `frontend/src/` and created three test files. No colour token, sample note, removed control or planner call count was touched.
+- **What changed, by defect:**
+
+| # | Defect | Fix |
+|---|---|---|
+| 1 | The demo tools fail | `DEMO_ACCOUNT` has a date of birth; `quickAccount` always resets and shows the error; "Start over" checks the profile before it erases anything |
+| 2 | A new account has invented history | A form sign-up starts at zero. Only an account with `demo: true` gets the sample history, and the panel says so |
+| 3 | "Last season" can strand the page | The card and its picker stay mounted; a failed load shows an error with "Try again" |
+| 4 | "Hold to end" needs a sustained press | A click with `detail` 0 ends at once (a dialog still confirms); a mouse or touch click still needs the hold |
+| 5 | Names at 320 px | At 480 px and below the amount sits under the name and the nested padding is smaller |
+| 6 | Calendar days too small | Days are 44 px tall and fill their cell; arrow keys move between days; one tab stop |
+| 7 | Votes vanish without a word | The "votes were cleared" banner is shown again while voting, and only that banner |
+| 8 | A session can wait for ever | A "Waiting for N people" card; the host can continue without someone, behind a confirmation |
+| 9 | Podium reading order | Written 1, 2, 3 and shown 2, 1, 3; rank labels are real text |
+
+- **Verified by the lead:**
+  - `pnpm test` 317 passed, 1 skipped; `pnpm --filter jio-frontend test` 229 passed, 25 files (192 before); `pnpm build` succeeded.
+  - With the date of birth removed from the demo account by hand, six of the new tests failed; restored from a copy.
+  - In a browser at 320 px, with the backend on a spare port: "Dev: create a demo account" lands on Home with a stored date of birth and the sample history; the leaderboard's name column is 118 px with nothing clipped and no horizontal overflow; the podium's written order is rank 1, 2, 3; a calendar day is 36.3 by 44 px, the grid has one tab stop, and today carries `aria-current`. No console errors.
+- **Reported by the agent and not rechecked by the lead:** the form sign-up starting at zero on every screen; the hold button under a mouse hold, a quick click and a `detail` 0 click; the "Last season" error state; the votes-cleared banner; the "Continue without" flow against the real planner.
+- **Not verified by anyone:** a real screen reader; the `/signup` redirect after "Start over" fails late.
+- **Left as it is:** the saved-data version was not raised, so a save made by a form sign-up before this fix keeps its old seeded numbers.
+- **`DESIGN.md`** was brought in step by the lead: seven sentences corrected and a "Changes since this was recorded" section added.
+
+## Round 9: make the OneMap work safe, reconcile everything and merge (2026-10-10)
+
+Parent task: the lead asked for the OneMap changes to be made, the defect fixes committed in sequence, and everything reconciled and merged to `main`. Work is on branch `feat/onemap-and-defect-fixes`: the nine defect fixes of round 8 as nine commits, then the external-APIs pull request merged in unchanged (clean, including `CLAUDE.md`), then the OneMap changes on top.
+
+| # | Role | Scope | May change | Depends on | Acceptance criteria | Status |
+|---|---|---|---|---|---|---|
+| 9.1 | Backend | A cap on OneMap calls per request and for the whole process; token retry and login backoff; outage behaviour; logging; start-up checks | `backend/src/services/onemap.js`, `travel-times.js`, `cache.js`, a new budget file, `routes/plan.js`, `plan-schemas.js`, `app.js`, `index.js`, `.env.example`, backend tests and two backend docs | Round 8.2 | The audit's counter shows at most 60 route calls for any one request; the suite passes with outbound network blocked; each behaviour has a test | **Completed** |
+| 9.2 | Lead | Verify 9.1, commit, push, open a pull request into `main`, merge | Docs and the tracker | 9.1 | All suites pass; pull request merged | **Completed** up to the commits; the pull request and `git log` record the merge |
+
+### 9.1 OneMap limits: completed
+
+- **Agent:** an implementer subagent. It created `backend/src/services/budget.js` and `backend/tests/onemap-limits.test.js` (49 tests) and changed `onemap.js`, `travel-times.js`, `routes/plan.js`, `app.js`, `index.js`, `.env.example`, two test files and two docs. The engine under `backend/src/planner/` is untouched.
+- **What changed:**
+  - One request routes at most 60 trips, whole candidates only, in the engine's order. The meeting area gives real routes to the five best candidate areas by estimate, or to none if one area alone would pass the cap. Everything else keeps the estimate and is flagged `approximate`.
+  - One budget for the process, shared by routing, search and login: six calls in flight and `ONEMAP_CALLS_PER_MINUTE` a minute, 240 by default. An empty budget never waits: a trip becomes an estimate, and a search answers 503 `search_unavailable` with `Retry-After`.
+  - A 401 drops the token, logs in once (shared) and retries once. A failed login blocks logins for 60 seconds. A failed renewal keeps an unexpired token.
+  - After five consecutive failed route calls, no calls for 30 seconds. One request waits at most 8 seconds on routing.
+  - One warning per reason per minute when routing falls back. The `travel` object now says how many trips were asked for, routed, cached, walked, failed and estimated.
+- **Changed by the lead after review:** the brief told the agent to refuse to start when either OneMap variable still held the example value. The lead's own `backend/.env` holds those values, as would every teammate's, so the server would have stopped starting. The example values now count as not set, as they did in the teammate's code; only half an account is refused. The brief was wrong, not the agent.
+- **Verified by the lead:**
+
+| Check | Result |
+|---|---|
+| `pnpm test` | 383 passed, 1 skipped, 20 files |
+| The same with every outbound network call blocked | 383 passed; no blocked call logged |
+| `pnpm --filter jio-frontend test`, `pnpm build` | 229 passed, 25 files; succeeded |
+| The audit's counter, one `/api/meeting-area` request with 30 members | 59 route calls by default, 60 with `maxCandidates: 37`; 480 and 1,108 before |
+| The counter, `/api/converge` with 5 members | 10, or 20 when ends differ: unchanged, and under the cap |
+| The backend started with the local settings, on a spare port | Starts, and logs that OneMap routing is off |
+
+- **Not verified by anyone:** anything against the real OneMap service. The agent's start-up login line is covered by a unit test only.
+- **Known trade-offs, as reported:** a meeting-area result can compare real times for the routed areas with estimates for the rest, so the winner can be an estimate-only area (the answer says `approximate`); with 30 members only two areas fit under the cap; address search draws on the same budget as routing, with no reserved share.
+- **Commits:** nine for the defect fixes, the merge of the external-APIs branch, six for the OneMap changes, then this log and `CLAUDE.md`.

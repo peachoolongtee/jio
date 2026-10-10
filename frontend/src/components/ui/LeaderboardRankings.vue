@@ -4,6 +4,7 @@
 //   <LeaderboardRankings :rankings="rows" current-user-id="ian" show-pagination :default-page-size="10" />
 // Each ranking: { userId, rank, userName, byline?, value, photo?, to? }. `to` makes the name a link.
 // rank is null for someone with nothing this season: it shows "–" and reads "No rank yet".
+// At 480px and below the amount sits under the name rather than beside it.
 // The current user's row is outlined, and the list opens on the page that has it.
 import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
@@ -45,7 +46,10 @@ const last = computed(() => Math.min(props.rankings.length, (page.value + 1) * s
         :class="[{ 'is-me': row.userId === currentUserId }, medal(row) ? `is-top-${medal(row)}` : '']"
         :style="{ '--i': i + 3 }"
       >
-        <span class="rankings__rank tnum" :aria-label="row.rank == null ? 'No rank yet' : `Rank ${row.rank}`">{{ row.rank ?? '–' }}</span>
+        <span class="rankings__rank tnum">
+          <span aria-hidden="true">{{ row.rank ?? '–' }}</span>
+          <span class="sr-only">{{ row.rank == null ? 'No rank yet' : `Rank ${row.rank}` }}</span>
+        </span>
         <span class="rankings__crown"><AppIcon v-if="medal(row)" name="crown" :size="20" /></span>
         <UserAvatar :name="row.userName" :src="row.photo || ''" :person="row.userId" :size="40" />
         <component :is="row.to ? 'RouterLink' : 'span'" :to="row.to || undefined" class="rankings__name">
@@ -87,5 +91,11 @@ const last = computed(() => Math.min(props.rankings.length, (page.value + 1) * s
 .rankings__pager { display: flex; align-items: center; justify-content: flex-end; gap: var(--spacing-sm); }
 .rankings__step { display: inline-flex; align-items: center; justify-content: center; width: var(--tap-min); height: var(--tap-min); border: 1px solid var(--hairline); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); cursor: pointer; }
 .rankings__step:disabled { color: var(--muted-soft); cursor: default; }
-@media (max-width: 399px) { .rankings__row { grid-template-columns: 16px 20px 40px minmax(0, 1fr) auto; gap: var(--spacing-sm); padding: var(--spacing-sm) var(--spacing-md); } }
+/* On a phone the rank, crown and avatar keep their columns and the name takes the rest; the amount sits under the
+   name instead of beside it, so a name has room at 320px. */
+@media (max-width: 480px) {
+  .rankings__row { grid-template-columns: 16px 20px 40px minmax(0, 1fr); gap: 0 var(--spacing-sm); padding: var(--spacing-sm); }
+  .rankings__rank, .rankings__crown, .rankings__row :deep(.avatar) { grid-row: 1 / span 2; align-self: center; }
+  .rankings__value { grid-column: 4; justify-self: start; }
+}
 </style>

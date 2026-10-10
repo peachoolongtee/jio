@@ -1,7 +1,19 @@
+<script>
+// Is this click an activation by assistive technology (a screen reader, switch or voice control, or Enter on the
+// button), not the end of a pointer press or of a key the person was holding? Those clicks have `detail` 0. A mouse
+// or touch click has detail 1 or more and still needs the hold. `keyHeld`: a key was pressed on the button just now.
+// How to call: isAssistiveClick({ detail: 0 }, false) -> true
+export function isAssistiveClick(event, keyHeld = false) {
+  return event.detail === 0 && !keyHeld
+}
+</script>
+
 <script setup>
 // A button you press and hold to confirm something that cannot be undone, such as ending a session. While held, a
 // fill sweeps across it; letting go early runs it back. Held to the end, it emits `done` (follow it with a
-// confirmation). Works with a pointer (mouse, touch) and with Space or Enter held down.
+// confirmation). Works with a pointer (mouse, touch) and with Space or Enter held down. A screen reader, switch or
+// voice control cannot hold, so their activation (a click that is not from a pointer or a held key) emits `done` at
+// once: the confirmation that follows is what keeps it safe.
 //   <HoldButton label="Hold to end" @done="confirmOpen = true" />
 import { onBeforeUnmount, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
@@ -20,6 +32,8 @@ const holding = ref(false)
 let frame = 0
 let startedAt = 0
 let from = 0
+// A key went down on the button and its click, if any, has not arrived yet.
+let keyHeld = false
 
 function tick(now) {
   progress.value = Math.min(1, from + (now - startedAt) / props.duration)
@@ -50,7 +64,23 @@ function stop() {
 
 function onKeydown(event) {
   if (event.repeat) return
+  keyHeld = true
   start()
+}
+
+// Space sends its click when the key comes up; that click ends a hold, it is not an assistive activation.
+function onKeyup() {
+  stop()
+  setTimeout(() => { keyHeld = false })
+}
+
+function onBlur() {
+  stop()
+  keyHeld = false
+}
+
+function onClick(event) {
+  if (isAssistiveClick(event, keyHeld)) emit('done')
 }
 
 onBeforeUnmount(() => cancelAnimationFrame(frame))
@@ -62,16 +92,17 @@ onBeforeUnmount(() => cancelAnimationFrame(frame))
     class="hold"
     :class="{ 'is-holding': holding }"
     :style="{ '--p': progress }"
-    :aria-label="`${action || label}. Press and hold.`"
+    :aria-label="`${label}${action ? ` (${action})` : ''}. Press and hold, or activate with a screen reader.`"
     @pointerdown.prevent="start"
     @pointerup="stop"
     @pointerleave="stop"
     @pointercancel="stop"
     @keydown.space.prevent="onKeydown"
     @keydown.enter.prevent="onKeydown"
-    @keyup.space="stop"
-    @keyup.enter="stop"
-    @blur="stop"
+    @keyup.space="onKeyup"
+    @keyup.enter="onKeyup"
+    @click="onClick"
+    @blur="onBlur"
     @contextmenu.prevent
   >
     <span class="hold__fill" aria-hidden="true" />
