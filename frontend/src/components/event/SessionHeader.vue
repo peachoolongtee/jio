@@ -1,6 +1,6 @@
 <script setup>
-// The top of every session screen: back arrow, title, date, and the session's steps as a progress bar you can click
-// through (SessionSteps). Top right: Invite (once the session has started, while people can still join) and a
+// The top of every session screen: back arrow, the session's steps as a progress bar you can click through
+// (SessionSteps), then the title and date. Top right: Invite (once the session has started, while people can still join) and a
 // "Hold to end" button: hold it until it fills, then confirm, to end the session for everyone. A screen reader,
 // switch or voice control activates it with one press; the confirmation follows either way.
 //   <SessionHeader :session="session" :title="'Today\'s plan'" />
@@ -53,6 +53,8 @@ async function cancelSession() {
         <span v-else-if="!$slots.actions" class="session-head__spacer" />
       </span>
     </div>
+    <!-- The steps come before the title, so they are in the same place on every session screen whatever the title's length. -->
+    <SessionSteps :session="session" />
     <div class="screen__titles">
       <h1 class="display-xl clamp-2">{{ title || session.title }}</h1>
       <p class="session-head__meta">
@@ -60,7 +62,6 @@ async function cancelSession() {
         <CountdownChip :session="session" />
       </p>
     </div>
-    <SessionSteps :session="session" />
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
 
