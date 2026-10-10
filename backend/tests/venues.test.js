@@ -3,9 +3,10 @@
 import { test } from 'vitest';
 import assert from 'node:assert';
 import { fromFrontendVenue, parseHours } from '../src/planner/venue-adapter.js';
-import { loadPlanData, mergeCuratedWithCdc, withEstimatedMrtWalk } from '../src/db/venues.js';
-import { converge, roam } from '../src/planner/engine.js';
-import { isOpenAt } from '../src/planner/filters.js';
+import { loadPlanData, mergeCuratedWithCdc, withEstimatedMrtWalk, dropKnownPlaces, carryOverFromCdcSite } from '../src/db/venues.js';
+import { converge, roam, searchVenues } from '../src/planner/engine.js';
+import { isOpenAt, filterByConstraints } from '../src/planner/filters.js';
+import { fromOneMapRow } from '../src/planner/onemap-adapter.js';
 
 const frontendVenue = (extra = {}) => ({
   id: 'test-cafe', name: 'Test Cafe', category: 'drink', kind: 'cafe', area: 'Bugis', lat: 1.3007, lng: 103.8558,
@@ -110,4 +111,90 @@ test('the engine ranks all three sources together', () => {
   const near = roam({ current: { lat: 1.2803, lng: 103.8447 }, members: [member], occasion: 'casual_meal', dateTime: '2026-10-10T15:00', categories: ['shop'] }, data);
   assert.strictEqual(near.status, 'ok');
   assert.ok(near.results.every(r => r.venue.category === 'shop'));
+});
+
+// ---------------- OneMap hawker centres replacing CDC sites
+const cdcSite = (extra = {}) => ({
+  id: 'cdc_198783', name: 'Food stalls at 861 North Bridge Road', category: 'eat', source: 'cdc', siteKind: 'large_site', postalCode: '198783',
+  lat: 1.30563, lng: 103.86391, cdc: { stallCount: 37 },
+  diet: { halal: 'likely', vegetarian: 'likely', vegan: 'unknown', healthy: 2 },
+  stalls: [{ name: 'Ah Seng Bak Chor Mee', budgetMeal: false }, { name: 'Warung Pak Din Nasi Padang', budgetMeal: true }],
+  ...extra,
+});
+const oneMapCentre = (name, extra = {}) => ({
+  ...fromOneMapRow('ssot_hawkercentres', { NAME: name, STATUS: 'Existing', LatLng: '1.305634,103.863909', ADDRESSPOSTALCODE: '198783' }), ...extra,
+});
+const strictHalal = { members: [{ id: 'a', dietary: ['halal'] }], dateTime: '2026-10-13T12:30', categories: ['eat'] };
+
+test('mergeCuratedWithCdc: a OneMap centre keeps the halal and vegetarian "likely" of the CDC site it replaces', () => {
+  const centre = oneMapCentre('North Bridge Road Market');
+  assert.strictEqual(filterByConstraints([centre], strictHalal).passed.length, 0); // on its own it knows nothing, so strict refuses it
+  const { venues: [merged], droppedCdcIds } = mergeCuratedWithCdc([centre], [cdcSite()]);
+  assert.deepStrictEqual(droppedCdcIds, ['cdc_198783']);
+  assert.strictEqual(merged.cdcAccepted, true);
+  assert.deepStrictEqual([merged.diet.halal, merged.diet.vegetarian, merged.diet.vegan], ['likely', 'likely', 'unknown']);
+  assert.strictEqual(filterByConstraints([merged], strictHalal).passed.length, 1);
+  assert.strictEqual(merged.siteKind, 'large_site');
+  assert.deepStrictEqual(merged.stalls.map((s) => s.name), ['Ah Seng Bak Chor Mee', 'Warung Pak Din Nasi Padang']);
+  assert.strictEqual(merged.dataQuality.dietUnknown, false);
+  assert.strictEqual(merged.dataQuality.dietFromNames, true);
+  assert.strictEqual(merged.name, 'North Bridge Road Market'); // the name stays OneMap's
+});
+test('carryOverFromCdcSite: the better level wins per need, "none" never beats anything, healthy stays the centre\'s', () => {
+  const venue = { diet: { halal: 'unknown', vegetarian: 'options', vegan: 'none', healthy: 3 }, dataQuality: { dietUnknown: true } };
+  const site = { diet: { halal: 'likely', vegetarian: 'likely', vegan: 'unknown', healthy: 2 }, stalls: [], siteKind: 'food_cluster' };
+  const kept = carryOverFromCdcSite(venue, site);
+  assert.deepStrictEqual(kept.diet, { halal: 'likely', vegetarian: 'options', vegan: 'unknown', healthy: 3 });
+  assert.strictEqual(kept.siteKind, 'food_cluster');
+});
+test('mergeCuratedWithCdc: the stalls of the CDC site stay searchable by name inside the OneMap centre', () => {
+  const { venues } = mergeCuratedWithCdc([oneMapCentre('North Bridge Road Market')], [cdcSite()]);
+  const found = searchVenues({ query: 'nasi padang', centre: { lat: 1.3056, lng: 103.8639 }, dateTime: '2026-10-13T12:30' }, { venues });
+  assert.strictEqual(found.length, 1);
+  assert.strictEqual(found[0].matchedStall, 'Warung Pak Din Nasi Padang');
+});
+test('mergeCuratedWithCdc: a OneMap centre named only by street and block is still a centre, and its CDC copy goes', () => {
+  const block = oneMapCentre('Toa Payoh Lorong 4 Blk 93');
+  const sites = [cdcSite({ id: 'cdc_310093', name: 'Food stalls at 93 Toa Payoh Lorong 4', postalCode: '310093' })];
+  const { venues, droppedCdcIds } = mergeCuratedWithCdc([{ ...block, postalCode: '310093' }], sites);
+  assert.deepStrictEqual(droppedCdcIds, ['cdc_310093']);
+  assert.strictEqual(venues[0].cdcAccepted, true);
+  // A curated venue named like a stall (not a centre, and not from OneMap) is still left alone.
+  const stall = fromFrontendVenue(frontendVenue({ category: 'eat', kind: 'cafe', name: 'Blk 93 Coffee', lat: 1.3057, lng: 103.8639 }));
+  assert.deepStrictEqual(mergeCuratedWithCdc([stall], [cdcSite()]).droppedCdcIds, []);
+});
+test('mergeCuratedWithCdc: with several sites in reach, the site is the one with the same postal code, then a large one, then the nearest', () => {
+  const near = (id, kind, metres, postalCode) => cdcSite({ id, siteKind: kind, postalCode, lat: 1.305634 + metres / 111000, stalls: [{ name: `${id} stall` }] });
+  const centre = { ...oneMapCentre('Redhill Food Centre'), postalCode: '150085' };
+  // The first in the file is a small cluster 40 m away; the centre's own site is 60 m away and has its postal code.
+  const own = near('cdc_150085', 'large_site', 60, '150085');
+  const pick = (sites) => mergeCuratedWithCdc([centre], sites).droppedCdcIds;
+  assert.deepStrictEqual(pick([near('cdc_150080', 'food_cluster', 40, '150080'), near('cdc_150079', 'large_site', 20, '150079'), own]), ['cdc_150085']);
+  // No postal code on the centre (a curated list): a large site beats a nearer cluster, and the nearer of two large sites wins.
+  const noPostal = { ...centre, postalCode: undefined };
+  const pickNoPostal = (sites) => mergeCuratedWithCdc([noPostal], sites).droppedCdcIds;
+  assert.deepStrictEqual(pickNoPostal([near('cdc_a', 'food_cluster', 10, '1'), near('cdc_b', 'large_site', 120, '2')]), ['cdc_b']);
+  assert.deepStrictEqual(pickNoPostal([near('cdc_a', 'large_site', 100, '1'), near('cdc_b', 'large_site', 30, '2')]), ['cdc_b']);
+  // A site that is only a single stall is never "the centre".
+  assert.deepStrictEqual(pickNoPostal([near('cdc_a', 'food_stall', 5, '1')]), []);
+});
+test('dropKnownPlaces: a hawker centre is compared by the name in its bracket too (Chinatown Complex, Kovan 209), but its neighbours stay', () => {
+  const known = [
+    { name: 'Chinatown Complex Food Centre', kind: 'hawker', lat: 1.28275, lng: 103.84425 },
+    { name: 'Kovan 209 Market and Food Centre', kind: 'hawker', lat: 1.36025, lng: 103.8855 },
+  ];
+  const chinatown = { name: 'Smith Street Blk 335 (Chinatown Complex Market)', kind: 'hawker', lat: 1.28275 + 0.00054, lng: 103.84425 }; // 60 m
+  const kovan = { name: 'Hougang Street 21 Blk 209 (Kovan Hougang Market and Food Centre)', kind: 'hawker', lat: 1.36025 + 0.00126, lng: 103.8855 }; // 140 m
+  const neighbour = { name: 'Smith Street Blk 340 (Another Block Market)', kind: 'hawker', lat: 1.28275 + 0.0008, lng: 103.84425 };
+  assert.deepStrictEqual(dropKnownPlaces([chinatown, kovan, neighbour], known).map((v) => v.name), [neighbour.name]);
+});
+test('loadPlanData: a OneMap hawker centre and its CDC copy are one venue, whatever the centre is called', () => {
+  const data = loadPlanData();
+  const centres = data.venues.filter((v) => v.source === 'onemap' && v.kind === 'hawker');
+  for (const c of centres) assert.ok(!data.venues.some((v) => v.id === c.cdc.siteId), `${c.name} still has its CDC copy`);
+  assert.strictEqual(data._meta.sources.cdcMergedIntoOnemap, centres.length);
+  assert.strictEqual(data.venues.filter((v) => v.source === 'cdc').length, data._meta.sources.cdc);
+  // Sources add up to the saved places: pool + set aside + duplicates + already in a hand-made list.
+  const s = data._meta.sources;
+  assert.strictEqual(s.onemap + s.onemapExcluded + s.onemapDuplicates + s.onemapSkippedAsKnown, s.onemapSaved);
 });
