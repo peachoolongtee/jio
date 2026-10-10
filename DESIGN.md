@@ -854,12 +854,27 @@ Home now shows every current meetup, where before it showed one. Where a sentenc
 | Logic | `lib/homeMeetups.js` | Ordering, the next step, pin positions, selection, and where the pin card sits. No DOM. |
 
 - **Selection** lives in the page address as `?meetup=<id>`. The soonest meetup is selected by default. A pin and its row do the same thing.
-- **"Jio your friends"** is a secondary button on the map's corner whenever a meetup is going, and still launches `enterGame` from its own position.
+- **"Jio your friends"** was a secondary button on the map's corner whenever a meetup is going. It is now the first row of the list (see "The start row, 11 Oct 2026" below).
 - **"Places near {area}"** follows the selected meetup.
 - **Motion added**, all off under reduced motion: the selected pin's bob (2.8s, endless, that pin only); pin scale on select (200ms, `--ease-spring`); routes redrawing toward the selected meetup's area (0.7s, `SingaporeMap`'s new `quick` prop); the detail card's cross-fade (120ms out, 200ms in); the pin card's fade and 5px rise (160ms in, 100ms out).
 - **Stacking:** the pin layer is at 5 and an open pin card at 6 within it; the top bar and tab bar at 20 stay above.
-- **No new colour and no white text on `--primary`.** The day in a selected pin's head is ink on white. "Open meetup" and "Jio your friends" are secondary buttons for the same reason.
+- **No new colour and no white text on `--primary`.** The day in a selected pin's head is ink on white. "Open meetup" is a secondary button for the same reason, and so is the start row's plus (red on a tint, not white on red).
 - **Not changed:** with no meetup going, Home is the same as before, checked box for box against `main`.
+
+### The start row, 11 Oct 2026 (branch `feat/demo-showcase`)
+
+The action that starts another meetup moved from a small white pill in the map's bottom-right corner to the first row of the meetups list. The pill read as a map control, looked secondary though it is the page's main action, and could sit near pins. With no meetup going Home is unchanged: the red `PinButton` stays in the middle of the map.
+
+| Piece | File | What it is |
+|---|---|---|
+| Row | `components/home/StartMeetupRow.vue` | A real link (`<a href="/sessions/new">`), so it opens in a new tab. The box of a meetup row: 12px 16px padding, 1px border, `--rounded-md`, a 44px round badge, a 12px gap. A plus where a meetup row has its day, "Plan a new meetup" (`title-md`) over "Jio your friends" (`body-sm`, muted). Two lines, so about 70px tall where a meetup row is about 98px; width, padding, radius and badge match. |
+| List | `components/home/MeetupList.vue` | New prop `startHref` and event `start`. With `startHref` the row is the first `<li>`. With no meetups and a `startHref` the list is that row alone, which is how Home shows it with one meetup going (under the card, 480px wide from 744px like the card). |
+
+- **Treatment.** A 1px outline of the brand red at 35% on white, a badge tinted with the brand red at 11%, and a red plus on it. These are the in-place tints already used by `TabBar` (11%) and `HoldButton` (35% border). Hover (devices that hover) sets the border to `--primary` and the fill to `--surface-soft`. No new colour, no shadow, no red fill. Every word is ink or muted.
+- **Contrast.** The plus is an icon, red on the 11% tint, 3.04:1, which meets the 3:1 for icons and is the same pair as the current tab's icon in Known Conflicts item 3. No white text sits on red.
+- **Not a meetup.** It is never selected, has no `aria-pressed` and never changes `?meetup=`. A tab order of pins, the card's buttons, the start row, the first meetup row was measured.
+- **Motion.** A plain click still plays `enterGame`, now from the centre of the plus (the element marked `data-burst`) instead of the old pill. A click with a modifier key opens a new tab as a link does. Under reduced motion `enterGame` navigates at once and the row's colour transition is off.
+- **Removed.** `.hero__start` and its button in `LandingView`.
 
 ### Four fixes from use, 10 Oct 2026
 
