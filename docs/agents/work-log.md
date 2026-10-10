@@ -710,7 +710,7 @@ No reviewer could leak the key, steer the photo route to another host, or exceed
 
 ## Round 13: Home's start row and showcase demo data (2026-10-11)
 
-The lead chose both from a short list of options: the action that starts a meetup becomes the first row of Home's list, and the demo tools gain a spread of sessions in every state. One frontend-engineer subagent, on branch `feat/demo-showcase` in the main checkout. Not committed when this was written; the results are recorded here so they are not lost.
+The lead chose both from a short list of options: the action that starts a meetup becomes the first row of Home's list, and the demo tools gain a spread of sessions in every state. One frontend-engineer subagent, on branch `feat/demo-showcase` in the main checkout. Committed and sent to `main` at the lead's word on 2026-10-11, on top of round 12; on that tree `pnpm test` gave 547 passed, 1 skipped, `pnpm --filter jio-frontend test` 353 passed, 33 files, and `pnpm build` succeeded.
 
 - **Built:** `StartMeetupRow.vue` (a link, first in the list, the corner pill removed); `components/dev/showcase.js` (`loadShowcase`, ten sessions made through the data layer's public functions); `components/dev/offlinePlanner.js` (a stand-in used only while the showcase loads and only when the backend gives no answer); `DemoSignIn.vue` (two buttons on the sign-up screen in development builds); `createSession({ hostId })` and `inviteFriends(..., { acceptAfter })` in `lib/api.js`, neither used by the app itself.
 - **Run by the lead:** `pnpm --filter jio-frontend test` 353 passed, 33 files; `pnpm build` succeeded; the production bundle contains neither "showcase" nor "Use the demo account".
