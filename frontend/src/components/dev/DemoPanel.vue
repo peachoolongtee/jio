@@ -9,6 +9,7 @@ import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import BottomSheet from '../ui/BottomSheet.vue'
 import ChipButton from '../ui/ChipButton.vue'
+import ModalDialog from '../ui/ModalDialog.vue'
 import SelectField from '../ui/SelectField.vue'
 import StatusPill from '../ui/StatusPill.vue'
 import ToggleSwitch from '../ui/ToggleSwitch.vue'
@@ -17,6 +18,7 @@ import { lastWeather } from '@/lib/plannerApi.js'
 import { FRIEND_PICKS, HOST_ID, PEOPLE } from '@/lib/mock/people.js'
 import { DEMO_ACCOUNT } from './demoAccount.js'
 import { makeDemoPhotos } from './demoPhotos.js'
+import { loadShowcase } from './showcase.js'
 import { placeKind } from '@/lib/placeImages.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { AREAS } from '@/lib/mock/places.js'
@@ -38,6 +40,8 @@ const running = ref('')
 const note = ref('')
 const change = ref({ personId: 'jonathan', which: 'start', areaId: 'orchard' })
 const optOutId = ref('jonathan')
+// The question "Replace your sessions?" before the showcase is loaded.
+const askShowcase = ref(false)
 
 const session = computed(() => {
   const id = route.params.id
@@ -172,6 +176,22 @@ const endSeason = () => act('season', async () => {
   note.value = names ? `Season ${ended.number} ended. ${names} won ${coins(ended.prize)}.` : `Season ${ended.number} ended. Nobody earned JioCoins, so nobody won.`
 })
 
+// Replace the sessions with the showcase (showcase.js): ten sessions, one for each state a screen can show. The question
+// above it has been answered. The count shows in the note as they finish. Home and the other screens follow on their
+// own, as every write tells them; the sessions are loaded once more at the end in case one was missed. A failure part way
+// says what was loaded and what was not (the note); what was made stays.
+// How to call: loadShowcaseData()
+const loadShowcaseData = () => act('showcase', async () => {
+  askShowcase.value = false
+  note.value = 'Loading showcase data'
+  try {
+    const result = await loadShowcase({ onProgress: ({ done, total }) => (note.value = `Loading showcase data: ${done} of ${total} sessions`) })
+    note.value = `${result.sessions.length} sessions loaded.${result.planner === 'backend' ? '' : ' The planner is not running, so meeting areas and places are rough stand-ins, and the voting screens need it.'}`
+  } finally {
+    await events.loadSessions()
+  }
+})
+
 // A new demo account with the sample history (10 meetups and 1,000 JioCoins), then Home. This panel closes on the way,
 // since it only shows while signed in. If the profile is rejected nothing is erased, so the panel opens again with the
 // reason. If sign-up fails after the wipe, the person is sent to the sign-up page, which shows the reason.
@@ -265,15 +285,32 @@ const setCondition = (key, value) => planner.setCondition(key, value)
 
 
     <section class="demo-group">
+      <h3 class="title-md">Showcase</h3>
+      <p class="body-sm text-muted">Replaces your sessions with ten, one for each state a screen can show: just created, invites pending, waiting for locations, voting, confirmed today and ahead, completed with photos, a long title, and one a friend hosts.</p>
+      <AppButton block variant="secondary" :disabled="!!running" @click="askShowcase = true">
+        {{ running === 'showcase' ? 'Loading showcase data' : 'Load showcase data' }}
+      </AppButton>
+    </section>
+
+    <section class="demo-group">
       <h3 class="title-md">Account</h3>
       <p class="body-sm text-muted">Reset demo data keeps your account and clears meetups. Start over also replaces the account with a new demo account that starts with sample history: 10 meetups and 1,000 JioCoins.</p>
-      <AppButton block variant="secondary" @click="startOver">Start over with a new account</AppButton>
+      <AppButton block variant="secondary" :disabled="!!running" @click="startOver">Start over with a new account</AppButton>
     </section>
 
     <template #footer>
-      <AppButton block variant="danger" @click="reset">Reset demo data</AppButton>
+      <AppButton block variant="danger" :disabled="!!running" @click="reset">Reset demo data</AppButton>
     </template>
   </BottomSheet>
+
+  <ModalDialog
+    v-model:open="askShowcase"
+    title="Replace your sessions?"
+    text="Your sessions are replaced with ten sample ones, and your JioCoins, rewards and demo switches go back to how a new demo account starts. Your account and friends stay. It takes about ten seconds."
+  >
+    <AppButton block variant="secondary" @click="askShowcase = false">Not yet</AppButton>
+    <AppButton block @click="loadShowcaseData">Load showcase data</AppButton>
+  </ModalDialog>
 </template>
 
 <style scoped>
