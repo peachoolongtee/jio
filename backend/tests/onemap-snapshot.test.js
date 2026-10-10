@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadPlanData, dataAttribution } from '../src/db/venues.js';
 import { withinSingapore, nameSimilarity } from '../src/planner/cdc-adapter.js';
 import { haversineKm } from '../src/planner/geo.js';
@@ -353,7 +354,7 @@ describe('a missing snapshot file', () => {
 
 // ---------------------------------------------------------------- the repair mode of the build script
 describe('build-onemap-places --repair', () => {
-  const SCRIPT = new URL('../scripts/build-onemap-places.js', import.meta.url).pathname;
+  const SCRIPT = fileURLToPath(new URL('../scripts/build-onemap-places.js', import.meta.url));
   const dir = mkdtempSync(join(tmpdir(), 'jio-onemap-'));
   const copy = join(dir, 'places.json');
   const garbled = JSON.parse(JSON.stringify(saved));
