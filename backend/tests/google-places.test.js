@@ -1,6 +1,6 @@
 // Google Places (New): restaurants, cafés, bars and dessert shops with ratings, price levels and opening hours.
 // Nothing here calls Google: the service tests use fake helpers, and the route tests use stub mode, which answers
-// from tests/fixtures/google/ (six real places near Bishan, recorded with the Maps Demo Key).
+// from tests/fixtures/google/ (six invented places near Bishan MRT: made-up ids, names, addresses and ratings).
 import { once } from 'node:events'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { fromGooglePlace, hoursOnDay, kindOf, weekdayOf } from '../src/planner/google-adapter.js'
@@ -35,7 +35,7 @@ describe('google-adapter', () => {
   })
 
   it('a Google mall has no diet (so diet filters skip it, like the frontend\'s malls)', () => {
-    const mall = fromGooglePlace({ ...byName('Good Bites'), primaryType: 'shopping_mall', types: ['shopping_mall'] }, '2026-10-10T14:00')
+    const mall = fromGooglePlace({ ...byName('Lantern Lane'), primaryType: 'shopping_mall', types: ['shopping_mall'] }, '2026-10-10T14:00')
     expect(mall).toMatchObject({ category: 'shop', kind: 'mall', diet: null })
     expect(mall.dataQuality.dietUnknown).toBe(false)
   })
@@ -45,11 +45,11 @@ describe('google-adapter', () => {
     expect(kindOf({ primaryType: 'movie_theater' })).toMatchObject({ category: 'activity', kind: 'cinema' })
     expect(kindOf({ primaryType: 'art_gallery' })).toMatchObject({ category: 'activity', kind: 'museum' })
     expect(kindOf({ primaryType: 'karaoke', types: ['karaoke', 'bar'] })).toMatchObject({ category: 'activity', kind: 'attraction' })
-    const bowling = fromGooglePlace({ ...byName('Good Bites'), primaryType: 'bowling_alley', types: ['bowling_alley'], userRatingCount: 300 }, '2026-10-10T14:00')
+    const bowling = fromGooglePlace({ ...byName('Lantern Lane'), primaryType: 'bowling_alley', types: ['bowling_alley'], userRatingCount: 300 }, '2026-10-10T14:00')
     expect(bowling).toMatchObject({ category: 'activity', diet: null })
-    expect(fromGooglePlace({ ...byName('Good Bites'), primaryType: 'bowling_alley', types: ['bowling_alley'], userRatingCount: 10 }, '2026-10-10T14:00')).toBeNull()
+    expect(fromGooglePlace({ ...byName('Lantern Lane'), primaryType: 'bowling_alley', types: ['bowling_alley'], userRatingCount: 10 }, '2026-10-10T14:00')).toBeNull()
 
-    const activity = (text, type = 'art_gallery') => fromGooglePlace({ ...byName('Good Bites'), displayName: { text }, primaryType: type, types: [type], userRatingCount: 400 }, '2026-10-10T14:00')
+    const activity = (text, type = 'art_gallery') => fromGooglePlace({ ...byName('Lantern Lane'), displayName: { text }, primaryType: type, types: [type], userRatingCount: 400 }, '2026-10-10T14:00')
     expect(activity('LouisArtStory - Luxury Watch Protection Film/ Artisan Workmanship in Orchard/Risks Transfer on Fine Arts')).toBeNull()
     expect(activity('ELITE Sports Academy', 'amusement_center')).toBeNull()
     expect(activity('The FRIENDS Experience: The One in Singapore', 'amusement_center')).not.toBeNull()
@@ -57,9 +57,9 @@ describe('google-adapter', () => {
   })
 
   it('leaves out a shop with under 50 reviews, and any place whose name says it has closed', () => {
-    const tiny = { ...byName('Good Bites'), primaryType: 'shopping_mall', types: ['shopping_mall'], userRatingCount: 12 }
+    const tiny = { ...byName('Lantern Lane'), primaryType: 'shopping_mall', types: ['shopping_mall'], userRatingCount: 12 }
     expect(fromGooglePlace(tiny, '2026-10-10T14:00')).toBeNull()
-    const shut = { ...byName('Good Bites'), displayName: { text: 'Wisma Drug Store (No longer in operation)' } }
+    const shut = { ...byName('Lantern Lane'), displayName: { text: 'Wisma Drug Store (No longer in operation)' } }
     expect(fromGooglePlace(shut, '2026-10-10T14:00')).toBeNull()
   })
 
@@ -81,26 +81,26 @@ describe('google-adapter', () => {
     expect(hoursOnDay(undefined, 3)).toBeNull()
   })
 
-  it('a recorded place becomes a venue: Google id kept, real rating, price from the level, that day\'s hours', () => {
-    const v = fromGooglePlace(byName('Trattoria'), '2026-10-10T19:00')
-    expect(v.id).toBe(`google_${byName('Trattoria').id}`)
+  it('an invented place becomes a venue: Google id kept, real rating, price from the level, that day\'s hours', () => {
+    const v = fromGooglePlace(byName('Nonna Example'), '2026-10-10T19:00')
+    expect(v.id).toBe(`google_${byName('Nonna Example').id}`)
     expect(v).toMatchObject({ category: 'eat', kind: 'restaurant', cuisine: 'italian', source: 'google', avgPricePerPerson: 25 })
-    expect(v.rating).toBe(byName('Trattoria').rating)
+    expect(v.rating).toBe(byName('Nonna Example').rating)
     expect(v.diet).toEqual({ halal: 'unknown', vegetarian: 'unknown', vegan: 'unknown', healthy: 3 })
     expect(v.dataQuality).toMatchObject({ hoursAssumed: false, hoursForWeekday: 6, priceFromLevel: true })
     expect(v.openingHours.length).toBeGreaterThan(0)
   })
 
   it('the 24-hour food court is open at 3am; a closed-down place or one with no location is left out', () => {
-    const court = fromGooglePlace(byName('Kim San Leng'), '2026-10-10T03:00')
+    const court = fromGooglePlace(byName('Example Food'), '2026-10-10T03:00')
     expect(court.openingHours).toEqual([['00:00', '24:00']])
     expect(court.kind).toBe('hawker')
-    expect(fromGooglePlace({ ...byName('Good Bites'), businessStatus: 'CLOSED_PERMANENTLY' }, '2026-10-10T12:00')).toBeNull()
-    expect(fromGooglePlace({ ...byName('Good Bites'), location: undefined }, '2026-10-10T12:00')).toBeNull()
+    expect(fromGooglePlace({ ...byName('Lantern Lane'), businessStatus: 'CLOSED_PERMANENTLY' }, '2026-10-10T12:00')).toBeNull()
+    expect(fromGooglePlace({ ...byName('Lantern Lane'), location: undefined }, '2026-10-10T12:00')).toBeNull()
   })
 
   it('no price level: a typical price, labelled as a guess; a photo keeps its name and credit', () => {
-    const v = fromGooglePlace({ ...byName('Good Bites'), priceLevel: undefined }, '2026-10-10T12:00')
+    const v = fromGooglePlace({ ...byName('Lantern Lane'), priceLevel: undefined }, '2026-10-10T12:00')
     expect(v.dataQuality.priceAssumed).toBe(true)
     expect(v.photo.name).toMatch(/^places\/.+\/photos\/STUB_PHOTO$/)
     expect(v.photo.credit.displayName).toBe('A Google user')
@@ -109,7 +109,7 @@ describe('google-adapter', () => {
 
 // ---------------------------------------------------------------- the service
 describe('createGooglePlaces', () => {
-  const fakeHttp = () => ({ postJson: vi.fn(async () => ({ places: SAMPLE })), getJson: vi.fn(async () => ({ photoUri: 'https://img/1' })) })
+  const fakeHttp = () => ({ postJson: vi.fn(async () => ({ places: SAMPLE })), getJson: vi.fn(async () => ({ photoUri: 'https://lh3.googleusercontent.com/img1' })) })
 
   it('is off without a key, and on in stub mode', async () => {
     expect(createGooglePlaces({ http: fakeHttp() }).enabled).toBe(false)
@@ -146,7 +146,7 @@ describe('createGooglePlaces', () => {
   it('photoUrl: only real photo names, and the key never leaves the server', async () => {
     const http = fakeHttp()
     const places = createGooglePlaces({ http, apiKey: 'k' })
-    expect(await places.photoUrl('places/abc/photos/def', 400)).toBe('https://img/1')
+    expect(await places.photoUrl('places/abc/photos/def', 400)).toBe('https://lh3.googleusercontent.com/img1')
     expect(http.getJson.mock.calls[0][0]).toBe('https://places.googleapis.com/v1/places/abc/photos/def/media?maxWidthPx=400&skipHttpRedirect=true')
     await expect(places.photoUrl('../../secret')).rejects.toThrow(/not a Google photo name/)
   })
@@ -178,7 +178,7 @@ describe('Google places in the planner routes', () => {
   })
 
   it('adds Google places to a food slot, places them in a live forecast area, and says how many', async () => {
-    // Centred where three of the recorded restaurants are (about 600 m west of Bishan MRT), so they are in range.
+    // Centred where three of the invented restaurants are (about 600 m west of Bishan MRT), so they are in range.
     const { body } = await post(stubUrl, '/converge', { ...slot(['eat']), centre: { lat: 1.3504, lng: 103.8428 } })
     expect(body.google.source).toBe('google')
     expect(body.google.added).toBeGreaterThan(0)
