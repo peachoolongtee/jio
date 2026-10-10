@@ -1,22 +1,29 @@
 <script setup>
 // Every meetup going, soonest first, as rows that select. Selecting here does the same as selecting its pin on the map.
-//   <MeetupList :meetups="meetups" :selected-id="selected.id" my-id="ian" @select="select" />
+//   <MeetupList :meetups="meetups" :selected-id="selected.id" my-id="ian" :start-href="startHref" @select="select" @start="startAnother" />
+// With `start-href` the first row is the action that starts another meetup (StartMeetupRow): a link in the box of a meetup row,
+// before the first meetup. It is not a meetup, so it is never selected, has no aria-pressed and emits `start`, not `select`.
+// With no meetups and a start-href the list is that row alone (Home with one meetup going).
 // Each row is one button: the day, the title, when and where, and what it needs next. A meetup with no meeting point has
 // no pin, so its day badge has a dashed outline and its row says so in words. The selected row has a thicker ink outline
 // and a filled day badge, and is aria-pressed. A long title is cut with an ellipsis; the whole title is in the text and the tooltip, and the card under the map (select the row) wraps it.
 import { dayLabel, nextStepFor, whenLine } from '@/lib/homeMeetups.js'
 import NextStepChip from './NextStepChip.vue'
+import StartMeetupRow from './StartMeetupRow.vue'
 
 defineProps({
   meetups: { type: Array, required: true },
   selectedId: { type: String, default: '' },
-  myId: { type: String, required: true },
+  myId: { type: String, default: '' },
+  // Where "Plan a new meetup" goes. Empty leaves the row out.
+  startHref: { type: String, default: '' },
 })
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'start'])
 </script>
 
 <template>
   <ul class="mlist">
+    <li v-if="startHref"><StartMeetupRow :href="startHref" @start="emit('start', $event)" /></li>
     <li v-for="m in meetups" :key="m.id">
       <button type="button" class="mrow" :class="{ 'is-selected': m.id === selectedId }" :aria-pressed="m.id === selectedId" @click="emit('select', m.id)">
         <span class="mrow__day tnum" :class="{ 'is-nopin': !m.area }" aria-hidden="true">{{ dayLabel(m) }}</span>
