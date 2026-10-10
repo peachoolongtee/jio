@@ -48,7 +48,8 @@ As of 2026-10-09. The Supabase foundation was built on branch `feat/supabase-fou
 | Backend planner | Built on `dev`: `/api/meeting-area`, `/api/converge`, `/api/roam`, `/api/search`. Travel times and weather are internal estimates. Open to anyone. |
 | Database | Session schema and access rules applied to the live `jio` project on 2026-10-09, then revised twice the same day after two reviews (three migrations). No app code reads or writes it yet. |
 | Login | Backend token check and `GET /api/me` built and hardened after two reviews. No login screen; the frontend sends no token. |
-| External APIs | The planner uses the live data.gov.sg forecast through the HTTP helper. OneMap gives address search (`GET /api/places/search`, no account needed) and public transport routing, which switches on with `ONEMAP_EMAIL` and `ONEMAP_PASSWORD` (Faith has an account) and falls back to the estimate whenever it cannot route. See `backend/docs/external-apis.md`. On `feature/google-places` (not merged yet): ~460 places from OneMap themes (sport centres, attractions, museums, libraries, theatres, parks, hawker centres) as a committed snapshot taken through the same call budget, NEA hawker closure dates that the filters respect, and Google Places (New) for the nearest restaurants, cafés, bars, malls and private activities per request (never saved, per Google's terms), with photos through `GET /api/places/photo`. Needs `GOOGLE_MAPS_API_KEY`. |
+| External APIs | The planner uses the live data.gov.sg forecast through the HTTP helper. OneMap gives address search (`GET /api/places/search`, no account needed) and public transport routing, which switches on with `ONEMAP_EMAIL` and `ONEMAP_PASSWORD` (Faith has an account) and falls back to the estimate whenever it cannot route. Google Places (New) adds restaurants, cafés, malls and private activities per request, with photos through `GET /api/places/photo`; it is off without `GOOGLE_MAPS_API_KEY`. See `backend/docs/external-apis.md`. |
+| Venues | 1,819 in the planner's pool: hand-made and curated lists, CDC sites, and 417 of 483 places saved from OneMap's government lists (`backend/src/db/mock/onemap-places.json`), with NEA's hawker closure dates to the end of 2026. |
 | End-to-end tests, deploy | Not started. |
 
 ## Architecture Decisions
@@ -71,6 +72,9 @@ Each is recorded in full on the ticket named. Read the ticket before changing th
 - **Cut on 2026-10-09:** crowd estimates, "Ask AI", and the contacts and location steps in sign-up. Do not bring them back without the lead.
 - **Contrast: the brand red is `#ff385c`, by the lead's decision of 2026-10-10.** White text on it is 3.52:1, below the 4.5:1 minimum, and three category and three person colours are also under it. `DESIGN.md` lists each pair under "Known Conflicts". Do not darken them without the lead; do not add new white-on-red text without reading that section.
 - **OneMap is a shared budget.** The account allows 300 calls a minute for everyone. One request routes at most 60 trips, whole candidates only; the whole server makes at most `ONEMAP_CALLS_PER_MINUTE` calls (240 by default) across routing, search and login; a trip over either limit uses the estimate and is flagged `approximate`. Do not add a OneMap call that bypasses `createOneMap`'s budget.
+- **Google is a paid budget.** Every Google call goes through the budget in `createGooglePlaces`: `GOOGLE_CALLS_PER_MINUTE` (60 by default) for nearby searches and photos together, three failures pause it for a minute, and each call times out after 3 seconds. Google failing never fails a planner request. Do not add a Google call that bypasses it, and never write Google content to a file: fixtures are invented.
+- **Saved places are repaired and filtered in code, not by hand.** `onemap-places.json` is written only by `pnpm build:onemap-places` (network, needs the OneMap account) or `pnpm repair:onemap-places` (no network). Duplicates, places that are not somewhere to go, and closed weekdays are worked out at load in `backend/src/db/venues.js`.
+- **A guessed price makes no claim** for OneMap and Google venues: no "Budget friendly" tag and no "within budget" sentence. CDC venues keep both, as before; changing that is the lead's decision.
 - **Planner limits:** every list, string and number in a planner request has an upper bound, held in one `MAX` block in `backend/src/routes/plan-schemas.js`.
 - **Routes added to the Express app go in through `createApp({ mount })`**, because the "not found" handler is last.
 
@@ -81,6 +85,12 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 **Round 1, 2026-10-09, project initialisation: completed.** Four read-only agents reviewed the unpushed branch, the schema, the open frontend pull request, and ran the checks. They found three significant defects in the login check and a blocker in the schema.
 
 **Round 2, 2026-10-09, fixes: completed.** A backend agent hardened the login check; the lead revised the schema on the live project. An independent tester confirmed the results. A second review asked for more changes.
+
+**Round 12, 2026-10-11, audit of the Google Places pull request and its fixes: completed.** Two read-only reviewers and a verifier found nothing unsafe and twelve defects; two backend agents fixed them. Went to `main` from `feat/google-places-integration`.
+
+**Round 13, 2026-10-11, Home's start row and showcase demo data: built on `feat/demo-showcase`.** See the work log for whether it has been committed.
+
+**Round 14, 2026-10-11, decisions on meeting spots and Roam.** Nothing built; the handoff is `docs/handoffs/meeting-spots-and-roam.md`.
 
 **Rounds 10 and 11, 2026-10-10, Home as a map of every meetup, and four problems the lead found by using the app: completed.** One frontend agent each. Both went to `main` from `feat/home-meetups-map`.
 
@@ -152,6 +162,9 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-10 | `feat/onemap-and-defect-fixes` after round 9 | `pnpm --filter jio-frontend test`, `pnpm build` | 229 passed, 25 files; succeeded |
 | 2026-10-10 | `feat/onemap-and-defect-fixes` after round 9 | OneMap route calls for one meeting-area request, 30 members, stubbed | 59 by default and 60 at the widest setting (480 and 1,108 before) |
 | 2026-10-10 | `feat/home-meetups-map` after round 11 | `pnpm --filter jio-frontend test`; `pnpm test`; `pnpm build` | 324 passed, 30 files; 383 passed, 1 skipped; succeeded |
+| 2026-10-11 | `feat/google-places-integration` after round 12 | `pnpm test`, also with outbound calls blocked | 547 passed, 1 skipped, 24 files, both times |
+| 2026-10-11 | `feat/google-places-integration` after round 12 | `pnpm --filter jio-frontend test`; `pnpm build` | 324 passed, 30 files; succeeded |
+| 2026-10-11 | the pull request before the fixes, and `main` | OneMap route calls for one meeting-area request, 30 members, stubbed | 60 on both (round 9 recorded 59; the cap is 60) |
 | 2026-10-10 | `fix/leaderboard-audit-defects`, working tree | `pnpm --filter jio-frontend test` | 229 passed, 25 files |
 | 2026-10-10 | `fix/leaderboard-audit-defects`, working tree | `pnpm test`, `pnpm build` | 317 passed, 1 skipped; succeeded |
 | 2026-10-10 | external-APIs pull request merged with `main`, throwaway worktree | `pnpm test`, also with outbound calls blocked | 334 passed, 1 skipped, both times |
@@ -165,8 +178,10 @@ Not yet verified: a real user's login token against `GET /api/me`, and anything 
 
 ## Next Steps
 
-1. The lead settles the four decisions left on the audit ticket for the leaderboard pull request (brand red, sample labels, the controls removed from the voting page, planner request count).
-2. Put the OneMap account's email and password in `backend/.env` to switch real routing on; test it once against the real service.
+1. The lead settles what the audits left open: on the leaderboard pull request's ticket (brand red, sample labels, the controls removed from the voting page, planner request count), and from the Google Places audit (Google's billing tier for the fields asked for, and Google's terms on showing Places content beside a non-Google map).
+2. Put the OneMap account's email and password in `backend/.env` to switch real routing on, and a Google key with a daily quota cap to switch Google on; test each once against the real service. Neither has been run for real since its limits were added.
 3. Bring `dev` level with `main` if `git log --oneline origin/dev..origin/main` shows commits.
-4. Build the session endpoints from the design on ticket #80, starting with a rolled-back test of its SQL.
-5. Frontend: the login screen and token, then moving the data layer to Supabase.
+4. Build meeting spots and Roam from `docs/handoffs/meeting-spots-and-roam.md`.
+5. Build the session endpoints from the design on ticket #80, starting with a rolled-back test of its SQL.
+6. Frontend: show Google and OneMap photos, ratings and their attribution; then the login screen and token, then moving the data layer to Supabase.
+7. Rebuild the saved places before December 2026: NEA's cleaning dates in the file end on 2026-12-30, and the server warns from 30 days before.
