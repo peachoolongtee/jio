@@ -861,6 +861,14 @@ Home now shows every current meetup, where before it showed one. Where a sentenc
 - **No new colour and no white text on `--primary`.** The day in a selected pin's head is ink on white. "Open meetup" and "Jio your friends" are secondary buttons for the same reason.
 - **Not changed:** with no meetup going, Home is the same as before, checked box for box against `main`.
 
+### Four fixes from use, 10 Oct 2026
+
+- **The greeting.** `.hello__name` in `LandingView` is painted through `background-clip: text`, which only shows inside the element's own box, so letters hanging below the line (g, j, p, y) and the last letter's right edge were cut. It now carries padding (`0.12em 0.1em 0.22em 0.06em`) with a matching negative margin and `background-origin: content-box`. Rule for any new gradient-filled text: give it padding for its descenders and its last letter.
+- **Time pickers.** `RadialTimePicker`'s ring reaches 141px above and below its pill. `CreateEventView` now keeps 72px between the two pickers and under the End picker, and a ring opened by a tap scrolls clear of a sticky footer by 12px. Rule: leave a ring's reach free of other controls.
+- **Editing a session.** `CreateEventView` also serves `/sessions/:id/edit` ("Edit session"), for the host while the session is still inviting. The invite step's back arrow ("Back to date and times") and the steps bar's Create step lead there. Once the session has started, the page says the date and times are locked.
+- **The steps bar.** `SessionSteps` now sits directly under the back row and before the title on every session screen, including the invite and edit steps, so it is at the same height on all of them at a given width. It has its own view-transition name, `session-steps`, so it neither fades nor drifts while the page behind it changes, and keyboard focus stays on the step that was pressed. `SessionHeader`'s order is now: back arrow, `SessionSteps`, title, date.
+- **Titles.** The full-size meetup card on Home wraps a long title; the pin card and the list rows keep their ellipsis and carry the full title as a tooltip.
+
 ## Known Conflicts
 
 Each item is a place where the shipped code departs from a rule written in `CLAUDE.md`, in `frontend/src/styles/README.md`, or in a comment in the code. They are recorded as facts. Nothing here has been changed, and the lead decides each one. Contrast ratios are computed from the token values with the WCAG 2 formula; 4.5:1 is the threshold `CLAUDE.md` names.
