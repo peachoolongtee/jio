@@ -15,7 +15,7 @@ import { reviewsFor } from './mock/reviews.js'
 import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
-import { format } from 'date-fns'
+import { addDays, format, isValid, parseISO } from 'date-fns'
 
 export { api } from './plannerApi.js'
 
@@ -836,6 +836,38 @@ export async function createSession({ title, date, start, end }) {
     radius: null,
   }
   db.sessions.push(session)
+  return touch(session, 'session')
+}
+
+// The checks the create form makes before it lets a host carry on: a title of 1 to 60 characters, a real day from
+// today to three months ahead, two times of the day, the end after the start. Throws the first thing wrong; answers
+// the values as they are stored (the title trimmed).
+// How to call: checkSessionFields({ title: ' Dinner ', date: '2026-10-17', start: '18:00', end: '21:00' })
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/
+function checkSessionFields({ title, date, start, end }) {
+  const name = String(title ?? '').trim()
+  if (!name) throw new Error('A session needs a title.')
+  if (name.length > 60) throw new Error('A title can be at most 60 characters.')
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? parseISO(date) : null
+  if (!day || !isValid(day) || format(day, 'yyyy-MM-dd') !== date) throw new Error('Pick a day for the session.')
+  if (date < todayKey()) throw new Error('That day has passed.')
+  if (date > format(addDays(new Date(), 90), 'yyyy-MM-dd')) throw new Error('Sessions can be planned up to 3 months ahead.')
+  if (!TIME.test(start || '')) throw new Error('Start must be a time such as 14:00.')
+  if (!TIME.test(end || '')) throw new Error('End must be a time such as 18:00.')
+  if (end <= start) throw new Error('End time must be after the start time.')
+  return { title: name, date, start, end }
+}
+
+// Changes a session's title, day and times, for the host going back to the create form from the invite step. Only the
+// host may, and only while the session is inviting: once it starts, the group plans around the day and times. Nothing
+// else on the session changes. Checked like the create form (checkSessionFields).
+// How to call: await updateSession('s1', { title: 'Dinner', date: '2026-10-17', start: '18:00', end: '21:00' })
+export async function updateSession(id, fields) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (session.hostId !== HOST_ID) throw new Error('Only the host can change a session.')
+  if (session.status !== 'inviting') throw new Error('The date and times can only change before the session starts.')
+  Object.assign(session, checkSessionFields(fields))
   return touch(session, 'session')
 }
 

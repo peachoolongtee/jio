@@ -31,6 +31,9 @@ export async function withViewTransition(update) {
 // router render the new one and finish the transition once Vue has drawn it.
 export function installPageTransitions(router) {
   let finish = null
+  // Which page transition is the newest. A navigation that starts while another is still animating skips it; the
+  // skipped one must not clear the marker the newer one's styles depend on.
+  let latest = 0
   const done = () => {
     finish?.()
     finish = null
@@ -42,6 +45,7 @@ export function installPageTransitions(router) {
     done()
     // Marks this as a page change, so styles/app.css can give it its own animation.
     const root = document.documentElement
+    const mine = ++latest
     root.dataset.vt = 'page'
     return new Promise((resolve) => {
       let started = false
@@ -58,7 +62,7 @@ export function installPageTransitions(router) {
           }),
       )
       transition.ready.catch(() => {})
-      transition.finished.catch(() => {}).finally(() => delete root.dataset.vt)
+      transition.finished.catch(() => {}).finally(() => { if (mine === latest) delete root.dataset.vt })
       // If the browser is slow to start the transition, carry on with the navigation without it.
       setTimeout(() => {
         if (started) return

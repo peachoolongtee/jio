@@ -1,7 +1,7 @@
 <script setup>
 // A living reference for the Jio design system: every token and shared component on one page.
 // Open /design-system while building a screen to see what exists before writing new styles.
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AvatarStack from '@/components/ui/AvatarStack.vue'
@@ -35,11 +35,16 @@ import TextField from '@/components/ui/TextField.vue'
 import ToastMessage from '@/components/ui/ToastMessage.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
+import SingaporeMap from '@/components/ui/SingaporeMap.vue'
+import MeetupDetail from '@/components/home/MeetupDetail.vue'
+import MeetupList from '@/components/home/MeetupList.vue'
+import MeetupPins from '@/components/home/MeetupPins.vue'
 import PlaceCard from '@/components/event/PlaceCard.vue'
 import PollBar from '@/components/event/PollBar.vue'
 import StopCard from '@/components/event/StopCard.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
 import TravelConnector from '@/components/event/TravelConnector.vue'
+import { dayLabel, pinName, pinsFor } from '@/lib/homeMeetups.js'
 import { moveItem } from '@/lib/planner/itinerary.js'
 
 const COLOURS = [
@@ -78,6 +83,22 @@ const demoStops = ref([
 ])
 const DEMO_TIMES = ['15:00', '17:05', '18:40']
 const graphHistory = Array.from({ length: 14 }, (_, i) => ({ date: new Date(Date.now() - (i * 6 + 2) * 86400000).toISOString().slice(0, 10), count: (i % 3) + 1 }))
+
+// Example meetups for the Home map pins, the detail card and the list: one with a meeting point, one still waiting.
+const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10)
+const BISHAN = { id: 'bishan', name: 'Bishan', lat: 1.35092, lng: 103.84822 }
+const MEETUPS = [
+  { id: 'a', title: 'Saturday lunch', date: day(2), start: '12:00', end: '15:00', status: 'voting', hostId: 'ian', activeIds: ['ian', 'darius', 'nicole'], members: [], area: BISHAN, meeting: { times: { ian: 25 } }, locations: {}, votes: {} },
+  { id: 'b', title: 'Movie night', date: day(5), start: '19:00', end: '22:00', status: 'locating', hostId: 'ian', activeIds: ['ian', 'faith'], members: [], area: null, meeting: null, locations: { faith: { start: BISHAN } }, votes: {} },
+]
+const meetupId = ref('a')
+const meetup = computed(() => MEETUPS.find((m) => m.id === meetupId.value))
+const MEET = { lat: 1.33268, lng: 103.84741 }
+const demoPins = pinsFor(MEETUPS).map((p) => {
+  const m = MEETUPS.find((x) => x.id === p.id)
+  return { ...p, label: dayLabel(m), name: pinName(m) }
+})
+const demoNames = (id) => FRIENDS.find((f) => f.toLowerCase() === id) || 'Ian'
 
 const name = ref('')
 const email = ref('not-an-email')
@@ -208,6 +229,17 @@ const toast = ref(false)
         <div class="card"><MeetupGraph :history="graphHistory" :planned="[soon.date]" :weeks="16" /></div>
       </section>
 
+      <section class="stack gap-md" aria-labelledby="ds-home">
+        <h2 id="ds-home" class="display-sm">Home meetups</h2>
+        <p class="body-sm text-muted">A pin per meetup over the map (the selected one is red, bigger and bobs), the detail card for the selected one, and the list.</p>
+        <div class="ds-pinmap">
+          <SingaporeMap class="ds-pinmap__map" :center="MEET" :span="[340, 260]" />
+          <MeetupPins class="ds-pinmap__pins" :pins="demoPins" :meetups="MEETUPS" my-id="ian" :names="demoNames" :selected-id="meetupId" :center="MEET" :span="[340, 260]" @select="meetupId = $event" />
+        </div>
+        <MeetupDetail :meetup="meetup" my-id="ian" :names="demoNames" />
+        <MeetupList :meetups="MEETUPS" :selected-id="meetupId" my-id="ian" @select="meetupId = $event" />
+      </section>
+
       <section class="stack gap-md" aria-labelledby="ds-people">
         <h2 id="ds-people" class="display-sm">Avatars and rating</h2>
         <div class="row gap-base wrap">
@@ -309,6 +341,8 @@ const toast = ref(false)
 </template>
 
 <style scoped>
+.ds-pinmap { position: relative; height: 360px; border-radius: var(--rounded-md); background: var(--surface-soft); overflow: hidden; }
+.ds-pinmap__map, .ds-pinmap__pins { position: absolute; inset: 0; }
 .swatches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--spacing-base) var(--spacing-md); }
 @media (min-width: 744px) { .swatches { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 .swatch { display: flex; flex-direction: column; gap: var(--spacing-xxs); }

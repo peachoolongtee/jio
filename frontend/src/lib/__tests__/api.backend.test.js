@@ -2,15 +2,18 @@
 // Express app started in this process. If the request or response shapes drift apart, this fails.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../../../../backend/src/app.js'
+import { createHttp } from '../../../../backend/src/services/http.js'
 import * as api from '../api.js'
 import { HOST_ID } from '../mock/people.js'
 
 let server
 
 beforeAll(async () => {
-  // The rain test below fakes the forecast, so the server has to allow that. It also keeps these tests offline:
-  // the data layer sends a simulated forecast on every ranking, so the real forecast is never fetched.
-  server = createApp({ frontendOrigin: 'http://localhost:5173', allowSimulatedWeather: true }).listen(0)
+  // The rain test below fakes the forecast, so the server has to allow that.
+  // Stub HTTP: the weather and any routing are answered from the backend's fixtures, so these tests never
+  // wait on data.gov.sg or OneMap. Without it the first ranking fetched the live forecast and ran close to the
+  // 5 second limit.
+  server = createApp({ frontendOrigin: 'http://localhost:5173', allowSimulatedWeather: true, http: createHttp({ stub: true }) }).listen(0)
   await new Promise((resolve) => server.once('listening', resolve))
   api.api.defaults.baseURL = `http://127.0.0.1:${server.address().port}`
 })

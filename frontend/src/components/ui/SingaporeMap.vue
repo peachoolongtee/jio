@@ -8,6 +8,8 @@
 // center: the place that sits in the middle of the box (Singapore's middle by default), so something laid over the
 // box's centre lines up with it. span: how much around it always shows; the map scales to fit that and fills the
 // rest of the box with whatever is beyond. Give the box a size.
+// quick: draw the routes in about twice as fast, for a map that redraws when the choice changes (give it a new
+// :key to redraw it): <SingaporeMap :key="selected.id" :routes="routes" quick />
 // Built after Aceternity's World Map, with Singapore from lib/singaporeDots.js instead of the world.
 import { computed, useId } from 'vue'
 import { DOT_STEP, NEARBY_DOTS, SINGAPORE_DOTS, project } from '@/lib/singaporeDots.js'
@@ -22,6 +24,7 @@ const props = defineProps({
   span: { type: Array, default: () => [420, 330] },
   // Hide the meeting point (when something on top of the map marks it instead).
   hideMeet: { type: Boolean, default: false },
+  quick: { type: Boolean, default: false },
 })
 
 const MIDDLE = { x: 395, y: 205 }
@@ -51,7 +54,7 @@ const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
 </script>
 
 <template>
-  <div class="sgmap" aria-hidden="true">
+  <div class="sgmap" :class="{ 'sgmap--quick': quick }" aria-hidden="true">
     <svg :viewBox="viewBox" preserveAspectRatio="xMidYMid meet" class="sgmap__svg">
       <path class="sgmap__dots sgmap__dots--near" :d="NEARBY_DOTS" :stroke-width="DOT" />
       <path class="sgmap__dots" :d="SINGAPORE_DOTS" :stroke-width="DOT" />
@@ -105,6 +108,10 @@ const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
 @keyframes sgmap-pop { to { opacity: 0.9; } }
 .sgmap__meet circle { fill: var(--primary); }
 .sgmap__meet .sgmap__halo { fill: color-mix(in srgb, var(--primary) 22%, transparent); }
+/* Quick: the same draw-in, shorter and closer together. Reduced motion below still wins (animation: none). */
+.sgmap--quick .sgmap__route, .sgmap--quick .sgmap__glow { animation-duration: 0.7s; animation-delay: calc(0.05s + var(--i) * 0.08s); }
+.sgmap--quick .sgmap__start { animation-delay: calc(var(--i) * 0.08s); }
+.sgmap--quick .sgmap__comet { animation-delay: calc(0.9s + var(--i) * 0.55s); }
 @media (prefers-reduced-motion: reduce) {
   .sgmap__route, .sgmap__glow { animation: none; stroke-dashoffset: 0; }
   .sgmap__comet { display: none; }

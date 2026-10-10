@@ -551,3 +551,68 @@ Parent task: the lead asked for the OneMap changes to be made, the defect fixes 
 - **Not verified by anyone:** anything against the real OneMap service. The agent's start-up login line is covered by a unit test only.
 - **Known trade-offs, as reported:** a meeting-area result can compare real times for the routed areas with estimates for the rest, so the winner can be an estimate-only area (the answer says `approximate`); with 30 members only two areas fit under the cap; address search draws on the same budget as routing, with no reserved share.
 - **Commits:** nine for the defect fixes, the merge of the external-APIs branch, six for the OneMap changes, then this log and `CLAUDE.md`.
+
+## Round 10: Home as a map of every current meetup (2026-10-10)
+
+Parent task: the lead asked for Home to show all current meetups on the map, with a detail for the one selected and a list below, built on a separate branch, keeping the animations and improving them where there is a case. In parallel `dev` was brought level with `main` through a pull request from `main` into `dev`, merged.
+
+Today Home is built around one meetup: the most recently created one that is not completed or cancelled. Any other active meetup is not shown on Home at all. Work is on branch `feat/home-meetups-map`, cut from `main`.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 10.1 | Frontend | Home shows every active meetup: a pin each on the dotted map, a detail card for the selected one, a list sorted soonest first, and a way to start another | `frontend/src/views/LandingView.vue`, `components/ui/SingaporeMap.vue` (additions only), new components under `components/home/`, a new `lib/homeMeetups.js` and its test | With three active meetups, all three are reachable from Home; selecting by pin or by row shows the same detail; a meetup without a meeting point appears in the list; nothing overflows at 320 px; every animation that exists today still plays and respects reduced motion; frontend suite and build pass | **Completed** |
+| 10.2 | Lead | Verify in a browser, bring `DESIGN.md` in step | `DESIGN.md`, docs | 10.1 | **Completed** |
+
+### 10.1 Home as a map of every current meetup: completed
+
+- **Agent:** a frontend-engineer subagent, in two passes. The second pass came from the lead, who looked at the first and asked for the details to appear at the pin on hover, as first requested. The lead agent had steered the first brief toward a card under the map; that was the lead agent's call and the wrong one.
+- **Built:** `lib/homeMeetups.js` (ordering soonest first, the next step for the signed-in person, pin positions with a fan-out for shared areas, selection, and where a pin's card sits); `components/home/MeetupPins.vue`, `MeetupSummary.vue`, `MeetupDetail.vue`, `MeetupList.vue`, `NextStepChip.vue`; `LandingView.vue` rewired around a selected meetup kept in `?meetup=<id>`; one additive `quick` prop on `SingaporeMap.vue`; a section in `DesignSystemView.vue`.
+- **Kept:** every existing animation, and the no-meetup Home, which the agent compared box for box and by screenshot hash against `main` at 375 and 1280 px.
+- **Verified by the lead, in a browser on a spare port, with three meetups created through the real planner** (two with meeting points, one still inviting):
+  - Both meetups with a meeting point have a pin; the third is in the list with no pin. Pins are 50 by 64 px.
+  - Clicking the "Tue" pin gives `?meetup=s2`, the Study session detail, a pressed pin and row, and "Places near Caldecott".
+  - Selecting the meetup with no pin by its row gives `?meetup=s3` and no pressed pin.
+  - Hovering a pin: no card at 60 ms, a card after the delay, 264 by 269 px, to the right of the pin, inside the map and the viewport, not covering the pin, with the right meetup and link. The selection and the address did not change.
+  - No horizontal overflow at 320, 375 and 1280 px. No console errors.
+  - The lead's pane was not on screen, so the hover was driven by dispatched pointer events and the card's closing transition could not finish there; the agent measured the close in a headless browser at about 300 ms.
+- **Reported by the agent and not rechecked by the lead:** keyboard and touch behaviour of the pin card; placement at 320, 375 and 768 px with ten meetups; reduced motion; the fan-out of pins on one area.
+- **Results:** `pnpm --filter jio-frontend test` 280 passed, 26 files; `pnpm test` 383 passed, 1 skipped; `pnpm build` succeeded.
+- **Also fixed by the lead:** `frontend/src/lib/__tests__/api.backend.test.js` started the real backend with real HTTP, so its first ranking fetched the live forecast and once ran past the 5-second limit. It now uses stub HTTP. With outbound network blocked the whole frontend suite passes and nothing tries to leave the machine.
+- **Open, for the lead:** on phones the pin card is taller than the map can hold, so it overlays the greeting or the card below; neighbouring areas' pins can overlap, since only identical areas fan out; selecting a low row on a phone does not scroll the card into view; with one meetup on a wide screen the right half beside the card is empty. An older Leaflet teardown error on leaving the plan page quickly was noticed and not touched.
+
+## Round 11: four problems the lead found by using the app (2026-10-10)
+
+Parent task: the lead reported four problems and asked for them to be inspected, fixed and merged to `main`. Work continues on `feat/home-meetups-map`, so the merge takes the new Home with it.
+
+| # | The lead's words | Where to look first |
+|---|---|---|
+| 1 | "name cut off on home page" | The greeting on Home: large text filled with a gradient, on a tight line height |
+| 2 | "when selecting end time, +/-2 hour too close to next" | `RadialTimePicker`'s ring of step buttons against the "Next" button and the other picker |
+| 3 | "no back button after selecting date of session" | Create session goes straight to the invite step with no way back to the date and times |
+| 4 | "toggling between different stages in the session using the bar on top abit glitchy" | `SessionSteps` as pages change |
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 11.1 | Frontend | Reproduce each problem with a measurement, fix it, measure again | The files named in its brief, under `frontend/src/` | Each problem has a before and an after number; frontend suite and build pass | **Completed** |
+| 11.2 | Lead | Verify, bring `DESIGN.md` in step, commit, push, merge to `main` | Docs and the tracker | All suites pass; pull request merged | **Completed** up to the commits; the pull request and `git log` record the merge |
+
+### 11.1 Four problems from use: completed
+
+- **Agent:** a frontend-engineer subagent. It reproduced all four in a headless browser before changing anything, and measured each again afterwards.
+
+| # | Problem | Before | Cause | After |
+|---|---|---|---|---|
+| 1 | Name cut off on Home | "Peggy Png" had 267 pixels of ink outside the name's box at desktop widths; "Farhan W" ran 4.1 px past the right edge; "Ian" had none | The name is painted through `background-clip: text`, which only shows inside the element's box: a 0.95 line with 0.06em of padding and negative letter spacing | 0 pixels outside the box for six names at seven widths |
+| 2 | "+/-2 hour too close to next" | The End picker's ring overlapped the "Next" button by 25 px on phones and 33 px from 744 px, and floated above it; each ring overlapped the other picker's pill by 23 px on phones | The ring reaches 141 px each way and the form left 48 to 115 px | At least 14.6 px from "Next" and 16.6 px from the other pill; a tap on either button changed the time and never navigated |
+| 3 | No back after the date | The invite step's only back control went to the session; the Create step was a dead label; browser Back went Home | Creating a session replaced the page with the invite step, and no edit path existed | A back arrow to an "Edit session" form with the values filled in; `api.updateSession`, host only and only while inviting; the Create step links there |
+| 4 | Steps bar glitchy | The bar dipped to 81% opacity and drifted 6 px on every click; keyboard focus was lost in 160 of 160 activations; a second press 80 ms after the first was lost 3 times of 3; the bar's height differed between screens by up to 39 px | The bar was part of the page's cross-fade, and each header laid it out differently | Opacity stays at 1 with no drift; focus stays on the pressed step 160 times of 160; the second press took effect 6 times of 6; one height on all six screens at each width |
+
+- **Also fixed by the agent, found during the sweep for problem 1:** a long meetup title on Home could not be read anywhere. The full-size card now wraps it; the pin card and list rows carry it as a tooltip.
+- **Verified by the lead, in a browser on a spare port at 1280 px:**
+  - With the account named "Peggy Png", the greeting's name box is 103 px tall for a 76 px line, with 0.22em of padding below; no horizontal overflow.
+  - The invite step's back control is "Back to date and times" and leads to `/sessions/s1/edit`; that page is headed "Edit session" with the title and both times filled in; its back control returns to the invite step.
+  - On the edit form the End picker's pill is 140 px above "Next", and 154 px below the Start picker's pill.
+  - The steps bar is at the same height (84 px) on the session, invite and edit screens, and carries the transition name `session-steps`.
+  - The lead did not open a ring or click through the steps; the pane was not on screen, so those rest on the agent's measurements.
+- **Results:** `pnpm --filter jio-frontend test` 324 passed, 30 files; `pnpm test` 383 passed, 1 skipped; `pnpm build` succeeded.
+- **Left, as reported:** a single word longer than the screen in the greeting is cut by the page's edge; the session header clips a title of about 60 characters at 320 px; with a mouse on a narrow window that has the sticky footer, an open End ring can still sit over the footer; keyboard users can type a time and cannot reach the ring's buttons; an old Leaflet error on leaving the plan page quickly.
