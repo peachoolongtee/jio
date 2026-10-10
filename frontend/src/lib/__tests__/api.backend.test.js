@@ -152,3 +152,41 @@ describe('a session planned by the backend', () => {
     }
   })
 })
+
+describe('meeting spots planned by the backend', () => {
+  it('lists the app\'s three, prices a member\'s suggestion the same way, and settles on the approved one', async () => {
+    if (!(await api.getUser())) await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2004-03-18', homeAreaId: 'tampines' })
+    const { id } = await api.createSession({ title: 'Spots', date: '2026-10-10', start: '12:00', end: '20:00' })
+    await api.inviteFriends(id, ['jonathan', 'faith'])
+    await api.startSession(id)
+    await api.setLocation(id, HOST_ID, 'start', { areaId: 'tampines' })
+    await api.setLocation(id, 'jonathan', 'start', { areaId: 'jurong-east' })
+    // Faith has not shared a start, so the meeting area waits, but the spots are listed from two starts on.
+    const listed = await api.getSession(id)
+    expect(listed.meeting).toBeNull()
+    expect(listed.spots.list).toHaveLength(3)
+    expect(new Set(listed.spots.list.map((s) => s.areaId)).size).toBe(3)
+    for (const spot of listed.spots.list) {
+      expect(spot.by).toBe('app')
+      expect(Object.keys(spot.times).sort()).toEqual([HOST_ID, 'jonathan'].sort())
+      expect(spot.worstMinutes).toBe(Math.max(...Object.values(spot.times)))
+    }
+    // The fairest comes first: nothing after it has a shorter longest trip.
+    expect(listed.spots.list.every((s) => s.worstMinutes >= listed.spots.list[0].worstMinutes)).toBe(true)
+    // A member's suggestion is priced by the same request, for the same people.
+    const pick = ['kovan', 'pasir-ris', 'woodlands'].find((a) => !listed.spots.list.some((s) => s.areaId === a))
+    const suggested = await api.suggestSpot(id, 'faith', pick)
+    const spot = suggested.spots.list.find((s) => s.areaId === pick)
+    expect(spot).toMatchObject({ by: 'faith', here: false })
+    expect(Object.keys(spot.times).sort()).toEqual([HOST_ID, 'jonathan'].sort())
+    expect(spot.worstMinutes).toBe(Math.max(...Object.values(spot.times)))
+    expect(suggested.spots.list).toHaveLength(4)
+    // The approved spot is the one offered, and the host settles on it.
+    const approved = await api.approveSpot(id, 'jonathan', pick, true)
+    expect(approved.spots.preselectedAreaId).toBe(pick)
+    const settled = await api.confirmSpot(id, pick)
+    expect(settled).toMatchObject({ status: 'voting', area: { id: pick } })
+    expect(settled.meeting).toMatchObject({ areaId: pick, method: 'voted', count: 2 })
+    expect((await api.getPlan(id)).slots.some((s) => s.options.length > 0)).toBe(true)
+  })
+})

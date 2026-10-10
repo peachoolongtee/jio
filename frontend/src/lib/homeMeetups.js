@@ -101,6 +101,11 @@ export function nextStepFor(session, myId) {
   if (session.status === 'locating') {
     if (!session.locations?.[myId]?.start) return step('Share your start', 'action')
     if (session.findingMeeting) return step('Finding the midpoint', 'wait')
+    // Spots are listed: the host settles it, and a member who has approved none is asked which work for them.
+    if (session.spots?.list?.length) {
+      if (isHost) return step('Confirm the spot', 'action')
+      return session.spots.approvals?.[myId]?.length ? step('Waiting for the host', 'wait') : step('Say which spots work for you', 'action')
+    }
     if (session.meeting) return isHost ? step('Confirm the meeting point', 'action') : step('Waiting for the host', 'wait')
     return step('Waiting for others', 'wait')
   }

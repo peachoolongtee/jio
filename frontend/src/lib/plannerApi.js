@@ -99,9 +99,18 @@ function toOption(r) {
 // Where the group should meet.
 //   members: [{ id, name, start: { lat, lng }, end: { lat, lng } }]
 //   routing: false is the demo's "routing off" switch: the geographic centre, named after the nearest area.
+//   alternatives: how many runners-up to ask for besides the chosen area (0 to 3). The app's three spots are alternatives: 2.
+//   include:      area ids to work out whatever their rank (up to 8), such as the spots members suggested.
+// Both are optional. Left out, the request is exactly what it always was and the answer has no `candidates`.
 // Returns the backend's answer: { area: { id, name, lat, lng }, centre, travelByMember, worstMinutes, method, approximate }.
-export async function meetingArea({ members, routing = true }) {
-  const { data } = await api.post('/api/meeting-area', { members, method: routing ? 'station' : 'centroid' })
+// With alternatives or include it also has candidates, the chosen area first:
+// [{ area, worstMinutes, meanMinutes, travelByMember, approximate, source: 'ranked' | 'included' }].
+// How to call: await meetingArea({ members, routing: true, alternatives: 2, include: ['bugis'] })
+export async function meetingArea({ members, routing = true, alternatives, include }) {
+  const body = { members, method: routing ? 'station' : 'centroid' }
+  if (alternatives !== undefined) body.alternatives = alternatives
+  if (include?.length) body.include = include
+  const { data } = await api.post('/api/meeting-area', body)
   return data
 }
 
