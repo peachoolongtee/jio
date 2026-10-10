@@ -5,7 +5,7 @@
 // centre when routing is off. This file holds what the screens need around it.
 //
 // Rules
-// - Fewer than 2 locations: no meeting area yet.
+// - Fewer than 2 locations: no meeting area yet. (api.js also waits for everyone while the group is still sharing.)
 // - Everyone starts from the same place: the meeting area is that place.
 
 export const MIN_LOCATIONS = 2
@@ -19,5 +19,5 @@ export function meetingResultLine(result, areaName) {
   if (result.method === 'centre') {
     return `Routing is unavailable, so ${areaName} is the geographic centre for ${people}. The longest trip is about ${result.maxMinutes} minutes.`
   }
-  return `Fairest for ${people}: nobody travels more than ${result.maxMinutes} minutes.`
+  return `Fairest for ${people}: nobody travels more than about ${result.maxMinutes} minutes.`
 }

@@ -1,8 +1,17 @@
+<script>
+// The banner to show while voting: only the one that says the meeting area moved and the votes for places were
+// cleared (the data layer marks it votesCleared). The other re-calculation banners stay out of the way.
+// How to call: votesClearedBanner({ status: 'voting', banner: { text, votesCleared: true } }) -> the banner
+export function votesClearedBanner(session) {
+  return session.status === 'voting' && session.banner?.votesCleared ? session.banner : null
+}
+</script>
+
 <script setup>
 // The notices at the top of every session screen:
+//   - Votes cleared, while voting, when the meeting area moved and took the votes with it (dismissible)
 //   - Re-plan? after Confirmed, when a location changes or someone opts out
 //   - Not enough people, when an opt-out leaves fewer than 2
-//   - the re-calculation banner: what changed and why
 //   - Cancelled
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -19,6 +28,15 @@ const cancelOpen = ref(false)
 const busy = ref(false)
 
 const paused = computed(() => isPaused(props.session))
+const clearedBanner = computed(() => votesClearedBanner(props.session))
+
+async function dismissBanner() {
+  try {
+    await events.dismissBanner(props.session.id)
+  } catch {
+    // The banner stays; dismissing it again is the retry.
+  }
+}
 
 async function answerReplan(accept) {
   busy.value = true
@@ -36,8 +54,10 @@ async function cancel() {
 </script>
 
 <template>
-  <div v-if="session.status === 'cancelled' || paused || session.replan || session.banner" class="notices">
+  <div v-if="session.status === 'cancelled' || paused || clearedBanner || (session.replan && session.status === 'confirmed')" class="notices">
     <BannerNote v-if="session.status === 'cancelled'" tone="error" icon="close">Session cancelled</BannerNote>
+
+    <BannerNote v-if="clearedBanner" icon="info" dismissible @dismiss="dismissBanner">{{ clearedBanner.text }}</BannerNote>
 
     <BannerNote v-if="session.replan && session.status === 'confirmed'" tone="warning" icon="warning">
       <strong>Re-plan?</strong> {{ session.replan.reason }}
@@ -55,9 +75,6 @@ async function cancel() {
       </template>
     </BannerNote>
 
-    <BannerNote v-if="session.banner && session.status !== 'cancelled'" icon="info" dismissible @dismiss="events.dismissBanner(session.id)">
-      {{ session.banner.text }}
-    </BannerNote>
 
     <ModalDialog v-model:open="cancelOpen" title="Cancel this session?">
       <AppButton block variant="secondary" @click="cancelOpen = false">Keep session</AppButton>

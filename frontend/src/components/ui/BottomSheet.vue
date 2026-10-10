@@ -5,9 +5,10 @@
 // It is never a full-width sheet on desktop.
 // It closes on the backdrop, the close button and the Escape key.
 // Use the `footer` slot for a button that stays in view while the content scrolls.
-import { nextTick, ref, useId, watch } from 'vue'
+import { ref, useId } from 'vue'
 import AppIcon from './AppIcon.vue'
 import IconButton from './IconButton.vue'
+import { useFocusTrap } from '@/lib/useFocusTrap.js'
 
 const open = defineModel('open', { type: Boolean, default: false })
 defineProps({
@@ -23,40 +24,14 @@ const emit = defineEmits(['close'])
 
 const titleId = `sheet-${useId()}`
 const panel = ref(null)
-let opener = null
 
 function close() {
   open.value = false
   emit('close')
 }
 
-// Keep Tab inside the sheet while it is open.
-function trap(event) {
-  if (event.key !== 'Tab' || !panel.value) return
-  const items = [...panel.value.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
-  if (!items.length) return
-  const first = items[0]
-  const last = items[items.length - 1]
-  if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.value)) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
-}
-
-// Move focus into the sheet when it opens, and back to where it was when it closes.
-watch(open, async (isOpen) => {
-  if (isOpen) {
-    opener = document.activeElement
-    await nextTick()
-    panel.value?.focus()
-  } else if (opener && typeof opener.focus === 'function') {
-    opener.focus()
-    opener = null
-  }
-})
+// Focus moves into the sheet when it opens, Tab stays inside it, and focus goes back to the opener on close.
+const { onKeydown: trap } = useFocusTrap(open, panel)
 </script>
 
 <template>
@@ -104,7 +79,7 @@ watch(open, async (isOpen) => {
 .sheet__handle { flex-shrink: 0; align-self: center; width: 36px; height: var(--spacing-xs); margin-top: var(--spacing-sm); border-radius: var(--rounded-full); background: var(--border-strong); }
 .sheet__head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-sm) var(--spacing-base) 0 var(--spacing-lg); }
 .sheet__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--spacing-base); padding: var(--spacing-base) var(--spacing-lg) var(--spacing-lg); }
-.sheet__foot { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base) var(--spacing-lg) var(--spacing-lg); border-top: 1px solid var(--hairline); }
+.sheet__foot { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base) var(--spacing-lg) var(--spacing-lg); }
 
 /* Tablet: still a bottom sheet, but not wider than a comfortable reading width. */
 @media (min-width: 744px) {
@@ -122,11 +97,18 @@ watch(open, async (isOpen) => {
   .sheet--side .sheet__panel { width: var(--side-panel-width); max-width: 100%; height: 100dvh; max-height: none; border-radius: var(--rounded-lg) 0 0 var(--rounded-lg); }
 }
 
-/* 200ms: the backdrop fades and the sheet slides. */
-.sheet-enter-active, .sheet-leave-active { transition: opacity var(--motion-fast) ease; }
-.sheet-enter-active .sheet__panel, .sheet-leave-active .sheet__panel { transition: transform var(--motion-fast) ease; }
+/* The backdrop fades and the sheet glides up on the native sheet curve. Leaving is quicker than arriving. */
+.sheet-enter-active { transition: opacity var(--motion-fast) var(--ease-out); }
+.sheet-leave-active { transition: opacity 160ms var(--ease-out); }
+.sheet-enter-active .sheet__panel { transition: transform var(--motion-medium) var(--ease-sheet); }
+.sheet-leave-active .sheet__panel { transition: transform 160ms var(--ease-out); }
 .sheet-enter-from, .sheet-leave-to { opacity: 0; }
-.sheet-enter-from .sheet__panel, .sheet-leave-to .sheet__panel { transform: translateY(24px); }
+.sheet-enter-from .sheet__panel { transform: translateY(48px); }
+.sheet-leave-to .sheet__panel { transform: translateY(24px); }
+@media (min-width: 1128px) {
+  .sheet:not(.sheet--side).sheet-enter-from .sheet__panel { transform: translateY(12px) scale(0.98); }
+  .sheet:not(.sheet--side).sheet-leave-to .sheet__panel { transform: translateY(6px); }
+}
 @media (min-width: 1128px) {
   .sheet--side.sheet-enter-from .sheet__panel, .sheet--side.sheet-leave-to .sheet__panel { transform: translateX(24px); }
 }

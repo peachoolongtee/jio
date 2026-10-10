@@ -4,8 +4,9 @@ const NAMES = { eat: 'Eat', drink: 'Drink', shop: 'Shop', activity: 'Activity' }
 </script>
 
 <script setup>
-// A category shown as an icon only, on its own soft tint: a cup for Drink, a bag for Shop,
-// cutlery for Eat, a ticket for Activity. Screen readers hear the category name.
+// A category shown as an icon on a circle in the category's colour: cutlery for Eat (orange), a cup for Drink (blue),
+// a bag for Shop (purple), a ticket for Activity (green), matching card stripes, stop numbers and map pins.
+// Screen readers hear the category name.
 //   <CategoryIcon category="drink" />  or  <CategoryIcon category="eat" :size="40" />
 defineProps({
   category: { type: String, required: true, validator: (v) => v in NAMES },
@@ -28,6 +29,7 @@ import AppIcon from './AppIcon.vue'
 
 <style scoped>
 .cat { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--rounded-full); }
+/* The category's tint behind its colour: the same colours as the card stripes, stop numbers and map pins. */
 .cat--eat { background: var(--cat-eat-bg); color: var(--cat-eat-fg); }
 .cat--drink { background: var(--cat-drink-bg); color: var(--cat-drink-fg); }
 .cat--shop { background: var(--cat-shop-bg); color: var(--cat-shop-fg); }

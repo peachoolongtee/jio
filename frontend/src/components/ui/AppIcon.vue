@@ -23,9 +23,12 @@ const ICONS = {
   camera: { body: '<path d="M2 5.5h2.5l1-1.75h5l1 1.75H14v7H2Z"/><circle cx="8" cy="8.75" r="2.25"/>' },
   grip: { body: '<circle cx="5.5" cy="3.5" r="1.25"/><circle cx="10.5" cy="3.5" r="1.25"/><circle cx="5.5" cy="8" r="1.25"/><circle cx="10.5" cy="8" r="1.25"/><circle cx="5.5" cy="12.5" r="1.25"/><circle cx="10.5" cy="12.5" r="1.25"/>', filled: true },
   star: { body: '<path d="M6 .8l1.6 3.3 3.6.5-2.6 2.5.6 3.6L6 9l-3.2 1.7.6-3.6L.8 4.6l3.6-.5z"/>', box: 12, filled: true },
+  'arrow-right': { body: '<path d="M3 8h10M9 4l4 4-4 4"/>', stroke: 1.75 },
   'chevron-right': { body: '<path d="m6 4 4 4-4 4"/>', stroke: 2 },
   home: { body: '<path d="M2.5 7.5 8 3l5.5 4.5v6H10V10H6v3.5H2.5Z"/>' },
   filter: { body: '<path d="M2.5 4h11M4.5 8h7M6.5 12h3"/>', stroke: 1.75 },
+  crown: { body: '<path d="M2.75 12.5h10.5M3.25 10.5 2.25 4.75 5.5 7.5 8 3.25l2.5 4.25 3.25-2.75-1 5.75Z"/>' },
+  coin: { body: '<circle cx="8" cy="8" r="6"/><path d="M9.25 5.25v3.5a1.75 1.75 0 0 1-3.5 0"/>' },
   sparkle: { body: '<path d="M8 2.5 9.2 6.8 13.5 8 9.2 9.2 8 13.5 6.8 9.2 2.5 8 6.8 6.8Z"/>' },
   map: { body: '<path d="M2 4 6 2.5l4 1.5 4-1.5v9.5L10 13.5 6 12l-4 1.5Z"/><path d="M6 2.5V12M10 4v9.5"/>' },
   pin: { body: '<path d="M8 14s4.5-4.2 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.8 8 14 8 14Z"/><circle cx="8" cy="6.5" r="1.5"/>' },
@@ -59,6 +62,7 @@ const ICONS = {
   'tab-plus': { body: '<path d="M12 5.5v13M5.5 12h13"/>', box: 24, stroke: 2 },
   'tab-board': { body: '<path d="M5 20v-6M12 20V5M19 20v-9"/>', box: 24, stroke: 1.75 },
   'tab-profile': { body: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>', box: 24, stroke: 1.75 },
+  'tab-trophy': { body: '<path d="M7 4h10v5a5 5 0 0 1-10 0Z"/><path d="M7 5.5H4.75a2.25 2.25 0 0 0 2.5 4M17 5.5h2.25a2.25 2.25 0 0 1-2.5 4M12 14v3.5M9 17.5h6M7.5 20.5h9"/>', box: 24, stroke: 1.75 },
 }
 </script>
 

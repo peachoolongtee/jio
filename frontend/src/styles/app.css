@@ -4,6 +4,8 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body, #app { min-height: 100%; }
+/* Always keep room for the scrollbar, so moving between a short page and a long one never shifts everything sideways. */
+html { scrollbar-gutter: stable; }
 
 body {
   margin: 0;
@@ -18,6 +20,8 @@ ul, ol { padding: 0; list-style: none; }
 a { color: inherit; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
+/* Taps respond at once on touch screens: no grey flash, no wait for a possible double-tap zoom. */
+a, button, summary, label, [role="button"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 svg { display: block; flex-shrink: 0; }
 
 /* Keyboard focus: 2px ink, no glow. Every control shows it. */
@@ -41,44 +45,43 @@ svg { display: block; flex-shrink: 0; }
 .badge { font: var(--text-badge); }
 .button-md { font: var(--text-button-md); }
 .button-sm { font: var(--text-button-sm); }
+.nav-link { font: var(--text-nav-link); }
 
 .text-muted { color: var(--muted); }
 .text-body { color: var(--body); }
 .text-error { color: var(--primary-error-text); }
-.text-brand { color: var(--primary); }
+.text-brand { color: var(--primary); } /* Rausch text: brand links only. */
 
 /* Long names wrap to two lines, then cut off. */
 .clamp-2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── App frame and screen layout ──────────────────────────── */
-/* The frame: sidebar on desktop, tab bar on mobile and tablet. App.vue switches between them with CSS only,
-   so resizing the window never re-creates the current screen. */
+/* The frame: the screen, with room for the tab bar on top-level screens: at the bottom on mobile, at the top from tablet up. */
 .app { min-height: 100dvh; background: var(--canvas); }
-.app__main { display: flex; flex-direction: column; min-width: 0; min-height: 100dvh; }
-.app__side { display: none; }
-.app.has-tabs .app__main { padding-bottom: var(--tabbar-height); }
-@media (min-width: 1128px) {
-  .app.has-nav { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
-  .app.has-nav .app__side { display: flex; }
-  .app.has-tabs .app__main { padding-bottom: 0; }
-}
+.app__main { display: flex; flex-direction: column; min-width: 0; min-height: 100dvh; overflow-x: clip; } /* clip: a full-bleed band (Home's map) never scrolls sideways; sticky still works. */
+.app.has-tabs .app__main { padding-top: var(--topbar-height); padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px)); }
 
 /* A screen is a column: header, a body, and an optional footer that stays in view.
    On wide windows it sits in a centred column no wider than --content-max-width. */
 .screen { flex: 1 1 auto; display: flex; flex-direction: column; width: 100%; max-width: calc(var(--content-max-width) + var(--gutter) * 2); margin: 0 auto; }
 /* Forms (sign-up, create session) never stretch: a centred column no wider than --form-max-width. */
 .screen--form { max-width: calc(var(--form-max-width) + var(--gutter) * 2); }
+/* Create session and invite: wider, so a calendar and its times (or two columns of friends) fit side by side. */
+.screen--wide-form { max-width: calc(var(--wide-form-max-width) + var(--gutter) * 2); }
 .screen__header { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md) var(--gutter) var(--spacing-base); }
 .screen__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); min-height: var(--tap-min); }
 .screen__titles { display: flex; flex-direction: column; gap: var(--spacing-xs); min-width: 0; }
 .screen__body { flex: 1 1 auto; display: flex; flex-direction: column; gap: var(--spacing-lg); padding: 0 var(--gutter) var(--spacing-lg); }
-.screen__footer { position: sticky; bottom: 0; z-index: 5; flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base) var(--gutter) var(--spacing-lg); border-top: 1px solid var(--hairline); background: var(--canvas); }
+.screen__footer { position: sticky; bottom: 0; z-index: 5; flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base) var(--gutter) var(--spacing-lg); background: var(--canvas); }
+/* From tablet up the main action sits at the end of the content, right-aligned at a normal width,
+   not stretched across the window. Phones keep the full-width button, where the thumb is. */
+@media (min-width: 744px) {
+  .screen__footer { flex-direction: row; justify-content: flex-end; align-items: center; }
+  .screen__footer > .btn.btn--block { width: auto; min-width: 200px; }
+}
 @media (min-width: 1128px) {
   .screen__header { padding-top: var(--spacing-xl); }
-  /* On desktop the main action sits at the end of the content, right-aligned, not in a full-width bar. */
-  .screen__footer { flex-direction: row; justify-content: flex-end; align-items: center; }
-  .screen__footer > .btn--block { width: auto; min-width: 240px; }
 }
 
 /* Section heading row: a heading and an optional action or count on the right. */
@@ -94,8 +97,14 @@ svg { display: block; flex-shrink: 0; }
 @media (min-width: 1128px) { .mobile-only { display: none !important; } }
 @media (max-width: 1127.98px) { .desktop-only { display: none !important; } }
 
-/* A bordered card. */
-.card { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+/* A card: white, 1px hairline, 14px corners, flat. It only lifts (the one shadow tier) when it floats or is hovered. */
+.card { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+
+/* Content eases in when a screen opens (skipped under reduced motion). Stagger with --i. */
+@media (prefers-reduced-motion: no-preference) {
+  .rise { animation: rise 420ms cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(var(--i, 0) * 60ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+}
 /* A quiet note, for example a short summary. */
 .note { padding: var(--spacing-md); border-radius: var(--rounded-md); background: var(--surface-soft); color: var(--body); font: var(--text-body-sm); }
 /* A grey plate that stands in for a photo until real images exist. */
@@ -120,9 +129,72 @@ svg { display: block; flex-shrink: 0; }
 .scroll-x { display: flex; gap: var(--spacing-sm); margin-right: calc(var(--gutter) * -1); padding-right: var(--gutter); overflow-x: auto; scrollbar-width: none; }
 .scroll-x::-webkit-scrollbar { display: none; }
 
+/* Tabular figures, so times and counts line up. */
+.tnum { font-variant-numeric: tabular-nums; }
+
 /* Text for screen readers only. */
+/* The handle of a SortableList item: a quiet grip that becomes a grabbing hand. touch-action stops the page
+   scrolling under a finger. <button v-bind="handle" class="drag-handle"><AppIcon name="grip" /></button> */
+.drag-handle { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: var(--tap-min); height: var(--tap-min); margin: -6px -10px 0 0; border: 0; border-radius: var(--rounded-full); background: transparent; color: var(--muted); cursor: grab; touch-action: none; }
+.drag-handle:active { cursor: grabbing; color: var(--ink); }
+@media (hover: hover) { .drag-handle:hover { background: var(--surface-soft); color: var(--ink); } }
+.drag-handle:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
+/* Page changes (lib/viewTransition.js): the old and new screens cross-fade on the same curve, so anything that
+   looks the same on both, like the tab bar, stays perfectly still. */
+::view-transition-group(*),
+::view-transition-old(*),
+::view-transition-new(*) { animation-duration: 240ms; animation-timing-function: var(--ease-out); }
+/* A new screen: a soft cross-fade, the new one drifting up a few pixels. Small moves, so nothing jumps; the tab bar
+   has its own name, so it stays perfectly still while the page changes around it. */
+:root[data-vt='page']::view-transition-old(root) { animation: page-out 180ms ease-out both; }
+:root[data-vt='page']::view-transition-new(root) { animation: page-in 280ms cubic-bezier(0.25, 1, 0.5, 1) both; }
+@keyframes page-out { to { opacity: 0; } }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } }
+::view-transition-group(app-tabs) { animation-duration: 0s; }
+/* A photo grows out of the gallery into the viewer, and back. */
+::view-transition-group(photo-hero) { animation-duration: 420ms; animation-timing-function: var(--ease-out); }
+::view-transition-old(photo-hero),
+::view-transition-new(photo-hero) { height: 100%; object-fit: cover; overflow: clip; }
+/* A place card grows into its detail view on Home, and shrinks back into the grid. Only two things move: the card's
+   box, which grows with its content revealed from the top left (never stretched), and the photo, which travels to
+   its place. Both run on the same smooth curve; the text inside cross-fades with the box rather than morphing on
+   its own, so nothing wobbles. */
+::view-transition-group(place-card),
+::view-transition-group(place-photo) { animation-duration: 440ms; animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1); }
+::view-transition-group(place-card) { border-radius: var(--rounded-md); box-shadow: var(--shadow-float); }
+::view-transition-image-pair(place-card) { overflow: clip; border-radius: var(--rounded-md); }
+::view-transition-old(place-card),
+::view-transition-new(place-card) { width: 100%; height: 100%; object-fit: none; object-position: left top; }
+::view-transition-old(place-card) { animation: vt-fade-out 160ms ease-out both; }
+::view-transition-new(place-card) { animation: vt-fade-in 260ms ease-out 60ms both; }
+@keyframes vt-fade-out { to { opacity: 0; } }
+@keyframes vt-fade-in { from { opacity: 0; } }
+::view-transition-old(place-photo),
+::view-transition-new(place-photo) { height: 100%; object-fit: cover; overflow: clip; animation-duration: 440ms; }
+
+/* Reduced motion: nothing loops, nothing glides. Code that scrolls or animates by itself checks the same query. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
+
+/* Home's map pin into the create-session screen, like entering a game (lib/enterGame.js). A red circle bursts out
+   of the pin and fills the screen, rings pulse out, then the red dissolves into the next screen. */
+.enter-game { position: fixed; inset: 0; z-index: 1000; pointer-events: none; background: radial-gradient(circle at var(--x) var(--y), var(--primary-bright), var(--primary) 45%, var(--primary-active)); clip-path: circle(0 at var(--x) var(--y)); }
+.enter-game.is-growing { clip-path: circle(var(--reach) at var(--x) var(--y)); transition: clip-path 650ms cubic-bezier(0.7, 0, 0.3, 1); }
+.enter-game.is-leaving { opacity: 0; filter: blur(12px); transform: scale(1.06); transition: opacity 700ms var(--ease-out), filter 700ms var(--ease-out), transform 700ms var(--ease-out); }
+.enter-game__ring { position: absolute; left: 50%; top: 50%; width: 120px; height: 120px; margin: -60px 0 0 -60px; border: 3px solid color-mix(in srgb, #fff 70%, transparent); border-radius: 50%; opacity: 0; }
+.is-growing .enter-game__ring { animation: enter-ring 900ms var(--ease-out) both; }
+.is-growing .enter-game__ring:nth-child(1) { animation-delay: 380ms; }
+.is-growing .enter-game__ring:nth-child(2) { animation-delay: 500ms; }
+.is-growing .enter-game__ring:nth-child(3) { animation-delay: 620ms; }
+@keyframes enter-ring { from { opacity: 0.9; transform: scale(0.3); } to { opacity: 0; transform: scale(5); } }
+
+/* A screen with GridPulse behind it (Leaderboard, Rewards, Profile):
+     <main class="screen grid-page"><GridPulse class="page-grid" /> ... </main>
+   The grid fills the window behind the page, and everything else sits above it. Three classes on the grid, so it
+   always beats the grid's own position. */
+.grid-page { position: relative; isolation: isolate; }
+.grid-page > :not(.page-grid) { position: relative; z-index: 1; }
+.grid-page > .grid-pulse.page-grid { position: fixed; inset: 0; }

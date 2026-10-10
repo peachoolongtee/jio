@@ -8,7 +8,9 @@ import { HOST_ID } from '../mock/people.js'
 let server
 
 beforeAll(async () => {
-  server = createApp({ frontendOrigin: 'http://localhost:5173' }).listen(0)
+  // The rain test below fakes the forecast, so the server has to allow that. It also keeps these tests offline:
+  // the data layer sends a simulated forecast on every ranking, so the real forecast is never fetched.
+  server = createApp({ frontendOrigin: 'http://localhost:5173', allowSimulatedWeather: true }).listen(0)
   await new Promise((resolve) => server.once('listening', resolve))
   api.api.defaults.baseURL = `http://127.0.0.1:${server.address().port}`
 })
@@ -21,30 +23,32 @@ describe('a session planned by the backend', () => {
   const plan = () => api.getPlan(id)
 
   it('finds the meeting area from everyone\'s start', async () => {
-    await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', homeAreaId: 'tampines' })
+    await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2004-03-18', homeAreaId: 'tampines' })
     ;({ id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' }))
     await api.inviteFriends(id, ['jonathan', 'faith'])
     await api.startSession(id)
-    const [first, ...rest] = Object.entries(people)
-    await api.setLocation(id, first[0], 'start', { areaId: first[1] })
+    const entries = Object.entries(people)
+    for (const [person, areaId] of entries.slice(0, -1)) await api.setLocation(id, person, 'start', { areaId })
+    // The meeting area waits until everyone has shared where they start.
+    expect((await api.getSession(id)).meeting).toBeFalsy()
     // While the planner works out the meeting area, the session says so (the map shows an animation).
-    const saving = api.setLocation(id, rest[0][0], 'start', { areaId: rest[0][1] })
+    const [lastPerson, lastArea] = entries.at(-1)
+    const saving = api.setLocation(id, lastPerson, 'start', { areaId: lastArea })
     await new Promise((resolve) => setTimeout(resolve, 150))
     expect((await api.getSession(id)).findingMeeting).toBe(true)
     await saving
     expect((await api.getSession(id)).findingMeeting).toBe(false)
-    for (const [person, areaId] of rest.slice(1)) await api.setLocation(id, person, 'start', { areaId })
     const session = await api.getSession(id)
     expect(session.area.id).toBe('bishan')
     expect(session.meeting.maxMinutes).toBeGreaterThan(0)
-    expect(session.resultLine).toMatch(/^Fairest for 3 people: nobody travels more than \d+ minutes\.$/)
+    expect(session.resultLine).toMatch(/^Fairest for 3 people: nobody travels more than about \d+ minutes\.$/)
   })
 
-  it('suggests three places per slot, best first, with what the cards show', async () => {
+  it('suggests three places in every category, best first, with what the cards show', async () => {
     await api.useMeetingArea(id)
     for (const person of Object.keys(people)) await api.setPreferences(id, person, { categories: ['eat', 'activity'], until: null })
     const { slots } = await plan()
-    expect(slots.map((s) => s.category).sort()).toEqual(['activity', 'eat'])
+    expect(slots.map((s) => s.category).sort()).toEqual(['activity', 'drink', 'eat', 'shop'])
     for (const slot of slots) {
       expect(slot.options).toHaveLength(3)
       expect(slot.options.map((o) => o.score)).toEqual([...slot.options.map((o) => o.score)].sort((a, b) => a - b))
@@ -52,7 +56,7 @@ describe('a session planned by the backend', () => {
         expect(o.venue.category).toBe(slot.category)
         expect(typeof o.venue.price).toBe('number')
         expect(o.walk).toBeGreaterThanOrEqual(0)
-        expect(['quiet', 'moderate', 'busy', 'unknown']).toContain(o.crowd)
+        expect(o).not.toHaveProperty('crowd')
         expect(o.reasons.length).toBeLessThanOrEqual(2)
       }
     }
@@ -105,6 +109,15 @@ describe('a session planned by the backend', () => {
     await api.setConditions({ rain: false })
   })
 
+  it('plans only the categories people voted in, and a second tap takes a vote back', async () => {
+    const [person] = Object.keys(people)
+    const eat = (await plan()).slots.find((s) => s.category === 'eat')
+    await api.vote(id, eat.id, person, eat.options[0].id)
+    expect((await plan()).planned.map((s) => s.category)).toEqual(['eat'])
+    await api.vote(id, eat.id, person, eat.options[0].id)
+    expect((await plan()).planned).toEqual([])
+  })
+
   it('confirms the voted places into an itinerary', async () => {
     const { slots } = await plan()
     for (const slot of slots) for (const person of Object.keys(people)) await api.vote(id, slot.id, person, slot.options.at(-1).id)
@@ -129,7 +142,8 @@ describe('a session planned by the backend', () => {
       expect(after.locations).toEqual(before.locations)
       expect(after.status).toBe(before.status)
       expect(after.plan).toEqual(before.plan)
-      await expect(plan()).rejects.toThrow(/Cannot reach the Jio planner/)
+      // A confirmed session's plan is read from storage, so it still answers.
+      await expect(plan()).resolves.toBeTruthy()
     } finally {
       api.api.defaults.baseURL = baseURL
     }

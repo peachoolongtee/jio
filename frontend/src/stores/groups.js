@@ -1,4 +1,4 @@
-// People: friends, profiles, the leaderboard, points and rewards.
+// People: friends, profiles, the leaderboard and its season, points and rewards.
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '@/lib/api.js'
@@ -6,6 +6,8 @@ import * as api from '@/lib/api.js'
 export const useGroupsStore = defineStore('groups', () => {
   const people = ref([])
   const leaderboard = ref([])
+  // The leaderboard season: { number, startsAt, endsAt, prize, past: [...] }.
+  const season = ref(null)
   const profiles = ref({})
   const rewards = ref([])
   const redemptions = ref([])
@@ -26,6 +28,10 @@ export const useGroupsStore = defineStore('groups', () => {
     loading.value.leaderboard = true
     leaderboard.value = await api.getLeaderboard()
     loading.value.leaderboard = false
+  }
+
+  async function loadSeason() {
+    season.value = await api.getSeason()
   }
 
   async function loadProfile(id) {
@@ -56,6 +62,7 @@ export const useGroupsStore = defineStore('groups', () => {
     if (['stats', 'reset', 'user', 'friends'].includes(event.type)) {
       if (people.value.length) loadPeople()
       if (leaderboard.value.length) loadLeaderboard()
+      if (season.value) loadSeason()
       if (rewards.value.length) loadRewards()
       for (const id of Object.keys(profiles.value)) loadProfile(id)
     }
@@ -64,5 +71,5 @@ export const useGroupsStore = defineStore('groups', () => {
     }
   })
 
-  return { people, leaderboard, profiles, rewards, redemptions, loading, me, friends, suggested, nameOf, loadPeople, loadLeaderboard, loadProfile, loadRewards, setFriend, redeem }
+  return { people, leaderboard, season, profiles, rewards, redemptions, loading, me, friends, suggested, nameOf, loadPeople, loadLeaderboard, loadSeason, loadProfile, loadRewards, setFriend, redeem }
 })

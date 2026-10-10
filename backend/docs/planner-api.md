@@ -10,8 +10,9 @@ Base URL: `VITE_API_BASE_URL` (locally `http://localhost:3000`). Every request a
 | `POST /api/converge` | Once per itinerary slot: rank venues for the group around the meeting point. |
 | `POST /api/roam` | "What next?": rank venues near one person's current point. |
 | `POST /api/search` | Find a place by name to add as an option, and say whether it fits the slot. |
+| `GET /api/places/search?q=` | Find an address, postal code or building with OneMap, for start and end points. |
 
-Travel times are still an estimate (no OneMap yet), so every number in minutes is approximate until `services/onemap.js` lands. The request and response shapes will not change when it does.
+Travel times are real OneMap public transport times once the server has a OneMap account (`ONEMAP_EMAIL`, `ONEMAP_PASSWORD`), and the engine's estimate until then. Every answer says which it used: see [Travel times](#travel-times). Weather: see [Weather](#weather).
 
 ## How it fits the frontend's slot flow
 
@@ -58,7 +59,7 @@ Venue and option fields have different names from the frontend's:
 | `venue.kind`, `venue.popularity` | the same, but only on the frontend's 63 places |
 
 The demo switches map to request fields:
-- rain → `weatherCase: 'rain'`
+- rain → `weatherCase: 'rain'`. This only works when the server allows the simulated forecast; see [Weather](#weather).
 - routing off → `method: 'centroid'` on `/api/meeting-area`
 - simulate crowd → a `crowd` weight
 
@@ -131,7 +132,7 @@ Response (real output for the request above):
 }
 ```
 
-Pass `centre` to `/api/converge`. `approximate: true` means routing failed for some trips and estimates were used. Say "about" in the UI.
+Pass `centre` to `/api/converge`. `approximate: true` means some trips used the estimate, because OneMap could not answer them or because they were left out of the per-request cap or the shortlist. Say "about" in the UI. The answer also carries `travel` (see [Travel times](#travel-times)).
 
 ## POST /api/converge
 
@@ -165,7 +166,7 @@ Request (one slot; the response below is real output for these two members with 
 | `unknownPolicy` | no | `strict` (default): a venue with no data on a diet need, step-free access or sockets is left out. `lenient`: it is kept, and `dietUnknown` says what we don't know. |
 | `groupConstraints` | no | `step_free`, `sockets`, `quiet`, `indoor_only`, `max_price_pp:N`, `near_mrt:N`. |
 | `weights` | no | Override scoring weights, all 0 or more. Keys: `worst`, `mean`, `returnWorst`, `occasion`, `preference`, `rating`, `weather`, `price`, `cdc`, `antiRepeat`, `crowd`. `crowd` has no weight by default, so it doesn't change the ranking unless you send one. |
-| `weatherCase` | no | `clear`, `rain`, `rain_east` (mock forecasts until the NEA service exists). |
+| `weatherCase` | no | `clear`, `rain`, `rain_east`: a simulated forecast. Used only when the server allows it; otherwise ignored. See [Weather](#weather). |
 | `currentOptionIds` | no | The options the group is already voting on. Each one that passes the hard filters and is within 3 km is always scored, even past the shortlist (a place added by search, or swapped in for rain), and comes back in `current`. A rain swap never suggests one of these. |
 | `radiusMeters` | no | The search radius the group chose, 100 to 3000. Only places inside it are suggested or kept in `current`. Without it, the search widens on its own (500 m, 1, 2, then 3 km). Search takes the same limit as `maxKm`. |
 | `optedOut`, `overrides`, `excludeVenueIds`, `groupId`, `topN`, `seed`, `travelCeilingMinutes` | no | As in the engine (`backend/src/planner/engine.js`). |
@@ -222,7 +223,7 @@ What to show for each result:
 | `reasons` | Up to two tags, same ones and same order as the frontend: "Indoor" (when it rains), "Easy trip home" (last stop, everyone home within 35 min), "Near MRT", "Quiet at 12:30", "Short walk", "Hidden gem", "Budget friendly". |
 | `warnings` | `["rain"]` when rain is likely (risk 0.6 or more) at an open-air or exposed venue. |
 | `swap` | With a rain warning: `{ "venueId", "name" }` of an indoor alternative that is not already shown or in `currentOptionIds`, or `null` if none is within 3 km. |
-| `approximate` | Travel times are estimates because routing failed. |
+| `approximate` | At least one travel time is an estimate: routing failed for it, or its venue did not fit the per-request cap on OneMap calls. |
 | `regret` (top level) | "Picking X instead would add N minutes to Y's journey". `null` when there is nothing to say. |
 | `current` (top level) | The `currentOptionIds` that still fit, as results (same fields), ranked among every scored venue. An id missing here no longer fits the slot. `[]` when none were sent. |
 | `notice` (top level) | `{ "type": "few_options", "found": 1, "widenToKm": 4 }` when fewer than 3 venues are within 3 km. |
@@ -299,7 +300,87 @@ Places that fit come first, then by walking time. `distanceKm` is rounded here. 
 | 404 | `{ "error": "not_found" }` | No route at that address, or the wrong method. |
 | 413 | `{ "error": "too_large" }` | The body is over 100 kB. |
 | 4xx | `{ "error": "bad_request" }` | Another mistake in how the request was sent, for example 415 for a body encoding the server cannot read. |
+| 401 | `{ "error": "unauthenticated" }` | On routes that need a login: no `Authorization: Bearer <token>` header, or the token is malformed, expired, forged or not a person's. Sign in again. |
+| 429 | `{ "error": "rate_limited" }` | Too many planner requests from one caller in a minute. The answer carries `Retry-After` in whole seconds; wait that long. Refused requests are not counted. |
+| 503 | `{ "error": "auth_unavailable" }` | The server could not reach Supabase to check the token. The token may be fine. The answer carries `Retry-After: 5`; retry the same request and do not sign the user out. |
 | 500 | `{ "error": "server_error" }` | A bug on our side. The server log has the details. |
+
+Every error has the same flat body: `{ "error": "<code>", "message": "<text>" }`. `invalid_input` adds `issues`.
+
+**Rate limit.** Each caller may make 300 planner requests a minute (`PLANNER_RATE_LIMIT_PER_MINUTE` changes it). A caller is an address today, and a signed-in user once the planner routes check logins. Stub mode has no limit. The limit is loose because one round of voting sends about 130 requests; it should come down once the frontend sends fewer.
+
+## Weather
+
+`POST /api/converge` and `POST /api/roam` score each venue against the weather. Their answers carry a top-level field:
+
+```json
+"weather": { "source": "live", "validUntil": "2026-10-09T21:30:00+08:00" }
+```
+
+| `source` | Meaning |
+|---|---|
+| `live` | The two-hour forecast from data.gov.sg, cached on the server for five minutes. Each venue is scored from the nearest of the 47 forecast areas, and `venue.forecastArea` holds that area's name, for example `"Bukit Merah"`. `validUntil` is when the forecast period ends. |
+| `simulated` | The request sent `weatherCase` and the server allows it. No `validUntil`. `venue.forecastArea` keeps the old region label. |
+| `unavailable` | data.gov.sg could not be reached or sent an unusable answer. The planner scores as if the weather were clear and still answers 200. No `validUntil`. |
+
+**The simulated forecast is off unless the server allows it.** With `ALLOW_SIMULATED_WEATHER=1`, or in stub mode, `weatherCase` is used and `source` is `simulated`. Otherwise `weatherCase` is ignored, the live forecast is used, and the answer adds `"simulationIgnored": true` to `weather`. The request is never refused, because the frontend sends `weatherCase` on every ranking.
+
+**On your own machine,** set `ALLOW_SIMULATED_WEATHER=1` in `backend/.env` if you use the demo panel's rain switch. Without it the switch does nothing.
+
+**Rain risk.** Each forecast sentence maps to a risk from 0 to 1, multiplied by how exposed the venue is. At 0.6 or more the planner adds the rain warning and suggests an indoor swap. A sentence the server does not recognise scores 0.5 and is logged once.
+
+`/api/meeting-area` and `/api/search` do not use weather and have no `weather` field.
+
+## Travel times
+
+`POST /api/meeting-area`, `POST /api/converge` and `POST /api/roam` answer with a top-level field:
+
+```json
+"travel": { "source": "onemap", "asked": 20, "routed": 12, "cached": 4, "walked": 2, "failed": 0, "estimated": 2 }
+```
+
+| `source` | Meaning |
+|---|---|
+| `onemap` | At least one trip got a real public transport time from OneMap (`routed` or `cached`). |
+| `estimate` | The engine's own estimate: the server has no OneMap account yet, or no trip got a OneMap time. Say "about" in the UI. |
+
+The counts always add up: `asked = routed + cached + walked + failed + estimated`. A trip and its reverse count once.
+
+| Field | Meaning |
+|---|---|
+| `asked` | Distinct trips the planner wanted a time for. |
+| `routed` | Real OneMap answers fetched for this request. Cached and walked trips are not counted here. |
+| `cached` | Answered from the server's route cache (6 hours). No call. |
+| `walked` | Under 400 m, so walked. No call. |
+| `failed` | OneMap was asked and gave no time (an error, or no route), or the cache remembers "no route". The engine used its estimate. |
+| `estimated` | Never asked, so the engine used its estimate. Its venue or area did not fit the per-request cap (or the meeting-area shortlist), or OneMap was not available (the shared call budget was used up, routing was paused after repeated failures, the login failed), or this request waited its 8 seconds. |
+
+`approximate: true` on a result (or on the meeting area) means at least one of its trips used the estimate, whether it `failed` or was `estimated`. A result that is not approximate has real times for every trip. `diagnostics.routingCalls` is the engine's own count of the trips it asked about; `travel` is what was really fetched.
+
+How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
+- The engine runs once to find the trips it needs. Those are fetched from OneMap, 6 at a time, and the engine runs again with the real times.
+- **One request makes at most 60 OneMap route calls.** Whole venues (or whole candidate areas) are routed, in the engine's own priority order, until the next one would pass 60; the rest keep the estimate and are `approximate`. A venue is real for every member or an estimate for every member, never half and half. Cached and walked trips are free. `currentOptionIds` venues count like any other. With 30 members one venue (up to 60 trips) uses the whole cap.
+- **The meeting area routes only the best 5 areas** by estimated result, within the same cap. With 30 members that is 2 areas. The answer is then `approximate: true`, and the area it names may be one that only has an estimate, so say "about". If a single area would pass the cap, nothing is routed.
+- **The whole server shares a OneMap budget**: at most 6 calls in flight, and `ONEMAP_CALLS_PER_MINUTE` a minute (default 240) for routing, address search and login together. A routing trip that finds it used up keeps the estimate at once. See [external-apis.md](external-apis.md#keeping-the-shared-account-safe).
+- **One request waits at most 8 seconds** for OneMap routes in total. Trips not answered by then keep the estimate, and the request is still answered.
+- After 5 failed route calls in a row, routing is paused for 30 seconds and every trip keeps the estimate. A rejected login token is replaced once and the call retried; a failed login is not retried for 60 seconds.
+- A trip under 400 m is walked; no route is asked for.
+- The way back is taken to be as long as the way there, so one route serves both. Most members end where they started, so this halves the calls.
+- Times are for the start of the slot's hour. Routes are cached for 6 hours, by points rounded to about 110 m.
+- The OneMap login token lasts 3 days. The server gets a new one an hour before it runs out.
+- With routing on, the meeting area tries the 16 areas nearest the fairest point, unless `maxCandidates` is sent. 16 never missed the best area in 2,000 random groups. `/api/meeting-area` also accepts `dateTime`, for when the group sets off; without it, the server uses the time now.
+
+## GET /api/places/search
+
+`GET /api/places/search?q=520201` → `{ "results": [{ "name", "address", "postal", "lat", "lng" }] }`, at most 10.
+
+For start and end points: an address, postal code or building name, searched with OneMap. It needs no OneMap account. Results are cached for a day. The rate limit applies, and so does the server's shared OneMap call budget (the same one routing draws from).
+
+| Status | When |
+|---|---|
+| 200 | Results, possibly empty. |
+| 400 `invalid_input` | `q` is missing, blank, given more than once (an array), or over 80 characters. The issue is on `q`. |
+| 503 `search_unavailable` | OneMap could not be reached, or this server has no address search. Show "search is not available, try again soon". When the server's shared OneMap call budget for the minute is used up, the answer also carries `Retry-After` in whole seconds: wait that long before searching again. |
 
 ## Limits
 
@@ -323,5 +404,6 @@ Every list and number has an upper limit, so one request cannot keep the server 
 
 Start the backend with `STUB_EXTERNALS=1 pnpm dev:backend`. Then send the `x-jio-scenario` header on `/api/**` requests:
 
-- `rain`: uses the `rain` weather case, unless the body sends `weatherCase`.
-- `routing-fail`: every trip falls back to the estimate, so results come back with `approximate: true`.
+- `rain`: the forecast fixture says heavy thundery showers everywhere, unless the body sends `weatherCase`.
+- `routing-fail`: every OneMap route fails, so travel falls back to the estimate (`travel.source: 'estimate'`) and results come back with `approximate: true`.
+- No header (`dry`): routes are generated from distance in OneMap's format, so `travel.source` is `onemap`.

@@ -1,0 +1,928 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-10T00:00:00+08:00",
+  "title": "Design System: Jio",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Rausch red",
+        "canonical": "#ff385c",
+        "tonalRamp": [
+          "#200003",
+          "#4e0112",
+          "#7f0223",
+          "#b90337",
+          "#f12551",
+          "#ff7681",
+          "#fdb9bb",
+          "#fee9e9"
+        ]
+      },
+      "primary-bright": {
+        "role": "primary",
+        "displayName": "Rausch red (decoration name)",
+        "canonical": "#ff385c",
+        "tonalRamp": [
+          "#200003",
+          "#4e0112",
+          "#7f0223",
+          "#b90337",
+          "#f12551",
+          "#ff7681",
+          "#fdb9bb",
+          "#fee9e9"
+        ]
+      },
+      "brand-logo": {
+        "role": "primary",
+        "displayName": "Logo pink",
+        "canonical": "#f93d64",
+        "tonalRamp": [
+          "#200004",
+          "#4f0015",
+          "#7f0328",
+          "#b8053e",
+          "#ed2f5a",
+          "#fe7686",
+          "#ffb8bd",
+          "#fde9ea"
+        ]
+      },
+      "primary-active": {
+        "role": "primary",
+        "displayName": "Rausch pressed",
+        "canonical": "#e00b41",
+        "tonalRamp": [
+          "#1f0003",
+          "#4e0010",
+          "#800120",
+          "#ba0233",
+          "#f02a4d",
+          "#fe777f",
+          "#feb9ba",
+          "#fee9e8"
+        ]
+      },
+      "primary-disabled": {
+        "role": "primary",
+        "displayName": "Rausch disabled",
+        "canonical": "#ffd1da",
+        "tonalRamp": [
+          "#1c0108",
+          "#3b1a23",
+          "#5a363e",
+          "#7e575f",
+          "#a37982",
+          "#c69aa3",
+          "#edc0c9",
+          "#fee8ec"
+        ]
+      },
+      "primary-error-text": {
+        "role": "primary",
+        "displayName": "Error red",
+        "canonical": "#c13515",
+        "tonalRamp": [
+          "#200000",
+          "#4b0a00",
+          "#7b1700",
+          "#b32600",
+          "#de5133",
+          "#fe7b5f",
+          "#febbab",
+          "#fdeae5"
+        ]
+      },
+      "primary-error-text-hover": {
+        "role": "primary",
+        "displayName": "Error red hover",
+        "canonical": "#b32505",
+        "tonalRamp": [
+          "#200000",
+          "#4d0700",
+          "#7c1400",
+          "#b32506",
+          "#de5036",
+          "#fe7b61",
+          "#febbac",
+          "#fdeae5"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#222222",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#a8a8a8",
+          "#cecece",
+          "#eeeeee"
+        ]
+      },
+      "body": {
+        "role": "neutral",
+        "displayName": "Body grey",
+        "canonical": "#3f3f3f",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#a8a8a8",
+          "#cecece",
+          "#eeeeee"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted grey",
+        "canonical": "#6a6a6a",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#a8a8a8",
+          "#cecece",
+          "#eeeeee"
+        ]
+      },
+      "muted-soft": {
+        "role": "neutral",
+        "displayName": "Disabled grey",
+        "canonical": "#929292",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#a8a8a8",
+          "#cecece",
+          "#eeeeee"
+        ]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Canvas white",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#a8a8a8",
+          "#cecece",
+          "#eeeeee"
+        ]
+      },
+      "surface-soft": {
+        "role": "neutral",
+        "displayName": "Soft surface",
+        "canonical": "#f7f7f7",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#a8a8a8",
+          "#cecece",
+          "#eeeeee"
+        ]
+      },
+      "surface-strong": {
+        "role": "neutral",
+        "displayName": "Strong surface",
+        "canonical": "#f2f2f2",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#a8a8a8",
+          "#cecece",
+          "#eeeeee"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#dddddd",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#a8a8a8",
+          "#cecece",
+          "#eeeeee"
+        ]
+      },
+      "hairline-soft": {
+        "role": "neutral",
+        "displayName": "Soft hairline",
+        "canonical": "#ebebeb",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#a8a8a8",
+          "#cecece",
+          "#eeeeee"
+        ]
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "Strong border",
+        "canonical": "#c1c1c1",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#a8a8a8",
+          "#cecece",
+          "#eeeeee"
+        ]
+      },
+      "on-primary": {
+        "role": "neutral",
+        "displayName": "On red",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#a8a8a8",
+          "#cecece",
+          "#eeeeee"
+        ]
+      },
+      "on-dark": {
+        "role": "neutral",
+        "displayName": "On ink",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#a8a8a8",
+          "#cecece",
+          "#eeeeee"
+        ]
+      },
+      "scrim": {
+        "role": "neutral",
+        "displayName": "Scrim",
+        "canonical": "#000000",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#a8a8a8",
+          "#cecece",
+          "#eeeeee"
+        ]
+      },
+      "medal-gold-fg": {
+        "role": "tertiary",
+        "displayName": "Medal gold fg",
+        "canonical": "#c08a00",
+        "tonalRamp": [
+          "#120900",
+          "#342301",
+          "#583d00",
+          "#815c03",
+          "#ad7c08",
+          "#d49d2a",
+          "#fcc359",
+          "#ffeccc"
+        ]
+      },
+      "medal-gold-bg": {
+        "role": "tertiary",
+        "displayName": "Medal gold bg",
+        "canonical": "#f2c14e",
+        "tonalRamp": [
+          "#120900",
+          "#332400",
+          "#553e01",
+          "#7d5e04",
+          "#a87f09",
+          "#d0a022",
+          "#f7c654",
+          "#ffedc7"
+        ]
+      },
+      "medal-gold-on": {
+        "role": "tertiary",
+        "displayName": "Medal gold on",
+        "canonical": "#5c4100",
+        "tonalRamp": [
+          "#130900",
+          "#342300",
+          "#573d02",
+          "#7a5e27",
+          "#9f814b",
+          "#c2a36b",
+          "#e9c990",
+          "#feeccd"
+        ]
+      },
+      "medal-silver-fg": {
+        "role": "tertiary",
+        "displayName": "Medal silver fg",
+        "canonical": "#7a8699",
+        "tonalRamp": [
+          "#040b19",
+          "#1d2736",
+          "#384354",
+          "#596476",
+          "#7b879a",
+          "#9ca9bc",
+          "#c2cfe3",
+          "#e7effc"
+        ]
+      },
+      "medal-silver-bg": {
+        "role": "tertiary",
+        "displayName": "Medal silver bg",
+        "canonical": "#c9d1dc",
+        "tonalRamp": [
+          "#070b13",
+          "#21272f",
+          "#3c434c",
+          "#5d646d",
+          "#7f8791",
+          "#a1a8b3",
+          "#c6ced9",
+          "#e7effb"
+        ]
+      },
+      "medal-silver-on": {
+        "role": "tertiary",
+        "displayName": "Medal silver on",
+        "canonical": "#3b4452",
+        "tonalRamp": [
+          "#050b16",
+          "#1f2734",
+          "#3a4351",
+          "#5a6473",
+          "#7d8797",
+          "#9ea8b9",
+          "#c4cfe0",
+          "#e6effe"
+        ]
+      },
+      "medal-bronze-fg": {
+        "role": "tertiary",
+        "displayName": "Medal bronze fg",
+        "canonical": "#b0602b",
+        "tonalRamp": [
+          "#1a0400",
+          "#401a00",
+          "#6a2f00",
+          "#984b0f",
+          "#c06e3a",
+          "#e5905c",
+          "#ffbd97",
+          "#feeadf"
+        ]
+      },
+      "medal-bronze-bg": {
+        "role": "tertiary",
+        "displayName": "Medal bronze bg",
+        "canonical": "#dda274",
+        "tonalRamp": [
+          "#170600",
+          "#3d1d00",
+          "#643402",
+          "#8a5527",
+          "#b0784b",
+          "#d4996c",
+          "#fcbf90",
+          "#feeadc"
+        ]
+      },
+      "medal-bronze-on": {
+        "role": "tertiary",
+        "displayName": "Medal bronze on",
+        "canonical": "#5a2e10",
+        "tonalRamp": [
+          "#190500",
+          "#401a01",
+          "#623518",
+          "#865639",
+          "#ac795b",
+          "#cf9a7b",
+          "#f7c0a0",
+          "#fdeae0"
+        ]
+      },
+      "scale-good": {
+        "role": "secondary",
+        "displayName": "Travel short",
+        "canonical": "#15803d",
+        "tonalRamp": [
+          "#001003",
+          "#013011",
+          "#005121",
+          "#017835",
+          "#3b9d58",
+          "#60c079",
+          "#88e79e",
+          "#c8ffd2"
+        ]
+      },
+      "scale-middle": {
+        "role": "secondary",
+        "displayName": "Travel medium (fill)",
+        "canonical": "#b7791f",
+        "tonalRamp": [
+          "#150800",
+          "#382101",
+          "#5d3a02",
+          "#885709",
+          "#b5771c",
+          "#d99946",
+          "#fec075",
+          "#ffebd4"
+        ]
+      },
+      "scale-middle-text": {
+        "role": "secondary",
+        "displayName": "Travel medium (text)",
+        "canonical": "#97641a",
+        "tonalRamp": [
+          "#150800",
+          "#382000",
+          "#5c3a04",
+          "#895702",
+          "#af7a35",
+          "#d29c58",
+          "#fac27e",
+          "#feebd6"
+        ]
+      },
+      "scale-bad": {
+        "role": "secondary",
+        "displayName": "Travel long",
+        "canonical": "#dc2626",
+        "tonalRamp": [
+          "#200000",
+          "#500002",
+          "#810008",
+          "#bc0211",
+          "#ec3934",
+          "#fe7a6d",
+          "#febbb2",
+          "#fee9e6"
+        ]
+      },
+      "cat-eat-fg": {
+        "role": "secondary",
+        "displayName": "Category: Eat",
+        "canonical": "#ea580c",
+        "tonalRamp": [
+          "#1c0200",
+          "#461400",
+          "#722702",
+          "#a73a00",
+          "#df5100",
+          "#fe7d4b",
+          "#fdbca4",
+          "#fdeae3"
+        ]
+      },
+      "cat-drink-fg": {
+        "role": "secondary",
+        "displayName": "Category: Drink",
+        "canonical": "#0284c7",
+        "tonalRamp": [
+          "#000c1a",
+          "#012942",
+          "#00476e",
+          "#0069a0",
+          "#1c8ed2",
+          "#4ab1f7",
+          "#a0d5fd",
+          "#e2f1fd"
+        ]
+      },
+      "cat-shop-fg": {
+        "role": "secondary",
+        "displayName": "Category: Shop",
+        "canonical": "#9333ea",
+        "tonalRamp": [
+          "#130027",
+          "#36005f",
+          "#590097",
+          "#8215d6",
+          "#a54dfe",
+          "#bc8bfe",
+          "#d9c0fe",
+          "#f2eaff"
+        ]
+      },
+      "cat-activity-fg": {
+        "role": "secondary",
+        "displayName": "Category: Activity",
+        "canonical": "#059669",
+        "tonalRamp": [
+          "#001007",
+          "#002f1e",
+          "#054f36",
+          "#017651",
+          "#1a9d70",
+          "#4bc091",
+          "#76e8b6",
+          "#c3fee1"
+        ]
+      },
+      "person-1": {
+        "role": "secondary",
+        "displayName": "Person 1",
+        "canonical": "#2563eb",
+        "tonalRamp": [
+          "#000039",
+          "#00196a",
+          "#0031a5",
+          "#1754db",
+          "#407dfe",
+          "#78a6ff",
+          "#b5cefd",
+          "#e6efff"
+        ]
+      },
+      "person-2": {
+        "role": "secondary",
+        "displayName": "Person 2",
+        "canonical": "#7c3aed",
+        "tonalRamp": [
+          "#10002c",
+          "#2e0067",
+          "#4e01a4",
+          "#7128de",
+          "#905eff",
+          "#ac94fd",
+          "#cfc5fd",
+          "#efecfd"
+        ]
+      },
+      "person-3": {
+        "role": "secondary",
+        "displayName": "Person 3",
+        "canonical": "#0d9488",
+        "tonalRamp": [
+          "#000f0d",
+          "#002e29",
+          "#084d47",
+          "#027369",
+          "#1c9a8e",
+          "#4cbdb0",
+          "#76e4d6",
+          "#b8fff4"
+        ]
+      },
+      "person-4": {
+        "role": "secondary",
+        "displayName": "Person 4",
+        "canonical": "#c026d3",
+        "tonalRamp": [
+          "#19001d",
+          "#410049",
+          "#6c0078",
+          "#9d00ae",
+          "#ca34dd",
+          "#ed63fe",
+          "#f6b1ff",
+          "#fce6ff"
+        ]
+      },
+      "person-5": {
+        "role": "secondary",
+        "displayName": "Person 5",
+        "canonical": "#ea580c",
+        "tonalRamp": [
+          "#1c0200",
+          "#461400",
+          "#722702",
+          "#a73a00",
+          "#df5100",
+          "#fe7d4b",
+          "#fdbca4",
+          "#fdeae3"
+        ]
+      },
+      "person-6": {
+        "role": "secondary",
+        "displayName": "Person 6",
+        "canonical": "#4d7c0f",
+        "tonalRamp": [
+          "#040f00",
+          "#182d00",
+          "#2d4d00",
+          "#457203",
+          "#669733",
+          "#87ba57",
+          "#ace17d",
+          "#d3ffaf"
+        ]
+      },
+      "person-7": {
+        "role": "secondary",
+        "displayName": "Person 7",
+        "canonical": "#0891b2",
+        "tonalRamp": [
+          "#000e14",
+          "#002c38",
+          "#074a5c",
+          "#056e88",
+          "#1394b6",
+          "#47b7d9",
+          "#7bddfe",
+          "#d9f4fe"
+        ]
+      },
+      "person-8": {
+        "role": "secondary",
+        "displayName": "Person 8",
+        "canonical": "#a16207",
+        "tonalRamp": [
+          "#160700",
+          "#3a1f00",
+          "#603800",
+          "#8c5506",
+          "#b67628",
+          "#db984e",
+          "#fec07f",
+          "#feebd8"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display-xl": {
+        "displayName": "Display XL",
+        "purpose": "Screen titles."
+      },
+      "display-lg": {
+        "displayName": "Display LG",
+        "purpose": "Card hero titles, the meeting area name."
+      },
+      "display-md": {
+        "displayName": "Display MD",
+        "purpose": "Big values in StatTile."
+      },
+      "display-sm": {
+        "displayName": "Display SM",
+        "purpose": "Section headings, sheet and dialog titles."
+      },
+      "title-md": {
+        "displayName": "Title MD",
+        "purpose": "Card titles, names."
+      },
+      "title-sm": {
+        "displayName": "Title SM",
+        "purpose": "Lighter titles."
+      },
+      "body-md": {
+        "displayName": "Body MD",
+        "purpose": "Body text; the body default."
+      },
+      "body-sm": {
+        "displayName": "Body SM",
+        "purpose": "Meta lines, dates, distances, hints and errors."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Labels, chips."
+      },
+      "caption-sm": {
+        "displayName": "Caption SM",
+        "purpose": "Small meta text, tags, the sample note."
+      },
+      "micro-label": {
+        "displayName": "Micro label",
+        "purpose": "Map pins."
+      },
+      "badge": {
+        "displayName": "Badge",
+        "purpose": "Status pills and countdown chips."
+      },
+      "button-md": {
+        "displayName": "Button MD",
+        "purpose": "Buttons."
+      },
+      "button-sm": {
+        "displayName": "Button SM",
+        "purpose": "Small buttons, tertiary buttons, segment tabs."
+      },
+      "nav-link": {
+        "displayName": "Nav link",
+        "purpose": "Top-bar tab names (set to 15px in TabBar)."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-float",
+        "value": "rgba(0, 0, 0, 0.02) 0 0 0 1px, rgba(0, 0, 0, 0.04) 0 2px 6px 0, rgba(0, 0, 0, 0.1) 0 4px 8px 0",
+        "purpose": "The only shadow token: map pins and overlays, the switch knob, the slider thumb, a dragged item, a link card on hover."
+      },
+      {
+        "name": "tabbar-pill (not a token)",
+        "value": "0 12px 32px -12px rgb(0 0 0 / 0.28)",
+        "purpose": "Written in TabBar in front of shadow-float, on the phone pill."
+      },
+      {
+        "name": "popover (not a token)",
+        "value": "0 18px 40px -12px rgb(0 0 0 / 0.22), 0 2px 6px rgb(0 0 0 / 0.06)",
+        "purpose": "Written in PopoverPanel."
+      }
+    ],
+    "motion": [
+      {
+        "name": "motion-fast",
+        "value": "200ms",
+        "purpose": "Hover and press changes, fades."
+      },
+      {
+        "name": "motion-medium",
+        "value": "320ms",
+        "purpose": "Sheets, dialogs and photos sliding into place."
+      },
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "The default curve."
+      },
+      {
+        "name": "ease-spring",
+        "value": "cubic-bezier(0.34, 1.56, 0.64, 1)",
+        "purpose": "A small overshoot: buttons letting go, chips popping on."
+      },
+      {
+        "name": "ease-sheet",
+        "value": "cubic-bezier(0.32, 0.72, 0, 1)",
+        "purpose": "Sheets and dialogs arriving."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "tablet",
+        "value": "744px"
+      },
+      {
+        "name": "desktop",
+        "value": "1128px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The main action of a screen (AppButton, variant primary). White text on --primary is 3.52:1; see Known Conflicts in DESIGN.md.",
+      "html": "<button class=\"ds-btn-primary\">Confirm plan</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 48px; padding: 0 var(--spacing-lg); border: 0; border-radius: var(--rounded-sm); background: var(--primary); color: var(--on-primary); font: var(--text-button-md); font-weight: 600; cursor: pointer; transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), transform 260ms var(--ease-spring); } .ds-btn-primary:hover { background: var(--primary-active); } .ds-btn-primary:active { background: var(--primary-active); transform: scale(0.97); } .ds-btn-primary:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }"
+    },
+    {
+      "name": "Next Button",
+      "kind": "button",
+      "refersTo": "button-next",
+      "description": "The primary button with `next`: a white pill that fills red on hover or keyboard focus. For moving on to the next step.",
+      "html": "<button class=\"ds-btn-next\"><span class=\"ds-btn-next__dot\"></span><span class=\"ds-btn-next__label\">Start session<svg viewBox=\"0 0 16 16\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 8h10M9 4l4 4-4 4\"/></svg></span><span class=\"ds-btn-next__reveal\">Start session<svg viewBox=\"0 0 16 16\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 8h10M9 4l4 4-4 4\"/></svg></span></button>",
+      "css": ".ds-btn-next { position: relative; isolation: isolate; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; height: 48px; min-width: 160px; padding: 0 var(--spacing-lg); border: 1px solid var(--border-strong); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font: var(--text-button-md); font-weight: 600; cursor: pointer; } .ds-btn-next__dot { position: absolute; top: calc(50% - 4px); left: var(--spacing-base); z-index: -1; width: 8px; height: 8px; border-radius: var(--rounded-full); background: var(--primary); transform: scale(0); transition: all 300ms var(--ease-out); } .ds-btn-next__label { display: inline-flex; align-items: center; gap: var(--spacing-sm); transition: transform 300ms var(--ease-out), opacity 300ms var(--ease-out); } .ds-btn-next__reveal { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: var(--spacing-sm); color: var(--on-primary); opacity: 0; transform: translateX(48px); transition: transform 300ms var(--ease-out), opacity 300ms var(--ease-out); } .ds-btn-next:hover, .ds-btn-next:focus-visible { border-color: var(--primary); } .ds-btn-next:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; } .ds-btn-next:is(:hover, :focus-visible) .ds-btn-next__dot { top: 0; left: 0; width: 100%; height: 100%; border-radius: 0; transform: scale(1.8); } .ds-btn-next:is(:hover, :focus-visible) .ds-btn-next__label { opacity: 0; transform: translateX(48px); } .ds-btn-next:is(:hover, :focus-visible) .ds-btn-next__reveal { opacity: 1; transform: translateX(-4px); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "The other choice beside a primary button (AppButton, variant secondary): white with a 1px ink outline.",
+      "html": "<button class=\"ds-btn-secondary\">Not yet</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; height: 48px; padding: 0 23px; border: 1px solid var(--ink); border-radius: var(--rounded-sm); background: var(--canvas); color: var(--ink); font: var(--text-button-md); cursor: pointer; transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), transform 260ms var(--ease-spring); } .ds-btn-secondary:hover { background: var(--surface-soft); } .ds-btn-secondary:active { background: var(--surface-strong); transform: scale(0.97); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }"
+    },
+    {
+      "name": "Icon Button",
+      "kind": "button",
+      "refersTo": "icon-button",
+      "description": "A 44px circle holding one icon (IconButton). Its label is read out and shown as a tooltip.",
+      "html": "<button class=\"ds-icon-btn\" aria-label=\"Close\" title=\"Close\"><svg viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M4 4l8 8M12 4l-8 8\"/></svg></button>",
+      "css": ".ds-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: var(--tap-min); height: var(--tap-min); padding: 0; border: 0; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); cursor: pointer; transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), transform 260ms var(--ease-spring); } .ds-icon-btn:hover { background: var(--hairline-soft); } .ds-icon-btn:active { background: var(--hairline); transform: scale(0.9); } .ds-icon-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "A 32px pill in a 44px tap area (ChipButton). Outlined at rest, ink when selected.",
+      "html": "<span class=\"ds-chip-row\"><button class=\"ds-chip\"><span class=\"ds-chip__pill\">Chill</span></button><button class=\"ds-chip ds-chip--selected\" aria-pressed=\"true\"><span class=\"ds-chip__pill\">Food</span></button></span>",
+      "css": ".ds-chip-row { display: inline-flex; gap: var(--spacing-sm); } .ds-chip { display: inline-flex; align-items: center; min-width: var(--tap-min); min-height: var(--tap-min); padding: 0; border: 0; border-radius: var(--rounded-full); background: transparent; cursor: pointer; } .ds-chip__pill { display: inline-flex; align-items: center; justify-content: center; min-width: var(--tap-min); height: 32px; padding: 0 var(--spacing-md); border: 1px solid var(--border-strong); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font: var(--text-caption); white-space: nowrap; transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), transform 260ms var(--ease-spring); } .ds-chip:hover .ds-chip__pill { border-color: var(--ink); } .ds-chip:active .ds-chip__pill { transform: scale(0.94); background: var(--surface-strong); } .ds-chip--selected .ds-chip__pill { border-color: var(--selected); background: var(--selected); color: var(--on-selected); } .ds-chip--selected:hover .ds-chip__pill { border-color: var(--body); background: var(--body); } .ds-chip:focus-visible { outline: none; } .ds-chip:focus-visible .ds-chip__pill { outline: 2px solid var(--ink); outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "chip",
+      "refersTo": "status-pill-confirmed",
+      "description": "A session status (StatusPill): Inviting outlined, Voting grey, Confirmed red, Completed ink, Cancelled error-red outline.",
+      "html": "<span class=\"ds-pill-row\"><span class=\"ds-pill ds-pill--inviting\">Inviting</span><span class=\"ds-pill ds-pill--voting\">Voting</span><span class=\"ds-pill ds-pill--confirmed\">Confirmed</span><span class=\"ds-pill ds-pill--completed\">Completed</span><span class=\"ds-pill ds-pill--cancelled\">Cancelled</span></span>",
+      "css": ".ds-pill-row { display: inline-flex; flex-wrap: wrap; gap: var(--spacing-sm); } .ds-pill { display: inline-block; padding: var(--spacing-xs) 10px; border: 1px solid transparent; border-radius: var(--rounded-full); font: var(--text-badge); white-space: nowrap; } .ds-pill--inviting { border-color: var(--border-strong); background: var(--canvas); color: var(--ink); } .ds-pill--voting { border-color: var(--surface-strong); background: var(--surface-strong); color: var(--ink); } .ds-pill--confirmed { border-color: var(--primary); background: var(--primary); color: var(--on-primary); } .ds-pill--completed { border-color: var(--ink); background: var(--ink); color: var(--on-dark); } .ds-pill--cancelled { border-color: var(--primary-error-text); background: var(--canvas); color: var(--primary-error-text); }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "text-field",
+      "description": "A labelled input, 56px tall (TextField). The border grows to 2px ink on focus and the padding shrinks so the text does not move.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field__label\">Session title</span><input class=\"ds-field__input\" type=\"text\" placeholder=\"Saturday lunch\" /></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: var(--spacing-sm); width: 280px; } .ds-field__label { color: var(--muted); font: var(--text-caption); } .ds-field__input { width: 100%; height: 56px; margin: 0; padding: 14px 12px; border: 1px solid var(--hairline); border-radius: var(--rounded-sm); background: var(--canvas); color: var(--ink); font: var(--text-body-md); } .ds-field__input::placeholder { color: var(--muted); opacity: 1; } .ds-field__input:focus { padding: 13px 11px; border: 2px solid var(--ink); outline: none; }"
+    },
+    {
+      "name": "Tab Bar (phone pill)",
+      "kind": "nav",
+      "refersTo": "tab-current",
+      "description": "The main navigation under 744px (TabBar): a floating white pill. The current tab is tinted red with its name beside the icon; Create is a solid red circle. From 744px the same component is a full-width top bar.",
+      "html": "<nav class=\"ds-tabbar\" aria-label=\"Main\"><a class=\"ds-tabbar__tab ds-tabbar__tab--active\" href=\"#\" aria-current=\"page\"><svg viewBox=\"0 0 16 16\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2.5 7.5 8 3l5.5 4.5v6H10V10H6v3.5H2.5Z\"/></svg><span class=\"ds-tabbar__label\">Home</span></a><a class=\"ds-tabbar__tab ds-tabbar__tab--create\" href=\"#\" aria-label=\"Create session\"><svg viewBox=\"0 0 16 16\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M8 3v10M3 8h10\"/></svg></a><a class=\"ds-tabbar__tab\" href=\"#\" aria-label=\"Rewards\"><svg viewBox=\"0 0 16 16\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M5 2.5h6V6a3 3 0 0 1-6 0Z\"/><path d=\"M5 3.5H3a2 2 0 0 0 2 2.5M11 3.5h2a2 2 0 0 1-2 2.5M8 9v3M5.5 13.5h5\"/></svg></a></nav>",
+      "css": ".ds-tabbar { display: inline-flex; align-items: center; gap: var(--spacing-xs); height: 56px; padding: var(--spacing-xs); border: 1px solid var(--hairline); border-radius: var(--rounded-full); background: var(--canvas); box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.28), var(--shadow-float); } .ds-tabbar__tab { display: inline-flex; align-items: center; justify-content: center; min-width: var(--tap-min); height: var(--tap-min); padding: 0 var(--spacing-md); border-radius: var(--rounded-full); color: var(--muted); text-decoration: none; transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out), transform 260ms var(--ease-spring); } .ds-tabbar__tab:hover { background: var(--surface-soft); color: var(--ink); } .ds-tabbar__tab:active { transform: scale(0.94); } .ds-tabbar__tab:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; } .ds-tabbar__tab--active, .ds-tabbar__tab--active:hover { background: color-mix(in srgb, var(--primary) 11%, var(--canvas)); color: var(--primary); } .ds-tabbar__label { margin-left: var(--spacing-sm); font: 600 12px/1.9 var(--font-sans); } .ds-tabbar__tab--create, .ds-tabbar__tab--create:hover { background: var(--primary); color: var(--on-primary); } .ds-tabbar__tab--create:hover { background: var(--primary-active); }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "A flat white card with a hairline (.card). It lifts with the float shadow on hover only when the whole card is a link, as SessionCard and PlaceCard do.",
+      "html": "<a class=\"ds-card\" href=\"#\"><span class=\"ds-card__title\">Saturday lunch</span><span class=\"ds-card__meta\">Sat 10 Oct · 12:00 · about 25 min</span></a>",
+      "css": ".ds-card { display: flex; flex-direction: column; gap: var(--spacing-md); width: 280px; padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); text-decoration: none; transition: box-shadow var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); } .ds-card:hover { box-shadow: var(--shadow-float); transform: translateY(-2px); } .ds-card:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; } .ds-card__title { font: var(--text-title-md); } .ds-card__meta { color: var(--muted); font: var(--text-body-sm); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Meeting Point",
+    "overview": "Jio is a white page with near-black text and one bright red, called Rausch in the code (`--primary`). The red marks the place where people meet and the action that gets them there: the map pin on Home, the \"Create\" circle in the navigation, the main button on a screen, the filled steps of a session. Home opens on a muted dotted map of Singapore (`SingaporeMap`) with routes drawing in from around the island to one point, and a red pin (`PinButton`) standing on that point with the Jio logo in its head.\n\nAround that centre the product is plain. Cards are white with a 1px grey line and no shadow until they are hovered. Type is Inter at modest weights (400 to 700). Controls are round: pills, circles and 8px corners. Navigation is a white pill floating at the bottom of a phone and a full-width bar along the top from 744px. Three screens (Leaderboard, Rewards, Profile) sit on a fine grid that lights up in colour where the pointer passes (`GridPulse`). The app's currency is drawn as a pink coin with a crown (`CoinBadge`), and the same crown replaces the dot of the \"i\" in the logo (`JioLogo`).\n\nPhotos come in two kinds. Place photos are one stock picture per kind of place, captioned \"Illustrative photo\" on the place's detail view. Session photos hang as instant prints on a string (`PolaroidLine`) and open in a dark full-screen viewer (`PhotoViewer`). The copy is short labels and statuses, with no exclamation marks, no emoji and no upper-case labels; estimated times always say \"about\".",
+    "keyCharacteristics": [
+      "One red (`--primary`, `#ff385c`) on a white canvas with `#222222` ink.",
+      "A dotted map of Singapore and a red map pin as the Home screen's signature.",
+      "Pill navigation on phones, a top bar from 744px.",
+      "Flat white cards with a hairline; a shadow only for things that float or are hovered.",
+      "Information colours for categories, people and travel time, always with a word, icon or key.",
+      "Motion on almost everything, all of it switched off or shortened under reduced motion.",
+      "Sample content and estimates are said to be so in words."
+    ],
+    "rules": [
+      {
+        "name": "The Information Colour Rule",
+        "body": "Category, person, travel and medal colours say what something is and never mark an action. Each appears with a word, an icon or a key: `CategoryKey` on maps, the category's name on `CategoryIcon`, \"about 25 min\" beside a coloured travel time, the rank number beside a medal.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Selections Rule",
+        "body": "As shipped, a choice the user toggles is filled with ink (`ChipButton`, `ToggleSwitch`, `SegmentTabs`, `RangeSlider`, `TravelConnector`, `ProgressBar`), and progress or position is filled with red (`SessionSteps`, `SegmentedProgress`, `ProgressDonut`, the current tab in `TabBar`). `CalendarPicker` is the exception: its selected day is red. See Known Conflicts.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Figures Rule",
+        "body": "Times, counts and amounts take `.tnum` so digits line up (`CoinBadge`, `CountdownChip`, `SegmentedProgress`, the Leaderboard countdown).",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat At Rest Rule",
+        "body": "A card has a hairline and no shadow. It lifts by 2px with `--shadow-float` on hover only when the whole card is a link (`SessionCard`, `PlaceCard`). A card that cannot be clicked does not lift.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do take every colour, size, radius and shadow from `frontend/src/styles/tokens.css`, and every type size from the `--text-*` tokens or their classes.",
+      "Do keep one main action per screen and give it `AppButton` (`primary`, or `primary next` when it moves to the next step).",
+      "Do fill a toggled choice with `--selected` (ink) and a measure of progress with `--primary`.",
+      "Do show category, person, travel and medal colours with a word, an icon or a key beside them.",
+      "Do keep cards flat with a 1px `--hairline`, and add the hover lift only when the whole card is a link.",
+      "Do make every tap target at least `--tap-min` (44px), as `ChipButton` and `ToggleSwitch` do by padding a smaller shape.",
+      "Do write estimated times as \"about N min\" and mark hand-written content with `SampleNote`.",
+      "Do give every animation a reduced-motion path, and check `prefers-reduced-motion` in script when the script itself animates.",
+      "Do read Known Conflicts before placing new white text on `--primary`, on a category colour or on a person colour. Those pairs are open decisions."
+    ],
+    "donts": [
+      "Don't use a category, person, travel or medal colour for a button or a link.",
+      "Don't render a second `TabBar`, a second `PinButton`, or `GridPulse` inside a card.",
+      "Don't put a backdrop behind `PopoverPanel`, or use it for a task that needs a footer of several buttons; use `BottomSheet`.",
+      "Don't show a price as a number where `PriceTier` is used, or the word \"JioCoins\" where `CoinBadge` fits.",
+      "Don't write a label in upper case, add an exclamation mark, or use emoji. No screen does.",
+      "Don't load Bootstrap. It is a dependency in `frontend/package.json` and is not imported in `frontend/src/main.js`."
+    ]
+  }
+}

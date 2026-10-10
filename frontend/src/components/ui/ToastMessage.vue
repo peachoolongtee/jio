@@ -50,6 +50,6 @@ onBeforeUnmount(() => clearTimeout(timer))
   color: var(--on-dark);
   font: var(--text-caption);
 }
-.toast-enter-active, .toast-leave-active { transition: opacity var(--motion-fast) ease; }
+.toast-enter-active, .toast-leave-active { transition: opacity var(--motion-fast) var(--ease-out); }
 .toast-enter-from, .toast-leave-to { opacity: 0; }
 </style>

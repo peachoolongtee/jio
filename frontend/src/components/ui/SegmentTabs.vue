@@ -1,7 +1,8 @@
 <script setup>
-// A strip of text tabs with an underline on the current one, for example Upcoming / Past.
-//   <SegmentTabs v-model="tab" label="Plan lists" :tabs="[{ id: 'upcoming', label: 'Upcoming' }, { id: 'past', label: 'Past' }]" />
-// The current tab is Lagoon. A tab can carry an `icon` name from AppIcon.
+// Text tabs in the Airbnb category-tab style: muted labels, the current one in ink with a 2px ink rule beneath.
+// For example Upcoming / Past or List / Map.
+//   <SegmentTabs v-model="tab" label="Sessions" :tabs="[{ id: 'upcoming', label: 'Upcoming' }, { id: 'past', label: 'Past' }]" />
+// A tab can carry an `icon` from AppIcon; with `iconOnly` the label is kept for screen readers only.
 import AppIcon from './AppIcon.vue'
 
 const model = defineModel({ type: String, required: true })
@@ -13,26 +14,28 @@ defineProps({
 </script>
 
 <template>
-  <nav class="tabs" :aria-label="label">
+  <nav class="seg" :aria-label="label">
     <button
       v-for="tab in tabs"
       :key="tab.id"
       type="button"
-      class="tabs__tab"
+      class="seg__tab"
       :class="{ 'is-active': model === tab.id }"
       :aria-pressed="String(model === tab.id)"
+      :aria-label="tab.iconOnly ? tab.label : undefined"
+      :title="tab.iconOnly ? tab.label : undefined"
       @click="model = tab.id"
     >
-      <AppIcon v-if="tab.icon" :name="tab.icon" :size="14" />
-      <span>{{ tab.label }}</span>
+      <AppIcon v-if="tab.icon" :name="tab.icon" :size="16" />
+      <span v-if="!tab.iconOnly">{{ tab.label }}</span>
     </button>
   </nav>
 </template>
 
 <style scoped>
-.tabs { display: flex; gap: var(--spacing-lg); border-bottom: 1px solid var(--hairline); overflow-x: auto; scrollbar-width: none; }
-.tabs::-webkit-scrollbar { display: none; }
-.tabs__tab {
+.seg { display: flex; gap: var(--spacing-lg); max-width: 100%; overflow-x: auto; border-bottom: 1px solid var(--hairline); scrollbar-width: none; }
+.seg::-webkit-scrollbar { display: none; }
+.seg__tab {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -43,12 +46,14 @@ defineProps({
   padding: var(--spacing-md) 0;
   border: 0;
   border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   background: transparent;
   color: var(--muted);
   font: var(--text-button-sm);
   white-space: nowrap;
+  transition: color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
 }
-.tabs__tab.is-active { border-bottom-color: var(--primary); color: var(--primary); }
-.tabs__tab:focus-visible { outline-offset: -2px; }
-@media (hover: hover) { .tabs__tab:not(.is-active):hover { color: var(--ink); } }
+.seg__tab.is-active { border-bottom-color: var(--ink); color: var(--ink); font-weight: 600; }
+.seg__tab:focus-visible { outline-offset: -2px; }
+@media (hover: hover) { .seg__tab:not(.is-active):hover { color: var(--ink); border-bottom-color: var(--hairline); } }
 </style>

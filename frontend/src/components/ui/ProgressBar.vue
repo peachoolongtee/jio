@@ -1,5 +1,5 @@
 <script setup>
-// A thin Lagoon progress bar, for example sign-up steps.
+// A thin ink progress bar, for example sign-up steps.
 //   <ProgressBar :value="3" :max="9" label="Sign-up progress" />
 import { computed } from 'vue'
 
@@ -18,6 +18,6 @@ const width = computed(() => `${Math.min(100, Math.max(0, (props.value / props.m
 </template>
 
 <style scoped>
-.bar { height: 6px; overflow: hidden; border-radius: var(--rounded-full); background: var(--primary-tint); }
-.bar__fill { display: block; height: 100%; border-radius: var(--rounded-full); background: var(--primary); transition: width var(--motion-fast) ease; }
+.bar { height: 4px; overflow: hidden; border-radius: var(--rounded-full); background: var(--hairline-soft); }
+.bar__fill { display: block; height: 100%; border-radius: var(--rounded-full); background: var(--ink); transition: width var(--motion-fast) var(--ease-out); }
 </style>

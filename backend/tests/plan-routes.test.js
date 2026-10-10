@@ -2,6 +2,7 @@ import { once } from 'node:events'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { loadPlanData } from '../src/db/venues.js'
+import { createHttp, ExternalApiError } from '../src/services/http.js'
 import { SCENARIO_HEADER } from '../src/services/scenario.js'
 
 // The planner endpoints over real HTTP, on the joined mock + curated + CDC data.
@@ -15,7 +16,8 @@ const listen = async (app) => {
 }
 
 beforeAll(async () => {
-  ;[server, base] = await listen(createApp({ frontendOrigin: FRONTEND }))
+  // The plain server still answers its forecast from fixtures: a test must never call data.gov.sg.
+  ;[server, base] = await listen(createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }) }))
   ;[stubServer, stubBase] = await listen(createApp({ frontendOrigin: FRONTEND, stub: true }))
 })
 afterAll(() => Promise.all([server, stubServer].map((s) => new Promise((resolve) => s.close(resolve)))))
@@ -176,19 +178,27 @@ describe('stub mode scenarios (for Playwright)', () => {
     expect(meet.body.approximate).toBe(true)
   })
 
-  it('rain: uses the rain weather case unless the body picks one', async () => {
+  it('rain: the live forecast from the rain fixture, unless the body picks a weather case', async () => {
     const { weatherCases } = loadPlanData()
     const roamBody = { ...body, current: { lat: 1.30065, lng: 103.85585 }, members: [{ id: 'ian' }] }
-    // weather penalty = rainRisk of the venue's area x exposure / 5 x 100 (scoring.js weatherPenalty)
-    const expected = (r, weatherCase) => weatherCases[weatherCase][r.venue.forecastArea].rainRisk * (r.venue.exposure / 5) * 100
-    const check = (res, weatherCase) =>
-      res.body.results.forEach((r) => expect(r.breakdown.weather.value).toBeCloseTo(expected(r, weatherCase), 9))
+    // weather penalty = rainRisk x exposure / 5 x 100 (scoring.js weatherPenalty)
+    const penalty = (r, rainRisk) => rainRisk * (r.venue.exposure / 5) * 100
+    // Live: the dry fixture says "Fair (Day)" everywhere (risk 0), the rain one "Heavy Thundery Showers" (risk 1).
+    const checkLive = (res, rainRisk) => {
+      expect(res.body.weather.source).toBe('live')
+      res.body.results.forEach((r) => expect(r.breakdown.weather.value).toBeCloseTo(penalty(r, rainRisk), 9))
+    }
+    // Simulated: the old case table, looked up by the venue's region.
+    const checkSimulated = (res, weatherCase) => {
+      expect(res.body.weather).toEqual({ source: 'simulated' })
+      res.body.results.forEach((r) => expect(r.breakdown.weather.value).toBeCloseTo(penalty(r, weatherCases[weatherCase][r.venue.forecastArea].rainRisk), 9))
+    }
 
     const wet = await post('/roam', roamBody, { url: stubBase, headers: { [SCENARIO_HEADER]: 'rain' } })
     expect(wet.body.results.some((r) => r.venue.exposure > 0)).toBe(true) // otherwise this test proves nothing
-    check(wet, 'rain')
-    check(await post('/roam', roamBody, { url: stubBase }), 'clear')
-    check(await post('/roam', { ...roamBody, weatherCase: 'clear' }, { url: stubBase, headers: { [SCENARIO_HEADER]: 'rain' } }), 'clear')
+    checkLive(wet, 1)
+    checkLive(await post('/roam', roamBody, { url: stubBase }), 0)
+    checkSimulated(await post('/roam', { ...roamBody, weatherCase: 'clear' }, { url: stubBase, headers: { [SCENARIO_HEADER]: 'rain' } }), 'clear')
   })
 })
 
@@ -210,5 +220,50 @@ describe('POST /api/converge with a chosen radius', () => {
       expect(status).toBe(400)
       expect(body.issues[0].path).toBe('radiusMeters')
     }
+  })
+})
+
+describe('OneMap: travel times and address search', () => {
+  const servers = []
+  const start = async (options) => {
+    const [s, url] = await listen(createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }), ...options }))
+    servers.push(s)
+    return url
+  }
+  afterAll(() => Promise.all(servers.map((s) => new Promise((resolve) => s.close(resolve)))))
+  const slot = { members: group, occasion: 'casual_meal', dateTime: '2026-10-10T19:00', unknownPolicy: 'lenient' }
+
+  it('every answer says where its travel times came from', async () => {
+    const routed = await post('/converge', slot, { url: stubBase }) // stub routes stand in for OneMap
+    expect(routed.body.travel.source).toBe('onemap')
+    expect(routed.body.travel.routed).toBeGreaterThan(0)
+    const meet = await post('/meeting-area', { members: group }, { url: stubBase })
+    expect(meet.body.travel.source).toBe('onemap')
+    const plain = await post('/converge', slot) // no OneMap service: the engine's estimate
+    expect(plain.body.travel).toEqual({ source: 'estimate', asked: 0, routed: 0, cached: 0, walked: 0, failed: 0, estimated: 0 })
+  })
+
+  it('routing-fail: OneMap routes fail, travel falls back to the estimate and results are marked approximate', async () => {
+    const res = await post('/converge', slot, { url: stubBase, headers: { [SCENARIO_HEADER]: 'routing-fail' } })
+    expect(res.body.travel.source).toBe('estimate')
+    // Earlier requests to this server already failed enough calls to pause routing, so some trips are failed
+    // calls and the rest were never asked. Together they are every trip.
+    expect(res.body.travel.asked).toBeGreaterThan(0)
+    expect(res.body.travel.failed + res.body.travel.estimated).toBe(res.body.travel.asked)
+    if (res.body.status === 'ok') res.body.results.forEach((r) => expect(r.approximate).toBe(true))
+  })
+
+  it('GET /api/places/search: OneMap results, 400 for an empty query, 503 when OneMap is down or not set up', async () => {
+    const ok = await fetch(`${stubBase}/api/places/search?q=178879`)
+    expect(ok.status).toBe(200)
+    expect((await ok.json()).results[0]).toMatchObject({ postal: '178879', lat: expect.any(Number), lng: expect.any(Number) })
+    expect((await fetch(`${stubBase}/api/places/search?q=%20`)).status).toBe(400)
+
+    const down = async () => { throw new ExternalApiError('onemap answered 500', { service: 'onemap', status: 500, url: 'x' }) }
+    const downUrl = await start({ onemap: { routingEnabled: false, search: down } })
+    const res = await fetch(`${downUrl}/api/places/search?q=bishan`)
+    expect(res.status).toBe(503)
+    expect((await res.json()).error).toBe('search_unavailable')
+    expect((await fetch(`${base}/api/places/search?q=bishan`)).status).toBe(503) // a server with no OneMap service
   })
 })

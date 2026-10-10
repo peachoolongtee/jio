@@ -2,6 +2,7 @@
 // Demo tools. Only in development builds (App.vue loads this file behind import.meta.env.DEV).
 // Friends cannot act in a single-user build, so these buttons act for them through lib/api.js,
 // the same way their own phones would.
+import { coins } from '@/lib/currency.js'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '../ui/AppButton.vue'
@@ -12,7 +13,12 @@ import SelectField from '../ui/SelectField.vue'
 import StatusPill from '../ui/StatusPill.vue'
 import ToggleSwitch from '../ui/ToggleSwitch.vue'
 import * as api from '@/lib/api.js'
+import { lastWeather } from '@/lib/plannerApi.js'
 import { FRIEND_PICKS, HOST_ID, PEOPLE } from '@/lib/mock/people.js'
+import { DEMO_ACCOUNT } from './demoAccount.js'
+import { makeDemoPhotos } from './demoPhotos.js'
+import { placeKind } from '@/lib/placeImages.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useEventsStore } from '@/stores/events.js'
 import { usePlannerStore } from '@/stores/planner.js'
@@ -23,6 +29,7 @@ const PATTERN = [0, 1, 0, 2, 0]
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const events = useEventsStore()
 const planner = usePlannerStore()
 
@@ -41,6 +48,13 @@ const friendOptions = computed(() => friendsIn.value.map((id) => ({ value: id, l
 const areaOptions = [...AREAS].sort((a, b) => a.name.localeCompare(b.name)).map((a) => ({ value: a.id, label: a.name }))
 const status = computed(() => session.value?.status)
 const live = computed(() => ['locating', 'voting', 'confirmed'].includes(status.value))
+// Why the friend buttons may be off, or what still has to happen, so a click never seems to do nothing.
+const hostLocated = computed(() => !!session.value?.locations?.[HOST_ID]?.start)
+const friendsHint = computed(() => {
+  if (status.value === 'inviting') return friendsIn.value.length ? 'Tap Start session on the session page first. Friends share their locations after that.' : 'Invite at least one friend and start the session first.'
+  if (status.value === 'locating' && !hostLocated.value) return 'The meeting point appears once everyone, you included, has shared where they start. Set your From location on the session page.'
+  return ''
+})
 
 watch(open, async (isOpen) => {
   if (isOpen) {
@@ -84,25 +98,60 @@ const simulateLocations = () => act('locations', async () => {
     waiting.map((id) => () => api.setLocation(s.id, id, 'start', { areaId: PEOPLE.find((p) => p.id === id).homeAreaId })),
     SPAN,
   )
+  if (waiting.length && !hostLocated.value) note.value = "Friends' locations are in. Set your own From location to find the meeting point."
 })
 
 const simulateVoting = () => act('voting', async () => {
   const id = session.value.id
-  // First each friend picks categories and how long they can stay, then they vote.
-  const fresh = await api.getSession(id)
-  const needPicks = friendsIn.value.filter((f) => !fresh.prefs[f]?.categories?.length)
-  await spread(needPicks.map((f) => () => api.setPreferences(id, f, FRIEND_PICKS[f])), SPAN * 0.3)
   const plan = await api.getPlan(id)
   const jobs = []
+  // Each friend votes in the categories they like (FRIEND_PICKS), for one place in each.
   friendsIn.value.forEach((f, i) => {
     plan.slots.forEach((slot, s) => {
-      if (!slot.options.length) return
+      if (!slot.options.length || !FRIEND_PICKS[f]?.categories?.includes(slot.category)) return
+      // Voting for a place they already voted for would take the vote back.
+      if (slot.options.some((o) => o.voters.some((v) => v.id === f))) return
       const pick = slot.options[PATTERN[(i + s) % PATTERN.length] % slot.options.length]
       jobs.push(() => api.vote(id, slot.id, f, pick.id).catch(() => {}))
     })
   })
-  await spread(jobs, SPAN * 0.6)
-  if (!plan.slots.length) note.value = 'Friends picked categories. No slots yet.'
+  await spread(jobs, SPAN)
+})
+
+// Friends post photos from the day, filling the session's album: photos made from the app's own place photos,
+// of the kinds of place on the itinerary (demoPhotos.js), posted by the friends in turn. A session holds up to
+// PHOTOS_MAX photos, so this stops at the cap, and at the first photo that fails to save (the browser's storage is
+// full, say), and shows why in the note.
+const simulatePhotos = () => act('photos', async () => {
+  const s = await api.getSession(session.value.id)
+  const room = api.PHOTOS_MAX - s.photoCount
+  if (room <= 0) {
+    note.value = `The session already holds ${api.PHOTOS_MAX} photos. Delete one first.`
+    return
+  }
+  const friends = friendsIn.value.length ? friendsIn.value : [HOST_ID]
+  const itinerary = await api.getItinerary(s.id).catch(() => null)
+  const kinds = (itinerary?.stops || []).map((stop) => placeKind(stop.venue))
+  let srcs
+  try {
+    srcs = await makeDemoPhotos(kinds, room, `${s.id}-${s.photoCount}`)
+  } catch (e) {
+    note.value = e.message
+    return
+  }
+  let failure = ''
+  let posted = 0
+  const jobs = srcs.map((src, i) => async () => {
+    if (failure) return
+    try {
+      await api.addPhoto(s.id, friends[(i + s.photoCount) % friends.length], src)
+      posted += 1
+    } catch (e) {
+      failure = e.message
+    }
+  })
+  await spread(jobs, SPAN)
+  note.value = failure ? `Posted ${posted}. ${failure}` : `Posted ${posted} photos. The album is full (${api.PHOTOS_MAX}).`
 })
 
 const applyChange = () => act('change', async () => {
@@ -115,6 +164,30 @@ const optOut = () => act('optout', async () => {
   await api.optOut(session.value.id, optOutId.value)
   note.value = `${nameOf(optOutId.value)} opted out.`
 })
+
+// The leaderboard season ends now instead of at the end of the quarter: first place wins the prize.
+const endSeason = () => act('season', async () => {
+  const ended = await api.endSeason()
+  const names = ended.winners.map((w) => w.name).join(' and ')
+  note.value = names ? `Season ${ended.number} ended. ${names} won ${coins(ended.prize)}.` : `Season ${ended.number} ended. Nobody earned JioCoins, so nobody won.`
+})
+
+// A new demo account with the sample history (10 meetups and 1,000 JioCoins), then Home. This panel closes on the way,
+// since it only shows while signed in. If the profile is rejected nothing is erased, so the panel opens again with the
+// reason. If sign-up fails after the wipe, the person is sent to the sign-up page, which shows the reason.
+async function startOver() {
+  open.value = false
+  note.value = ''
+  try {
+    await auth.startOver(DEMO_ACCOUNT)
+  } catch (e) {
+    note.value = e.message
+    if (auth.signedIn) open.value = true
+    else router.replace('/signup')
+    return
+  }
+  router.push('/')
+}
 
 async function reset() {
   await api.resetDemo()
@@ -141,14 +214,20 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       <StatusPill :status="session.status" />
     </div>
     <p v-else class="body-sm text-muted">No session yet.</p>
+    <!-- What the last action did (or why it could not), at the top so it is seen without scrolling. -->
+    <p v-if="note" class="body-sm demo-note" role="status">{{ note }}</p>
 
     <section class="demo-group">
       <h3 class="title-md">Friends</h3>
+      <p v-if="friendsHint" class="body-sm text-muted">{{ friendsHint }}</p>
       <AppButton block variant="secondary" :disabled="!session || !live || !!running" @click="simulateLocations">
         {{ running === 'locations' ? 'Submitting locations' : 'Simulate friends submitting locations' }}
       </AppButton>
       <AppButton block variant="secondary" :disabled="!session || status !== 'voting' || !!running" @click="simulateVoting">
         {{ running === 'voting' ? 'Voting' : 'Simulate friends voting' }}
+      </AppButton>
+      <AppButton block variant="secondary" :disabled="!session || !['confirmed', 'completed'].includes(status) || !!running" @click="simulatePhotos">
+        {{ running === 'photos' ? 'Posting photos' : 'Fill the album with photos' }}
       </AppButton>
     </section>
 
@@ -170,14 +249,26 @@ const setCondition = (key, value) => planner.setCondition(key, value)
     </section>
 
     <section class="demo-group">
+      <h3 class="title-md">Leaderboard</h3>
+      <AppButton block variant="secondary" :disabled="!!running" @click="endSeason">
+        {{ running === 'season' ? 'Ending the season' : 'End the season now' }}
+      </AppButton>
+    </section>
+
+    <section class="demo-group">
       <h3 class="title-md">Conditions</h3>
       <ToggleSwitch :model-value="conditions.rain" label="Simulate rain" @update:model-value="setCondition('rain', $event)" />
-      <ToggleSwitch :model-value="conditions.crowd" label="Simulate crowd" @update:model-value="setCondition('crowd', $event)" />
+      <p v-if="conditions.rain && lastWeather?.simulationIgnored" class="body-sm text-muted" role="status">This server ignores simulated rain. Set ALLOW_SIMULATED_WEATHER=1 in backend/.env.</p>
       <ToggleSwitch :model-value="!conditions.routing" label="Routing unavailable" @update:model-value="setCondition('routing', !$event)" />
       <ToggleSwitch :model-value="conditions.sessionDay" label="It is the session day" @update:model-value="setCondition('sessionDay', $event)" />
     </section>
 
-    <p v-if="note" class="body-sm" role="status">{{ note }}</p>
+
+    <section class="demo-group">
+      <h3 class="title-md">Account</h3>
+      <p class="body-sm text-muted">Reset demo data keeps your account and clears meetups. Start over also replaces the account with a new demo account that starts with sample history: 10 meetups and 1,000 JioCoins.</p>
+      <AppButton block variant="secondary" @click="startOver">Start over with a new account</AppButton>
+    </section>
 
     <template #footer>
       <AppButton block variant="danger" @click="reset">Reset demo data</AppButton>
@@ -186,6 +277,7 @@ const setCondition = (key, value) => planner.setCondition(key, value)
 </template>
 
 <style scoped>
+.demo-note { padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--rounded-sm); background: var(--surface-soft); color: var(--ink); }
 .demo-fab {
   position: fixed;
   right: var(--spacing-base);
@@ -203,8 +295,8 @@ const setCondition = (key, value) => planner.setCondition(key, value)
   color: var(--on-dark);
   font: var(--text-button-sm);
 }
-/* Desktop: in the sidebar, above the profile row, clear of every screen's actions. */
-@media (min-width: 1128px) { .demo-fab { left: var(--spacing-base); right: auto; bottom: 96px; } }
+/* From tablet up the screen's main action sits bottom-right, so the demo button moves out of its way. */
+@media (min-width: 744px) { .demo-fab { right: auto; left: var(--spacing-base); } }
 @media (hover: hover) { .demo-fab:hover { background: var(--body); } }
 .demo-target { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-md); border-radius: var(--rounded-md); background: var(--surface-soft); }
 .demo-group { display: flex; flex-direction: column; gap: var(--spacing-sm); padding-top: var(--spacing-base); border-top: 1px solid var(--hairline); }

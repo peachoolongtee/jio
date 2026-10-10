@@ -5,31 +5,51 @@
 // Every function takes plain values (members, points, a slot), not a session, so api.js stays the one
 // place that knows how a session is stored.
 import axios from 'axios'
+import { ref } from 'vue'
 
 // Calls to the Jio backend (planner, geocode and weather proxy).
 // Attaching the Supabase session token waits on the JWT verification decision.
-// Without a frontend/.env, development talks to the local backend on its default port.
+// In development, leave VITE_API_BASE_URL blank: requests go to /api on the page's own address and the Vite dev
+// server forwards them to the backend (see vite.config.js). Deployed, it is the backend's URL.
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:3000' : undefined),
+  baseURL: import.meta.env.VITE_API_BASE_URL || '',
   timeout: 15000,
 })
 
-// Screens show err.message, so say what went wrong in words a person can act on.
+// What a failed request says. Screens show err.message, so say what went wrong in words a person can act on.
+// Developer text (commands, environment variable names, request details) is only for development builds;
+// `dev` is a parameter so both wordings can be tested.
+// How to call: plannerErrorMessage(err, { dev: false }) -> 'Too many requests. Wait a few seconds and try again.'
+export function plannerErrorMessage(err, { dev = import.meta.env.DEV, baseURL = api.defaults.baseURL } = {}) {
+  // No answer at all: the backend is not running, or it refused this page's address (CORS allows one
+  // origin, FRONTEND_ORIGIN). The browser reports both the same way, so name both in development.
+  if (!err?.response) {
+    if (!dev) return 'Cannot reach the Jio planner right now. Check your connection and try again.'
+    // No base URL: the Vite dev server forwards /api to the backend, so only the backend can be missing.
+    return baseURL
+      ? `Cannot reach the Jio planner at ${baseURL}. Check the backend is running ("pnpm dev:backend") ` +
+          `and that this page is open at the address it allows (FRONTEND_ORIGIN, by default http://localhost:5173).`
+      : 'Cannot reach the Jio planner. Check the backend is running in another terminal ("pnpm dev:backend").'
+  }
+  const { status, data } = err.response
+  if (status === 429) return 'Too many requests. Wait a few seconds and try again.'
+  const issues = data?.issues?.map((i) => `${i.path}: ${i.message}`).join('; ')
+  if (issues) return dev ? `The planner could not use this request (${issues}).` : 'The planner could not use this request. Try again.'
+  // A 404 message names the route, which is developer text.
+  if (status === 404 && !dev) return 'The planner had a problem. Try again.'
+  return data?.message || 'The planner had a problem. Try again.'
+}
+
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    // No answer at all: the backend is not running, or it refused this page's address (CORS allows one
-    // origin, FRONTEND_ORIGIN). The browser reports both the same way, so name both.
-    if (!err.response) {
-      throw new Error(
-        `Cannot reach the Jio planner at ${api.defaults.baseURL}. Check the backend is running ("pnpm dev:backend") ` +
-          `and that this page is open at the address it allows (FRONTEND_ORIGIN, by default http://localhost:5173).`,
-      )
-    }
-    const issues = err.response.data?.issues?.map((i) => `${i.path}: ${i.message}`).join('; ')
-    throw new Error(issues ? `The planner could not use this request (${issues}).` : err.response.data?.message || 'The planner had a problem. Try again.')
+    throw new Error(plannerErrorMessage(err))
   },
 )
+
+// The weather the planner used for the last ranking: { source: 'live' | 'simulated' | 'unavailable', simulationIgnored? }.
+// The demo panel reads it to say when the server ignored the rain switch. Null until a ranking has come back.
+export const lastWeather = ref(null)
 
 // The backend has no occasion picker yet, so every session is a catch-up.
 export const DEFAULT_OCCASION = 'catch_up'
@@ -37,9 +57,6 @@ export const DEFAULT_OCCASION = 'catch_up'
 // The places the frontend has no diet data for would all be hidden by 'strict', so suggestions are 'lenient'
 // and each option says which diet needs are unknown (dietUnknown).
 const UNKNOWN_POLICY = 'lenient'
-
-// The "Simulate crowd" demo switch: the default converge weights plus crowd, so busy places drop in the ranking.
-const CROWD_WEIGHTS = { worst: 25, mean: 5, occasion: 25, preference: 10, rating: 10, weather: 12, price: 8, cdc: 3, antiRepeat: 2, crowd: 20 }
 
 // The backend's "does not fit" words, in the words the search sheet already knows.
 const UNFIT_WORDS = { meal_period: 'meal', near_mrt: 'mrt' }
@@ -69,7 +86,6 @@ function toOption(r) {
     rank: r.rank,
     score: r.score,
     walk: r.walkMinutes,
-    crowd: r.crowd,
     reasons: r.reasons,
     warnings: r.warnings,
     swap: r.swap ? { id: r.swap.venueId, name: r.swap.name } : null,
@@ -94,7 +110,9 @@ export async function meetingArea({ members, routing = true }) {
 //   currentOptionIds: the options the group is voting on. They are always scored, and come back in `current`
 //                     for as long as they still fit.
 //   radiusMeters:     the radius the group chose (100 to 3000), or undefined to let the planner widen on its own.
-// Returns { options (best first), current (the current options that still fit), widened, few, empty }.
+// Returns { options (best first), current (the current options that still fit), widened, few, empty, weather }.
+// weather: what the planner used, { source: 'live' | 'simulated' | 'unavailable', simulationIgnored? }.
+// The weather case is only sent while the demo rain switch is on; otherwise the planner uses the live forecast.
 // few: { found, widenToKm } when fewer than 3 places fit inside the search radius.
 export async function rankSlot({ members, centre, date, slot, lastStop, currentOptionIds = [], conditions = {}, radiusMeters, topN }) {
   const { data } = await api.post('/api/converge', {
@@ -106,15 +124,16 @@ export async function rankSlot({ members, centre, date, slot, lastStop, currentO
     centre: point(centre),
     lastStop,
     currentOptionIds,
-    weatherCase: conditions.rain ? 'rain' : 'clear',
+    ...(conditions.rain ? { weatherCase: 'rain' } : {}),
     unknownPolicy: UNKNOWN_POLICY,
-    ...(conditions.crowd ? { weights: CROWD_WEIGHTS } : {}),
     radiusMeters,
     topN,
   })
-  if (data.status !== 'ok') return { options: [], current: [], widened: false, few: null, empty: data }
+  const weather = data.weather ?? null
+  lastWeather.value = weather
+  if (data.status !== 'ok') return { options: [], current: [], widened: false, few: null, empty: data, weather }
   const few = data.notice?.type === 'few_options' ? { found: data.notice.found, widenToKm: data.notice.widenToKm } : null
-  return { options: data.results.map(toOption), current: data.current.map(toOption), widened: !!data.notice, few, empty: null }
+  return { options: data.results.map(toOption), current: data.current.map(toOption), widened: !!data.notice, few, empty: null, weather }
 }
 
 // Find places by name for a slot. Each says whether it fits, and the first reason it does not.

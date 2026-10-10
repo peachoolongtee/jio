@@ -3,7 +3,7 @@
 //   <div role="radiogroup" aria-label="Stop 3">
 //     <PollBar name="Junction 8" :votes="2" :total="3" leading mine @vote="vote('junction-8')" />
 //   </div>
-// `leading` highlights the option in Lagoon. `note` is the word after the count: Leading, Winner or Tied.
+// `leading` highlights the option in ink. `note` is the word after the count: Leading, Winner or Tied.
 // Set `closed` once the plan is confirmed: the bar stays but can no longer be tapped.
 import { computed } from 'vue'
 import AppIcon from '../ui/AppIcon.vue'
@@ -44,9 +44,8 @@ const count = computed(() => `${props.votes} ${props.votes === 1 ? 'vote' : 'vot
 .poll__name { display: inline-flex; align-items: center; gap: var(--spacing-xs); min-width: 0; font: var(--text-body-sm); }
 .poll.is-leading .poll__name { font-weight: 600; }
 .poll__count { flex-shrink: 0; color: var(--muted); font: var(--text-caption-sm); }
-.poll__track { display: block; height: var(--spacing-sm); overflow: hidden; border-radius: var(--rounded-full); background: var(--primary-tint); }
-.poll__fill { display: block; height: 100%; border-radius: var(--rounded-full); background: var(--primary-tint-strong); transition: width var(--motion-fast) ease; }
-.poll.is-leading .poll__fill { background: var(--primary); }
-.poll.is-leading .poll__name { color: var(--primary-active); }
+.poll__track { display: block; height: var(--spacing-xs); overflow: hidden; border-radius: var(--rounded-full); background: var(--hairline-soft); }
+.poll__fill { display: block; height: 100%; border-radius: var(--rounded-full); background: var(--border-strong); transition: width var(--motion-fast) var(--ease-out); }
+.poll.is-leading .poll__fill { background: var(--ink); }
 @media (hover: hover) { .poll:not(:disabled):hover .poll__name { text-decoration: underline; } }
 </style>

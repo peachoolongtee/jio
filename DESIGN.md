@@ -1,0 +1,909 @@
+---
+name: Jio
+description: A Singapore group-meetup planner. White canvas, near-black ink, one bright red, and a dotted map of the island.
+colors:
+  primary: "#ff385c"
+  primary-bright: "#ff385c"
+  brand-logo: "#f93d64"
+  primary-active: "#e00b41"
+  primary-disabled: "#ffd1da"
+  primary-error-text: "#c13515"
+  primary-error-text-hover: "#b32505"
+  ink: "#222222"
+  body: "#3f3f3f"
+  muted: "#6a6a6a"
+  muted-soft: "#929292"
+  canvas: "#ffffff"
+  surface-soft: "#f7f7f7"
+  surface-strong: "#f2f2f2"
+  hairline: "#dddddd"
+  hairline-soft: "#ebebeb"
+  border-strong: "#c1c1c1"
+  on-primary: "#ffffff"
+  on-dark: "#ffffff"
+  scrim: "#000000"
+  medal-gold-fg: "#c08a00"
+  medal-gold-bg: "#f2c14e"
+  medal-gold-on: "#5c4100"
+  medal-silver-fg: "#7a8699"
+  medal-silver-bg: "#c9d1dc"
+  medal-silver-on: "#3b4452"
+  medal-bronze-fg: "#b0602b"
+  medal-bronze-bg: "#dda274"
+  medal-bronze-on: "#5a2e10"
+  scale-good: "#15803d"
+  scale-middle: "#b7791f"
+  scale-middle-text: "#97641a"
+  scale-bad: "#dc2626"
+  cat-eat-fg: "#ea580c"
+  cat-drink-fg: "#0284c7"
+  cat-shop-fg: "#9333ea"
+  cat-activity-fg: "#059669"
+  person-1: "#2563eb"
+  person-2: "#7c3aed"
+  person-3: "#0d9488"
+  person-4: "#c026d3"
+  person-5: "#ea580c"
+  person-6: "#4d7c0f"
+  person-7: "#0891b2"
+  person-8: "#a16207"
+typography:
+  display-xl:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "28px"
+    fontWeight: 700
+    lineHeight: 1.4
+  display-lg:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "22px"
+    fontWeight: 500
+    lineHeight: 1.18
+    letterSpacing: "-0.44px"
+  display-md:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "21px"
+    fontWeight: 700
+    lineHeight: 1.4
+  display-sm:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "20px"
+    fontWeight: 600
+    lineHeight: 1.2
+    letterSpacing: "-0.18px"
+  title-md:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "16px"
+    fontWeight: 600
+    lineHeight: 1.25
+  title-sm:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "16px"
+    fontWeight: 500
+    lineHeight: 1.25
+  body-md:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "16px"
+    fontWeight: 400
+    lineHeight: 1.5
+  body-sm:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.43
+  caption:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "14px"
+    fontWeight: 500
+    lineHeight: 1.29
+  caption-sm:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "13px"
+    fontWeight: 400
+    lineHeight: 1.23
+  micro-label:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "12px"
+    fontWeight: 700
+    lineHeight: 1.33
+  badge:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "11px"
+    fontWeight: 600
+    lineHeight: 1.18
+  button-md:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "16px"
+    fontWeight: 500
+    lineHeight: 1.25
+  button-sm:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "14px"
+    fontWeight: 500
+    lineHeight: 1.29
+  nav-link:
+    fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
+    fontSize: "16px"
+    fontWeight: 600
+    lineHeight: 1.25
+rounded:
+  xs: "4px"
+  sm: "8px"
+  md: "14px"
+  lg: "20px"
+  full: "9999px"
+spacing:
+  xxs: "2px"
+  xs: "4px"
+  sm: "8px"
+  md: "12px"
+  base: "16px"
+  lg: "24px"
+  xl: "32px"
+  xxl: "48px"
+components:
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    typography: "{typography.button-md}"
+    rounded: "{rounded.sm}"
+    padding: "0 24px"
+    height: "48px"
+  button-primary-active:
+    backgroundColor: "{colors.primary-active}"
+    textColor: "{colors.on-primary}"
+  button-primary-disabled:
+    backgroundColor: "{colors.primary-disabled}"
+    textColor: "{colors.on-primary}"
+  button-next:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    typography: "{typography.button-md}"
+    rounded: "{rounded.full}"
+    padding: "0 24px"
+    height: "48px"
+  button-secondary:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    typography: "{typography.button-md}"
+    rounded: "{rounded.sm}"
+    padding: "0 23px"
+    height: "48px"
+  button-tertiary:
+    textColor: "{colors.ink}"
+    typography: "{typography.button-sm}"
+    padding: "0"
+  button-pill:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    typography: "{typography.button-sm}"
+    rounded: "{rounded.full}"
+    padding: "0 20px"
+    height: "44px"
+  button-danger:
+    backgroundColor: "{colors.primary-error-text}"
+    textColor: "{colors.on-primary}"
+    typography: "{typography.button-md}"
+    rounded: "{rounded.sm}"
+    padding: "0 24px"
+    height: "48px"
+  icon-button:
+    backgroundColor: "{colors.surface-strong}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.full}"
+    size: "44px"
+  chip:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.full}"
+    padding: "0 12px"
+    height: "32px"
+  chip-selected:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.on-dark}"
+  status-pill-confirmed:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    typography: "{typography.badge}"
+    rounded: "{rounded.full}"
+    padding: "4px 10px"
+  status-pill-completed:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.on-dark}"
+  text-field:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body-md}"
+    rounded: "{rounded.sm}"
+    padding: "14px 12px"
+    height: "56px"
+  card:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.md}"
+    padding: "24px"
+  tab-current:
+    backgroundColor: "#ffe9ed"
+    textColor: "{colors.primary}"
+    rounded: "{rounded.full}"
+    height: "44px"
+  tab-create:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    rounded: "{rounded.full}"
+    height: "44px"
+---
+
+# Design System: Jio
+
+This file records the design language as it ships at commit `65567bb`, the head of the pull request "Feat/leaderboard jiocoins" (number 87), which is merged into `main`. Every value below was read from the code under `frontend/src/`. Where a sentence states intent that the code does not prove, it is marked "inferred". Where the code departs from the project's own written rules, the departure is listed under Known Conflicts and is not resolved here.
+
+A token is a named value kept in one place so that every screen uses the same one. Jio's tokens are CSS custom properties (variables written `--name`) in `frontend/src/styles/tokens.css`. The frontmatter above lists them without the leading `--`.
+
+## Overview
+
+**Creative North Star: "The Meeting Point"** (inferred from the code; the lead has not confirmed a name).
+
+Jio is a white page with near-black text and one bright red, called Rausch in the code (`--primary`). The red marks the place where people meet and the action that gets them there: the map pin on Home, the "Create" circle in the navigation, the main button on a screen, the filled steps of a session. Home opens on a muted dotted map of Singapore (`SingaporeMap`) with routes drawing in from around the island to one point, and a red pin (`PinButton`) standing on that point with the Jio logo in its head.
+
+Around that centre the product is plain. Cards are white with a 1px grey line and no shadow until they are hovered. Type is Inter at modest weights (400 to 700). Controls are round: pills, circles and 8px corners. Navigation is a white pill floating at the bottom of a phone and a full-width bar along the top from 744px. Three screens (Leaderboard, Rewards, Profile) sit on a fine grid that lights up in colour where the pointer passes (`GridPulse`). The app's currency is drawn as a pink coin with a crown (`CoinBadge`), and the same crown replaces the dot of the "i" in the logo (`JioLogo`).
+
+Photos come in two kinds. Place photos are one stock picture per kind of place, captioned "Illustrative photo" on the place's detail view. Session photos hang as instant prints on a string (`PolaroidLine`) and open in a dark full-screen viewer (`PhotoViewer`). The copy is short labels and statuses, with no exclamation marks, no emoji and no upper-case labels; estimated times always say "about".
+
+**Key Characteristics:**
+- One red (`--primary`, `#ff385c`) on a white canvas with `#222222` ink.
+- A dotted map of Singapore and a red map pin as the Home screen's signature.
+- Pill navigation on phones, a top bar from 744px.
+- Flat white cards with a hairline; a shadow only for things that float or are hovered.
+- Information colours for categories, people and travel time, always with a word, icon or key.
+- Motion on almost everything, all of it switched off or shortened under reduced motion.
+- Sample content and estimates are said to be so in words.
+
+## Colors
+
+The palette is white, greys and one red, plus four sets of information colours that never mark an action.
+
+Source for every row: `frontend/src/styles/tokens.css`. "Uses" counts references outside `tokens.css`.
+
+### Primary
+
+| Token | Value | What it is for |
+|---|---|---|
+| `--primary` | `#ff385c` | The brand red. Main buttons, the Create circle, the meeting-area pin, "Live now", the Confirmed pill, filled session steps, the progress donut, the selected calendar day. |
+| `--primary-bright` | `#ff385c` | The same value under a second name, for glows, washes and rings (`SingaporeMap`, `.enter-game`, the Home meetup pulse). |
+| `--brand-logo` | `#f93d64` | The logo pink. `JioLogo`, `frontend/public/favicon.svg`, the `theme-color` meta tag, and the Home greeting's gradient. |
+| `--primary-active` | `#e00b41` | Red when pressed or hovered. |
+| `--primary-disabled` | `#ffd1da` | Disabled red buttons. |
+| `--primary-error-text` | `#c13515` | Error text, the Cancelled pill, warnings, the danger button's fill. |
+| `--primary-error-text-hover` | `#b32505` | The danger button hovered or pressed. Used only in `AppButton`. |
+
+Tints of the red are made in place with `color-mix`, not tokens: 11% on white for the current tab (`TabBar`), 14% for the donut's track (`ProgressDonut`), 16% for the hold fill and 35% for its border (`HoldButton`), 18% for the start marker's ring (`GroupDetailView`).
+
+### Secondary: information colours
+
+These carry information on maps, keys, stripes and avatars. None of them is used for an action.
+
+| Token | Value | What it is for |
+|---|---|---|
+| `--cat-eat-fg` | `#ea580c` | Eat: stop number, map pin, card stripe, category icon. |
+| `--cat-drink-fg` | `#0284c7` | Drink. |
+| `--cat-shop-fg` | `#9333ea` | Shop. |
+| `--cat-activity-fg` | `#059669` | Activity. |
+| `--cat-eat-bg`, `--cat-drink-bg`, `--cat-shop-bg`, `--cat-activity-bg` | `color-mix(in srgb, <fg> 12%, var(--canvas))` | The pale circle behind a category icon (`CategoryIcon`). `--cat-drink-bg` is also used once in `RewardsView`. |
+| `--person-1` to `--person-8` | `#2563eb`, `#7c3aed`, `#0d9488`, `#c026d3`, `#ea580c`, `#4d7c0f`, `#0891b2`, `#a16207` | One colour per person, the same on their avatar, map pin and profile banner. Chosen by `personIndex(id)` in `frontend/src/lib/people.js`. |
+| `--scale-good` | `#15803d` | The good end of the travel scale. Reached only through `--travel-short`. |
+| `--scale-middle` | `#b7791f` | Amber as a fill. Reached through `--travel-medium` and read by `lib/confetti.js`. |
+| `--scale-middle-text` | `#97641a` | Amber as text. Reached only through `--travel-medium-text`. |
+| `--scale-bad` | `#dc2626` | The bad end. Reached only through `--travel-long`. |
+| `--travel-short` | `var(--scale-good)` | Travel time up to 30 min. |
+| `--travel-medium` | `var(--scale-middle)` | 31 to 45 min, as a fill. One use, in `GroupDetailView`. |
+| `--travel-medium-text` | `var(--scale-middle-text)` | 31 to 45 min, as text (`MemberList`, `PlannerMap`). |
+| `--travel-long` | `var(--scale-bad)` | Over 45 min. |
+
+### Tertiary: leaderboard medals
+
+| Token | Value | What it is for |
+|---|---|---|
+| `--medal-gold-fg`, `--medal-silver-fg`, `--medal-bronze-fg` | `#c08a00`, `#7a8699`, `#b0602b` | Crown icons and avatar rings for 1st, 2nd, 3rd (`LeaderboardPodium`, `LeaderboardRankings`). |
+| `--medal-gold-bg`, `--medal-silver-bg`, `--medal-bronze-bg` | `#f2c14e`, `#c9d1dc`, `#dda274` | The podium blocks. Used only in `LeaderboardPodium`. |
+| `--medal-gold-on`, `--medal-silver-on`, `--medal-bronze-on` | `#5c4100`, `#3b4452`, `#5a2e10` | The rank number on a block. Used only in `LeaderboardPodium`. |
+
+### Neutral
+
+| Token | Value | What it is for |
+|---|---|---|
+| `--ink` | `#222222` | Headings, body text, the focus outline, and the fill of selected chips, switches and sliders. |
+| `--body` | `#3f3f3f` | Longer running text; a selected chip when hovered. |
+| `--muted` | `#6a6a6a` | Secondary text, field labels, inactive tabs. |
+| `--muted-soft` | `#929292` | Disabled text; session steps not yet reached. |
+| `--canvas` | `#ffffff` | The page, cards, sheets, dialogs. |
+| `--surface-soft` | `#f7f7f7` | Banners, hover backgrounds, the Home map band. |
+| `--surface-strong` | `#f2f2f2` | Icon-button circles, photo plates, neutral tags, empty progress blocks. |
+| `--hairline` | `#dddddd` | The default 1px border. |
+| `--hairline-soft` | `#ebebeb` | Lighter dividers; the progress bar's track. |
+| `--border-strong` | `#c1c1c1` | The outline of an unselected chip, the switch, the sheet handle. |
+| `--on-primary` | `#ffffff` | Text and icons on the red. |
+| `--on-dark` | `#ffffff` | Text on ink and on the photo viewer. |
+| `--scrim` | `#000000` | The backdrop behind sheets and dialogs, drawn at 50% opacity. |
+| `--selected` | `var(--ink)` | The selected fill. |
+| `--on-selected` | `var(--on-dark)` | Text on the selected fill. |
+
+### Defined but unused
+
+These are declared in `tokens.css` and referenced nowhere else in `frontend/src/`: `--luxe` (`#460479`), `--plus` (`#92174d`), `--legal-link` (`#428bff`), `--surface-card` (`#ffffff`). `--star-rating` (`#222222`) has one use, in `RatingBadge`.
+
+### Colours hard-coded outside the tokens
+
+| File | Values | Note |
+|---|---|---|
+| `components/ui/CoinBadge.vue` | `#f7365e`, `#ff9db1`, `#fff`, `#fff4e6` | The coin's own artwork. `#f7365e` is neither `--primary` nor `--brand-logo`. |
+| `components/ui/PolaroidLine.vue` | `#f1ede6`, `#8a7f72`, `#fbfaf7`, `#d9d5cc`, `#3b3833`, `#e3c9a1`, `#c9a67a`, `#b8915f` | A local paper, string and peg palette, declared as `--pl-*` on the component. |
+| `views/LandingView.vue` | `#ff8a5c` | The middle stop of the greeting's gradient. `#000` appears only in masks. |
+| `styles/app.css` | `#fff` | The `.enter-game__ring` border, where `--canvas` holds the same value. |
+| `frontend/index.html`, `frontend/public/favicon.svg` | `#f93d64` | Equal to `--brand-logo`; these files cannot read CSS variables. |
+
+### Named Rules
+
+**The Information Colour Rule.** Category, person, travel and medal colours say what something is and never mark an action. Each appears with a word, an icon or a key: `CategoryKey` on maps, the category's name on `CategoryIcon`, "about 25 min" beside a coloured travel time, the rank number beside a medal.
+
+**The Two Selections Rule.** As shipped, a choice the user toggles is filled with ink (`ChipButton`, `ToggleSwitch`, `SegmentTabs`, `RangeSlider`, `TravelConnector`, `ProgressBar`), and progress or position is filled with red (`SessionSteps`, `SegmentedProgress`, `ProgressDonut`, the current tab in `TabBar`). `CalendarPicker` is the exception: its selected day is red. See Known Conflicts.
+
+## Typography
+
+**Body and heading font:** Inter, bundled as a variable font (`frontend/src/assets/fonts/InterVariable.woff2`, weights 100 to 900, `font-display: swap`). The stack in `--font-sans` names "Airbnb Cereal VF" and Circular first; neither is bundled, so Inter is what loads unless a device has them installed.
+
+**Second font:** `--font-display` is `ui-serif, "New York", "Iowan Old Style", Georgia, "Times New Roman", serif`, the device's own serif. It has two uses, both in `PolaroidLine` (the title under the string). It is not used for any heading elsewhere.
+
+**Character:** One sans family carries everything. Hierarchy comes from size and a step in weight, not from a second face.
+
+### Hierarchy
+
+Each role is a `font` shorthand token and a class of the same name in `frontend/src/styles/app.css` (for example `class="display-xl"` or `font: var(--text-display-xl)`). "Class uses" counts the class in templates.
+
+| Token | Value (weight size/line-height) | Class uses | What it is for |
+|---|---|---|---|
+| `--text-display-xl` | 700 28px/1.4 | 15 | Screen titles (`<h1>`). |
+| `--text-display-lg` | 500 22px/1.18, letter-spacing -0.44px on the class | 2 | Card hero titles, the meeting area's name. |
+| `--text-display-md` | 700 21px/1.4 | 1 | Big values (`StatTile`). |
+| `--text-display-sm` | 600 20px/1.2, letter-spacing -0.18px on the class | 27 | Section headings, sheet and dialog titles. |
+| `--text-title-md` | 600 16px/1.25 | 24 | Card titles, names. |
+| `--text-title-sm` | 500 16px/1.25 | 25 | Lighter titles. |
+| `--text-body-md` | 400 16px/1.5 | 13 | Body text; the `body` default. |
+| `--text-body-sm` | 400 14px/1.43 | 47 | Meta lines, dates, distances, hints and errors. |
+| `--text-caption` | 500 14px/1.29 | 38 | Labels, chips. |
+| `--text-caption-sm` | 400 13px/1.23 | 57 | Small meta text, tags, the sample note. |
+| `--text-link` | 400 14px/1.43 | 0 | Declared; the `.link` class is not used. |
+| `--text-micro-label` | 700 12px/1.33 | 0 | Map pins (`PlannerMap`, by variable). The `.micro-label` class is not used. |
+| `--text-badge` | 600 11px/1.18 | 1 | `StatusPill`, `CountdownChip` (at 12px), Leaderboard pills (at 13px). |
+| `--text-button-md` | 500 16px/1.25 | 0 | Buttons (by variable; primary buttons override the weight to 600). |
+| `--text-button-sm` | 500 14px/1.29 | 0 | Small buttons, tertiary buttons, `SegmentTabs`. |
+| `--text-nav-link` | 600 16px/1.25 | 0 | Top-bar tab names, set to 15px in `TabBar`. |
+
+Helper classes in `app.css`: `.text-muted` (84 uses), `.text-error` (19), `.truncate` (30), `.clamp-2` (7), `.tnum` for tabular figures (29). `.text-body` and `.text-brand` are defined and not used.
+
+### Sizes written outside the scale
+
+| File | Value | Where |
+|---|---|---|
+| `views/LandingView.vue` | `800 clamp(44px, 9vw, 80px)/0.95`, letter-spacing -0.045em | The Home greeting, "Hi, {name}". The only weight 800 heading on a screen. |
+| `components/ui/PinButton.vue` | `800 30px/1`, `600 13px/1.1` | The two lines in the pin's head. |
+| `components/ui/RadialTimePicker.vue` | `700 26px/1.2`, `700 12px/1` | The time and its orbiting buttons. |
+| `components/ui/TabBar.vue` | `600 12px/1.9` | The current tab's name on phones. |
+| `views/RewardsView.vue` | `700 22px/1` | The balance. |
+| `components/ui/PolaroidLine.vue` | `500 clamp(18px, 2.2vw, 24px)/1.15` in `--font-display`; `500 12px/1` with 0.14em letter-spacing | The print's title and the counter. |
+
+### Named Rules
+
+**The Tabular Figures Rule.** Times, counts and amounts take `.tnum` so digits line up (`CoinBadge`, `CountdownChip`, `SegmentedProgress`, the Leaderboard countdown).
+
+## Layout
+
+### Spacing
+
+A 4px base with one 2px step. Source: `tokens.css`.
+
+| Token | Value | What it is for |
+|---|---|---|
+| `--spacing-xxs` | 2px | Tag padding, tight stacks. |
+| `--spacing-xs` | 4px | Icon-to-text gaps, pill padding. |
+| `--spacing-sm` | 8px | Gaps in rows, the smallest card padding. |
+| `--spacing-md` | 12px | Gaps inside cards and sections. |
+| `--spacing-base` | 16px | Card padding, grid gaps. |
+| `--spacing-lg` | 24px | The phone gutter, the gap between sections of a screen, `.card` padding. |
+| `--spacing-xl` | 32px | The desktop gutter, dialog margins. |
+| `--spacing-xxl` | 48px | The tablet gutter; two other uses (`LandingView`, `NotFoundView`). |
+| `--spacing-section` | 64px | Defined, not used. |
+
+Values written as plain pixels where no token matches include 6px, 10px, 14px, 20px and 23px (for example `padding: 0 23px` on the secondary button, `padding: 0 20px` on the pill button, `gap: 6px` in `CountdownChip`).
+
+### The page shell
+
+`frontend/src/App.vue` renders `.app > .app__main` and, on top-level screens, `TabBar`. A screen is top-level when its route has `meta.tabs: true` and the user is signed in: Home (`/`), Sessions (`/sessions`), Leaderboard, Rewards and Profile (`frontend/src/router/index.js`). Every other screen has its own back arrow and no tab bar.
+
+`.app__main` is a column at least `100dvh` tall with `overflow-x: clip`, so a full-width band never scrolls sideways. `html` has `scrollbar-gutter: stable`. On top-level screens `.app__main` is padded by `--topbar-height` at the top and by `--tabbar-height` plus `env(safe-area-inset-bottom)` at the bottom.
+
+A screen is built from classes in `app.css`:
+
+| Class | What it does |
+|---|---|
+| `.screen` | A centred column, at most `--content-max-width` plus two gutters wide. |
+| `.screen--form` | Narrows it to `--form-max-width`. Used by `AuthView`. |
+| `.screen--wide-form` | Narrows it to `--wide-form-max-width`. Used by `CreateEventView`. |
+| `.screen__header` | Padding `12px gutter 16px`; 32px top padding from 1128px. Holds `.screen__bar` and `.screen__titles`. |
+| `.screen__body` | Sections 24px apart, gutter padding at the sides. |
+| `.screen__footer` | A sticky bar at the bottom (`z-index: 5`). A full-width button on phones; from 744px a row aligned right, where a block button becomes `width: auto; min-width: 200px`. |
+| `.section`, `.section__head` | A heading row with an optional action on the right, at least 44px tall. |
+| `.grid-3` | One column, two from 744px, three from 1128px, 16px gap. |
+| `.card` | White, 1px `--hairline`, `--rounded-md`, 24px padding, 12px gap, no shadow. |
+| `.grid-page`, `.page-grid` | Puts `GridPulse` fixed behind the whole window and lifts the screen's other children above it. |
+| `.scroll-x`, `.chip-row` | A row that scrolls sideways to the screen edge; a wrapping row of chips. |
+| `.photo` | A square grey plate that stands in for a picture. |
+| `.stack`, `.row`, `.wrap`, `.gap-xs` to `.gap-lg`, `.between`, `.grow` | Flex helpers. |
+| `.sr-only` | Text for screen readers only. |
+| `.mobile-only`, `.desktop-only`, `.note` | Defined, not used in any template. |
+
+### Frame tokens
+
+| Token | Value | What it is for |
+|---|---|---|
+| `--gutter` | 24px; 48px from 744px; 32px from 1128px | Side padding of every screen. |
+| `--content-max-width` | 1200px | The widest a screen's content gets. |
+| `--form-max-width` | 480px | Single-column forms. |
+| `--wide-form-max-width` | 880px | Create session. |
+| `--dialog-max-width` | 480px | `ModalDialog`, and `BottomSheet` on desktop. |
+| `--sheet-max-width` | 600px | `BottomSheet` from 744px. |
+| `--side-panel-width` | 420px | `BottomSheet` with `side` on desktop. |
+| `--tabbar-height` | 88px; 0px from 744px | Room kept for the phone pill. |
+| `--topbar-height` | 0px; 72px from 744px | Room kept for the top bar. |
+| `--tap-min` | 44px | The smallest tap target. |
+
+### Navigation and the width at which it switches
+
+`frontend/src/components/ui/TabBar.vue` is one component with two layouts, switched by CSS at 744px.
+
+- **Under 744px:** a white pill fixed at the bottom centre, 56px tall, 12px plus the bottom safe area above the edge, `z-index: 20`. Tabs are icons only, each 44px. The current tab is tinted red and its name slides out beside the icon. Create is a solid red circle. Under 400px the current tab shows no name; under 380px tabs may shrink to 40px wide.
+- **From 744px:** a full-width bar fixed at the top, `--topbar-height` (72px) tall, with a bottom hairline and no shadow. The logo is at the left, every tab shows its name, and Create is a red pill at the right reading "Create session" (just "Create" between 744px and 1127px).
+
+### Breakpoints
+
+Media queries cannot read variables, so these numbers are written out.
+
+| Width | What changes |
+|---|---|
+| 744px | The gutter widens, navigation moves to the top, the footer's button stops being full-width, sheets stop being full-width, `.grid-3` becomes two columns. Used in 19 rules. |
+| 1128px | `.grid-3` becomes three columns, `SplitView` shows list and map side by side, `BottomSheet` becomes a centred dialog or a side panel. Used in 13 rules. |
+
+One-off widths used by a single component: 379px, 399px and 399.98px (`TabBar`, `LeaderboardRankings`), 419.98px (`PolaroidLine`), 480px (`StopCard`), 560px (`PopoverPanel`, in script), 599px (`LeaderboardCard`), 768px (`PlaceDetail`, where the rest of the system uses 744px).
+
+### How screens stack on phones
+
+Everything is one column. A list and its map are shown one at a time with a List / Map switch (`SplitView`). Overlays rise from the bottom as sheets. The main action is a full-width button in the sticky footer. The photo and controls of a `StopCard` drop under its text at 480px and below. Layout changes are done in CSS, so resizing the window keeps a screen's state.
+
+### Safe areas
+
+`env(safe-area-inset-bottom)` is added in three places: the bottom padding of `.app__main`, the phone pill's position in `TabBar`, and the floating camera button in `PhotosView`. No rule reads the top, left or right insets.
+
+### Stacking order
+
+There are no z-index tokens. The values in use:
+
+| z-index | What sits there |
+|---|---|
+| -1 | The fill inside the next button; the pin's ground shadow. |
+| 0 | `GridPulse`. |
+| 1, 2 | Local layering inside a component or screen. |
+| 5 | `.screen__footer`. |
+| 15 | The floating camera button (`PhotosView`). |
+| 20 | `TabBar`. |
+| 25 | `DemoPanel` (development builds only). |
+| 30 | `BottomSheet`, `PopoverPanel`, `PlaceDetail`. |
+| 40 | `PhotoViewer`, `ToastMessage`, an open `RadialTimePicker`. |
+| 50 | `ModalDialog`, so a question can sit above the photo viewer. |
+| 60 | The confetti canvas. |
+| 500, 600 | Overlays on a Leaflet map (`CategoryKey`, map buttons, the selected-place card). |
+| 1000 | The `.enter-game` cover. |
+| 1100 | The bars and card of `SessionMapView`. |
+
+## Elevation & Depth
+
+Surfaces are flat at rest and separated by a 1px hairline and white space. Depth appears in three ways: one soft shadow for things that float, a dimmed backdrop behind sheets and dialogs, and a blurred translucent panel in a few places.
+
+### Shadow Vocabulary
+
+- **Float** (`--shadow-float`: `rgba(0, 0, 0, 0.02) 0 0 0 1px, rgba(0, 0, 0, 0.04) 0 2px 6px 0, rgba(0, 0, 0, 0.1) 0 4px 8px 0`): the only shadow token. Map pins and overlays, the switch knob, the slider thumb, a dragged list item, a card that is a link when hovered, the desktop `PlaceDetail` panel.
+- **Ring** (`0 0 0 2px var(--canvas)`, sometimes followed by a second coloured ring): separates overlapping avatars, category badges on photos, and medal rings on the podium. Not a token.
+
+Shadows written in place rather than taken from the token:
+
+| File | Value |
+|---|---|
+| `components/ui/TabBar.vue` | `0 12px 32px -12px rgb(0 0 0 / 0.28)` in front of `--shadow-float`, on the phone pill. |
+| `components/ui/PopoverPanel.vue` | `0 18px 40px -12px rgb(0 0 0 / 0.22), 0 2px 6px rgb(0 0 0 / 0.06)`. |
+| `components/ui/HeroButton.vue` | `0 10px 28px -12px` of `--primary` at 70%; 75% on hover. |
+| `components/ui/PinButton.vue` | `drop-shadow(0 10px 18px …)` of `--primary` at 45%. |
+| `components/ui/RadialTimePicker.vue` | Three, including `0 4px 10px -2px rgb(0 0 0 / 0.14)` on the orbiting buttons. |
+| `components/ui/MeetupGraph.vue`, `views/EventView.vue`, `views/GroupDetailView.vue`, `views/LandingView.vue` | One each. |
+
+### Backdrops and blur
+
+`BottomSheet` and `ModalDialog` put `--scrim` at 50% opacity behind the panel. `PopoverPanel` has no backdrop. `backdrop-filter: blur(...)` is used in three files: `PhotoViewer` (the dark backdrop and its buttons), `ProfileView` (the buttons on the banner) and `LeaderboardView` (the `.board` panel, 72% white with `blur(14px) saturate(1.3)`, so the grid's colour shows through softly).
+
+### Gradients
+
+Gradients are used in eight files. The ones a person sees: the Home band fading from `--surface-soft` to white and the greeting's name filled with a moving red-to-orange gradient (`LandingView`); the profile banner built from the person's colour (`ProfileView`); the `.enter-game` cover; the slider's filled track (`RangeSlider`); the planned-day hatching in `MeetupGraph`; the wooden pegs in `PolaroidLine`; the "Plan confirmed" banner in `EventView`, which fades from a 14% tint of `--primary-bright` to a 12% tint of `--cat-shop-fg`. The rest are masks.
+
+### Named Rules
+
+**The Flat At Rest Rule.** A card has a hairline and no shadow. It lifts by 2px with `--shadow-float` on hover only when the whole card is a link (`SessionCard`, `PlaceCard`). A card that cannot be clicked does not lift.
+
+## Shapes
+
+Corners are soft everywhere. Controls that hold one word or one icon are fully round; boxes that hold content step up from 8px to 20px with their size.
+
+| Token | Value | What it is for |
+|---|---|---|
+| `--rounded-xs` | 4px | The voucher code box in `RewardsView`; the focus outline's corner on a session step and a stop's name. |
+| `--rounded-sm` | 8px | Primary, secondary and danger buttons; text inputs; tooltips. |
+| `--rounded-md` | 14px | Cards, photo plates, banners, the podium blocks' top corners. |
+| `--rounded-lg` | 20px | Sheets, dialogs, popovers, the Leaderboard panel. |
+| `--rounded-full` | 9999px | Chips, pills, avatars, icon buttons, the next button, the pill button, the phone tab bar and its tabs. |
+| `--rounded-none`, `--rounded-xl` | 0px, 32px | Defined, not used. |
+
+Radii written as plain pixels: 5px (`SegmentedProgress` blocks), 6px (`MeetupGraph` view switch), 10px (the photo strip in `EventView`), 3px and 2px (small swatches and pegs).
+
+Borders are 1px `--hairline` by default. A stronger 1px `--border-strong` outline marks anything tappable that is not filled (an unselected chip, the switch, the next button). Two inset stripes are drawn with `box-shadow`: a 4px stripe in the category colour on the left edge of `SuggestionCard`, and a 3px error-red stripe on the left of an error `BannerNote`.
+
+The recurring silhouettes are the map pin (`PinButton`, a teardrop drawn in a `0 0 100 128` box with its tip at the bottom centre), the crown (in `JioLogo`, `CoinBadge` and the `crown` icon) and the circle.
+
+## Components
+
+Every component file opens with a comment that shows how to call it. Paths are under `frontend/src/components/`. "Props" lists the names and defaults as the code defines them.
+
+### Buttons
+
+| Component | What it is for | Props and variants | States | Use it when; otherwise |
+|---|---|---|---|---|
+| `ui/AppButton.vue` | Every text button. | `variant`: `primary` (default), `secondary`, `tertiary`, `pill`, `danger`. `block`, `small`, `underline`, `disabled`, `next` (booleans, default false). `to`, `href`, `type` (default `button`). | Hover (devices that hover), pressed (`scale(0.97)` and a darker fill), focus (2px ink outline, 3px offset on primary), disabled. | The main action of a screen is `primary`; one that moves to the next step adds `next`. Use `secondary` for the other choice, `tertiary` for a text link, `danger` only for something that cannot be undone. |
+| `ui/AppButton.vue` with `next` | A white pill, 48px tall, at least 160px wide, with the label and an arrow. On hover or keyboard focus a red dot swells to fill it and a white copy of the label slides in. On touch screens it is red from the start. | Primary only. With `small`: 44px tall, at least 120px wide. | As above; disabled shows a grey outline and grey label. | "Next", "Start session", "Vote on places", "Itinerary", "Done". Not for actions that stay on the page. |
+| `ui/IconButton.vue` | A 44px circle holding one icon. | `label` (required; read out and shown as a tooltip), `outline` (false), `tone` (`''` or `'brand'`), `to`. | Hover, pressed (`scale(0.9)`), disabled. | Secondary actions such as back, close, edit, filter. Use `tone="brand"` for the one main icon action on a screen. |
+| `ui/ChipButton.vue` | A 32px pill inside a 44px tap area. Outlined at rest, ink when selected. | `selected`, `radio`, `check`, `disabled` (all false). Slot `leading` for an avatar or icon (the pill becomes 40px). CSS variable `--chip-on` replaces ink with another fill. | Hover, pressed (`scale(0.94)`), selected (pops in), disabled. | Filters and picks from a short set. For two or three views of the same content use `SegmentTabs`. |
+| `ui/PinButton.vue` | The Home map's main action: a red map pin, 128px wide, with the logo or two lines of words in its head. | `to` (required), `label` (`''`), `big` (`''`), `small` (`'your friends'`). | Bobs while idle, lifts on hover, squashes on press, plays the "entering a game" move on click. | Home only, placed with its bottom edge on the meeting point. One per screen. |
+| `ui/HoldButton.vue` | Press and hold to confirm something that cannot be undone. A red-tinted fill sweeps across while held. | `label` (required), `action` (`''`, said to screen readers), `icon` (`'close'`), `duration` (1200). Emits `done` after a full hold, or at once for an activation that is not a press (a click with `detail` 0, which is what a screen reader, switch control or voice control sends). Its accessible name contains the visible label. | Idle, holding (label reads "Keep holding"), released early (fill runs back). | Ending a session, from `SessionHeader`. Follow `done` with a `ModalDialog`. For an ordinary destructive choice use `AppButton variant="danger"` inside a dialog. |
+| `ui/HeroButton.vue` | A 60px red pill with a white circle holding an arrow. | `to` (required). | Hover (lifts 2px), pressed, focus (a white then ink ring). | Defined and not used by any screen at this commit. |
+
+### Inputs and pickers
+
+| Component | What it is for | Props | States | Use it when; otherwise |
+|---|---|---|---|---|
+| `ui/TextField.vue` | A labelled text input, 56px tall. | `label` (required), `hideLabel`, `hint`, `error`, `multiline`, `id`. `v-model`. Other attributes go to the input. Slot `trailing`. | Focus (border grows to 2px ink, padding shrinks 1px), invalid (error-red border and message with `role="alert"`), disabled. | Any typed value. |
+| `ui/SelectField.vue` | A labelled dropdown that matches `TextField`. | `label`, `options` (required), `placeholder`, `error`, `id`. `v-model`. | Focus, empty (muted text), invalid. | A choice from a long list. For a short set use chips. |
+| `ui/ToggleSwitch.vue` | An on/off switch, 48 by 28px, with its label on the left. Ink when on. | `label` (required), `hint`, `disabled`. `v-model`. | Off, on, hover, disabled. | A setting that takes effect at once. |
+| `ui/RangeSlider.vue` | A labelled slider with its value written at the right. Ink track, white thumb. | `label` (required), `min` (0), `max` (100), `step` (1), `format`. `v-model`. | Hover (ink thumb border), focus. | A number within bounds, such as budget or distance. |
+| `ui/CalendarPicker.vue` | A month calendar for one day. Weeks start on Monday. | `label` (`'Date'`), `min` (`''`, meaning today), `max` (`''`). `v-model` as `yyyy-MM-dd`. | Today (outlined, and `aria-current="date"`), selected (red fill, white number), outside the month (muted), disabled (struck through). A day fills its cell's width and is 44px tall. The grid is one tab stop: arrow keys move by day and week, Home and End by week, Page Up and Page Down by month. | Picking a session's day. New in this pull request. |
+| `ui/RadialTimePicker.vue` | A 24-hour time in a round pill. On hover or tap, eight buttons orbit out 125px to add or take off 15m, 30m, 1h, 2h. The time can also be typed. | `label` (required), `fallback` (`'09:00'`), `hint`, `error`. `v-model` as `HH:mm`. | Closed, open, focused, error. | A session's start and end. New in this pull request. |
+| `ui/SortableList.vue` | A list reordered by dragging a handle or with the arrow keys. | `items`, `itemKey`, `label` (required), `itemLabel`, `disabled`, `hint`. Emits `move`. Slot `item`. | Idle, sorting, dragging (the item lifts with `--shadow-float`). | Reordering stops on the itinerary. Bind the slot's `handle` to a `.drag-handle` button. |
+
+### Navigation and progress
+
+| Component | What it is for | Props | States | Use it when; otherwise |
+|---|---|---|---|---|
+| `ui/TabBar.vue` | The main navigation; see Layout. | `tabs` (default: Home, Leaderboard, Create, Rewards, Profile). | Current (`aria-current="page"`), hover, pressed. | Rendered once by `App.vue`. Do not add a second. |
+| `ui/SegmentTabs.vue` | Text tabs with a 2px ink rule under the current one. | `tabs`, `label` (required). `v-model`. A tab may have `icon` and `iconOnly`. | Current, hover. | Two to four views of one list, such as Upcoming / Past. |
+| `ui/SplitView.vue` | A list and a map of the same things: one at a time under 1128px, side by side from 1128px. | `label` (required), `even` (false). `v-model:view`. Slots `list`, `map`. | List, map, map expanded (desktop). | Any screen with a `PlannerMap` and a matching list. |
+| `event/SessionSteps.vue` | A session's five steps (Create, Invite, Locate, Vote, Itinerary) as a bar that also navigates. | `session` (default null, for the create page). | Reached (red bar, links to its page), here (bold ink label, taller bar), later (grey), cancelled (grey bars). | At the top of every session screen, through `SessionHeader`. New in this pull request. |
+| `ui/ProgressBar.vue` | A 4px ink bar. | `value`, `label` (required), `max` (1). | — | Steps of a form (sign-up). |
+| `ui/SegmentedProgress.vue` | A bar of rounded blocks that fill red, with the percentage above. | `value` (required, 0 to 100), `label`, `segments` (20). | The newest block is taller. | A wait with a known end, such as finding the meeting point. |
+| `ui/ProgressDonut.vue` | Who has done something, as a red ring on a pale red track. | `title`, `people` (required), `doneLabel` (`'Done'`), `todoLabel` (`'Waiting'`), `compact`, `size`. | Default (112px, names listed), compact (40px, "4 of 6"). | Joined, located and voted counts. |
+
+### Overlays
+
+| Component | What it is for | Props | States | Use it when; otherwise |
+|---|---|---|---|---|
+| `ui/PopoverPanel.vue` | A small card that opens beside the button that was pressed, with no backdrop. It follows the button on scroll and spans the width under 560px. | `title` (`''`), `width` (380), `maxHeight` (560). `v-model:open`. Slot `footer`. Emits `close`. | Open, closed. Closes on Escape, the close button and a press outside. | A quick pick that should leave the page in view: inviting friends, setting a location, adding a place. New in this pull request. |
+| `ui/BottomSheet.vue` | A sheet that slides up over a dimmed backdrop; a centred dialog or side panel from 1128px. | `title`, `hideClose`, `tall`, `side`. `v-model:open`. Slot `footer`. | Open, closed. | A longer task with its own footer, such as the Home filter. |
+| `ui/ModalDialog.vue` | A small centred dialog for one decision. | `title` (required), `text`. `v-model:open`. Slots `content` and default (the buttons). | Open, closed. | A yes-or-no question. Put the safer choice first. |
+| `ui/ToastMessage.vue` | A short ink pill that appears above the bottom edge and leaves by itself. | `text` (required), `duration` (2500), `offset` (96). `v-model:show`. | Shown, hidden. | Confirming something that already happened. Not for errors. |
+| `ui/PhotoViewer.vue` | A full-screen, swipeable carousel on a dark blurred backdrop. | `photos` (required), `canDelete`, `origin`, `place`. `v-model:index` (-1 when closed). Emits `delete`. | Controls shown or hidden, dragging, pulling down to close. | Session photos only. |
+| `event/PlaceDetail.vue` | A place opened from its card: photo, name, rating, price, address, "Navigate", sample reviews. Full screen on phones, a centred panel from 768px. | `place` (required), `reviews` (null while loading), `from` (`'home'`), `error`. Emits `close`. | Loading reviews, loaded, error. | Opened by `LandingView` with a view transition from a `PlaceCard` that has `morph`. |
+| `group/InviteDialog.vue` | Invite friends from a `PopoverPanel` beside the Invite button. | `session` (required). `v-model:open`. | Searching, picked, sending. | Inviting from inside a session. New in this pull request. |
+| `group/LocationSheet.vue` | Pick a start or end location by search or current location. | `which` (`'start'`), `home`. `v-model:open`. Emits `select`. | — | Setting a member's own location. Opens in a `PopoverPanel`. |
+
+### Labels, badges and notes
+
+| Component | What it is for | Props | Use it when; otherwise |
+|---|---|---|---|
+| `ui/StatusPill.vue` | A session's status as an 11px pill. | `status` (required): `inviting` (outlined), `locating` and `voting` (grey), `confirmed` (red), `completed` (ink), `cancelled` (error-red outline). | On `SessionCard` and in `SessionMapView`. |
+| `ui/CountdownChip.vue` | When a session starts, live. | `session` (required). Tones from `lib/session.js`: `soon`, `later`, `muted`, `live` (red, with a pulsing dot). | Beside a session's status. |
+| `ui/InfoTag.vue` | A small label that is not a control. It has no outline, so it does not look tappable beside a chip. | `tone`: `neutral` (default), `strong`, `warning`, `error`. `icon`. | "Near MRT", "Leading", "Rain expected". |
+| `ui/BannerNote.vue` | A banner across the top of a screen. | `tone`: `info` (default), `warning`, `error`. `icon` (`'info'`), `dismissible`. Slot `actions`. Emits `dismiss`. | A message about the whole screen. For a field's error use the field's `error`. |
+| `ui/SampleNote.vue` | A caption with an info icon that marks demo content. | Default slot; without it the text is "Sample data for the demo". | Wherever hand-written content is shown. See Known Conflicts for where it is and is not rendered. |
+| `ui/CoinBadge.vue` | The JioCoins coin, alone or after an amount. | `amount` (null), `size` (null, meaning 1.1em), `short` (false). | Anywhere an amount of JioCoins is shown. In text that cannot hold a picture, use `coins(n)` from `lib/currency.js`. New in this pull request. |
+| `ui/RatingBadge.vue` | A star and a score out of 10 with one decimal. | `score` (required), `large`. | Place ratings. |
+| `ui/PriceTier.vue` | A price as `$`, `$$` or `$$$`. | `price` (required). | Never show the number itself. |
+| `ui/EmptyState.vue` | A title, one line and one action for an empty list. | `title` (required), `text`, `illustration`. | Empty lists and failed loads (with `role="alert"` and a Retry button). |
+| `ui/SkeletonRow.vue` | A grey placeholder row. | `avatar` (false), `lines` (2). | While a list loads. |
+| `ui/StatTile.vue` | A big number with a label on a flat card. | `label`, `value` (required), `icon`, `hint`. | Shown only in `DesignSystemView` at this commit. |
+
+### People, icons and the logo
+
+| Component | What it is for | Props |
+|---|---|---|
+| `ui/UserAvatar.vue` | A round avatar: the photo, or the first letter of the name on the person's colour. | `name` (required), `src`, `size` (40; also 24, 32, 64, 96), `labelled` (false), `person` (their id). |
+| `ui/AvatarStack.vue` | Overlapping avatars, then "+2". | `people` (required), `size` (24), `max` (5). |
+| `group/MemberList.vue` | Everyone in a session: name, area, "about 25 min" coloured by length, and a status icon. | `session`, `names` (required), `voters`. |
+| `ui/AppIcon.vue` | Every icon. | `name` (required, checked against the icon table), `size`, `solid`, `label`. |
+| `ui/CategoryIcon.vue` | A category's icon on its pale circle, named for screen readers. | `category` (required: `eat`, `drink`, `shop`, `activity`), `size` (32). |
+| `ui/IllustrationBlob.vue` | One of four small line drawings. | `name` (default `'invite'`). |
+| `ui/JioLogo.vue` | The logo as an inline SVG. | `height` (28), `title` (`'Jio'`), `decorative` (false). |
+| `ui/ListRow.vue` | A row: something left, a title and a line, something right. | `title`, `meta`, `to`, `as` (`'div'`). Slots `leading`, `trailing`. |
+
+### Session and place cards
+
+| Component | What it is for | Props |
+|---|---|---|
+| `event/SessionCard.vue` | A session on Home, Sessions and a profile. The whole card is a link and lifts on hover. | `session`, `names` (required), `hero` (false; the large card, with a photo band when the day has photos). |
+| `event/SessionHeader.vue` | The top of every session screen: back arrow, title, date, `SessionSteps`, Invite, and "Hold to end". | `session` (required), `title`, `back` (`'/'`). |
+| `event/SessionNotices.vue` | Re-plan, not enough people, and cancelled notices, and, while voting, one dismissible `BannerNote` when the meeting area moved and votes were cleared. | `session` (required). |
+| `event/PlaceCard.vue` | A place near the meetup: photo, category, name, area, price tier, rating. | `place` (required), `morph` (false). |
+| `event/SuggestionCard.vue` | One suggested place with its vote, a category stripe, and "about N min walk". | `option` (required), `leading`, `behind`, `mine`, `closed`, `selected`. Emits `vote`, `swap`. |
+| `event/StopCard.vue` | One stop on the itinerary: a numbered dot in the category colour, time and duration, name, area, price tier. | `time`, `duration`, `name`, `category`, `price` (required), `area`, `number`, `warning`, `lifted`, `image`, `banner`. Slots `handle`, `actions`. |
+| `event/TravelConnector.vue` | The Walk / MRT / Car switch between two stops, each with "about N min". | `options`, `mode` (required), `readonly`, `label`. |
+| `event/PollBar.vue` | One option of a poll as a bar. | `name`, `votes`, `total` (required), `leading`, `mine`, `note`, `closed`. Shown only in `DesignSystemView` at this commit. |
+
+### Leaderboard
+
+| Component | What it is for | Props |
+|---|---|---|
+| `ui/LeaderboardCard.vue` | Title, date range, an optional season picker, the podium, and the paged list. | `fromDate`, `toDate`, `podiumRankings`, `rankings` (required), `title` (`'Leaderboard'`), `currentUserId`, `runOptions`, `pageSize` (10). `v-model:selectedRunId`. |
+| `ui/LeaderboardPodium.vue` | The top three on stepped blocks 136, 104 and 84px tall. They look ordered 2 · 1 · 3 and are written, and read aloud, 1 · 2 · 3 (CSS `order`). | `rankings` (required), `currentUserId`. |
+| `ui/LeaderboardRankings.vue` | The full ranking in pages. The current user's row has a 2px ink outline. | `rankings` (required), `currentUserId`, `showPagination`, `defaultPageSize` (10). |
+
+### Maps and signature pieces
+
+| Component | What it is for | Props |
+|---|---|---|
+| `map/PlannerMap.vue` | Every interactive map: Leaflet on OneMap tiles, with person pills, the red meeting-area pin, numbered stops and category dots. | `people`, `area`, `places`, `route`, `spokes`, `selected`, `label` (`'Map'`), `fitTo` (`'all'`), `zoomPosition` (`'topleft'`), `finding`, `radius`. Emits `select`. |
+| `map/CategoryKey.vue` | The key to category colours, over a corner of a map. | `categories`. |
+| `ui/SingaporeMap.vue` | The muted dotted map of Singapore with routes that draw in to one point. Decoration only, hidden from screen readers. | `routes`, `center`, `span` (`[420, 330]`), `hideMeet`. |
+| `ui/GridPulse.vue` | A fine grid drawn on one canvas. Cells take colour where the pointer passes and fade out; a few light by themselves. The hue runs from yellow at the top through red and blue to green. Cells behind text marked `data-grid-avoid` go faint. | `cell` (24), `reach` (2.6), `ambient` (2), `maxLit` (180), `avoid` (`'[data-grid-avoid]'`). |
+| `ui/MeetupGraph.vue` | Meetup frequency as a heat map that folds up into an isometric skyline. | `history`, `planned`, `weeks` (26), `today`, `defaultView` (`'3d'`). |
+| `ui/PolaroidLine.vue` | Session photos as instant prints pegged to a sagging string. | `photos` (required), `height`, `cardWidth` (260), `sag` (40), `swing` (1), `autoplay` (5000), `label` (`'Photos'`). `v-model:index`. Emits `open`. |
+
+Use `PlannerMap` for anything a person reads a place from. Use `SingaporeMap` only as a backdrop. Use `GridPulse` only behind a whole screen, through `.grid-page`, and mark headings on it with `data-grid-avoid`.
+
+### How the screens compose them
+
+| Screen | File | Composition |
+|---|---|---|
+| Home | `views/LandingView.vue` | A full-width band with `SingaporeMap`, the greeting, and `PinButton` on the meeting point; then "Your meetups" (`SessionCard`) and "Places near your meetup" (`PlaceCard` in `.grid-3`, a Filter `BottomSheet`, `PlaceDetail`). |
+| Leaderboard | `views/LeaderboardView.vue` | `.grid-page` with `GridPulse`; a title, a red countdown pill and a prize pill; `LeaderboardCard` on a blurred translucent panel. |
+| Rewards | `views/RewardsView.vue` | `.grid-page`; the balance with a `+` that opens a popover; voucher cards with a Claim button; two `ModalDialog`s. |
+| Profile | `views/ProfileView.vue` | `.grid-page`; a banner in the person's colour, `UserAvatar` overlapping it, three numbers, `MeetupGraph`, then sessions or recent activity. |
+| Session | `views/GroupDetailView.vue` | `SessionHeader`, `ProgressDonut`, `MemberList`, `SplitView` with `PlannerMap`, `SegmentedProgress` while the meeting point is found. |
+| Vote | `views/PlannerView.vue` | `SessionHeader`, `SplitView` of `SuggestionCard`s and `PlannerMap`, a `PopoverPanel` to add a place, a confirm `ModalDialog`. |
+| Itinerary | `views/EventView.vue` | `SessionHeader`, a timeline of `StopCard` and `TravelConnector` in a `SortableList`, `PlannerMap`, a "Plan confirmed" banner. |
+| Photos | `views/PhotosView.vue` | `PolaroidLine`, a thumbnail grid, `PhotoViewer`, a floating camera `IconButton tone="brand"`. |
+| Sign-up | `views/AuthView.vue` | `.screen--form`, one question per screen, `ProgressBar`, `TextField`. |
+| Create session | `views/CreateEventView.vue` | `.screen--wide-form`, `SessionSteps`, `TextField`, `CalendarPicker`, two `RadialTimePicker`s, a `next` button. |
+| Design system | `views/DesignSystemView.vue` | A gallery at `/design-system`. It does not yet show the components added in this pull request other than `JioLogo`. |
+
+## Do's and Don'ts
+
+### Do:
+- **Do** take every colour, size, radius and shadow from `frontend/src/styles/tokens.css`, and every type size from the `--text-*` tokens or their classes.
+- **Do** keep one main action per screen and give it `AppButton` (`primary`, or `primary next` when it moves to the next step).
+- **Do** fill a toggled choice with `--selected` (ink) and a measure of progress with `--primary`.
+- **Do** show category, person, travel and medal colours with a word, an icon or a key beside them.
+- **Do** keep cards flat with a 1px `--hairline`, and add the hover lift only when the whole card is a link.
+- **Do** make every tap target at least `--tap-min` (44px), as `ChipButton` and `ToggleSwitch` do by padding a smaller shape.
+- **Do** write estimated times as "about N min" and mark hand-written content with `SampleNote`.
+- **Do** give every animation a reduced-motion path, and check `prefers-reduced-motion` in script when the script itself animates.
+- **Do** read Known Conflicts before placing new white text on `--primary`, on a category colour or on a person colour. Those pairs are open decisions.
+
+### Don't:
+- **Don't** use a category, person, travel or medal colour for a button or a link.
+- **Don't** render a second `TabBar`, a second `PinButton`, or `GridPulse` inside a card.
+- **Don't** put a backdrop behind `PopoverPanel`, or use it for a task that needs a footer of several buttons; use `BottomSheet`.
+- **Don't** show a price as a number where `PriceTier` is used, or the word "JioCoins" where `CoinBadge` fits.
+- **Don't** write a label in upper case, add an exclamation mark, or use emoji. No screen does.
+- **Don't** load Bootstrap. It is a dependency in `frontend/package.json` and is not imported in `frontend/src/main.js`.
+
+## Motion
+
+Durations and curves are tokens in `tokens.css`:
+
+| Token | Value | What it is for |
+|---|---|---|
+| `--motion-fast` | 200ms | Hover and press changes, fades. |
+| `--motion-medium` | 320ms | Sheets, dialogs and photos sliding into place. |
+| `--ease-out` | `cubic-bezier(0.22, 1, 0.36, 1)` | The default curve. |
+| `--ease-spring` | `cubic-bezier(0.34, 1.56, 0.64, 1)` | A small overshoot: buttons letting go, chips popping on. |
+| `--ease-sheet` | `cubic-bezier(0.32, 0.72, 0, 1)` | Sheets and dialogs arriving. Used by `BottomSheet` and `ModalDialog`. |
+
+A global rule in `app.css` covers every CSS animation and transition under `prefers-reduced-motion: reduce`: durations become 0.01ms, animations run once, and smooth scrolling is off. Animations run by script check the same query themselves. The last column says how each one honours it.
+
+### Named animations
+
+| Name | File | Duration and curve | Trigger | Reduced motion |
+|---|---|---|---|---|
+| `rise` | `styles/app.css` | 420ms `cubic-bezier(0.16, 1, 0.3, 1)`, delayed 60ms per `--i` | A `.rise` element appears (13 uses). | Not applied: the rule sits inside a `no-preference` query. |
+| `page-out`, `page-in` | `styles/app.css`, `lib/viewTransition.js` | 180ms ease-out; 280ms `cubic-bezier(0.25, 1, 0.5, 1)`, 6px upward | A route change to a different path. | Skipped: `canViewTransition()` returns false. |
+| View-transition groups | `styles/app.css` | 240ms `--ease-out` by default; `app-tabs` 0s, so the tab bar stays still | Any view transition. | Skipped. |
+| `photo-hero` group | `styles/app.css`, `PhotoViewer` | 420ms `--ease-out` | A photo opens from, or closes into, its tile. | Skipped. |
+| `place-card`, `place-photo` groups; `vt-fade-out`, `vt-fade-in` | `styles/app.css`, `LandingView` | 440ms `cubic-bezier(0.32, 0.72, 0, 1)`; fades 160ms and 260ms after 60ms | A `PlaceCard` opens into `PlaceDetail` and back. | Skipped. |
+| `.enter-game` grow, hold, leave; `enter-ring` | `styles/app.css`, `lib/enterGame.js` | Grow 650ms `cubic-bezier(0.7, 0, 0.3, 1)`, hold 350ms, dissolve 700ms `--ease-out`; three rings 900ms from 380, 500 and 620ms | A click on `PinButton`. | `enterGame` navigates at once. |
+| `pin-bob`, `pin-bob-shadow` | `PinButton` | 2.8s ease-in-out, endless | Always, while the pin waits. | `animation: none`. |
+| `pin-launch` | `PinButton` | 700ms `cubic-bezier(0.5, 0, 0.3, 1)` | A click on the pin. | `animation: none`. |
+| `tabbar-in` | `TabBar` | 520ms `--ease-spring` | The phone pill first appears. | `animation: none`. |
+| Tab name sliding out | `TabBar` | Width 380ms `--ease-spring`; fade 190ms `--ease-out` | A tab becomes current (phones). | `transition: none`. |
+| `chip-pop` | `ChipButton` | 320ms `--ease-spring` | A chip is selected. | `animation: none`. |
+| `live` | `CountdownChip` | 1.6s ease-in-out, endless | A session is happening now. | Not applied (`no-preference` query). |
+| `skeleton-pulse` | `SkeletonRow` | 1.2s ease-in-out, endless | A list is loading. | Global rule only. |
+| `loading` | `PhotosView` | 1.1s ease-in-out, alternating | A thumbnail is uploading. | Global rule only. |
+| `sgmap-draw` | `SingaporeMap` | 1.4s `--ease-out`, delayed 0.2s plus 0.2s per route | The map mounts. | Routes are drawn at once. |
+| `sgmap-comet` | `SingaporeMap` | 3.2s `cubic-bezier(0.45, 0, 0.25, 1)`, endless | After a route is drawn. | Switched off in the component's reduced-motion block. |
+| `sgmap-pop` | `SingaporeMap` | 400ms `--ease-out` | A route's start ring appears. | Shown at once. |
+| `pm-comet` | `PlannerMap` | 3s `cubic-bezier(0.45, 0, 0.25, 1)`, endless | `spokes` is set. | Component reduced-motion block. |
+| `pm-pulse` | `PlannerMap` | 1.8s ease-out, endless | `finding` is set. | `animation: none`. |
+| Radius circle | `PlannerMap` (script) | 480ms | `radius` changes. | The map jumps instead of gliding. |
+| `hello-shine` | `LandingView` | 1.6s `--ease-out` after 200ms | Home opens. | `animation: none`. |
+| `meetup-pulse` | `LandingView` | 2s ease-out, endless | A meetup is going. | `animation: none`. |
+| `area-reveal` | `GroupDetailView` | 420ms `--ease-spring` | The meeting point is revealed. | `animation: none`. |
+| `celebrate-pop`, `celebrate` enter | `EventView` | Icon 700ms after 150ms on `cubic-bezier(0.34, 1.56, 0.64, 1)`; banner fade 400ms, move 600ms | The plan is confirmed. | Global rule only. |
+| `pd-in` | `PlaceDetail` | 280ms `--ease-out` | Reviews arrive. | `animation: none`. |
+| `pl-in` | `PolaroidLine` | 550ms `cubic-bezier(0.2, 0.8, 0.2, 1)` | The current print changes. | `animation: none`; the line never moves by itself and the Pause button is hidden. |
+| Confetti | `lib/confetti.js` | 160 pieces over 3200ms on a canvas | `PlannerView` confirms a plan. | Does nothing. |
+| Grid cells | `GridPulse` (script) | Fade in 160ms, fade out 750ms | The pointer moves; a few cells light on a timer. | Only the still grid is drawn. |
+| Flat to skyline | `MeetupGraph` (script) | 1300ms `cubic-bezier(0.65, 0, 0.35, 1)`; view switch 500ms | First scroll into view; the 2D / 3D switch. | "Every change simply happens." |
+| Photo slide | `PhotoViewer` | 420ms `--ease-out`; pull-back `--motion-medium`; backdrop 600ms | Swipe, arrow keys, buttons. | Transitions off; no bump at the ends. |
+| Hold fill | `HoldButton` (script) | Follows the clock for `duration` (1200ms); runs back in 220ms `--ease-out` | Press and hold. | The fill follows the hold in script and does not check the query; the run-back is covered by the global rule. |
+
+### Named transitions
+
+| Name | File | Duration and curve |
+|---|---|---|
+| Press and release | `AppButton`, `IconButton`, `ChipButton` | Colour `--motion-fast` `--ease-out`; scale 260ms `--ease-spring`, 80ms on the way down. |
+| Next button fill | `AppButton` | 300ms `--ease-out`; none on touch screens. |
+| `sheet` | `BottomSheet` | In: backdrop `--motion-fast`, panel `--motion-medium` `--ease-sheet` from 48px below. Out: 160ms. |
+| `modal` | `ModalDialog` | In: panel `--motion-medium` `--ease-sheet` from 12px below at 0.98 scale. Out: 150ms. |
+| `pop` | `PopoverPanel` | In: fade 140ms, scale from 0.94 over 220ms `--ease-spring`, from the corner nearest the button. Out: 110ms. Under reduced motion: a 100ms fade only. |
+| `toast` | `ToastMessage` | Fade `--motion-fast`. |
+| `viewer`, `ambient` | `PhotoViewer` | Fade `--motion-fast`, stage `--motion-medium`; leave 180ms; backdrop 600ms. |
+| Card lift | `SessionCard`, `PlaceCard`, `SuggestionCard` | `--motion-fast` `--ease-out`. |
+| Orbiting buttons | `RadialTimePicker` | Out: 420ms `--ease-spring`, 18ms apart. In: 150ms. Under reduced motion: a 120ms fade. |
+| Step bar | `SessionSteps` | `--motion-fast` `--ease-out`; off under reduced motion. |
+| Sorting | `SortableList` | `--motion-fast` `--ease-out`; off under reduced motion. |
+
+Curves and durations written in place where a token holds the same value: `200ms` in `TabBar` (`--motion-fast`), `cubic-bezier(0.34, 1.56, 0.64, 1)` in `EventView` (`--ease-spring`), `cubic-bezier(0.32, 0.72, 0, 1)` in `app.css` (`--ease-sheet`).
+
+## Iconography, Imagery and Logo
+
+**Icons.** Every icon is an inline SVG path from one table in `frontend/src/components/ui/AppIcon.vue` (about 60 names). No icon package or icon font is installed. Icons are drawn on a 16px grid as outlines in `currentColor`, with round caps and joins and a 1.5 stroke unless the icon sets its own (1.75 or 2). `star` and `more` are filled. Tab-bar icons use a 24px grid. An icon is hidden from screen readers unless it is given a `label`. Category icons go through `CategoryIcon`, which adds the pale circle and the category's name.
+
+**Illustrations.** `IllustrationBlob` holds four line drawings (friends and a pin, a name card, a paper plane, a flag), used by `EmptyState` and `InviteView`.
+
+**Place photos.** `frontend/src/lib/placeImages.js` returns one photo per kind of place, not a photo of the venue. The 13 files are in `frontend/src/assets/places/`, with photographers and sources in `CREDITS.md` there (Unsplash). `PlaceDetail` captions the photo "Illustrative photo" in a dark translucent pill at its bottom right. `PlaceCard`, `SuggestionCard` and `StopCard` show the same photos with empty `alt` text and no caption.
+
+**Session photos.** Shown as prints on `PolaroidLine` (cream paper, a handwritten note, wooden pegs) and full-screen in `PhotoViewer`. Photos use `object-fit: cover`. The plain grey `.photo` plate stands in where there is no picture.
+
+**The logo.** `JioLogo` draws "Jio" in rounded strokes with a crown in place of the dot of the i, traced from `frontend/src/assets/brand/jio-logo.png`. It takes `currentColor`, which is `--brand-logo` by default. Variants in use: pink on white at 30px tall in the top bar (`TabBar`), and white on red at 38px tall inside `PinButton`. The favicon (`frontend/public/favicon.svg`) is the white logo on a `#f93d64` square with rounded corners (`rx="190"` in an 850 box). `frontend/index.html` sets `theme-color` to `#f93d64`. The code implies no clear-space rule: the only spacing around the logo is the top bar's `margin-right` of 32px (8px on tablets).
+
+**The coin.** `CoinBadge` is a 32-unit SVG: a `#f7365e` disc, a lighter ring, a highlight and a cream crown. It scales with the text at 1.1em.
+
+## Voice and Copy
+
+These are the conventions the screens use, with examples quoted from the views.
+
+- **Estimates say "about".** "about {{ option.walk }} min walk" (`SuggestionCard`), "about 25 min" (`MemberList`), "Long trip home: {{ trip.name }}, about {{ trip.minutes }} min" (`EventView`), "about {{ place.mrtWalk }} min walk from {{ place.mrt }} MRT" (`PlaceDetail`).
+- **Invented content says "sample".** "Sample data for the demo" (`SampleNote`), "Sample reviews" (`PlaceDetail`), "Spend your [coin] on sample café vouchers." (`RewardsView`).
+- **Buttons are a verb or a verb and a noun, in sentence case.** "Start session", "Invite friends", "Vote on places", "Confirm plan", "Claim voucher", "Show more", "Retry", "Try again".
+- **A button that moves on names where it goes.** "Next", "Itinerary", "Done" (all `next` buttons).
+- **Dialog titles are questions, and the choices answer them.** "Confirm plan?" with "Confirm" and "Not yet"; "End plan?" with "End plan" and "Not yet"; "Delete this photo?" with "Keep photo" and "Delete photo"; "Erase everything and sign out?" with "Stay signed in" and "Erase and sign out".
+- **Empty states are a short title and at most one sentence.** "No photos yet" with "Add the first one with the camera button."; "No places match" with a "Clear all" button; "No one ranked yet".
+- **Failed loads say what failed and offer a retry.** "Could not load places" with "Check your connection and try again."; "Could not load your meetups · Retry".
+- **Screen titles are nouns.** "Leaderboard", "Rewards", "Sessions", "Create session". Sign-up asks one thing per screen: "Your email", "Create a password", "Pick a username".
+- **A middle dot joins facts on one line.** "15:00 · 45 min" (`StopCard`), "Could not load your meetups · Retry" (`LandingView`).
+- **Times are 24-hour.** "15:00", "Starts in 50 min", "Tomorrow, 15:00", "Live now", "Ended" (`CountdownChip`).
+- **Prices are tiers.** `$`, `$$`, `$$$` (`PriceTier`).
+- **No rank is said in words.** "No rank yet", shown as "–" in the list.
+- **The currency is "JioCoins"** in text (`lib/currency.js`: "1 JioCoin", "1,250 JioCoins") and the coin elsewhere. One banner in `EventView` still says "points": "Completed · +{{ POINTS_PER_MEETUP }} points each to spend on sample café vouchers".
+- **Two nouns are used for the same thing.** Home says "meetup" ("Your meetups", "Open meetup", "Start a meetup"); the session screens and the navigation say "session" ("Create session", "Sessions", "Start session").
+- **The Home greeting** is "Hi, {name}", and the pin reads "Jio your friends".
+
+No template contains an exclamation mark, an emoji or an upper-case label.
+
+## Accessibility
+
+- **Focus.** `:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }` applies to every control (`app.css`). Components that draw their own keep the 2px ink line: `ChipButton` puts it on the pill, not the larger tap area; `PinButton` turns the pin's white stroke to a 4px ink stroke; `HeroButton` and `RadialTimePicker` use rings made with `box-shadow`; `TextField` and `SelectField` thicken the border to 2px ink.
+- **The focus trap.** `useFocusTrap(open, panel, { restoreOnUnmount })` in `frontend/src/lib/useFocusTrap.js` moves focus into a panel when it opens, keeps Tab and Shift+Tab inside it, and returns focus to the control that opened it. A composable is a function that a Vue component calls to share behaviour. It is used by `BottomSheet`, `ModalDialog`, `PopoverPanel` and `PlaceDetail`. `PhotoViewer` keeps focus inside itself with its own code. Each of the five closes on Escape.
+- **Dialog roles.** `BottomSheet`, `ModalDialog` and `PlaceDetail` have `role="dialog"`, `aria-modal="true"` and `aria-labelledby`. `PopoverPanel` has `role="dialog"` without `aria-modal`.
+- **Labels.** `IconButton` requires `label` and sets it as both `aria-label` and `title`. `TextField` and `SelectField` require `label` and tie hints and errors to the input with `aria-describedby`; errors have `role="alert"`. Tabs carry `aria-current="page"`. `ChipButton` sets `aria-pressed`, or `role="radio"` with `aria-checked`. `ToggleSwitch` has `role="switch"`. `ProgressBar` and `SegmentedProgress` have `role="progressbar"`. `CoinBadge` reads as "500 JioCoins". Decoration (`SingaporeMap`, `GridPulse`, the enter-game cover, confetti) is hidden with `aria-hidden`.
+- **Keyboard.** `SortableList` moves an item with the arrow keys from its handle. `HoldButton` works with Space or Enter held, and with a single activation from assistive technology. `CalendarPicker` moves between days with the arrow keys. Map pins in `PlannerMap` take focus and select on Enter. `MeetupGraph` is one focusable element that reads out the day the arrow keys land on. `AuthView` moves focus to each new question's heading.
+- **Target size.** `--tap-min` is 44px. Shapes that look smaller reach it by padding: a 32px chip in a 44px button, a 28px switch with a pseudo-element that extends it. The exceptions are under Known Conflicts.
+- **Touch.** Links and buttons have `-webkit-tap-highlight-color: transparent` and `touch-action: manipulation`. Hover styles sit inside `@media (hover: hover)`, and nothing is revealed by hover alone: the next button is filled from the start on touch screens, and `RadialTimePicker` opens on tap.
+- **Reduced motion.** See Motion: one global rule, plus a check in every script that animates except the `HoldButton` fill.
+- **Language.** `frontend/index.html` sets `lang="en"`.
+
+## Changes since this was recorded
+
+On 10 Oct 2026, after this document was written from commit `65567bb`, nine defects from the audit of that pull request were fixed. The tables above describe the fixed code. What changed, in one place:
+
+- `HoldButton` also answers a single activation from assistive technology.
+- `CalendarPicker` days are 44px tall with arrow-key movement and one tab stop; today carries `aria-current="date"`.
+- `LeaderboardPodium` reads 1 · 2 · 3; rank labels are real text for screen readers.
+- At 480px and below, `LeaderboardRankings` puts the amount under the name, and `LeaderboardCard` wraps its season picker under the title.
+- `LeaderboardView` keeps the season picker mounted while a past season loads, and shows an error with "Try again" if it fails.
+- `SessionNotices` shows a "votes were cleared" banner while voting.
+- `GroupDetailView` has a "Waiting for N people" card; the host can continue without someone, behind a confirmation dialog.
+- An account made through the sign-up form starts with no meetups, JioCoins or rank. Only the one-click demo account (`demo: true`) carries the sample history.
+
+No token, colour or copy rule changed.
+
+## Known Conflicts
+
+Each item is a place where the shipped code departs from a rule written in `CLAUDE.md`, in `frontend/src/styles/README.md`, or in a comment in the code. They are recorded as facts. Nothing here has been changed, and the lead decides each one. Contrast ratios are computed from the token values with the WCAG 2 formula; 4.5:1 is the threshold `CLAUDE.md` names.
+
+"This pull request" means "Feat/leaderboard jiocoins", pull request number 87 on `peachoolongtee/jio`, merged on 10 Oct 2026.
+
+### Contrast
+
+1. **White on `--primary`: `#ffffff` on `#ff385c` is 3.52:1.** `CLAUDE.md` says "white text sits only on colours that give 4.5:1 or better. `--primary` is the text-safe brand colour". This pull request changed `--primary` from `#d10027` (5.61:1 with white) to `#ff385c`, in commit `43b4ddb` ("restore the brighter brand colours…"); the darker value came from commit `5cc306b` ("darken brand, category and person colours for contrast"). The token's own comment now says "White text on it is 3.5:1; this brighter red was chosen over the darker #d10027 on 2026-10-09". White text or icons sit on `--primary` in: `AppButton` (`primary`, `pill`, and the filled `next`), `IconButton tone="brand"`, the Create tab in `TabBar`, `StatusPill` (Confirmed), `CountdownChip` (Live now), the selected day in `CalendarPicker`, `PinButton`, `HeroButton`, the done marks in `MemberList`, `InviteDialog` and `ProgressDonut`, the meeting-area pin and radius label in `PlannerMap`, the pin in `PlaceDetail`, the countdown pill in `LeaderboardView`, the `+` in `RewardsView`, the 56px initial badge in `InviteView`, and icon circles in `EventView` and `GroupDetailView`.
+2. **`--primary` and `--primary-bright` are now the same value, `#ff385c`.** `CLAUDE.md` describes them as different ("`--primary-bright` is for decoration without text"). Changed by this pull request.
+3. **`--primary` as text.** On white it is 3.52:1: the `HoldButton` label (14px), the balance in `RewardsView` (22px, weight 700), the arrow in `HeroButton`. On its 11% tint (`#ffe9ed`) it is 3.04:1: the current tab's icon and 12px name in `TabBar`. On the 16% hold fill (`#ffdfe5`) it is 2.84:1: the `HoldButton` label while held. The README says this pair is 4.6:1.
+4. **White on category colours.** `--cat-eat-fg` `#ea580c` 3.56:1, `--cat-drink-fg` `#0284c7` 4.10:1, `--cat-activity-fg` `#059669` 3.77:1. `--cat-shop-fg` `#9333ea` is 5.38:1 and passes. White stop numbers sit on these in `StopCard` and `PlannerMap`. This pull request changed the first three from `#c44a0a`, `#0277b4` and `#04825b`, and removed the comment "Each is dark enough for white numbers on it (4.5:1 or more)".
+5. **White on person colours.** `--person-3` `#0d9488` 3.74:1, `--person-5` `#ea580c` 3.56:1, `--person-7` `#0891b2` 3.68:1. The other five pass (4.71:1 to 5.70:1). White initials sit on these in `UserAvatar` and on person pills in `PlannerMap`. This pull request changed these three from `#0b7f75`, `#c44a0a` and `#077c99`, and removed the matching comment.
+6. **Other pairs under 4.5:1, for information.** `--muted-soft` `#929292` on white is 3.11:1; besides disabled controls it colours the labels of session steps not yet reached (`SessionSteps`). `--medal-gold-fg` `#c08a00` (3.05:1) and `--medal-silver-fg` `#7a8699` (3.69:1) on white are used for crown icons and rings, not text, though the token comment also names "rank numbers". Category icons on their 12% tints are 3.07:1 (eat), 3.51:1 (drink) and 3.25:1 (activity); these are icons, not text. `--legal-link` `#428bff` is 3.30:1 on white and is unused.
+7. **Pairs checked that pass.** White on `--primary-active` 4.89:1, on `--primary-error-text` 5.54:1, on `--ink` 15.91:1. `--muted` on white 5.41:1, on `--surface-soft` 5.05:1, on `--surface-strong` 4.83:1. `--primary-error-text` on white 5.54:1. `--scale-middle-text` on white 5.06:1, `--scale-good` 5.02:1, `--scale-bad` 4.83:1. Medal numbers on their blocks: 5.66:1, 6.39:1, 5.18:1.
+
+### The "Sample data" note
+
+8. `CLAUDE.md` says "Mock people, places, reviews and rewards carry a visible 'Sample' note (`components/ui/SampleNote.vue`)". `SampleNote` is rendered in two places: `PlaceDetail` (under the place's name) and `ProfileView` (on someone else's profile only).
+9. This pull request removed `SampleNote` from `LandingView` and from `LeaderboardView`. The other ranked people are hand-written. (A stale comment in `LeaderboardView` that claimed a note was shown has since been corrected.)
+10. It is not rendered on the Home place cards (`PlaceCard`), in `InviteView` or `InviteDialog` (people), or in `RewardsView`, where the intro line says "sample café vouchers" in words instead.
+
+### The README's rules against the code
+
+This pull request edited `frontend/src/styles/README.md` in two places: the hex in rule 2, and the sentence on data colours, which now reads "the brighter originals, chosen over darker versions on 2026-10-09" where it read "dark enough for white numbers and initials on them (4.5:1 or more)". The rest of its text describes the earlier look.
+
+11. **Rule 2, contrast figures.** It says `--primary` gives white text 5.6:1 and is 4.6:1 on its tint, and that `--primary-bright` is a different, brighter colour. See items 1 to 3.
+12. **Rule 2, "Anything selected is ink … selected chips and dates … progress bars, the donut chart".** The selected date in `CalendarPicker` is `--primary`. `ProgressDonut`, `SessionSteps` and `SegmentedProgress` are `--primary`. The current tab is a red tint, not an "active tab underline".
+13. **Rule 2, "used scarcely … one or two Rausch moments".** See the list in item 1 for where red appears on a single screen.
+14. **Rule 4, "No gradients".** Gradients are used in eight files; see Elevation & Depth.
+15. **Rule 4, "There is one shadow, `--shadow-float`".** Eight files write their own shadows; see Elevation & Depth.
+16. **Rule 4, "Buttons … do not shrink when pressed".** `AppButton` scales to 0.97 when pressed, `IconButton` to 0.9, `ChipButton` to 0.94. The same README's motion paragraph says buttons "give a little when pressed".
+17. **Rule 4, "buttons and inputs 8px".** The `next` and `pill` variants, `HeroButton` and `HoldButton` are fully round.
+18. **Rule 5, "Every tap target is at least 44px".** The close button of `PopoverPanel` is 36px. Legend swatches in `MeetupGraph` are 24px. Tabs in `TabBar` may be 40px wide under 380px. Calendar days are 44px tall and as wide as their column, which is about 36px at 320px wide.
+19. **Rule 6, "Show a `StatusPill` … at the top of every session screen".** This pull request removed `StatusPill` from `SessionHeader` and `InviteView`; `SessionSteps` now shows where the session is. `StatusPill` remains on `SessionCard` and in `SessionMapView`.
+20. **Rule 10, "The floating tab bar is the navigation at every size".** From 744px it is a bar along the top. The comment in `tokens.css` was updated; the README was not.
+21. **Rule 1, "Use a token, never a raw value".** See "Colours hard-coded outside the tokens", "Sizes written outside the scale", the raw radii under Shapes, the raw shadows under Elevation & Depth and the raw curves under Motion.
+22. **`DESIGN-airbnb.md`.** The README and the first line of `tokens.css` name this file as the basis of the system. It is not in the repository.
+
+### Tokens
+
+23. No token described by the README has been removed. Tokens whose values this pull request changed: `--primary`, `--primary-active` (`#aa001f` to `#e00b41`), `--cat-eat-fg`, `--cat-drink-fg`, `--cat-activity-fg`, `--person-3`, `--person-5`, `--person-7`. Tokens it added: `--brand-logo`, the nine `--medal-*`, `--wide-form-max-width`, `--topbar-height`.
+24. Defined and unused: `--luxe`, `--plus`, `--legal-link`, `--surface-card`, `--rounded-none`, `--rounded-xl`, `--spacing-section`. Classes defined and unused: `.link`, `.micro-label`, `.button-md`, `.button-sm`, `.nav-link`, `.text-body`, `.text-brand`, `.note`, `.mobile-only`, `.desktop-only`.
+25. `--font-sans` begins with "Airbnb Cereal VF" and Circular, which are not bundled and are licensed to others. Inter is the face that ships.
+
+### Other
+
+26. `HeroButton` is defined and used by no screen. `StatTile` and `PollBar` appear only in `DesignSystemView`.
+27. `DesignSystemView` (`/design-system`) does not show `GridPulse`, `PopoverPanel`, `CoinBadge`, `PinButton`, `HeroButton`, `HoldButton`, `CalendarPicker`, `RadialTimePicker`, `SingaporeMap`, the three Leaderboard components, `SessionSteps` or `SampleNote`.
+28. `PlaceDetail` switches to its panel layout at 768px; every other tablet rule uses 744px.
+29. `EventView` says "points" in one banner where the rest of the app says "JioCoins".
+
+## Building a New Screen
+
+1. Start from the shell: `<main class="screen">` with `.screen__header`, `.screen__body` and, if there is a main action, `.screen__footer`. Use `.screen--form` or `.screen--wide-form` for a form. If the screen is a tab, set `meta: { tabs: true, tab: '<id>' }` on its route.
+2. Title it with one `<h1 class="display-xl">`. Section headings are `<h2 class="display-sm">` inside `.section` and `.section__head`.
+3. Take every colour, space, radius and shadow from `tokens.css`. If no token fits, check the tables above for the nearest one before writing a number.
+4. Choose one main action. Use `AppButton` (add `next` when it leads to the next step, `block` in the footer). Use `IconButton` for secondary icon actions and give each a `label`.
+5. Build from the tables under Components. For a quick pick beside a button use `PopoverPanel`; for a longer task `BottomSheet`; for a yes-or-no question `ModalDialog` with the safer choice first.
+6. Lists go in `.grid-3` or a stack. Give each list four states: `SkeletonRow` while loading, `EmptyState` when empty, `EmptyState` with `role="alert"` and a Retry button when loading fails, and the content.
+7. A list with a map goes in `SplitView` with `PlannerMap`, and `CategoryKey` when category colours are shown.
+8. On a session screen, begin with `SessionHeader`; it brings `SessionSteps`.
+9. Use information colours only for information, with a word, icon or key. Use `CoinBadge` for amounts, `PriceTier` for prices, `UserAvatar` with `person` for people.
+10. Write copy as under Voice and Copy: sentence case, "about N min" for estimates, a question for a dialog title. Mark hand-written content with `SampleNote`.
+11. Keep every target at least 44px, leave the global focus outline visible, and trap focus in anything that opens over the page with `useFocusTrap`.
+12. For entrance motion use `.rise` with `--i` for a stagger. For anything else use `--motion-fast`, `--motion-medium` and the three `--ease-*` curves, and give it a reduced-motion path.
+13. Stack to one column under 744px and add columns at 744px and 1128px in CSS only.
+14. Before placing white text on `--primary`, a category colour or a person colour, read Known Conflicts items 1 to 5.

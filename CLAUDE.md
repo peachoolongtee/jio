@@ -30,6 +30,10 @@ Jio decides where a group should meet, fairly, and plans the outing around it. I
 
 Work is tracked in GitHub Issues on `peachoolongtee/jio`. The wayfinder map is issue #1 and the audit tracker is issue #47. See `docs/agents/issue-tracker.md`.
 
+### Design language
+
+`DESIGN.md` at the repo root records the design language as it ships: tokens, components, layout, motion, voice, and the known conflicts with this file's rules. Read it before building or changing any screen. Its machine-readable twin is `.impeccable/design.json`.
+
 ### Domain docs
 
 Single-context: one `CONTEXT.md` glossary at the repo root, and `docs/adr/` when a decision earns a record. See `docs/agents/domain.md`.
@@ -40,11 +44,11 @@ As of 2026-10-09. The Supabase foundation was built on branch `feat/supabase-fou
 
 | Area | State |
 |---|---|
-| Frontend screens | Built on `dev`: sign-up, sessions, invite, meeting area, voting, itinerary, leaderboard. All data is in one browser's local storage. |
+| Frontend screens | Sign-up, sessions, meeting area, voting, itinerary, photos, leaderboard with seasons, rewards in JioCoins, profiles. A top bar from 744 px and a pill tab bar on phones. All data is in one browser's local storage. |
 | Backend planner | Built on `dev`: `/api/meeting-area`, `/api/converge`, `/api/roam`, `/api/search`. Travel times and weather are internal estimates. Open to anyone. |
 | Database | Session schema and access rules applied to the live `jio` project on 2026-10-09, then revised twice the same day after two reviews (three migrations). No app code reads or writes it yet. |
 | Login | Backend token check and `GET /api/me` built and hardened after two reviews. No login screen; the frontend sends no token. |
-| External APIs | The HTTP helper with stub mode is merged. Nothing calls it. No OneMap account yet. |
+| External APIs | The planner uses the live data.gov.sg forecast through the HTTP helper. OneMap gives address search (`GET /api/places/search`, no account needed) and public transport routing, which switches on with `ONEMAP_EMAIL` and `ONEMAP_PASSWORD` (Faith has an account) and falls back to the estimate whenever it cannot route. See `backend/docs/external-apis.md`. |
 | End-to-end tests, deploy | Not started. |
 
 ## Architecture Decisions
@@ -60,6 +64,13 @@ Each is recorded in full on the ticket named. Read the ticket before changing th
 - **Token check:** the server holds its own copy of Supabase's public signing keys and verifies only `ES256` and `RS256` tokens whose key id it holds. It answers 503 when it cannot reach Supabase and has no keys. After a failed refresh it waits a minute before asking again, and it drops keys older than 24 hours. `SUPABASE_ALLOW_LEGACY_TOKENS=1` admits `HS256` tokens by asking Supabase.
 - **Errors:** only an error raised by the body parser may answer a 4xx by its own status. Any other uncaught error answers 500 and is logged, so an external API's 401 never reaches the browser as one.
 - **`db/schema.sql` and `db/policies.sql` describe a fresh build** and run together as one transaction. A change to a table that already exists on the live project needs its own migration, with the same statements added to the files.
+- **Weather:** the planner scores against the live two-hour forecast and says where the weather came from in `weather.source`. A simulated forecast needs `ALLOW_SIMULATED_WEATHER=1` or stub mode; otherwise `weatherCase` is ignored, never refused, because the frontend sends it on every ranking.
+- **One error shape:** `{ error: '<code>', message }` on every route. Decided by the lead on 2026-10-09, replacing the nested shape on ticket #8.
+- **Rate limit:** the planner routes share a per-caller limit set in `index.js`. `createApp` applies none unless given `planRateLimit`, so tests are unaffected.
+- **Sample data: partly labelled, by the lead's decision of 2026-10-10.** The lead took the leaderboard pull request as shipped, which removed the "Sample" note from the leaderboard, Home's places and the Rewards banner. It remains on the place detail and on other people's profiles; rewards use invented café names; distance-based times say "about". Do not add or remove notes without the lead.
+- **Cut on 2026-10-09:** crowd estimates, "Ask AI", and the contacts and location steps in sign-up. Do not bring them back without the lead.
+- **Contrast: the brand red is `#ff385c`, by the lead's decision of 2026-10-10.** White text on it is 3.52:1, below the 4.5:1 minimum, and three category and three person colours are also under it. `DESIGN.md` lists each pair under "Known Conflicts". Do not darken them without the lead; do not add new white-on-red text without reading that section.
+- **OneMap is a shared budget.** The account allows 300 calls a minute for everyone. One request routes at most 60 trips, whole candidates only; the whole server makes at most `ONEMAP_CALLS_PER_MINUTE` calls (240 by default) across routing, search and login; a trip over either limit uses the estimate and is flagged `approximate`. Do not add a OneMap call that bypasses `createOneMap`'s budget.
 - **Planner limits:** every list, string and number in a planner request has an upper bound, held in one `MAX` block in `backend/src/routes/plan-schemas.js`.
 - **Routes added to the Express app go in through `createApp({ mount })`**, because the "not found" handler is last.
 
@@ -70,6 +81,16 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 **Round 1, 2026-10-09, project initialisation: completed.** Four read-only agents reviewed the unpushed branch, the schema, the open frontend pull request, and ran the checks. They found three significant defects in the login check and a blocker in the schema.
 
 **Round 2, 2026-10-09, fixes: completed.** A backend agent hardened the login check; the lead revised the schema on the live project. An independent tester confirmed the results. A second review asked for more changes.
+
+**Round 9, 2026-10-10, OneMap made safe and everything reconciled: completed.** A backend agent capped OneMap calls per request and per process and fixed the token handling. The defect fixes, the external-APIs pull request and these changes went to `main` together from `feat/onemap-and-defect-fixes`.
+
+**Round 8, 2026-10-10, leaderboard defects fixed and the external-APIs pull request audited: completed.**
+
+**Round 7, 2026-10-10, audit of the leaderboard pull request and the design document: completed.** Two read-only reviewers and a documentation agent. The pull request was merged as it is; the findings are on the pull request and on a tracker ticket.
+
+**Rounds 5 and 6, 2026-10-09, audit of the session-flow pull request and its fixes: completed.** Three read-only reviewers, then four frontend agents on separate files. The pull request's commits, the fixes and round 4 went to `main` together from `feat/session-flow-integration`.
+
+**Round 4, 2026-10-09, unblocked backend work: completed.** Live weather, a rate limiter, the flat error shape, CI for the frontend tests, and a design for the session endpoints (on ticket #80).
 
 **Round 3, 2026-10-09, second-review fixes: completed.** A backend agent fixed `GET /api/me`, the error handler and the key refresh; the lead tightened two constraints and one rule on the live project. The lead verified both. No further review was run on round 3.
 
@@ -89,12 +110,12 @@ The tracker is the source of truth. Start from the audit tracker, issue #47: thr
 
 Recorded as tickets under issue #47. The ones that change how you work today:
 
-- **Sign-up will fail as built.** The existing sign-up trigger requires a date of birth and a lowercase username without dots. The sign-up screens collect neither correctly.
+- **Sign-up is still local.** The screens now collect a date of birth and a username the database accepts, but nothing is sent to Supabase and there is no login screen.
 - **The planner routes accept anyone.** The login check exists but is not applied to them, because the frontend sends no token yet.
-- **The open frontend pull request changes `frontend/src/lib/api.js`, the router and two stores.** Frontend work on login or the data layer conflicts with it until it is merged or closed. It also adds photos, seasons and points that the schema has no tables for.
+- **Points, season prizes and voucher codes are computed in the browser** and can be edited there. They are labelled as a demo and must not be presented as real.
+- **The signed-in user's id is hard-coded** in several views, so nothing works for two real people yet.
 - **An old database password is in git history.** The repo must stay private until the lead resets it.
 - **CI runs only on pull requests and `main`**, and runs only the backend tests.
-- **Two error shapes.** The login check answers `{ error: { code, message } }`, as agreed on ticket #8. The planner routes answer `{ error, message }`. The lead has to pick one before the frontend handles errors.
 - **A host's account cannot be deleted**, and nothing deletes sessions. Account erasure needs a server route.
 
 ## Testing and Verification
@@ -115,11 +136,34 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-09 | `91b9434` (round 3) | `pnpm --filter jio-frontend test` | 39 passed, 7 files |
 | 2026-10-09 | `91b9434` (round 3) | `pnpm build` | Succeeded |
 | 2026-10-09 | live `jio` database, round 3 changes | 13-step test, rolled back | 13 of 13 passed, no rows left |
+| 2026-10-09 | working tree after round 4 | `pnpm test` | 317 passed, 1 skipped, 18 files |
+| 2026-10-09 | working tree after round 4 | `pnpm --filter jio-frontend test` | 39 passed, 7 files |
+| 2026-10-09 | working tree after round 4 | `pnpm build` | Succeeded |
+| 2026-10-09 | working tree after round 4 | One planner request against the real data.gov.sg forecast | `weather.source: live`, 369 ms, then 6 ms cached |
+| 2026-10-09 | `feat/session-flow-integration` after round 6 | `pnpm test` | 317 passed, 1 skipped, 18 files |
+| 2026-10-09 | `feat/session-flow-integration` after round 6 | `pnpm --filter jio-frontend test` | 186 passed, 20 files |
+| 2026-10-09 | `feat/session-flow-integration` after round 6 | `pnpm build` | Succeeded |
+| 2026-10-10 | `65567bb`, the leaderboard pull request's head | `pnpm test` | 317 passed, 1 skipped, 18 files |
+| 2026-10-10 | `65567bb` | `pnpm --filter jio-frontend test` | 192 passed, 22 files |
+| 2026-10-10 | `65567bb` | `pnpm build` | Succeeded |
+| 2026-10-10 | `feat/onemap-and-defect-fixes` after round 9 | `pnpm test`, also with outbound calls blocked | 383 passed, 1 skipped, 20 files, both times |
+| 2026-10-10 | `feat/onemap-and-defect-fixes` after round 9 | `pnpm --filter jio-frontend test`, `pnpm build` | 229 passed, 25 files; succeeded |
+| 2026-10-10 | `feat/onemap-and-defect-fixes` after round 9 | OneMap route calls for one meeting-area request, 30 members, stubbed | 59 by default and 60 at the widest setting (480 and 1,108 before) |
+| 2026-10-10 | `fix/leaderboard-audit-defects`, working tree | `pnpm --filter jio-frontend test` | 229 passed, 25 files |
+| 2026-10-10 | `fix/leaderboard-audit-defects`, working tree | `pnpm test`, `pnpm build` | 317 passed, 1 skipped; succeeded |
+| 2026-10-10 | external-APIs pull request merged with `main`, throwaway worktree | `pnpm test`, also with outbound calls blocked | 334 passed, 1 skipped, both times |
+| 2026-10-09 | `feat/session-flow-integration` after round 6 | Browser check at 320, 375 and 1280 px | No horizontal overflow on six routes; sign-up completes with the date-of-birth step |
+| 2026-10-09 | `feature/external-apis` merged with `main` (working tree) | `pnpm test` | 334 passed, 1 skipped, 19 files |
+| 2026-10-09 | `feature/external-apis` merged with `main` (working tree) | `pnpm --filter jio-frontend test` | 186 passed, 20 files |
+| 2026-10-09 | `feature/external-apis` merged with `main` (working tree) | `pnpm build` | Succeeded |
+| 2026-10-09 | `feature/external-apis` merged with `main`, real OneMap account | Live server: roam, meeting area, address search | Roam: live weather, 9 of 9 trips routed by OneMap. Meeting area for Tampines + Clementi: Bugis, 28 min worst, 32 routes. Address search found Bishan MRT |
 
 Not yet verified: a real user's login token against `GET /api/me`, and anything end to end.
 
 ## Next Steps
 
-1. Bring `dev` level with `main`, so teammates build on the foundation. Then the lead decides on the open frontend pull request, which targets `dev`.
-2. The lead settles the sign-up questions, the error shape and the product-shape decision.
-3. Continue the overhaul tickets in order. The external-API step needs only the OneMap account, so it can run in parallel.
+1. The lead settles the four decisions left on the audit ticket for the leaderboard pull request (brand red, sample labels, the controls removed from the voting page, planner request count).
+2. Put the OneMap account's email and password in `backend/.env` to switch real routing on; test it once against the real service.
+3. Bring `dev` level with `main` if `git log --oneline origin/dev..origin/main` shows commits.
+4. Build the session endpoints from the design on ticket #80, starting with a rolled-back test of its SQL.
+5. Frontend: the login screen and token, then moving the data layer to Supabase.

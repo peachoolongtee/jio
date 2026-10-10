@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, dev]
 
 permissions:
   contents: read
@@ -26,6 +26,9 @@ jobs:
 
       - name: Backend unit tests
         run: pnpm test
+
+      - name: Frontend unit tests
+        run: pnpm --filter jio-frontend test
 
       - name: Frontend build
         run: pnpm build

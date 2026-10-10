@@ -9,8 +9,11 @@ import BannerNote from '@/components/ui/BannerNote.vue'
 import BottomSheet from '@/components/ui/BottomSheet.vue'
 import CategoryIcon from '@/components/ui/CategoryIcon.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
+import CountdownChip from '@/components/ui/CountdownChip.vue'
+import MeetupGraph from '@/components/ui/MeetupGraph.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import JioLogo from '@/components/ui/JioLogo.vue'
 import IllustrationBlob from '@/components/ui/IllustrationBlob.vue'
 import InfoTag from '@/components/ui/InfoTag.vue'
 import ListRow from '@/components/ui/ListRow.vue'
@@ -22,8 +25,8 @@ import RangeSlider from '@/components/ui/RangeSlider.vue'
 import RatingBadge from '@/components/ui/RatingBadge.vue'
 import SegmentTabs from '@/components/ui/SegmentTabs.vue'
 import SelectField from '@/components/ui/SelectField.vue'
-import SideNav from '@/components/ui/SideNav.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
+import SortableList from '@/components/ui/SortableList.vue'
 import SplitView from '@/components/ui/SplitView.vue'
 import StatTile from '@/components/ui/StatTile.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
@@ -37,11 +40,12 @@ import PollBar from '@/components/event/PollBar.vue'
 import StopCard from '@/components/event/StopCard.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
 import TravelConnector from '@/components/event/TravelConnector.vue'
+import { moveItem } from '@/lib/planner/itinerary.js'
 
 const COLOURS = [
-  ['primary', 'Lagoon. Main action, selected.'], ['primary-active', 'Pressed.'], ['primary-tint', 'Lagoon tint.'], ['primary-disabled', 'Disabled, washes.'],
-  ['primary-error-text', 'Errors, Cancelled.'], ['warning-text', 'Rain, long trips.'], ['ink', 'Text, Completed.'], ['muted', 'Secondary text.'],
-  ['border-strong', 'Outlines.'], ['hairline', 'Borders.'], ['surface-strong', 'Plates.'], ['canvas', 'Background.'],
+  ['primary', 'Rausch. Main action.'], ['primary-active', 'Rausch pressed.'], ['primary-bright', 'Bright Rausch. Decoration only, no text.'], ['primary-disabled', 'Disabled, pale wash.'], ['primary-error-text', 'Errors, warnings.'], ['scale-middle', 'Amber fills, no text.'], ['scale-middle-text', 'Amber as text.'],
+  ['ink', 'Text, selected.'], ['body', 'Running text.'], ['muted', 'Secondary text.'], ['border-strong', 'Chip outlines.'],
+  ['hairline', 'Borders.'], ['surface-strong', 'Icon circles, plates.'], ['surface-soft', 'Banners.'], ['canvas', 'Background.'],
 ]
 const CATEGORY_TINTS = ['eat', 'drink', 'shop', 'activity']
 const TYPE = [
@@ -49,21 +53,31 @@ const TYPE = [
   ['body-sm', 'Small body text'], ['caption', 'Label or chip'], ['caption-sm', 'Meta line'], ['badge', 'Status pill'],
 ]
 const STATUSES = ['inviting', 'locating', 'voting', 'confirmed', 'completed', 'cancelled']
-const ICONS = ['back', 'close', 'plus', 'check', 'search', 'filter', 'calendar', 'clock', 'pin', 'map', 'locate', 'flag', 'route', 'layers', 'expand', 'people', 'user-plus', 'trophy', 'gift', 'sparkle', 'edit', 'trash', 'more', 'swap', 'rain', 'warning', 'info', 'lock', 'camera', 'home', 'logout', 'eat', 'drink', 'activity', 'shop', 'walk', 'mrt', 'car', 'star']
+const ICONS = ['back', 'close', 'plus', 'check', 'search', 'filter', 'calendar', 'clock', 'pin', 'map', 'locate', 'flag', 'route', 'layers', 'expand', 'people', 'user-plus', 'trophy', 'gift', 'sparkle', 'edit', 'trash', 'more', 'swap', 'rain', 'warning', 'info', 'lock', 'camera', 'home', 'logout', 'eat', 'drink', 'activity', 'shop', 'walk', 'mrt', 'car', 'star', 'grip']
 const FRIENDS = ['Darius', 'Jonathan', 'Nicole', 'Faith']
 const PLACE = { id: 'p', name: 'Tiong Bahru Bakery', category: 'drink', area: 'Tiong Bahru', distanceKm: 0.4, price: 14, rating: 8.4, tags: ['touristy'] }
 const OPTION = {
   id: 'o',
   venue: { name: 'Bishan Public Library', category: 'activity', area: 'Bishan', price: 0 },
   walk: 3,
-  crowd: 'quiet',
-  reasons: ['Near MRT', 'Quiet at 15:00'],
+  reasons: ['Near MRT', 'Budget friendly'],
   warnings: [],
   votes: 3,
   voters: ['Darius', 'Nicole', 'Darryl'],
   swap: null,
 }
-const RAIN_OPTION = { ...OPTION, id: 'r', venue: { name: 'Bishan-Ang Mo Kio Park', category: 'activity', area: 'Bishan', price: 0 }, walk: 21, crowd: 'moderate', reasons: ['Budget friendly'], warnings: ['rain'], votes: 1, voters: ['Faith'], swap: { id: 's', name: 'Toa Payoh Public Library' } }
+const RAIN_OPTION = { ...OPTION, id: 'r', venue: { name: 'Bishan-Ang Mo Kio Park', category: 'activity', area: 'Bishan', price: 0 }, walk: 21, reasons: ['Budget friendly'], warnings: ['rain'], votes: 1, voters: ['Faith'], swap: { id: 's', name: 'Toa Payoh Public Library' } }
+
+// Example data for the countdown (starts in about 50 minutes) and the graph.
+const in50 = new Date(Date.now() + 50 * 60000)
+const soon = { date: in50.toISOString().slice(0, 10), start: in50.toTimeString().slice(0, 5) }
+const demoStops = ref([
+  { name: 'Bishan Public Library', category: 'activity', duration: 120, price: 0 },
+  { name: 'Junction 8', category: 'shop', duration: 90, price: 15 },
+  { name: 'Ming Kee Chicken Rice', category: 'eat', duration: 60, price: 6 },
+])
+const DEMO_TIMES = ['15:00', '17:05', '18:40']
+const graphHistory = Array.from({ length: 14 }, (_, i) => ({ date: new Date(Date.now() - (i * 6 + 2) * 86400000).toISOString().slice(0, 10), count: (i % 3) + 1 }))
 
 const name = ref('')
 const email = ref('not-an-email')
@@ -86,7 +100,7 @@ const toast = ref(false)
   <main class="screen">
     <header class="screen__header">
       <div class="screen__titles">
-        <span class="display-xl text-brand">Jio</span>
+        <JioLogo :height="40" />
         <h1 class="display-sm">Design system</h1>
         <p class="body-sm text-muted">Tokens: styles/tokens.css · Components: components/ui, components/event</p>
       </div>
@@ -158,7 +172,7 @@ const toast = ref(false)
         </div>
         <div class="row gap-xs wrap">
           <InfoTag>Near MRT</InfoTag>
-          <InfoTag tone="lagoon" icon="people">Quiet · est.</InfoTag>
+          <InfoTag tone="strong" icon="trophy">Leading</InfoTag>
           <InfoTag tone="warning" icon="rain">Outdoor · rain expected</InfoTag>
           <InfoTag tone="error">Opted out</InfoTag>
           <PriceTier :price="8" />
@@ -179,10 +193,19 @@ const toast = ref(false)
         <ProgressDonut title="Locations" :people="[{ name: 'Ian', done: true }, { name: 'Darius', done: true }, { name: 'Jonathan', done: false }, { name: 'Nicole', done: true }]" done-label="Submitted" />
         <div class="two">
           <StatTile label="Successful meetups" :value="3" icon="trophy" />
-          <StatTile label="Points" :value="300" icon="gift" tone="warm" />
+          <StatTile label="JioCoins" :value="300" icon="coin" />
         </div>
         <BannerNote dismissible @dismiss="toast = true">Meeting area moved from Bishan to Serangoon because Jonathan opted out.</BannerNote>
         <BannerNote tone="error" icon="people">Not enough people. Invite someone or cancel.</BannerNote>
+      </section>
+
+      <section class="stack gap-md" aria-labelledby="ds-time">
+        <h2 id="ds-time" class="display-sm">Countdown and meetup graph</h2>
+        <div class="row gap-sm wrap">
+          <CountdownChip :session="{ date: soon.date, start: soon.start, end: '23:59', status: 'confirmed' }" />
+          <CountdownChip :session="{ date: '2099-01-01', start: '15:00', end: '21:00', status: 'confirmed' }" />
+        </div>
+        <div class="card"><MeetupGraph :history="graphHistory" :planned="[soon.date]" :weeks="16" /></div>
       </section>
 
       <section class="stack gap-md" aria-labelledby="ds-people">
@@ -205,7 +228,7 @@ const toast = ref(false)
           </ListRow>
           <ListRow as="li" title="Darius" meta="@darius · Bugis" to="/design-system">
             <template #leading><UserAvatar name="Darius" /></template>
-            <template #trailing><InfoTag tone="lagoon">Location submitted</InfoTag></template>
+            <template #trailing><InfoTag tone="strong">Location submitted</InfoTag></template>
           </ListRow>
         </ul>
         <div v-else>
@@ -226,6 +249,15 @@ const toast = ref(false)
           <TravelConnector :options="{ walk: 4, mrt: 9, car: 6 }" :mode="mode" @change="mode = $event" />
           <StopCard :number="2" :time="mode === 'walk' ? '17:04' : mode === 'mrt' ? '17:09' : '17:06'" :duration="90" name="Junction 8" category="shop" :price="15" area="Bishan" />
         </div>
+        <div class="card">
+          <SortableList :items="demoStops" :item-key="(s) => s.name" :item-label="(s) => s.name" label="Example stops" @move="(from, to) => (demoStops = moveItem(demoStops, from, to))">
+            <template #item="{ item, index, lifted, handle }">
+              <StopCard :number="index + 1" :time="DEMO_TIMES[index]" :duration="item.duration" :name="item.name" :category="item.category" :price="item.price" area="Bishan" :lifted="lifted" :warning="item.category === 'eat' && index === 0 ? 'Closed at this time' : ''">
+                <template #handle><button v-bind="handle" class="drag-handle"><AppIcon name="grip" /></button></template>
+              </StopCard>
+            </template>
+          </SortableList>
+        </div>
         <div class="card" role="radiogroup" aria-label="Poll">
           <PollBar name="Ming Kee Chicken Rice" :votes="votes.a" :total="votes.a + votes.b" :leading="votes.a > votes.b" :mine="myVote === 'a'" @vote="myVote = 'a'" />
           <PollBar name="Kopitiam Junction 8" :votes="votes.b" :total="votes.a + votes.b" :leading="votes.b > votes.a" :mine="myVote === 'b'" @vote="myVote = 'b'" />
@@ -239,9 +271,8 @@ const toast = ref(false)
           <template #list><div class="placeholder">List</div></template>
           <template #map><div class="placeholder placeholder--map">Map</div></template>
         </SplitView>
-        <p class="caption text-muted">SideNav (desktop) and TabBar (mobile)</p>
+        <p class="caption text-muted">TabBar: the floating navigation at every size</p>
         <div class="frames">
-          <div class="frame frame--side"><SideNav :user="{ name: 'Ian', username: 'ian', photo: '' }" /></div>
           <div class="frame frame--tabs"><TabBar /></div>
         </div>
       </section>
@@ -287,11 +318,11 @@ const toast = ref(false)
 .icons__item { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xs); }
 .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
 .placeholder { display: flex; align-items: center; justify-content: center; min-height: 120px; border-radius: var(--rounded-md); background: var(--surface-soft); color: var(--muted); }
-.placeholder--map { height: 100%; background: var(--primary-tint); }
+.placeholder--map { height: 100%; background: var(--surface-strong); }
 .frames { display: flex; flex-wrap: wrap; gap: var(--spacing-base); }
 .frame { overflow: hidden; border: 1px solid var(--hairline); border-radius: var(--rounded-md); }
-.frame--side { width: var(--sidebar-width); height: 420px; }
 .frame--side :deep(.side) { position: static; display: flex; height: 100%; }
 .frame--tabs { flex: 1 1 320px; align-self: flex-start; }
-.frame--tabs :deep(.tabbar) { position: static; display: grid; }
+.frame--tabs { padding: var(--spacing-base); background: var(--surface-soft); }
+.frame--tabs :deep(.tabbar) { position: static; margin: 0 auto; transform: none; animation: none; }
 </style>
