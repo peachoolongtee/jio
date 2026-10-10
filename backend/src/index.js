@@ -3,6 +3,7 @@ import { createApp } from './app.js'
 import { createSupabase } from './db/supabase.js'
 import { DEFAULT_CALLS_PER_MINUTE } from './services/budget.js'
 import { assertStubAllowed, createHttp } from './services/http.js'
+import { createGooglePlaces } from './services/google-places.js'
 import { createOneMap, readOneMapSettings } from './services/onemap.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -54,6 +55,9 @@ const onemap = createOneMap({
   callsPerMinute: oneMapCallsPerMinute,
 })
 
+// Google Places: restaurants, cafés and bars with ratings and hours. Needs GOOGLE_MAPS_API_KEY; without it, off.
+const places = createGooglePlaces({ http, apiKey: process.env.GOOGLE_MAPS_API_KEY || null, stub })
+
 // The simulated forecast: lets a planner request send `weatherCase` to pretend it is raining. Off unless
 // switched on, because the planner uses the live data.gov.sg forecast otherwise. Stub mode always allows it.
 //
@@ -102,7 +106,7 @@ const supabase =
       })
     : null
 
-createApp({ frontendOrigin, stub, http, onemap, supabase, allowSimulatedWeather, planRateLimit }).listen(port, () => {
+createApp({ frontendOrigin, stub, http, onemap, places, supabase, allowSimulatedWeather, planRateLimit }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
   if (stub) console.log('Stub mode is ON: external API calls are answered from fixtures.')
   else if (!onemap.routingEnabled) {
@@ -118,6 +122,7 @@ createApp({ frontendOrigin, stub, http, onemap, supabase, allowSimulatedWeather,
       )
     })
   }
+  if (!stub && !places.enabled) console.log('Google Places is OFF: no Google restaurants or cafés. Set GOOGLE_MAPS_API_KEY in backend/.env.')
   if (allowSimulatedWeather) console.log('Simulated weather is ON: planner requests may send weatherCase to fake the forecast.')
   if (!supabase) {
     console.log('Supabase is NOT configured: routes that need a login are off. Set SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY in backend/.env.')

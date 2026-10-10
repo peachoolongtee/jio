@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build:cdc": "node scripts/build-cdc.js",
-    "build:venues": "node scripts/build-venues.js"
+    "build:venues": "node scripts/build-venues.js",
+    "build:onemap-places": "node scripts/build-onemap-places.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

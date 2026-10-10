@@ -1,10 +1,14 @@
 import fs from 'node:fs'
-import { matchVenueToCdc } from '../planner/cdc-adapter.js'
+import { matchVenueToCdc, nameSimilarity } from '../planner/cdc-adapter.js'
 import { haversineKm, walkMinutes } from '../planner/geo.js'
+import { attachClosures } from '../planner/hawker-closures.js'
 
-// Builds the one `data` object the planner engine reads, from the three venue sources we have today:
+// Builds the one `data` object the planner engine reads, from the venue sources we have today:
 //   mock-data.json       36 fictional venues + members, occasion profiles, weather cases, visit history
 //   curated-venues.json  63 real places from the frontend team's list (built by scripts/build-venues.js)
+//   onemap-places.json   ~480 places from OneMap's government lists: sport centres, attractions, museums, libraries,
+//                        theatres, parks and hawker centres, plus NEA's hawker closure dates
+//                        (built by scripts/build-onemap-places.js; optional, skipped when the file is missing)
 //   cdc-venues.json      1,422 CDC voucher food sites (built by scripts/build-cdc.js)
 // plus areas.json, the named MRT stations and neighbourhoods used as meeting-area candidates.
 //
@@ -53,6 +57,18 @@ export function withEstimatedMrtWalk(venue, stations) {
   return { ...venue, nearestMrt: venue.nearestMrt ?? nearest.name, mrtWalkMinutes: walkMinutes(venue, nearest), mrtWalkEstimated: true }
 }
 
+// A OneMap place that a hand-made list already has (the frontend's Tiong Bahru Market, the mock data's museum) is
+// left out, so a place is never suggested twice. Same place = within 300 m with a similar name, or the same
+// kind of place within 50 m.
+export function dropKnownPlaces(candidates, known, { meters = 300, minSimilarity = 0.5, sameKindMeters = 50 } = {}) {
+  return candidates.filter((c) => !known.some((k) => {
+    const m = haversineKm(c, k) * 1000
+    return (m <= meters && nameSimilarity(c.name, k.name) >= minSimilarity) || (m <= sameKindMeters && c.kind && c.kind === (k.kind ?? k.cuisine))
+  }))
+}
+
+const readOptionalJson = (name) => (fs.existsSync(new URL(name, MOCK_DIR)) ? readJson(name) : null)
+
 export function loadPlanData({ fresh = false } = {}) {
   if (cached && !fresh) return cached
   const mock = readJson('mock-data.json')
@@ -60,13 +76,19 @@ export function loadPlanData({ fresh = false } = {}) {
   const cdc = readJson('cdc-venues.json').venues
   const { areas } = readJson('areas.json')
 
+  const onemapFile = readOptionalJson('onemap-places.json')
+  const mockVenues = mock.venues.map((v) => ({ ...v, source: v.source ?? 'mock' }))
+
+  // The frontend's hawker centres replace their CDC copies, and so do OneMap's (which have photos and stall counts).
   const { venues: curatedMerged, droppedCdcIds } = mergeCuratedWithCdc(curated, cdc)
-  const dropped = new Set(droppedCdcIds)
-  const venues = [
-    ...mock.venues.map((v) => ({ ...v, source: v.source ?? 'mock' })),
-    ...curatedMerged,
-    ...cdc.filter((v) => !dropped.has(v.id)),
-  ].map((v) => withEstimatedMrtWalk(v, areas))
+  const onemapNew = dropKnownPlaces(onemapFile?.venues ?? [], [...mockVenues, ...curatedMerged])
+  const { venues: onemapMerged, droppedCdcIds: droppedByOnemap } = mergeCuratedWithCdc(onemapNew, cdc)
+  const dropped = new Set([...droppedCdcIds, ...droppedByOnemap])
+
+  const venues = attachClosures(
+    [...mockVenues, ...curatedMerged, ...onemapMerged, ...cdc.filter((v) => !dropped.has(v.id))],
+    onemapFile?.hawkerClosures ?? [],
+  ).map((v) => withEstimatedMrtWalk(v, areas))
 
   cached = {
     venues,
@@ -77,7 +99,15 @@ export function loadPlanData({ fresh = false } = {}) {
     _meta: {
       // The mock visit history is dated relative to this day, so anti-repeat stays meaningful in the demo.
       today: mock._meta.today,
-      sources: { mock: mock.venues.length, curated: curated.length, cdc: cdc.length - dropped.size, cdcMergedIntoCurated: dropped.size },
+      sources: {
+        mock: mock.venues.length,
+        curated: curated.length,
+        onemap: onemapMerged.length,
+        onemapSkippedAsKnown: (onemapFile?.venues.length ?? 0) - onemapNew.length,
+        cdc: cdc.length - dropped.size,
+        cdcMergedIntoCurated: dropped.size,
+        hawkerClosures: onemapFile?.hawkerClosures.length ?? 0,
+      },
     },
   }
   return cached

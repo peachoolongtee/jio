@@ -5,6 +5,7 @@ import { createMeRouter } from './routes/me.js'
 import { rateLimit } from './middleware/rate-limit.js'
 import { createPlanRouter } from './routes/plan.js'
 import { createHttp } from './services/http.js'
+import { createGooglePlaces } from './services/google-places.js'
 import { createOneMap } from './services/onemap.js'
 import { scenarioMiddleware } from './services/scenario.js'
 import { createWeather } from './services/weather.js'
@@ -26,6 +27,7 @@ import { createWeather } from './services/weather.js'
 //   onemap         - OneMap search and public transport routing, from createOneMap(). Defaults to the stub
 //                    routes in stub mode and to none otherwise, so a test app never calls OneMap. index.js
 //                    passes the real one.
+//   places         - Google Places, from createGooglePlaces(). Same default as `onemap`.
 //   allowSimulatedWeather - true lets a planner request send `weatherCase` to fake the forecast. Stub mode
 //                    always allows it. Otherwise the field is ignored and the answer says so. index.js sets
 //                    it from ALLOW_SIMULATED_WEATHER=1.
@@ -45,6 +47,7 @@ export function createApp({
   planData = loadPlanData(),
   weather = createWeather({ http }),
   onemap = stub ? createOneMap({ http, stub: true }) : null,
+  places = stub ? createGooglePlaces({ http, stub: true }) : null,
   allowSimulatedWeather = false,
   planRateLimit = null,
   routingDeadlineMs = undefined,
@@ -85,6 +88,7 @@ export function createApp({
       data: planData,
       weather,
       onemap,
+      places,
       allowSimulatedWeather: allowSimulatedWeather || stub,
       routingDeadlineMs,
       limiter: planRateLimit ? rateLimit(planRateLimit) : null,

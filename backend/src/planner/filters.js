@@ -1,6 +1,8 @@
 // filters.js: hard-constraint filtering shared by Converge and Roam.
 // A venue is ALLOWED or REJECTED here. No scoring happens in this file.
 
+import { isClosedOn } from './hawker-closures.js';
+
 /** "14:30" -> 870. "24:00" -> 1440, so midnight closing works. */
 function toMinutes(hhmm) {
   const [h, m] = hhmm.split(':').map(Number);
@@ -121,6 +123,8 @@ function rejectionReasons(venue, ctx) {
   }
 
   if (venue.maxGroupSize < members.length) reasons.push('capacity');
+  // A hawker centre's cleaning or repair days (NEA), attached by hawker-closures.js. Dates are "YYYY-MM-DD".
+  if (isClosedOn(venue, dateTime.slice(0, 10))) reasons.push('closed_for_cleaning');
   // With a duration (an itinerary slot), the venue must stay open for all of it, not just at the start.
   if (!(durationMinutes > 0 ? isOpenFor(venue, dateTime, durationMinutes) : isOpenAt(venue, dateTime))) reasons.push('closed');
   if (enforceMealPeriod && venue.category === 'eat' && venue.mealPeriods.length > 0 &&

@@ -23,6 +23,9 @@ const MAX = {
   weight: 1000,
   money: 10000,
   minutes: 1440,
+  // How many places to look for and to score per slot (minOptions, shortlistSize). Each scored place costs a
+  // OneMap route per member and trip, so 30 is the most one request may ask for.
+  options: 30,
 }
 const text = (max = MAX.text) => z.string().min(1).max(max)
 
@@ -108,6 +111,10 @@ export function makePlanSchemas(data) {
     weatherCase,
     groupId: text().optional(),
     topN: z.number().int().min(1).max(20).optional(),
+    // Keep widening the search (500 m, 1 km, 2 km, 3 km) until at least this many places fit. Default 3.
+    minOptions: z.number().int().min(1).max(MAX.options).optional(),
+    // How many places are fully scored, with real travel times. Default 10. More costs more OneMap calls.
+    shortlistSize: z.number().int().min(1).max(MAX.options).optional(),
     travelCeilingMinutes: z.number().positive().max(180).optional(),
   }
 

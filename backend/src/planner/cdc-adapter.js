@@ -245,7 +245,10 @@ function matchVenueToCdc(venue, cdcVenues, { maxMeters = 80, siteMeters = 150, m
   return best ? { cdcAccepted: best.match, ...best } : { cdcAccepted: false };
 }
 
+/** How alike two place names are, 0 (nothing shared) to 1 (same words), ignoring words like "the" and "centre". */
+const nameSimilarity = (a, b) => jaccard(tokens(a), tokens(b));
+
 export {
   classifyStall, cuisineHint, dietHints, displayName, streetLabel, cleanRecords, buildCdcVenues, matchVenueToCdc,
-  nearestArea, approxRegion, titleCase,
+  nearestArea, approxRegion, titleCase, nameSimilarity,
 };

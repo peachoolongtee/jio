@@ -8,10 +8,11 @@ Every outside service Jio uses, whether it is built, and how to set it up. All c
 | **OneMap search** | Address, postal code and building search for start and end points | None | ✅ Built |
 | **OneMap routing** | Real public transport times, instead of the estimate | Free OneMap account: `ONEMAP_EMAIL`, `ONEMAP_PASSWORD` | ✅ Built, **switched on once the account is in `backend/.env`** |
 | **OneMap map tiles** | The map's background | None | ✅ Used by the frontend map |
-| Google Places (New) | Photos, opening hours and ratings for venues | Google Maps key (Demo Key to try, a billed key with a quota cap for the final app) | ⬜ Next |
+| **OneMap themes** | ~460 more places: SportSG sport centres, tourist attractions, museums, libraries, theatres, parks, hawker centres | OneMap account (only to take the snapshot) | ✅ Built (`feature/onemap-places`) |
+| **Google Places (New)** | Restaurants, cafés, bars, dessert shops, shopping malls and private activities (bowling, cinemas, karaoke, arcades, galleries, zoo, aquarium) near the meeting point, with ratings, price level, opening hours per day, and photos | `GOOGLE_MAPS_API_KEY` (Demo Key to try; a billed key with a quota cap for the final app) | ✅ Built (`feature/google-places`) |
 | TikTok oEmbed | "Save from a TikTok link": the caption, to find the place | None | ⬜ Next |
 | Google Maps share links | "Save from a Maps link": the place name and point from the link | None (not an API) | ⬜ Next |
-| NEA hawker centre closures (data.gov.sg dataset) | Don't suggest a hawker centre on its cleaning days | None | ⬜ Next |
+| **NEA hawker centre closures** (data.gov.sg dataset) | Don't suggest a hawker centre on its cleaning or repair days | None | ✅ Built (`feature/onemap-places`) |
 | LTA DataMall | MRT station crowd levels | Free key, by request | ⏸ On hold (team decision) |
 | Instagram oEmbed | — | — | ❌ Dropped: only posts whose owners allow it can be read |
 
@@ -86,11 +87,88 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
 - With neither account variable set, routing is off and the server says so.
 - With both set, the server tries one login in the background and prints one line saying whether routing is on. It does not wait for it, and it keeps running if OneMap is down.
 
+### OneMap themes and hawker closures (a snapshot, not a call per request)
+
+- **What:** OneMap's government place lists, converted into venues by `backend/src/planner/onemap-adapter.js`:
+
+  | Theme | Becomes | Kept |
+  |---|---|---|
+  | SportSG sport facilities | activity, `sports` | 45 |
+  | Tourist attractions | activity, `attraction` (with **real opening hours** for 61, and photos) | 107 |
+  | Museums | activity, `museum` | 11 |
+  | Libraries | activity, `library` (with photos) | 28 |
+  | Theatres | activity, `theatre` | 36 |
+  | Parks | activity, `park`: real parks, gardens and nature areas only (playgrounds, fitness corners, open spaces, car parks left out) | 134 of 462 |
+  | Hawker centres | food, `hawker` (photos, number of stalls): open ones only | 122 of 129 |
+
+  Monuments and community clubs are left out on purpose: they're buildings to look at, or classes, rather than outings. Each is one line in `THEMES` if the team wants them.
+- **Closures:** NEA's "Dates of Hawker Centres Closure" (data.gov.sg, no key) lists each centre's quarterly cleaning days and longer repairs. `backend/src/planner/hawker-closures.js` attaches them to the centre and its large CDC site, and the filters leave the centre out on those days (reason `closed_for_cleaning`).
+- **Snapshot:** `pnpm --filter jio-backend build:onemap-places` (needs the OneMap account) writes `backend/src/db/mock/onemap-places.json`. These lists change a few times a year, so calling OneMap per request would only spend its rate limit. Re-run it when the lists or the next year's closure dates change, and commit the file.
+- **Merging** (`backend/src/db/venues.js`):
+  - A place the hand-made lists already have (e.g. Tiong Bahru Market) is skipped: 20 skipped.
+  - OneMap's hawker centres replace their CDC copies, the same way the frontend's do.
+- **What's a guess:** OneMap gives no price, rating or diet, and most themes give no hours. Those are typical values for the kind of place, labelled in `dataQuality` (`hoursAssumed`, `priceAssumed`…). Tourist attractions with hours in OneMap use those, and keep the original text in `openingHoursText`.
+- **Credit:** contains information from OneMap (Singapore Land Authority) and the National Environment Agency, under the [Singapore Open Data Licence](https://data.gov.sg/open-data-licence). Tourist attraction photos carry their own `photoCredit`.
+
+### Google Places (New)
+
+- **Calls:**
+  - `POST https://places.googleapis.com/v1/places:searchNearby`: one per Converge or Roam request.
+  - `GET https://places.googleapis.com/v1/{photo name}/media`: one per photo shown.
+
+  Docs: [Nearby Search (New)](https://developers.google.com/maps/documentation/places/web-service/nearby-search).
+- **Code:**
+  - `backend/src/services/google-places.js`: the calls, the field list and the cache.
+  - `backend/src/planner/google-adapter.js`: turns a Google place into a venue.
+  - `backend/src/routes/plan.js`: adds the places to a request, and serves the photo route.
+- **Get → merge → massage → show:**
+  - **get** up to 20 of the **nearest** restaurants, cafés, bars and dessert shops (food and drink slots) shopping malls (shop slots), or bowling, cinemas, karaoke, arcades, amusement centres, galleries, the zoo and aquarium (activity slots) within 1 km of the point the request ranks around
+  - **merge** them with the venue list, skipping places it already has
+  - **massage**: place each in its NEA forecast area, read that **day of the week's** opening hours (a place shut on Mondays is left out on a Monday), turn the price level into a typical price
+  - **show** them ranked with everything else
+- **Why per request, not a snapshot:** Google's terms allow storing a place's id, not its details. So these are never saved to a file, only cached in memory for 10 minutes.
+- **Shops:** shop slots ask for `shopping_mall` only. `department_store` and `market` brought back single jewellery shops and grocers. A mall needs 50+ reviews, and names like "(No longer in operation)" are dropped. Checked live near Newton: Scotts Square, Far East Plaza, Pacific Plaza and COMO Orchard, and at 08:44 the malls that open at 8am (before, the 15 hand-listed malls were all still closed).
+- **Activities:** activity slots ask for `bowling_alley`, `movie_theater`, `karaoke`, `video_arcade`, `amusement_center`, `amusement_park`, `art_gallery`, `aquarium` and `zoo`: the private places OneMap's government lists don't have. Filters:
+  - at least 30 reviews
+  - no advert-style names (over 60 characters, or two or more slashes)
+  - no lessons (academy, school, tuition, coaching, enrichment, classes)
+
+  Checked live: near Bishan, Golden Village Bishan; near Newton, The FRIENDS™ Experience and Fever Exhibition Hall. The filters removed a watch-film shop listed as an "art gallery" and a sports academy.
+- **Why "nearest first":** the planner looks within 500 m first and only widens when it has fewer than 3 options. Google's default ("most popular") returned places 300–800 m away, which the planner never reached. Checked live near Bishan: with "nearest", Din Tai Fung, Pepper Grill, Stuff'd and Shake Shack at Junction 8 made the top 6.
+- **Cost control:**
+  - One request per slot at most, cached by points about 110 m apart.
+  - Only the fields Jio uses (`NEARBY_FIELDS`): each extra field can move the request to a dearer tier.
+  - A daily quota on the key is the real safety net.
+- **What's a guess:**
+  - Diet and access are unknown.
+  - The "quiet / romantic / lively" attributes are defaults for the kind of place.
+  - The price is a typical amount for Google's level ($10 inexpensive, $25 moderate, $50 expensive, $90 very expensive).
+
+  `dataQuality` labels each.
+- **Photos:** a Google venue has `photo: { name, credit }`. The browser loads `GET /api/places/photo?name=<photo.name>`, which redirects to Google's image link. The key stays on the server. Google requires the credit (`photo.credit.displayName`, linked to `photo.credit.uri`) to be shown with the photo.
+- **Every answer says** `google: { source, added }`:
+  - `google`: places were added
+  - `off`: no key
+  - `not_needed`: the request asked for no category Google is used for
+  - `unavailable`: Google is down; the planner answers with its other venues
+
+### Google reviews (not built: feasibility, checked 10 Oct 2026)
+
+- **Demo Key:** Place Details returns the rating and review count, but **no review texts** (0 returned), the same as photos. It does return `googleMapsLinks.reviewsUri`, a link to the place's reviews on Google Maps, which works now.
+- **Normal key:** Place Details (New) with the `reviews` field gives up to **5** reviews per place: Google's "most relevant", not chosen or sorted by us. Each has a rating, text, author (`authorAttribution`) and age ("2 weeks ago").
+- **How it would work:** fetched only when someone opens a place's details (one Place Details request per opened place, cached briefly), never for every option on a list.
+- **Cost:** `reviews` is in Google's premium (Atmosphere) tier, so check the free amount on Google's pricing page and keep the daily quota on the key.
+- **Terms:** don't save reviews; show each review's author and that it comes from Google.
+- **Frontend:** the place detail screen already shows mock reviews (`frontend/src/lib/mock/reviews.js`), so real ones would replace those.
+
 ## To set up (manual steps)
 
 1. **OneMap account:** register at https://www.onemap.gov.sg/apidocs/register, then put the email and password in your own `backend/.env` as `ONEMAP_EMAIL` and `ONEMAP_PASSWORD`. On Render, set them under the service's Environment tab. **Never commit them or paste them in chat.** Set both or neither. Optionally set `ONEMAP_CALLS_PER_MINUTE` (default 240) to lower the server's share of the account's 300 calls a minute.
 2. **Nothing for NEA.** To use the demo panel's rain switch on your own machine, set `ALLOW_SIMULATED_WEATHER=1` in `backend/.env`.
-3. **Google Places, when we get there:** a [Maps Demo Key](https://mapsplatform.google.com/maps-demo-key/) is enough to try it, with no card. For the final app, a billed key with a daily quota cap (Google Cloud → APIs & Services → Quotas) and a budget alert, so grading can't run up a bill. It will go in `backend/.env` as `GOOGLE_MAPS_API_KEY`.
+3. **Google Places:** put the key in `backend/.env` as `GOOGLE_MAPS_API_KEY`.
+   - A [Maps Demo Key](https://mapsplatform.google.com/maps-demo-key/) works for building and testing, with no card. Checked 9 Oct 2026: ratings, prices and hours come back, **photos don't**.
+   - For the final app: a key from a Google Cloud project with billing (the Free Trial is fine; don't upgrade it). Restrict it to Places API (New), set a **daily quota cap** (APIs & Services → Places API (New) → Quotas), and a **budget alert**. Then grading can't run up a bill.
+   - On Render, set it in the Environment tab too.
 
 ## For the frontend
 
@@ -98,7 +176,8 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
 - **Show where the numbers came from:**
   - `weather.source === 'live'`: e.g. "Forecast until 9.30 pm" from `weather.validUntil`.
   - `travel.source === 'estimate'` or a result's `approximate: true`: say "about".
-- **Start and end points can come from `GET /api/places/search?q=`** instead of the mock address list. Code for `searchPlaces` is in [changes-and-frontend-guide.md, Part D](changes-and-frontend-guide.md#part-d-live-weather-travel-times-and-address-search-9-oct).
+- **Start and end points can come from `GET /api/places/search?q=`** instead of the mock address list.
+- **Google places** have `source: 'google'`, a real `rating` and `ratingCount`, and `photo: { name, credit }`. Show the photo with `<img src="${VITE_API_BASE_URL}/api/places/photo?name=${encodeURIComponent(photo.name)}">` and the credit under it. Code for `searchPlaces` is in [changes-and-frontend-guide.md, Part D](changes-and-frontend-guide.md#part-d-live-weather-travel-times-and-address-search-9-oct).
 
 ## Testing
 

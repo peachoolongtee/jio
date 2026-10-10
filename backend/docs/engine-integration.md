@@ -49,7 +49,7 @@ The frontend (`dev` branch) had its own planner in `frontend/src/lib/planner/`, 
 
   It is one parameter (`method`) on `/api/meeting-area`.
 
-## 1. One venue list from three sources
+## 1. One venue list from four sources
 
 `backend/src/db/venues.js` → `loadPlanData()` builds the `data` object the engine reads:
 
@@ -57,8 +57,11 @@ The frontend (`dev` branch) had its own planner in `frontend/src/lib/planner/`, 
 |---|---|---|---|
 | Fictional mock venues | `src/db/mock/mock-data.json` | 36 | by hand |
 | The frontend team's real places | `src/db/mock/curated-venues.json` | 63 | `pnpm build:venues` |
-| CDC voucher food sites | `src/db/mock/cdc-venues.json` | 1,414 of 1,422 | `pnpm build:cdc` |
-| **Total** | | **1,513** | |
+| OneMap's government lists (sport centres, attractions, museums, libraries, theatres, parks, hawker centres), added 9 Oct | `src/db/mock/onemap-places.json` | 463 (20 already known were skipped) | `pnpm build:onemap-places` |
+| CDC voucher food sites | `src/db/mock/cdc-venues.json` | 1,332 of 1,422 (90 replaced by named hawker centres) | `pnpm build:cdc` |
+| **Total** | | **1,894** | |
+
+Activities went from 20 to about 370 (sports from 2 to 46). See [external-apis.md](external-apis.md#onemap-themes-and-hawker-closures-a-snapshot-not-a-call-per-request).
 
 It also loads `src/db/mock/areas.json`: the 37 MRT stations and neighbourhoods the frontend uses as meeting-area candidates.
 

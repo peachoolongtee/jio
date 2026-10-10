@@ -170,6 +170,8 @@ Request (one slot; the response below is real output for these two members with 
 | `currentOptionIds` | no | The options the group is already voting on. Each one that passes the hard filters and is within 3 km is always scored, even past the shortlist (a place added by search, or swapped in for rain), and comes back in `current`. A rain swap never suggests one of these. |
 | `radiusMeters` | no | The search radius the group chose, 100 to 3000. Only places inside it are suggested or kept in `current`. Without it, the search widens on its own (500 m, 1, 2, then 3 km). Search takes the same limit as `maxKm`. |
 | `optedOut`, `overrides`, `excludeVenueIds`, `groupId`, `topN`, `seed`, `travelCeilingMinutes` | no | As in the engine (`backend/src/planner/engine.js`). |
+| `minOptions` | no | Keep widening the search (500 m, 1 km, 2 km, 3 km) until at least this many places fit. Default **3**, max 30. Ignored when `radiusMeters` is sent. |
+| `shortlistSize` | no | How many places are fully scored, with travel times. Default **10**, max 30. The answer has at most this many `results` (and at most `topN`). Each one costs a OneMap route per member and trip. |
 
 Response:
 
@@ -290,6 +292,7 @@ Places that fit come first, then by walking time. `distanceKm` is rounded here. 
 | `diet:halal` etc. | Doesn't meet someone's diet (or no data, in strict mode). |
 | `capacity` | Too small for the group. |
 | `far` | More than `maxKm` from the meeting point. |
+| `closed_for_cleaning` | A hawker centre's NEA cleaning or repair day. |
 
 ## Errors
 
@@ -330,6 +333,59 @@ Every error has the same flat body: `{ "error": "<code>", "message": "<text>" }`
 **Rain risk.** Each forecast sentence maps to a risk from 0 to 1, multiplied by how exposed the venue is. At 0.6 or more the planner adds the rain warning and suggests an indoor swap. A sentence the server does not recognise scores 0.5 and is logged once.
 
 `/api/meeting-area` and `/api/search` do not use weather and have no `weather` field.
+
+## Getting more options per slot
+
+By default a slot gets few options, because of two limits:
+- The search **stops at the first circle with 3 places** (500 m, then 1 km, 2 km, 3 km).
+- Only **10 places are scored**.
+
+To get more, send `minOptions` and `shortlistSize` with `topN`. Measured live at Newton, Sat 2pm, with Google and OneMap on:
+
+| Slot | Default | `minOptions: 10, shortlistSize: 20, topN: 20` | OneMap routes |
+|---|---|---|---|
+| Activity | 5 options | 20 options | 8 → 28 |
+| Drink | 5 options | 12 options | 10 → 20 |
+
+More options means more OneMap calls per slot. They're cached for 6 hours, so repeats are free.
+
+The **screen's** limit is separate, and it's the frontend's: `OPTIONS_START` (3) and `OPTIONS_MAX` (6) in `frontend/src/lib/planner/suggestions.js`, and `RANKED_MAX` (10) in `frontend/src/lib/api.js`.
+
+## Venues from OneMap
+
+About 460 places come from OneMap's government lists: sport centres, tourist attractions, museums, libraries, theatres, parks and hawker centres (see [external-apis.md](external-apis.md)). They have `source: 'onemap'` and a few extra fields the cards can use:
+
+| Field | What |
+|---|---|
+| `photoUrl`, `photoCredit` | A real photo (attractions, libraries, hawker centres). Show the credit under it. |
+| `address`, `postalCode` | The street address. |
+| `description`, `website` | Attractions' text and official links. |
+| `openingHoursText` | OneMap's own hours text, e.g. "Daily from 7am – 12pm, and 6pm – 9pm". `openingHours` is the version the planner reads. |
+| `kind` | `sports`, `attraction`, `museum`, `library`, `theatre`, `park` or `hawker`. `theatre` is new to the frontend's photo list. |
+| `closures` | Hawker centres: NEA cleaning and repair days, `[{ from, to, reason }]`, as `YYYY-MM-DD`. The planner leaves the centre out on those days. |
+| `dataQuality` | Which fields are typical values (`hoursAssumed`, `priceAssumed`) rather than real ones. |
+
+## Venues from Google
+
+With `GOOGLE_MAPS_API_KEY` set, `/api/converge` and `/api/roam` add up to 20 of the nearest places from Google Places: restaurants, cafés, bars and dessert shops for food and drink slots, shopping malls for shop slots, and bowling, cinemas, karaoke, arcades, amusement centres, galleries, the zoo and aquarium for activity slots (OneMap already supplies parks, sport centres, museums, libraries and theatres). Only places of the slot's category are added. A mall needs at least 50 Google reviews and an activity 30; an activity whose name is an advert or a school is left out; and a place whose name says it has closed is left out. They're added for that request only, never saved, because Google's terms don't allow it. Every answer says:
+
+```json
+"google": { "source": "google", "added": 16 }
+```
+
+| `source` | Meaning |
+|---|---|
+| `google` | `added` places came from Google (places the venue list already had were skipped) |
+| `off` | The server has no Google key |
+| `not_needed` | The request asked for no category Google is used for |
+| `unavailable` | Google couldn't be reached; the answer uses the other venues |
+
+A Google venue has `source: 'google'`, `googlePlaceId`, a real `rating` and `ratingCount`, `address`, and that **day of the week's** `openingHours`. It may also have `photo: { name, credit }`:
+
+- Show the photo with `GET /api/places/photo?name=<photo.name>&maxWidth=400`. It redirects to the image, and the key never reaches the browser. 400 for a bad name; 503 when the server has no Google key or Google is down.
+- Show `photo.credit.displayName`, linked to `photo.credit.uri`, with the photo. Google requires it.
+
+The Demo Key returns no photos. A billed key does.
 
 ## Travel times
 

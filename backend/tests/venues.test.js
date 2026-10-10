@@ -80,10 +80,10 @@ test('withEstimatedMrtWalk: fills a missing walk from the nearest station, and n
 
 // ---------------- the combined data the API serves
 const data = loadPlanData();
-test('loadPlanData: all three sources, no duplicate ids, every venue has what the engine reads', () => {
+test('loadPlanData: all four sources, no duplicate ids, every venue has what the engine reads', () => {
   const { sources } = data._meta;
-  assert.ok(sources.mock === 36 && sources.curated === 63 && sources.cdc > 1000);
-  assert.strictEqual(data.venues.length, sources.mock + sources.curated + sources.cdc);
+  assert.ok(sources.mock === 36 && sources.curated === 63 && sources.cdc > 1000 && sources.onemap > 400);
+  assert.strictEqual(data.venues.length, sources.mock + sources.curated + sources.onemap + sources.cdc);
   assert.strictEqual(new Set(data.venues.map(v => v.id)).size, data.venues.length);
   for (const v of data.venues) {
     assert.ok(Number.isFinite(v.lat) && Number.isFinite(v.lng), v.id);
