@@ -73,13 +73,19 @@ const places = createGooglePlaces({
   stub,
 })
 
-// Claude, for the AI order of an itinerary (suggested when the group confirms a plan). Needs ANTHROPIC_API_KEY;
-// without it the plan still gets an order: the one with the least travel. Stub mode never calls Claude.
+// The AI order of an itinerary (suggested when the group confirms a plan). Gemini when GEMINI_API_KEY is set (free
+// tier), else Claude when ANTHROPIC_API_KEY is set. With neither, the plan still gets an order: the one with the least
+// travel. Stub mode never calls an AI. GEMINI_MODEL changes the Gemini model.
 //
 // How to turn it on:
-//   ANTHROPIC_API_KEY=... in backend/.env
-const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim() || null
-const itineraryAi = createItineraryAi({ apiKey: anthropicKey, stub })
+//   GEMINI_API_KEY=... in backend/.env
+const itineraryAi = createItineraryAi({
+  http,
+  geminiKey: process.env.GEMINI_API_KEY?.trim() || null,
+  geminiModel: process.env.GEMINI_MODEL?.trim() || undefined,
+  apiKey: process.env.ANTHROPIC_API_KEY?.trim() || null,
+  stub,
+})
 
 // The simulated forecast: lets a planner request send `weatherCase` to pretend it is raining. Off unless
 // switched on, because the planner uses the live data.gov.sg forecast otherwise. Stub mode always allows it.
@@ -150,8 +156,8 @@ createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, supabase, a
   if (!stub) {
     console.log(
       itineraryAi.enabled
-        ? 'Itinerary AI is ON: Claude suggests the order of each plan when it is confirmed.'
-        : 'Itinerary AI is OFF: plans get the order with the least travel. Set ANTHROPIC_API_KEY in backend/.env.',
+        ? `Itinerary AI is ON: ${itineraryAi.provider === 'gemini' ? 'Gemini' : 'Claude'} suggests the order of each plan when it is confirmed.`
+        : 'Itinerary AI is OFF: plans get the order with the least travel. Set GEMINI_API_KEY in backend/.env.',
     )
   }
   if (allowSimulatedWeather) console.log('Simulated weather is ON: planner requests may send weatherCase to fake the forecast.')

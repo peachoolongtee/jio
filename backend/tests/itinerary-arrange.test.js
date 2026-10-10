@@ -5,7 +5,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../src/app.js'
 import { arrangeCandidates, freshCandidates, isOpenDuring, MEAL_SHIFT_MINUTES, timeStops } from '../src/planner/arrange.js'
-import { createHttp } from '../src/services/http.js'
+import { createHttp, ExternalApiError } from '../src/services/http.js'
 import { createItineraryAi, describeOption } from '../src/services/itinerary-ai.js'
 
 // Four stops around Novena, a short walk apart. Lunch first, then three stops that can move.
@@ -123,6 +123,54 @@ describe('Claude choosing an order', () => {
   it('does not hide a bug', async () => {
     const broken = { beta: { messages: { create: async () => { throw new TypeError('bug') } } } }
     await expect(createItineraryAi({ client: broken }).choose({ options })).rejects.toThrow('bug')
+  })
+})
+
+// A fake HTTP helper that answers Gemini with `answer` as the JSON text, and records the request.
+const fakeGemini = (answer) => {
+  const postJson = vi.fn(async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(answer) }] } }] }))
+  return { http: { postJson }, postJson }
+}
+
+describe('Gemini choosing an order', () => {
+  const { candidates } = arrangeCandidates({ stops: STOPS, startAt: NOON })
+  const options = freshCandidates(candidates).options
+
+  it('is used when there is a Gemini key, with the key in a header and never in the address', async () => {
+    const { http, postJson } = fakeGemini({ choice: 2, reason: 'Shops first, then a calm coffee.' })
+    const ai = createItineraryAi({ http, geminiKey: 'test-gemini-key', apiKey: 'also-a-claude-key' })
+    expect(ai.provider).toBe('gemini')
+    expect(await ai.choose({ options })).toEqual({ index: 1, reason: 'Shops first, then a calm coffee.', source: 'ai' })
+    const [url, body, { headers }] = postJson.mock.calls[0]
+    expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent')
+    expect(url).not.toContain('test-gemini-key')
+    expect(headers['x-goog-api-key']).toBe('test-gemini-key')
+    expect(body.generationConfig.responseMimeType).toBe('application/json')
+    expect(body.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'low' })
+    expect(body.contents[0].parts[0].text).toContain(describeOption(options[0], 0))
+  })
+
+  it('uses GEMINI_MODEL when it is set', async () => {
+    const { http, postJson } = fakeGemini({ choice: 1, reason: 'Fine.' })
+    await createItineraryAi({ http, geminiKey: 'k', geminiModel: 'gemini-other' }).choose({ options })
+    expect(postJson.mock.calls[0][0]).toContain('/models/gemini-other:generateContent')
+  })
+
+  it('falls back to the rules when Gemini fails, is out of free quota, or answers off the list', async () => {
+    const quota = { postJson: async () => { throw new ExternalApiError('gemini answered 429', { service: 'gemini', status: 429, url: 'x' }) } }
+    expect((await createItineraryAi({ http: quota, geminiKey: 'k' }).choose({ options })).source).toBe('rules')
+    const blocked = { postJson: async () => ({ candidates: [] }) }
+    expect((await createItineraryAi({ http: blocked, geminiKey: 'k' }).choose({ options })).source).toBe('rules')
+    const { http } = fakeGemini({ choice: 0, reason: 'Off the list.' })
+    expect((await createItineraryAi({ http, geminiKey: 'k' }).choose({ options })).source).toBe('rules')
+  })
+
+  it('is never called in stub mode', async () => {
+    const { http, postJson } = fakeGemini({ choice: 1, reason: 'x' })
+    const ai = createItineraryAi({ http, geminiKey: 'k', stub: true })
+    expect(ai.enabled).toBe(false)
+    await ai.choose({ options })
+    expect(postJson).not.toHaveBeenCalled()
   })
 })
 

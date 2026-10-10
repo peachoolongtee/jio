@@ -1305,7 +1305,6 @@ async function requestOrder(session, stops, { startAt, modes = [] }) {
     }),
     startAt,
     endAt,
-    shown,
     rain: !!db.conditions.rain,
     // The voted order may be the best one, so it is allowed too.
     includeCurrent: true,

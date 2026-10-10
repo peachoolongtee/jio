@@ -189,13 +189,14 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
 - **Terms:** don't save reviews; show each review's author and that it comes from Google.
 - **Frontend:** the place detail screen already shows mock reviews (`frontend/src/lib/mock/reviews.js`), so real ones would replace those.
 
-### Claude (Anthropic API), for the AI itinerary order
+### Gemini or Claude, for the AI itinerary order
 
-- **What:** when the group confirms a plan, Claude picks the nicest order of the drink, shop and activity stops; food stays at meal times. See `POST /api/itinerary/arrange` in `planner-api.md`.
-- **Safe by design:** the backend lists only the orders that keep every place open and every meal on time, and Claude chooses one of those. It cannot invent an order or a place. Its answer is checked before it is used.
-- **Model:** `claude-opus-5-5` at low effort, one short request each time the Confirm dialog opens (about 6 orders of 4 stops in, one sentence out). With server-side fallbacks on, a refused request is retried on another model automatically.
-- **Through the official SDK** (`@anthropic-ai/sdk`), not `services/http.js`: the SDK has its own timeout (20 s) and one retry. Stub mode and the tests never call Claude.
-- **Without a key** confirming still works: the plan gets the order with the least travel, and the itinerary says the AI is off.
+- **What:** when the group confirms a plan, the AI picks the nicest order of the drink, shop and activity stops; food stays at meal times. See `POST /api/itinerary/arrange` in `planner-api.md`.
+- **Safe by design:** the backend lists only the orders that keep every place open and every meal on time, and the AI chooses one of those. It cannot invent an order or a place. Its answer is checked before it is used.
+- **Which AI:** Gemini when `GEMINI_API_KEY` is set (Google AI Studio, free tier), else Claude when `ANTHROPIC_API_KEY` is set. One short request each time the Confirm dialog opens (about 6 orders of 4 stops in, one sentence out).
+- **Gemini:** `generateContent` on `generativelanguage.googleapis.com`, model `gemini-3.8-flash` unless `GEMINI_MODEL` says otherwise, through `services/http.js` (20 s timeout). The key is sent in the `x-goog-api-key` header, never in the address. On the free tier Google may use the prompts to improve its products; ours hold only place names, kinds and times.
+- **Claude:** `claude-opus-5-5` at low effort, through Anthropic's own SDK (`@anthropic-ai/sdk`, 20 s timeout, one retry), with server-side fallbacks on.
+- **Without a key**, out of free quota, or when the AI fails: confirming still works. The plan gets the order with the least travel, and the itinerary says the AI is off. Stub mode and the tests never call an AI.
 
 ## To set up (manual steps)
 
@@ -206,7 +207,7 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
    - For the final app: a key from a Google Cloud project with billing (the Free Trial is fine; don't upgrade it). Restrict it to Places API (New), set a **daily quota cap** (APIs & Services → Places API (New) → Quotas), and a **budget alert**. Then grading can't run up a bill.
    - On Render, set it in the Environment tab too.
    - Optional: `GOOGLE_CALLS_PER_MINUTE` (default 60) caps the calls this server makes to Google, searches and photos together. A key with a space or a control character inside it is treated as not set, and the server says so at start-up (without printing it).
-4. **Claude:** put a key from https://console.anthropic.com in `backend/.env` as `ANTHROPIC_API_KEY` (and on Render's Environment tab). Set a monthly spend limit in the console. **Never commit it or paste it in chat.**
+4. **Itinerary AI:** put a free key from https://aistudio.google.com in `backend/.env` as `GEMINI_API_KEY` (and on Render's Environment tab). Or, for Claude, a key from https://console.anthropic.com as `ANTHROPIC_API_KEY`, with a monthly spend limit set in the console. Gemini is used when both are set. **Never commit a key or paste it in chat.**
 
 ## For the frontend
 

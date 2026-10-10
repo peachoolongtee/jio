@@ -465,8 +465,8 @@ How it decides:
    - a stop whose place is not open yet waits for it: at most 30 minutes for the first stop (the group has just met), 60 for any other.
    An order works when every place is open for the whole stop, every meal is on time, and the plan ends by `endAt`.
 2. It leaves out the current order and every order in `shown` (except with `includeCurrent`, used on confirm, where the voted order may be the best). When all have been shown, it starts again and says `restarted: true`.
-3. Claude (`services/itinerary-ai.js`, model `claude-opus-5-5`) is shown the best 6 of those (by travel plus half the waiting) and picks the one that makes the nicest day, with one sentence saying why. Its answer is checked: a choice not on the list is never used. Claude can only choose an order the rules allow; it never invents one.
-4. Without `ANTHROPIC_API_KEY`, in stub mode, or when Claude fails or refuses, the best order by those rules is used instead and `source` is `rules`.
+3. The AI (`services/itinerary-ai.js`: Gemini with `GEMINI_API_KEY`, else Claude with `ANTHROPIC_API_KEY`) is shown the best 6 of those (by travel plus half the waiting) and picks the one that makes the nicest day, with one sentence saying why. Its answer is checked: a choice not on the list is never used. The AI can only choose an order the rules allow; it never invents one.
+4. Without a key, in stub mode, or when the AI fails, refuses or is out of free quota, the best order by those rules is used instead and `source` is `rules`.
 
 Request:
 
