@@ -8,7 +8,7 @@ Every outside service Jio uses, whether it is built, and how to set it up. All c
 | **OneMap search** | Address, postal code and building search for start and end points | None | ✅ Built |
 | **OneMap routing** | Real public transport times, instead of the estimate | Free OneMap account: `ONEMAP_EMAIL`, `ONEMAP_PASSWORD` | ✅ Built, **switched on once the account is in `backend/.env`** |
 | **OneMap map tiles** | The map's background | None | ✅ Used by the frontend map |
-| **OneMap themes** | ~460 more places: SportSG sport centres, tourist attractions, museums, libraries, theatres, parks, hawker centres | OneMap account (only to take the snapshot) | ✅ Built (`feature/onemap-places`) |
+| **OneMap themes** | 483 more places saved (417 reach the planner): SportSG sport centres, tourist attractions, museums, libraries, theatres, parks, hawker centres | OneMap account (only to take the snapshot) | ✅ Built (`feature/onemap-places`) |
 | **Google Places (New)** | Restaurants, cafés, bars, dessert shops, shopping malls and private activities (bowling, cinemas, karaoke, arcades, galleries, zoo, aquarium) near the meeting point, with ratings, price level, opening hours per day, and photos | `GOOGLE_MAPS_API_KEY` (Demo Key to try; a billed key with a quota cap for the final app) | ✅ Built (`feature/google-places`) |
 | TikTok oEmbed | "Save from a TikTok link": the caption, to find the place | None | ⬜ Next |
 | Google Maps share links | "Save from a Maps link": the place name and point from the link | None (not an API) | ⬜ Next |
@@ -91,24 +91,34 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
 
 - **What:** OneMap's government place lists, converted into venues by `backend/src/planner/onemap-adapter.js`:
 
-  | Theme | Becomes | Kept |
-  |---|---|---|
-  | SportSG sport facilities | activity, `sports` | 45 |
-  | Tourist attractions | activity, `attraction` (with **real opening hours** for 61, and photos) | 107 |
-  | Museums | activity, `museum` | 11 |
-  | Libraries | activity, `library` (with photos) | 28 |
-  | Theatres | activity, `theatre` | 36 |
-  | Parks | activity, `park`: real parks, gardens and nature areas only (playgrounds, fitness corners, open spaces, car parks left out) | 134 of 462 |
-  | Hawker centres | food, `hawker` (photos, number of stalls): open ones only | 122 of 129 |
+  | Theme | Becomes | Saved | In the planner's pool |
+  |---|---|---|---|
+  | SportSG sport facilities | activity, `sports` | 45 | 44 |
+  | Tourist attractions | activity, `attraction` (with **real opening hours** for 61, and photos) | 107 | 97 |
+  | Museums | activity, `museum` | 11 | 4 |
+  | Libraries | activity, `library` (with photos) | 28 | 25 |
+  | Theatres | activity, `theatre` | 36 | 18 |
+  | Parks | activity, `park`: real parks, gardens and nature areas only (playgrounds, fitness corners, open spaces, car parks left out) | 134 of 462 | 118 |
+  | Hawker centres | food, `hawker` (photos, number of stalls): open ones only | 122 of 129 | 111 |
+  | **Total** | | **483** | **417** |
+
+  The pool is smaller than the file for three reasons, all done when the planner loads the file (`loadPlanData`), so the saved file keeps every place: **30 set aside** because a group cannot go there (18 theatre rooms, 10 interim parks, the islets Pulau Sekudu and Pulau Unum, and the 2 places that take visits by appointment only), **16 duplicates** (the same place listed under two themes, one row kept), and **20 already in a hand-made list** (e.g. Tiong Bahru Market, and now Chinatown Complex and Kovan 209). 30 + 16 + 20 + 417 = 483. `_meta.sources` has each count and `_meta.onemapExcluded` lists the 30 with the reason.
 
   Monuments and community clubs are left out on purpose: they're buildings to look at, or classes, rather than outings. Each is one line in `THEMES` if the team wants them.
-- **Closures:** NEA's "Dates of Hawker Centres Closure" (data.gov.sg, no key) lists each centre's quarterly cleaning days and longer repairs. `backend/src/planner/hawker-closures.js` attaches them to the centre and its large CDC site, and the filters leave the centre out on those days (reason `closed_for_cleaning`).
-- **Snapshot:** `pnpm --filter jio-backend build:onemap-places` (needs the OneMap account) writes `backend/src/db/mock/onemap-places.json`. These lists change a few times a year, so calling OneMap per request would only spend its rate limit. Re-run it when the lists or the next year's closure dates change, and commit the file.
+- **Closures:** NEA's "Dates of Hawker Centres Closure" (data.gov.sg, no key) lists each centre's quarterly cleaning days and longer repairs. `backend/src/planner/hawker-closures.js` attaches them to the centre and its large CDC site, and the filters leave the centre out on those days (reason `closed_for_cleaning`). **A venue takes the dates of one row, never a union of its neighbours':** a OneMap hawker centre takes the row with its own name (whole, without the bracket, or the bracket alone) or the same spot (within 10 m); one that NEA words differently ("The Hawker Centre @ Our Tampines Hub") takes the nearest unclaimed row within 100 m with a similar name; any other hawker venue (curated, a large CDC site) takes the nearest row within 100 m, or within 150 m when the names are alike. The venue says which row in `closuresFrom`. One row of the 123 matches no venue: **Bukit Timah Market**. Its coordinates (1.3396, 103.7758) are 2.9 km from the nearest hawker centre OneMap lists, and OneMap's hawker theme has no centre by that name (the saved file does not keep the 7 rows the build left out, so we cannot tell whether OneMap lists it as not yet open or not at all). The planner reports it in `_meta.closures.rowsWithoutVenue`. Rows with a blank, non-numeric or out-of-Singapore location are dropped by the build, which prints how many.
+- **The dates run out.** Every cleaning date in the snapshot of 9 October 2026 ends by 30 December 2026. After that every centre looks open on its cleaning days, with nothing in an answer to say so. `loadPlanData` works out the range (`_meta.closures`: `from`, `to`, `lastCleaning`, `rows`, `periods`, `stale`) and logs one warning when today (Singapore) is past `lastCleaning` or within 30 days of it, naming the rebuild command. Rebuild when NEA publishes the next year's dates.
+- **Snapshot:** `pnpm --filter jio-backend build:onemap-places` (needs the OneMap account) writes `backend/src/db/mock/onemap-places.json`. These lists change a few times a year, so calling OneMap per request would only spend its rate limit. Re-run it when the lists or the next year's closure dates change, and commit the file. It writes the places in a fixed order (theme, then id), prints how many closure rows it dropped, **refuses to overwrite the file** when a theme or the closure dates come back empty, and when the OneMap login fails prints one line and exits 1. `loadPlanData` logs a warning when the file is missing.
+- **Repair, with no network:** `pnpm --filter jio-backend repair:onemap-places` (`node scripts/build-onemap-places.js --repair`) reads the saved file, applies the adapter's current text, link and address fixes to the saved places, and writes it back, changing nothing else (not `fetchedAt`, not the order, not the closure dates). Running it twice changes nothing the second time. It never reads `.env`. It was run once on the 9 October snapshot: 251 of 483 places changed: 91 photo links given their `https://` and 1 root-relative link dropped (with its credit), 14 addresses and 15 postal codes fixed, 150 descriptions that were programme or branch codes dropped (122 hawker, 28 library), 7 descriptions de-garbled (3 lost apostrophes restored), 4 names, 1 credit and 2 hours texts de-garbled or cleaned. **What cannot be repaired from the saved value:** a theatre address that is only a house number ("1, Singapore 038981": the theatre theme gives a house number and, for 10 of its 36 rows, the street in the description field, which the saved file keeps as `description`), and any character OneMap lost entirely other than an apostrophe.
+- **Text copied from OneMap is cleaned** (`fixText`, `freeText`, `https`, `addressOf` in the adapter). Garbled characters ("Â®", "â„¢", "â€“") are fixed by **a real re-decode** (the characters are turned back into the bytes they were and decoded as UTF-8) rather than by a list of patterns: a list covers only the symbols somebody has already met, the re-decode covers every accent and symbol, and it fails safe, because a run that is not valid UTF-8 is left exactly as it was. HTML tags are removed, `https://` is added to a link that starts with a host name, a root-relative or otherwise unusable link becomes `null` (and its photo credit with it), a postal code of `0` is dropped and a five-digit one gets its leading zero, email addresses and phone numbers are removed with the sentence that offers them, and a description that is only a programme or branch code ("HUP Rebuilding", "NAS") is dropped.
 - **Merging** (`backend/src/db/venues.js`):
-  - A place the hand-made lists already have (e.g. Tiong Bahru Market) is skipped: 20 skipped.
-  - OneMap's hawker centres replace their CDC copies, the same way the frontend's do.
-- **What's a guess:** OneMap gives no price, rating or diet, and most themes give no hours. Those are typical values for the kind of place, labelled in `dataQuality` (`hoursAssumed`, `priceAssumed`…). Tourist attractions with hours in OneMap use those, and keep the original text in `openingHoursText`.
-- **Credit:** contains information from OneMap (Singapore Land Authority) and the National Environment Agency, under the [Singapore Open Data Licence](https://data.gov.sg/open-data-licence). Tourist attraction photos carry their own `photoCredit`.
+  - A place the hand-made lists already have (e.g. Tiong Bahru Market) is skipped: 20 skipped. A hawker centre is compared by the name in its bracket too, so curated "Chinatown Complex Food Centre" is OneMap's "Smith Street Blk 335 (Chinatown Complex Market)".
+  - **The same place listed twice by OneMap** (`dedupeOneMapVenues`): same category, and either different themes within 100 m with half their words alike, or within 250 m with three quarters alike; chained, so "Esplanade Theatre" (two themes) and "Esplanade Theatres on the Bay" are one group. The kept row has real opening hours, else a photo, and keeps its own id. Hawker centres are never merged with each other (neighbouring blocks are separate centres), and neither are two rows of one theme unless nearly identical ("Central Library" and "Central Arts Library" stay separate listings). 16 rows were dropped this way.
+  - OneMap's hawker centres replace their CDC copies, the same way the frontend's do. **Every OneMap row of kind hawker is a centre,** whatever its name ("Bedok North Street 1 Blk 216" has neither "market" nor "food centre"). The CDC site it replaces is the one with its postal code, else a large site, else the nearest (it used to be the first one in the file within 150 m, which was the neighbouring block's site for 25 of the 122 centres). The centre keeps what the site knew: the better diet level for each need (halal and vegetarian "likely" from stall names, so a strict halal group still sees it), the stalls (so searching a stall's name finds the centre), and `siteKind`. 111 CDC sites were replaced by OneMap centres, and 8 by the frontend's.
+  - A hawker centre named by street and block shows the name in its bracket ("Redhill Market"); the NEA name is kept as `officialName`. "Maxwell Food Centre (Kim Hua Market)" and "Amoy Street Food Centre (Telok Ayer Food Centre)" keep their names: there the bracket is only an alias.
+- **Left out of the pool:** theatres that are community club or centre halls, mini theatre rooms, school, college or polytechnic halls (`illuminITE`, `ITE`, `UCC`, `ACSB`, polytechnics), auditoriums, amphitheatres or studio rooms; parks named "Interim Park"; the islets Pulau Sekudu and Pulau Unum; and places whose hours text says visits are **by appointment only** (Maghain Aboth Synagogue, NUS Baba House). The public theatres stay.
+- **Days a place is closed:** a plain "Closed on Monday" in `openingHoursText` ("Galleries closed on Monday and public holidays", "Closed every Sunday and Monday") becomes `closedWeekdays` (0 = Sunday ... 6 = Saturday), and the filters leave the venue out that day with reason `closed`. What is known: weekday statements only. What is **not** known: public holidays ("Closed on public holidays" is ignored, and "Closed on Monday (except on public holidays)" counts as closed on Monday), which weekday has which hours (hours are still one set for the week), and anything for a text that also says "Daily" (Singapore Botanic Gardens lists several parts, so a closed day belongs to one part). The weekday is the calendar date of `dateTime`, with no time zone applied.
+- **What's a guess:** OneMap gives no price, rating or diet, and most themes give no hours. Those are typical values for the kind of place, labelled in `dataQuality` (`hoursAssumed`, `priceAssumed`…). Tourist attractions with hours in OneMap use those, and keep the original text in `openingHoursText`. **A guessed price is not shown as a fact:** a OneMap or Google venue with `priceAssumed` gets no "Budget friendly" tag and no "within budget" sentence. CDC food sites keep both, as before; their price is also typical, and whether to drop the claim there too is the lead's decision. The `max_price_pp` filter still uses the typical price, as before.
+- **Credit (required wherever this data is shown):** the Singapore Open Data Licence asks for an attribution. Use this wording, with the access date from `_meta.onemap.fetchedAt` (it is in `data._meta.onemap.attribution` ready to show): *"Contains information from OneMap themes, Singapore Land Authority, and from "Dates of Hawker Centres Closure", National Environment Agency, accessed 2026-10-09 from OneMap and data.gov.sg, made available under the terms of the Singapore Open Data Licence version 1.0 (https://data.gov.sg/open-data-licence)."* Tourist attraction photos carry their own `photoCredit`, which is shown under the photo.
 
 ### Google Places (New)
 
@@ -118,7 +128,7 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
 
   Docs: [Nearby Search (New)](https://developers.google.com/maps/documentation/places/web-service/nearby-search).
 - **Code:**
-  - `backend/src/services/google-places.js`: the calls, the field list and the cache.
+  - `backend/src/services/google-places.js`: the calls, the field list, the cache, the call budget and the circuit.
   - `backend/src/planner/google-adapter.js`: turns a Google place into a venue.
   - `backend/src/routes/plan.js`: adds the places to a request, and serves the photo route.
 - **Get → merge → massage → show:**
@@ -137,20 +147,38 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
 - **Why "nearest first":** the planner looks within 500 m first and only widens when it has fewer than 3 options. Google's default ("most popular") returned places 300–800 m away, which the planner never reached. Checked live near Bishan: with "nearest", Din Tai Fung, Pepper Grill, Stuff'd and Shake Shack at Junction 8 made the top 6.
 - **Cost control:**
   - One request per slot at most, cached by points about 110 m apart.
-  - Only the fields Jio uses (`NEARBY_FIELDS`): each extra field can move the request to a dearer tier.
+  - **One budget for every Google call**, searches and photos together: `GOOGLE_CALLS_PER_MINUTE` (default 60; invalid or blank means 60), at most 4 in flight (same mechanism as OneMap's, `services/budget.js`). A call over the budget makes no request: the planner answers with `google.source: 'unavailable'` and the photo route answers 503.
+  - The search radius is rounded up to the planner's steps (500, 1000, 2000, 3000 m) before it is sent and cached, so changing `radiusMeters` by a metre does not make a new billed search. A photo's width is rounded up to 200, 400, 800 or 1600.
+  - Only the fields Jio uses (`NEARBY_FIELDS`): each extra field can move the request to a dearer tier. The current list includes rating, review count, opening hours and price level, which is likely the dearer tier (see "Decisions for the lead" below).
   - A daily quota on the key is the real safety net.
+- **Failure handling:**
+  - A Google call times out after **3 seconds** (the HTTP helper takes a `timeoutMs` per call; the default for the other services stays 10 s).
+  - **Circuit:** 3 failures in a row (timeout, network error, 4xx, 5xx, or an answer that cannot be read) pause Google for 60 seconds: no request is made and the answer is `unavailable` at once. After that one call is tried; one success closes the circuit. A photo Google says does not exist (404 or 400) is not a failure.
+  - A failure is logged at most once a minute per reason, never with the key.
+  - An answer whose `places` is not a list is a failure and is not cached. A place that is not an object, has no string id or no numeric location, or cannot be converted is skipped.
 - **What's a guess:**
   - Diet and access are unknown.
   - The "quiet / romantic / lively" attributes are defaults for the kind of place.
   - The price is a typical amount for Google's level ($10 inexpensive, $25 moderate, $50 expensive, $90 very expensive).
 
   `dataQuality` labels each.
-- **Photos:** a Google venue has `photo: { name, credit }`. The browser loads `GET /api/places/photo?name=<photo.name>`, which redirects to Google's image link. The key stays on the server. Google requires the credit (`photo.credit.displayName`, linked to `photo.credit.uri`) to be shown with the photo.
+- **Photos:** a Google venue has `photo: { name, credit, credits }`. The browser loads `GET /api/places/photo?name=<photo.name>&maxWidth=400`, which redirects to Google's image link. The key stays on the server.
+  - `maxWidth` becomes 200, 400, 800 or 1600. Each id in the name is 1 to 300 characters (else 400).
+  - The redirect (302, `Cache-Control: public, max-age=1800`) goes only to an `https` address on `googleusercontent.com`, `ggpht.com` or a subdomain; any other link from Google is a 502 `photos_unavailable` and is not cached.
+  - Google 404 or 400 for a photo: 404 `not_found`, remembered for 5 minutes. Any other failure: 503 `photos_unavailable`.
+  - **Attribution:** Google requires attribution for all Google content shown to a user, not only photos: say that places, ratings and hours come from Google. A photo needs every author in `photo.credits` (`displayName`, linked to `uri`). `photo.credit` is only the first author, kept for older code.
 - **Every answer says** `google: { source, added }`:
   - `google`: places were added
   - `off`: no key
   - `not_needed`: the request asked for no category Google is used for
-  - `unavailable`: Google is down; the planner answers with its other venues
+  - `unavailable`: Google failed, its call budget is used up, or it is paused; the planner answers with its other venues
+
+- **Test data:** `backend/tests/fixtures/google/places-nearby.json` is **invented** (ids like `stub_place_01`, made-up names, addresses, ratings and hours), not a recording. Google's terms allow storing only a place id, so no real place's details are kept in the repo.
+
+#### Decisions for the lead (open, not settled)
+
+- **Billing tier.** The nearby search's field mask asks for rating, review count, opening hours and price level. That is likely the dearer billing tier, but it is not confirmed: check Google's pricing page for Places API (New) Nearby Search. Dropping those fields would make the call cheaper and lose the ratings and hours the planner scores on.
+- **Terms and the map.** Google's terms restrict showing Places content alongside a non-Google map, and Jio's map is OneMap. Whether the current use is allowed has not been checked against the current terms.
 
 ### Google reviews (not built: feasibility, checked 10 Oct 2026)
 
@@ -169,6 +197,7 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
    - A [Maps Demo Key](https://mapsplatform.google.com/maps-demo-key/) works for building and testing, with no card. Checked 9 Oct 2026: ratings, prices and hours come back, **photos don't**.
    - For the final app: a key from a Google Cloud project with billing (the Free Trial is fine; don't upgrade it). Restrict it to Places API (New), set a **daily quota cap** (APIs & Services → Places API (New) → Quotas), and a **budget alert**. Then grading can't run up a bill.
    - On Render, set it in the Environment tab too.
+   - Optional: `GOOGLE_CALLS_PER_MINUTE` (default 60) caps the calls this server makes to Google, searches and photos together. A key with a space or a control character inside it is treated as not set, and the server says so at start-up (without printing it).
 
 ## For the frontend
 

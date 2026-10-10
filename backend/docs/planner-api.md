@@ -286,7 +286,7 @@ Places that fit come first, then by walking time. `distanceKm` is rounded here. 
 | `unfit` value | Meaning |
 |---|---|
 | `category` | Not the slot's category. |
-| `closed` | Not open for the whole slot. |
+| `closed` | Not open for the whole slot, or the place is shut that weekday (its hours text says "Closed on Monday"; the weekday is the calendar date of `dateTime`). |
 | `meal_period` | Doesn't serve that meal. |
 | `near_mrt` | Last stop, but too far from an MRT. |
 | `diet:halal` etc. | Doesn't meet someone's diet (or no data, in strict mode). |
@@ -298,7 +298,7 @@ Places that fit come first, then by walking time. `distanceKm` is rounded here. 
 
 | Status | Body | When |
 |---|---|---|
-| 400 | `{ "error": "invalid_input", "issues": [ { "path": "occasion", "message": "…" } ] }` | A field is missing or wrong. Every bad field is listed. |
+| 400 | `{ "error": "invalid_input", "message": "…", "issues": [ { "path": "occasion", "message": "…" } ] }` | A field is missing or wrong. Every bad field is listed. |
 | 400 | `{ "error": "invalid_json" }` | The body is not JSON. |
 | 404 | `{ "error": "not_found" }` | No route at that address, or the wrong method. |
 | 413 | `{ "error": "too_large" }` | The body is over 100 kB. |
@@ -353,7 +353,7 @@ The **screen's** limit is separate, and it's the frontend's: `OPTIONS_START` (3)
 
 ## Venues from OneMap
 
-About 460 places come from OneMap's government lists: sport centres, tourist attractions, museums, libraries, theatres, parks and hawker centres (see [external-apis.md](external-apis.md)). They have `source: 'onemap'` and a few extra fields the cards can use:
+417 places come from OneMap's government lists (483 are saved; 30 that a group cannot go to, 16 duplicates and 20 already in a hand-made list are not offered): sport centres, tourist attractions, museums, libraries, theatres, parks and hawker centres (see [external-apis.md](external-apis.md)). They have `source: 'onemap'` and a few extra fields the cards can use:
 
 | Field | What |
 |---|---|
@@ -362,7 +362,10 @@ About 460 places come from OneMap's government lists: sport centres, tourist att
 | `description`, `website` | Attractions' text and official links. |
 | `openingHoursText` | OneMap's own hours text, e.g. "Daily from 7am – 12pm, and 6pm – 9pm". `openingHours` is the version the planner reads. |
 | `kind` | `sports`, `attraction`, `museum`, `library`, `theatre`, `park` or `hawker`. `theatre` is new to the frontend's photo list. |
-| `closures` | Hawker centres: NEA cleaning and repair days, `[{ from, to, reason }]`, as `YYYY-MM-DD`. The planner leaves the centre out on those days. |
+| `closures`, `closuresFrom` | Hawker centres: NEA cleaning and repair days, `[{ from, to, reason }]`, as `YYYY-MM-DD`, from one NEA row (`closuresFrom` is its name). The planner leaves the centre out on those days. The dates end 2026-12-30: see [external-apis.md](external-apis.md#onemap-themes-and-hawker-closures-a-snapshot-not-a-call-per-request). |
+| `closedWeekdays` | Weekdays the hours text says the place is closed on (0 = Sunday ... 6 = Saturday), e.g. `[1]` for "Closed on Monday". The planner leaves the place out on those days (reason `closed`). Public holidays are not known. |
+| `officialName` | Hawker centres only, when `name` is the name in the bracket: NEA's full name ("Redhill Lane Blk 79 (Redhill Market)"). |
+| `stalls`, `siteKind`, `cdc` | Hawker centres: the stalls and kind of the CDC site the centre replaced, so a stall's name finds the centre. |
 | `dataQuality` | Which fields are typical values (`hoursAssumed`, `priceAssumed`) rather than real ones. |
 
 ## Venues from Google
@@ -378,14 +381,27 @@ With `GOOGLE_MAPS_API_KEY` set, `/api/converge` and `/api/roam` add up to 20 of 
 | `google` | `added` places came from Google (places the venue list already had were skipped) |
 | `off` | The server has no Google key |
 | `not_needed` | The request asked for no category Google is used for |
-| `unavailable` | Google couldn't be reached; the answer uses the other venues |
+| `unavailable` | Google couldn't be used: it failed or timed out, the server's Google call budget for the minute is used up, or Google is paused after repeated failures. The answer uses the other venues |
 
-A Google venue has `source: 'google'`, `googlePlaceId`, a real `rating` and `ratingCount`, `address`, and that **day of the week's** `openingHours`. It may also have `photo: { name, credit }`:
+**How many Google calls this makes.** Every Google call, searches and photos together, is counted against one budget for the whole server: `GOOGLE_CALLS_PER_MINUTE` (default 60), with at most 4 calls running at once. A call over the budget is not made, and the answer says `unavailable`. A search is cached for 10 minutes, and its radius is rounded up to 500, 1000, 2000 or 3000 m before it is asked or cached (so `radiusMeters: 1001` and `2000` share one search; the circle always covers what was asked). A Google call waits at most 3 seconds. After 3 failures in a row (a timeout, a network error, a 4xx or 5xx, or an answer that cannot be read) Google is skipped for 60 seconds, and one success closes the pause again. A failure is logged at most once a minute per reason. An answer where `places` is not a list is a failure and is never cached; a single unreadable place in a list is skipped.
 
-- Show the photo with `GET /api/places/photo?name=<photo.name>&maxWidth=400`. It redirects to the image, and the key never reaches the browser. 400 for a bad name; 503 when the server has no Google key or Google is down.
-- Show `photo.credit.displayName`, linked to `photo.credit.uri`, with the photo. Google requires it.
+A Google venue has `source: 'google'`, `googlePlaceId`, a real `rating` and `ratingCount`, `address`, and that **day of the week's** `openingHours`. It may also have `photo: { name, credit, credits }`:
+
+- Show the photo with `GET /api/places/photo?name=<photo.name>&maxWidth=400`. It redirects to the image, and the key never reaches the browser.
+  - `maxWidth` is rounded to a whole number and up to 200, 400, 800 or 1600 (400 when left out), so there are four sizes of each photo.
+  - Each id in `name` is 1 to 300 characters: a longer or malformed name is 400 `invalid_input`.
+  - 302 carries `Cache-Control: public, max-age=1800`. It only redirects to an `https` address on `googleusercontent.com`, `ggpht.com` or a subdomain of either.
+  - 404 `not_found`: Google has no such photo (Google answered 404 or 400). Remembered for 5 minutes, and does not count toward the pause.
+  - 502 `photos_unavailable`: Google sent a link that is not one of its image addresses. Not cached.
+  - 503 `photos_unavailable`: the server has no Google key, Google failed, the call budget is used up, or Google is paused.
+- **Attribution.** Google requires attribution for everything it supplies, not only photos: show that places, ratings and hours come from Google wherever you show them. A photo needs **every** author named for it: `photo.credits` is the full list (`displayName`, linked to `uri`), and `photo.credit` is only the first, kept for older code.
 
 The Demo Key returns no photos. A billed key does.
+
+### Decisions for the lead (open, not settled)
+
+- **Billing tier.** The nearby search's field mask asks for rating, review count, opening hours and price level. Google is likely to bill those at a dearer tier than basic fields. This has not been confirmed: check Google's pricing page for Places API (New) Nearby Search, and keep the daily quota on the key either way.
+- **Terms and the map.** Google's terms restrict showing Places content alongside a non-Google map, and Jio's map is OneMap. Whether this use is allowed has not been checked against the current terms.
 
 ## Travel times
 

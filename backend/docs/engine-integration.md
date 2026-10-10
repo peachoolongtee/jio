@@ -57,11 +57,11 @@ The frontend (`dev` branch) had its own planner in `frontend/src/lib/planner/`, 
 |---|---|---|---|
 | Fictional mock venues | `src/db/mock/mock-data.json` | 36 | by hand |
 | The frontend team's real places | `src/db/mock/curated-venues.json` | 63 | `pnpm build:venues` |
-| OneMap's government lists (sport centres, attractions, museums, libraries, theatres, parks, hawker centres), added 9 Oct | `src/db/mock/onemap-places.json` | 463 (20 already known were skipped) | `pnpm build:onemap-places` |
-| CDC voucher food sites | `src/db/mock/cdc-venues.json` | 1,332 of 1,422 (90 replaced by named hawker centres) | `pnpm build:cdc` |
-| **Total** | | **1,894** | |
+| OneMap's government lists (sport centres, attractions, museums, libraries, theatres, parks, hawker centres), added 9 Oct | `src/db/mock/onemap-places.json` | 417 of 483 saved (30 not somewhere a group can go, 16 duplicates, 20 already in a hand-made list) | `pnpm build:onemap-places` |
+| CDC voucher food sites | `src/db/mock/cdc-venues.json` | 1,303 of 1,422 (8 replaced by the frontend's hawker centres, 111 by OneMap's) | `pnpm build:cdc` |
+| **Total** | | **1,819** | |
 
-Activities went from 20 to about 370 (sports from 2 to 46). See [external-apis.md](external-apis.md#onemap-themes-and-hawker-closures-a-snapshot-not-a-call-per-request).
+Activities went from 20 to 326 (sports from 2 to 45). See [external-apis.md](external-apis.md#onemap-themes-and-hawker-closures-a-snapshot-not-a-call-per-request).
 
 It also loads `src/db/mock/areas.json`: the 37 MRT stations and neighbourhoods the frontend uses as meeting-area candidates.
 
@@ -90,7 +90,7 @@ Every converted venue has `dataQuality` saying which fields are defaults or unkn
 Maxwell Food Centre is in the frontend list *and* is a CDC site. `mergeCuratedWithCdc()` keeps the named curated venue and drops the CDC copy (8 dropped). The rules, reusing `matchVenueToCdc()` from the CDC adapter:
 
 - **Is it a whole centre?** Decided from the name ("market", "food centre", "makan place"…), because the frontend uses `kind: 'hawker'` for single stalls too.
-- **A whole centre** within 150 m of a CDC site, or with a matching stall name within 80 m, replaces that site.
+- **A whole centre** within 150 m of a CDC site (or with its postal code), or with a matching stall name within 80 m, replaces that site. With several sites in reach it takes the one with the same postal code, then a large site, then the nearest. Every OneMap hawker row counts as a whole centre. A OneMap centre keeps the replaced site's diet (the better level per need), stalls and `siteKind`.
 - **A single stall** inside a centre (Jian Bo Shui Kueh in Tiong Bahru Market) does **not** remove the centre's CDC site. The centre's other stalls are still a valid venue.
 - **Never by distance alone:** a café next to a hawker centre is not merged.
 
