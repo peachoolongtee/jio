@@ -27,8 +27,10 @@ export function isOpenDuring(venue, start, end) {
   })
 }
 
-// stops: [{ venue, plannedStart, duration }] in order. modes: ['walk' | 'mrt' | 'car'] per leg, or empty for defaults.
+// stops: [{ venue, plannedStart, duration, notBefore? }] in order. modes: ['walk' | 'mrt' | 'car'] per leg, or empty for defaults.
 // startAt: when the plan starts (minutes). Defaults to the first stop's planned start.
+// notBefore: the stop never starts earlier than this (minutes), leaving free time before it. The AI order on confirm
+// sets it, so a meal keeps its time and a shop waits until it opens. Moving or deleting a stop by hand clears it.
 // Each timed stop says whether the place is open for its whole time (`open`).
 export function buildItinerary(stops, modes = [], startAt = null) {
   const legs = []
@@ -43,6 +45,7 @@ export function buildItinerary(stops, modes = [], startAt = null) {
       legs.push({ index: i - 1, options, mode, minutes: options[mode] })
       start = prev.end + options[mode]
     }
+    if (stop.notBefore != null) start = Math.max(start, stop.notBefore)
     timed.push({ ...stop, start, end: start + stop.duration, open: isOpenDuring(stop.venue, start, start + stop.duration) })
   })
   return { stops: timed, legs }

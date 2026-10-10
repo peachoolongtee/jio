@@ -1195,7 +1195,9 @@ export async function getPlan(id) {
 
 // ── Step 7 and after: confirm, the itinerary, the day itself ───────────────
 
-export async function confirmPlan(id) {
+// suggestion: the Confirm dialog's order from suggestOrder(), or null. It is used when it covers exactly the stops this
+// confirm makes, with the same places; otherwise (a tie came out differently) the plan keeps the voted order.
+export async function confirmPlan(id, suggestion = null) {
   await wait(DELAY.plan)
   const session = sessionById(id)
   const ids = activeIds(session)
@@ -1217,6 +1219,12 @@ export async function confirmPlan(id) {
     if (winner) stops.push({ slotId: slot.id, category: slot.category, venueId: winner, plannedStart: slot.start, duration: slot.duration })
   })
   session.plan = { stops, modes: [], startAt: stops[0]?.plannedStart ?? null }
+  const sameStops = (a, b) => a.length === b.length && a.every((s) => b.some((t) => t.slotId === s.slotId && t.venueId === s.venueId))
+  // A plain copy: the screen hands over a reactive object, which cannot be stored.
+  suggestion = suggestion ? JSON.parse(JSON.stringify(suggestion)) : null
+  if (suggestion && sameStops(stops, suggestion.stops)) {
+    applyOrder(session, { order: suggestion.order, stops: suggestion.stops.map((s) => ({ id: s.slotId, start: s.start })), reason: suggestion.reason, source: suggestion.source })
+  }
   session.confirmedRanking = confirmedRanking
   session.status = 'confirmed'
   session.banner = null
@@ -1242,6 +1250,8 @@ export async function getItinerary(id) {
     legs,
     end: P.endPoint(last),
     trips: P.tripsHome(last, people),
+    // Why the AI chose this order on confirm: { reason, source: 'ai' | 'rules' }, or null once a stop is moved by hand.
+    aiNote: session.plan.aiNote ? { ...session.plan.aiNote } : null,
     area: area ? { ...area } : null,
     starts: activeIds(session)
       .filter((pid) => session.locations[pid]?.start)
@@ -1265,6 +1275,87 @@ export async function setTravelMode(id, legIndex, mode) {
   return touch(session, 'plan')
 }
 
+// Asks the backend for an order of `stops` (plan stops: { slotId, category, venueId, plannedStart, duration }). Food
+// stops keep their place and their slot's time; Claude chooses among the orders that keep every place open.
+// How to call: await requestOrder(session, stops, { startAt: 600 })
+async function requestOrder(session, stops, { startAt, modes = [] }) {
+  const HOURS = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/
+  // The times the itinerary would show now.
+  const shownNow = P.buildItinerary(stops.map((s) => ({ ...s, venue: venueById(s.venueId) })), modes, startAt).stops
+  const startMinutes = P.toMinutes(session.start)
+  let endAt = P.toMinutes(session.end)
+  if (endAt <= startMinutes) endAt += 1440
+  return planner.arrangeItinerary({
+    stops: stops.map((s, i) => {
+      const v = venueById(s.venueId)
+      return {
+        id: s.slotId,
+        name: String(v.name).slice(0, 80),
+        category: s.category,
+        ...(v.kind ? { kind: String(v.kind).slice(0, 80) } : {}),
+        lat: v.lat,
+        lng: v.lng,
+        duration: s.duration,
+        // A meal is anchored to its slot's time from voting.
+        start: s.category === 'eat' && Number.isFinite(s.plannedStart) ? s.plannedStart : shownNow[i].start,
+        hours: (v.hours || []).filter((h) => HOURS.test(h)).slice(0, 4),
+        ...(typeof v.indoor === 'boolean' ? { indoor: v.indoor } : {}),
+        ...(Number.isFinite(v.mrtWalk) ? { mrtWalk: v.mrtWalk } : {}),
+      }
+    }),
+    startAt,
+    endAt,
+    shown,
+    rain: !!db.conditions.rain,
+    // The voted order may be the best one, so it is allowed too.
+    includeCurrent: true,
+  })
+}
+
+// Puts the plan's stops in the answer's order. Each stop keeps the backend's time as its earliest start, so a meal
+// stays at its time and a shop waits to open.
+function applyOrder(session, answer) {
+  const bySlot = Object.fromEntries(session.plan.stops.map((s) => [s.slotId, s]))
+  const startOf = Object.fromEntries(answer.stops.map((s) => [s.id, s.start]))
+  session.plan.stops = answer.order.map((slotId) => ({ ...bySlot[slotId], notBefore: startOf[slotId] }))
+  session.plan.modes = []
+  session.plan.aiNote = { reason: answer.reason, source: answer.source }
+}
+
+// The stops confirming would make now: each voted slot with its most voted place. A tie goes to the first option,
+// so a tie can come out differently on confirm; confirmPlan then keeps its own order (see `suggestion` there).
+function wouldConfirm(session) {
+  return planSlotsOf(session)
+    .map((slot) => {
+      const venueId = P.pickWinner(session.options[slot.id] || [], session.votes[slot.id])
+      return venueId ? { slotId: slot.id, category: slot.category, venueId, plannedStart: slot.start, duration: slot.duration } : null
+    })
+    .filter(Boolean)
+}
+
+// The order the Confirm dialog suggests: Claude's choice among the orders that keep every place open, food at meal
+// times. It may keep the voted order when that is already the best. Nothing is saved. Returns null when there is
+// nothing to arrange (fewer than 2 stops that are not food) or no order works.
+// How to call: const suggestion = await suggestOrder('s1')
+//   suggestion // { order: ['activity', 'eat', 'shop'], stops: [{ slotId, category, venueId, name, start, duration }], reason, source }
+export async function suggestOrder(id) {
+  const session = sessionById(id)
+  if (session.status !== 'voting') return null
+  const stops = wouldConfirm(session)
+  if (stops.filter((s) => s.category !== 'eat').length < 2) return null
+  const startAt = Math.min(...stops.map((s) => s.plannedStart))
+  const answer = await requestOrder(session, stops, { startAt })
+  if (answer.status !== 'ok') return null
+  const bySlot = Object.fromEntries(stops.map((s) => [s.slotId, s]))
+  const startOf = Object.fromEntries(answer.stops.map((s) => [s.id, s.start]))
+  return {
+    order: answer.order,
+    stops: answer.order.map((slotId) => ({ ...bySlot[slotId], name: venueById(bySlot[slotId].venueId).name, start: startOf[slotId] })),
+    reason: answer.reason,
+    source: answer.source,
+  }
+}
+
 // Rearrange the itinerary: move the stop at `from` to `to`. The plan keeps its start time and every stop is
 // re-timed after the one before it. Travel modes go back to their defaults, because the legs are new pairs.
 export async function reorderStops(id, from, to) {
@@ -1274,8 +1365,9 @@ export async function reorderStops(id, from, to) {
   const { stops } = session.plan
   if (from === to || from < 0 || to < 0 || from >= stops.length || to >= stops.length) return summary(session)
   if (session.plan.startAt == null) session.plan.startAt = Math.min(...stops.map((s) => s.plannedStart))
-  session.plan.stops = P.moveItem(stops, from, to)
+  session.plan.stops = P.moveItem(stops, from, to).map(({ notBefore, ...s }) => s)
   session.plan.modes = []
+  session.plan.aiNote = null
   return touch(session, 'plan')
 }
 
@@ -1285,7 +1377,8 @@ export async function deleteStop(id, index) {
   const { stops, modes = [] } = planOf(session)
   if (!Number.isInteger(index) || index < 0 || index >= stops.length) throw new Error('This stop does not exist.')
   if (stops.length <= 1) throw new Error('A plan needs at least one stop.')
-  session.plan.stops = stops.filter((_, i) => i !== index)
+  session.plan.stops = stops.filter((_, i) => i !== index).map(({ notBefore, ...s }) => s)
+  session.plan.aiNote = null
   // The plan starts when its first stop does: if the first stop goes, the next one starts at its own planned time
   // instead of being pulled forward to the old start.
   if (index === 0) session.plan.startAt = session.plan.stops[0].plannedStart

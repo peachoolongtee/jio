@@ -26,6 +26,10 @@ const MAX = {
   // How many places to look for and to score per slot (minOptions, shortlistSize). Each scored place costs a
   // OneMap route per member and trip, so 30 is the most one request may ask for.
   options: 30,
+  // Rearranging an itinerary: the stops in it, and the orders already shown. Every order of the movable stops is
+  // tried, so the stops are capped (planner/arrange.js also allows at most 6 to move).
+  stops: 8,
+  shownOrders: 50,
 }
 const text = (max = MAX.text) => z.string().min(1).max(max)
 
@@ -187,5 +191,40 @@ export function makePlanSchemas(data) {
   // GET /api/places/search?q=... : an address, postal code or building name, sent to OneMap.
   const placeSearch = z.object({ q: z.string().trim().min(1).max(MAX.text) })
 
-  return { converge, roam, meetingArea, search, placeSearch }
+  // POST /api/itinerary/arrange: a confirmed itinerary, to put in a new order (see planner/arrange.js).
+  const openingHours = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/
+  const arrangeStop = z.object({
+    id: text(),
+    name: text(),
+    category,
+    kind: text().optional(),
+    lat: point.shape.lat,
+    lng: point.shape.lng,
+    duration: z.number().int().min(15).max(720),
+    // When the itinerary shows the stop starting now, in minutes after midnight. A meal keeps this time.
+    start: z.number().int().min(0).max(2 * MAX.minutes).optional(),
+    hours: z
+      .array(z.string().regex(openingHours, 'use HH:MM-HH:MM, e.g. 10:00-22:00'))
+      .max(4)
+      .default([]),
+    indoor: z.boolean().optional(),
+    mrtWalk: z.number().min(0).max(120).optional(),
+  })
+  const arrange = z
+    .object({
+      stops: z.array(arrangeStop).min(2).max(MAX.stops),
+      // When the plan starts, in minutes after midnight.
+      startAt: z.number().int().min(0).max(MAX.minutes - 1),
+      // When the session ends, in minutes after midnight (over 1440 for past midnight). No order may run past it.
+      endAt: z.number().int().min(0).max(2 * MAX.minutes).optional(),
+      // Orders already shown, as lists of stop ids, so the next one is different.
+      shown: z.array(z.array(text()).max(MAX.stops)).max(MAX.shownOrders).default([]),
+      rain: z.boolean().default(false),
+      // The first suggestion, when the plan is confirmed: the current order may be the one chosen.
+      includeCurrent: z.boolean().default(false),
+    })
+    .refine((b) => new Set(b.stops.map((s) => s.id)).size === b.stops.length, { message: 'stop ids must be different', path: ['stops'] })
+    .refine((b) => b.stops.filter((s) => s.category !== 'eat').length <= 6, { message: 'at most 6 stops that are not food can be rearranged', path: ['stops'] })
+
+  return { converge, roam, meetingArea, search, placeSearch, arrange }
 }

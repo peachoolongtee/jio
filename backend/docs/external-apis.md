@@ -189,6 +189,14 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
 - **Terms:** don't save reviews; show each review's author and that it comes from Google.
 - **Frontend:** the place detail screen already shows mock reviews (`frontend/src/lib/mock/reviews.js`), so real ones would replace those.
 
+### Claude (Anthropic API), for the AI itinerary order
+
+- **What:** when the group confirms a plan, Claude picks the nicest order of the drink, shop and activity stops; food stays at meal times. See `POST /api/itinerary/arrange` in `planner-api.md`.
+- **Safe by design:** the backend lists only the orders that keep every place open and every meal on time, and Claude chooses one of those. It cannot invent an order or a place. Its answer is checked before it is used.
+- **Model:** `claude-opus-5-5` at low effort, one short request each time the Confirm dialog opens (about 6 orders of 4 stops in, one sentence out). With server-side fallbacks on, a refused request is retried on another model automatically.
+- **Through the official SDK** (`@anthropic-ai/sdk`), not `services/http.js`: the SDK has its own timeout (20 s) and one retry. Stub mode and the tests never call Claude.
+- **Without a key** confirming still works: the plan gets the order with the least travel, and the itinerary says the AI is off.
+
 ## To set up (manual steps)
 
 1. **OneMap account:** register at https://www.onemap.gov.sg/apidocs/register, then put the email and password in your own `backend/.env` as `ONEMAP_EMAIL` and `ONEMAP_PASSWORD`. On Render, set them under the service's Environment tab. **Never commit them or paste them in chat.** Set both or neither. Optionally set `ONEMAP_CALLS_PER_MINUTE` (default 240) to lower the server's share of the account's 300 calls a minute.
@@ -198,6 +206,7 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
    - For the final app: a key from a Google Cloud project with billing (the Free Trial is fine; don't upgrade it). Restrict it to Places API (New), set a **daily quota cap** (APIs & Services → Places API (New) → Quotas), and a **budget alert**. Then grading can't run up a bill.
    - On Render, set it in the Environment tab too.
    - Optional: `GOOGLE_CALLS_PER_MINUTE` (default 60) caps the calls this server makes to Google, searches and photos together. A key with a space or a control character inside it is treated as not set, and the server says so at start-up (without printing it).
+4. **Claude:** put a key from https://console.anthropic.com in `backend/.env` as `ANTHROPIC_API_KEY` (and on Render's Environment tab). Set a monthly spend limit in the console. **Never commit it or paste it in chat.**
 
 ## For the frontend
 

@@ -454,6 +454,53 @@ For start and end points: an address, postal code or building name, searched wit
 | 400 `invalid_input` | `q` is missing, blank, given more than once (an array), or over 80 characters. The issue is on `q`. |
 | 503 `search_unavailable` | OneMap could not be reached, or this server has no address search. Show "search is not available, try again soon". When the server's shared OneMap call budget for the minute is used up, the answer also carries `Retry-After` in whole seconds: wait that long before searching again. |
 
+## POST /api/itinerary/arrange
+
+The AI order for an itinerary. The frontend asks once, when the group opens **Confirm plan**: the dialog shows the suggested order and its reason, and confirming saves it. After that the group can still move stops by hand in the itinerary's edit mode. (`shown` and `restarted` let a caller ask for a different order each time; the app does not use them today.) Food stops keep their place, so meals stay at meal times; the drink, shop and activity stops are put in a new order.
+
+How it decides:
+
+1. `planner/arrange.js` tries every order of the stops that can move (at most 6, so at most 720 orders). Stops are timed from `startAt`, each after the one before it plus the trip (walking when a leg is 15 minutes or less, public transport otherwise). Two things can make a stop start later, leaving free time before it:
+   - a meal never starts before its time (the stop's `start`, its slot's time from voting), and at most 60 minutes after it;
+   - a stop whose place is not open yet waits for it: at most 30 minutes for the first stop (the group has just met), 60 for any other.
+   An order works when every place is open for the whole stop, every meal is on time, and the plan ends by `endAt`.
+2. It leaves out the current order and every order in `shown` (except with `includeCurrent`, used on confirm, where the voted order may be the best). When all have been shown, it starts again and says `restarted: true`.
+3. Claude (`services/itinerary-ai.js`, model `claude-opus-5-5`) is shown the best 6 of those (by travel plus half the waiting) and picks the one that makes the nicest day, with one sentence saying why. Its answer is checked: a choice not on the list is never used. Claude can only choose an order the rules allow; it never invents one.
+4. Without `ANTHROPIC_API_KEY`, in stub mode, or when Claude fails or refuses, the best order by those rules is used instead and `source` is `rules`.
+
+Request:
+
+```json
+{
+  "stops": [
+    { "id": "s5-eat", "name": "WeWa", "category": "eat", "lat": 1.3204, "lng": 103.8438, "duration": 90, "hours": ["11:00-22:00"], "indoor": true },
+    { "id": "s5-activity", "name": "Shaw Theatres", "category": "activity", "lat": 1.3222, "lng": 103.8445, "duration": 120, "hours": ["10:00-23:59"] }
+  ],
+  "startAt": 600,
+  "endAt": 1020,
+  "shown": [["s5-activity", "s5-eat"]],
+  "rain": false,
+  "includeCurrent": false
+}
+```
+
+`stops` are in the current order. `id` is the frontend's slot id. `start` (optional) is the stop's time; a food stop keeps it as its meal time. `hours` are that day's opening hours; a stop with none counts as open. `startAt` and `endAt` are minutes after midnight (`endAt` over 1440 for past midnight, optional). `rain` tells Claude to prefer the outdoor stop while it is dry. `includeCurrent` lets the current order be chosen.
+
+Answer:
+
+```json
+{ "status": "ok", "order": ["s5-shop", "s5-eat", "s5-activity", "s5-drink"], "stops": [{ "id": "s5-shop", "start": 600, "end": 690 }], "reason": "Shops first while you are fresh, then lunch, the film and a calm coffee.", "source": "ai", "restarted": false, "others": 3 }
+```
+
+or `{ "status": "no_other_order", "message", "blockers" }` when no other order fits. `message` says why, for example "No other order works. Herschel Tangs Plaza is not open at 10:00-11:30." `stops` carries each stop's time; the frontend keeps it as the stop's earliest start (`notBefore`), so the free time and the meal times stay as planned.
+
+| Field | Limit |
+|---|---|
+| `stops` | 2 to 8, with at most 6 that are not food, ids all different |
+| `shown` | 50 orders |
+| `duration` | 15 to 720 minutes |
+| `hours` | 4 ranges, each `HH:MM-HH:MM` |
+
 ## Limits
 
 Every list and number has an upper limit, so one request cannot keep the server busy. Going over any of them is a 400 naming the field.

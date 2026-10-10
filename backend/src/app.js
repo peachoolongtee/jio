@@ -6,6 +6,7 @@ import { rateLimit } from './middleware/rate-limit.js'
 import { createPlanRouter } from './routes/plan.js'
 import { createHttp } from './services/http.js'
 import { createGooglePlaces } from './services/google-places.js'
+import { createItineraryAi } from './services/itinerary-ai.js'
 import { createOneMap } from './services/onemap.js'
 import { scenarioMiddleware } from './services/scenario.js'
 import { createWeather } from './services/weather.js'
@@ -28,6 +29,8 @@ import { createWeather } from './services/weather.js'
 //                    routes in stub mode and to none otherwise, so a test app never calls OneMap. index.js
 //                    passes the real one.
 //   places         - Google Places, from createGooglePlaces(). Same default as `onemap`.
+//   itineraryAi    - Claude for rearranging itineraries, from createItineraryAi(). Defaults to one with no key, which
+//                    chooses by its rules, so a test app never calls Claude. index.js passes the real one.
 //   allowSimulatedWeather - true lets a planner request send `weatherCase` to fake the forecast. Stub mode
 //                    always allows it. Otherwise the field is ignored and the answer says so. index.js sets
 //                    it from ALLOW_SIMULATED_WEATHER=1.
@@ -48,6 +51,7 @@ export function createApp({
   weather = createWeather({ http }),
   onemap = stub ? createOneMap({ http, stub: true }) : null,
   places = stub ? createGooglePlaces({ http, stub: true }) : null,
+  itineraryAi = createItineraryAi({ stub: true }),
   allowSimulatedWeather = false,
   planRateLimit = null,
   routingDeadlineMs = undefined,
@@ -81,7 +85,7 @@ export function createApp({
     res.status(200).json({ ok: true })
   })
 
-  // Planner: /api/meeting-area, /api/converge, /api/roam, /api/search, /api/places/search.
+  // Planner: /api/meeting-area, /api/converge, /api/roam, /api/search, /api/places/search, /api/itinerary/arrange.
   app.use(
     '/api',
     createPlanRouter({
@@ -89,6 +93,7 @@ export function createApp({
       weather,
       onemap,
       places,
+      ai: itineraryAi,
       allowSimulatedWeather: allowSimulatedWeather || stub,
       routingDeadlineMs,
       limiter: planRateLimit ? rateLimit(planRateLimit) : null,

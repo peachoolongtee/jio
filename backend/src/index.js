@@ -4,6 +4,7 @@ import { createSupabase } from './db/supabase.js'
 import { DEFAULT_CALLS_PER_MINUTE } from './services/budget.js'
 import { assertStubAllowed, createHttp } from './services/http.js'
 import { createGooglePlaces, readGoogleSettings } from './services/google-places.js'
+import { createItineraryAi } from './services/itinerary-ai.js'
 import { createOneMap, readOneMapSettings } from './services/onemap.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -72,6 +73,14 @@ const places = createGooglePlaces({
   stub,
 })
 
+// Claude, for the AI order of an itinerary (suggested when the group confirms a plan). Needs ANTHROPIC_API_KEY;
+// without it the plan still gets an order: the one with the least travel. Stub mode never calls Claude.
+//
+// How to turn it on:
+//   ANTHROPIC_API_KEY=... in backend/.env
+const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim() || null
+const itineraryAi = createItineraryAi({ apiKey: anthropicKey, stub })
+
 // The simulated forecast: lets a planner request send `weatherCase` to pretend it is raining. Off unless
 // switched on, because the planner uses the live data.gov.sg forecast otherwise. Stub mode always allows it.
 //
@@ -120,7 +129,7 @@ const supabase =
       })
     : null
 
-createApp({ frontendOrigin, stub, http, onemap, places, supabase, allowSimulatedWeather, planRateLimit }).listen(port, () => {
+createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, supabase, allowSimulatedWeather, planRateLimit }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
   if (stub) console.log('Stub mode is ON: external API calls are answered from fixtures.')
   else if (!onemap.routingEnabled) {
@@ -138,6 +147,13 @@ createApp({ frontendOrigin, stub, http, onemap, places, supabase, allowSimulated
   }
   if (!stub && !places.enabled) console.log('Google Places is OFF: no Google restaurants or cafés. Set GOOGLE_MAPS_API_KEY in backend/.env.')
   else if (!stub) console.log(`Google Places is ON: at most ${googleSettings.callsPerMinute} Google calls a minute.`)
+  if (!stub) {
+    console.log(
+      itineraryAi.enabled
+        ? 'Itinerary AI is ON: Claude suggests the order of each plan when it is confirmed.'
+        : 'Itinerary AI is OFF: plans get the order with the least travel. Set ANTHROPIC_API_KEY in backend/.env.',
+    )
+  }
   if (allowSimulatedWeather) console.log('Simulated weather is ON: planner requests may send weatherCase to fake the forecast.')
   if (!supabase) {
     console.log('Supabase is NOT configured: routes that need a login are off. Set SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY in backend/.env.')

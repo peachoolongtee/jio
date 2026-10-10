@@ -194,11 +194,35 @@ const winners = computed(() =>
     return { stop, option: sorted[0] }
   }),
 )
+
+// The AI's suggested order, asked for when the dialog opens: the rows show it and Confirm saves it. Food stays at meal
+// times. Without it (nothing to arrange, or the request failed) the rows and the plan keep the voted order.
+const suggestion = ref(null)
+const suggesting = ref(false)
+watch(confirmOpen, async (open) => {
+  if (!open) return
+  suggestion.value = null
+  suggesting.value = true
+  try {
+    const next = await events.suggestOrder(props.id)
+    if (confirmOpen.value) suggestion.value = next
+  } catch {
+    // The voted order is still a good plan: confirm that one.
+  } finally {
+    suggesting.value = false
+  }
+})
+const confirmRows = computed(() =>
+  suggestion.value
+    ? suggestion.value.stops.map((s) => ({ key: s.slotId, category: s.category, when: timeAndDuration(s.start, s.duration), name: s.name }))
+    : winners.value.map((w) => ({ key: w.stop.category, category: w.stop.category, when: timeAndDuration(w.stop.time, w.stop.duration), name: w.option?.venue.name || 'No place' })),
+)
+
 async function confirm() {
   busy.value = true
   error.value = ''
   try {
-    await events.confirm(props.id)
+    await events.confirm(props.id, suggestion.value)
     confirmOpen.value = false
     // A moment to celebrate: confetti, and the itinerary opens with a "Plan confirmed" card.
     confetti()
@@ -318,17 +342,23 @@ async function confirm() {
 
     <ModalDialog v-model:open="confirmOpen" title="Confirm plan?">
       <template #content>
-        <ul class="winners">
-          <li v-for="w in winners" :key="w.stop.category" class="winners__row">
-            <CategoryIcon :category="w.stop.category" :size="28" />
+        <ul class="winners" :aria-busy="String(suggesting)">
+          <li v-for="row in confirmRows" :key="row.key" class="winners__row">
+            <CategoryIcon :category="row.category" :size="28" />
             <span class="stack">
-              <span class="caption-sm text-muted">{{ timeAndDuration(w.stop.time, w.stop.duration) }}</span>
-              <span class="title-sm">{{ w.option?.venue.name || 'No place' }}</span>
+              <span class="caption-sm text-muted">{{ row.when }}</span>
+              <span class="title-sm">{{ row.name }}</span>
             </span>
           </li>
         </ul>
+        <p class="ai-order caption-sm text-muted" role="status">
+          <AppIcon name="sparkle" :size="14" />
+          <template v-if="suggesting">Finding the best order…</template>
+          <template v-else-if="suggestion">{{ suggestion.source === 'ai' ? 'Suggested order: ' : 'Order with the least travel: ' }}{{ suggestion.reason }}</template>
+          <template v-else>Meals stay at meal times. You can rearrange stops after confirming.</template>
+        </p>
       </template>
-      <AppButton block :disabled="busy" @click="confirm">Confirm</AppButton>
+      <AppButton block :disabled="busy || suggesting" @click="confirm">Confirm</AppButton>
       <AppButton block variant="secondary" @click="confirmOpen = false">Not yet</AppButton>
     </ModalDialog>
 
@@ -382,4 +412,6 @@ async function confirm() {
 .add-row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 64px; }
 .add-row + .add-row { border-top: 1px solid var(--hairline-soft); }
 .add-row__text { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.ai-order { display: flex; align-items: flex-start; gap: 6px; margin: var(--spacing-md) 0 0; }
+.ai-order :deep(svg) { flex-shrink: 0; margin-top: 2px; }
 </style>

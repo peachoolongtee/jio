@@ -136,6 +136,19 @@ export async function rankSlot({ members, centre, date, slot, lastStop, currentO
   return { options: data.results.map(toOption), current: data.current.map(toOption), widened: !!data.notice, few, empty: null, weather }
 }
 
+// The AI order for a plan, chosen by Claude on the backend (asked for when the group confirms). Food stops keep their
+// place and time (meals stay at meal times); the drink, shop and activity stops may move. `includeCurrent` lets the
+// voted order be chosen when it is already the best.
+//   stops:   [{ id, name, category, kind?, lat, lng, duration, start?, hours: ['10:00-22:00'], indoor?, mrtWalk? }] in the voted order
+//   startAt, endAt: when the plan starts and the session ends, in minutes after midnight
+// Returns { status: 'ok', order: [stop ids], stops: [{ id, start, end }], reason, source: 'ai' | 'rules' }
+//      or { status: 'no_other_order', message }.
+// How to call: await arrangeItinerary({ stops, startAt: 600, endAt: 1020, includeCurrent: true })
+export async function arrangeItinerary({ stops, startAt, endAt, shown = [], rain = false, includeCurrent = false }) {
+  const { data } = await api.post('/api/itinerary/arrange', { stops, startAt, endAt, shown, rain, includeCurrent }, { timeout: 30000 })
+  return data
+}
+
 // Find places by name for a slot. Each says whether it fits, and the first reason it does not.
 export async function searchSlot({ query, members, centre, date, slot, lastStop, maxKm }) {
   const { data } = await api.post('/api/search', {

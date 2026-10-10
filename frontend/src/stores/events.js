@@ -96,6 +96,9 @@ export const useEventsStore = defineStore('events', () => {
     await loadItinerary(id)
   }
 
+  // The order the Confirm dialog suggests (nothing is saved). How to call: const suggestion = await suggestOrder('s1')
+  const suggestOrder = (id) => api.suggestOrder(id)
+
   // Moves the stop on screen straight away, then saves and re-times from the server's answer.
   // If the save fails, the old order comes back, the itinerary is loaded again, and the error is thrown.
   async function reorderStops(id, from, to) {
@@ -139,6 +142,6 @@ export const useEventsStore = defineStore('events', () => {
   return {
     sessions, byId, itineraries, photos, loaded, current,
     loadSessions, loadSession, loadItinerary, loadPhotos,
-    create, update, invite, start, setMyLocation, useArea, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, addPhoto, deletePhoto,
+    create, update, invite, start, setMyLocation, useArea, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, suggestOrder, addPhoto, deletePhoto,
   }
 })
