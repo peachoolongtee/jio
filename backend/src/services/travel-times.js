@@ -44,6 +44,43 @@ const candidateKey = (a, b) => (a.id !== undefined ? `id:${a.id}` : b.id !== und
 //   res.json({ ...result, travel: estimateTravel() })
 export const estimateTravel = () => ({ source: 'estimate', asked: 0, routed: 0, cached: 0, walked: 0, failed: 0, estimated: 0 })
 
+// The order in which candidate areas get real routes when a meeting-area request asks for runners-up or names areas.
+// The cap on trips is applied to this order exactly as it is to any other, so naming areas never adds a call
+// beyond MAX_ROUTED_TRIPS_PER_REQUEST. The order is:
+//   1. The meeting point of a method other than station (a trip between two bare points). It is the answer itself.
+//   2. The shortlist: the `shortlistSize` best areas by estimated result, as for a request that names nothing.
+//      Areas in `notShortlisted` (named areas outside the ones the ranking compares) never join it, and so never
+//      push a better area out of it. The chosen area and the runners-up come from these.
+//   3. The areas in `afterShortlist` (the request's `include`, in the order sent) that are not already routed,
+//      each as long as the cap has room for it whole.
+// Because 1 and 2 are what a request without the new fields would route, the chosen area and its times do not
+// depend on `alternatives` or `include`.
+//
+// How to call (inside this file):
+//   const ordered = routingOrderWithNamedAreas(candidates, { shortlistSize: 5, notShortlisted: ['bishan'], afterShortlist: ['bishan'] })
+function routingOrderWithNamedAreas(candidates, { shortlistSize, notShortlisted = [], afterShortlist = [] }) {
+  // The same order as the shortlist in runWithRealTravel: longest trip, then mean, then the order the engine asked.
+  const worst = (c) => Math.max(...c.estimates)
+  const mean = (c) => c.estimates.reduce((s, x) => s + x, 0) / c.estimates.length
+  const entries = [...candidates.entries()]
+  const head = entries.filter(([key]) => key.startsWith('point:'))
+  const outside = new Set(notShortlisted.map((id) => `id:${id}`))
+  const shortlist = entries
+    .filter(([key]) => !key.startsWith('point:') && !outside.has(key))
+    .sort(([, x], [, y]) => worst(x) - worst(y) || mean(x) - mean(y) || x.order - y.order)
+    .slice(0, shortlistSize)
+  const taken = new Set([...head, ...shortlist].map(([key]) => key))
+  const later = []
+  for (const id of afterShortlist) {
+    const key = `id:${id}`
+    if (candidates.has(key) && !taken.has(key)) {
+      taken.add(key)
+      later.push(candidates.get(key))
+    }
+  }
+  return [...head, ...shortlist].map(([, candidate]) => candidate).concat(later)
+}
+
 // Runs `run(deps)` with real travel times when OneMap routing is on, and once with the estimate when it is off.
 //
 // How to call:
@@ -72,6 +109,8 @@ export const estimateTravel = () => ({ source: 'estimate', asked: 0, routed: 0, 
 //   maxCandidates   - Shortlist size: only the first candidates (after ordering) are ever routed. Default all.
 //   rankByEstimate  - Order candidates by their estimated result (longest trip, then mean) instead of the order
 //                     the engine asked about them. For the meeting area, where the engine tries every area.
+//   namedAreas      - For a meeting-area request that asks for runners-up or names areas: { notShortlisted, afterShortlist },
+//                     two lists of area ids. See routingOrderWithNamedAreas below. Used with rankByEstimate only.
 //   deadlineMs      - The most time to wait for OneMap in total. Default ROUTING_DEADLINE_MS.
 //   concurrency     - How many of this request's trips are in flight at once. Default 6. The shared budget in
 //                     services/onemap.js caps the whole server at 6 as well.
@@ -82,6 +121,7 @@ export async function runWithRealTravel({
   maxTrips = MAX_ROUTED_TRIPS_PER_REQUEST,
   maxCandidates = Infinity,
   rankByEstimate = false,
+  namedAreas = null,
   deadlineMs = ROUTING_DEADLINE_MS,
   concurrency = 6,
 }) {
@@ -119,6 +159,8 @@ export async function runWithRealTravel({
     ordered.sort((x, y) => worst(x) - worst(y) || mean(x) - mean(y) || x.order - y.order)
   }
   ordered = ordered.slice(0, maxCandidates)
+  // A request that names areas replaces the order above with one that also reaches them (same cap, same loop below).
+  if (rankByEstimate && namedAreas) ordered = routingOrderWithNamedAreas(candidates, { ...namedAreas, shortlistSize: maxCandidates })
 
   const outcome = new Map() // trip key -> 'routed' | 'cached' | 'walked' | 'failed' | 'estimated'
   const minutes = new Map() // trip key -> minutes, for the trips that have a OneMap (or walking) time
