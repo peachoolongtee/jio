@@ -126,6 +126,18 @@ const rainLikelyAt = (venue, weatherByArea) => weatherByArea[venue.forecastArea]
 const rainWarning = (venue, weatherByArea) =>
   rainLikelyAt(venue, weatherByArea) && venue.setting !== 'indoor' && venue.exposure >= RAIN_EXPOSED;
 
+// Can this venue's price back a claim such as "Budget friendly" or "within budget"? A typical price for a kind of
+// place (dataQuality.priceAssumed) is a guess: every OneMap attraction is given the same figure, ticketed or free.
+// CDC venues keep their claim, as before OneMap places were added: they are hawker stalls and heartland shops, and
+// whether a guessed price should speak for them too is the lead's decision.
+//
+// How to call:
+//   priceIsKnown({ avgPricePerPerson: 15, source: 'onemap', dataQuality: { priceAssumed: true } })   // false
+//   priceIsKnown({ avgPricePerPerson: 6 })                                                             // true
+export function priceIsKnown(venue) {
+  return !venue.dataQuality?.priceAssumed || venue.source === 'cdc';
+}
+
 /**
  * Short reason tags under each option, the same ones and in the same order as the frontend planner
  * (scoreVenue in frontend/src/lib/planner/suggestions.js), at most two.
@@ -139,7 +151,7 @@ function reasonTags({ venue, walkMinutes, crowd, rainy, homeMaxMinutes = null, t
   if (crowd === 'quiet') tags.push(`Quiet at ${time}`);
   if (walkMinutes <= 5) tags.push('Short walk');
   if ((venue.tags ?? []).includes('hidden')) tags.push('Hidden gem');
-  if (venue.avgPricePerPerson < 10) tags.push('Budget friendly');
+  if (venue.avgPricePerPerson < 10 && priceIsKnown(venue)) tags.push('Budget friendly');
   return tags.slice(0, 2);
 }
 
@@ -196,7 +208,7 @@ function explain(row, occasionLabel = 'meetup') {
   add('rating', f.rating <= 20 && v.rating != null, `rated ${v.rating}`);
   add('preference', f.preference <= 50, "suits the group's tastes");
   add('cdc', v.cdcAccepted, 'accepts CDC vouchers');
-  add('price', f.price === 0, 'within budget');
+  add('price', f.price === 0 && priceIsKnown(v), 'within budget');
   add('weather', f.weather <= 15 && v.exposure === 0, 'sheltered from rain');
   add('antiRepeat', f.antiRepeat === 0 && row.hasHistory, 'somewhere new for the group');
 

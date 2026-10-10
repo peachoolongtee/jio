@@ -454,7 +454,9 @@ describe('the shared call budget', () => {
     expect(last.results.some((r) => r.approximate)).toBe(true)
 
     clock.advance(60_000)
-    const later = await roam({ lat: 1.3008, lng: 103.8558 })
+    // Kent Ridge: its candidates are all further than a walk, so they need real routes. (Bugis was used here before,
+    // but with the OneMap places added it has ten venues within 400 m, all walked, so no route call was needed.)
+    const later = await roam({ lat: 1.2936, lng: 103.7845 })
     expect(later.status).toBe(200)
     expect(later.body.travel.routed).toBeGreaterThan(0)
     expect(http.log.routes).toBeGreaterThan(routeBudget)

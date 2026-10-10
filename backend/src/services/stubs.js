@@ -191,6 +191,21 @@ export function syntheticRoute(url) {
 //   },
 const rules = [
   {
+    method: 'POST',
+    host: 'places.googleapis.com',
+    path: '/v1/places:searchNearby',
+    // Six invented places near Bishan MRT (made-up ids, names, addresses and ratings, not a recording). Same answer
+    // wherever the search is.
+    respond: () => loadFixture('google/places-nearby.json'),
+  },
+  {
+    method: 'GET',
+    host: 'places.googleapis.com',
+    // A photo's address: /v1/places/<place id>/photos/<photo id>/media
+    pathPattern: /^\/v1\/places\/[^/]+\/photos\/[^/]+\/media$/,
+    respond: ({ url }) => ({ name: url.pathname.slice(4, -6), photoUri: 'https://lh3.googleusercontent.com/stub-photo' }),
+  },
+  {
     method: 'GET',
     host: 'api-open.data.gov.sg',
     path: '/v2/real-time/api/two-hr-forecast',
@@ -236,7 +251,10 @@ const rules = [
 export function resolveStub(method, url, scenario) {
   const parsed = new URL(url)
   const rule = rules.find(
-    (r) => r.method === method && r.host === parsed.hostname && r.path === parsed.pathname,
+    (r) =>
+      r.method === method &&
+      r.host === parsed.hostname &&
+      (r.path ? r.path === parsed.pathname : r.pathPattern.test(parsed.pathname)),
   )
 
   // A missing rule is a gap in our stubs, not an API failure. It throws a plain

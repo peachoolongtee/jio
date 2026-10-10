@@ -1,0 +1,699 @@
+{
+ "places": [
+  {
+   "id": "stub_place_01",
+   "displayName": {
+    "text": "Lantern Lane Cafe",
+    "languageCode": "en"
+   },
+   "location": {
+    "latitude": 1.3551,
+    "longitude": 103.8509
+   },
+   "types": [
+    "cafe",
+    "western_restaurant",
+    "restaurant",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "primaryType": "cafe",
+   "formattedAddress": "1 Example Street 1, #01-01, Singapore 000001",
+   "priceLevel": "PRICE_LEVEL_MODERATE",
+   "rating": 4.4,
+   "userRatingCount": 1200,
+   "regularOpeningHours": {
+    "periods": [
+     {
+      "open": {
+       "day": 0,
+       "hour": 9,
+       "minute": 0
+      },
+      "close": {
+       "day": 1,
+       "hour": 5,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 1,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 2,
+       "hour": 5,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 2,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 3,
+       "hour": 5,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 3,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 4,
+       "hour": 5,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 4,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 5,
+       "hour": 5,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 5,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 6,
+       "hour": 5,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 6,
+       "hour": 9,
+       "minute": 0
+      },
+      "close": {
+       "day": 0,
+       "hour": 5,
+       "minute": 0
+      }
+     }
+    ]
+   },
+   "businessStatus": "OPERATIONAL",
+   "photos": [
+    {
+     "name": "places/stub_place_01/photos/STUB_PHOTO",
+     "widthPx": 800,
+     "heightPx": 600,
+     "authorAttributions": [
+      {
+       "displayName": "A Google user",
+       "uri": "https://maps.google.com/maps/contrib/stub"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "stub_place_02",
+   "displayName": {
+    "text": "Sample Wing Shack",
+    "languageCode": "en"
+   },
+   "location": {
+    "latitude": 1.3509,
+    "longitude": 103.8426
+   },
+   "types": [
+    "chicken_wings_restaurant",
+    "chicken_restaurant",
+    "restaurant",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "primaryType": "chicken_wings_restaurant",
+   "formattedAddress": "2 Example Street 2, #01-02, Singapore 000002",
+   "priceLevel": "PRICE_LEVEL_MODERATE",
+   "rating": 3.1,
+   "userRatingCount": 310,
+   "regularOpeningHours": {
+    "periods": [
+     {
+      "open": {
+       "day": 0,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 0,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 1,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 1,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 2,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 2,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 3,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 3,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 4,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 4,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 5,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 5,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 6,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 6,
+       "hour": 22,
+       "minute": 0
+      }
+     }
+    ]
+   },
+   "businessStatus": "OPERATIONAL"
+  },
+  {
+   "id": "stub_place_03",
+   "displayName": {
+    "text": "Nonna Example Trattoria",
+    "languageCode": "en"
+   },
+   "location": {
+    "latitude": 1.3502,
+    "longitude": 103.843
+   },
+   "types": [
+    "italian_restaurant",
+    "pizza_restaurant",
+    "restaurant",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "primaryType": "italian_restaurant",
+   "formattedAddress": "3 Example Street 3, Singapore 000003",
+   "priceLevel": "PRICE_LEVEL_MODERATE",
+   "rating": 4.5,
+   "userRatingCount": 640,
+   "regularOpeningHours": {
+    "periods": [
+     {
+      "open": {
+       "day": 0,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 0,
+       "hour": 14,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 0,
+       "hour": 17,
+       "minute": 0
+      },
+      "close": {
+       "day": 0,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 1,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 1,
+       "hour": 14,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 1,
+       "hour": 17,
+       "minute": 0
+      },
+      "close": {
+       "day": 1,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 2,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 2,
+       "hour": 14,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 2,
+       "hour": 17,
+       "minute": 0
+      },
+      "close": {
+       "day": 2,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 3,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 3,
+       "hour": 14,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 3,
+       "hour": 17,
+       "minute": 0
+      },
+      "close": {
+       "day": 3,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 4,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 4,
+       "hour": 14,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 4,
+       "hour": 17,
+       "minute": 0
+      },
+      "close": {
+       "day": 4,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 5,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 5,
+       "hour": 14,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 5,
+       "hour": 17,
+       "minute": 0
+      },
+      "close": {
+       "day": 5,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 6,
+       "hour": 11,
+       "minute": 0
+      },
+      "close": {
+       "day": 6,
+       "hour": 14,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 6,
+       "hour": 17,
+       "minute": 0
+      },
+      "close": {
+       "day": 6,
+       "hour": 22,
+       "minute": 0
+      }
+     }
+    ]
+   },
+   "businessStatus": "OPERATIONAL"
+  },
+  {
+   "id": "stub_place_04",
+   "displayName": {
+    "text": "Example Food Centre",
+    "languageCode": "en"
+   },
+   "location": {
+    "latitude": 1.3493,
+    "longitude": 103.8498
+   },
+   "types": [
+    "food_court",
+    "restaurant",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "primaryType": "food_court",
+   "formattedAddress": "4 Example Street 4, #01-04, Singapore 000004",
+   "priceLevel": "PRICE_LEVEL_INEXPENSIVE",
+   "rating": 3.8,
+   "userRatingCount": 1800,
+   "regularOpeningHours": {
+    "periods": [
+     {
+      "open": {
+       "day": 0,
+       "hour": 0,
+       "minute": 0
+      }
+     }
+    ]
+   },
+   "businessStatus": "OPERATIONAL"
+  },
+  {
+   "id": "stub_place_05",
+   "displayName": {
+    "text": "Sample Hotpot Grill",
+    "languageCode": "en"
+   },
+   "location": {
+    "latitude": 1.3504,
+    "longitude": 103.8427
+   },
+   "types": [
+    "thai_restaurant",
+    "restaurant",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "primaryType": "thai_restaurant",
+   "formattedAddress": "5 Example Street 5, Singapore 000005",
+   "priceLevel": "PRICE_LEVEL_EXPENSIVE",
+   "rating": 4.6,
+   "userRatingCount": 900,
+   "regularOpeningHours": {
+    "periods": [
+     {
+      "open": {
+       "day": 0,
+       "hour": 8,
+       "minute": 0
+      },
+      "close": {
+       "day": 0,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 1,
+       "hour": 8,
+       "minute": 0
+      },
+      "close": {
+       "day": 1,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 2,
+       "hour": 8,
+       "minute": 0
+      },
+      "close": {
+       "day": 2,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 3,
+       "hour": 8,
+       "minute": 0
+      },
+      "close": {
+       "day": 3,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 4,
+       "hour": 8,
+       "minute": 0
+      },
+      "close": {
+       "day": 4,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 5,
+       "hour": 8,
+       "minute": 0
+      },
+      "close": {
+       "day": 5,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 6,
+       "hour": 8,
+       "minute": 0
+      },
+      "close": {
+       "day": 6,
+       "hour": 22,
+       "minute": 0
+      }
+     }
+    ]
+   },
+   "businessStatus": "OPERATIONAL"
+  },
+  {
+   "id": "stub_place_06",
+   "displayName": {
+    "text": "Placeholder Coffee Bar",
+    "languageCode": "en"
+   },
+   "location": {
+    "latitude": 1.3497,
+    "longitude": 103.8506
+   },
+   "types": [
+    "cafe",
+    "coffee_shop",
+    "food",
+    "point_of_interest",
+    "establishment"
+   ],
+   "primaryType": "cafe",
+   "formattedAddress": "6 Example Street 6, #01-06, Singapore 000006",
+   "priceLevel": "PRICE_LEVEL_INEXPENSIVE",
+   "rating": 3.9,
+   "userRatingCount": 420,
+   "regularOpeningHours": {
+    "periods": [
+     {
+      "open": {
+       "day": 0,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 0,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 1,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 1,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 2,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 2,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 3,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 3,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 4,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 4,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 5,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 5,
+       "hour": 22,
+       "minute": 0
+      }
+     },
+     {
+      "open": {
+       "day": 6,
+       "hour": 7,
+       "minute": 0
+      },
+      "close": {
+       "day": 6,
+       "hour": 22,
+       "minute": 0
+      }
+     }
+    ]
+   },
+   "businessStatus": "OPERATIONAL"
+  }
+ ]
+}

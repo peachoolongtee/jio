@@ -267,3 +267,30 @@ describe('OneMap: travel times and address search', () => {
     expect((await fetch(`${base}/api/places/search?q=bishan`)).status).toBe(503) // a server with no OneMap service
   })
 })
+
+describe('how many options a slot gets (minOptions, shortlistSize)', () => {
+  const NEWTON = { lat: 1.31279, lng: 103.83812 }
+  const slot = (extra) => ({
+    members: group, occasion: 'catch_up', dateTime: '2026-10-10T14:00', durationMinutes: 90, categories: ['activity'],
+    centre: NEWTON, unknownPolicy: 'lenient', topN: 20, ...extra,
+  })
+
+  it('by default the search stops at the first circle with 3 places, and 10 are scored', async () => {
+    const { body } = await post('/converge', slot({}))
+    expect(body.results.length).toBeLessThanOrEqual(10)
+    expect(body.diagnostics.inRadius).toBeGreaterThanOrEqual(3)
+  })
+
+  it('minOptions widens the search until that many fit, and shortlistSize scores more of them', async () => {
+    const few = await post('/converge', slot({}))
+    const many = await post('/converge', slot({ minOptions: 15, shortlistSize: 20 }))
+    expect(many.body.diagnostics.radiusUsed).toBeGreaterThanOrEqual(few.body.diagnostics.radiusUsed)
+    expect(many.body.results.length).toBeGreaterThan(few.body.results.length)
+    expect(many.body.results.length).toBeLessThanOrEqual(20)
+  })
+
+  it('refuses more than 30, or less than 1', async () => {
+    expect((await post('/converge', slot({ shortlistSize: 31 }))).status).toBe(400)
+    expect((await post('/converge', slot({ minOptions: 0 }))).status).toBe(400)
+  })
+})

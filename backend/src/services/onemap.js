@@ -26,6 +26,7 @@ const BASE = 'https://www.onemap.gov.sg'
 export const TOKEN_URL = `${BASE}/api/auth/post/getToken`
 export const SEARCH_URL = `${BASE}/api/common/elastic/search`
 export const ROUTE_URL = `${BASE}/api/public/routingsvc/route`
+export const THEME_URL = `${BASE}/api/public/themesvc/retrieveTheme`
 
 const ROUTE_TTL_MS = 6 * 60 * 60 * 1000 // Timetables do not change within a day, so a route stays good for hours.
 const SEARCH_TTL_MS = 24 * 60 * 60 * 1000 // Addresses hardly ever change.
@@ -394,6 +395,22 @@ export function createOneMap({
     }
   }
 
+  // Every place in one OneMap theme (for example 'sportsg_sport_facilities'), as OneMap sends them. Needs the
+  // account. Used by scripts/build-onemap-places.js to take a snapshot, never per request. Goes through the same
+  // call budget and token retry as routing (getWithToken), so a snapshot cannot use up the shared account.
+  //
+  // How to call:
+  //   const rows = await onemap.theme('museum')   // [{ NAME, DESCRIPTION, LatLng, ... }]
+  //
+  // Throws ExternalApiError when OneMap fails, OneMapUnavailableError when the budget is empty or the login
+  // failed, and Error when there is no account.
+  async function theme(queryName) {
+    if (!hasAccount) throw new Error('OneMap themes need an account: set ONEMAP_EMAIL and ONEMAP_PASSWORD')
+    const body = await getWithToken(`${THEME_URL}?queryName=${encodeURIComponent(queryName)}`)
+    // The first row describes the theme itself (its name and when it was updated), not a place.
+    return (body?.SrchResults ?? []).slice(1)
+  }
+
   // Tries one login and says whether it worked. For start-up: it never throws, and a failure only means
   // routing falls back to the estimate until OneMap answers.
   //
@@ -409,5 +426,5 @@ export function createOneMap({
     }
   }
 
-  return { routingEnabled, search, routeMinutes, peekRoute, reportFallback, warmUp }
+  return { routingEnabled, search, routeMinutes, peekRoute, reportFallback, warmUp, theme }
 }

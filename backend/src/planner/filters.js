@@ -1,6 +1,8 @@
 // filters.js: hard-constraint filtering shared by Converge and Roam.
 // A venue is ALLOWED or REJECTED here. No scoring happens in this file.
 
+import { isClosedOn } from './hawker-closures.js';
+
 /** "14:30" -> 870. "24:00" -> 1440, so midnight closing works. */
 function toMinutes(hhmm) {
   const [h, m] = hhmm.split(':').map(Number);
@@ -11,6 +13,22 @@ function toMinutes(hhmm) {
 function minutesOfDay(dateTime) {
   return toMinutes(dateTime.slice(11, 16));
 }
+
+/**
+ * Day of the week (0 = Sunday ... 6 = Saturday) of a local date, "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM". The date part is read as
+ * a calendar date: no time zone is applied, because the string is already Singapore local time, so the answer cannot
+ * change with the machine's time zone.
+ *
+ * How to call:
+ *   weekdayOf('2026-10-12T10:00') // 1 (a Monday)
+ */
+function weekdayOf(dateTime) {
+  const [y, m, d] = dateTime.slice(0, 10).split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+/** Does the venue say it is shut on this weekday (venue.closedWeekdays, from "Closed on Monday" in its hours text)? */
+const isClosedWeekday = (venue, dateTime) => (venue.closedWeekdays ?? []).includes(weekdayOf(dateTime));
 
 /**
  * Open if the time falls in any range. Split hours (12:00-14:30 and 18:00-22:30) are normal.
@@ -121,8 +139,11 @@ function rejectionReasons(venue, ctx) {
   }
 
   if (venue.maxGroupSize < members.length) reasons.push('capacity');
+  // A hawker centre's cleaning or repair days (NEA), attached by hawker-closures.js. Dates are "YYYY-MM-DD".
+  if (isClosedOn(venue, dateTime.slice(0, 10))) reasons.push('closed_for_cleaning');
   // With a duration (an itinerary slot), the venue must stay open for all of it, not just at the start.
-  if (!(durationMinutes > 0 ? isOpenFor(venue, dateTime, durationMinutes) : isOpenAt(venue, dateTime))) reasons.push('closed');
+  // A place whose hours text says "Closed on Monday" is closed all that day, whatever its opening hours on other days.
+  if (isClosedWeekday(venue, dateTime) || !(durationMinutes > 0 ? isOpenFor(venue, dateTime, durationMinutes) : isOpenAt(venue, dateTime))) reasons.push('closed');
   if (enforceMealPeriod && venue.category === 'eat' && venue.mealPeriods.length > 0 &&
       !venue.mealPeriods.includes(mealPeriodAt(dateTime))) reasons.push('meal_period');
 
@@ -174,4 +195,5 @@ function relaxationHints(venues, ctx) {
 
 export {
   filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds, isOpenAt, isOpenFor, mealPeriodAt, minutesOfDay, toMinutes,
+  weekdayOf, isClosedWeekday,
 };

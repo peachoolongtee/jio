@@ -36,17 +36,29 @@ export class OneMapUnavailableError extends ExternalApiError {
   }
 }
 
-// Builds a budget.
+// Builds a budget. OneMap uses it as it is; another service (Google Places) gives its own name and error class.
 //
 // How to call:
 //   const budget = createCallBudget({ callsPerMinute: 240 })
 //   const body = await budget.run(() => http.getJson(url))   // Throws OneMapUnavailableError when the bucket is empty.
 //
+// For another service:
+//   createCallBudget({ callsPerMinute: 60, maxInFlight: 4, service: 'Google', unavailable: (reason, message, details) => new MyError(reason, message, details) })
+//
 // Options:
 //   callsPerMinute - Size of the bucket and its refill rate. A positive integer.
 //   maxInFlight    - How many calls may run at once. Default 6.
 //   now            - Returns the time in milliseconds. Tests pass a fake clock.
-export function createCallBudget({ callsPerMinute, maxInFlight = MAX_IN_FLIGHT, now = Date.now }) {
+//   service        - The name used in the "budget used up" message. Default 'OneMap'.
+//   unavailable    - Builds the error thrown when the bucket is empty: (reason, message, { retryAfterSeconds }) => Error.
+//                    Default: OneMapUnavailableError.
+export function createCallBudget({
+  callsPerMinute,
+  maxInFlight = MAX_IN_FLIGHT,
+  now = Date.now,
+  service = 'OneMap',
+  unavailable = (reason, message, details) => new OneMapUnavailableError(reason, message, details),
+}) {
   if (!Number.isInteger(callsPerMinute) || callsPerMinute <= 0) {
     throw new Error(`createCallBudget: callsPerMinute must be a positive integer, got ${String(callsPerMinute)}.`)
   }
@@ -82,7 +94,7 @@ export function createCallBudget({ callsPerMinute, maxInFlight = MAX_IN_FLIGHT, 
   }
 
   const empty = () =>
-    new OneMapUnavailableError('budget_empty', 'the OneMap call budget for this minute is used up', {
+    unavailable('budget_empty', `the ${service} call budget for this minute is used up`, {
       retryAfterSeconds: retryAfterSeconds(),
     })
 
