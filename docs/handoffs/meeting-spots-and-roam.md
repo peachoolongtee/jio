@@ -20,7 +20,7 @@ If this file is not in the repository on the new machine (it was untracked when 
 
 ## 2. Where the work stopped (2026-10-11, about 01:00)
 
-> **Update, later on 2026-10-11, on the second machine.** The first machine's branch was never pushed, so slices 1 and 2 were built again from `main` at `2e1643d` (Google Places had landed by then) and checked by the lead agent. They are on `feat/meeting-spots`, uncommitted. Round 15 in `docs/agents/work-log.md` has the results, the shape of `session.spots` that slice 3 is briefed from, and what differs from sections 7 and 9 below. Slice 3 is next. The rest of this section describes the first attempt and is kept as a record.
+> **Update, later on 2026-10-11, on the second machine.** The first machine's branch was never pushed, so slices 1 and 2 were built again from `main` at `2e1643d` (Google Places had landed by then) and checked by the lead agent. They are committed on `feat/meeting-spots`, which has not been pushed. Round 15 in `docs/agents/work-log.md` has the results, the shape of `session.spots` that slice 3 is briefed from, and what differs from sections 7 and 9 below. Slice 3 is next. The rest of this section describes the first attempt and is kept as a record.
 
 The lead paused the work to move it to another machine. Two agents were running and were stopped mid-task.
 

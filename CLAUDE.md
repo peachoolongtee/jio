@@ -92,7 +92,7 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 
 **Round 14, 2026-10-11, decisions on meeting spots and Roam.** Nothing built; the handoff is `docs/handoffs/meeting-spots-and-roam.md`.
 
-**Round 15, 2026-10-11, meeting spots, slices 1 and 2: built on `feat/meeting-spots`, not committed.** A backend agent added runners-up and named areas to `/api/meeting-area`; a frontend agent added spots, approvals, confirm and the known place to the data layer (save version 9). The lead checked both. No screen uses them yet; slice 3 is next.
+**Round 15, 2026-10-11, meeting spots, slices 1 and 2: built on `feat/meeting-spots`, committed and not pushed.** A backend agent added runners-up and named areas to `/api/meeting-area`; a frontend agent added spots, approvals, confirm and the known place to the data layer (save version 9). The lead checked both. No screen uses them yet; slice 3 is next.
 
 **Rounds 10 and 11, 2026-10-10, Home as a map of every meetup, and four problems the lead found by using the app: completed.** One frontend agent each. Both went to `main` from `feat/home-meetups-map`.
 
