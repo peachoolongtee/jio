@@ -44,7 +44,7 @@ As of 2026-10-09. The Supabase foundation was built on branch `feat/supabase-fou
 
 | Area | State |
 |---|---|
-| Frontend screens | Sign-up, sessions, meeting area, voting, itinerary, photos, leaderboard with seasons, rewards in JioCoins, profiles. A top bar from 744 px and a pill tab bar on phones. All data is in one browser's local storage. |
+| Frontend screens | Sign-up, sessions, meeting area, voting, itinerary, photos, leaderboard with seasons, rewards in JioCoins, profiles. Home shows every current meetup as a pin on the map, with a detail on hover and a list below. A host can edit a session's title, date and times until it starts. A top bar from 744 px and a pill tab bar on phones. All data is in one browser's local storage. |
 | Backend planner | Built on `dev`: `/api/meeting-area`, `/api/converge`, `/api/roam`, `/api/search`. Travel times and weather are internal estimates. Open to anyone. |
 | Database | Session schema and access rules applied to the live `jio` project on 2026-10-09, then revised twice the same day after two reviews (three migrations). No app code reads or writes it yet. |
 | Login | Backend token check and `GET /api/me` built and hardened after two reviews. No login screen; the frontend sends no token. |
@@ -81,6 +81,8 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 **Round 1, 2026-10-09, project initialisation: completed.** Four read-only agents reviewed the unpushed branch, the schema, the open frontend pull request, and ran the checks. They found three significant defects in the login check and a blocker in the schema.
 
 **Round 2, 2026-10-09, fixes: completed.** A backend agent hardened the login check; the lead revised the schema on the live project. An independent tester confirmed the results. A second review asked for more changes.
+
+**Rounds 10 and 11, 2026-10-10, Home as a map of every meetup, and four problems the lead found by using the app: completed.** One frontend agent each. Both went to `main` from `feat/home-meetups-map`.
 
 **Round 9, 2026-10-10, OneMap made safe and everything reconciled: completed.** A backend agent capped OneMap calls per request and per process and fixed the token handling. The defect fixes, the external-APIs pull request and these changes went to `main` together from `feat/onemap-and-defect-fixes`.
 
@@ -149,6 +151,7 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-10 | `feat/onemap-and-defect-fixes` after round 9 | `pnpm test`, also with outbound calls blocked | 383 passed, 1 skipped, 20 files, both times |
 | 2026-10-10 | `feat/onemap-and-defect-fixes` after round 9 | `pnpm --filter jio-frontend test`, `pnpm build` | 229 passed, 25 files; succeeded |
 | 2026-10-10 | `feat/onemap-and-defect-fixes` after round 9 | OneMap route calls for one meeting-area request, 30 members, stubbed | 59 by default and 60 at the widest setting (480 and 1,108 before) |
+| 2026-10-10 | `feat/home-meetups-map` after round 11 | `pnpm --filter jio-frontend test`; `pnpm test`; `pnpm build` | 324 passed, 30 files; 383 passed, 1 skipped; succeeded |
 | 2026-10-10 | `fix/leaderboard-audit-defects`, working tree | `pnpm --filter jio-frontend test` | 229 passed, 25 files |
 | 2026-10-10 | `fix/leaderboard-audit-defects`, working tree | `pnpm test`, `pnpm build` | 317 passed, 1 skipped; succeeded |
 | 2026-10-10 | external-APIs pull request merged with `main`, throwaway worktree | `pnpm test`, also with outbound calls blocked | 334 passed, 1 skipped, both times |
