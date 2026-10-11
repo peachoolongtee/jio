@@ -8,6 +8,7 @@
 // The shared plan data is never changed.
 
 import { nearestArea } from './cdc-adapter.js';
+import { TWO_HOUR_AREAS } from '../services/weather-regions.js';
 
 /** The weather case name that holds the live forecast. It is not in the request schema, so a caller cannot send it. */
 export const LIVE_WEATHER_CASE = 'live';
@@ -39,4 +40,50 @@ export function withLiveWeather(data, forecast) {
 
   const byArea = Object.fromEntries(forecast.areas.map(a => [a.area, { rainRisk: a.rainRisk, forecast: a.forecast }]));
   return { ...data, venues: hit.venues, weatherCases: { ...data.weatherCases, [LIVE_WEATHER_CASE]: byArea } };
+}
+
+/** The weather case name for "weather has no effect". It is not in the request schema, so a caller cannot send it. */
+export const NO_WEATHER_CASE = 'none';
+
+// Plan data with a NO_WEATHER_CASE copied per plan data, so the copy is made once.
+const unweathered = new WeakMap();
+
+/**
+ * Plan data for a ranking that weather must not change: the `clear` case (the same risks, so the same scores as a
+ * request that forces clear), with every area's state marked 'unknown' so the answer says "Not known" rather than
+ * "dry". Pass the result as `data` and NO_WEATHER_CASE as `weatherCase`. The shared plan data is never changed.
+ *
+ * How to call:
+ *   const data = withNoWeather(planData)
+ *   converge({ ...input, weatherCase: NO_WEATHER_CASE }, data)
+ */
+export function withNoWeather(data) {
+  let hit = unweathered.get(data);
+  if (!hit) {
+    const clear = Object.fromEntries(Object.entries(data.weatherCases.clear).map(([area, w]) => [area, { ...w, state: 'unknown' }]));
+    hit = { ...data, weatherCases: { ...data.weatherCases, [NO_WEATHER_CASE]: clear } };
+    unweathered.set(data, hit);
+  }
+  return hit;
+}
+
+/**
+ * A regional forecast period as a two-hour style forecast: every two-hour area takes the sentence of the region it
+ * falls in, so withLiveWeather() can place venues and score them without any other change. An area whose region has no
+ * sentence in this period is left out.
+ *
+ * How to call:
+ *   const forecast = regionalAreaForecast(period, createRegionLookup())
+ *   forecast.areas[0] // { area: 'Ang Mo Kio', lat: 1.375, lng: 103.839, forecast: 'Thundery Showers', rainRisk: 1 }
+ *
+ * @param {{start:string,end:string,regions:Record<string,{forecast:string,rainRisk:number}>}} period
+ * @param {(area:{name:string,lat:number,lng:number}) => string} regionOf  from createRegionLookup()
+ */
+export function regionalAreaForecast(period, regionOf) {
+  const areas = [];
+  for (const a of TWO_HOUR_AREAS) {
+    const r = period.regions[regionOf(a)];
+    if (r) areas.push({ area: a.name, lat: a.lat, lng: a.lng, forecast: r.forecast, rainRisk: r.rainRisk });
+  }
+  return { areas, validPeriod: { start: period.start, end: period.end } };
 }

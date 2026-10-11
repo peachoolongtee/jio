@@ -116,13 +116,14 @@ function context(input, data, members) {
  *   reasons      up to two short tags ("Near MRT", "Budget friendly"...)
  *   warnings     ['rain'] when rain is likely and the venue is exposed
  *   swap         for a rain warning, the indoor alternative from indoorSwap() below
+ *   weather      { state, phrase, rainLikely } where this venue is (scoring.js weatherOf)
  */
 function optionLabels(r, from, c, swap, homeMaxMinutes = null) {
   const walk = walkMinutes(from, r.venue);
   const crowd = S.crowdLevel(r.venue, c.hour);
   const warnings = S.rainWarning(r.venue, c.weatherByArea) ? ['rain'] : [];
   return {
-    walkMinutes: walk, crowd, warnings, swap: warnings.length ? swap : null,
+    walkMinutes: walk, crowd, warnings, swap: warnings.length ? swap : null, weather: S.weatherOf(r.venue, c.weatherByArea),
     reasons: S.reasonTags({ venue: r.venue, walkMinutes: walk, crowd, rainy: S.rainLikelyAt(r.venue, c.weatherByArea), homeMaxMinutes, time: c.time }),
   };
 }
@@ -135,17 +136,17 @@ function optionLabels(r, from, c, swap, homeMaxMinutes = null) {
  *      never scored), the nearest indoor venue that passed the hard filters, within the 3 km cap;
  *   3. otherwise null.
  */
-function indoorSwap(rows, shownRows, passed, from, input) {
+function indoorSwap(rows, shownRows, passed, from, input, weatherByArea) {
   const taken = new Set([...shownRows.map(r => r.venue.id), ...(input.currentOptionIds ?? [])]);
   const ranked = rows.find(x => x.venue.setting === 'indoor' && !taken.has(x.venue.id));
-  if (ranked) return { venueId: ranked.venue.id, name: ranked.venue.name };
+  if (ranked) return { venueId: ranked.venue.id, name: ranked.venue.name, weather: S.weatherOf(ranked.venue, weatherByArea) };
   let nearest = null, nearestKm = 3;
   for (const v of passed) {
     if (v.setting !== 'indoor' || taken.has(v.id)) continue;
     const km = haversineKm(from, v);
     if (km <= nearestKm) [nearest, nearestKm] = [v, km];
   }
-  return nearest ? { venueId: nearest.id, name: nearest.name } : null;
+  return nearest ? { venueId: nearest.id, name: nearest.name, weather: S.weatherOf(nearest, weatherByArea) } : null;
 }
 
 /**
@@ -271,7 +272,7 @@ function converge(input, data, deps = {}) {
   // 7. explain
   const names = Object.fromEntries(members.map(m => [m.id, m.name]));
   const label = c.profile?.label ?? 'meetup';
-  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, centre, input);
+  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, centre, input, c.weatherByArea);
   const toResult = (r, i) => ({
     rank: i + 1, venueId: r.venue.id, name: r.venue.name, venue: r.venue, score: r.score,
     worstMinutes: r.worstMinutes, worstMember: names[r.worstMemberId], meanMinutes: r.meanRaw,
@@ -331,7 +332,7 @@ function roam(input, data, deps = {}) {
   });
   rows.sort((a, b) => a.score - b.score);
   const label = c.profile?.label ?? 'meetup';
-  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, input.current, input);
+  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, input.current, input, c.weatherByArea);
   const results = shown.map((r, i) => ({
     rank: i + 1, venueId: r.venue.id, name: r.venue.name, venue: r.venue, score: r.score,
     travelMinutes: r.travelMinutes, distanceKm: r.distanceKm, breakdown: r.breakdown, explanation: S.explain(r, label),

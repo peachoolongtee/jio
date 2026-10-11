@@ -5,7 +5,8 @@ import { fromGooglePlaces } from '../planner/google-adapter.js'
 import { centroid, fairnessWeights, minimaxCenter } from '../planner/geo.js'
 import { dropKnownPlaces, withEstimatedMrtWalk } from '../db/venues.js'
 import { GoogleUnavailableError, PHOTO_NAME, snapPhotoWidth } from '../services/google-places.js'
-import { LIVE_WEATHER_CASE, withLiveWeather } from '../planner/live-weather.js'
+import { withLiveWeather } from '../planner/live-weather.js'
+import { createWeatherResolver } from '../planner/weather-window.js'
 import { OneMapUnavailableError } from '../services/budget.js'
 import { ExternalApiError } from '../services/errors.js'
 import { currentScenario } from '../services/scenario.js'
@@ -31,11 +32,15 @@ import { createItineraryAi } from '../services/itinerary-ai.js'
 //   createPlanRouter({ data, weather, onemap, routingDeadlineMs: 50 })
 //
 // Weather. /converge and /roam score each venue against the weather, and say where it came from in a top-level
-// `weather: { source, validUntil?, simulationIgnored? }`:
-//   live         the two-hour forecast from data.gov.sg (cached for five minutes). Each venue is scored from the
-//                forecast of its nearest forecast area. `validUntil` is when that forecast ends.
+// `weather: { source, basis, issuedAt?, validUntil?, phrase?, reason?, simulationIgnored? }`. Which forecast is used
+// depends on how far away the stop's `dateTime` is (planner/weather-window.js):
+//   live         the area forecast (two-hour) when the stop is within two hours, or the regional forecast (24-hour)
+//                when a period of it covers the stop. Each venue is scored from the forecast of its nearest forecast
+//                area, or of the region that area falls in. `validUntil` is when that forecast ends.
 //   simulated    the request sent `weatherCase` and the server allows it (ALLOW_SIMULATED_WEATHER=1, or stub mode).
+//                It applies at any date.
 //   unavailable  the forecast could not be fetched. The planner falls back to the `clear` case and still answers.
+//   none         the stop is further ahead than the regional forecast reaches: weather has no effect on the ranking.
 // A request that sends `weatherCase` to a server that does not allow it is still answered: the field is ignored,
 // the real forecast is used, and the answer carries `weather.simulationIgnored: true`. The frontend sends
 // `weatherCase` on every ranking, so refusing it would break every slot.
@@ -75,6 +80,8 @@ const MEETING_AREAS_ROUTED = 5
 export function createPlanRouter({
   data,
   weather,
+  now = Date.now,
+  weatherResolver = createWeatherResolver({ data, weather, now }),
   onemap = null,
   places = null,
   ai = createItineraryAi(),
@@ -93,25 +100,11 @@ export function createPlanRouter({
   // Works out which weather one request is scored against. Never throws because data.gov.sg is down.
   //
   // How to call:
-  //   const { source, validUntil, weatherCase, planData } = await resolveWeather(input)
-  async function resolveWeather(input) {
-    if (input.weatherCase !== undefined) return { source: 'simulated', weatherCase: input.weatherCase, planData: data }
-    try {
-      const forecast = await weather.twoHourForecast()
-      return {
-        source: 'live',
-        validUntil: forecast.validPeriod.end ?? undefined,
-        weatherCase: LIVE_WEATHER_CASE,
-        planData: withLiveWeather(data, forecast),
-        forecast,
-      }
-    } catch (err) {
-      // Only an API failure falls back. A bug must still reach the error handler.
-      if (!(err instanceof ExternalApiError)) throw err
-      console.warn(`Weather unavailable, planning as if clear: ${err.message}`)
-      return { source: 'unavailable', weatherCase: 'clear', planData: data }
-    }
-  }
+  //   const { weatherCase, planData, forecast, weather } = await resolveWeather(input)
+  //
+  // `forecast` is what withLiveWeather(data, forecast) places any venue added later in the request with. It is the same
+  // for the area and the regional forecast, and undefined for a simulated forecast and for "no effect".
+  const resolveWeather = (input) => weatherResolver.resolve({ start: input.dateTime, weatherCase: input.weatherCase })
 
   // The point a request ranks around: Roam's current point, Converge's given centre, or else the group's seed point,
   // worked out from the same functions and the same rule as the engine's converge() (its `seed` and
@@ -221,7 +214,7 @@ export function createPlanRouter({
       }
       // A simulated forecast the server does not allow is dropped, and the answer says so.
       const simulationIgnored = input.weatherCase !== undefined && !allowSimulatedWeather
-      const { source, validUntil, weatherCase, planData: weatherData, forecast } = await resolveWeather(
+      const { weatherCase, planData: weatherData, forecast, weather: weatherBlock } = await resolveWeather(
         simulationIgnored ? { ...input, weatherCase: undefined } : input,
       )
       const { planData, google } = await addGooglePlaces(input, weatherData, forecast)
@@ -232,11 +225,7 @@ export function createPlanRouter({
         ...result,
         ...(travel && { travel }),
         google,
-        weather: {
-          source,
-          ...(validUntil !== undefined && { validUntil }),
-          ...(simulationIgnored && { simulationIgnored: true }),
-        },
+        weather: { ...weatherBlock, ...(simulationIgnored && { simulationIgnored: true }) },
       })
     } catch (err) {
       if (err instanceof ZodError) {
