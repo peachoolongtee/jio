@@ -92,6 +92,8 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 
 **Round 2, 2026-10-09, fixes: completed.** A backend agent hardened the login check; the lead revised the schema on the live project. An independent tester confirmed the results. A second review asked for more changes.
 
+**Rounds 24 and 25, 2026-10-11 and 12, the lead's changes to the pitch build, and stage 1 of sessions on the server.** The settled Locate page, the back button, reviews and scores on the vote cards went to `dev`; more card changes wait in a pull request; the CDC price rule and stage 1 (the signed-in account's id everywhere, reviewed and fixed) are on `integration/after-pitch`. Implementation was paused at the lead's word after stage 1 merged.
+
 **Round 23, 2026-10-11, the tracker cleared, the demo tour checked, and each real service run once.** Open tickets went from 66 to 36 under one map. With the lead's keys: OneMap routing, the live forecast and Gemini answered; with the Google key set every converge result was a Google place.
 
 **Rounds 21 and 22, 2026-10-11, five pieces built in parallel and the place-search pull request audited.** Weather's backend half, Roam in a meetup, the demo tour and the session schema are on `integration/after-pitch`; the place-search fixes are on `feat/real-search-integration`, held for the Google decision.
@@ -148,7 +150,7 @@ Recorded as tickets under issue #109. The ones that change how you work today:
 - **A Google key changes every ranking.** With `GOOGLE_MAPS_API_KEY` set, a real converge returned ten Google places out of ten, stalls in one food court, one of them first on a single review. Google's terms do not allow them beside the OneMap map. Leave the key empty until the lead decides.
 - **The planner routes accept anyone.** The login check exists but is not applied to them, because the frontend sends no token yet.
 - **Points, season prizes and voucher codes are computed in the browser** and can be edited there. They are labelled as a demo and must not be presented as real.
-- **The signed-in user's id is hard-coded** in several views, so nothing works for two real people yet.
+- **A real account works alone, and only in one browser.** The signed-in person now comes from the account (`currentUserId()` in `frontend/src/lib/currentUser.js`, `auth.myId` in components), and a real account's data is stored under its own id. Nothing is shared yet: a real account has no friends and cannot start a session, which needs two people, until sessions are on the server. No real sign-up has been run.
 - **An old database password is in git history.** The repo must stay private until the lead resets it.
 - **CI has no end-to-end step.** It runs both unit suites and the build on pull requests and on pushes to `main` and `dev`.
 - **A host's account cannot be deleted**, and nothing deletes sessions. Account erasure needs a server route.
@@ -212,6 +214,8 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-11 | `feat/demo-tour`, development server, no backend | `/demo`, then each of the eight checkpoints by the strip's next button, about 560 px wide | Lands on Home at checkpoint 1; all eight open their screen; no horizontal overflow; no page errors |
 | 2026-10-11 | `feat/real-search-integration`, working tree | `pnpm test`, also with outbound calls blocked; frontend suite; build | 986 passed, 2 skipped, 34 files, both times; 886 passed, 59 files; succeeded |
 | 2026-10-11 | `dev` at `36a8bf0`, the lead's real keys, own server on a spare port | One call to each real service, by a verifier agent | OneMap: logged in, search 0.16 s, meeting area for Tampines and Clementi 3.2 s cold (10 trips routed, 22 estimated) and 2 ms warm. Forecast: live. Gemini: an order and a sentence in 1.1 s. Google: 19 places added; all 10 converge results were Google places. No server warnings. Not run: a Google photo, a real login token |
+| 2026-10-12 | `integration/after-pitch` with stage 1 merged in (`94d24ac`) | `pnpm --filter jio-frontend test`; `pnpm test`; `pnpm build`, exit codes read | 1112 passed, 71 files; 899 passed, 2 skipped; succeeded |
+| 2026-10-12 | `feat/sessions-stage-1-account` after the review's fixes | The same three, the frontend also with outbound calls blocked; a search of the built files for the development-only account tools | 1112 passed both times, nothing blocked; 899 passed, 2 skipped; succeeded; none found |
 
 Not yet verified: a real user's login token against `GET /api/me`, a Google photo, and anything end to end.
 
