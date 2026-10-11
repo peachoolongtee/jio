@@ -100,7 +100,7 @@ describe('Claude choosing an order', () => {
     const ai = createItineraryAi({ client })
     expect(await ai.choose({ options })).toEqual({ index: 1, reason: 'Film first, then shops, then a calm coffee.', source: 'ai' })
     const sent = create.mock.calls[0][0]
-    expect(sent.model).toBe('claude-opus-5-5')
+    expect(sent.model).toBe('claude-haiku-5-5')
     expect(sent.output_config.format.type).toBe('json_schema')
     expect(sent.messages[0].content).toContain(describeOption(options[0], 0))
   })
@@ -120,9 +120,15 @@ describe('Claude choosing an order', () => {
     expect(await none.choose({ options })).toMatchObject({ index: 0, source: 'rules' })
   })
 
-  it('does not hide a bug', async () => {
+  it('answers by the rules when anything fails at the provider, and still shows a bug outside it', async () => {
+    // Rewritten: this used to assert that a TypeError from the client reached the caller (a 500). Everything thrown at
+    // the provider boundary now falls back to the rules; a bug in the options, which is outside it, still propagates.
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const broken = { beta: { messages: { create: async () => { throw new TypeError('bug') } } } }
-    await expect(createItineraryAi({ client: broken }).choose({ options })).rejects.toThrow('bug')
+    expect(await createItineraryAi({ client: broken }).choose({ options })).toMatchObject({ index: 0, source: 'rules' })
+    const badOptions = [{ ...options[0], stops: undefined }, options[1]]
+    await expect(createItineraryAi({ client: fakeClient({ choice: 1, reason: 'x' }).client }).choose({ options: badOptions })).rejects.toThrow(TypeError)
+    vi.restoreAllMocks()
   })
 })
 
@@ -199,11 +205,40 @@ describe('POST /api/itinerary/arrange', () => {
   })
 
   it('may keep the current order for the first suggestion', async () => {
+    // The current order scores worst of the four that work, so the AI below (which picks the order that matches the
+    // current one) can only get it when the route offers it.
     const stops = [lunch, cafe, cinema, mall]
     const { candidates } = arrangeCandidates({ stops, startAt: NOON })
     expect(freshCandidates(candidates, [], { includeCurrent: true }).options.some((c) => c.isCurrent)).toBe(true)
-    const { body } = await post({ stops, startAt: NOON, includeCurrent: true })
-    expect(body.status).toBe('ok')
+    const wantsCurrent = {
+      beta: {
+        messages: {
+          create: async ({ messages }) => {
+            const lines = messages[0].content.split('\n').filter((l) => l.startsWith('Order '))
+            const at = (l, name) => l.indexOf(name)
+            const n = lines.findIndex((l) => at(l, 'Lao Beijing') < at(l, 'Atlas') && at(l, 'Atlas') < at(l, 'Shaw Theatres') && at(l, 'Shaw Theatres') < at(l, 'Velocity'))
+            return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ choice: n === -1 ? 1 : n + 1, reason: 'Keep the voted order.' }) }] }
+          },
+        },
+      },
+    }
+    const app = createApp({ frontendOrigin: 'http://localhost:5173', http: createHttp({ stub: true }), itineraryAi: createItineraryAi({ client: wantsCurrent }) }).listen(0, '127.0.0.1')
+    await once(app, 'listening')
+    try {
+      const ask = async (extra) => {
+        const res = await fetch(`http://127.0.0.1:${app.address().port}/api/itinerary/arrange`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stops, startAt: NOON, ...extra }) })
+        return res.json()
+      }
+      const first = await ask({ includeCurrent: true })
+      expect(first).toMatchObject({ status: 'ok', source: 'ai', reason: 'Keep the voted order.', others: 3 })
+      expect(first.order).toEqual(stops.map((s) => s.id))
+      // Without it the current order is never offered: one fewer other order, and a different order chosen.
+      const second = await ask({})
+      expect(second.others).toBe(2)
+      expect(second.order).not.toEqual(stops.map((s) => s.id))
+    } finally {
+      await new Promise((resolve) => app.close(resolve))
+    }
   })
 
   it('says so when no other order fits', async () => {
