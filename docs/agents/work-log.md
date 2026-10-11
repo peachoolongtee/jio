@@ -1121,3 +1121,38 @@ The lead asked whether the staging branch was safe to demo, then, using the pitc
 - **Run on the merged code in the lead's main folder:** frontend 855 passed and 1 failed; with `VITE_API_BASE_URL` blanked for the run, 856 of 856. The failing test, in `plannerAuth.test.js`, fails the same way on plain `dev` in that folder: it depends on the machine's `frontend/.env`. Recorded on the tests ticket. Backend 815 passed, 2 skipped; build succeeded.
 - **A mistake in the lead agent's own check:** the test run's result was piped through a filter, so the failing run did not stop the commit that followed it. The failure was then traced before merging.
 - **Not on this branch:** `integration/after-pitch` does not have these five commits. `dev` must be merged into it before it goes to `dev`.
+
+## Round 25: the vote cards, Directions, the CDC price rule, and the first Supabase stage begun (2026-10-11, late night)
+
+The lead took the suggestions for the cards except the stock photos ("it gives some visual clarity"), asked for the outstanding work to continue, and had earlier asked where the Directions button was.
+
+| # | Role | Scope | Branch | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 25.1 | Frontend | Vote cards: the photo and name open the place; "Short walk" out, an opening-hours tag in; where walks are from; voters named in a small group | `feat/vote-cards-and-directions`, from `dev` | Wording in pure functions with tests; no overflow at 320 px | **Completed**, peachoolongtee/jio#137 open, not merged |
+| 25.2 | Lead | The meeting spot card: your own trip and a Directions button | the same branch | Seen in a browser at phone and desktop width | **Completed** |
+| 25.3 | Backend | A guessed price makes no claim for CDC places either | `fix/guessed-price-cdc`, from staging | Before and after counts; suites pass | **Completed**, merged into staging |
+| 25.4 | Lead | Bring `dev` and the two branches into `integration/after-pitch` | staging | Suites and build on the result | **Completed** |
+| 25.5 | Frontend | Sessions on the server, stage 1: the signed-in account's id in place of the hard-coded one; a people source that can hold real people | `feat/sessions-stage-1-account`, from staging | The ticket's "Done when"; a scan test; the demo account and the tour unchanged | **Running** |
+
+### 25.1 and 25.2 The cards and the meeting spot
+
+- **Agent (25.1):** a frontend-engineer subagent. Its report: one control over the photo and name, named "Open <place>"; the hours tag uses the slot's own start and length, the same the planner ranked against; "Open until midnight" and "Open 24 hours" added beyond the brief; voters' names fall back to the count when names and count disagree; one existing assertion changed (a closed card now has two buttons, the name and the review line).
+- **Run by the lead on the branch, exit codes read directly:** frontend 896 passed, 60 files, exit 0, and the same with outbound calls blocked, nothing blocked; build exit 0.
+- **Seen by the lead:** two of its screenshots (the Vote page at 1280 px with the walk-from line, hours tags and "Everyone voted"; at 320 px with "You and Nicole voted" wrapping to two lines). The meeting spot card in a browser at 375 and 1280 px.
+- **A defect the lead found in its own change:** the Directions button beside the name cut "Raffles Place" to "Raffle…" at phone width. Moved under the name; the name then fitted at both widths with no overflow.
+- **Changed from what the lead was told:** "Near MRT" stays, because it is about the station and not the walk from the meeting spot.
+- **Not verified by anyone:** the warning hours tags rendered (no showcase place was closed); a phone; a screen reader.
+- **Not built, at the lead's word:** any change to the photos. Real photos for places that have one would load images from other sites, which is for after the pitch.
+
+### 25.3 The CDC price rule
+
+- **Agent:** an implementer subagent. All 1,303 CDC places in the pool already carried `priceAssumed`, so dropping the exception in `priceIsKnown` was the whole change; the score and the budget filter are untouched.
+- **Effect:** places that can earn "Budget friendly" fell from 1,345 of 1,819 to 42. Across three eat rankings (23 results) the tag fell from 9 to 1; "within budget" appeared in none before or after.
+- **Run by the lead:** backend 899 passed, 2 skipped, and the same with outbound calls blocked.
+
+### 25.4 Staging brought level
+
+- **`dev` merged in:** five conflicts (`SessionSteps`, `SuggestionCard`, `session.js`, `vite.config.js`, `DESIGN.md`), each resolved by keeping both sides; the back button's rule now uses the staging branch's list of Itinerary pages, so "What next?" goes back to the Itinerary. 990 frontend, 897 backend, build.
+- **The cards branch merged in:** two conflicts. One Roam test expected "Short walk" on its card; it was changed to expect its absence, which is the decision. 1030 frontend passed, exit 0; 899 backend; build.
+- **Found:** the Roam page reuses the place card, whose review line and name now open a place; Roam does not handle that, so there they are buttons that do nothing. On the Roam ticket.
+- **Two failures that were not defects, and one process mistake:** a frontend test that depends on the machine's `frontend/.env`, and a backend test that failed once under load and passed six times after. Both times the lead agent had piped the run through a filter in front of a commit, so the commit went ahead; from this round on, commits are gated on the run's exit code.
