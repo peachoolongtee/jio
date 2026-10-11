@@ -98,6 +98,10 @@ export const useEventsStore = defineStore('events', () => {
   const respondReplan = act(api.respondReplan)
   const replan = act(api.replan)
   const endPlan = act(api.endPlan)
+  // Roam. The first acts as the signed-in person; the host adds a proposed place to the plan or leaves it out, and the
+  // person who proposed it may take it back. How to call: proposeMyStop('s1', 'v25'), resolveProposal('s1', 'pp7', true)
+  const proposeMyStop = (id, venueId) => act(api.proposeStop)(id, HOST_ID, venueId)
+  const resolveProposal = act(api.resolveProposal)
 
   const addPhoto = (id, src) => act(api.addPhoto)(id, HOST_ID, src)
   const deletePhoto = act(api.deletePhoto)
@@ -177,6 +181,6 @@ export const useEventsStore = defineStore('events', () => {
   return {
     sessions, byId, itineraries, photos, loaded, current,
     loadSessions, loadSession, loadItinerary, loadPhotos,
-    create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
+    create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
   }
 })
