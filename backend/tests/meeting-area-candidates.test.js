@@ -2,8 +2,6 @@
 // Nothing here touches the network: the stub OneMap builds routes from distance, and doubles answer for the rest.
 // tests/meeting-area-baseline.test.js proves that a request without these fields answers as it always did.
 import { once } from 'node:events'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { loadPlanData } from '../src/db/venues.js'
@@ -197,10 +195,13 @@ describe('alternatives and include: what the request may send', () => {
     }
   })
 
-  it('both bounds are held in the MAX block of the schemas, directly after members', () => {
-    const source = readFileSync(fileURLToPath(new URL('../src/routes/plan-schemas.js', import.meta.url)), 'utf8')
-    const block = source.slice(source.indexOf('const MAX = {'), source.indexOf('}', source.indexOf('const MAX = {')))
-    expect(block).toMatch(/members: 30,\r?\n\s+alternatives: 3,[^\n]*\n\s+includedAreas: 8,/)
+  it('both bounds are enforced: 3 alternatives and 8 areas pass, one more of either is refused', async () => {
+    const ask = await routingOff()
+    const ids = AREAS.map((a) => a.id)
+    expect((await ask({ members: TRIO, alternatives: 3, include: ids.slice(0, 8) })).status).toBe(200)
+    const tooMany = await ask({ members: TRIO, alternatives: 4, include: ids.slice(0, 9) })
+    expect(tooMany.status).toBe(400)
+    expect(tooMany.body.issues.map((i) => i.path).sort()).toEqual(['alternatives', 'include'])
   })
 })
 
@@ -256,6 +257,15 @@ describe('candidates: the chosen area comes first and is the top-level answer', 
         expect(first.meanMinutes, where).toBe(body.meanMinutes)
         expect(first.travelByMember, where).toEqual(body.travelByMember)
         expect(first.source, where).toBe('ranked')
+        // The flags are not the same thing (documented in planner-api.md). The top-level one is true when ANY trip
+        // the ranking asked about used the estimate, so it is true whenever the chosen area's own flag is. The
+        // chosen area's flag is about its own trips only. For a method other than station the top level measures
+        // the centre, which is the chosen area's journey, so there the two are equal.
+        if (first.approximate) expect(body.approximate, where).toBe(true)
+        if (method !== 'station') expect(first.approximate, where).toBe(body.approximate)
+        if (label === 'off') expect([first.approximate, body.approximate], where).toEqual([false, false])
+        // Routing on, station: the chosen area was routed for every member and areas outside the shortlist were not.
+        if (label === 'on' && method === 'station') expect([first.approximate, body.approximate], where).toEqual([false, true])
       }
     }
   })

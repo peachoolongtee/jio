@@ -53,11 +53,12 @@ export const estimateTravel = () => ({ source: 'estimate', asked: 0, routed: 0, 
 //      push a better area out of it. The chosen area and the runners-up come from these.
 //   3. The areas in `afterShortlist` (the request's `include`, in the order sent) that are not already routed,
 //      each as long as the cap has room for it whole.
-// Because 1 and 2 are what a request without the new fields would route, the chosen area and its times do not
-// depend on `alternatives` or `include`.
+// Because 1 and 2 are what a request without `include` would route, the ranking sees the same times with or
+// without it. Step 3 is returned apart (`named`) because its real times are for the named areas' own entries only:
+// the caller must never let the ranking read them.
 //
 // How to call (inside this file):
-//   const ordered = routingOrderWithNamedAreas(candidates, { shortlistSize: 5, notShortlisted: ['bishan'], afterShortlist: ['bishan'] })
+//   const { ranked, named } = routingOrderWithNamedAreas(candidates, { shortlistSize: 5, notShortlisted: ['bishan'], afterShortlist: ['bishan'] })
 function routingOrderWithNamedAreas(candidates, { shortlistSize, notShortlisted = [], afterShortlist = [] }) {
   // The same order as the shortlist in runWithRealTravel: longest trip, then mean, then the order the engine asked.
   const worst = (c) => Math.max(...c.estimates)
@@ -78,7 +79,7 @@ function routingOrderWithNamedAreas(candidates, { shortlistSize, notShortlisted 
       later.push(candidates.get(key))
     }
   }
-  return [...head, ...shortlist].map(([, candidate]) => candidate).concat(later)
+  return { ranked: [...head, ...shortlist].map(([, candidate]) => candidate), named: later }
 }
 
 // Runs `run(deps)` with real travel times when OneMap routing is on, and once with the estimate when it is off.
@@ -111,6 +112,9 @@ function routingOrderWithNamedAreas(candidates, { shortlistSize, notShortlisted 
 //                     the engine asked about them. For the meeting area, where the engine tries every area.
 //   namedAreas      - For a meeting-area request that asks for runners-up or names areas: { notShortlisted, afterShortlist },
 //                     two lists of area ids. See routingOrderWithNamedAreas below. Used with rankByEstimate only.
+//                     The real run is then given two functions: `travelMinutes`, which answers only the trips of the
+//                     ranking (the head and the shortlist, as for a request that names nothing), and
+//                     `includedTravelMinutes`, which also answers the trips of the named areas that were routed.
 //   deadlineMs      - The most time to wait for OneMap in total. Default ROUTING_DEADLINE_MS.
 //   concurrency     - How many of this request's trips are in flight at once. Default 6. The shared budget in
 //                     services/onemap.js caps the whole server at 6 as well.
@@ -160,14 +164,20 @@ export async function runWithRealTravel({
   }
   ordered = ordered.slice(0, maxCandidates)
   // A request that names areas replaces the order above with one that also reaches them (same cap, same loop below).
-  if (rankByEstimate && namedAreas) ordered = routingOrderWithNamedAreas(candidates, { ...namedAreas, shortlistSize: maxCandidates })
+  // `named` comes after `ranked`, so the ranked areas have first call on the cap.
+  let named = []
+  const namesAreas = rankByEstimate && namedAreas !== null
+  if (namesAreas) {
+    ;({ ranked: ordered, named } = routingOrderWithNamedAreas(candidates, { ...namedAreas, shortlistSize: maxCandidates }))
+  }
+  const rankingTrips = new Set() // trip keys of the candidates the ranking may read
 
   const outcome = new Map() // trip key -> 'routed' | 'cached' | 'walked' | 'failed' | 'estimated'
   const minutes = new Map() // trip key -> minutes, for the trips that have a OneMap (or walking) time
   const toFetch = []
   let spent = 0
   let full = false
-  for (const candidate of ordered) {
+  for (const candidate of [...ordered, ...named]) {
     const looked = candidate.tripKeys.map((key) => {
       const { a, b } = trips.get(key)
       // A OneMap service without peekRoute (a test double) cannot tell, so every trip counts as a call.
@@ -182,6 +192,7 @@ export async function runWithRealTravel({
       continue
     }
     spent += cost
+    if (!named.includes(candidate)) candidate.tripKeys.forEach((key) => rankingTrips.add(key))
     for (const [key, plan] of looked) {
       if (plan.kind === 'call') toFetch.push(key)
       else if (plan.kind === 'walk') {
@@ -238,8 +249,16 @@ export async function runWithRealTravel({
   }
 
   // 4. The real run reads a snapshot, so an answer that arrives after the deadline changes nothing.
+  // When areas are named, the ranking reads only the trips of the ranking's own candidates, so a named area's real
+  // times can never change which area is chosen or how the runners-up are ordered.
   const answers = new Map(minutes)
-  const result = run({ travelMinutes: (a, b) => answers.get(tripKey(a, b)) ?? null })
+  const readFrom = (map) => (a, b) => map.get(tripKey(a, b)) ?? null
+  const result = namesAreas
+    ? run({
+        travelMinutes: readFrom(new Map([...answers].filter(([key]) => rankingTrips.has(key)))),
+        includedTravelMinutes: readFrom(answers),
+      })
+    : run({ travelMinutes: readFrom(answers) })
 
   const counts = { routed: 0, cached: 0, walked: 0, failed: 0, estimated: 0 }
   for (const key of trips.keys()) counts[outcome.get(key) ?? 'estimated'] += 1

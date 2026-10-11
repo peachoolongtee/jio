@@ -393,11 +393,18 @@ function meetingAreaPlan(input, data) {
  *   result.candidates   the chosen area first, then the runners-up, then included areas that are neither:
  *     [{ area, worstMinutes, meanMinutes, travelByMember, approximate, source: 'ranked' | 'included' }].
  *     Each `approximate` is about that area alone: true when one of its own trips used the estimate.
- *   The top-level answer is exactly what it would be without these fields: an included area outside the areas the
- *   station rule tries is measured on a separate count (diagnostics.extraRoutingCalls), and never joins the ranking.
+ *   The top-level answer and the ranked candidates are exactly what they would be without `include`: an included
+ *   area is only ever measured for its own entry, and its times never reach the ranking. One outside the areas
+ *   the station rule tries is counted apart (diagnostics.extraRoutingCalls). When the caller supplies
+ *   deps.includedTravelMinutes (real routes that the ranking must not read), included areas are measured with it
+ *   and the ranking with deps.travelMinutes; otherwise both use the same times.
  *
  * @param input { members, overrides?, optedOut?, method?, maxCandidates?, fairnessScaleMinutes?, alternatives?, include? }
  * @param data  { areas: [{ id, name, lat, lng }] }
+ * @param deps  { travelMinutes?, includedTravelMinutes? }
+ *
+ * How to call:
+ *   meetingArea({ members, alternatives: 2, include: ['bishan'] }, data, { travelMinutes: ranking, includedTravelMinutes: all })
  */
 function meetingArea(input, data, deps = {}) {
   const tm = deps.travelMinutes ?? mockTravelMinutes;
@@ -414,9 +421,9 @@ function meetingArea(input, data, deps = {}) {
   // `diag` is the count the trips are added to: the answer's own, or a separate one for the areas that only fill
   // `candidates`, so they never change the top-level answer. `approximate` is true when one of THIS journey's trips
   // used the estimate.
-  const journeys = (point, diag = diagnostics) => {
+  const journeys = (point, diag = diagnostics, ask = tm) => {
     const fallbacksBefore = diag.approximateLegs ?? 0;
-    const travel = members.map(m => routedMinutes(tm, m.start, point, diag));
+    const travel = members.map(m => routedMinutes(ask, m.start, point, diag));
     diag.routingCalls += travel.length;
     return {
       travel, worst: Math.max(...travel), fairMean: travel.reduce((s, t, i) => s + fw[i] * t, 0) / wSum,
@@ -478,7 +485,11 @@ function meetingArea(input, data, deps = {}) {
       if (candidateList.some(c => c.area.id === id)) continue;
       const known = data.areas.find(a => a.id === id);
       if (!known) throw new Error(`meetingArea: unknown area "${id}" in include`);
-      const found = evaluated.find(e => e.a.id === id) ?? measuredAside(known);
+      // Measured for this entry alone. Times the ranking did not use (real routes for a named area) stay out of it.
+      const ranked = evaluated.find(e => e.a.id === id);
+      const found = deps.includedTravelMinutes
+        ? { a: known, j: journeys(known, ranked ? { routingCalls: 0 } : extra, deps.includedTravelMinutes) }
+        : ranked ?? measuredAside(known);
       candidateList.push(row(found.a, found.j, 'included'));
     }
     diagnostics.extraRoutingCalls = extra.routingCalls;
