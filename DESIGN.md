@@ -939,6 +939,33 @@ Eight changes the team asked for after using the app together. Where this sectio
 
 Words in earlier sections that this replaces: "Hold to end" and "End session" (Components, `HoldButton` and `SessionHeader` rows; the hold button's example in `HoldButton.vue`), the dialog "End plan?" with "End plan" (Voice and Copy), "Vote on places", "Itinerary" and "Today's plan" as the session page's footer (Locate's footer is now "Next"), the Create step "Invite and Locate are both the people page" (SessionSteps comments), and the Known place row above.
 
+### Roam ("What next?"), 11 Oct 2026 (branch `feat/roam-in-meetup`)
+
+The first screens for Roam, inside a meetup that is under way (a confirmed plan on its day: `roamOpen` in `lib/session.js`, the same moment the footer says "Finish outing"). Nothing here adds a colour or a token, and no white text was added on `--primary`.
+
+| Piece | File | What it is for |
+|---|---|---|
+| Roam page | `views/RoamView.vue`, route `/sessions/:id/roam` | `SessionHeader` titled "What next?" (the session's title moves to the line under it), a centre line ("Near Bishan", or "Near you, in Toa Payoh" when using a position), a small secondary "Use my location" button with "Back to {meeting area}" beside it once the centre has moved, kind chips (`ChipButton` radio group: All, Eat, Drink, Shop, Activity), and the places in `.grid-3`. No map and no vote: it is a list. |
+| Place card | `event/SuggestionCard.vue` | The voting page's card, reused. New: the `meta` prop replaces the walking line ("about 4 min away · 250 m") and the `foot` slot replaces the vote row. Defaults are unchanged. Its foot on this page is a tag and one button (below). |
+| Proposed stops | `event/ProposedStops.vue` | Under the itinerary's timeline: "Proposed stops", one dashed-outline card per proposal (a dashed hairline says it is not a stop yet; no number, time or rail), with the place, an `InfoTag` "Proposed by Faith", and for the host "Add to plan" (secondary, small) and "Not now" (tertiary, small). A guest sees "Waiting for {host} to decide", and "Take back" on their own. |
+| Words and rules | `lib/roam.js` | Limits (`ROAM`: 3 waiting per member, 10 per session, 8 stops, 60 minutes), `placeAction`, `proposedRows`, `centreLine`, `travelLine`, `closedText`, `ROAM_WORDS`. Screens and tests read them. |
+
+**Where "What next?" sits on the itinerary.** A secondary `AppButton` with the sparkle icon directly under the stops (and the proposed stops), before "Trips home". It is for every member. The footer's "Finish outing" stays the page's one main action; a second filled or `next` button would break the one-main-action rule, and a button at the end of the stops is where the next stop would go. It shows only while the plan is under way.
+
+**The card's foot.** A place nobody has proposed: "Propose" (secondary, small, 44px; off, with the reason in a line above the list, when the person has 3 waiting, the session has 10 or the plan has 8 stops). Proposed by you: tag "Proposed by you" and "Take back" (tertiary). Proposed by someone else: tag "Proposed by Faith", nothing to press. Already in the plan: tag "In the plan". The same button element keeps keyboard focus when "Propose" becomes "Take back". A press sets `aria-busy` and a second press is ignored; the buttons are not disabled while saving. A rain warning shows as the card's existing "Outdoor, rain expected" tag.
+
+**States.** *Loading:* three `SkeletonRow`s, and a live region "Finding places near {area}". *Empty:* "Nothing nearby fits" / "Try another kind of place." (with "Show all kinds" when a chip is on). *Planner unreachable:* `EmptyState` with `role="alert"`, "Could not load places", the client's sentence and "Retry". *Not open yet or over:* "What next? opens on the day of the outing." (also "opens once the plan is confirmed", "This outing is over.", "This outing was cancelled.") with "Back to the session". *Refused action:* the data layer's sentence in a `role="alert"` line; nothing is half-saved.
+
+**"Use my location".** The browser is asked only when the button is pressed. The position goes to the planner for that request and is held in the page's memory for the next requests of that visit only: it is never saved, put in the address, or shown. The page says "The group sees the area's name, never where you are." If the browser refuses ("Location access is off."), has no position ("Your location is not available right now."), cannot share one, or the person is outside Singapore ("Your location is outside Singapore."), a sentence says so, followed by "Pick an area instead.", and `LocationSheet` (`which="spot"`, titled "Pick an area") opens. A picked area centres the list at the area's own point ("Near Kovan").
+
+**The steps bar.** `/roam` belongs to the Itinerary step like photos and the full map (`ITINERARY_PAGES` in `SessionSteps`): Itinerary is lit and the back arrow reads "Back to Itinerary". The bar is at the same height on the itinerary and on Roam (64px at 375px wide, 84px at 1280px).
+
+**Home.** A confirmed meetup with a proposal waiting shows the host the chip "Review a proposal" (tone `action`, linking to the itinerary). Everyone else, and every other state, shows what it showed before; a pending re-plan still wins.
+
+**Timing.** The list is searched for the time the next stop would start: when the last stop ends, or now if that has passed. An accepted stop follows the last stop like any other, so the itinerary adds the leg between them (the first stop of the new plan began 16:30, the last ended 21:21, the added stop starts 21:29). Distances and times come from the planner's estimate and say "about"; a place next door says "about 1 min".
+
+**Demo tools.** "What next?" in the demo panel has "A friend proposes a place" (`components/dev/roamDemo.js`): the friend with the fewest places waiting proposes the best free place on the list, so the host's side can be shown alone. Development only; it is not in the production bundle.
+
 ## Known Conflicts
 
 Each item is a place where the shipped code departs from a rule written in `CLAUDE.md`, in `frontend/src/styles/README.md`, or in a comment in the code. They are recorded as facts. Nothing here has been changed, and the lead decides each one. Contrast ratios are computed from the token values with the WCAG 2 formula; 4.5:1 is the threshold `CLAUDE.md` names.
