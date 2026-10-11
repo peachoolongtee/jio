@@ -54,7 +54,7 @@ describe('a save from before this change', () => {
     await first.api.signUp({ ...PROFILE })
     await first.api.createSession(SESSION)
     const saved = first.storage.store[STORAGE_KEY]
-    expect(JSON.parse(saved).version).toBe(8)
+    expect(JSON.parse(saved).version).toBe(9)
     return saved
   }
 
