@@ -50,7 +50,7 @@ async function enter(withShowcase) {
     <p class="caption-sm text-muted">Development only</p>
 
     <AppButton block variant="secondary" :disabled="!!busy" @click="enter(false)">
-      {{ busy === 'plain' ? 'Signing in' : 'Use the demo account' }}
+      {{ busy === 'plain' ? 'Logging in' : 'Use the demo account' }}
     </AppButton>
     <p class="body-sm text-muted">Signs in as Ian, with sample friends and history.</p>
 

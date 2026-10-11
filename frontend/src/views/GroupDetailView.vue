@@ -57,7 +57,7 @@ watch(() => props.id, load)
 
 const session = computed(() => events.byId[props.id])
 const status = computed(() => session.value?.status)
-const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
+const nameOf = (id) => (id === 'ian' ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
 const voterIds = computed(() => (session.value ? votersOf(session.value.votes, active.value) : []))
 const locked = computed(() => ['confirmed', 'completed', 'cancelled'].includes(status.value))
@@ -67,7 +67,7 @@ const lobby = computed(() =>
   (session.value?.members || [])
     .filter((m) => ['joined', 'invited'].includes(m.state))
     .map((m) => {
-      const p = m.id === 'ian' ? { username: auth.user.username, homeArea: auth.user.homeAreaName } : groups.people.find((x) => x.id === m.id) || {}
+      const p = m.id === 'ian' ? { username: auth.user?.username, homeArea: auth.user?.homeAreaName } : groups.people.find((x) => x.id === m.id) || {}
       return { id: m.id, name: nameOf(m.id), host: m.role === 'host', joined: m.state === 'joined', username: p.username || '', homeArea: p.homeArea || '' }
     }),
 )
