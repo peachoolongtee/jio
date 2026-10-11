@@ -115,6 +115,8 @@ Request:
 
 `maxCandidates` (optional) tries only the N areas nearest the fairest point, to save routing calls. Don't go below 16: 8 missed the best area for 3.4% of random groups.
 
+`alternatives` and `include` (both optional) ask for runners-up and for named areas. See [Runners-up and named areas](#runners-up-and-named-areas) below. A request that sends neither gets exactly the answer described here, and no `candidates`.
+
 Response (real output for the request above):
 
 ```json
@@ -133,6 +135,51 @@ Response (real output for the request above):
 ```
 
 Pass `centre` to `/api/converge`. `approximate: true` means some trips used the estimate, because OneMap could not answer them or because they were left out of the per-request cap or the shortlist. Say "about" in the UI. The answer also carries `travel` (see [Travel times](#travel-times)).
+
+### Runners-up and named areas
+
+Two optional request fields add a `candidates` list to the answer: the chosen area, some runners-up, and any areas you name.
+
+| Field | Meaning |
+|---|---|
+| `alternatives` | A whole number from 0 to 3 (default 0): how many runners-up to return after the chosen area. `alternatives: 2` gives the chosen area and up to two more, three areas in all. |
+| `include` | Up to 8 area ids (the `id` of an area, such as `"bishan"`) to evaluate whatever their rank. Each must be an area the planner knows, and each can be listed once. |
+
+`candidates` is in the answer when either field is sent, and only then. `alternatives: 0` or `include: []` on their own give a list of just the chosen area. Example (`"alternatives": 1, "include": ["tampines"]`, routing off, shortened):
+
+```json
+"candidates": [
+  { "area": { "id": "ang-mo-kio", "name": "Ang Mo Kio", "lat": 1.36993, "lng": 103.84958 },
+    "worstMinutes": 47.3, "meanMinutes": 45.5,
+    "travelByMember": { "ian": 45.4, "faith": 47.3, "jonathan": 43.7 }, "approximate": false, "source": "ranked" },
+  { "area": { "id": "bishan", "name": "Bishan", "lat": 1.35092, "lng": 103.84822 }, "worstMinutes": 49.4, "…": "…", "source": "ranked" },
+  { "area": { "id": "tampines", "name": "Tampines", "lat": 1.35408, "lng": 103.94535 }, "worstMinutes": 81.5, "…": "…", "source": "included" }
+]
+```
+
+- **Order.** The chosen area first, then the runners-up best first, then the included areas in the order you sent them.
+- **`source`.** `ranked` for the chosen area and the runners-up, `included` for an area you named that is neither. An included area that is also the chosen area or a returned runner-up appears once, with `ranked`, in its ranked place. So work out which spots a member suggested from your own data, not from `source`.
+- **Runners-up** are ranked by the station rule: the shortest longest trip first, then the lower fairness-weighted mean, from the areas the station rule tries (every area, or the 16 nearest the fairest point when routing is on or `maxCandidates` is sent). There can be fewer than you asked for, when fewer areas are tried.
+- **Other methods.** With `centroid`, `weighted_centroid` or `minimax`, `candidates[0]` is the area named after the centre, with the travel times measured to the centre, exactly as the top level is. The runners-up are the station rule's best areas after leaving out that area. They can be better than `candidates[0]`: the centre is not chosen by the station rule. Asking for `alternatives` with one of these methods makes the planner also try the areas for the ranking (16 with routing on). `include` alone does not.
+- **`candidates[0]` is the top-level answer.** Its `area`, `worstMinutes`, `meanMinutes` and `travelByMember` equal the top-level fields, from the same run. Its `approximate` does not have to equal the top-level one (see below).
+- **`include` never changes the planner's own answer.** With or without `include`, the top-level answer (`area`, `centre`, `worstMinutes`, `worstMember`, `meanMinutes`, `travelByMember`, `approximate`, `distanceFromAreaKm`) and the ranked candidates (which areas, their order and every figure) are identical; `include` only adds entries with `source: 'included'`. This holds with routing on too: an included area's real OneMap times are used for its own entry and never when choosing the area or ordering the runners-up, so a member's suggestion cannot flip the planner's pick. (`alternatives` does not change the top-level answer either.)
+- **An included area's times are real when the cap has room and estimated otherwise.** With routing on, an included area is routed for every member when the 60-trip cap has room for it whole, after the chosen area and the runners-up; otherwise every member's time is the estimate. Its `approximate` says which: `false` for real times, `true` for estimates. With routing off, its times are estimates and its `approximate` is `false` (see the next point).
+- **`approximate` on a candidate is about that area alone**: true when at least one of its own trips used the estimate, because OneMap could not answer, or because the area did not fit the per-request cap. This is narrower than the top-level `approximate`, which is true when any area the ranking compared used an estimate. So `candidates[0].approximate` can be `false` while the top-level `approximate` is `true`, when the chosen area was routed for every member and a lower-ranked area was not. Say "about" for a candidate only when its own flag is true.
+- **`approximate` is false when routing is off, although every time is then an estimate.** The flag means "a trip fell back to the estimate", and with no OneMap service nothing falls back: the estimate is all there is. So do not read `approximate: false` as "real times". Read `travel.source`: `'estimate'` means every time in the answer, candidates included, is the engine's estimate, and `'onemap'` means at least one trip got a real time, with `approximate` then telling which areas fell back.
+- **`diagnostics`** gains `extraRoutingCalls` (only when candidates are asked for): the trips the engine asked about for areas outside the chosen area's ranking, that is included areas the station rule did not try, or, for another method, the areas tried for runners-up. `routingCalls` is unchanged.
+- **`travel`** counts the extra areas' trips as well (`asked`, `routed`, `estimated`), so it can differ from the same request without the new fields.
+
+Errors are the route's usual `400 invalid_input`. An unknown or repeated area id names the entry in `issues`:
+
+```json
+{
+  "error": "invalid_input",
+  "message": "Some fields in the request are missing or not valid. See issues.",
+  "issues": [ { "path": "include.1", "message": "not an area id the planner knows" } ]
+}
+```
+
+A repeat says `each area can be included once` at the path of the later entry. `alternatives` that is negative, above 3 or not a whole number is an issue on `alternatives`; more than 8 ids is an issue on `include`. An id must match exactly, in lower case, as in `areas.json`.
 
 ## POST /api/converge
 
@@ -433,6 +480,12 @@ How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 - The engine runs once to find the trips it needs. Those are fetched from OneMap, 6 at a time, and the engine runs again with the real times.
 - **One request makes at most 60 OneMap route calls.** Whole venues (or whole candidate areas) are routed, in the engine's own priority order, until the next one would pass 60; the rest keep the estimate and are `approximate`. A venue is real for every member or an estimate for every member, never half and half. Cached and walked trips are free. `currentOptionIds` venues count like any other. With 30 members one venue (up to 60 trips) uses the whole cap.
 - **The meeting area routes only the best 5 areas** by estimated result, within the same cap. With 30 members that is 2 areas. The answer is then `approximate: true`, and the area it names may be one that only has an estimate, so say "about". If a single area would pass the cap, nothing is routed.
+- **Runners-up and named areas (`alternatives`, `include`) use the same cap**, so a request routes at most 60 trips however many areas it names. The order areas get real routes in is:
+  1. For a method other than station, the meeting point itself (it is the answer).
+  2. The shortlist of the 5 best areas by estimate, exactly as for a request that sends neither field. The chosen area and the runners-up come from the areas the ranking compares, and these five are the ones routed first. An included area outside the areas the station rule tries never takes a place in this shortlist.
+  3. The included areas that are not already routed, in the order sent, each as long as the cap has room for it whole.
+
+  So the chosen area and its times are the same with or without the new fields. A named area's real times belong to its own entry only: the ranking is never shown them, even for an included area the ranking also compares (one of the 16 nearest tried), because a real time can come out below the estimate and would let a named area beat the planner's own pick. A named area is routed only with room to spare: with 10 members (6 areas fit) the first included area is routed and the second is not; with 12 members or more, no included area is. An area that did not fit keeps the estimate for every member and its candidate is `approximate: true`. The room is counted after free trips: a trip already in the route cache or short enough to walk costs nothing, so a repeat request routes more of the areas the first one had to estimate. With 30 members, `alternatives: 3` and 8 included areas, the stub test makes 60 route calls (`tests/meeting-area-candidates.test.js`); `tests/meeting-area-include-isolation.test.js` checks that `include` changes nothing but its own entries.
 - **The whole server shares a OneMap budget**: at most 6 calls in flight, and `ONEMAP_CALLS_PER_MINUTE` a minute (default 240) for routing, address search and login together. A routing trip that finds it used up keeps the estimate at once. See [external-apis.md](external-apis.md#keeping-the-shared-account-safe).
 - **One request waits at most 8 seconds** for OneMap routes in total. Trips not answered by then keep the estimate, and the request is still answered.
 - After 5 failed route calls in a row, routing is paused for 30 seconds and every trip keeps the estimate. A rejected login token is replaced once and the call retried; a failed login is not retried for 60 seconds.
@@ -542,6 +595,8 @@ Every list and number has an upper limit, so one request cannot keep the server 
 | `currentOptionIds` | 30 (the app shows at most 6 options per slot) |
 | `excludeVenueIds` | 200 |
 | `categories` | 4 (repeats are removed) |
+| `alternatives` (meeting area) | 3 |
+| `include` (meeting area) | 8 area ids, each a known area, none repeated |
 | `cuisineLikes`, `cuisineDislikes` | 20 each per member |
 | any id, name or label | 80 characters |
 | `stops` of `/api/itinerary/arrange` | 8, of which at most 6 are not food (see that route's table) |

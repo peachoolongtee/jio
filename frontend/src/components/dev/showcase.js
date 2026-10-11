@@ -9,9 +9,15 @@
 // Starts with resetDemo, so running it twice gives the same ten sessions (s1 to s10), not twenty. That also puts the
 // leaderboard, JioCoins, rewards and demo switches back as a new account has them; the account and friends stay.
 //
-// The planner: the meeting area and every ranking come from the backend. With it off, offlinePlanner.js answers in its
-// place (and says so in `result.planner`), and with it on the real answers are used. Voting and plan screens ask the
-// backend again when they open, so they need it running; Home, Sessions, a session's page and a confirmed itinerary do not.
+// Where to meet is settled in the way a real group settles it (the meeting spots: members share starts, the app lists
+// up to three areas, friends suggest their own and say which work for them, and the host confirms one or names a place):
+// useMeetingArea (the host takes the spot the app lists first, nobody having voted), confirmSpot (the host takes a spot the
+// group approved) and setKnownPlace ("We already have a place"). Two sessions are left in the vote itself.
+//
+// The planner: the meeting area, the spots and every ranking come from the backend. With it off, offlinePlanner.js answers
+// in its place (and says so in `result.planner`), and with it on the real answers are used. Voting and plan screens ask the
+// backend again when they open, and so do suggestions for a spot, so they need it running; Home, Sessions, a session's page
+// and a confirmed itinerary do not. Marking "Works for me" needs no planner.
 //
 // `now` decides the dates only. The data layer's own idea of "today" is the real clock, so a test that passes a fixed `now`
 // also sets the system time (vi.setSystemTime) to the same moment.
@@ -80,13 +86,14 @@ const SPECS = [
     day: 5,
     start: '11:30',
     end: '15:00',
+    // Only the host has shared where they start. From two starts on, the spots open (see the last two sessions).
     build: async ({ id, at, share }) => {
       at('invites')
       await api.inviteFriends(id, ['darius', 'nicole', 'faith'])
       at('start')
       await api.startSession(id)
       at('locations')
-      await share(id, { ian: 'bishan', darius: 'bugis' })
+      await share(id, { ian: 'bishan' })
     },
   },
   {
@@ -95,15 +102,15 @@ const SPECS = [
     day: 2,
     start: '14:00',
     end: '21:00',
-    build: async ({ id, at, share, voteFor }) => {
+    // "We already have a place": the film is at Bugis, so the host names it before anyone has shared a start. The meeting
+    // area is then chosen (method 'chosen'), not found, and the session goes straight to choosing what to do.
+    build: async ({ id, at, voteFor }) => {
       at('invites')
       await api.inviteFriends(id, ['darius', 'nicole'])
       at('start')
       await api.startSession(id)
-      at('locations')
-      await share(id, { ian: 'bishan', darius: 'bugis', nicole: 'tampines' })
-      at('meeting area')
-      await api.useMeetingArea(id)
+      at('known place')
+      await api.setKnownPlace(id, 'bugis')
       at('preferences')
       await api.setPreferences(id, 'ian', { categories: ['eat', 'activity'], until: null })
       await api.setPreferences(id, 'darius', { categories: ['eat', 'activity', 'drink'], until: null })
@@ -119,6 +126,9 @@ const SPECS = [
     day: 4,
     start: '10:00',
     end: '17:00',
+    // Nobody says which spots work, so the host takes the one the app lists first (useMeetingArea), which stays the app's own
+    // pick (method 'fairest') and moves when a start moves. A spot the group approved is pinned and does not move, so it
+    // could not show this banner: "Votes for places were cleared" can only follow a meeting area that was found.
     build: async ({ id, at, share, voteFor, session }) => {
       at('invites')
       await api.inviteFriends(id, ['darius', 'nicole', 'faith', 'jonathan'])
@@ -179,15 +189,20 @@ const SPECS = [
     day: 3,
     start: '19:00',
     end: '22:00',
-    build: async ({ id, at, share, voteFor }) => {
+    // Both say the app's first spot works for them and the host confirms it (confirmSpot, method 'voted'). It is the same area
+    // useMeetingArea would take, so it stays next to the one the session on today meets in.
+    build: async ({ id, at, share, voteFor, spots, approve }) => {
       at('invites')
       await api.inviteFriends(id, ['nicole'])
       at('start')
       await api.startSession(id)
       at('locations')
       await share(id, { ian: 'dhoby-ghaut', nicole: 'little-india' })
+      at('spots')
+      const [first] = await spots(id)
+      await approve(id, { ian: [first], nicole: [first] })
       at('meeting area')
-      await api.useMeetingArea(id)
+      await api.confirmSpot(id, first.areaId)
       at('votes')
       for (const who of ['ian', 'nicole']) await voteFor(id, who, { eat: 0, activity: 1 })
       at('confirm')
@@ -228,14 +243,21 @@ const SPECS = [
     day: 6,
     start: '12:00',
     end: '17:00',
-    // Everyone has shared where they start, so it has a meeting point and a pin, and waits for the host to confirm it.
-    build: async ({ id, at, share }) => {
+    // The spot vote, with the user as host: four starts, so the app lists three spots; Nicole suggests the area she is in
+    // ("we are here already"); Darius, Faith and Nicole say which work for them, and the app's second spot leads. The host
+    // has not confirmed (Home: "Confirm the spot").
+    build: async ({ id, at, share, spots, suggest, approve }) => {
       at('invites')
-      await api.inviteFriends(id, ['darius', 'faith'])
+      await api.inviteFriends(id, ['darius', 'faith', 'nicole'])
       at('start')
       await api.startSession(id)
       at('locations')
-      await share(id, { ian: 'toa-payoh', darius: 'bishan', faith: 'novena' })
+      await share(id, { ian: 'toa-payoh', darius: 'bishan', faith: 'novena', nicole: 'serangoon' })
+      at('suggestion')
+      await suggest(id, 'nicole', ['serangoon', 'kovan', 'tampines', 'paya-lebar'], { here: true })
+      at('approvals')
+      const list = await spots(id)
+      await approve(id, { darius: [list[1], list[0]], faith: [list[1]], nicole: [list[1], list.at(-1)] })
     },
   },
   {
@@ -245,14 +267,20 @@ const SPECS = [
     start: '19:00',
     end: '23:00',
     hostId: 'darius',
-    // Darius hosts and Ian is a guest who has not yet said where he starts.
-    build: async ({ id, at, share }) => {
+    // The spot vote, with a friend as host: Ian has shared where he starts and has marked nothing (Home: "Pick your spots").
+    // Nicole suggests a spot, and the others say which work for them, so the first spot leads.
+    build: async ({ id, at, share, spots, suggest, approve }) => {
       at('invites')
       await api.inviteFriends(id, ['faith', 'nicole'])
       at('start')
       await api.startSession(id)
       at('locations')
-      await share(id, { darius: 'serangoon', faith: 'kovan' })
+      await share(id, { darius: 'serangoon', faith: 'kovan', nicole: 'paya-lebar', ian: 'bishan' })
+      at('suggestion')
+      await suggest(id, 'nicole', ['tampines', 'bedok', 'pasir-ris'])
+      at('approvals')
+      const list = await spots(id)
+      await approve(id, { darius: [list[0]], faith: [list[0]], nicole: [list[0], list[2]] })
     },
   },
 ]
@@ -278,7 +306,24 @@ function toolsFor(at, makePhotos) {
       if (list.length) await api.vote(id, slotId, who, list[Math.min(index, list.length - 1)])
     }
   }
-  return { at, share, session, voteFor, makePhotos }
+  // The spots listed for the session, in the order the app shows them (the app's three, then members' suggestions).
+  // How to call: const [first, second] = await spots('s9')
+  const spots = async (id) => (await api.getSession(id)).spots.list
+  // A friend suggests a spot: the first area of `prefer` that is not listed yet (an area that is listed is the app's own, or
+  // someone else's, and cannot be shown as the friend's). `here` marks "we are here already".
+  // How to call: await suggest('s9', 'nicole', ['serangoon', 'kovan'], { here: true })
+  const suggest = async (id, who, prefer, { here = false } = {}) => {
+    const listed = new Set((await spots(id)).map((spot) => spot.areaId))
+    const areaId = prefer.find((candidate) => !listed.has(candidate))
+    if (!areaId) throw new Error('every area a friend could suggest is already listed')
+    await api.suggestSpot(id, who, areaId, { here })
+  }
+  // Who says which spots work for them: the spots are entries of the list from spots().
+  // How to call: await approve('s9', { darius: [list[1], list[0]], faith: [list[1]] })
+  const approve = async (id, byPerson) => {
+    for (const [who, chosen] of Object.entries(byPerson)) for (const spot of chosen) await api.approveSpot(id, who, spot.areaId, true)
+  }
+  return { at, share, session, voteFor, makePhotos, spots, suggest, approve }
 }
 
 // Fill the account with the showcase, and answer what was made.

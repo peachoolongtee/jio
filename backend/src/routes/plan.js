@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { ZodError } from 'zod'
-import { converge, meetingArea, resolveMembers, roam, searchVenues } from '../planner/engine.js'
+import { converge, meetingArea, meetingAreaPlan, resolveMembers, roam, searchVenues } from '../planner/engine.js'
 import { fromGooglePlaces } from '../planner/google-adapter.js'
 import { centroid, fairnessWeights, minimaxCenter } from '../planner/geo.js'
 import { dropKnownPlaces, withEstimatedMrtWalk } from '../db/venues.js'
@@ -164,7 +164,8 @@ export function createPlanRouter({
 
   // Runs the engine with real OneMap travel times when routing is on, and with the estimate otherwise.
   //
-  // `options` go to runWithRealTravel: { maxCandidates, rankByEstimate } for the meeting area's shortlist.
+  // `options` go to runWithRealTravel: { maxCandidates, rankByEstimate } for the meeting area's shortlist. They may
+  // be a function of the request, for options that depend on what it asks for.
   //
   // How to call:
   //   const { result, travel } = await runWithTravel(input, planData, converge)
@@ -173,7 +174,7 @@ export function createPlanRouter({
       return { result: run(input, planData, depsFor()), travel: estimateTravel() }
     }
     return runWithRealTravel({
-      ...options,
+      ...(typeof options === 'function' ? options(input) : options),
       onemap,
       deadlineMs: routingDeadlineMs,
       dateTime: input.dateTime ?? nowInSingapore(),
@@ -249,22 +250,32 @@ export function createPlanRouter({
   // The limiter, when there is one, runs before each planner route and no other.
   const guard = limiter ? [limiter] : []
 
-  // With routing on, the meeting area tries 16 candidate areas unless the request says otherwise.
-  const meetingAreaWithRouting = (input, planData, deps) =>
-    meetingArea(
-      onemap?.routingEnabled && input.method === 'station' && !input.maxCandidates
-        ? { ...input, maxCandidates: MEETING_CANDIDATES_WITH_ROUTING }
-        : input,
-      planData,
-      deps,
-    )
+  // With routing on, the meeting area tries 16 candidate areas unless the request says otherwise. A method other
+  // than station tries them only to find runners-up, so only when the request asks for some.
+  //
+  // How to call:
+  //   const effective = withRoutingCandidates(input) // input, or input with maxCandidates: 16
+  const withRoutingCandidates = (input) =>
+    onemap?.routingEnabled && (input.method === 'station' || input.alternatives > 0) && !input.maxCandidates
+      ? { ...input, maxCandidates: MEETING_CANDIDATES_WITH_ROUTING }
+      : input
+  const meetingAreaWithRouting = (input, planData, deps) => meetingArea(withRoutingCandidates(input), planData, deps)
 
   // The meeting area tries many areas, so only the best few by estimate get real routes (see travel-times.js).
+  // A request that asks for runners-up or names areas also routes the named ones after those, within the same cap.
+  //
+  // How to call:
+  //   runWithRealTravel({ ...meetingAreaTravelFor(input), onemap, dateTime, run })
   const meetingAreaTravel = { rankByEstimate: true, maxCandidates: MEETING_AREAS_ROUTED }
+  const meetingAreaTravelFor = (input) => {
+    if (input.alternatives === undefined && input.include === undefined) return meetingAreaTravel
+    const { outside } = meetingAreaPlan(withRoutingCandidates(input), data)
+    return { ...meetingAreaTravel, namedAreas: { notShortlisted: outside, afterShortlist: input.include ?? [] } }
+  }
   router.post(
     '/meeting-area',
     ...guard,
-    handle(schemas.meetingArea, meetingAreaWithRouting, { usesTravel: true, travelOptions: meetingAreaTravel }),
+    handle(schemas.meetingArea, meetingAreaWithRouting, { usesTravel: true, travelOptions: meetingAreaTravelFor }),
   )
   router.post('/converge', ...guard, handle(schemas.converge, converge, { usesWeather: true, usesTravel: true }))
   router.post('/roam', ...guard, handle(schemas.roam, roam, { usesWeather: true, usesTravel: true }))

@@ -16,6 +16,7 @@ Jio decides where a group should meet, fairly, and plans the outing around it. I
 
 ## Working Rules
 
+- **`dev` is where work lands; `main` is held still.** Decided by the lead on 2026-10-11 for the pitch on 12 October. Nothing goes to `main` until the lead says. Work goes into `dev` through pull requests.
 - **Commit and push only when the user asks.** When asked, make sequential commits with plain lowercase messages and no prefixes.
 - **Code comments** are sentence case, and every function carries a "How to call" example.
 - **pnpm only**, on Node 24.
@@ -28,7 +29,7 @@ Jio decides where a group should meet, fairly, and plans the outing around it. I
 
 ### Issue tracker
 
-Work is tracked in GitHub Issues on `peachoolongtee/jio`. The wayfinder map is issue #1 and the audit tracker is issue #47. See `docs/agents/issue-tracker.md`.
+Work is tracked in GitHub Issues on `peachoolongtee/jio`. The map to follow is issue #109, "Jio to the freeze", grouped by feature; issue #1 is the first map, kept as a record, and the audit tracker is issue #47. See `docs/agents/issue-tracker.md`.
 
 ### Design language
 
@@ -47,7 +48,8 @@ As of 2026-10-09. The Supabase foundation was built on branch `feat/supabase-fou
 | Frontend screens | Sign-up, sessions, meeting area, voting, itinerary, photos, leaderboard with seasons, rewards in JioCoins, profiles. Home shows every current meetup as a pin on the map, with a detail on hover and a list below, whose first row starts a new meetup. In development builds the sign-up screen and the demo tools can load a showcase: ten sessions, one in each state. A host can edit a session's title, date and times until it starts. A top bar from 744 px and a pill tab bar on phones. All data is in one browser's local storage. |
 | Backend planner | Built on `dev`: `/api/meeting-area`, `/api/converge`, `/api/roam`, `/api/search`. Travel times and weather are internal estimates. Open to anyone. |
 | Database | Session schema and access rules applied to the live `jio` project on 2026-10-09, then revised twice the same day after two reviews (three migrations). No app code reads or writes it yet. |
-| Login | Backend token check and `GET /api/me` built and hardened after two reviews. No login screen; the frontend sends no token. |
+| Login | On `dev`: sign-up, login and sign-out with Supabase accounts, a login screen and guard, and the planner client sends the login token. Never run against the real project; email confirmation is still on there. The backend's token check and `GET /api/me` are as before. |
+| What is saved where | Only the account and its profile are in Supabase. Sessions, invites, locations, meeting spots, votes, plans, photos, friends and JioCoins are in one browser's local storage. The live session tables are empty. |
 | External APIs | The planner uses the live data.gov.sg forecast through the HTTP helper. OneMap gives address search (`GET /api/places/search`, no account needed) and public transport routing, which switches on with `ONEMAP_EMAIL` and `ONEMAP_PASSWORD` (Faith has an account) and falls back to the estimate whenever it cannot route. Google Places (New) adds restaurants, cafés, malls and private activities per request, with photos through `GET /api/places/photo`; it is off without `GOOGLE_MAPS_API_KEY`. See `backend/docs/external-apis.md`. |
 | Venues | 1,819 in the planner's pool: hand-made and curated lists, CDC sites, and 417 of 483 places saved from OneMap's government lists (`backend/src/db/mock/onemap-places.json`), with NEA's hawker closure dates to the end of 2026. |
 | End-to-end tests, deploy | Not started. |
@@ -75,6 +77,10 @@ Each is recorded in full on the ticket named. Read the ticket before changing th
 - **Google is a paid budget.** Every Google call goes through the budget in `createGooglePlaces`: `GOOGLE_CALLS_PER_MINUTE` (60 by default) for nearby searches and photos together, three failures pause it for a minute, and each call times out after 3 seconds. Google failing never fails a planner request. Do not add a Google call that bypasses it, and never write Google content to a file: fixtures are invented.
 - **Saved places are repaired and filtered in code, not by hand.** `onemap-places.json` is written only by `pnpm build:onemap-places` (network, needs the OneMap account) or `pnpm repair:onemap-places` (no network). Duplicates, places that are not somewhere to go, and closed weekdays are worked out at load in `backend/src/db/venues.js`.
 - **A guessed price makes no claim** for OneMap and Google venues: no "Budget friendly" tag and no "within budget" sentence. CDC venues keep both, as before; changing that is the lead's decision.
+- **The AI is a paid budget too.** `POST /api/itinerary/arrange` asks an AI to choose among orders the rules allow. Every AI call goes through one budget (`ITINERARY_AI_CALLS_PER_MINUTE`, 20 by default, 2 at once), a 10-minute cache, a pause after three failures and an 8-second deadline; anything else answers by the rules. Only venue names, kinds, times and the weather go to the provider, never anything about a person.
+- **Local accounts in a production build are off** when Supabase is set up, and a production build with no Supabase settings refuses to run. `VITE_ALLOW_LOCAL_ACCOUNTS=1` turns them on, which a deployed demo needs.
+- **Meeting spots:** a planner answer computed before the host confirmed is never applied afterwards, and a failed write takes back only its own change (`latestAnswer` and `orUndo` in `frontend/src/lib/api.js`). Naming an area in `include` never changes the planner's own pick.
+- **Google places may not be shown on or beside the OneMap map** (Google's terms, read on 2026-10-11). No screen shows them yet; read the research on the map before building one that does.
 - **Planner limits:** every list, string and number in a planner request has an upper bound, held in one `MAX` block in `backend/src/routes/plan-schemas.js`.
 - **Routes added to the Express app go in through `createApp({ mount })`**, because the "not found" handler is last.
 
@@ -86,11 +92,21 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 
 **Round 2, 2026-10-09, fixes: completed.** A backend agent hardened the login check; the lead revised the schema on the live project. An independent tester confirmed the results. A second review asked for more changes.
 
+**Round 20, 2026-10-11, decisions and a new map.** Dietary needs, weather, the demo tour and invites were settled; the map is issue #109.
+
+**Round 19, 2026-10-11, the team's walkthrough: completed.** Eighteen items reconciled; nine built for the pitch by three frontend agents, the rest on the map.
+
+**Round 18, 2026-10-11, audit of login, the AI order of stops and meeting spots, and their fixes: completed.** Six reviewers, then five fix agents. All three went to `dev`.
+
 **Round 12, 2026-10-11, audit of the Google Places pull request and its fixes: completed.** Two read-only reviewers and a verifier found nothing unsafe and twelve defects; two backend agents fixed them. Went to `main` from `feat/google-places-integration`.
 
 **Round 13, 2026-10-11, Home's start row and showcase demo data: completed.** One frontend agent. Went to `main` from `feat/demo-showcase`.
 
 **Round 14, 2026-10-11, decisions on meeting spots and Roam.** Nothing built; the handoff is `docs/handoffs/meeting-spots-and-roam.md`.
+
+**Round 15, 2026-10-11, meeting spots, slices 1 and 2: built on `feat/meeting-spots`.** A backend agent added runners-up and named areas to `/api/meeting-area`; a frontend agent added spots, approvals, confirm and the known place to the data layer (save version 9). The lead checked both.
+
+**Round 16, 2026-10-11, the Locate screen for meeting spots (slice 3): built on `feat/meeting-spots`.** A frontend agent built the spot list, "Works for me", "Suggest a spot", the host's confirm, "We already have a place", the map pins and the demo tools. The lead opened it in a browser, and found and fixed one defect (the page stayed on Locate after confirming). Slices 4 to 6 (Roam, then review) are next.
 
 **Round 17, 2026-10-11, real sign-up and login, the frontend half: built on `feat/login`.** Three frontend agents built the account layer over Supabase Auth, the login screen with its route and guard, and the planner client sending the token. The lead checked each and opened the screens. Nothing has run against the real Supabase project: that needs `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `frontend/.env` and the lead's own sign-up. The planner routes do not require a login yet. Rounds 15 and 16 (meeting spots) are on `feat/meeting-spots`.
 
@@ -166,8 +182,16 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-10 | `feat/home-meetups-map` after round 11 | `pnpm --filter jio-frontend test`; `pnpm test`; `pnpm build` | 324 passed, 30 files; 383 passed, 1 skipped; succeeded |
 | 2026-10-11 | `feat/google-places-integration` after round 12 | `pnpm test`, also with outbound calls blocked | 547 passed, 1 skipped, 24 files, both times |
 | 2026-10-11 | `feat/google-places-integration` after round 12 | `pnpm --filter jio-frontend test`; `pnpm build` | 324 passed, 30 files; succeeded |
+| 2026-10-11 | `feat/meeting-spots-integration` after round 19 (all of `dev`) | `pnpm test`; `pnpm --filter jio-frontend test`; both also with outbound calls blocked; `pnpm build` | 815 passed, 2 skipped, 29 files; 807 passed, 56 files; no call attempted; succeeded |
+| 2026-10-11 | live `jio` database | Row counts | 1 account, 1 profile; every session table empty |
 | 2026-10-11 | `feat/demo-showcase` on top of round 12 | `pnpm test`; `pnpm --filter jio-frontend test`; `pnpm build` | 547 passed, 1 skipped; 353 passed, 33 files; succeeded |
 | 2026-10-11 | the pull request before the fixes, and `main` | OneMap route calls for one meeting-area request, 30 members, stubbed | 60 on both (round 9 recorded 59; the cap is 60) |
+| 2026-10-11 | `feat/meeting-spots` at `2e1643d`, before round 15, on the Windows machine | backend suite; frontend suite; build | 546 passed, 1 failed, 1 skipped, 24 files; 324 passed, 30 files; succeeded. The failure is a line-ending test (see round 15) |
+| 2026-10-11 | `feat/meeting-spots`, working tree after round 15 | backend suite, also with outbound calls blocked | 677 passed, 1 failed (the same test), 2 skipped, 26 files, both times |
+| 2026-10-11 | `feat/meeting-spots`, working tree after round 15 | frontend suite; build | 376 passed, 31 files; succeeded |
+| 2026-10-11 | an untouched export of `origin/main` at `2e1643d` | `meeting-area-baseline.test.js` with its fixture, three times | 85 of 85 passed each time |
+| 2026-10-11 | `feat/meeting-spots`, working tree after round 16 | frontend suite; build | 398 passed, 32 files; succeeded |
+| 2026-10-11 | `feat/meeting-spots`, working tree after round 16, stub backend | Browser check of the Locate screen at 320, 375, 744 and 1280 px | No horizontal overflow; suggest, "Works for me", confirm and the known place all work and land on Vote; no console errors |
 | 2026-10-11 | `feat/login` at `aa64d15`, before round 17, on the Windows machine | frontend suite; build; backend suite | 353 passed, 33 files; succeeded; 544 passed, 3 failed, 1 skipped (Windows path and line-ending tests, fixed in part on `feat/meeting-spots`) |
 | 2026-10-11 | `feat/login`, working tree after round 17 | frontend suite; build | 457 passed, 40 files; succeeded |
 | 2026-10-11 | `feat/login`, working tree after round 17, made-up Supabase values | Browser check of `/login` and `/signup` at 320, 375, 744 and 1280 px | No horizontal overflow; the guard remembers the page and drops an outside address; a failed login keeps the email and empties the password |
@@ -184,10 +208,10 @@ Not yet verified: a real user's login token against `GET /api/me`, and anything 
 
 ## Next Steps
 
-1. The lead settles what the audits left open: on the leaderboard pull request's ticket (brand red, sample labels, the controls removed from the voting page, planner request count), and from the Google Places audit (Google's billing tier for the fields asked for, and Google's terms on showing Places content beside a non-Google map).
-2. Put the OneMap account's email and password in `backend/.env` to switch real routing on, and a Google key with a daily quota cap to switch Google on; test each once against the real service. Neither has been run for real since its limits were added.
-3. Bring `dev` level with `main` if `git log --oneline origin/dev..origin/main` shows commits.
-4. Build meeting spots and Roam from `docs/handoffs/meeting-spots-and-roam.md`.
-5. Build the session endpoints from the design on ticket #80, starting with a rolled-back test of its SQL.
-6. Frontend: show Google and OneMap photos, ratings and their attribution; then the login screen and token, then moving the data layer to Supabase.
-7. Rebuild the saved places before December 2026: NEA's cleaning dates in the file end on 2026-12-30, and the server warns from 30 days before.
+Follow the map, issue #109. In short:
+
+1. After the pitch on 12 October, merge `dev` into `main` once and tag it.
+2. The lead's account setup: email confirmation off, the test project, the database password reset, real keys in `backend/.env`. Then run each real service once; none has been.
+3. Sessions on the server, in five stages, starting with the signed-in account's id in place of the hard-coded one. The endpoint design is on its ticket and on the map.
+4. Deploy and two-device tests, early.
+5. Dietary needs, then weather, then Roam, the demo tour and the walkthrough items.

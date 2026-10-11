@@ -342,6 +342,37 @@ function roam(input, data, deps = {}) {
 }
 
 /**
+ * The areas the station rule compares: those nearest the fairest point, at most input.maxCandidates of them
+ * (all of them by default).
+ *
+ * How to call:
+ *   const tried = areasToTry(input, data, members.map(m => m.start));
+ */
+function areasToTry(input, data, starts) {
+  const fairest = starts.length <= 12 ? minimaxCenter(starts).center : centroid(starts);
+  return [...data.areas]
+    .sort((a, b) => haversineKm(fairest, a) - haversineKm(fairest, b))
+    .slice(0, input.maxCandidates ?? data.areas.length);
+}
+
+/**
+ * Which areas meetingArea() evaluates for a request, so the route can decide which of them get real routes.
+ *   tried    ids of the areas the ranking compares. For method station always; for another method only when the
+ *            request asks for alternatives (it then ranks areas for the runners-up).
+ *   outside  ids of included areas that are not in `tried`: evaluated for the answer, never part of the ranking.
+ *
+ * How to call:
+ *   const { tried, outside } = meetingAreaPlan(input, data); // outside: ['bishan'] when bishan is included but not tried
+ */
+function meetingAreaPlan(input, data) {
+  const members = resolveMembers(input.members, input.overrides, input.optedOut);
+  if (members.length === 0) return { tried: [], outside: [] };
+  const ranks = (input.method ?? 'station') === 'station' || (input.alternatives ?? 0) > 0;
+  const tried = ranks ? areasToTry(input, data, members.map(m => m.start)).map(a => a.id) : [];
+  return { tried, outside: (input.include ?? []).filter(id => !tried.includes(id)) };
+}
+
+/**
  * Where should the group meet? Always answers with a NAMED place (MRT station or neighbourhood) for the UI,
  * plus each person's travel time to it. Then pass result.centre to converge() as input.centre for every slot.
  *
@@ -354,8 +385,26 @@ function roam(input, data, deps = {}) {
  *   'weighted_centroid' | 'centroid' | 'minimax': the engine's own seed points (debt pulls the weighted centroid
  *     toward people who travelled more), then named after the nearest area. The meeting point is the exact centre.
  *
- * @param input { members, overrides?, optedOut?, method?, maxCandidates?, fairnessScaleMinutes? }
+ * Runners-up and named areas (both optional; with neither, the answer has no `candidates`):
+ *   input.alternatives  0 to 3, default 0: how many runners-up to add after the chosen area. They are ranked by the
+ *     station rule (shortest longest trip, then the lower fairness-weighted mean) among the areas it tries, and the
+ *     chosen area is left out. For another method the chosen area is the one named after the centre.
+ *   input.include       area ids to evaluate whatever their rank, in the order given.
+ *   result.candidates   the chosen area first, then the runners-up, then included areas that are neither:
+ *     [{ area, worstMinutes, meanMinutes, travelByMember, approximate, source: 'ranked' | 'included' }].
+ *     Each `approximate` is about that area alone: true when one of its own trips used the estimate.
+ *   The top-level answer and the ranked candidates are exactly what they would be without `include`: an included
+ *   area is only ever measured for its own entry, and its times never reach the ranking. One outside the areas
+ *   the station rule tries is counted apart (diagnostics.extraRoutingCalls). When the caller supplies
+ *   deps.includedTravelMinutes (real routes that the ranking must not read), included areas are measured with it
+ *   and the ranking with deps.travelMinutes; otherwise both use the same times.
+ *
+ * @param input { members, overrides?, optedOut?, method?, maxCandidates?, fairnessScaleMinutes?, alternatives?, include? }
  * @param data  { areas: [{ id, name, lat, lng }] }
+ * @param deps  { travelMinutes?, includedTravelMinutes? }
+ *
+ * How to call:
+ *   meetingArea({ members, alternatives: 2, include: ['bishan'] }, data, { travelMinutes: ranking, includedTravelMinutes: all })
  */
 function meetingArea(input, data, deps = {}) {
   const tm = deps.travelMinutes ?? mockTravelMinutes;
@@ -369,20 +418,29 @@ function meetingArea(input, data, deps = {}) {
   const nearestArea = p => data.areas.reduce((best, a) => (haversineKm(p, a) < haversineKm(p, best) ? a : best));
 
   const diagnostics = { routingCalls: 0 };
-  const journeys = point => {
-    const travel = members.map(m => routedMinutes(tm, m.start, point, diagnostics));
-    diagnostics.routingCalls += travel.length;
-    return { travel, worst: Math.max(...travel), fairMean: travel.reduce((s, t, i) => s + fw[i] * t, 0) / wSum };
+  // `diag` is the count the trips are added to: the answer's own, or a separate one for the areas that only fill
+  // `candidates`, so they never change the top-level answer. `approximate` is true when one of THIS journey's trips
+  // used the estimate.
+  const journeys = (point, diag = diagnostics, ask = tm) => {
+    const fallbacksBefore = diag.approximateLegs ?? 0;
+    const travel = members.map(m => routedMinutes(ask, m.start, point, diag));
+    diag.routingCalls += travel.length;
+    return {
+      travel, worst: Math.max(...travel), fairMean: travel.reduce((s, t, i) => s + fw[i] * t, 0) / wSum,
+      approximate: (diag.approximateLegs ?? 0) > fallbacksBefore,
+    };
   };
+  const wantsCandidates = input.alternatives !== undefined || input.include !== undefined;
+  const extra = { routingCalls: 0 };
+  const measuredAside = a => ({ a, j: journeys(a, extra) });
+  const evaluated = []; // { a, j } for every area the ranking compared, in the order tried
 
   let area, centre, best;
   if (method === 'station') {
-    const fairest = starts.length <= 12 ? minimaxCenter(starts).center : centroid(starts);
-    const candidates = [...data.areas]
-      .sort((a, b) => haversineKm(fairest, a) - haversineKm(fairest, b))
-      .slice(0, input.maxCandidates ?? data.areas.length);
+    const candidates = areasToTry(input, data, starts);
     for (const a of candidates) {
       const j = journeys(a);
+      evaluated.push({ a, j });
       if (!best || j.worst < best.j.worst || (j.worst === best.j.worst && j.fairMean < best.j.fairMean)) best = { a, j };
     }
     area = best.a;
@@ -396,10 +454,47 @@ function meetingArea(input, data, deps = {}) {
     if (!centre) throw new Error(`meetingArea: unknown method "${method}"`);
     area = nearestArea(centre);
     best = { j: journeys(centre) };
+    // The runners-up of another method are the station rule's, so the areas it would try are measured too.
+    if ((input.alternatives ?? 0) > 0) evaluated.push(...areasToTry(input, data, starts).map(measuredAside));
   }
 
   const { travel, worst } = best.j;
   const worstIdx = travel.indexOf(worst);
+
+  // Candidates: the chosen area (the numbers above), the runners-up, then the included areas that are neither.
+  let candidateList;
+  if (wantsCandidates) {
+    const row = (a, j, source) => ({
+      area: { id: a.id, name: a.name, lat: a.lat, lng: a.lng },
+      worstMinutes: j.worst,
+      meanMinutes: j.travel.reduce((x, y) => x + y, 0) / j.travel.length,
+      travelByMember: Object.fromEntries(members.map((m, i) => [m.id, j.travel[i]])),
+      approximate: j.approximate,
+      source,
+    });
+    const byStationRule = (x, y) => x.j.worst - y.j.worst || x.j.fairMean - y.j.fairMean; // a tie keeps the order tried
+    candidateList = [
+      row(area, best.j, 'ranked'),
+      ...[...evaluated]
+        .sort(byStationRule)
+        .filter(e => e.a.id !== area.id)
+        .slice(0, input.alternatives ?? 0)
+        .map(e => row(e.a, e.j, 'ranked')),
+    ];
+    for (const id of input.include ?? []) {
+      if (candidateList.some(c => c.area.id === id)) continue;
+      const known = data.areas.find(a => a.id === id);
+      if (!known) throw new Error(`meetingArea: unknown area "${id}" in include`);
+      // Measured for this entry alone. Times the ranking did not use (real routes for a named area) stay out of it.
+      const ranked = evaluated.find(e => e.a.id === id);
+      const found = deps.includedTravelMinutes
+        ? { a: known, j: journeys(known, ranked ? { routingCalls: 0 } : extra, deps.includedTravelMinutes) }
+        : ranked ?? measuredAside(known);
+      candidateList.push(row(found.a, found.j, 'included'));
+    }
+    diagnostics.extraRoutingCalls = extra.routingCalls;
+  }
+
   return {
     method,
     area: { id: area.id, name: area.name, lat: area.lat, lng: area.lng },
@@ -409,6 +504,7 @@ function meetingArea(input, data, deps = {}) {
     meanMinutes: travel.reduce((a, b) => a + b, 0) / travel.length,
     travelByMember: Object.fromEntries(members.map((m, i) => [m.id, travel[i]])),
     approximate: (diagnostics.approximateLegs ?? 0) > 0,
+    ...(candidateList && { candidates: candidateList }),
     diagnostics: { ...diagnostics, activeMembers: members.map(m => m.id) },
   };
 }
@@ -449,4 +545,4 @@ function searchVenues(input, data) {
     .slice(0, input.limit ?? 12);
 }
 
-export { converge, roam, meetingArea, searchVenues, resolveMembers, occasionWeights };
+export { converge, roam, meetingArea, meetingAreaPlan, searchVenues, resolveMembers, occasionWeights };

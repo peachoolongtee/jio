@@ -1,6 +1,6 @@
 // The frontend's side of the planner: what an error says, and what a ranking request carries.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, lastWeather, plannerErrorMessage, rankSlot, toCardVenue } from '../plannerApi.js'
+import { api, lastWeather, meetingArea, plannerErrorMessage, rankSlot, toCardVenue } from '../plannerApi.js'
 
 const HUB = { lat: 1.35, lng: 103.85 }
 const SLOT = { start: 900, time: '15:00', duration: 90, category: 'eat' }
@@ -74,6 +74,38 @@ describe('rankSlot', () => {
     const { options } = await rankSlot({ ...ASK })
     expect(options[0]).not.toHaveProperty('crowd')
     expect(options[0].venue.rating).toBeCloseTo(8.4)
+  })
+})
+
+describe('meetingArea', () => {
+  const members = [{ id: 'ian', name: 'Ian', start: HUB, end: HUB }]
+
+  it('posts exactly the body it always did when asked without the new arguments', async () => {
+    const post = vi.spyOn(api, 'post').mockResolvedValue({ data: {} })
+    await meetingArea({ members })
+    await meetingArea({ members, routing: false })
+    await meetingArea({ members, alternatives: undefined, include: [] })
+    expect(post.mock.calls[0]).toEqual(['/api/meeting-area', { members, method: 'station' }])
+    expect(post.mock.calls[1]).toEqual(['/api/meeting-area', { members, method: 'centroid' }])
+    // An empty include is the same as none.
+    expect(post.mock.calls[2]).toEqual(['/api/meeting-area', { members, method: 'station' }])
+    expect(Object.keys(post.mock.calls[0][1])).toEqual(['members', 'method'])
+  })
+
+  it('adds the runners-up and the areas to include only when asked', async () => {
+    const post = vi.spyOn(api, 'post').mockResolvedValue({ data: { candidates: [] } })
+    await meetingArea({ members, alternatives: 2, include: ['bugis', 'novena'] })
+    await meetingArea({ members, include: ['bugis'] })
+    await meetingArea({ members, alternatives: 0 })
+    expect(post.mock.calls[0][1]).toEqual({ members, method: 'station', alternatives: 2, include: ['bugis', 'novena'] })
+    expect(post.mock.calls[1][1]).toEqual({ members, method: 'station', include: ['bugis'] })
+    expect(post.mock.calls[2][1]).toEqual({ members, method: 'station', alternatives: 0 })
+  })
+
+  it('answers what the backend answers, candidates included', async () => {
+    const data = { area: { id: 'bugis' }, candidates: [{ area: { id: 'bugis' }, source: 'ranked' }] }
+    vi.spyOn(api, 'post').mockResolvedValue({ data })
+    expect(await meetingArea({ members, alternatives: 2 })).toBe(data)
   })
 })
 

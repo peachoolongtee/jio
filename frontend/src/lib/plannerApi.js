@@ -229,9 +229,20 @@ function toOption(r) {
 // Where the group should meet.
 //   members: [{ id, name, start: { lat, lng }, end: { lat, lng } }]
 //   routing: false is the demo's "routing off" switch: the geographic centre, named after the nearest area.
-// Returns the backend's answer: { area: { id, name, lat, lng }, centre, travelByMember, worstMinutes, method, approximate }.
-export async function meetingArea({ members, routing = true }) {
-  const { data } = await api.post('/api/meeting-area', { members, method: routing ? 'station' : 'centroid' })
+//   alternatives: how many runners-up to ask for besides the chosen area (0 to 3). The app's three spots are alternatives: 2.
+//   include:      area ids to work out whatever their rank (up to 8), such as the spots members suggested.
+// Both are optional. Left out, the request is exactly what it always was and the answer has no `candidates`.
+// Returns the backend's answer: { area: { id, name, lat, lng }, centre, travelByMember, worstMinutes, method, approximate, travel }.
+// With alternatives or include it also has candidates, the chosen area first:
+// [{ area, worstMinutes, meanMinutes, travelByMember, approximate, source: 'ranked' | 'included' }].
+// `approximate` is false when routing is off, although every time is then an estimate: travel.source is 'estimate' then
+// (and 'onemap' when at least one trip got a real time). Say "about" for either.
+// How to call: await meetingArea({ members, routing: true, alternatives: 2, include: ['bugis'] })
+export async function meetingArea({ members, routing = true, alternatives, include }) {
+  const body = { members, method: routing ? 'station' : 'centroid' }
+  if (alternatives !== undefined) body.alternatives = alternatives
+  if (include?.length) body.include = include
+  const { data } = await api.post('/api/meeting-area', body)
   return data
 }
 
@@ -299,4 +310,24 @@ export async function searchSlot({ query, members, centre, date, slot, lastStop,
     const reason = r.unfit[0] || ''
     return { id: r.venueId, name: r.name, area: r.area, category: r.category, walk: r.walkMinutes, unfit: UNFIT_WORDS[reason] || reason }
   })
+}
+
+// How long an address search is waited for. Typing makes many of them, so a slow one is given up on sooner than a ranking.
+export const PLACE_SEARCH_TIMEOUT_MS = 6000
+
+// Find an address, postal code or building by name with OneMap, through the backend (it needs no account).
+// Resolves the backend's results, at most 10: [{ name, address, postal, lat, lng }], possibly none.
+// Rejects in the client's usual way (an Error whose message a person can read) when the backend cannot answer, and with
+// an AbortError when `signal` aborts first, so the caller can tell a replaced search from a failed one.
+// How to call: await searchAddresses('tampines mall', { signal: controller.signal })
+export async function searchAddresses(query, { signal } = {}) {
+  try {
+    const { data } = await api.get('/api/places/search', { params: { q: query }, timeout: PLACE_SEARCH_TIMEOUT_MS, signal })
+    if (!Array.isArray(data.results)) throw new Error(notJsonMessage())
+    return data.results
+  } catch (err) {
+    // The response interceptor turns every failure into a plain Error, so a cancelled request is recognised by its signal.
+    if (signal?.aborted) throw Object.assign(new Error('The search was cancelled.'), { name: 'AbortError' })
+    throw err
+  }
 }

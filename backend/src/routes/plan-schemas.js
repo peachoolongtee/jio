@@ -16,6 +16,8 @@ import { MAX_MOVABLE_STOPS } from '../planner/arrange.js'
 const MAX = {
   text: 80, // ids, names and labels
   members: 30,
+  alternatives: 3, // runners-up a /meeting-area request may ask for
+  includedAreas: 8, // areas a /meeting-area request may name in `include`
   listPerMember: 20, // cuisine likes and dislikes
   constraints: 10, // group constraints
   currentOptions: 30, // the app shows at most 6 options per slot
@@ -163,6 +165,21 @@ export function makePlanSchemas(data) {
     weights: weightsFor(ROAM_FACTORS),
   })
 
+  // The `include` list of /meeting-area: at most MAX.includedAreas ids, each a known area and none repeated.
+  // An issue names the entry it is about, for example `include.2`.
+  const areaIds = new Set((data.areas ?? []).map((a) => a.id))
+  const includedAreas = z
+    .array(text())
+    .max(MAX.includedAreas)
+    .superRefine((ids, ctx) => {
+      const seen = new Set()
+      ids.forEach((id, i) => {
+        if (!areaIds.has(id)) ctx.addIssue({ code: 'custom', path: [i], message: 'not an area id the planner knows' })
+        else if (seen.has(id)) ctx.addIssue({ code: 'custom', path: [i], message: 'each area can be included once' })
+        seen.add(id)
+      })
+    })
+
   const meetingArea = z
     .object({
       ...groupFields,
@@ -170,6 +187,10 @@ export function makePlanSchemas(data) {
       maxCandidates: z.number().int().min(1).max(50).optional(),
       // When the group sets off, for real public transport times. Without it, the server uses the time now.
       dateTime: dateTime.optional(),
+      // How many runners-up to answer with besides the chosen area. Left out, the answer has no `candidates`.
+      alternatives: z.number().int().min(0).max(MAX.alternatives).optional(),
+      // Areas to evaluate whatever their rank. Each must be an area id the planner knows, and each only once.
+      include: includedAreas.optional(),
     })
     .refine(someoneLeft, NOBODY)
     .refine((b) => b.method !== 'minimax' || b.members.length <= 12, {

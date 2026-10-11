@@ -7,6 +7,7 @@ import { once } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../src/app.js'
@@ -848,7 +849,7 @@ describe('OneMap settings at start-up', () => {
 
   it('the server exits 1 and names the variables when started with half an account or a bad budget', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'jio-start-')) // No .env here, so nothing is read from the project.
-    const entry = new URL('../src/index.js', import.meta.url).pathname
+    const entry = fileURLToPath(new URL('../src/index.js', import.meta.url))
     const run = (extra) =>
       execFileAsync(process.execPath, [entry], {
         cwd,

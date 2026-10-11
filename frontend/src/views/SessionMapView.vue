@@ -1,7 +1,7 @@
 <script setup>
 // The map screen: a full-screen map in the style of a maps app.
 //   - Numbered pins for the stops, joined by the route.
-//   - A pin for the meeting area and a marker for each person's start area.
+//   - A pin for the meeting area. No one's start is shown.
 //   - Tapping a pin opens a small card with the stop's name, time and price tier.
 // It is a mobile screen; on desktop the itinerary already shows the map, and this is its expanded view.
 import { computed, onMounted, ref } from 'vue'
@@ -34,7 +34,6 @@ const session = computed(() => events.byId[props.id])
 const itinerary = computed(() => events.itineraries[props.id])
 const stops = computed(() => itinerary.value?.stops || [])
 const places = computed(() => stops.value.map((s, i) => ({ id: s.venue.id, name: s.venue.name, lat: s.venue.lat, lng: s.venue.lng, label: String(i + 1), category: s.category })))
-const people = computed(() => (itinerary.value?.starts || []).map((p) => ({ id: p.id, name: p.name, lat: p.area.lat, lng: p.area.lng, areaName: p.area.name })))
 const area = computed(() => itinerary.value?.area || session.value?.area || null)
 const card = computed(() => {
   const i = stops.value.findIndex((s) => s.venue.id === selected.value)
@@ -45,7 +44,7 @@ const card = computed(() => {
 <template>
   <NotFoundView v-if="missing" />
   <main v-else class="full-map">
-    <PlannerMap class="full-map__map" :places="places" :people="people" :area="area" route fit-to="places" zoom-position="bottomright" :selected="selected" label="Plan map" @select="selected = $event" />
+    <PlannerMap class="full-map__map" :places="places" :area="area" route fit-to="places" zoom-position="bottomright" :selected="selected" label="Plan map" @select="selected = $event" />
 
     <header class="full-map__bar">
       <IconButton label="Back to the itinerary" :to="`/sessions/${id}/itinerary`"><AppIcon name="back" /></IconButton>

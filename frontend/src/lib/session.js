@@ -31,6 +31,40 @@ export function isPaused(session) {
   return ['locating', 'voting', 'confirmed'].includes(session.status) && session.activeIds.length < 2
 }
 
+// The words for calling an outing off, written once so the hold button in the header, its dialog and the "not enough
+// people" notice say the same thing. The status pill still says "Cancelled".
+export const CANCEL_OUTING = {
+  hold: 'Hold to cancel',
+  action: 'Cancel outing',
+  title: 'Cancel outing?',
+  text: 'The outing is cancelled for everyone in it and moves to your past sessions. This cannot be undone.',
+  keep: 'Keep outing',
+  confirm: 'Cancel outing',
+}
+
+// May this person invite people to this session now, and if not, what to tell them. Only the host invites. It is open
+// while the session is inviting, locating or voting, and for a confirmed plan only when too few people are left (the
+// "not enough people" notice links to the invite page). Once the plan is confirmed with enough people, or the session is
+// over, it is closed: the page shows who is in and says so.
+// How to call: inviteAccess({ status: 'voting', activeIds: ['ian', 'faith'] }, true) -> { open: true, text: '' }
+export function inviteAccess(session, mine, hostName = 'the host') {
+  const closed = (text) => ({ open: false, text })
+  if (session.status === 'completed') return closed('The outing is over, so invites are closed.')
+  if (session.status === 'cancelled') return closed('The outing was cancelled, so invites are closed.')
+  if (session.status === 'confirmed' && !isPaused(session)) return closed('The plan is confirmed, so invites are closed.')
+  if (!mine) return closed(`Only ${hostName} can invite people.`)
+  return { open: true, text: '' }
+}
+
+// What the itinerary's main button does. 'finish' on the session's day for a confirmed plan (it completes the outing and
+// pays out the coins); 'save' before the day (it only goes Home: the plan was saved when it was confirmed); null for a
+// session that is not confirmed (voting, completed or cancelled).
+// How to call: itineraryAction({ status: 'confirmed', isToday: false }) -> 'save'
+export function itineraryAction(session) {
+  if (!session || session.status !== 'confirmed') return null
+  return session.isToday ? 'finish' : 'save'
+}
+
 // When the session starts, relative to now: "Starts in 50 min", "Starts in 3 h", "Tomorrow", "In 5 days",
 // "Live now" during the time window and "Ended" after it. Null for completed or cancelled sessions.
 // `isToday` (the demo's session-day switch) moves the session to today's date.

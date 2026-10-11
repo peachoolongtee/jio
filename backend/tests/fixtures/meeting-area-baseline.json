@@ -1,0 +1,5395 @@
+{
+ "recordedFrom": "POST /api/meeting-area before alternatives, include and candidates",
+ "cases": [
+  {
+   "name": "off: station, three members",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ]
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":false,\"diagnostics\":{\"routingCalls\":111,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: station, two members",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     }
+    ]
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"bishan\",\"name\":\"Bishan\",\"lat\":1.35092,\"lng\":103.84822},\"centre\":{\"lat\":1.35092,\"lng\":103.84822},\"distanceFromAreaKm\":0,\"worstMinutes\":45.46840865073454,\"worstMember\":\"Ian\",\"meanMinutes\":44.28418892562459,\"travelByMember\":{\"ian\":45.46840865073454,\"faith\":43.09996920051464},\"approximate\":false,\"diagnostics\":{\"routingCalls\":74,\"activeMembers\":[\"ian\",\"faith\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: weighted_centroid",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "method": "weighted_centroid"
+   },
+   "status": 200,
+   "body": "{\"method\":\"weighted_centroid\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.3687013335989076,\"lng\":103.83203349563875},\"distanceFromAreaKm\":1.9553039605304072,\"worstMinutes\":52.457850656241185,\"worstMember\":\"Ian\",\"meanMinutes\":44.4061524948658,\"travelByMember\":{\"ian\":52.457850656241185,\"faith\":41.157999080658925,\"jonathan\":39.602607747697284},\"approximate\":false,\"diagnostics\":{\"routingCalls\":3,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: centroid",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "method": "centroid"
+   },
+   "status": 200,
+   "body": "{\"method\":\"centroid\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.3687013335989076,\"lng\":103.83203349563875},\"distanceFromAreaKm\":1.9553039605304072,\"worstMinutes\":52.457850656241185,\"worstMember\":\"Ian\",\"meanMinutes\":44.4061524948658,\"travelByMember\":{\"ian\":52.457850656241185,\"faith\":41.157999080658925,\"jonathan\":39.602607747697284},\"approximate\":false,\"diagnostics\":{\"routingCalls\":3,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: minimax",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "method": "minimax"
+   },
+   "status": 200,
+   "body": "{\"method\":\"minimax\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.3631752482612005,\"lng\":103.84856455372703},\"distanceFromAreaKm\":0.7595290374981667,\"worstMinutes\":45.48121776470707,\"worstMember\":\"Faith\",\"meanMinutes\":45.480959090467756,\"travelByMember\":{\"ian\":45.48102028147791,\"faith\":45.48121776470707,\"jonathan\":45.48063922521829},\"approximate\":false,\"diagnostics\":{\"routingCalls\":3,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: station with maxCandidates 16",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "maxCandidates": 16
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":false,\"diagnostics\":{\"routingCalls\":48,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: station with maxCandidates 1",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "maxCandidates": 1
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":false,\"diagnostics\":{\"routingCalls\":3,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: one member opted out",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "optedOut": [
+     "jonathan"
+    ]
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"bishan\",\"name\":\"Bishan\",\"lat\":1.35092,\"lng\":103.84822},\"centre\":{\"lat\":1.35092,\"lng\":103.84822},\"distanceFromAreaKm\":0,\"worstMinutes\":45.46840865073454,\"worstMember\":\"Ian\",\"meanMinutes\":44.28418892562459,\"travelByMember\":{\"ian\":45.46840865073454,\"faith\":43.09996920051464},\"approximate\":false,\"diagnostics\":{\"routingCalls\":74,\"activeMembers\":[\"ian\",\"faith\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: an opted-out id nobody has",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "optedOut": [
+     "ghost"
+    ]
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":false,\"diagnostics\":{\"routingCalls\":111,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: override of a start point",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "overrides": {
+     "faith": {
+      "start": {
+       "lat": 1.3,
+       "lng": 103.85
+      }
+     }
+    }
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":45.426443448276636,\"worstMember\":\"Ian\",\"meanMinutes\":41.24855813947553,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":34.62982329477893,\"jonathan\":43.68940767537101},\"approximate\":false,\"diagnostics\":{\"routingCalls\":111,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: override that sets only an end point",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "overrides": {
+     "faith": {
+      "end": {
+       "lat": 1.3,
+       "lng": 103.85
+      }
+     }
+    }
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":false,\"diagnostics\":{\"routingCalls\":111,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: override for an id nobody has",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "overrides": {
+     "ghost": {
+      "start": {
+       "lat": 1.3,
+       "lng": 103.85
+      }
+     }
+    }
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":false,\"diagnostics\":{\"routingCalls\":111,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: a member with a start different from home",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "a",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      },
+      "start": {
+       "lat": 1.35092,
+       "lng": 103.84822
+      }
+     },
+     {
+      "id": "b",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      }
+     }
+    ]
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"botanic-gardens\",\"name\":\"Botanic Gardens\",\"lat\":1.32247,\"lng\":103.815},\"centre\":{\"lat\":1.32247,\"lng\":103.815},\"distanceFromAreaKm\":0,\"worstMinutes\":26.691800789855108,\"worstMember\":\"b\",\"meanMinutes\":25.297554957763722,\"travelByMember\":{\"a\":23.903309125672333,\"b\":26.691800789855108},\"approximate\":false,\"diagnostics\":{\"routingCalls\":74,\"activeMembers\":[\"a\",\"b\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: travel debt pulls weighted_centroid",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      },
+      "travelDebtMinutes": 40
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ],
+      "travelDebtMinutes": -40
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "method": "weighted_centroid"
+   },
+   "status": 200,
+   "body": "{\"method\":\"weighted_centroid\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.3660469347531299,\"lng\":103.85250025030234},\"distanceFromAreaKm\":0.5401967765888015,\"worstMinutes\":47.464495322577726,\"worstMember\":\"Faith\",\"meanMinutes\":45.71412316414555,\"travelByMember\":{\"ian\":44.010962124334775,\"faith\":47.464495322577726,\"jonathan\":45.66691204552414},\"approximate\":false,\"diagnostics\":{\"routingCalls\":3,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: travel debt breaks a station tie",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      },
+      "travelDebtMinutes": 60
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ],
+      "travelDebtMinutes": -60
+     }
+    ]
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"bishan\",\"name\":\"Bishan\",\"lat\":1.35092,\"lng\":103.84822},\"centre\":{\"lat\":1.35092,\"lng\":103.84822},\"distanceFromAreaKm\":0,\"worstMinutes\":45.46840865073454,\"worstMember\":\"Ian\",\"meanMinutes\":44.28418892562459,\"travelByMember\":{\"ian\":45.46840865073454,\"faith\":43.09996920051464},\"approximate\":false,\"diagnostics\":{\"routingCalls\":74,\"activeMembers\":[\"ian\",\"faith\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: one member",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     }
+    ]
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"tampines\",\"name\":\"Tampines\",\"lat\":1.35408,\"lng\":103.94535},\"centre\":{\"lat\":1.35408,\"lng\":103.94535},\"distanceFromAreaKm\":0,\"worstMinutes\":6.307073066394189,\"worstMember\":\"Ian\",\"meanMinutes\":6.307073066394189,\"travelByMember\":{\"ian\":6.307073066394189},\"approximate\":false,\"diagnostics\":{\"routingCalls\":37,\"activeMembers\":[\"ian\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: one member, centroid",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     }
+    ],
+    "method": "centroid"
+   },
+   "status": 200,
+   "body": "{\"method\":\"centroid\",\"area\":{\"id\":\"tampines\",\"name\":\"Tampines\",\"lat\":1.35408,\"lng\":103.94535},\"centre\":{\"lat\":1.3541000000000003,\"lng\":103.94460000000001},\"distanceFromAreaKm\":0.08340256124128745,\"worstMinutes\":6.000000000005817,\"worstMember\":\"Ian\",\"meanMinutes\":6.000000000005817,\"travelByMember\":{\"ian\":6.000000000005817},\"approximate\":false,\"diagnostics\":{\"routingCalls\":1,\"activeMembers\":[\"ian\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: everyone at the same point",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "a",
+      "home": {
+       "lat": 1.35092,
+       "lng": 103.84822
+      }
+     },
+     {
+      "id": "b",
+      "home": {
+       "lat": 1.35092,
+       "lng": 103.84822
+      }
+     },
+     {
+      "id": "c",
+      "home": {
+       "lat": 1.35092,
+       "lng": 103.84822
+      }
+     }
+    ]
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"bishan\",\"name\":\"Bishan\",\"lat\":1.35092,\"lng\":103.84822},\"centre\":{\"lat\":1.35092,\"lng\":103.84822},\"distanceFromAreaKm\":0,\"worstMinutes\":6,\"worstMember\":\"a\",\"meanMinutes\":6,\"travelByMember\":{\"a\":6,\"b\":6,\"c\":6},\"approximate\":false,\"diagnostics\":{\"routingCalls\":111,\"activeMembers\":[\"a\",\"b\",\"c\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: members with no names",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "a",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "b",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      }
+     }
+    ]
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"bishan\",\"name\":\"Bishan\",\"lat\":1.35092,\"lng\":103.84822},\"centre\":{\"lat\":1.35092,\"lng\":103.84822},\"distanceFromAreaKm\":0,\"worstMinutes\":45.46840865073454,\"worstMember\":\"a\",\"meanMinutes\":44.28418892562459,\"travelByMember\":{\"a\":45.46840865073454,\"b\":43.09996920051464},\"approximate\":false,\"diagnostics\":{\"routingCalls\":74,\"activeMembers\":[\"a\",\"b\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: a field the route does not know is ignored",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "colour": "blue",
+    "alternatives_please": 3
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":false,\"diagnostics\":{\"routingCalls\":111,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: fairnessScaleMinutes is not a request field",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "fairnessScaleMinutes": 10
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":false,\"diagnostics\":{\"routingCalls\":111,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: 12 members, minimax",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.3952362854033709,
+       "lng": 103.71005216173363
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.3529907508194448,
+       "lng": 103.71948128250894
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.4020808623731136,
+       "lng": 103.82510690863245
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.357876731939614,
+       "lng": 103.74206814731471
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.3221210029348731,
+       "lng": 103.84367787838448
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3111866002902388,
+       "lng": 103.72173414923716
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.3942059825733304,
+       "lng": 103.82394929004367
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.4069971292838455,
+       "lng": 103.92874106499832
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3317797866091132,
+       "lng": 103.879551162594
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.3258795310556888,
+       "lng": 103.87475651015528
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.3642285723984242,
+       "lng": 103.9162508005323
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3663915385305883,
+       "lng": 103.70301754726097
+      }
+     }
+    ],
+    "method": "minimax"
+   },
+   "status": 200,
+   "body": "{\"method\":\"minimax\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.3745986517578583,\"lng\":103.81805643647898},\"distanceFromAreaKm\":3.5424990650782777,\"worstMinutes\":53.203557694668554,\"worstMember\":\"M5\",\"meanMinutes\":39.77930698513638,\"travelByMember\":{\"m0\":51.00420039773235,\"m1\":47.30363774791298,\"m2\":17.61534915657972,\"m3\":37.84528195579348,\"m4\":29.90696230209993,\"m5\":53.203557694668554,\"m6\":14.381727462232831,\"m7\":53.202769773604295,\"m8\":36.67204960025566,\"m9\":36.60015709737087,\"m10\":46.41286292465208,\"m11\":53.20312770873386},\"approximate\":false,\"diagnostics\":{\"routingCalls\":12,\"activeMembers\":[\"m0\",\"m1\",\"m2\",\"m3\",\"m4\",\"m5\",\"m6\",\"m7\",\"m8\",\"m9\",\"m10\",\"m11\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: 30 members, station",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.2818727605044842,
+       "lng": 103.7161091469694
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.4363052212446927,
+       "lng": 103.88174746348523
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.3634312429651618,
+       "lng": 103.8054356388934
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.3545972212031483,
+       "lng": 103.76238054833841
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.368532096631825,
+       "lng": 103.88975374337286
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3212504897639155,
+       "lng": 103.74054657462518
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.4022543818503619,
+       "lng": 103.83478466188535
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.311541961617768,
+       "lng": 103.79566923428793
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3269195740669966,
+       "lng": 103.83903227663599
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.327412839718163,
+       "lng": 103.95426598716527
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.3196053750813008,
+       "lng": 103.92822269484401
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3105266734957695,
+       "lng": 103.73735092037823
+      }
+     },
+     {
+      "id": "m12",
+      "name": "M12",
+      "home": {
+       "lat": 1.304743044823408,
+       "lng": 103.77564731540625
+      }
+     },
+     {
+      "id": "m13",
+      "name": "M13",
+      "home": {
+       "lat": 1.3676642290502787,
+       "lng": 103.8980871607177
+      }
+     },
+     {
+      "id": "m14",
+      "name": "M14",
+      "home": {
+       "lat": 1.2919228944182397,
+       "lng": 103.93736458407716
+      }
+     },
+     {
+      "id": "m15",
+      "name": "M15",
+      "home": {
+       "lat": 1.368593719676137,
+       "lng": 103.8616224568151
+      }
+     },
+     {
+      "id": "m16",
+      "name": "M16",
+      "home": {
+       "lat": 1.388814545236528,
+       "lng": 103.95115732298233
+      }
+     },
+     {
+      "id": "m17",
+      "name": "M17",
+      "home": {
+       "lat": 1.3799009030684828,
+       "lng": 103.93951326362323
+      }
+     },
+     {
+      "id": "m18",
+      "name": "M18",
+      "home": {
+       "lat": 1.4124205574765802,
+       "lng": 103.71039440321736
+      }
+     },
+     {
+      "id": "m19",
+      "name": "M19",
+      "home": {
+       "lat": 1.3079906475171448,
+       "lng": 103.79281506367494
+      }
+     },
+     {
+      "id": "m20",
+      "name": "M20",
+      "home": {
+       "lat": 1.3480505159124732,
+       "lng": 103.70524578971323
+      }
+     },
+     {
+      "id": "m21",
+      "name": "M21",
+      "home": {
+       "lat": 1.294096997641027,
+       "lng": 103.89968412247953
+      }
+     },
+     {
+      "id": "m22",
+      "name": "M22",
+      "home": {
+       "lat": 1.3390350888296962,
+       "lng": 103.81094608295709
+      }
+     },
+     {
+      "id": "m23",
+      "name": "M23",
+      "home": {
+       "lat": 1.354986020512879,
+       "lng": 103.94601750438568
+      }
+     },
+     {
+      "id": "m24",
+      "name": "M24",
+      "home": {
+       "lat": 1.3925249737501144,
+       "lng": 103.87895734156017
+      }
+     },
+     {
+      "id": "m25",
+      "name": "M25",
+      "home": {
+       "lat": 1.3329036678746342,
+       "lng": 103.79264697605744
+      }
+     },
+     {
+      "id": "m26",
+      "name": "M26",
+      "home": {
+       "lat": 1.302206592783332,
+       "lng": 103.73465624763165
+      }
+     },
+     {
+      "id": "m27",
+      "name": "M27",
+      "home": {
+       "lat": 1.4260855789110065,
+       "lng": 103.78383101029321
+      }
+     },
+     {
+      "id": "m28",
+      "name": "M28",
+      "home": {
+       "lat": 1.3104600843042136,
+       "lng": 103.86437427436468
+      }
+     },
+     {
+      "id": "m29",
+      "name": "M29",
+      "home": {
+       "lat": 1.3338833486288786,
+       "lng": 103.71134414686357
+      }
+     }
+    ]
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"caldecott\",\"name\":\"Caldecott\",\"lat\":1.33739,\"lng\":103.83953},\"centre\":{\"lat\":1.33739,\"lng\":103.83953},\"distanceFromAreaKm\":0,\"worstMinutes\":67.13087747714553,\"worstMember\":\"M18\",\"meanMinutes\":40.41354438412795,\"travelByMember\":{\"m0\":61.392997166712235,\"m1\":50.02803909817712,\"m2\":23.560929856856625,\"m3\":38.3525146619997,\"m4\":30.18871496429369,\"m5\":47.04815318462242,\"m6\":32.62637362556781,\"m7\":26.838635835293555,\"m8\":10.291424984100129,\"m9\":53.137464107287975,\"m10\":43.023974602733524,\"m11\":49.24279925458132,\"m12\":35.36468209830515,\"m13\":32.981755321840126,\"m14\":50.15791591471752,\"m15\":21.651041757753674,\"m16\":56.304672850512276,\"m17\":50.46879489448856,\"m18\":67.13087747714553,\"m19\":28.592934587790044,\"m20\":61.13380880522016,\"m21\":36.33673643494042,\"m22\":17.718419871492472,\"m23\":50.175230288196275,\"m24\":33.74719557702838,\"m25\":25.276377947662766,\"m26\":51.27621809761714,\"m27\":48.87466199456561,\"m28\":20.99838201719305,\"m29\":58.484604245143196},\"approximate\":false,\"diagnostics\":{\"routingCalls\":1110,\"activeMembers\":[\"m0\",\"m1\",\"m2\",\"m3\",\"m4\",\"m5\",\"m6\",\"m7\",\"m8\",\"m9\",\"m10\",\"m11\",\"m12\",\"m13\",\"m14\",\"m15\",\"m16\",\"m17\",\"m18\",\"m19\",\"m20\",\"m21\",\"m22\",\"m23\",\"m24\",\"m25\",\"m26\",\"m27\",\"m28\",\"m29\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: 30 members, centroid",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.2818727605044842,
+       "lng": 103.7161091469694
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.4363052212446927,
+       "lng": 103.88174746348523
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.3634312429651618,
+       "lng": 103.8054356388934
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.3545972212031483,
+       "lng": 103.76238054833841
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.368532096631825,
+       "lng": 103.88975374337286
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3212504897639155,
+       "lng": 103.74054657462518
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.4022543818503619,
+       "lng": 103.83478466188535
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.311541961617768,
+       "lng": 103.79566923428793
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3269195740669966,
+       "lng": 103.83903227663599
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.327412839718163,
+       "lng": 103.95426598716527
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.3196053750813008,
+       "lng": 103.92822269484401
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3105266734957695,
+       "lng": 103.73735092037823
+      }
+     },
+     {
+      "id": "m12",
+      "name": "M12",
+      "home": {
+       "lat": 1.304743044823408,
+       "lng": 103.77564731540625
+      }
+     },
+     {
+      "id": "m13",
+      "name": "M13",
+      "home": {
+       "lat": 1.3676642290502787,
+       "lng": 103.8980871607177
+      }
+     },
+     {
+      "id": "m14",
+      "name": "M14",
+      "home": {
+       "lat": 1.2919228944182397,
+       "lng": 103.93736458407716
+      }
+     },
+     {
+      "id": "m15",
+      "name": "M15",
+      "home": {
+       "lat": 1.368593719676137,
+       "lng": 103.8616224568151
+      }
+     },
+     {
+      "id": "m16",
+      "name": "M16",
+      "home": {
+       "lat": 1.388814545236528,
+       "lng": 103.95115732298233
+      }
+     },
+     {
+      "id": "m17",
+      "name": "M17",
+      "home": {
+       "lat": 1.3799009030684828,
+       "lng": 103.93951326362323
+      }
+     },
+     {
+      "id": "m18",
+      "name": "M18",
+      "home": {
+       "lat": 1.4124205574765802,
+       "lng": 103.71039440321736
+      }
+     },
+     {
+      "id": "m19",
+      "name": "M19",
+      "home": {
+       "lat": 1.3079906475171448,
+       "lng": 103.79281506367494
+      }
+     },
+     {
+      "id": "m20",
+      "name": "M20",
+      "home": {
+       "lat": 1.3480505159124732,
+       "lng": 103.70524578971323
+      }
+     },
+     {
+      "id": "m21",
+      "name": "M21",
+      "home": {
+       "lat": 1.294096997641027,
+       "lng": 103.89968412247953
+      }
+     },
+     {
+      "id": "m22",
+      "name": "M22",
+      "home": {
+       "lat": 1.3390350888296962,
+       "lng": 103.81094608295709
+      }
+     },
+     {
+      "id": "m23",
+      "name": "M23",
+      "home": {
+       "lat": 1.354986020512879,
+       "lng": 103.94601750438568
+      }
+     },
+     {
+      "id": "m24",
+      "name": "M24",
+      "home": {
+       "lat": 1.3925249737501144,
+       "lng": 103.87895734156017
+      }
+     },
+     {
+      "id": "m25",
+      "name": "M25",
+      "home": {
+       "lat": 1.3329036678746342,
+       "lng": 103.79264697605744
+      }
+     },
+     {
+      "id": "m26",
+      "name": "M26",
+      "home": {
+       "lat": 1.302206592783332,
+       "lng": 103.73465624763165
+      }
+     },
+     {
+      "id": "m27",
+      "name": "M27",
+      "home": {
+       "lat": 1.4260855789110065,
+       "lng": 103.78383101029321
+      }
+     },
+     {
+      "id": "m28",
+      "name": "M28",
+      "home": {
+       "lat": 1.3104600843042136,
+       "lng": 103.86437427436468
+      }
+     },
+     {
+      "id": "m29",
+      "name": "M29",
+      "home": {
+       "lat": 1.3338833486288786,
+       "lng": 103.71134414686357
+      }
+     }
+    ],
+    "method": "centroid"
+   },
+   "status": 200,
+   "body": "{\"method\":\"centroid\",\"area\":{\"id\":\"caldecott\",\"name\":\"Caldecott\",\"lat\":1.33739,\"lng\":103.83953},\"centre\":{\"lat\":1.346019100756273,\"lng\":103.82931991415319},\"distanceFromAreaKm\":1.4862318990578514,\"worstMinutes\":61.75088602481437,\"worstMember\":\"M18\",\"meanMinutes\":40.0428211296486,\"travelByMember\":{\"m0\":59.26079870879035,\"m1\":48.739839083357694,\"m2\":18.09858610190888,\"m3\":33.6214976553572,\"m4\":32.396057994958696,\"m5\":43.722384053332526,\"m6\":29.1310832434835,\"m7\":25.721128913750842,\"m8\":14.771766161326916,\"m9\":57.70315098358715,\"m10\":47.89929924435824,\"m11\":46.3491466604937,\"m12\":33.71522546763374,\"m13\":35.50743670724269,\"m14\":55.45753423775864,\"m15\":22.130975277289078,\"m16\":58.854332140624905,\"m17\":53.18527844533466,\"m18\":61.75088602481437,\"m19\":27.578315774295756,\"m20\":56.7886569358899,\"m21\":41.79472031010844,\"m22\":14.04539060976336,\"m23\":53.90353566317347,\"m24\":33.842969015349034,\"m25\":21.941283102093557,\"m26\":48.69540252871975,\"m27\":43.69738138068908,\"m28\":26.439622361126883,\"m29\":54.54094910284502},\"approximate\":false,\"diagnostics\":{\"routingCalls\":30,\"activeMembers\":[\"m0\",\"m1\",\"m2\",\"m3\",\"m4\",\"m5\",\"m6\",\"m7\",\"m8\",\"m9\",\"m10\",\"m11\",\"m12\",\"m13\",\"m14\",\"m15\",\"m16\",\"m17\",\"m18\",\"m19\",\"m20\",\"m21\",\"m22\",\"m23\",\"m24\",\"m25\",\"m26\",\"m27\",\"m28\",\"m29\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: 30 members, weighted_centroid",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.361853927783668,
+       "lng": 103.83778606614098
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.377298970259726,
+       "lng": 103.85344098535367
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.4161242713779212,
+       "lng": 103.83988579733297
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.292804185822606,
+       "lng": 103.83793143303599
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.3772378534078598,
+       "lng": 103.81708447157406
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3568067951872944,
+       "lng": 103.91931537473575
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.347196120135486,
+       "lng": 103.87425397318323
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.3890445739403368,
+       "lng": 103.74181166973896
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3085623317211867,
+       "lng": 103.77178765405901
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.3433468137681484,
+       "lng": 103.79801045217086
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.373201453126967,
+       "lng": 103.73314517629798
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3755331134423614,
+       "lng": 103.84990007511341
+      }
+     },
+     {
+      "id": "m12",
+      "name": "M12",
+      "home": {
+       "lat": 1.3469467402249575,
+       "lng": 103.91950509675779
+      }
+     },
+     {
+      "id": "m13",
+      "name": "M13",
+      "home": {
+       "lat": 1.4088615700230003,
+       "lng": 103.89988917299547
+      }
+     },
+     {
+      "id": "m14",
+      "name": "M14",
+      "home": {
+       "lat": 1.330817737877369,
+       "lng": 103.86200795445592
+      }
+     },
+     {
+      "id": "m15",
+      "name": "M15",
+      "home": {
+       "lat": 1.3202686702087523,
+       "lng": 103.71462071959861
+      }
+     },
+     {
+      "id": "m16",
+      "name": "M16",
+      "home": {
+       "lat": 1.3985456684976816,
+       "lng": 103.95419416117947
+      }
+     },
+     {
+      "id": "m17",
+      "name": "M17",
+      "home": {
+       "lat": 1.3274938950687647,
+       "lng": 103.73809868207667
+      }
+     },
+     {
+      "id": "m18",
+      "name": "M18",
+      "home": {
+       "lat": 1.398968232050538,
+       "lng": 103.79027566580568
+      }
+     },
+     {
+      "id": "m19",
+      "name": "M19",
+      "home": {
+       "lat": 1.3685513524711133,
+       "lng": 103.849934678562
+      }
+     },
+     {
+      "id": "m20",
+      "name": "M20",
+      "home": {
+       "lat": 1.4152808555215597,
+       "lng": 103.7372367746057
+      }
+     },
+     {
+      "id": "m21",
+      "name": "M21",
+      "home": {
+       "lat": 1.4159531380981207,
+       "lng": 103.91327462936286
+      }
+     },
+     {
+      "id": "m22",
+      "name": "M22",
+      "home": {
+       "lat": 1.3415533540397884,
+       "lng": 103.70660828853026
+      }
+     },
+     {
+      "id": "m23",
+      "name": "M23",
+      "home": {
+       "lat": 1.2922752505913377,
+       "lng": 103.91874085771386
+      }
+     },
+     {
+      "id": "m24",
+      "name": "M24",
+      "home": {
+       "lat": 1.3595614282041788,
+       "lng": 103.83678870502393
+      }
+     },
+     {
+      "id": "m25",
+      "name": "M25",
+      "home": {
+       "lat": 1.32326892580837,
+       "lng": 103.83052221836523
+      }
+     },
+     {
+      "id": "m26",
+      "name": "M26",
+      "home": {
+       "lat": 1.397475356720388,
+       "lng": 103.72311410408467
+      }
+     },
+     {
+      "id": "m27",
+      "name": "M27",
+      "home": {
+       "lat": 1.3830557706207038,
+       "lng": 103.71172647526488
+      }
+     },
+     {
+      "id": "m28",
+      "name": "M28",
+      "home": {
+       "lat": 1.3511261388659477,
+       "lng": 103.86504608122166
+      }
+     },
+     {
+      "id": "m29",
+      "name": "M29",
+      "home": {
+       "lat": 1.4374997182562947,
+       "lng": 103.81132966045756
+      }
+     }
+    ],
+    "method": "weighted_centroid"
+   },
+   "status": 200,
+   "body": "{\"method\":\"weighted_centroid\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.364551510287657,\"lng\":103.82190890154507},\"distanceFromAreaKm\":3.1336101736543753,\"worstMinutes\":61.90187890830967,\"worstMember\":\"M16\",\"meanMinutes\":35.33346533953598,\"travelByMember\":{\"m0\":12.591441775023744,\"m1\":19.920792691064086,\"m2\":28.3590913417143,\"m3\":36.096466454808535,\"m4\":11.556459339624112,\"m5\":45.9928029530542,\"m6\":28.571549929677243,\"m7\":40.28161150682194,\"m8\":36.7610281708844,\"m9\":19.078094945352028,\"m10\":42.50164259804582,\"m11\":18.306888863205415,\"m12\":46.58967016296395,\"m13\":42.71093016251468,\"m14\":27.449611506815423,\"m15\":53.50693733539389,\"m16\":61.90187890830967,\"m17\":43.507661292289924,\"m18\":25.135170027544877,\"m19\":17.58677399488239,\"m20\":46.40135686994191,\"m21\":48.908718590219614,\"m22\":54.12096076584988,\"m23\":55.459873615811624,\"m24\":12.42358609758308,\"m25\":23.264820184319472,\"m26\":48.62224783298984,\"m27\":51.727553697463556,\"m28\":24.491139195075935,\"m29\":36.17719937683384},\"approximate\":false,\"diagnostics\":{\"routingCalls\":30,\"activeMembers\":[\"m0\",\"m1\",\"m2\",\"m3\",\"m4\",\"m5\",\"m6\",\"m7\",\"m8\",\"m9\",\"m10\",\"m11\",\"m12\",\"m13\",\"m14\",\"m15\",\"m16\",\"m17\",\"m18\",\"m19\",\"m20\",\"m21\",\"m22\",\"m23\",\"m24\",\"m25\",\"m26\",\"m27\",\"m28\",\"m29\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "off: dateTime sent",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":false,\"diagnostics\":{\"routingCalls\":111,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "on: station, three members, dateTime sent",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":36.6,\"worstMember\":\"Faith\",\"meanMinutes\":35.544444444444444,\"travelByMember\":{\"ian\":35.5,\"faith\":36.6,\"jonathan\":34.53333333333333},\"approximate\":true,\"diagnostics\":{\"routingCalls\":48,\"approximateLegs\":33,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"onemap\",\"asked\":48,\"routed\":15,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":33}}"
+  },
+  {
+   "name": "on: station, three members, no dateTime",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ]
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":36.6,\"worstMember\":\"Faith\",\"meanMinutes\":35.544444444444444,\"travelByMember\":{\"ian\":35.5,\"faith\":36.6,\"jonathan\":34.53333333333333},\"approximate\":true,\"diagnostics\":{\"routingCalls\":48,\"approximateLegs\":33,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"onemap\",\"asked\":48,\"routed\":15,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":33}}"
+  },
+  {
+   "name": "on: station, two members",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"bishan\",\"name\":\"Bishan\",\"lat\":1.35092,\"lng\":103.84822},\"centre\":{\"lat\":1.35092,\"lng\":103.84822},\"distanceFromAreaKm\":0,\"worstMinutes\":35.666666666666664,\"worstMember\":\"Ian\",\"meanMinutes\":34.93333333333334,\"travelByMember\":{\"ian\":35.666666666666664,\"faith\":34.2},\"approximate\":true,\"diagnostics\":{\"routingCalls\":32,\"approximateLegs\":22,\"activeMembers\":[\"ian\",\"faith\"]},\"travel\":{\"source\":\"onemap\",\"asked\":32,\"routed\":10,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":22}}"
+  },
+  {
+   "name": "on: weighted_centroid",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "method": "weighted_centroid",
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"weighted_centroid\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.3687013335989076,\"lng\":103.83203349563875},\"distanceFromAreaKm\":1.9553039605304072,\"worstMinutes\":39.45,\"worstMember\":\"Ian\",\"meanMinutes\":34.955555555555556,\"travelByMember\":{\"ian\":39.45,\"faith\":33.21666666666667,\"jonathan\":32.2},\"approximate\":false,\"diagnostics\":{\"routingCalls\":3,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"onemap\",\"asked\":3,\"routed\":3,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "on: centroid",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "method": "centroid",
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"centroid\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.3687013335989076,\"lng\":103.83203349563875},\"distanceFromAreaKm\":1.9553039605304072,\"worstMinutes\":39.45,\"worstMember\":\"Ian\",\"meanMinutes\":34.955555555555556,\"travelByMember\":{\"ian\":39.45,\"faith\":33.21666666666667,\"jonathan\":32.2},\"approximate\":false,\"diagnostics\":{\"routingCalls\":3,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"onemap\",\"asked\":3,\"routed\":3,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "on: minimax",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "method": "minimax",
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"minimax\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.3631752482612005,\"lng\":103.84856455372703},\"distanceFromAreaKm\":0.7595290374981667,\"worstMinutes\":35.6,\"worstMember\":\"Faith\",\"meanMinutes\":35.55555555555556,\"travelByMember\":{\"ian\":35.516666666666666,\"faith\":35.6,\"jonathan\":35.55},\"approximate\":false,\"diagnostics\":{\"routingCalls\":3,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"onemap\",\"asked\":3,\"routed\":3,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "on: station with maxCandidates 5",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "maxCandidates": 5,
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":36.6,\"worstMember\":\"Faith\",\"meanMinutes\":35.544444444444444,\"travelByMember\":{\"ian\":35.5,\"faith\":36.6,\"jonathan\":34.53333333333333},\"approximate\":false,\"diagnostics\":{\"routingCalls\":15,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"onemap\",\"asked\":15,\"routed\":15,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "on: station with maxCandidates 37",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "maxCandidates": 37,
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":36.6,\"worstMember\":\"Faith\",\"meanMinutes\":35.544444444444444,\"travelByMember\":{\"ian\":35.5,\"faith\":36.6,\"jonathan\":34.53333333333333},\"approximate\":true,\"diagnostics\":{\"routingCalls\":111,\"approximateLegs\":96,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"onemap\",\"asked\":110,\"routed\":15,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":95}}"
+  },
+  {
+   "name": "on: station with maxCandidates 1",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "maxCandidates": 1,
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":36.6,\"worstMember\":\"Faith\",\"meanMinutes\":35.544444444444444,\"travelByMember\":{\"ian\":35.5,\"faith\":36.6,\"jonathan\":34.53333333333333},\"approximate\":false,\"diagnostics\":{\"routingCalls\":3,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"onemap\",\"asked\":3,\"routed\":3,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "on: one member opted out",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "optedOut": [
+     "faith"
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":35.5,\"worstMember\":\"Ian\",\"meanMinutes\":35.016666666666666,\"travelByMember\":{\"ian\":35.5,\"jonathan\":34.53333333333333},\"approximate\":true,\"diagnostics\":{\"routingCalls\":32,\"approximateLegs\":22,\"activeMembers\":[\"ian\",\"jonathan\"]},\"travel\":{\"source\":\"onemap\",\"asked\":32,\"routed\":10,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":22}}"
+  },
+  {
+   "name": "on: override of a start point",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "overrides": {
+     "faith": {
+      "start": {
+       "lat": 1.3,
+       "lng": 103.85
+      }
+     }
+    },
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":35.5,\"worstMember\":\"Ian\",\"meanMinutes\":33.22222222222222,\"travelByMember\":{\"ian\":35.5,\"faith\":29.633333333333333,\"jonathan\":34.53333333333333},\"approximate\":true,\"diagnostics\":{\"routingCalls\":48,\"approximateLegs\":33,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"onemap\",\"asked\":48,\"routed\":15,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":33}}"
+  },
+  {
+   "name": "on: override and opt-out together",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "optedOut": [
+     "ian"
+    ],
+    "overrides": {
+     "jonathan": {
+      "start": {
+       "lat": 1.33,
+       "lng": 103.9
+      }
+     }
+    },
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"orchard\",\"name\":\"Orchard\",\"lat\":1.30406,\"lng\":103.83186},\"centre\":{\"lat\":1.30406,\"lng\":103.83186},\"distanceFromAreaKm\":0,\"worstMinutes\":30.25,\"worstMember\":\"Jonathan\",\"meanMinutes\":29.7,\"travelByMember\":{\"faith\":29.15,\"jonathan\":30.25},\"approximate\":true,\"diagnostics\":{\"routingCalls\":32,\"approximateLegs\":22,\"activeMembers\":[\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"onemap\",\"asked\":32,\"routed\":10,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":22}}"
+  },
+  {
+   "name": "on: one member",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"tampines\",\"name\":\"Tampines\",\"lat\":1.35408,\"lng\":103.94535},\"centre\":{\"lat\":1.35408,\"lng\":103.94535},\"distanceFromAreaKm\":0,\"worstMinutes\":1,\"worstMember\":\"Ian\",\"meanMinutes\":1,\"travelByMember\":{\"ian\":1},\"approximate\":true,\"diagnostics\":{\"routingCalls\":16,\"approximateLegs\":11,\"activeMembers\":[\"ian\"]},\"travel\":{\"source\":\"onemap\",\"asked\":16,\"routed\":4,\"cached\":0,\"walked\":1,\"failed\":0,\"estimated\":11}}"
+  },
+  {
+   "name": "on: members close enough to walk",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "a",
+      "home": {
+       "lat": 1.3509,
+       "lng": 103.8482
+      }
+     },
+     {
+      "id": "b",
+      "home": {
+       "lat": 1.3512,
+       "lng": 103.8485
+      }
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"bishan\",\"name\":\"Bishan\",\"lat\":1.35092,\"lng\":103.84822},\"centre\":{\"lat\":1.35092,\"lng\":103.84822},\"distanceFromAreaKm\":0,\"worstMinutes\":0,\"worstMember\":\"a\",\"meanMinutes\":0,\"travelByMember\":{\"a\":0,\"b\":0},\"approximate\":true,\"diagnostics\":{\"routingCalls\":32,\"approximateLegs\":22,\"activeMembers\":[\"a\",\"b\"]},\"travel\":{\"source\":\"onemap\",\"asked\":32,\"routed\":8,\"cached\":0,\"walked\":2,\"failed\":0,\"estimated\":22}}"
+  },
+  {
+   "name": "on: 12 members, minimax",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.3952362854033709,
+       "lng": 103.71005216173363
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.3529907508194448,
+       "lng": 103.71948128250894
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.4020808623731136,
+       "lng": 103.82510690863245
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.357876731939614,
+       "lng": 103.74206814731471
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.3221210029348731,
+       "lng": 103.84367787838448
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3111866002902388,
+       "lng": 103.72173414923716
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.3942059825733304,
+       "lng": 103.82394929004367
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.4069971292838455,
+       "lng": 103.92874106499832
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3317797866091132,
+       "lng": 103.879551162594
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.3258795310556888,
+       "lng": 103.87475651015528
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.3642285723984242,
+       "lng": 103.9162508005323
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3663915385305883,
+       "lng": 103.70301754726097
+      }
+     }
+    ],
+    "method": "minimax",
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"minimax\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.3745986517578583,\"lng\":103.81805643647898},\"distanceFromAreaKm\":3.5424990650782777,\"worstMinutes\":39.78333333333333,\"worstMember\":\"M7\",\"meanMinutes\":31.777777777777782,\"travelByMember\":{\"m0\":38.516666666666666,\"m1\":36.63333333333333,\"m2\":16.233333333333334,\"m3\":31.383333333333333,\"m4\":27.183333333333334,\"m5\":39.75,\"m6\":14.45,\"m7\":39.78333333333333,\"m8\":30.85,\"m9\":30.783333333333335,\"m10\":36.016666666666666,\"m11\":39.75},\"approximate\":false,\"diagnostics\":{\"routingCalls\":12,\"activeMembers\":[\"m0\",\"m1\",\"m2\",\"m3\",\"m4\",\"m5\",\"m6\",\"m7\",\"m8\",\"m9\",\"m10\",\"m11\"]},\"travel\":{\"source\":\"onemap\",\"asked\":12,\"routed\":12,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "on: 20 members, station (three areas fit the cap)",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.3903639857470989,
+       "lng": 103.90091325105634
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.315162081643939,
+       "lng": 103.86202649377752
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.2936219521984458,
+       "lng": 103.8539628844522
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.395216359309852,
+       "lng": 103.81910709525924
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.424899440035224,
+       "lng": 103.75965153281112
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.4047781462967397,
+       "lng": 103.89255933126901
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.385689608566463,
+       "lng": 103.70359356932808
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.3544642252847552,
+       "lng": 103.7781183185894
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.4234479652717709,
+       "lng": 103.77491012861486
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.4008475472033024,
+       "lng": 103.88810565838125
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.3205724957212805,
+       "lng": 103.7049447749788
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.406961319334805,
+       "lng": 103.75415474057664
+      }
+     },
+     {
+      "id": "m12",
+      "name": "M12",
+      "home": {
+       "lat": 1.3236190901324154,
+       "lng": 103.73204810081981
+      }
+     },
+     {
+      "id": "m13",
+      "name": "M13",
+      "home": {
+       "lat": 1.35521242082119,
+       "lng": 103.95782728107646
+      }
+     },
+     {
+      "id": "m14",
+      "name": "M14",
+      "home": {
+       "lat": 1.3192756011709572,
+       "lng": 103.72104566683993
+      }
+     },
+     {
+      "id": "m15",
+      "name": "M15",
+      "home": {
+       "lat": 1.4157748950645328,
+       "lng": 103.78242630259135
+      }
+     },
+     {
+      "id": "m16",
+      "name": "M16",
+      "home": {
+       "lat": 1.3452099250629543,
+       "lng": 103.9562917217333
+      }
+     },
+     {
+      "id": "m17",
+      "name": "M17",
+      "home": {
+       "lat": 1.3235161409527063,
+       "lng": 103.80038663266227
+      }
+     },
+     {
+      "id": "m18",
+      "name": "M18",
+      "home": {
+       "lat": 1.3147613862901926,
+       "lng": 103.92599834104068
+      }
+     },
+     {
+      "id": "m19",
+      "name": "M19",
+      "home": {
+       "lat": 1.3955778292939067,
+       "lng": 103.92849124129397
+      }
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"caldecott\",\"name\":\"Caldecott\",\"lat\":1.33739,\"lng\":103.83953},\"centre\":{\"lat\":1.33739,\"lng\":103.83953},\"distanceFromAreaKm\":0,\"worstMinutes\":50.266666666666666,\"worstMember\":\"M6\",\"meanMinutes\":34.63916666666667,\"travelByMember\":{\"m0\":32.03333333333333,\"m1\":16.95,\"m2\":20.1,\"m3\":27.766666666666666,\"m4\":40.55,\"m5\":33.25,\"m6\":50.266666666666666,\"m7\":28.35,\"m8\":38.06666666666667,\"m9\":31.866666666666667,\"m10\":48.35,\"m11\":38.75,\"m12\":38.28333333333333,\"m13\":40.65,\"m14\":40.86666666666667,\"m15\":35.88333333333333,\"m16\":39.95,\"m17\":19.383333333333333,\"m18\":33.81666666666667,\"m19\":37.65},\"approximate\":true,\"diagnostics\":{\"routingCalls\":320,\"approximateLegs\":260,\"activeMembers\":[\"m0\",\"m1\",\"m2\",\"m3\",\"m4\",\"m5\",\"m6\",\"m7\",\"m8\",\"m9\",\"m10\",\"m11\",\"m12\",\"m13\",\"m14\",\"m15\",\"m16\",\"m17\",\"m18\",\"m19\"]},\"travel\":{\"source\":\"onemap\",\"asked\":320,\"routed\":60,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":260}}"
+  },
+  {
+   "name": "on: 30 members, station (two areas fit the cap of 60 trips)",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.2818727605044842,
+       "lng": 103.7161091469694
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.4363052212446927,
+       "lng": 103.88174746348523
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.3634312429651618,
+       "lng": 103.8054356388934
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.3545972212031483,
+       "lng": 103.76238054833841
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.368532096631825,
+       "lng": 103.88975374337286
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3212504897639155,
+       "lng": 103.74054657462518
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.4022543818503619,
+       "lng": 103.83478466188535
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.311541961617768,
+       "lng": 103.79566923428793
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3269195740669966,
+       "lng": 103.83903227663599
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.327412839718163,
+       "lng": 103.95426598716527
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.3196053750813008,
+       "lng": 103.92822269484401
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3105266734957695,
+       "lng": 103.73735092037823
+      }
+     },
+     {
+      "id": "m12",
+      "name": "M12",
+      "home": {
+       "lat": 1.304743044823408,
+       "lng": 103.77564731540625
+      }
+     },
+     {
+      "id": "m13",
+      "name": "M13",
+      "home": {
+       "lat": 1.3676642290502787,
+       "lng": 103.8980871607177
+      }
+     },
+     {
+      "id": "m14",
+      "name": "M14",
+      "home": {
+       "lat": 1.2919228944182397,
+       "lng": 103.93736458407716
+      }
+     },
+     {
+      "id": "m15",
+      "name": "M15",
+      "home": {
+       "lat": 1.368593719676137,
+       "lng": 103.8616224568151
+      }
+     },
+     {
+      "id": "m16",
+      "name": "M16",
+      "home": {
+       "lat": 1.388814545236528,
+       "lng": 103.95115732298233
+      }
+     },
+     {
+      "id": "m17",
+      "name": "M17",
+      "home": {
+       "lat": 1.3799009030684828,
+       "lng": 103.93951326362323
+      }
+     },
+     {
+      "id": "m18",
+      "name": "M18",
+      "home": {
+       "lat": 1.4124205574765802,
+       "lng": 103.71039440321736
+      }
+     },
+     {
+      "id": "m19",
+      "name": "M19",
+      "home": {
+       "lat": 1.3079906475171448,
+       "lng": 103.79281506367494
+      }
+     },
+     {
+      "id": "m20",
+      "name": "M20",
+      "home": {
+       "lat": 1.3480505159124732,
+       "lng": 103.70524578971323
+      }
+     },
+     {
+      "id": "m21",
+      "name": "M21",
+      "home": {
+       "lat": 1.294096997641027,
+       "lng": 103.89968412247953
+      }
+     },
+     {
+      "id": "m22",
+      "name": "M22",
+      "home": {
+       "lat": 1.3390350888296962,
+       "lng": 103.81094608295709
+      }
+     },
+     {
+      "id": "m23",
+      "name": "M23",
+      "home": {
+       "lat": 1.354986020512879,
+       "lng": 103.94601750438568
+      }
+     },
+     {
+      "id": "m24",
+      "name": "M24",
+      "home": {
+       "lat": 1.3925249737501144,
+       "lng": 103.87895734156017
+      }
+     },
+     {
+      "id": "m25",
+      "name": "M25",
+      "home": {
+       "lat": 1.3329036678746342,
+       "lng": 103.79264697605744
+      }
+     },
+     {
+      "id": "m26",
+      "name": "M26",
+      "home": {
+       "lat": 1.302206592783332,
+       "lng": 103.73465624763165
+      }
+     },
+     {
+      "id": "m27",
+      "name": "M27",
+      "home": {
+       "lat": 1.4260855789110065,
+       "lng": 103.78383101029321
+      }
+     },
+     {
+      "id": "m28",
+      "name": "M28",
+      "home": {
+       "lat": 1.3104600843042136,
+       "lng": 103.86437427436468
+      }
+     },
+     {
+      "id": "m29",
+      "name": "M29",
+      "home": {
+       "lat": 1.3338833486288786,
+       "lng": 103.71134414686357
+      }
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"caldecott\",\"name\":\"Caldecott\",\"lat\":1.33739,\"lng\":103.83953},\"centre\":{\"lat\":1.33739,\"lng\":103.83953},\"distanceFromAreaKm\":0,\"worstMinutes\":51.5,\"worstMember\":\"M18\",\"meanMinutes\":32.38666666666667,\"travelByMember\":{\"m0\":48.28333333333333,\"m1\":38.016666666666666,\"m2\":19.733333333333334,\"m3\":31.866666666666667,\"m4\":27.25,\"m5\":36.38333333333333,\"m6\":28.55,\"m7\":21.3,\"m8\":12.25,\"m9\":39.55,\"m10\":34,\"m11\":37.71666666666667,\"m12\":29.966666666666665,\"m13\":28.683333333333334,\"m14\":37.86666666666667,\"m15\":18.666666666666668,\"m16\":41.36666666666667,\"m17\":38.3,\"m18\":51.5,\"m19\":26.333333333333332,\"m20\":48.233333333333334,\"m21\":30.483333333333334,\"m22\":16.483333333333334,\"m23\":38,\"m24\":29.233333333333334,\"m25\":20.533333333333335,\"m26\":38.7,\"m27\":37.483333333333334,\"m28\":18.066666666666666,\"m29\":46.8},\"approximate\":true,\"diagnostics\":{\"routingCalls\":480,\"approximateLegs\":420,\"activeMembers\":[\"m0\",\"m1\",\"m2\",\"m3\",\"m4\",\"m5\",\"m6\",\"m7\",\"m8\",\"m9\",\"m10\",\"m11\",\"m12\",\"m13\",\"m14\",\"m15\",\"m16\",\"m17\",\"m18\",\"m19\",\"m20\",\"m21\",\"m22\",\"m23\",\"m24\",\"m25\",\"m26\",\"m27\",\"m28\",\"m29\"]},\"travel\":{\"source\":\"onemap\",\"asked\":480,\"routed\":60,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":420}}"
+  },
+  {
+   "name": "on: 30 members, maxCandidates 37",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.2818727605044842,
+       "lng": 103.7161091469694
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.4363052212446927,
+       "lng": 103.88174746348523
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.3634312429651618,
+       "lng": 103.8054356388934
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.3545972212031483,
+       "lng": 103.76238054833841
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.368532096631825,
+       "lng": 103.88975374337286
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3212504897639155,
+       "lng": 103.74054657462518
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.4022543818503619,
+       "lng": 103.83478466188535
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.311541961617768,
+       "lng": 103.79566923428793
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3269195740669966,
+       "lng": 103.83903227663599
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.327412839718163,
+       "lng": 103.95426598716527
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.3196053750813008,
+       "lng": 103.92822269484401
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3105266734957695,
+       "lng": 103.73735092037823
+      }
+     },
+     {
+      "id": "m12",
+      "name": "M12",
+      "home": {
+       "lat": 1.304743044823408,
+       "lng": 103.77564731540625
+      }
+     },
+     {
+      "id": "m13",
+      "name": "M13",
+      "home": {
+       "lat": 1.3676642290502787,
+       "lng": 103.8980871607177
+      }
+     },
+     {
+      "id": "m14",
+      "name": "M14",
+      "home": {
+       "lat": 1.2919228944182397,
+       "lng": 103.93736458407716
+      }
+     },
+     {
+      "id": "m15",
+      "name": "M15",
+      "home": {
+       "lat": 1.368593719676137,
+       "lng": 103.8616224568151
+      }
+     },
+     {
+      "id": "m16",
+      "name": "M16",
+      "home": {
+       "lat": 1.388814545236528,
+       "lng": 103.95115732298233
+      }
+     },
+     {
+      "id": "m17",
+      "name": "M17",
+      "home": {
+       "lat": 1.3799009030684828,
+       "lng": 103.93951326362323
+      }
+     },
+     {
+      "id": "m18",
+      "name": "M18",
+      "home": {
+       "lat": 1.4124205574765802,
+       "lng": 103.71039440321736
+      }
+     },
+     {
+      "id": "m19",
+      "name": "M19",
+      "home": {
+       "lat": 1.3079906475171448,
+       "lng": 103.79281506367494
+      }
+     },
+     {
+      "id": "m20",
+      "name": "M20",
+      "home": {
+       "lat": 1.3480505159124732,
+       "lng": 103.70524578971323
+      }
+     },
+     {
+      "id": "m21",
+      "name": "M21",
+      "home": {
+       "lat": 1.294096997641027,
+       "lng": 103.89968412247953
+      }
+     },
+     {
+      "id": "m22",
+      "name": "M22",
+      "home": {
+       "lat": 1.3390350888296962,
+       "lng": 103.81094608295709
+      }
+     },
+     {
+      "id": "m23",
+      "name": "M23",
+      "home": {
+       "lat": 1.354986020512879,
+       "lng": 103.94601750438568
+      }
+     },
+     {
+      "id": "m24",
+      "name": "M24",
+      "home": {
+       "lat": 1.3925249737501144,
+       "lng": 103.87895734156017
+      }
+     },
+     {
+      "id": "m25",
+      "name": "M25",
+      "home": {
+       "lat": 1.3329036678746342,
+       "lng": 103.79264697605744
+      }
+     },
+     {
+      "id": "m26",
+      "name": "M26",
+      "home": {
+       "lat": 1.302206592783332,
+       "lng": 103.73465624763165
+      }
+     },
+     {
+      "id": "m27",
+      "name": "M27",
+      "home": {
+       "lat": 1.4260855789110065,
+       "lng": 103.78383101029321
+      }
+     },
+     {
+      "id": "m28",
+      "name": "M28",
+      "home": {
+       "lat": 1.3104600843042136,
+       "lng": 103.86437427436468
+      }
+     },
+     {
+      "id": "m29",
+      "name": "M29",
+      "home": {
+       "lat": 1.3338833486288786,
+       "lng": 103.71134414686357
+      }
+     }
+    ],
+    "maxCandidates": 37,
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"caldecott\",\"name\":\"Caldecott\",\"lat\":1.33739,\"lng\":103.83953},\"centre\":{\"lat\":1.33739,\"lng\":103.83953},\"distanceFromAreaKm\":0,\"worstMinutes\":51.5,\"worstMember\":\"M18\",\"meanMinutes\":32.38666666666667,\"travelByMember\":{\"m0\":48.28333333333333,\"m1\":38.016666666666666,\"m2\":19.733333333333334,\"m3\":31.866666666666667,\"m4\":27.25,\"m5\":36.38333333333333,\"m6\":28.55,\"m7\":21.3,\"m8\":12.25,\"m9\":39.55,\"m10\":34,\"m11\":37.71666666666667,\"m12\":29.966666666666665,\"m13\":28.683333333333334,\"m14\":37.86666666666667,\"m15\":18.666666666666668,\"m16\":41.36666666666667,\"m17\":38.3,\"m18\":51.5,\"m19\":26.333333333333332,\"m20\":48.233333333333334,\"m21\":30.483333333333334,\"m22\":16.483333333333334,\"m23\":38,\"m24\":29.233333333333334,\"m25\":20.533333333333335,\"m26\":38.7,\"m27\":37.483333333333334,\"m28\":18.066666666666666,\"m29\":46.8},\"approximate\":true,\"diagnostics\":{\"routingCalls\":1110,\"approximateLegs\":1050,\"activeMembers\":[\"m0\",\"m1\",\"m2\",\"m3\",\"m4\",\"m5\",\"m6\",\"m7\",\"m8\",\"m9\",\"m10\",\"m11\",\"m12\",\"m13\",\"m14\",\"m15\",\"m16\",\"m17\",\"m18\",\"m19\",\"m20\",\"m21\",\"m22\",\"m23\",\"m24\",\"m25\",\"m26\",\"m27\",\"m28\",\"m29\"]},\"travel\":{\"source\":\"onemap\",\"asked\":1110,\"routed\":60,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":1050}}"
+  },
+  {
+   "name": "on: 30 members, centroid",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.2818727605044842,
+       "lng": 103.7161091469694
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.4363052212446927,
+       "lng": 103.88174746348523
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.3634312429651618,
+       "lng": 103.8054356388934
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.3545972212031483,
+       "lng": 103.76238054833841
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.368532096631825,
+       "lng": 103.88975374337286
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3212504897639155,
+       "lng": 103.74054657462518
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.4022543818503619,
+       "lng": 103.83478466188535
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.311541961617768,
+       "lng": 103.79566923428793
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3269195740669966,
+       "lng": 103.83903227663599
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.327412839718163,
+       "lng": 103.95426598716527
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.3196053750813008,
+       "lng": 103.92822269484401
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3105266734957695,
+       "lng": 103.73735092037823
+      }
+     },
+     {
+      "id": "m12",
+      "name": "M12",
+      "home": {
+       "lat": 1.304743044823408,
+       "lng": 103.77564731540625
+      }
+     },
+     {
+      "id": "m13",
+      "name": "M13",
+      "home": {
+       "lat": 1.3676642290502787,
+       "lng": 103.8980871607177
+      }
+     },
+     {
+      "id": "m14",
+      "name": "M14",
+      "home": {
+       "lat": 1.2919228944182397,
+       "lng": 103.93736458407716
+      }
+     },
+     {
+      "id": "m15",
+      "name": "M15",
+      "home": {
+       "lat": 1.368593719676137,
+       "lng": 103.8616224568151
+      }
+     },
+     {
+      "id": "m16",
+      "name": "M16",
+      "home": {
+       "lat": 1.388814545236528,
+       "lng": 103.95115732298233
+      }
+     },
+     {
+      "id": "m17",
+      "name": "M17",
+      "home": {
+       "lat": 1.3799009030684828,
+       "lng": 103.93951326362323
+      }
+     },
+     {
+      "id": "m18",
+      "name": "M18",
+      "home": {
+       "lat": 1.4124205574765802,
+       "lng": 103.71039440321736
+      }
+     },
+     {
+      "id": "m19",
+      "name": "M19",
+      "home": {
+       "lat": 1.3079906475171448,
+       "lng": 103.79281506367494
+      }
+     },
+     {
+      "id": "m20",
+      "name": "M20",
+      "home": {
+       "lat": 1.3480505159124732,
+       "lng": 103.70524578971323
+      }
+     },
+     {
+      "id": "m21",
+      "name": "M21",
+      "home": {
+       "lat": 1.294096997641027,
+       "lng": 103.89968412247953
+      }
+     },
+     {
+      "id": "m22",
+      "name": "M22",
+      "home": {
+       "lat": 1.3390350888296962,
+       "lng": 103.81094608295709
+      }
+     },
+     {
+      "id": "m23",
+      "name": "M23",
+      "home": {
+       "lat": 1.354986020512879,
+       "lng": 103.94601750438568
+      }
+     },
+     {
+      "id": "m24",
+      "name": "M24",
+      "home": {
+       "lat": 1.3925249737501144,
+       "lng": 103.87895734156017
+      }
+     },
+     {
+      "id": "m25",
+      "name": "M25",
+      "home": {
+       "lat": 1.3329036678746342,
+       "lng": 103.79264697605744
+      }
+     },
+     {
+      "id": "m26",
+      "name": "M26",
+      "home": {
+       "lat": 1.302206592783332,
+       "lng": 103.73465624763165
+      }
+     },
+     {
+      "id": "m27",
+      "name": "M27",
+      "home": {
+       "lat": 1.4260855789110065,
+       "lng": 103.78383101029321
+      }
+     },
+     {
+      "id": "m28",
+      "name": "M28",
+      "home": {
+       "lat": 1.3104600843042136,
+       "lng": 103.86437427436468
+      }
+     },
+     {
+      "id": "m29",
+      "name": "M29",
+      "home": {
+       "lat": 1.3338833486288786,
+       "lng": 103.71134414686357
+      }
+     }
+    ],
+    "method": "centroid",
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"centroid\",\"area\":{\"id\":\"caldecott\",\"name\":\"Caldecott\",\"lat\":1.33739,\"lng\":103.83953},\"centre\":{\"lat\":1.346019100756273,\"lng\":103.82931991415319},\"distanceFromAreaKm\":1.4862318990578514,\"worstMinutes\":48.38333333333333,\"worstMember\":\"M18\",\"meanMinutes\":32.031111111111116,\"travelByMember\":{\"m0\":46.983333333333334,\"m1\":37.31666666666667,\"m2\":16.566666666666666,\"m3\":29.083333333333332,\"m4\":28.55,\"m5\":34.416666666666664,\"m6\":26.583333333333332,\"m7\":20.583333333333332,\"m8\":14.8,\"m9\":46.21666666666667,\"m10\":36.85,\"m11\":35.96666666666667,\"m12\":28.966666666666665,\"m13\":30.166666666666668,\"m14\":40.95,\"m15\":18.983333333333334,\"m16\":46.88333333333333,\"m17\":39.916666666666664,\"m18\":48.38333333333333,\"m19\":21.683333333333334,\"m20\":41.68333333333333,\"m21\":33.65,\"m22\":14.316666666666666,\"m23\":40.2,\"m24\":29.316666666666666,\"m25\":18.55,\"m26\":37.166666666666664,\"m27\":34.5,\"m28\":21.216666666666665,\"m29\":40.483333333333334},\"approximate\":false,\"diagnostics\":{\"routingCalls\":30,\"activeMembers\":[\"m0\",\"m1\",\"m2\",\"m3\",\"m4\",\"m5\",\"m6\",\"m7\",\"m8\",\"m9\",\"m10\",\"m11\",\"m12\",\"m13\",\"m14\",\"m15\",\"m16\",\"m17\",\"m18\",\"m19\",\"m20\",\"m21\",\"m22\",\"m23\",\"m24\",\"m25\",\"m26\",\"m27\",\"m28\",\"m29\"]},\"travel\":{\"source\":\"onemap\",\"asked\":30,\"routed\":30,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "on: 30 members, weighted_centroid",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.361853927783668,
+       "lng": 103.83778606614098
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.377298970259726,
+       "lng": 103.85344098535367
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.4161242713779212,
+       "lng": 103.83988579733297
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.292804185822606,
+       "lng": 103.83793143303599
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.3772378534078598,
+       "lng": 103.81708447157406
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3568067951872944,
+       "lng": 103.91931537473575
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.347196120135486,
+       "lng": 103.87425397318323
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.3890445739403368,
+       "lng": 103.74181166973896
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3085623317211867,
+       "lng": 103.77178765405901
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.3433468137681484,
+       "lng": 103.79801045217086
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.373201453126967,
+       "lng": 103.73314517629798
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3755331134423614,
+       "lng": 103.84990007511341
+      }
+     },
+     {
+      "id": "m12",
+      "name": "M12",
+      "home": {
+       "lat": 1.3469467402249575,
+       "lng": 103.91950509675779
+      }
+     },
+     {
+      "id": "m13",
+      "name": "M13",
+      "home": {
+       "lat": 1.4088615700230003,
+       "lng": 103.89988917299547
+      }
+     },
+     {
+      "id": "m14",
+      "name": "M14",
+      "home": {
+       "lat": 1.330817737877369,
+       "lng": 103.86200795445592
+      }
+     },
+     {
+      "id": "m15",
+      "name": "M15",
+      "home": {
+       "lat": 1.3202686702087523,
+       "lng": 103.71462071959861
+      }
+     },
+     {
+      "id": "m16",
+      "name": "M16",
+      "home": {
+       "lat": 1.3985456684976816,
+       "lng": 103.95419416117947
+      }
+     },
+     {
+      "id": "m17",
+      "name": "M17",
+      "home": {
+       "lat": 1.3274938950687647,
+       "lng": 103.73809868207667
+      }
+     },
+     {
+      "id": "m18",
+      "name": "M18",
+      "home": {
+       "lat": 1.398968232050538,
+       "lng": 103.79027566580568
+      }
+     },
+     {
+      "id": "m19",
+      "name": "M19",
+      "home": {
+       "lat": 1.3685513524711133,
+       "lng": 103.849934678562
+      }
+     },
+     {
+      "id": "m20",
+      "name": "M20",
+      "home": {
+       "lat": 1.4152808555215597,
+       "lng": 103.7372367746057
+      }
+     },
+     {
+      "id": "m21",
+      "name": "M21",
+      "home": {
+       "lat": 1.4159531380981207,
+       "lng": 103.91327462936286
+      }
+     },
+     {
+      "id": "m22",
+      "name": "M22",
+      "home": {
+       "lat": 1.3415533540397884,
+       "lng": 103.70660828853026
+      }
+     },
+     {
+      "id": "m23",
+      "name": "M23",
+      "home": {
+       "lat": 1.2922752505913377,
+       "lng": 103.91874085771386
+      }
+     },
+     {
+      "id": "m24",
+      "name": "M24",
+      "home": {
+       "lat": 1.3595614282041788,
+       "lng": 103.83678870502393
+      }
+     },
+     {
+      "id": "m25",
+      "name": "M25",
+      "home": {
+       "lat": 1.32326892580837,
+       "lng": 103.83052221836523
+      }
+     },
+     {
+      "id": "m26",
+      "name": "M26",
+      "home": {
+       "lat": 1.397475356720388,
+       "lng": 103.72311410408467
+      }
+     },
+     {
+      "id": "m27",
+      "name": "M27",
+      "home": {
+       "lat": 1.3830557706207038,
+       "lng": 103.71172647526488
+      }
+     },
+     {
+      "id": "m28",
+      "name": "M28",
+      "home": {
+       "lat": 1.3511261388659477,
+       "lng": 103.86504608122166
+      }
+     },
+     {
+      "id": "m29",
+      "name": "M29",
+      "home": {
+       "lat": 1.4374997182562947,
+       "lng": 103.81132966045756
+      }
+     }
+    ],
+    "method": "weighted_centroid",
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"weighted_centroid\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.364551510287657,\"lng\":103.82190890154507},\"distanceFromAreaKm\":3.1336101736543753,\"worstMinutes\":48.43333333333333,\"worstMember\":\"M16\",\"meanMinutes\":28.654999999999998,\"travelByMember\":{\"m0\":13.633333333333333,\"m1\":17.416666666666668,\"m2\":26.083333333333332,\"m3\":30.466666666666665,\"m4\":12.9,\"m5\":35.733333333333334,\"m6\":26.283333333333335,\"m7\":32.65,\"m8\":30.766666666666666,\"m9\":17.266666666666666,\"m10\":33.95,\"m11\":16.716666666666665,\"m12\":36.25,\"m13\":33.983333333333334,\"m14\":21.716666666666665,\"m15\":39.916666666666664,\"m16\":48.43333333333333,\"m17\":34.583333333333336,\"m18\":20.416666666666668,\"m19\":16.316666666666666,\"m20\":36.016666666666666,\"m21\":37.28333333333333,\"m22\":40.18333333333333,\"m23\":41.1,\"m24\":13.533333333333333,\"m25\":19.583333333333332,\"m26\":37.21666666666667,\"m27\":38.88333333333333,\"m28\":20.1,\"m29\":30.266666666666666},\"approximate\":false,\"diagnostics\":{\"routingCalls\":30,\"activeMembers\":[\"m0\",\"m1\",\"m2\",\"m3\",\"m4\",\"m5\",\"m6\",\"m7\",\"m8\",\"m9\",\"m10\",\"m11\",\"m12\",\"m13\",\"m14\",\"m15\",\"m16\",\"m17\",\"m18\",\"m19\",\"m20\",\"m21\",\"m22\",\"m23\",\"m24\",\"m25\",\"m26\",\"m27\",\"m28\",\"m29\"]},\"travel\":{\"source\":\"onemap\",\"asked\":30,\"routed\":30,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "on: 30 members, 5 opted out",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.2818727605044842,
+       "lng": 103.7161091469694
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.4363052212446927,
+       "lng": 103.88174746348523
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.3634312429651618,
+       "lng": 103.8054356388934
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.3545972212031483,
+       "lng": 103.76238054833841
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.368532096631825,
+       "lng": 103.88975374337286
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3212504897639155,
+       "lng": 103.74054657462518
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.4022543818503619,
+       "lng": 103.83478466188535
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.311541961617768,
+       "lng": 103.79566923428793
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3269195740669966,
+       "lng": 103.83903227663599
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.327412839718163,
+       "lng": 103.95426598716527
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.3196053750813008,
+       "lng": 103.92822269484401
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3105266734957695,
+       "lng": 103.73735092037823
+      }
+     },
+     {
+      "id": "m12",
+      "name": "M12",
+      "home": {
+       "lat": 1.304743044823408,
+       "lng": 103.77564731540625
+      }
+     },
+     {
+      "id": "m13",
+      "name": "M13",
+      "home": {
+       "lat": 1.3676642290502787,
+       "lng": 103.8980871607177
+      }
+     },
+     {
+      "id": "m14",
+      "name": "M14",
+      "home": {
+       "lat": 1.2919228944182397,
+       "lng": 103.93736458407716
+      }
+     },
+     {
+      "id": "m15",
+      "name": "M15",
+      "home": {
+       "lat": 1.368593719676137,
+       "lng": 103.8616224568151
+      }
+     },
+     {
+      "id": "m16",
+      "name": "M16",
+      "home": {
+       "lat": 1.388814545236528,
+       "lng": 103.95115732298233
+      }
+     },
+     {
+      "id": "m17",
+      "name": "M17",
+      "home": {
+       "lat": 1.3799009030684828,
+       "lng": 103.93951326362323
+      }
+     },
+     {
+      "id": "m18",
+      "name": "M18",
+      "home": {
+       "lat": 1.4124205574765802,
+       "lng": 103.71039440321736
+      }
+     },
+     {
+      "id": "m19",
+      "name": "M19",
+      "home": {
+       "lat": 1.3079906475171448,
+       "lng": 103.79281506367494
+      }
+     },
+     {
+      "id": "m20",
+      "name": "M20",
+      "home": {
+       "lat": 1.3480505159124732,
+       "lng": 103.70524578971323
+      }
+     },
+     {
+      "id": "m21",
+      "name": "M21",
+      "home": {
+       "lat": 1.294096997641027,
+       "lng": 103.89968412247953
+      }
+     },
+     {
+      "id": "m22",
+      "name": "M22",
+      "home": {
+       "lat": 1.3390350888296962,
+       "lng": 103.81094608295709
+      }
+     },
+     {
+      "id": "m23",
+      "name": "M23",
+      "home": {
+       "lat": 1.354986020512879,
+       "lng": 103.94601750438568
+      }
+     },
+     {
+      "id": "m24",
+      "name": "M24",
+      "home": {
+       "lat": 1.3925249737501144,
+       "lng": 103.87895734156017
+      }
+     },
+     {
+      "id": "m25",
+      "name": "M25",
+      "home": {
+       "lat": 1.3329036678746342,
+       "lng": 103.79264697605744
+      }
+     },
+     {
+      "id": "m26",
+      "name": "M26",
+      "home": {
+       "lat": 1.302206592783332,
+       "lng": 103.73465624763165
+      }
+     },
+     {
+      "id": "m27",
+      "name": "M27",
+      "home": {
+       "lat": 1.4260855789110065,
+       "lng": 103.78383101029321
+      }
+     },
+     {
+      "id": "m28",
+      "name": "M28",
+      "home": {
+       "lat": 1.3104600843042136,
+       "lng": 103.86437427436468
+      }
+     },
+     {
+      "id": "m29",
+      "name": "M29",
+      "home": {
+       "lat": 1.3338833486288786,
+       "lng": 103.71134414686357
+      }
+     }
+    ],
+    "optedOut": [
+     "m0",
+     "m1",
+     "m2",
+     "m3",
+     "m4"
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":50.733333333333334,\"worstMember\":\"M20\",\"meanMinutes\":33.708,\"travelByMember\":{\"m5\":40.68333333333333,\"m6\":17.883333333333333,\"m7\":31.7,\"m8\":19.916666666666668,\"m9\":39.11666666666667,\"m10\":34.68333333333333,\"m11\":46.45,\"m12\":35.983333333333334,\"m13\":20.716666666666665,\"m14\":40.083333333333336,\"m15\":12.683333333333334,\"m16\":36.93333333333333,\"m17\":34.21666666666667,\"m18\":50.63333333333333,\"m19\":32.8,\"m20\":50.733333333333334,\"m21\":34.31666666666667,\"m22\":21.116666666666667,\"m23\":35.68333333333333,\"m24\":18.266666666666666,\"m25\":29.166666666666668,\"m26\":47.81666666666667,\"m27\":33.31666666666667,\"m28\":27.75,\"m29\":50.05},\"approximate\":true,\"diagnostics\":{\"routingCalls\":400,\"approximateLegs\":350,\"activeMembers\":[\"m5\",\"m6\",\"m7\",\"m8\",\"m9\",\"m10\",\"m11\",\"m12\",\"m13\",\"m14\",\"m15\",\"m16\",\"m17\",\"m18\",\"m19\",\"m20\",\"m21\",\"m22\",\"m23\",\"m24\",\"m25\",\"m26\",\"m27\",\"m28\",\"m29\"]},\"travel\":{\"source\":\"onemap\",\"asked\":400,\"routed\":50,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":350}}"
+  },
+  {
+   "name": "failing: station",
+   "mode": "failing",
+   "headers": {
+    "x-jio-scenario": "routing-fail"
+   },
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":true,\"diagnostics\":{\"routingCalls\":48,\"approximateLegs\":48,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":48,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":6,\"estimated\":42}}"
+  },
+  {
+   "name": "failing: centroid",
+   "mode": "failing",
+   "headers": {
+    "x-jio-scenario": "routing-fail"
+   },
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "method": "centroid",
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"centroid\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.3687013335989076,\"lng\":103.83203349563875},\"distanceFromAreaKm\":1.9553039605304072,\"worstMinutes\":52.457850656241185,\"worstMember\":\"Ian\",\"meanMinutes\":44.4061524948658,\"travelByMember\":{\"ian\":52.457850656241185,\"faith\":41.157999080658925,\"jonathan\":39.602607747697284},\"approximate\":true,\"diagnostics\":{\"routingCalls\":3,\"approximateLegs\":3,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":3,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":3,\"estimated\":0}}"
+  },
+  {
+   "name": "failing: 30 members",
+   "mode": "failing",
+   "headers": {
+    "x-jio-scenario": "routing-fail"
+   },
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.2818727605044842,
+       "lng": 103.7161091469694
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.4363052212446927,
+       "lng": 103.88174746348523
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.3634312429651618,
+       "lng": 103.8054356388934
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.3545972212031483,
+       "lng": 103.76238054833841
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.368532096631825,
+       "lng": 103.88975374337286
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3212504897639155,
+       "lng": 103.74054657462518
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.4022543818503619,
+       "lng": 103.83478466188535
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.311541961617768,
+       "lng": 103.79566923428793
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3269195740669966,
+       "lng": 103.83903227663599
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.327412839718163,
+       "lng": 103.95426598716527
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.3196053750813008,
+       "lng": 103.92822269484401
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3105266734957695,
+       "lng": 103.73735092037823
+      }
+     },
+     {
+      "id": "m12",
+      "name": "M12",
+      "home": {
+       "lat": 1.304743044823408,
+       "lng": 103.77564731540625
+      }
+     },
+     {
+      "id": "m13",
+      "name": "M13",
+      "home": {
+       "lat": 1.3676642290502787,
+       "lng": 103.8980871607177
+      }
+     },
+     {
+      "id": "m14",
+      "name": "M14",
+      "home": {
+       "lat": 1.2919228944182397,
+       "lng": 103.93736458407716
+      }
+     },
+     {
+      "id": "m15",
+      "name": "M15",
+      "home": {
+       "lat": 1.368593719676137,
+       "lng": 103.8616224568151
+      }
+     },
+     {
+      "id": "m16",
+      "name": "M16",
+      "home": {
+       "lat": 1.388814545236528,
+       "lng": 103.95115732298233
+      }
+     },
+     {
+      "id": "m17",
+      "name": "M17",
+      "home": {
+       "lat": 1.3799009030684828,
+       "lng": 103.93951326362323
+      }
+     },
+     {
+      "id": "m18",
+      "name": "M18",
+      "home": {
+       "lat": 1.4124205574765802,
+       "lng": 103.71039440321736
+      }
+     },
+     {
+      "id": "m19",
+      "name": "M19",
+      "home": {
+       "lat": 1.3079906475171448,
+       "lng": 103.79281506367494
+      }
+     },
+     {
+      "id": "m20",
+      "name": "M20",
+      "home": {
+       "lat": 1.3480505159124732,
+       "lng": 103.70524578971323
+      }
+     },
+     {
+      "id": "m21",
+      "name": "M21",
+      "home": {
+       "lat": 1.294096997641027,
+       "lng": 103.89968412247953
+      }
+     },
+     {
+      "id": "m22",
+      "name": "M22",
+      "home": {
+       "lat": 1.3390350888296962,
+       "lng": 103.81094608295709
+      }
+     },
+     {
+      "id": "m23",
+      "name": "M23",
+      "home": {
+       "lat": 1.354986020512879,
+       "lng": 103.94601750438568
+      }
+     },
+     {
+      "id": "m24",
+      "name": "M24",
+      "home": {
+       "lat": 1.3925249737501144,
+       "lng": 103.87895734156017
+      }
+     },
+     {
+      "id": "m25",
+      "name": "M25",
+      "home": {
+       "lat": 1.3329036678746342,
+       "lng": 103.79264697605744
+      }
+     },
+     {
+      "id": "m26",
+      "name": "M26",
+      "home": {
+       "lat": 1.302206592783332,
+       "lng": 103.73465624763165
+      }
+     },
+     {
+      "id": "m27",
+      "name": "M27",
+      "home": {
+       "lat": 1.4260855789110065,
+       "lng": 103.78383101029321
+      }
+     },
+     {
+      "id": "m28",
+      "name": "M28",
+      "home": {
+       "lat": 1.3104600843042136,
+       "lng": 103.86437427436468
+      }
+     },
+     {
+      "id": "m29",
+      "name": "M29",
+      "home": {
+       "lat": 1.3338833486288786,
+       "lng": 103.71134414686357
+      }
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"caldecott\",\"name\":\"Caldecott\",\"lat\":1.33739,\"lng\":103.83953},\"centre\":{\"lat\":1.33739,\"lng\":103.83953},\"distanceFromAreaKm\":0,\"worstMinutes\":67.13087747714553,\"worstMember\":\"M18\",\"meanMinutes\":40.41354438412795,\"travelByMember\":{\"m0\":61.392997166712235,\"m1\":50.02803909817712,\"m2\":23.560929856856625,\"m3\":38.3525146619997,\"m4\":30.18871496429369,\"m5\":47.04815318462242,\"m6\":32.62637362556781,\"m7\":26.838635835293555,\"m8\":10.291424984100129,\"m9\":53.137464107287975,\"m10\":43.023974602733524,\"m11\":49.24279925458132,\"m12\":35.36468209830515,\"m13\":32.981755321840126,\"m14\":50.15791591471752,\"m15\":21.651041757753674,\"m16\":56.304672850512276,\"m17\":50.46879489448856,\"m18\":67.13087747714553,\"m19\":28.592934587790044,\"m20\":61.13380880522016,\"m21\":36.33673643494042,\"m22\":17.718419871492472,\"m23\":50.175230288196275,\"m24\":33.74719557702838,\"m25\":25.276377947662766,\"m26\":51.27621809761714,\"m27\":48.87466199456561,\"m28\":20.99838201719305,\"m29\":58.484604245143196},\"approximate\":true,\"diagnostics\":{\"routingCalls\":480,\"approximateLegs\":480,\"activeMembers\":[\"m0\",\"m1\",\"m2\",\"m3\",\"m4\",\"m5\",\"m6\",\"m7\",\"m8\",\"m9\",\"m10\",\"m11\",\"m12\",\"m13\",\"m14\",\"m15\",\"m16\",\"m17\",\"m18\",\"m19\",\"m20\",\"m21\",\"m22\",\"m23\",\"m24\",\"m25\",\"m26\",\"m27\",\"m28\",\"m29\"]},\"travel\":{\"source\":\"estimate\",\"asked\":480,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":6,\"estimated\":474}}"
+  },
+  {
+   "name": "failing: header sent to a server that is not in stub mode is ignored",
+   "mode": "off",
+   "headers": {
+    "x-jio-scenario": "routing-fail"
+   },
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ]
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":false,\"diagnostics\":{\"routingCalls\":111,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":0,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":0}}"
+  },
+  {
+   "name": "no route: station",
+   "mode": "no-route",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":true,\"diagnostics\":{\"routingCalls\":48,\"approximateLegs\":48,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":48,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":15,\"estimated\":33}}"
+  },
+  {
+   "name": "no route: minimax",
+   "mode": "no-route",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "method": "minimax",
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"minimax\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.3631752482612005,\"lng\":103.84856455372703},\"distanceFromAreaKm\":0.7595290374981667,\"worstMinutes\":45.48121776470707,\"worstMember\":\"Faith\",\"meanMinutes\":45.480959090467756,\"travelByMember\":{\"ian\":45.48102028147791,\"faith\":45.48121776470707,\"jonathan\":45.48063922521829},\"approximate\":true,\"diagnostics\":{\"routingCalls\":3,\"approximateLegs\":3,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":3,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":3,\"estimated\":0}}"
+  },
+  {
+   "name": "down: station",
+   "mode": "down",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":true,\"diagnostics\":{\"routingCalls\":48,\"approximateLegs\":48,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":48,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":15,\"estimated\":33}}"
+  },
+  {
+   "name": "used up: station",
+   "mode": "used-up",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":true,\"diagnostics\":{\"routingCalls\":48,\"approximateLegs\":48,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":48,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":48}}"
+  },
+  {
+   "name": "used up: weighted_centroid",
+   "mode": "used-up",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "method": "weighted_centroid",
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"weighted_centroid\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.3687013335989076,\"lng\":103.83203349563875},\"distanceFromAreaKm\":1.9553039605304072,\"worstMinutes\":52.457850656241185,\"worstMember\":\"Ian\",\"meanMinutes\":44.4061524948658,\"travelByMember\":{\"ian\":52.457850656241185,\"faith\":41.157999080658925,\"jonathan\":39.602607747697284},\"approximate\":true,\"diagnostics\":{\"routingCalls\":3,\"approximateLegs\":3,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":3,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":3}}"
+  },
+  {
+   "name": "tiny budget: station, three members",
+   "mode": "tiny-budget",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":43.68940767537101,\"worstMember\":\"Jonathan\",\"meanMinutes\":38.59646922512366,\"travelByMember\":{\"ian\":35.5,\"faith\":36.6,\"jonathan\":43.68940767537101},\"approximate\":true,\"diagnostics\":{\"routingCalls\":48,\"approximateLegs\":46,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"onemap\",\"asked\":48,\"routed\":2,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":46}}"
+  },
+  {
+   "name": "hung: station, answered at the deadline on estimates",
+   "mode": "hung",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "dateTime": "2026-10-10T19:00"
+   },
+   "status": 200,
+   "body": "{\"method\":\"station\",\"area\":{\"id\":\"ang-mo-kio\",\"name\":\"Ang Mo Kio\",\"lat\":1.36993,\"lng\":103.84958},\"centre\":{\"lat\":1.36993,\"lng\":103.84958},\"distanceFromAreaKm\":0,\"worstMinutes\":47.28069637031275,\"worstMember\":\"Faith\",\"meanMinutes\":45.465515831320126,\"travelByMember\":{\"ian\":45.426443448276636,\"faith\":47.28069637031275,\"jonathan\":43.68940767537101},\"approximate\":true,\"diagnostics\":{\"routingCalls\":48,\"approximateLegs\":48,\"activeMembers\":[\"ian\",\"faith\",\"jonathan\"]},\"travel\":{\"source\":\"estimate\",\"asked\":48,\"routed\":0,\"cached\":0,\"walked\":0,\"failed\":0,\"estimated\":48}}"
+  },
+  {
+   "name": "400: no body fields at all",
+   "mode": "off",
+   "request": {},
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members\",\"message\":\"Required\"}]}"
+  },
+  {
+   "name": "400: no members",
+   "mode": "off",
+   "request": {
+    "members": []
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members\",\"message\":\"Array must contain at least 1 element(s)\"},{\"path\":\"optedOut\",\"message\":\"everyone has opted out\"}]}"
+  },
+  {
+   "name": "400: members is not a list",
+   "mode": "off",
+   "request": {
+    "members": "ian"
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members\",\"message\":\"Expected array, received string\"}]}"
+  },
+  {
+   "name": "400: a member with no location",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "x"
+     }
+    ]
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0\",\"message\":\"each member needs a start or a home point\"}]}"
+  },
+  {
+   "name": "400: a member with no id",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     }
+    ]
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0.id\",\"message\":\"Required\"}]}"
+  },
+  {
+   "name": "400: a member id of 81 characters",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     }
+    ]
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0.id\",\"message\":\"String must contain at most 80 character(s)\"}]}"
+  },
+  {
+   "name": "400: everyone opted out",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "optedOut": [
+     "ian",
+     "faith",
+     "jonathan"
+    ]
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"optedOut\",\"message\":\"everyone has opted out\"}]}"
+  },
+  {
+   "name": "400: 31 members",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.2818727605044842,
+       "lng": 103.7161091469694
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.4363052212446927,
+       "lng": 103.88174746348523
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.3634312429651618,
+       "lng": 103.8054356388934
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.3545972212031483,
+       "lng": 103.76238054833841
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.368532096631825,
+       "lng": 103.88975374337286
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3212504897639155,
+       "lng": 103.74054657462518
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.4022543818503619,
+       "lng": 103.83478466188535
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.311541961617768,
+       "lng": 103.79566923428793
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3269195740669966,
+       "lng": 103.83903227663599
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.327412839718163,
+       "lng": 103.95426598716527
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.3196053750813008,
+       "lng": 103.92822269484401
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3105266734957695,
+       "lng": 103.73735092037823
+      }
+     },
+     {
+      "id": "m12",
+      "name": "M12",
+      "home": {
+       "lat": 1.304743044823408,
+       "lng": 103.77564731540625
+      }
+     },
+     {
+      "id": "m13",
+      "name": "M13",
+      "home": {
+       "lat": 1.3676642290502787,
+       "lng": 103.8980871607177
+      }
+     },
+     {
+      "id": "m14",
+      "name": "M14",
+      "home": {
+       "lat": 1.2919228944182397,
+       "lng": 103.93736458407716
+      }
+     },
+     {
+      "id": "m15",
+      "name": "M15",
+      "home": {
+       "lat": 1.368593719676137,
+       "lng": 103.8616224568151
+      }
+     },
+     {
+      "id": "m16",
+      "name": "M16",
+      "home": {
+       "lat": 1.388814545236528,
+       "lng": 103.95115732298233
+      }
+     },
+     {
+      "id": "m17",
+      "name": "M17",
+      "home": {
+       "lat": 1.3799009030684828,
+       "lng": 103.93951326362323
+      }
+     },
+     {
+      "id": "m18",
+      "name": "M18",
+      "home": {
+       "lat": 1.4124205574765802,
+       "lng": 103.71039440321736
+      }
+     },
+     {
+      "id": "m19",
+      "name": "M19",
+      "home": {
+       "lat": 1.3079906475171448,
+       "lng": 103.79281506367494
+      }
+     },
+     {
+      "id": "m20",
+      "name": "M20",
+      "home": {
+       "lat": 1.3480505159124732,
+       "lng": 103.70524578971323
+      }
+     },
+     {
+      "id": "m21",
+      "name": "M21",
+      "home": {
+       "lat": 1.294096997641027,
+       "lng": 103.89968412247953
+      }
+     },
+     {
+      "id": "m22",
+      "name": "M22",
+      "home": {
+       "lat": 1.3390350888296962,
+       "lng": 103.81094608295709
+      }
+     },
+     {
+      "id": "m23",
+      "name": "M23",
+      "home": {
+       "lat": 1.354986020512879,
+       "lng": 103.94601750438568
+      }
+     },
+     {
+      "id": "m24",
+      "name": "M24",
+      "home": {
+       "lat": 1.3925249737501144,
+       "lng": 103.87895734156017
+      }
+     },
+     {
+      "id": "m25",
+      "name": "M25",
+      "home": {
+       "lat": 1.3329036678746342,
+       "lng": 103.79264697605744
+      }
+     },
+     {
+      "id": "m26",
+      "name": "M26",
+      "home": {
+       "lat": 1.302206592783332,
+       "lng": 103.73465624763165
+      }
+     },
+     {
+      "id": "m27",
+      "name": "M27",
+      "home": {
+       "lat": 1.4260855789110065,
+       "lng": 103.78383101029321
+      }
+     },
+     {
+      "id": "m28",
+      "name": "M28",
+      "home": {
+       "lat": 1.3104600843042136,
+       "lng": 103.86437427436468
+      }
+     },
+     {
+      "id": "m29",
+      "name": "M29",
+      "home": {
+       "lat": 1.3338833486288786,
+       "lng": 103.71134414686357
+      }
+     },
+     {
+      "id": "m30",
+      "name": "M30",
+      "home": {
+       "lat": 1.3894806043431163,
+       "lng": 103.93955666076857
+      }
+     }
+    ]
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members\",\"message\":\"Array must contain at most 30 element(s)\"}]}"
+  },
+  {
+   "name": "400: two members with one id",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "ian",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     }
+    ]
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members\",\"message\":\"member ids must be unique\"}]}"
+  },
+  {
+   "name": "400: minimax with 13 members",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.2818727605044842,
+       "lng": 103.7161091469694
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.4363052212446927,
+       "lng": 103.88174746348523
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.3634312429651618,
+       "lng": 103.8054356388934
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.3545972212031483,
+       "lng": 103.76238054833841
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.368532096631825,
+       "lng": 103.88975374337286
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3212504897639155,
+       "lng": 103.74054657462518
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.4022543818503619,
+       "lng": 103.83478466188535
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.311541961617768,
+       "lng": 103.79566923428793
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3269195740669966,
+       "lng": 103.83903227663599
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.327412839718163,
+       "lng": 103.95426598716527
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.3196053750813008,
+       "lng": 103.92822269484401
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3105266734957695,
+       "lng": 103.73735092037823
+      }
+     },
+     {
+      "id": "m12",
+      "name": "M12",
+      "home": {
+       "lat": 1.304743044823408,
+       "lng": 103.77564731540625
+      }
+     }
+    ],
+    "method": "minimax"
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"method\",\"message\":\"minimax supports up to 12 people\"}]}"
+  },
+  {
+   "name": "400: an unknown method",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "method": "middle"
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"method\",\"message\":\"Invalid enum value. Expected 'station' | 'weighted_centroid' | 'centroid' | 'minimax', received 'middle'\"}]}"
+  },
+  {
+   "name": "400: maxCandidates 0",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "maxCandidates": 0
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"maxCandidates\",\"message\":\"Number must be greater than or equal to 1\"}]}"
+  },
+  {
+   "name": "400: maxCandidates 51",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "maxCandidates": 51
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"maxCandidates\",\"message\":\"Number must be less than or equal to 50\"}]}"
+  },
+  {
+   "name": "400: maxCandidates 2.5",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "maxCandidates": 2.5
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"maxCandidates\",\"message\":\"Expected integer, received float\"}]}"
+  },
+  {
+   "name": "400: maxCandidates as text",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "maxCandidates": "16"
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"maxCandidates\",\"message\":\"Expected number, received string\"}]}"
+  },
+  {
+   "name": "400: a point outside Singapore",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "x",
+      "home": {
+       "lat": 51.5,
+       "lng": -0.12
+      }
+     }
+    ]
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0.home.lat\",\"message\":\"Number must be less than or equal to 1.5\"},{\"path\":\"members.0.home.lng\",\"message\":\"Number must be greater than or equal to 103.5\"}]}"
+  },
+  {
+   "name": "400: latitude and longitude swapped",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "x",
+      "home": {
+       "lat": 103.8,
+       "lng": 1.35
+      }
+     }
+    ]
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0.home.lat\",\"message\":\"Number must be less than or equal to 1.5\"},{\"path\":\"members.0.home.lng\",\"message\":\"Number must be greater than or equal to 103.5\"}]}"
+  },
+  {
+   "name": "400: a bad dateTime",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "dateTime": "2026-10-10 19:00"
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"dateTime\",\"message\":\"use local time as YYYY-MM-DDTHH:MM, e.g. 2026-10-10T19:00\"}]}"
+  },
+  {
+   "name": "400: dietary needs it does not know",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "x",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      },
+      "dietary": [
+       "carnivore"
+      ]
+     }
+    ]
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0.dietary.0\",\"message\":\"Invalid enum value. Expected 'halal' | 'vegetarian' | 'vegan', received 'carnivore'\"}]}"
+  },
+  {
+   "name": "400: a negative budget",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "x",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      },
+      "budgetMaxPerPerson": -5
+     }
+    ]
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0.budgetMaxPerPerson\",\"message\":\"Number must be greater than 0\"}]}"
+  },
+  {
+   "name": "400: 31 opted-out ids",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "ian",
+      "name": "Ian",
+      "home": {
+       "lat": 1.3541,
+       "lng": 103.9446
+      }
+     },
+     {
+      "id": "faith",
+      "name": "Faith",
+      "home": {
+       "lat": 1.315,
+       "lng": 103.765
+      },
+      "dietary": [
+       "Halal"
+      ]
+     },
+     {
+      "id": "jonathan",
+      "name": "Jonathan",
+      "home": {
+       "lat": 1.437,
+       "lng": 103.7865
+      }
+     }
+    ],
+    "optedOut": [
+     "o0",
+     "o1",
+     "o2",
+     "o3",
+     "o4",
+     "o5",
+     "o6",
+     "o7",
+     "o8",
+     "o9",
+     "o10",
+     "o11",
+     "o12",
+     "o13",
+     "o14",
+     "o15",
+     "o16",
+     "o17",
+     "o18",
+     "o19",
+     "o20",
+     "o21",
+     "o22",
+     "o23",
+     "o24",
+     "o25",
+     "o26",
+     "o27",
+     "o28",
+     "o29",
+     "o30"
+    ]
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"optedOut\",\"message\":\"Array must contain at most 30 element(s)\"}]}"
+  },
+  {
+   "name": "400: several bad fields are all listed",
+   "mode": "off",
+   "request": {
+    "members": [
+     {
+      "id": "x"
+     }
+    ],
+    "method": "middle",
+    "maxCandidates": 0
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0\",\"message\":\"each member needs a start or a home point\"},{\"path\":\"method\",\"message\":\"Invalid enum value. Expected 'station' | 'weighted_centroid' | 'centroid' | 'minimax', received 'middle'\"},{\"path\":\"maxCandidates\",\"message\":\"Number must be greater than or equal to 1\"}]}"
+  },
+  {
+   "name": "400: the same checks apply with routing on",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "x"
+     }
+    ]
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0\",\"message\":\"each member needs a start or a home point\"}]}"
+  },
+  {
+   "name": "400: minimax with 13 members, routing on",
+   "mode": "stub",
+   "request": {
+    "members": [
+     {
+      "id": "m0",
+      "name": "M0",
+      "home": {
+       "lat": 1.2818727605044842,
+       "lng": 103.7161091469694
+      }
+     },
+     {
+      "id": "m1",
+      "name": "M1",
+      "home": {
+       "lat": 1.4363052212446927,
+       "lng": 103.88174746348523
+      }
+     },
+     {
+      "id": "m2",
+      "name": "M2",
+      "home": {
+       "lat": 1.3634312429651618,
+       "lng": 103.8054356388934
+      }
+     },
+     {
+      "id": "m3",
+      "name": "M3",
+      "home": {
+       "lat": 1.3545972212031483,
+       "lng": 103.76238054833841
+      }
+     },
+     {
+      "id": "m4",
+      "name": "M4",
+      "home": {
+       "lat": 1.368532096631825,
+       "lng": 103.88975374337286
+      }
+     },
+     {
+      "id": "m5",
+      "name": "M5",
+      "home": {
+       "lat": 1.3212504897639155,
+       "lng": 103.74054657462518
+      }
+     },
+     {
+      "id": "m6",
+      "name": "M6",
+      "home": {
+       "lat": 1.4022543818503619,
+       "lng": 103.83478466188535
+      }
+     },
+     {
+      "id": "m7",
+      "name": "M7",
+      "home": {
+       "lat": 1.311541961617768,
+       "lng": 103.79566923428793
+      }
+     },
+     {
+      "id": "m8",
+      "name": "M8",
+      "home": {
+       "lat": 1.3269195740669966,
+       "lng": 103.83903227663599
+      }
+     },
+     {
+      "id": "m9",
+      "name": "M9",
+      "home": {
+       "lat": 1.327412839718163,
+       "lng": 103.95426598716527
+      }
+     },
+     {
+      "id": "m10",
+      "name": "M10",
+      "home": {
+       "lat": 1.3196053750813008,
+       "lng": 103.92822269484401
+      }
+     },
+     {
+      "id": "m11",
+      "name": "M11",
+      "home": {
+       "lat": 1.3105266734957695,
+       "lng": 103.73735092037823
+      }
+     },
+     {
+      "id": "m12",
+      "name": "M12",
+      "home": {
+       "lat": 1.304743044823408,
+       "lng": 103.77564731540625
+      }
+     }
+    ],
+    "method": "minimax"
+   },
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"method\",\"message\":\"minimax supports up to 12 people\"}]}"
+  },
+  {
+   "name": "400: a body that is not JSON",
+   "mode": "off",
+   "raw": "{\"members\": [",
+   "status": 400,
+   "body": "{\"error\":\"invalid_json\",\"message\":\"The request body is not valid JSON.\"}"
+  },
+  {
+   "name": "400: a body that is a list",
+   "mode": "off",
+   "request": [
+    1,
+    2,
+    3
+   ],
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"\",\"message\":\"Expected object, received array\"}]}"
+  }
+ ]
+}

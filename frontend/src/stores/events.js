@@ -83,6 +83,13 @@ export const useEventsStore = defineStore('events', () => {
   const start = act(api.startSession)
   const setMyLocation = (id, which, place) => act(api.setLocation)(id, HOST_ID, which, place)
   const useArea = act(api.useMeetingArea)
+  // Meeting spots. The first three act as the signed-in person; the host confirms a spot or sets a known place.
+  // How to call: suggestMySpot('s1', 'bugis', { here: true }), approveMySpot('s1', 'bugis', true), withdrawMySpot('s1')
+  const suggestMySpot = (id, areaId, options) => act(api.suggestSpot)(id, HOST_ID, areaId, options)
+  const withdrawMySpot = (id) => act(api.withdrawSpot)(id, HOST_ID)
+  const approveMySpot = (id, areaId, on) => act(api.approveSpot)(id, HOST_ID, areaId, on)
+  const confirmSpot = act(api.confirmSpot)
+  const setKnownPlace = act(api.setKnownPlace)
   const cancel = act(api.cancelSession)
   // The host carries on without a member who has not shared where they start (they opt out of this session).
   const optOut = act(api.optOut)
@@ -170,6 +177,6 @@ export const useEventsStore = defineStore('events', () => {
   return {
     sessions, byId, itineraries, photos, loaded, current,
     loadSessions, loadSession, loadItinerary, loadPhotos,
-    create, update, invite, start, setMyLocation, useArea, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
+    create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
   }
 })

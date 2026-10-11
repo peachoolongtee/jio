@@ -723,6 +723,86 @@ The lead chose both from a short list of options: the action that starts a meetu
 
 The lead took the recommended answer to ten questions on how converge and roam should work. The decisions, the contract, six slices and the delegation briefs are in `docs/handoffs/meeting-spots-and-roam.md`, written for a fresh session. Nothing is built.
 
+## Round 15: meeting spots the group suggests and votes on, slices 1 and 2 (2026-10-11)
+
+Parent task: the lead said to continue the feature in `docs/handoffs/meeting-spots-and-roam.md` on a second machine (Windows). The decisions are on the tracker ticket peachoolongtee/jio#94; tickets #94 to #99 sit under the wayfinder map.
+
+The first attempt, on the first machine, was never committed or pushed, so nothing of it reached this machine: no baseline test, no schema fields. This round starts both slices again. The handoff in the repository was replaced with its later revision (the one that records the pause), and the six new words went into `CONTEXT.md` again.
+
+Work is on branch `feat/meeting-spots`, cut from `main` at `2e1643d`, which now carries the Google Places work (peachoolongtee/jio#91 and #100). The showcase branch `feat/demo-showcase` is not on the remote, so `createSession` and `inviteFriends` are as `main` has them.
+
+This machine:
+
+- The global `pnpm` (11.9.0) cannot start the pinned 12.4.1, so the root scripts fail. The suites are run directly: `node node_modules/vitest/vitest.mjs run` in `backend/` and in `frontend/`, and `node node_modules/vite/bin/vite.js build` in `frontend/`. Running the pinned pnpm through its Node entry point works but adds `@pnpm/exe` to `pnpm-lock.yaml`; that change was put back and is not part of this work.
+- Two backend tests built a script path from `new URL(...).pathname`, which gives `C:\C:\...` on Windows. Both now use `fileURLToPath` (`onemap-limits.test.js`, `onemap-snapshot.test.js`); three failures became one.
+- One backend test still fails here and only here: "the real saved file is already repaired: another run changes no byte" in `onemap-snapshot.test.js`. Git checks `onemap-places.json` out with CRLF line endings on this machine (`core.autocrlf` is true) and the repair script writes LF. Left alone: the fix is a `.gitattributes` rule, which is the lead's to decide.
+
+Baseline before any source change, run by the lead agent: backend 546 passed, 1 failed (the line-ending test above), 1 skipped, 24 files; frontend 324 passed, 30 files; build succeeded.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 15.1 | Backend | `alternatives`, `include` and `candidates` on `POST /api/meeting-area` (ticket #94), with a baseline test recorded first | `backend/` only | Old requests answer exactly as before; bounds tested; at most 60 route calls with 30 members, 3 alternatives and 8 included areas; suite passes with outbound calls blocked; docs updated | **Done and checked by the lead** (results below) |
+| 15.2 | Frontend | Spots, approvals, confirm, known place and the version bump in the local data layer (ticket #95) | `frontend/src/lib/`, `frontend/src/stores/` and their tests | One test per rule in the decisions; an old save loads; frontend suite and build pass; no existing test deleted, skipped or weakened | **Done and checked by the lead** (results below) |
+| 15.3 | Lead | Verify both reports, record results | Docs | Both suites and the build run by the lead; the baseline test run on an untouched `main`; the riskiest claim in each report read in the code | Done |
+
+### 15.1 result: runners-up and named areas on `/api/meeting-area`
+
+- **Built (backend agent):** `alternatives` (0 to 3) and `include` (up to 8 area ids) on the request, `candidates` on the answer, both bounds in the `MAX` block after `members`. Changed `plan-schemas.js`, `engine.js` (`areasToTry`, `meetingAreaPlan`, `candidates` in `meetingArea`), `travel-times.js` (`namedAreas`, `routingOrderWithNamedAreas`), `plan.js`, `backend/docs/planner-api.md`. New tests: `meeting-area-baseline.test.js` with a fixture of 84 recorded requests, and `meeting-area-candidates.test.js` (46 tests).
+- **Run by the lead:** the backend suite, 677 passed, 1 failed, 2 skipped, 26 files, and the same with outbound calls blocked, with no `BLOCKED_OUTBOUND` line. The one failure is the line-ending test named above. The second skip is the baseline's recorder, which runs only when asked to.
+- **Checked by the lead:** the baseline test and its fixture, copied into an untouched export of `origin/main` (`git archive`, no `alternatives` anywhere in its schema), passed three times, 85 of 85. The fixture's sha256 is `b1f0fd82…5687`, as the agent reported. The lead read the whole diff of `backend/src`: extra areas are measured on a separate count, so the top-level answer cannot change; the cap loop in `travel-times.js` is the same loop, fed a different order.
+- **Not checked by the lead:** the route-call count of 60 at the widest setting rests on the agent's test (which asserts at or under `MAX_ROUTED_TRIPS_PER_REQUEST` and that the cap did bite); the agent's two mutation checks; anything against the real OneMap.
+- **Differences from the brief, accepted:**
+  - `approximate` at the top level is true when any area the ranking compared used an estimate, not only the chosen one. It had to stay as it is, so each candidate's `approximate` is about that area's own trips, and `candidates[0].approximate` can be false while the top-level flag is true.
+  - The routing order is: the meeting point of a non-station method, then the usual best five by estimate, then included areas in the order sent, each only if it fits the cap whole. With 12 or more members the five fill the cap, so a member's suggested spot shows estimated times ("about"). With 10 members the first included area gets real routes and the second does not.
+  - For a non-station method a runner-up can have a shorter longest trip than the chosen area, because the centre is not chosen by the station rule.
+  - `candidates` appears whenever either field is sent, including `alternatives: 0`.
+
+### 15.2 result: meeting spots in the local data layer
+
+- **Built (frontend agent):** `suggestSpot`, `withdrawSpot`, `approveSpot`, `confirmSpot` and `setKnownPlace` in `lib/api.js`, with store wrappers in `stores/events.js` (`suggestMySpot`, `withdrawMySpot`, `approveMySpot`, `confirmSpot`, `setKnownPlace`). `VERSION` is 9. `meetingArea` in `plannerApi.js` takes `alternatives` and `include`; `meetingResultLine` has words for `voted` and `chosen`; `nextStepFor` answers "Confirm the spot", "Say which spots work for you" and "Waiting for the host". New `meetingSpots.test.js` (48 tests), three added to `plannerApi.test.js`, one to `api.backend.test.js` that goes through the real backend app.
+- **What the screens read:** `session.spots` is `{ list, approvals, suggestions, appMethod, preselectedAreaId }`. Each spot in `list` has `areaId`, `by` (`'app'` or a person id), `byName`, `here`, `worstMinutes`, `meanMinutes`, `times`, `approximate`, `area` (the area's own name and coordinates), `approvedBy` and `approvalCount`. `session.findingSpots` is true while the planner works the spots out. A banner that removed approvals carries `approvalsRemoved: true`. A known place set before anyone shared a start has `worstMinutes` and `meanMinutes` of null and no `times`.
+- **Run by the lead:** the frontend suite, 376 passed, 31 files; the build succeeded. `pnpm-lock.yaml` is unchanged, and only `frontend/src/lib/`, `frontend/src/stores/` and their tests changed.
+- **Checked by the lead:** the diff of every existing test file is additions only. The lead read the whole diff of `lib/api.js`: a call to `meetingArea` without the new arguments posts the body it always did; the spots view carries an area's coordinates and never a member's label or place; `approveSpot` and `withdrawSpot` make no planner call; `suggestSpot`, `confirmSpot` and `setKnownPlace` run inside `orUndo`.
+- **Not checked by the lead:** the run with outbound calls blocked (the agent reports 376 passed and no blocked call); anything on a screen, because no screen uses these functions yet.
+- **Beyond the brief, accepted for now and for the lead to confirm:**
+  - `spots` also stores `suggestions` (who suggested which area) and `appMethod`. A spot the app lists is `by: 'app'` even when a member suggested it too.
+  - A confirmed area with method `voted` or `chosen` is pinned: a later start, opt-out or re-plan only updates travel times and never moves it. The brief asked for this for a known place; the agent applied it to a voted spot as well. The app's first spot confirmed with no approvals keeps the planner's method and can still move, as today.
+  - With no approvals, the preselected spot is the one with the shortest longest trip, which can be a member's suggestion.
+  - The group can hold at most 8 different suggested areas, the planner's `include` limit.
+- **Known gaps:** `suggestSpot` does not take the "latest request wins" ticket that a location change takes, so a suggestion racing a location change could apply the older answer. After a known place, when some members have a start and others do not, places are ranked for the ones with a start only.
+
+## Round 16: the Locate screen for meeting spots, slice 3 (2026-10-11)
+
+Parent task: the lead asked for slice 3 to be finished. Slices 1 and 2 are committed on `feat/meeting-spots` (seven commits on `2e1643d`, not pushed); at the lead's request the commits carry no co-author line.
+
+Baseline before any change: backend suite 677 passed, 1 failed (the line-ending test from round 15), 2 skipped, 26 files; frontend suite 376 passed, 31 files; build succeeded.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 16.1 | Frontend | The Locate step in `GroupDetailView.vue`: the list of spots, "Works for me", "Suggest a spot", the host's confirm, "We already have a place" there and on the create screen, pins on the map, Home's chips, demo tools (ticket #96) | `frontend/src/views/GroupDetailView.vue`, `CreateEventView.vue`, new components, Home's chip and summary components, `components/dev/`, tests; not `lib/api.js` beyond a reported defect | No overflow at 320, 375, 744 and 1280 px; every control reachable by keyboard and named; the steps bar does not move; frontend suite and build pass; no existing test deleted, skipped or weakened | **Done and checked by the lead**, with one defect found and fixed by the lead (results below) |
+| 16.2 | Lead | Verify the report, open the screen, record results | Docs | Suites and build run by the lead; the screen opened by the lead at the four widths, or what was not seen said plainly | Done |
+
+### 16.1 result: the Locate screen for meeting spots
+
+- **Built (frontend agent, in two runs; the first stopped at its turn limit with no report and was resumed):** `GroupDetailView.vue` shows "Where to meet" while locating; new `components/spots/` (`SpotList`, `SpotRow`, `SpotConfirm`, `SpotPins`, `KnownPlaceField`, `spotText.js`, `knownPlaceChoice.js`); "We already have a place" on the create screen, in the lobby and on Locate; a "Meeting spots" group in the demo tools (`components/dev/spotDemo.js`); `NextStepChip` wraps a long step. New tests: `spotsScreen.test.js` (22) with `miniDom.js`, a small stand-in for the page.
+- **Outside the files the brief allowed, accepted:** `PlannerMap.vue` gained a `keep` prop, a `view` event and an exposed `project(lat, lng)`, so the spot pins can sit at their place on the map; `LocationSheet.vue` gained an optional `title`; `frontend/vite.config.js` compiles one test file for the browser so components can be rendered in a test. Existing callers pass none of the new props.
+- **Defect found by the lead in the browser, and fixed by the lead:** after the host confirmed a spot, or set a known place from Locate, the session moved to Voting but the page stayed on Locate. `SpotConfirm` and `SpotList` show only while locating, so they were gone from the page before their "done" event could arrive. `GroupDetailView` now takes the host to the Vote screen itself when this session's status goes from locating to voting. No test covers this; it was checked in the browser both ways.
+- **Run by the lead, after the fix:** the frontend suite, 398 passed, 32 files; the build succeeded.
+- **Seen by the lead in the browser** (stub backend on 3101, frontend on 5174, both stopped afterwards; a session of three with two starts shared):
+  - The list shows the app's three spots with "Fairest" on the first, and Faith's suggestion with "We are here already"; each has the longest trip, the average and each person's minutes.
+  - "Works for me" on Braddell filled with ink, showed "Works for 1 person" and "Leading", and the confirm button became "Confirm Braddell". Selecting Caldecott's row selected its pin and made the button "Confirm Caldecott".
+  - "Suggest a spot" opened the area picker under the button; searching "Bishan" and picking it added the spot with a "We are here already" toggle and "Withdraw", and the caption "You have one suggestion. A new one replaces it."
+  - Hovering Faith's pin showed its card above the pin, at the pin.
+  - With another person as host (the save edited by hand): no confirm button, "Waiting for Jonathan to confirm", and "Suggest a spot" still offered.
+  - Confirming landed on `/sessions/s2/plan` with method `fairest`; an approved spot gave `voted`. "We already have a place", then Bugis, then "Meet at Bugis" landed on `/sessions/s3/plan` with method `chosen`. Back on Locate after that, the page shows the area and how it was chosen, with no "null".
+  - No horizontal overflow: 1280 (host), 375 (host), 320 and 744 (member), 744 (host). No control under 44 px at 375 outside the map. No console errors.
+- **Not seen by the lead:** the steps bar's offset across screens (the agent measured Locate and Vote equal, and did not reach Itinerary); the new Home chips on a real Home (every session in the lead's run had moved to Voting; the agent measured the chip at 320 px); the demo tools' new buttons; the known place chosen on the create screen and applied at "Start session"; the banner for removed approvals; keyboard order, focus rings, a screen reader and reduced motion. A pin's card did not open on a scripted focus; whether it opens on a real Tab was not checked.
+- **For the lead to know:**
+  - "We already have a place" on the create screen is remembered in the browser's session storage and applied when the host presses "Start session", because a known place needs two people and a new session has one. It is not a field on the session.
+  - The banner for removed approvals is drawn in `GroupDetailView`, not in `SessionNotices`.
+  - The area picker does not put the cursor in its search box when it opens with a click.
+  - "Hold to end" shows on the Locate screen when someone else is the host. It was there before this round (the signed-in user's id is hard-coded).
+
 ## Round 17: real sign-up and login, the frontend's account layer (2026-10-11)
 
 Parent task: the lead asked for the login functionality to be started on its own branch. The work is the frontend half of the tracker ticket "Overhaul 3 of 7: real sign-up, login and token checks" (peachoolongtee/jio#78), which also covers "Add a login screen and fix the sign-out crash" (#60) and the token part of "Make the production build reach the backend and send the login token" (#50). The backend's token check and `GET /api/me` were built in rounds 1 to 3.
@@ -811,12 +891,12 @@ The lead asked: "audit and merge login first then ai itinerary then meeting spot
 | 18.4 | Verifier | AI itinerary: run it in stub mode and with a fake AI; count calls; failures | Nothing in the repo | Same | **Completed** |
 | 18.5 | Code reviewer, read-only | Meeting spots: the backend change, the data layer, the screen's code | Nothing | Same | **Completed**: "changes required" |
 | 18.6 | Verifier | Meeting spots: the rules in the handoff's section 3, through the data layer and a headless browser | Nothing in the repo | Each rule confirmed or refuted with output | **Completed** |
-| 18.7 | Lead | Check findings, fix or record, merge each in order, resolve conflicts, re-run suites after each merge | Fixes on integration branches, docs, the tracker | All suites pass after each merge | Running |
-| 18.8 | Frontend | Login: fix the audit's findings | `frontend/` on `feat/login-integration` | Suites pass, also offline; a production build has no demo strings | Running |
-| 18.9 | Backend | AI itinerary: a call budget, a cache, a deadline, a pause after failures, a smaller model, checks on the answer and the prompt | `backend/` on `feat/ai-itinerary-integration` | Suites pass, also offline; other routes unchanged | Running |
-| 18.10 | Frontend | AI itinerary: confirm never blocked, a choice of orders, a request ticket, honest labels | `frontend/` on the same branch | Suite and build pass | Running |
-| 18.11 | Frontend | Meeting spots: the timing defects, "about" on estimates, preselection, focus, Home's words, the design document | `frontend/` and `DESIGN.md` on `feat/meeting-spots-integration` | Suite and build pass | Running |
-| 18.12 | Backend | Meeting spots: naming an area in `include` must not change the planner's pick | `backend/` on the same branch | The baseline test untouched and passing; suites pass, also offline | Running |
+| 18.7 | Lead | Check findings, fix or record, merge each in order, resolve conflicts, re-run suites after each merge | Fixes on integration branches, docs, the tracker | All suites pass after each merge | **Completed**: into `dev`, at the lead's word, with `main` left as it was |
+| 18.8 | Frontend | Login: fix the audit's findings | `frontend/` on `feat/login-integration` | Suites pass, also offline; a production build has no demo strings | **Completed** |
+| 18.9 | Backend | AI itinerary: a call budget, a cache, a deadline, a pause after failures, a smaller model, checks on the answer and the prompt | `backend/` on `feat/ai-itinerary-integration` | Suites pass, also offline; other routes unchanged | **Completed** |
+| 18.10 | Frontend | AI itinerary: confirm never blocked, a choice of orders, a request ticket, honest labels | `frontend/` on the same branch | Suite and build pass | **Completed** |
+| 18.11 | Frontend | Meeting spots: the timing defects, "about" on estimates, preselection, focus, Home's words, the design document | `frontend/` and `DESIGN.md` on `feat/meeting-spots-integration` | Suite and build pass | **Completed** |
+| 18.12 | Backend | Meeting spots: naming an area in `include` must not change the planner's pick | `backend/` on the same branch | The baseline test untouched and passing; suites pass, also offline | **Completed** |
 
 ### 18.1 and 18.2 Login: no blocker, the main claims hold, eight defects
 
@@ -871,3 +951,42 @@ The lead asked: "audit and merge login first then ai itinerary then meeting spot
 | 8 | Smaller: every Home chip restyled; Home's chip and text disagree; a suggestion can be left with no Withdraw after a reload mid-request; a Leaflet console error on starting with a known place from the create screen | By reading and in the browser |
 
 **For the merge:** this branch bumps the saved-data version from 8 to 9, so sessions in a browser are reset on first load and the account is kept. `main`'s showcase test expects two Home labels that this branch changes, its `createSession` has `hostId` and no `spots`, and its offline planner returns no `candidates`.
+
+### 18.7 to 18.12 The fixes, and the merges into `dev`
+
+The lead changed the destination on 11 October: "merge to dev instead and keep main safe for now". `dev` was brought level with `main` first (pull request 104).
+
+| Branch | What the fix agents changed | Suites on the fixed branch, run by the lead | Into `dev` |
+|---|---|---|---|
+| Login (`feat/login-integration`) | Sign-up no longer freezes on a failed username check; a server error is told from no connection, and a taken username is re-checked; sign-out ends the session in this browser within two seconds; a loading shell at start and a four-second bound, from the saved copy; only a refused refresh signs out; the token goes only to the planner's origin; a local account is not a login in a production build with Supabase set up; a production build with no Supabase settings shows "Jio is not available right now"; `VITE_ALLOW_LOCAL_ACCOUNTS=1` allows local accounts; the date of birth is kept out of the save | Frontend 543 passed, 43 files, also offline; backend 547 passed, 1 skipped; build succeeded; no demo strings in the bundle | Pull request 105 |
+| AI order of stops (`feat/ai-itinerary-integration`) | One budget of 20 AI calls a minute and 2 at once; a 10-minute cache; a pause after three failures; an 8-second deadline with no SDK retries; Claude Haiku by default with a 400-token ceiling; any throw at the provider boundary falls back to the rules; stop names cleaned before the prompt and a sentence with a link or markup replaced; keys validated and never logged. On the screens: confirm is never blocked, the host chooses "Voted order" or "Suggested order", a request ticket, labelled sources | Backend 674 passed, 1 skipped, also offline; frontend 407 passed alone and 597 with `dev` merged in; build succeeded | Pull request 106 |
+| Meeting spots (`feat/meeting-spots-integration`) | A late answer or a failed write no longer undoes a confirmation (`latestAnswer`, `orUndo` takes back only its own change); suggestions cannot delete each other; "about" on estimates; the preselected spot is the planner's pick when nobody has marked one; focus stays on a spot's controls; Home's words agree; the Leaflet error on leaving a map is fixed for every screen; naming an area in `include` cannot change the planner's pick | Backend 688 passed, 2 skipped, also offline; frontend 445 passed; build succeeded | With round 19, below |
+
+- **Undici, observed by the backend agent:** a header value with a line break or a null is quoted in the error message, so a key with one would have been logged. The AI service logs only fixed text.
+- **Not verified by anyone:** anything against the real Supabase project, Gemini or Anthropic. The model names and request options are unchecked.
+- **Left, on tickets:** sign-up says when an email is registered, which Supabase hides on purpose; the arrange route cannot be told a venue is closed on the date; the rate limit keys on the caller's address with no `trust proxy`.
+
+## Round 19: the team's walkthrough, the pitch build (2026-10-11)
+
+The lead pasted a recording of the team testing the app together and asked for the feedback to be reconciled and audited, with suggestions first. Eighteen items were checked against the code; the lead took the recommendations, with a split into a list for the pitch on 12 October and a list for after. Merging `dev` into the meeting spots branch produced four conflicts (the store's export list, the demo panel's imports, `CLAUDE.md`, this log), each resolved by keeping both sides, and seven failing frontend tests: five expected the old save version and two were the showcase's Home labels.
+
+| # | Role | Scope | Status |
+|---|---|---|---|
+| 19.1 | Frontend | The session screens: "Cancel outing"; "Save plan" and "Finish outing"; the known place off the create form; the steps bar as navigation and a back arrow that goes to the previous step; confirming a spot stays on Locate with "Next"; "No spots yet" and the "Fairest for" line removed; the map key on Vote; no people on the itinerary's maps | **Completed** |
+| 19.2 | Frontend | Location search through the backend's OneMap address search, built-in areas first, 300 ms debounce, cancellation, a fallback when the backend is off; one row per area when suggesting a spot | **Completed** |
+| 19.3 | Frontend | The showcase after the merges: the offline planner answers with candidates; ten sessions under the new rules, with a spot vote the person hosts, one a friend hosts, and one set by "We already have a place"; the demo tools reordered | **Completed** |
+| 19.4 | Lead | Verify, record, merge into `dev` | **Completed** up to the commits |
+
+- **Run by the lead on the finished branch:** `pnpm test` 815 passed, 2 skipped, 29 files; `pnpm --filter jio-frontend test` 807 passed, 56 files; both again with outbound calls blocked, no call attempted; `pnpm build` succeeded; the production bundle has none of the demo's strings.
+- **Reported by the agents from headless browser runs, not seen by the lead:** one session walked from Create to Itinerary at 375 and 1280 px with no horizontal overflow and the steps bar at one height; typing "tampines mall" makes one search request; the showcase loads ten sessions in about six seconds with the backend running and with it stopped.
+- **For the presenter:** run the backend. With it stopped the showcase loads, and confirming a spot and the voting screens cannot reach the planner. The meeting spots merge resets the sessions saved in a browser, so load the showcase again.
+- **Left for after the pitch, on the new map:** finishing an outing by itself and reminders; frequent hangouts and the Jio streak; default times, one create button and the radius control.
+
+## Round 20: decisions and a new map (2026-10-11)
+
+- **Dietary needs and weather** were settled with the lead in a grilling session; the decisions are on their tickets and the terms are in `CONTEXT.md`. None of it is built.
+- **A demo tour** (one link in, one outing as a story, a strip of checkpoints, available in the deployed build) was agreed, to be built after the merges.
+- **The live database was checked:** one account and one profile; every session table is empty. Nothing about a session has ever been saved to Supabase.
+- **A second map was charted,** "Jio to the freeze: wayfinder map", issue 109, grouped by feature, carrying execution. Sessions on the server is its first feature, in five stages. Invites are by link, which joins at once, and by username, which sends an invite to accept.
+- **Research answered:** Google's nearby search bills at its dearest tier with the fields asked for, and its terms forbid Places content on or beside a non-Google map; the 24-hour forecast reaches 18 to 24 hours ahead and its phrases are already known to the planner.
+- **Running when this was written:** an architect extending the session endpoint design, and a backend agent drafting the schema for meeting spots. Nothing is applied to the live database.
