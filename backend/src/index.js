@@ -4,6 +4,7 @@ import { createSupabase } from './db/supabase.js'
 import { DEFAULT_CALLS_PER_MINUTE } from './services/budget.js'
 import { assertStubAllowed, createHttp } from './services/http.js'
 import { createGooglePlaces, readGoogleSettings } from './services/google-places.js'
+import { createItineraryAi, readItinerarySettings } from './services/itinerary-ai.js'
 import { createOneMap, readOneMapSettings } from './services/onemap.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -72,6 +73,30 @@ const places = createGooglePlaces({
   stub,
 })
 
+// The AI order of an itinerary (suggested when the group confirms a plan). Gemini when GEMINI_API_KEY is set (free
+// tier), else Claude when ANTHROPIC_API_KEY is set. With neither, the plan still gets an order: the one the rules score
+// best (travel, plus half the waiting). Stub mode never calls an AI. GEMINI_MODEL and ANTHROPIC_MODEL change the models.
+// A key is trimmed; a blank or malformed one counts as not set (the warning names the variable, never its value).
+//
+// ITINERARY_AI_CALLS_PER_MINUTE is the budget for every AI call this server makes. Default 20, at most 2 at once. Three
+// failures in a row pause the AI for a minute, an answer is kept for 10 minutes, and a call takes at most 8 seconds.
+//
+// How to turn it on:
+//   GEMINI_API_KEY=... in backend/.env
+// How to change the budget:
+//   ITINERARY_AI_CALLS_PER_MINUTE=10
+const itinerarySettings = readItinerarySettings(process.env)
+for (const warning of itinerarySettings.warnings) console.warn(warning)
+const itineraryAi = createItineraryAi({
+  http,
+  geminiKey: itinerarySettings.geminiKey,
+  geminiModel: itinerarySettings.geminiModel,
+  apiKey: itinerarySettings.anthropicKey,
+  anthropicModel: itinerarySettings.anthropicModel,
+  callsPerMinute: itinerarySettings.callsPerMinute,
+  stub,
+})
+
 // The simulated forecast: lets a planner request send `weatherCase` to pretend it is raining. Off unless
 // switched on, because the planner uses the live data.gov.sg forecast otherwise. Stub mode always allows it.
 //
@@ -120,7 +145,7 @@ const supabase =
       })
     : null
 
-createApp({ frontendOrigin, stub, http, onemap, places, supabase, allowSimulatedWeather, planRateLimit }).listen(port, () => {
+createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, supabase, allowSimulatedWeather, planRateLimit }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
   if (stub) console.log('Stub mode is ON: external API calls are answered from fixtures.')
   else if (!onemap.routingEnabled) {
@@ -138,6 +163,13 @@ createApp({ frontendOrigin, stub, http, onemap, places, supabase, allowSimulated
   }
   if (!stub && !places.enabled) console.log('Google Places is OFF: no Google restaurants or cafés. Set GOOGLE_MAPS_API_KEY in backend/.env.')
   else if (!stub) console.log(`Google Places is ON: at most ${googleSettings.callsPerMinute} Google calls a minute.`)
+  if (!stub) {
+    console.log(
+      itineraryAi.enabled
+        ? `Itinerary AI is ON: ${itineraryAi.provider === 'gemini' ? 'Gemini' : 'Claude'} suggests the order of each plan when it is confirmed, at most ${itinerarySettings.callsPerMinute} AI calls a minute.`
+        : 'Itinerary AI is OFF: plans get the order the rules score best (travel and waiting). Set GEMINI_API_KEY in backend/.env.',
+    )
+  }
   if (allowSimulatedWeather) console.log('Simulated weather is ON: planner requests may send weatherCase to fake the forecast.')
   if (!supabase) {
     console.log('Supabase is NOT configured: routes that need a login are off. Set SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY in backend/.env.')

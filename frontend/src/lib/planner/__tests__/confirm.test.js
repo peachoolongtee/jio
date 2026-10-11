@@ -50,6 +50,17 @@ describe('itinerary', () => {
     for (const leg of legs) expect(Object.keys(leg.options).sort()).toEqual(['car', 'mrt', 'walk'])
   })
 
+  it('never starts a stop before its notBefore time, leaving free time before it', () => {
+    const plain = buildItinerary(stops)
+    const late = plain.stops[1].start + 45
+    const pinned = buildItinerary(stops.map((s, i) => (i === 1 ? { ...s, notBefore: late } : s)))
+    expect(pinned.stops[1].start).toBe(late)
+    expect(pinned.stops[2].start).toBe(late + stops[1].duration + pinned.legs[1].minutes)
+    // A notBefore that is already past changes nothing.
+    const early = buildItinerary(stops.map((s, i) => (i === 1 ? { ...s, notBefore: 0 } : s)))
+    expect(early.stops[1].start).toBe(plain.stops[1].start)
+  })
+
   it('falls back to the default mode for a plan saved with a mode that no longer exists', () => {
     const saved = buildItinerary(stops, ['grab', 'grab'])
     const fresh = buildItinerary(stops)

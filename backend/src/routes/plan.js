@@ -11,6 +11,8 @@ import { ExternalApiError } from '../services/errors.js'
 import { currentScenario } from '../services/scenario.js'
 import { estimateTravel, ROUTING_DEADLINE_MS, runWithRealTravel } from '../services/travel-times.js'
 import { makePlanSchemas } from './plan-schemas.js'
+import { arrangeCandidates, freshCandidates } from '../planner/arrange.js'
+import { createItineraryAi } from '../services/itinerary-ai.js'
 
 // The planner endpoints the frontend calls. Full request and response shapes: backend/docs/planner-api.md.
 //
@@ -20,6 +22,7 @@ import { makePlanSchemas } from './plan-schemas.js'
 //   POST /api/search        find a venue by name to add as an option, and say whether it fits the slot
 //   GET  /api/places/search find an address, postal code or building with OneMap, for start and end points
 //   GET  /api/places/photo  a Google place photo, by its name (redirects to the image; the key stays on the server)
+//   POST /api/itinerary/arrange  a new order for a confirmed itinerary, chosen by an AI, Gemini or Claude (food stays at meal times)
 //
 // How to mount it (app.js does this):
 //   app.use('/api', createPlanRouter({ data: loadPlanData(), weather, onemap, places, allowSimulatedWeather: false }))
@@ -38,6 +41,7 @@ import { makePlanSchemas } from './plan-schemas.js'
 // `weatherCase` on every ranking, so refusing it would break every slot.
 //
 // `limiter` is an optional middleware (see middleware/rate-limit.js) that runs before each planner route.
+// `ai` is the itinerary AI from services/itinerary-ai.js. Without one, /itinerary/arrange chooses by its rules.
 //
 // Travel times. /meeting-area, /converge and /roam say where theirs came from in a top-level
 // `travel: { source, asked, routed, cached, walked, failed, estimated }` (the numbers add up, see
@@ -73,6 +77,7 @@ export function createPlanRouter({
   weather,
   onemap = null,
   places = null,
+  ai = createItineraryAi(),
   allowSimulatedWeather = false,
   limiter = null,
   routingDeadlineMs = ROUTING_DEADLINE_MS,
@@ -264,6 +269,48 @@ export function createPlanRouter({
   router.post('/converge', ...guard, handle(schemas.converge, converge, { usesWeather: true, usesTravel: true }))
   router.post('/roam', ...guard, handle(schemas.roam, roam, { usesWeather: true, usesTravel: true }))
   router.post('/search', ...guard, handle(schemas.search, (input, planData) => ({ results: searchVenues(input, planData) })))
+
+  // A new order for a confirmed itinerary. Food stops keep their place, so meals stay at meal times; the other
+  // stops are put in the order the AI (Gemini or Claude) finds nicest among the orders that keep every place open
+  // (services/itinerary-ai.js). The app asks once, when the group confirms, with `includeCurrent` (the voted order may
+  // be the best). A caller that wants a different order each time sends the orders already shown in `shown`; once
+  // every order has been shown it starts again and says `restarted: true`. The AI is bounded in cost and time (a call
+  // budget, a pause after failures, a cache and an 8 second deadline); when it cannot answer, the rules do, at once.
+  //
+  // Answers { status: 'ok', order: [stop ids], stops: [{ id, start, end }], reason, source: 'ai' | 'rules',
+  // restarted, others } or { status: 'no_other_order', message, blockers } when nothing else fits (for example one
+  // movable stop).
+  router.post('/itinerary/arrange', ...guard, async (req, res, next) => {
+    try {
+      const input = schemas.arrange.parse(req.body ?? {})
+      const { candidates, movable, blockers } = arrangeCandidates(input)
+      const { options, restarted } = freshCandidates(candidates, input.shown, { includeCurrent: input.includeCurrent })
+      if (options.length === 0) {
+        // A reason that starts with "the plan would end" is a sentence of its own here, so it gets its capital letter.
+        const why = movable < 2 ? 'Only one stop can move: food stays at meal times.' : blockers.length ? `${blockers.slice(0, 2).join('; ').replace(/^the plan/, 'The plan')}.` : ''
+        res.json({ status: 'no_other_order', message: `No other order works. ${why}`.trim(), blockers })
+        return
+      }
+      const { index, reason, source } = await ai.choose({ options, rain: input.rain })
+      const chosen = options[index]
+      res.json({
+        status: 'ok',
+        order: chosen.ids,
+        stops: chosen.stops.map((s) => ({ id: s.id, start: s.start, end: s.end })),
+        reason,
+        source,
+        restarted,
+        // How many other orders are left to show after this one.
+        others: options.length - 1,
+      })
+    } catch (err) {
+      if (err instanceof ZodError) {
+        invalid(res, err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })))
+      } else {
+        next(err)
+      }
+    }
+  })
 
   // GET /api/places/search?q=520201 -> { results: [{ name, address, postal, lat, lng }] }, at most 10.
   // For start and end points. Answers 503 when OneMap cannot be reached or this server has no OneMap service.
