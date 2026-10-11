@@ -1,15 +1,18 @@
 <script setup>
-// The session: people, locations and the meeting area (steps 2 to 5).
+// The session: people, locations and the meeting spot (the Locate step).
 //   Inviting  the people list with an Invite button. Below 2 people the main button is "Invite friends";
 //             from 2 people (including Ian) it is "Start session"
-//   Locating  Ian's start and end, the meeting area with a map, and one list of everyone with
-//             their area, travel time (coloured by length, with a key) and status. While the planner works
-//             out the area, the card and the map say so.
-//             While the meeting area waits for people who have not set a start, a card lists them. The host can
-//             carry on without each one (after a confirmation); others only see who it is waiting for.
-//   Later     the same, read-only once the plan is confirmed
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+//   Locating  Ian's start and end, then "Where to meet": the meeting spots (the app's three and each member's own
+//             suggestion) with everyone's travel time, "Works for me" on each, and a map with a pin for every spot.
+//             From two starts on the list opens; the host confirms a spot at any time ("Confirm <area>", the one
+//             main action; others see who they are waiting for) or sets a known place ("We already have a place").
+//             While the planner works the spots out, the list and the map say so.
+//             While some people have not set a start, a card lists them. The host can carry on without each one
+//             (after a confirmation); others only see who it is waiting for.
+//   Voting+   the same page: the map with its pins and the list of spots, the confirmed one first and marked
+//             "Confirmed", every other spot still listed but with no control, and "Next" (to Vote) in the footer.
+//             Confirming a spot, or naming a known place, leaves the person here; it does not jump to Vote.
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
@@ -18,12 +21,17 @@ import SegmentedProgress from '@/components/ui/SegmentedProgress.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
+import BannerNote from '@/components/ui/BannerNote.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import InviteDialog from '@/components/group/InviteDialog.vue'
 import LocationSheet from '@/components/group/LocationSheet.vue'
 import MemberList from '@/components/group/MemberList.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
+import SpotConfirm from '@/components/spots/SpotConfirm.vue'
+import SpotList from '@/components/spots/SpotList.vue'
+import SpotPins from '@/components/spots/SpotPins.vue'
+import { confirmedAreaId, shownFor, spotsToShow } from '@/components/spots/spotText.js'
 import NotFoundView from './NotFoundView.vue'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
 import { TRAVEL_TONES } from '@/lib/planner/travel.js'
@@ -33,7 +41,6 @@ import { useGroupsStore } from '@/stores/groups.js'
 
 const props = defineProps({ id: { type: String, required: true } })
 
-const router = useRouter()
 const auth = useAuthStore()
 const events = useEventsStore()
 const groups = useGroupsStore()
@@ -43,6 +50,10 @@ const busy = ref(false)
 const error = ref('')
 const sheet = ref({ open: false, which: 'start' })
 const view = ref('list')
+const mapRef = ref(null)
+const pinsRef = ref(null)
+// The spot the person picked in the list or on the map; empty until they pick one (see shown).
+const picked = ref('')
 
 async function load() {
   missing.value = false
@@ -53,11 +64,11 @@ async function load() {
   }
 }
 onMounted(load)
-watch(() => props.id, load)
+watch(() => props.id, () => { picked.value = ''; load() })
 
 const session = computed(() => events.byId[props.id])
 const status = computed(() => session.value?.status)
-const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
+const nameOf = (id) => (id === 'ian' ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
 const voterIds = computed(() => (session.value ? votersOf(session.value.votes, active.value) : []))
 const locked = computed(() => ['confirmed', 'completed', 'cancelled'].includes(status.value))
@@ -67,7 +78,7 @@ const lobby = computed(() =>
   (session.value?.members || [])
     .filter((m) => ['joined', 'invited'].includes(m.state))
     .map((m) => {
-      const p = m.id === 'ian' ? { username: auth.user.username, homeArea: auth.user.homeAreaName } : groups.people.find((x) => x.id === m.id) || {}
+      const p = m.id === 'ian' ? { username: auth.user?.username, homeArea: auth.user?.homeAreaName } : groups.people.find((x) => x.id === m.id) || {}
       return { id: m.id, name: nameOf(m.id), host: m.role === 'host', joined: m.state === 'joined', username: p.username || '', homeArea: p.homeArea || '' }
     }),
 )
@@ -87,13 +98,31 @@ const progress = computed(() => {
   return { title: 'Locations', label: 'Submitted', people: people.map((p) => ({ name: p.name, done: !!session.value.locations?.[p.id]?.start })) }
 })
 
-// Map pins: each person's start AREA, with their travel time to the meeting area.
+const myId = computed(() => auth.user?.id || 'ian')
+// The group is choosing where to meet: the spots are listed, and the meeting area is what the host confirms.
+const choosing = computed(() => status.value === 'locating')
+// The spots as the list shows them: while choosing, as the data layer keeps them; after a spot is confirmed, the same
+// spots with the confirmed one first.
+const spotList = computed(() => (session.value ? spotsToShow(session.value) : []))
+const confirmedId = computed(() => (session.value ? confirmedAreaId(session.value) : ''))
+// The spot shown as chosen: the one picked, otherwise the confirmed one, otherwise the one most people said works for them.
+const shown = computed(() => (session.value ? shownFor(session.value, picked.value) : null))
+const shownSpot = computed(() => spotList.value.find((s) => s.areaId === shown.value) || null)
+// The map keeps every spot in view.
+const keepPoints = computed(() => spotList.value.map((s) => ({ lat: s.area.lat, lng: s.area.lng })))
+// Where a point is on the map, for the pins laid over it.
+// How to call: projectPoint(1.35, 103.82) -> { x, y }
+const projectPoint = (lat, lng) => mapRef.value?.project(lat, lng) ?? null
+const refreshPins = () => pinsRef.value?.refresh()
+
+// Map pins: each person's start AREA, with their travel time to the spot shown.
 const mapPeople = computed(() =>
   active.value
     .filter((id) => session.value.locations?.[id]?.start)
     .map((id) => {
       const start = session.value.locations[id].start
-      return { id, name: nameOf(id), lat: start.lat, lng: start.lng, areaName: start.name, minutes: session.value.meeting?.times?.[id] ?? null }
+      const times = shownSpot.value?.times
+      return { id, name: nameOf(id), lat: start.lat, lng: start.lng, areaName: start.name, minutes: times?.[id] ?? null }
     }),
 )
 
@@ -180,17 +209,50 @@ function askSkip(person) {
 }
 const continueWithout = () => run(() => events.optOut(props.id, skipTarget.value.id), () => { skipOpen.value = false })
 
+const hostName = computed(() => nameOf(session.value?.hostId) || 'the host')
+// The meeting spots changed what the people card shows: while choosing, their trips are to each spot, not to a meeting
+// area, so the card does not claim one.
+const peopleSession = computed(() => (choosing.value ? { ...session.value, meeting: null } : session.value))
+const hasMeetingTrips = computed(() => Object.keys(session.value?.meeting?.times || {}).length > 0)
+// Approvals that went with a spot that left the list: the data layer leaves a banner that says so.
+const approvalsBanner = computed(() => (choosing.value && session.value?.banner?.approvalsRemoved ? session.value.banner : null))
+async function dismissBanner() {
+  try {
+    await events.dismissBanner(props.id)
+  } catch {
+    // The banner stays; dismissing it again is the retry.
+  }
+}
+
+// Confirming a spot (or naming a known place) moves the session on to Voting, and the person stays on this page: the list
+// stays, the confirmed spot is marked, and the footer's button becomes "Next". Say so to a screen reader, and put focus on
+// "Next" when it was on the button or dialog that has just gone (otherwise it would fall to the top of the page).
+const announcement = ref('')
+const nextButton = ref(null)
+watch(() => [props.id, status.value], async ([id, now], [beforeId, before]) => {
+  if (id !== beforeId || before !== 'locating' || now !== 'voting') return
+  const name = session.value?.area?.name
+  announcement.value = name ? `${name} is confirmed. Press Next to choose places.` : 'The spot is confirmed. Press Next to choose places.'
+  await nextTick()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const at = document.activeElement
+  if (!at || at === document.body || at.closest?.('[role="dialog"], .screen__footer')) nextButton.value?.$el?.focus?.({ preventScroll: true })
+})
+
+// Start the session. It opens on this page, now the Locate step.
+// How to call: startSession()
 const startSession = () => run(() => events.start(props.id))
-const useArea = () => run(() => events.useArea(props.id), () => router.push(`/sessions/${props.id}/plan`))
 </script>
 
 <template>
   <NotFoundView v-if="missing" />
   <main v-else-if="session" class="screen" data-testid="group-detail-view">
-    <SessionHeader :session="session" back="/" />
+    <SessionHeader :session="session" />
 
     <div class="screen__body">
+      <p class="sr-only" role="status">{{ announcement }}</p>
       <SessionNotices :session="session" />
+      <BannerNote v-if="approvalsBanner" icon="info" dismissible @dismiss="dismissBanner">{{ approvalsBanner.text }}</BannerNote>
 
       <!-- Inviting: who is in, whether the session can start, and Start session below. -->
       <section v-if="status === 'inviting'" class="card lobby" aria-labelledby="lobby-head">
@@ -254,24 +316,30 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 
         <SplitView v-model:view="view" label="Meeting area">
           <template #list>
-            <!-- Step 5: the meeting point. While the planner works it out a segmented bar fills up; at 100% the place
-                 appears. -->
-            <section v-if="loading || session.meeting" class="area" :class="{ 'is-finding': loading }" aria-labelledby="area-head" :role="loading ? 'status' : undefined">
-              <template v-if="loading">
-                <h2 id="area-head" class="title-md">Finding the meeting point</h2>
-                <SegmentedProgress :value="loadPct" label="Checking everyone's travel time" />
-              </template>
-              <div v-else class="area__main area__main--reveal">
-                <span class="area__pin"><AppIcon name="pin" :size="20" /></span>
-                <h2 id="area-head" class="display-lg">{{ session.area.name }}</h2>
-              </div>
+            <!-- While the planner works out the meeting point a segmented bar fills up. -->
+            <section v-if="loading" class="area is-finding" aria-labelledby="area-head" role="status">
+              <h2 id="area-head" class="title-md">Finding the meeting point</h2>
+              <SegmentedProgress :value="loadPct" label="Checking everyone's travel time" />
             </section>
             <p v-if="session.areaNote" class="caption-sm text-muted">{{ session.areaNote }}</p>
+
+            <!-- The meeting spots. While locating, members say which work for them and the host confirms one at any time;
+                 after that the same list shows the confirmed spot first and nothing left to press. -->
+            <SpotList
+              :session="session"
+              :my-id="myId"
+              :names="nameOf"
+              :selected-id="shown || ''"
+              :is-host="isHost"
+              :host-name="hostName"
+              @select="picked = $event"
+              @error="error = $event"
+            />
 
             <!-- Locating, and the meeting area is waiting for people who have not set a start. -->
             <section v-if="waiting.length && !loading" class="section card" aria-labelledby="waiting-head">
               <h2 id="waiting-head" class="title-md">Waiting for {{ waiting.length }} {{ waiting.length === 1 ? 'person' : 'people' }}</h2>
-              <p class="body-sm text-muted">The meeting point appears once everyone has shared where they start.<template v-if="isHost"> If someone is not going to, you can carry on without them.</template></p>
+              <p class="body-sm text-muted">Their trips are counted once they share where they start.<template v-if="isHost"> If someone is not going to, you can carry on without them.</template></p>
               <ul class="waiting" aria-label="People who have not set a start">
                 <li v-for="person in waiting" :key="person.id" class="waiting__row">
                   <UserAvatar :name="person.name" :person="person.id" :size="36" />
@@ -284,14 +352,15 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
 
             <section class="section card" aria-label="People">
               <ProgressDonut v-if="progress" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
-              <MemberList :session="session" :names="nameOf" :voters="voterIds" />
-              <p v-if="session.meeting && !loading" class="travel-key" aria-label="Travel time colours">
+              <MemberList :session="peopleSession" :names="nameOf" :voters="voterIds" />
+              <p v-if="!choosing && hasMeetingTrips && !loading" class="travel-key" aria-label="Travel time colours">
                 <span v-for="t in TRAVEL_TONES" :key="t.id" class="travel-key__item"><span class="travel-key__dot" :class="`is-${t.id}`" />{{ t.label }}</span>
               </p>
             </section>
           </template>
           <template #map>
-            <PlannerMap :people="mapPeople" :area="loading ? null : session.area" :finding="loading" spokes label="Meeting area map" />
+            <PlannerMap ref="mapRef" :people="mapPeople" :area="null" :finding="loading" spokes :keep="keepPoints" label="Meeting area map" @view="refreshPins" />
+            <SpotPins v-if="spotList.length" ref="pinsRef" :spots="spotList" :selected-id="shown || ''" :confirmed-id="confirmedId" :project="projectPoint" :names="nameOf" :my-id="myId" @select="picked = $event" />
             <div v-if="loading" class="map-wait map-wait--finding title-sm" role="status">Finding the meeting point… {{ Math.round(loadPct) }}%</div>
           </template>
         </SplitView>
@@ -301,11 +370,16 @@ const useArea = () => run(() => events.useArea(props.id), () => router.push(`/se
     <footer v-if="status !== 'cancelled'" class="screen__footer">
       <AppButton v-if="status === 'inviting' && active.length < 2" block @click="inviteOpen = true">Invite friends</AppButton>
       <AppButton v-else-if="status === 'inviting'" next block :disabled="busy" @click="startSession">Start session</AppButton>
-      <AppButton v-else-if="status === 'locating'" next block :disabled="!session.meeting || busy || loading" @click="useArea">
-        {{ loading ? 'Finding the meeting point…' : session.meeting ? 'Confirm location' : 'Waiting for everyone' }}
-      </AppButton>
-      <AppButton v-else-if="status === 'voting'" next block :to="`/sessions/${id}/plan`">Vote on places</AppButton>
-      <AppButton v-else next block :to="`/sessions/${id}/itinerary`">{{ session.isToday && status === 'confirmed' ? "Today's plan" : 'Itinerary' }}</AppButton>
+      <SpotConfirm
+        v-else-if="status === 'locating'"
+        :session="session"
+        :is-host="isHost"
+        :host-name="hostName"
+        :selected-id="shown || ''"
+        :disabled="loading || busy"
+        @error="error = $event"
+      />
+      <AppButton v-else ref="nextButton" next block :to="`/sessions/${id}/plan`">Next</AppButton>
     </footer>
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
@@ -356,15 +430,9 @@ button.route__row:focus-visible { outline: 2px solid var(--ink); outline-offset:
 .route__go { color: var(--muted); }
 /* No start yet: the row asks for it, in Rausch. */
 .route__row.is-empty .route__value, .route__row.is-empty .route__go { color: var(--primary); }
-/* The meeting area: a reservation-card style block. The pin is the screen's Rausch moment besides the CTA. */
+/* Finding the meeting point: a card with a title over the segmented bar. */
 .area { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); }
-.area__main { display: flex; align-items: center; gap: var(--spacing-md); min-width: 0; }
-.area__pin { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
-/* Finding the meeting point: a title over the segmented bar. When it is found, the place pops in. */
 .area.is-finding { flex-direction: column; align-items: stretch; gap: var(--spacing-base); }
-.area__main--reveal { animation: area-reveal 420ms var(--ease-spring) both; }
-@keyframes area-reveal { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .area__main--reveal { animation: none; } }
 /* Who the meeting area is waiting for: name on the left, the host's action after it (it wraps under the name on a narrow screen). */
 .waiting { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 .waiting__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm) var(--spacing-md); padding: var(--spacing-sm) 0; }

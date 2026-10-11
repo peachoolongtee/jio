@@ -7,7 +7,7 @@
 // Each row is one button: the day, the title, when and where, and what it needs next. A meetup with no meeting point has
 // no pin, so its day badge has a dashed outline and its row says so in words. The selected row has a thicker ink outline
 // and a filled day badge, and is aria-pressed. A long title is cut with an ellipsis; the whole title is in the text and the tooltip, and the card under the map (select the row) wraps it.
-import { dayLabel, nextStepFor, whenLine } from '@/lib/homeMeetups.js'
+import { dayLabel, nextStepFor, placeText, whenLine } from '@/lib/homeMeetups.js'
 import NextStepChip from './NextStepChip.vue'
 import StartMeetupRow from './StartMeetupRow.vue'
 
@@ -29,7 +29,7 @@ const emit = defineEmits(['select', 'start'])
         <span class="mrow__day tnum" :class="{ 'is-nopin': !m.area }" aria-hidden="true">{{ dayLabel(m) }}</span>
         <span class="mrow__text">
           <span class="mrow__title title-md truncate" :title="m.title">{{ m.title }}</span>
-          <span class="mrow__meta body-sm text-muted clamp-2">{{ whenLine(m) }} · {{ m.area ? m.area.name : 'no meeting point yet' }}</span>
+          <span class="mrow__meta body-sm text-muted clamp-2">{{ whenLine(m) }} · {{ placeText(m) }}</span>
           <NextStepChip :step="nextStepFor(m, myId)" class="mrow__chip" />
         </span>
       </button>

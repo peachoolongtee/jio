@@ -22,6 +22,10 @@ export const useEventsStore = defineStore('events', () => {
   const seq = {}
   const itinerarySeq = {}
   const photoSeq = {}
+  const orderSeq = {}
+  const orderPending = {}
+  // The Confirm dialog's suggested order by session: { key, loading, answer, failed } for the newest question asked.
+  const orders = ref({})
 
   // Ian's current session: the newest one that is still going, otherwise the newest one.
   const current = computed(() => {
@@ -79,6 +83,13 @@ export const useEventsStore = defineStore('events', () => {
   const start = act(api.startSession)
   const setMyLocation = (id, which, place) => act(api.setLocation)(id, HOST_ID, which, place)
   const useArea = act(api.useMeetingArea)
+  // Meeting spots. The first three act as the signed-in person; the host confirms a spot or sets a known place.
+  // How to call: suggestMySpot('s1', 'bugis', { here: true }), approveMySpot('s1', 'bugis', true), withdrawMySpot('s1')
+  const suggestMySpot = (id, areaId, options) => act(api.suggestSpot)(id, HOST_ID, areaId, options)
+  const withdrawMySpot = (id) => act(api.withdrawSpot)(id, HOST_ID)
+  const approveMySpot = (id, areaId, on) => act(api.approveSpot)(id, HOST_ID, areaId, on)
+  const confirmSpot = act(api.confirmSpot)
+  const setKnownPlace = act(api.setKnownPlace)
   const cancel = act(api.cancelSession)
   // The host carries on without a member who has not shared where they start (they opt out of this session).
   const optOut = act(api.optOut)
@@ -94,6 +105,30 @@ export const useEventsStore = defineStore('events', () => {
   async function setTravelMode(id, legIndex, mode) {
     put(await api.setTravelMode(id, legIndex, mode))
     await loadItinerary(id)
+  }
+
+  // The order the Confirm dialog suggests (nothing is saved). `key` names the question (the voted stops and the
+  // session's times): the same key reuses the answer already received, or the request still running, instead of
+  // asking again. Only the newest question's answer and loading state are kept, so a late older answer is ignored.
+  // A failure is not kept, so the next open asks again. Resolves to the answer, or null; never rejects.
+  // How to call: const suggestion = await suggestOrder('s1', key)
+  async function suggestOrder(id, key = '') {
+    const have = orders.value[id]
+    if (have && have.key === key && !have.failed) return have.loading ? orderPending[id] : have.answer
+    const ticket = (orderSeq[id] = (orderSeq[id] || 0) + 1)
+    const entry = (patch) => (orders.value = { ...orders.value, [id]: { key, loading: false, answer: null, failed: false, ...patch } })
+    entry({ loading: true })
+    const pending = (async () => api.suggestOrder(id))()
+      .then((answer) => {
+        if (ticket === orderSeq[id]) entry({ answer })
+        return answer
+      })
+      .catch(() => {
+        if (ticket === orderSeq[id]) entry({ failed: true })
+        return null
+      })
+    orderPending[id] = pending
+    return pending
   }
 
   // Moves the stop on screen straight away, then saves and re-times from the server's answer.
@@ -123,6 +158,9 @@ export const useEventsStore = defineStore('events', () => {
 
   api.subscribe(async (event) => {
     if (event.type === 'reset') {
+      // A suggestion asked for before the reset belongs to data that is gone.
+      orders.value = {}
+      for (const id of Object.keys(orderSeq)) orderSeq[id] += 1
       itineraries.value = {}
       photos.value = {}
       await loadSessions()
@@ -139,6 +177,6 @@ export const useEventsStore = defineStore('events', () => {
   return {
     sessions, byId, itineraries, photos, loaded, current,
     loadSessions, loadSession, loadItinerary, loadPhotos,
-    create, update, invite, start, setMyLocation, useArea, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, addPhoto, deletePhoto,
+    create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
   }
 })

@@ -162,7 +162,7 @@ async function confirmDelete() {
 <template>
   <NotFoundView v-if="missing" />
   <main v-else-if="session" class="screen" data-testid="photos-view">
-    <SessionHeader :session="session" back="/" />
+    <SessionHeader :session="session" />
 
     <div class="screen__body">
       <SessionNotices :session="session" />

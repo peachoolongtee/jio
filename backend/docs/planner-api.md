@@ -115,6 +115,8 @@ Request:
 
 `maxCandidates` (optional) tries only the N areas nearest the fairest point, to save routing calls. Don't go below 16: 8 missed the best area for 3.4% of random groups.
 
+`alternatives` and `include` (both optional) ask for runners-up and for named areas. See [Runners-up and named areas](#runners-up-and-named-areas) below. A request that sends neither gets exactly the answer described here, and no `candidates`.
+
 Response (real output for the request above):
 
 ```json
@@ -133,6 +135,51 @@ Response (real output for the request above):
 ```
 
 Pass `centre` to `/api/converge`. `approximate: true` means some trips used the estimate, because OneMap could not answer them or because they were left out of the per-request cap or the shortlist. Say "about" in the UI. The answer also carries `travel` (see [Travel times](#travel-times)).
+
+### Runners-up and named areas
+
+Two optional request fields add a `candidates` list to the answer: the chosen area, some runners-up, and any areas you name.
+
+| Field | Meaning |
+|---|---|
+| `alternatives` | A whole number from 0 to 3 (default 0): how many runners-up to return after the chosen area. `alternatives: 2` gives the chosen area and up to two more, three areas in all. |
+| `include` | Up to 8 area ids (the `id` of an area, such as `"bishan"`) to evaluate whatever their rank. Each must be an area the planner knows, and each can be listed once. |
+
+`candidates` is in the answer when either field is sent, and only then. `alternatives: 0` or `include: []` on their own give a list of just the chosen area. Example (`"alternatives": 1, "include": ["tampines"]`, routing off, shortened):
+
+```json
+"candidates": [
+  { "area": { "id": "ang-mo-kio", "name": "Ang Mo Kio", "lat": 1.36993, "lng": 103.84958 },
+    "worstMinutes": 47.3, "meanMinutes": 45.5,
+    "travelByMember": { "ian": 45.4, "faith": 47.3, "jonathan": 43.7 }, "approximate": false, "source": "ranked" },
+  { "area": { "id": "bishan", "name": "Bishan", "lat": 1.35092, "lng": 103.84822 }, "worstMinutes": 49.4, "…": "…", "source": "ranked" },
+  { "area": { "id": "tampines", "name": "Tampines", "lat": 1.35408, "lng": 103.94535 }, "worstMinutes": 81.5, "…": "…", "source": "included" }
+]
+```
+
+- **Order.** The chosen area first, then the runners-up best first, then the included areas in the order you sent them.
+- **`source`.** `ranked` for the chosen area and the runners-up, `included` for an area you named that is neither. An included area that is also the chosen area or a returned runner-up appears once, with `ranked`, in its ranked place. So work out which spots a member suggested from your own data, not from `source`.
+- **Runners-up** are ranked by the station rule: the shortest longest trip first, then the lower fairness-weighted mean, from the areas the station rule tries (every area, or the 16 nearest the fairest point when routing is on or `maxCandidates` is sent). There can be fewer than you asked for, when fewer areas are tried.
+- **Other methods.** With `centroid`, `weighted_centroid` or `minimax`, `candidates[0]` is the area named after the centre, with the travel times measured to the centre, exactly as the top level is. The runners-up are the station rule's best areas after leaving out that area. They can be better than `candidates[0]`: the centre is not chosen by the station rule. Asking for `alternatives` with one of these methods makes the planner also try the areas for the ranking (16 with routing on). `include` alone does not.
+- **`candidates[0]` is the top-level answer.** Its `area`, `worstMinutes`, `meanMinutes` and `travelByMember` equal the top-level fields, from the same run. Its `approximate` does not have to equal the top-level one (see below).
+- **`include` never changes the planner's own answer.** With or without `include`, the top-level answer (`area`, `centre`, `worstMinutes`, `worstMember`, `meanMinutes`, `travelByMember`, `approximate`, `distanceFromAreaKm`) and the ranked candidates (which areas, their order and every figure) are identical; `include` only adds entries with `source: 'included'`. This holds with routing on too: an included area's real OneMap times are used for its own entry and never when choosing the area or ordering the runners-up, so a member's suggestion cannot flip the planner's pick. (`alternatives` does not change the top-level answer either.)
+- **An included area's times are real when the cap has room and estimated otherwise.** With routing on, an included area is routed for every member when the 60-trip cap has room for it whole, after the chosen area and the runners-up; otherwise every member's time is the estimate. Its `approximate` says which: `false` for real times, `true` for estimates. With routing off, its times are estimates and its `approximate` is `false` (see the next point).
+- **`approximate` on a candidate is about that area alone**: true when at least one of its own trips used the estimate, because OneMap could not answer, or because the area did not fit the per-request cap. This is narrower than the top-level `approximate`, which is true when any area the ranking compared used an estimate. So `candidates[0].approximate` can be `false` while the top-level `approximate` is `true`, when the chosen area was routed for every member and a lower-ranked area was not. Say "about" for a candidate only when its own flag is true.
+- **`approximate` is false when routing is off, although every time is then an estimate.** The flag means "a trip fell back to the estimate", and with no OneMap service nothing falls back: the estimate is all there is. So do not read `approximate: false` as "real times". Read `travel.source`: `'estimate'` means every time in the answer, candidates included, is the engine's estimate, and `'onemap'` means at least one trip got a real time, with `approximate` then telling which areas fell back.
+- **`diagnostics`** gains `extraRoutingCalls` (only when candidates are asked for): the trips the engine asked about for areas outside the chosen area's ranking, that is included areas the station rule did not try, or, for another method, the areas tried for runners-up. `routingCalls` is unchanged.
+- **`travel`** counts the extra areas' trips as well (`asked`, `routed`, `estimated`), so it can differ from the same request without the new fields.
+
+Errors are the route's usual `400 invalid_input`. An unknown or repeated area id names the entry in `issues`:
+
+```json
+{
+  "error": "invalid_input",
+  "message": "Some fields in the request are missing or not valid. See issues.",
+  "issues": [ { "path": "include.1", "message": "not an area id the planner knows" } ]
+}
+```
+
+A repeat says `each area can be included once` at the path of the later entry. `alternatives` that is negative, above 3 or not a whole number is an issue on `alternatives`; more than 8 ids is an issue on `include`. An id must match exactly, in lower case, as in `areas.json`.
 
 ## POST /api/converge
 
@@ -439,6 +486,12 @@ How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 - The engine runs once to find the trips it needs. Those are fetched from OneMap, 6 at a time, and the engine runs again with the real times.
 - **One request makes at most 60 OneMap route calls.** Whole venues (or whole candidate areas) are routed, in the engine's own priority order, until the next one would pass 60; the rest keep the estimate and are `approximate`. A venue is real for every member or an estimate for every member, never half and half. Cached and walked trips are free. `currentOptionIds` venues count like any other. With 30 members one venue (up to 60 trips) uses the whole cap.
 - **The meeting area routes only the best 5 areas** by estimated result, within the same cap. With 30 members that is 2 areas. The answer is then `approximate: true`, and the area it names may be one that only has an estimate, so say "about". If a single area would pass the cap, nothing is routed.
+- **Runners-up and named areas (`alternatives`, `include`) use the same cap**, so a request routes at most 60 trips however many areas it names. The order areas get real routes in is:
+  1. For a method other than station, the meeting point itself (it is the answer).
+  2. The shortlist of the 5 best areas by estimate, exactly as for a request that sends neither field. The chosen area and the runners-up come from the areas the ranking compares, and these five are the ones routed first. An included area outside the areas the station rule tries never takes a place in this shortlist.
+  3. The included areas that are not already routed, in the order sent, each as long as the cap has room for it whole.
+
+  So the chosen area and its times are the same with or without the new fields. A named area's real times belong to its own entry only: the ranking is never shown them, even for an included area the ranking also compares (one of the 16 nearest tried), because a real time can come out below the estimate and would let a named area beat the planner's own pick. A named area is routed only with room to spare: with 10 members (6 areas fit) the first included area is routed and the second is not; with 12 members or more, no included area is. An area that did not fit keeps the estimate for every member and its candidate is `approximate: true`. The room is counted after free trips: a trip already in the route cache or short enough to walk costs nothing, so a repeat request routes more of the areas the first one had to estimate. With 30 members, `alternatives: 3` and 8 included areas, the stub test makes 60 route calls (`tests/meeting-area-candidates.test.js`); `tests/meeting-area-include-isolation.test.js` checks that `include` changes nothing but its own entries.
 - **The whole server shares a OneMap budget**: at most 6 calls in flight, and `ONEMAP_CALLS_PER_MINUTE` a minute (default 240) for routing, address search and login together. A routing trip that finds it used up keeps the estimate at once. See [external-apis.md](external-apis.md#keeping-the-shared-account-safe).
 - **One request waits at most 8 seconds** for OneMap routes in total. Trips not answered by then keep the estimate, and the request is still answered.
 - After 5 failed route calls in a row, routing is paused for 30 seconds and every trip keeps the estimate. A rejected login token is replaced once and the call retried; a failed login is not retried for 60 seconds.
@@ -462,6 +515,83 @@ When OneMap finds fewer than 3, Google's text search adds places by name (a kara
 | 400 `invalid_input` | `q` is missing, blank, given more than once (an array), or over 80 characters. The issue is on `q`. |
 | 503 `search_unavailable` | OneMap could not be reached, or this server has no address search. Show "search is not available, try again soon". When the server's shared OneMap call budget for the minute is used up, the answer also carries `Retry-After` in whole seconds: wait that long before searching again. |
 
+## POST /api/itinerary/arrange
+
+The AI order for an itinerary. The frontend asks once, when the group opens **Confirm plan**: the dialog shows the suggested order and its reason, and confirming saves it. After that the group can still move stops by hand in the itinerary's edit mode. (`shown` and `restarted` let a caller ask for a different order each time; the app does not use them today.) Food stops keep their place, so meals stay at meal times; the drink, shop and activity stops are put in a new order.
+
+How it decides:
+
+1. `planner/arrange.js` tries every order of the stops that can move (at most 6, so at most 720 orders). Stops are timed from `startAt`, each after the one before it plus the trip (walking when a leg is 15 minutes or less, public transport otherwise). Two things can make a stop start later, leaving free time before it:
+   - a meal never starts before its time (the stop's `start`, its slot's time from voting), and at most 60 minutes after it;
+   - a stop whose place is not open yet waits for it: at most 30 minutes for the first stop (the group has just met), 60 for any other.
+   An order works when every place is open for the whole stop, every meal is on time, and the plan ends by `endAt`.
+2. It leaves out the current order and every order in `shown` (except with `includeCurrent`, used on confirm, where the voted order may be the best). When all have been shown, it starts again and says `restarted: true`.
+3. The AI (`services/itinerary-ai.js`: Gemini with `GEMINI_API_KEY`, else Claude with `ANTHROPIC_API_KEY`) is shown the best 6 of those (the lowest score: travel, plus half the waiting, plus 15 when the last stop is far from an MRT station) and picks the one that makes the nicest day, with one sentence saying why. Its answer is checked: a choice that is not a whole number on the list is never used, and the sentence is used only when it is plain text (no `<` or `>`, no control or bidirectional-control character, no link or anything shaped like a domain name; at most 200 characters). A valid choice with a sentence that fails the check keeps the AI's order and gets a fixed sentence instead; `source` stays `ai`. The AI can only choose an order the rules allow; it never invents one.
+4. Without a key, in stub mode, or when the AI cannot answer (it fails, is slow, refuses, answers something unreadable, is out of free quota, is over budget or is paused), the order the rules score best is used instead, at once, and `source` is `rules`. The request never fails and never waits for the AI more than 8 seconds. The sentence then is "Every place is open and every meal is on time in this order." The best score is not always the order with the least travel: waiting and the MRT penalty count too.
+
+**Travel and hours.** Travel between stops is the engine's own estimate (walking when a leg is 15 minutes or less, otherwise a public transport estimate from the distance). This route never calls OneMap, so the times can differ from the itinerary screen's. The route takes that day's `hours` from the caller and knows nothing of a venue's closed weekdays or closure dates: a stop that is closed on that weekday must be sent with `hours` that say so (or the caller must not offer it).
+
+**What limits the AI.** The AI is paid for (Gemini beyond its free tier, Claude always), so its use is bounded, the way Google Places is:
+
+- One budget for every AI call this server makes: `ITINERARY_AI_CALLS_PER_MINUTE` a minute (20 by default; an invalid value means 20) and at most 2 calls at once. A request that finds the budget used up, or both slots taken, is answered by the rules at once. It does not wait.
+- Three failures in a row (an error, a timeout, or an answer that cannot be used) pause the AI for 60 seconds. After that one call is tried; a success closes the circuit.
+- An answer is kept for 10 minutes, for at most 500 plans, under a key made from the provider, the model, the system prompt and the prompt. The same plan asked again within 10 minutes makes no call and gets the same answer. A failure is never kept.
+- One choice takes at most 8 seconds, whichever AI is asked. Gemini's timeout is that, and Claude's call is aborted at that time and never retried (the SDK would otherwise honour a `retry-after` header of any length).
+- A failure is logged at most once a minute per reason, with a fixed sentence and a status or an error name. The log never holds an error message, a response or a key.
+
+**What is sent to the AI.** Venue names and kinds (text from the request, with line breaks and control characters removed), indoor or outdoor, the times, the minutes of travel, whether the last stop is far from an MRT station, and whether rain is expected. Nothing about the people in the group. The model names (`claude-haiku-5-5` by default for Claude, `gemini-3.8-flash` for Gemini; `ANTHROPIC_MODEL` and `GEMINI_MODEL` change them) were not checked against the live APIs: a name the service rejects means a rules answer and one log line.
+
+Request:
+
+```json
+{
+  "stops": [
+    { "id": "s5-eat", "name": "WeWa", "category": "eat", "lat": 1.3204, "lng": 103.8438, "duration": 90, "hours": ["11:00-22:00"], "indoor": true },
+    { "id": "s5-activity", "name": "Shaw Theatres", "category": "activity", "lat": 1.3222, "lng": 103.8445, "duration": 120, "hours": ["10:00-23:59"], "indoor": true },
+    { "id": "s5-shop", "name": "Velocity", "category": "shop", "lat": 1.3201, "lng": 103.8436, "duration": 90, "hours": ["10:00-22:00"], "indoor": true, "mrtWalk": 2 },
+    { "id": "s5-drink", "name": "Atlas", "category": "drink", "lat": 1.3195, "lng": 103.8441, "duration": 60, "hours": ["12:00-18:00"], "indoor": true }
+  ],
+  "startAt": 720,
+  "endAt": 1200,
+  "rain": false,
+  "includeCurrent": false
+}
+```
+
+`stops` are in the current order. `id` is the frontend's slot id. `start` (optional) is the stop's time; a food stop keeps it as its meal time. `hours` are that day's opening hours; a stop with none counts as open. `startAt` and `endAt` are minutes after midnight (`endAt` over 1440 for past midnight, optional). `rain` tells the AI to prefer the outdoor stop while it is dry. `includeCurrent` lets the current order be chosen.
+
+Answer (from a run on a server with no AI key, so `source` is `rules`; with a key it is `ai` and `reason` is the AI's own sentence):
+
+```json
+{
+  "status": "ok",
+  "order": ["s5-eat", "s5-shop", "s5-drink", "s5-activity"],
+  "stops": [
+    { "id": "s5-eat", "start": 720, "end": 810 },
+    { "id": "s5-shop", "start": 810, "end": 900 },
+    { "id": "s5-drink", "start": 901, "end": 961 },
+    { "id": "s5-activity", "start": 966, "end": 1086 }
+  ],
+  "reason": "Every place is open and every meal is on time in this order.",
+  "source": "rules",
+  "restarted": false,
+  "others": 3
+}
+```
+
+or `{ "status": "no_other_order", "message", "blockers" }` when no other order fits. `message` says why, for example "No other order works. Only one stop can move: food stays at meal times." (with `blockers: []`), or, for the same plan with only 3 stops and `endAt: 840`, "No other order works. The plan would end after 14:00." (with `blockers: ["the plan would end after 14:00"]`). `stops` carries each stop's time; the frontend keeps it as the stop's earliest start (`notBefore`), so the free time and the meal times stay as planned.
+
+| Field | Limit |
+|---|---|
+| `stops` | 2 to 8, with at most 6 that are not food, ids all different |
+| a stop's `id`, `name`, `kind` | 1 to 80 characters |
+| a stop's `lat`, `lng` | 1.1 to 1.5 and 103.5 to 104.1 (Singapore, with a little margin) |
+| `shown` | 50 orders, each of at most 8 ids |
+| `duration` | 15 to 720 minutes |
+| `hours` | 4 ranges, each `HH:MM-HH:MM` |
+| `mrtWalk` | 0 to 120 minutes |
+| `startAt`, `endAt`, a stop's `start` | `startAt` 0 to 1439; `endAt` and `start` 0 to 2880 (minutes after midnight, over 1440 for past midnight) |
+
 ## Limits
 
 Every list and number has an upper limit, so one request cannot keep the server busy. Going over any of them is a 400 naming the field.
@@ -473,8 +603,11 @@ Every list and number has an upper limit, so one request cannot keep the server 
 | `currentOptionIds` | 30 (the app shows at most 6 options per slot) |
 | `excludeVenueIds` | 200 |
 | `categories` | 4 (repeats are removed) |
+| `alternatives` (meeting area) | 3 |
+| `include` (meeting area) | 8 area ids, each a known area, none repeated |
 | `cuisineLikes`, `cuisineDislikes` | 20 each per member |
 | any id, name or label | 80 characters |
+| `stops` of `/api/itinerary/arrange` | 8, of which at most 6 are not food (see that route's table) |
 | any weight | 1000 |
 | `budgetMaxPerPerson` | 10000 |
 | `max_price_pp:N` | 5 digits |

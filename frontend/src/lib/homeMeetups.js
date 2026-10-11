@@ -61,14 +61,43 @@ export function whenLine(session, now = new Date()) {
 
 const sharedStarts = (session) => (session.activeIds || []).filter((id) => session.locations?.[id]?.start).length
 
-// Where a meetup stands, for the detail card and the rows. kind: 'area' (a meeting point), 'finding' (the planner is
-// working), 'waiting' (locations still coming in) or 'none' (nothing to say yet).
-// How to call: whereStands(session, 'ian') -> { kind: 'area', text: 'Bugis · about 25 min for you', areaName: 'Bugis', minutes: 25 }
+// While the group is choosing where to meet, the spots listed (empty otherwise) and the one that leads: the spot the most
+// people said works for them (session.spots.preselectedAreaId), or null while nobody has said.
+// How to call: leadingSpot(session) -> { areaId: 'bugis', area: { name: 'Bugis' }, approvalCount: 2, ... }, or null
+export function leadingSpot(session) {
+  if (session.status !== 'locating') return null
+  const lead = (session.spots?.list || []).find((s) => s.areaId === session.spots.preselectedAreaId)
+  return lead && lead.approvalCount > 0 ? lead : null
+}
+
+// The place a meetup row names: the meeting point, or while the group is still choosing, the spot that leads, otherwise
+// that the group is choosing (the planner's fairest area is only a spot among others until the host confirms one).
+// How to call: placeText(session) -> 'Bugis', or 'choosing a spot', or 'no meeting point yet'
+export function placeText(session) {
+  if (session.status === 'locating' && session.spots?.list?.length) return leadingSpot(session)?.area.name || 'choosing a spot'
+  return session.area ? session.area.name : 'no meeting point yet'
+}
+
+// Where a meetup stands, for the detail card and the rows. kind: 'area' (a meeting point), 'spots' (the group is choosing
+// among spots: the one that leads, or how many there are), 'finding' (the planner is working), 'waiting' (locations still
+// coming in) or 'none' (nothing to say yet). `note` is what follows the name.
+// How to call: whereStands(session, 'ian') -> { kind: 'area', text: 'Bugis · about 25 min for you', areaName: 'Bugis', minutes: 25, note: 'about 25 min for you' }
 export function whereStands(session, myId) {
+  if (session.status === 'locating' && session.spots?.list?.length) {
+    const lead = leadingSpot(session)
+    if (lead) {
+      const minutes = lead.times?.[myId] || null
+      const note = minutes ? `is leading · about ${minutes} min for you` : 'is leading'
+      return { kind: 'spots', text: `${lead.area.name} ${note}`, areaName: lead.area.name, minutes, note }
+    }
+    const n = session.spots.list.length
+    const text = `${n} ${n === 1 ? 'spot' : 'spots'} to choose from`
+    return { kind: 'spots', text, areaName: '', minutes: null, note: '' }
+  }
   if (session.area) {
     const minutes = session.meeting?.times?.[myId] || null
     const name = session.area.name
-    return { kind: 'area', text: minutes ? `${name} · about ${minutes} min for you` : name, areaName: name, minutes }
+    return { kind: 'area', text: minutes ? `${name} · about ${minutes} min for you` : name, areaName: name, minutes, note: minutes ? `about ${minutes} min for you` : '' }
   }
   if (session.findingMeeting) return { kind: 'finding', text: 'Finding the fairest midpoint…', areaName: '', minutes: null }
   if (session.status === 'locating') {
@@ -101,6 +130,12 @@ export function nextStepFor(session, myId) {
   if (session.status === 'locating') {
     if (!session.locations?.[myId]?.start) return step('Share your start', 'action')
     if (session.findingMeeting) return step('Finding the midpoint', 'wait')
+    // Spots are listed: the host settles it, and a member who has approved none is asked to pick. The label is short on purpose:
+    // every chip on Home is a pill, and a longer one would need its own shape.
+    if (session.spots?.list?.length) {
+      if (isHost) return step('Confirm the spot', 'action')
+      return session.spots.approvals?.[myId]?.length ? step('Waiting for the host', 'wait') : step('Pick your spots', 'action')
+    }
     if (session.meeting) return isHost ? step('Confirm the meeting point', 'action') : step('Waiting for the host', 'wait')
     return step('Waiting for others', 'wait')
   }

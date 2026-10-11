@@ -18,6 +18,7 @@ import { lastWeather } from '@/lib/plannerApi.js'
 import { FRIEND_PICKS, HOST_ID, PEOPLE } from '@/lib/mock/people.js'
 import { DEMO_ACCOUNT } from './demoAccount.js'
 import { makeDemoPhotos } from './demoPhotos.js'
+import { clearApprovals, friendSuggests, friendsApprove, hasSpots } from './spotDemo.js'
 import { loadShowcase } from './showcase.js'
 import { placeKind } from '@/lib/placeImages.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -56,8 +57,17 @@ const live = computed(() => ['locating', 'voting', 'confirmed'].includes(status.
 const hostLocated = computed(() => !!session.value?.locations?.[HOST_ID]?.start)
 const friendsHint = computed(() => {
   if (status.value === 'inviting') return friendsIn.value.length ? 'Tap Start session on the session page first. Friends share their locations after that.' : 'Invite at least one friend and start the session first.'
-  if (status.value === 'locating' && !hostLocated.value) return 'The meeting point appears once everyone, you included, has shared where they start. Set your From location on the session page.'
+  if (status.value === 'locating' && !hostLocated.value) return 'Spots open once two people have shared where they start, and the meeting point once everyone has. Set your From location on the session page.'
   return ''
+})
+
+// The meeting spots, while the group is choosing where to meet. Why the buttons may be off, so a click never seems to do nothing.
+const spotsOpen = computed(() => hasSpots(session.value))
+const anyApprovals = computed(() => Object.keys(session.value?.spots?.approvals || {}).length > 0)
+const spotsHint = computed(() => {
+  if (!session.value || spotsOpen.value) return ''
+  if (status.value === 'locating') return hostLocated.value ? 'No spots yet. They open once two people have shared where they start: simulate friends submitting locations.' : 'No spots yet. They open once two people have shared where they start: set your From location, then simulate friends submitting locations.'
+  return 'Spots change only while a session is choosing where to meet (after Start session, before Confirm).'
 })
 
 watch(open, async (isOpen) => {
@@ -102,7 +112,7 @@ const simulateLocations = () => act('locations', async () => {
     waiting.map((id) => () => api.setLocation(s.id, id, 'start', { areaId: PEOPLE.find((p) => p.id === id).homeAreaId })),
     SPAN,
   )
-  if (waiting.length && !hostLocated.value) note.value = "Friends' locations are in. Set your own From location to find the meeting point."
+  if (waiting.length && !hostLocated.value) note.value = "Friends' locations are in. Set your own From location so the spots count your trip too."
 })
 
 const simulateVoting = () => act('voting', async () => {
@@ -158,6 +168,12 @@ const simulatePhotos = () => act('photos', async () => {
   note.value = failure ? `Posted ${posted}. ${failure}` : `Posted ${posted} photos. The album is full (${api.PHOTOS_MAX}).`
 })
 
+// A friend suggests a spot (here: they are there already), friends say which spots work for them, or every approval goes.
+// How to call: suggestSpot(true)
+const suggestSpot = (here) => act('spots', async () => { note.value = await friendSuggests(api, session.value, friendsIn.value, { here }) })
+const approveSpots = () => act('spots', async () => { note.value = await friendsApprove(api, session.value, friendsIn.value) })
+const clearSpotApprovals = () => act('spots', async () => { note.value = await clearApprovals(api, session.value) })
+
 const applyChange = () => act('change', async () => {
   const { personId, which, areaId } = change.value
   await api.setLocation(session.value.id, personId, which, { areaId })
@@ -186,7 +202,7 @@ const loadShowcaseData = () => act('showcase', async () => {
   note.value = 'Loading showcase data'
   try {
     const result = await loadShowcase({ onProgress: ({ done, total }) => (note.value = `Loading showcase data: ${done} of ${total} sessions`) })
-    note.value = `${result.sessions.length} sessions loaded.${result.planner === 'backend' ? '' : ' The planner is not running, so meeting areas and places are rough stand-ins, and the voting screens need it.'}`
+    note.value = `${result.sessions.length} sessions loaded.${result.planner === 'backend' ? '' : ' The planner is not running, so meeting areas and places are rough stand-ins. Confirming a spot, suggesting one and the voting screens need it.'}`
   } finally {
     await events.loadSessions()
   }
@@ -237,6 +253,15 @@ const setCondition = (key, value) => planner.setCondition(key, value)
     <!-- What the last action did (or why it could not), at the top so it is seen without scrolling. -->
     <p v-if="note" class="body-sm demo-note" role="status">{{ note }}</p>
 
+    <!-- First, since it is what a presenter starts with: the sessions every other group below acts on. -->
+    <section class="demo-group">
+      <h3 class="title-md">Showcase</h3>
+      <p class="body-sm text-muted">Replaces your sessions with ten, one for each state a screen can show, including two in the vote for where to meet (you host one, a friend hosts the other) and one where the place was already decided.</p>
+      <AppButton block variant="secondary" :disabled="!!running" @click="askShowcase = true">
+        {{ running === 'showcase' ? 'Loading showcase data' : 'Load showcase data' }}
+      </AppButton>
+    </section>
+
     <section class="demo-group">
       <h3 class="title-md">Friends</h3>
       <p v-if="friendsHint" class="body-sm text-muted">{{ friendsHint }}</p>
@@ -249,6 +274,16 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       <AppButton block variant="secondary" :disabled="!session || !['confirmed', 'completed'].includes(status) || !!running" @click="simulatePhotos">
         {{ running === 'photos' ? 'Posting photos' : 'Fill the album with photos' }}
       </AppButton>
+    </section>
+
+    <section class="demo-group">
+      <h3 class="title-md">Meeting spots</h3>
+      <p v-if="spotsHint" class="body-sm text-muted">{{ spotsHint }}</p>
+      <p v-else class="body-sm text-muted">A suggestion needs the planner backend to work out travel times; saying which spots work does not.</p>
+      <AppButton block variant="secondary" :disabled="!spotsOpen || !!running" @click="suggestSpot(false)">A friend suggests a spot</AppButton>
+      <AppButton block variant="secondary" :disabled="!spotsOpen || !!running" @click="suggestSpot(true)">A friend suggests a spot they are at</AppButton>
+      <AppButton block variant="secondary" :disabled="!spotsOpen || !!running" @click="approveSpots">Friends say which spots work</AppButton>
+      <AppButton block variant="secondary" :disabled="!spotsOpen || !anyApprovals || !!running" @click="clearSpotApprovals">Clear the approvals</AppButton>
     </section>
 
     <section class="demo-group">
@@ -281,15 +316,6 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       <p v-if="conditions.rain && lastWeather?.simulationIgnored" class="body-sm text-muted" role="status">This server ignores simulated rain. Set ALLOW_SIMULATED_WEATHER=1 in backend/.env.</p>
       <ToggleSwitch :model-value="!conditions.routing" label="Routing unavailable" @update:model-value="setCondition('routing', !$event)" />
       <ToggleSwitch :model-value="conditions.sessionDay" label="It is the session day" @update:model-value="setCondition('sessionDay', $event)" />
-    </section>
-
-
-    <section class="demo-group">
-      <h3 class="title-md">Showcase</h3>
-      <p class="body-sm text-muted">Replaces your sessions with ten, one for each state a screen can show: just created, invites pending, waiting for locations, voting, confirmed today and ahead, completed with photos, a long title, and one a friend hosts.</p>
-      <AppButton block variant="secondary" :disabled="!!running" @click="askShowcase = true">
-        {{ running === 'showcase' ? 'Loading showcase data' : 'Load showcase data' }}
-      </AppButton>
     </section>
 
     <section class="demo-group">

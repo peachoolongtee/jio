@@ -183,6 +183,16 @@ describe('GET /api/places/search (start and end points, meeting spots)', () => {
     }
   })
 
+  it('names a home address by its street when OneMap names it only by its postal code', async () => {
+    const homes = [1, 2, 3].map((i) => ({ name: '760201', address: `20${i} YISHUN STREET 21 SINGAPORE 760201`, postal: '760201', lat: 1.43, lng: 103.83 }))
+    const app = await start({ onemap: { routingEnabled: false, search: async () => homes } })
+    try {
+      expect((await app.get('760201')).body.results[0].name).toBe('201 YISHUN STREET 21 SINGAPORE 760201')
+    } finally {
+      await app.close()
+    }
+  })
+
   it('answers with Google when OneMap is down, and 503 only when both are', async () => {
     const down = async () => {
       throw new ExternalApiError('onemap answered 503', { service: 'onemap', status: 503, url: 'x' })

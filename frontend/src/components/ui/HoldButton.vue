@@ -9,18 +9,18 @@ export function isAssistiveClick(event, keyHeld = false) {
 </script>
 
 <script setup>
-// A button you press and hold to confirm something that cannot be undone, such as ending a session. While held, a
+// A button you press and hold to confirm something that cannot be undone, such as cancelling an outing. While held, a
 // fill sweeps across it; letting go early runs it back. Held to the end, it emits `done` (follow it with a
 // confirmation). Works with a pointer (mouse, touch) and with Space or Enter held down. A screen reader, switch or
 // voice control cannot hold, so their activation (a click that is not from a pointer or a held key) emits `done` at
 // once: the confirmation that follows is what keeps it safe.
-//   <HoldButton label="Hold to end" @done="confirmOpen = true" />
+//   <HoldButton label="Hold to cancel" action="Cancel outing" @done="confirmOpen = true" />
 import { onBeforeUnmount, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
   label: { type: String, required: true },
-  // Said to screen readers, for example "End session".
+  // Said to screen readers, for example "Cancel outing".
   action: { type: String, default: '' },
   icon: { type: String, default: 'close' },
   duration: { type: Number, default: 1200 },

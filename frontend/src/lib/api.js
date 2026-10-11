@@ -15,6 +15,9 @@ import { reviewsFor } from './mock/reviews.js'
 import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
+import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
+import * as auth from './auth.js'
+import { localAccountsAllowed } from './supabase.js'
 import { addDays, format, isValid, parseISO } from 'date-fns'
 
 export { api } from './plannerApi.js'
@@ -24,7 +27,8 @@ const STORAGE_KEY = 'jio-demo-v1'
 // 6: full standings kept for past seasons, and each friend's fixed meetups this season (no ties in the demo).
 // Older saves start fresh, keeping the account and friends.
 // 8: everyone starts with points this season and a finished last season.
-const VERSION = 8
+// 9: a session has `spots` (the meeting spots, suggestions and approvals).
+const VERSION = 9
 // How many ranked places to ask for per slot: enough to top a slot up to its maximum.
 const RANKED_MAX = 10
 // meeting: the least time the "finding the meeting point" loading bar shows (long enough for it to fill up). The planner answers in milliseconds
@@ -99,13 +103,23 @@ const isList = (v, check) => Array.isArray(v) && v.every(check)
 // The account in a save, when it looks like one. How to call: validUser({ id: 'ian', name: 'Ian', username: 'ian' }) -> true
 const validUser = (u) => isObject(u) && ['id', 'name', 'username'].every((key) => typeof u[key] === 'string')
 
+// The meeting spots of a session, when they look right: a list, and who approved and suggested what.
+// How to call: validSpots({ list: [], approvals: {}, suggestions: {} }) -> true
+const validSpots = (spots) =>
+  isObject(spots) &&
+  isList(spots.list, (spot) => isObject(spot) && typeof spot.areaId === 'string' && isObject(spot.times)) &&
+  isObject(spots.approvals) &&
+  Object.values(spots.approvals).every((areas) => isList(areas, (a) => typeof a === 'string')) &&
+  isObject(spots.suggestions)
+
 // A session in a save, when every field the screens read without checking is there.
 const validSession = (s) =>
   isObject(s) &&
   typeof s.id === 'string' &&
   Array.isArray(s.members) &&
   Array.isArray(s.deletedSlots) &&
-  ['locations', 'prefs', 'options', 'votes'].every((key) => isObject(s[key]))
+  ['locations', 'prefs', 'options', 'votes'].every((key) => isObject(s[key])) &&
+  validSpots(s.spots)
 
 // Does a save with the current version hold every top-level field freshDb() makes, of the right kind?
 // A version number alone is not proof: a hand-edited or half-written save would crash the first screen that reads it.
@@ -135,9 +149,18 @@ const keepable = (saved) => ({
   friends: isList(saved.friends, (f) => typeof f === 'string') ? saved.friends : [],
 })
 
-function load() {
+// Where the save in `db` is written. A local account (and every account before Supabase) uses STORAGE_KEY. A real
+// account has its own key, so two accounts in one browser never share a save and a local save is never shown to a
+// real account. null: nobody is signed in after a real account signed out, so nothing is written and the local
+// save, if there is one, is left alone.
+let storageKey = STORAGE_KEY
+// How to call: accountKey('7f3c...') -> 'jio-demo-v1:acct:7f3c...'
+const accountKey = (authId) => `${STORAGE_KEY}:acct:${authId}`
+
+// How to call: load() for the local save, or load(accountKey(user.id)) for a real account's
+function load(key = STORAGE_KEY) {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY))
+    const saved = JSON.parse(localStorage.getItem(key))
     if (hasShape(saved)) {
       // Only the switches the demo knows (a save from before the crowd switch was cut still has one).
       const defaults = defaultConditions()
@@ -154,8 +177,19 @@ function load() {
 }
 
 let db = load()
+
+// The state as text, for the save. A real account's date of birth stays out of it: it is a private field in the account
+// (profile_private), so it is kept in memory for this visit and read back from the account or the session, never left
+// in plain text in the browser after sign-out.
+// How to call: asText() -> '{"version":8,"user":{"id":"ian","authId":"7f3c..."},...}' (no "dob" on a real account)
+function asText(state = db) {
+  if (!state.user?.authId || !('dob' in state.user)) return JSON.stringify(state)
+  const { dob: _private, ...user } = state.user
+  return JSON.stringify({ ...state, user })
+}
+
 // The state as last saved (or loaded), as text. A write that cannot be saved puts the demo back to this.
-let stored = JSON.stringify(db)
+let stored = asText()
 const listeners = new Set()
 
 // Can storage take a small write at all? Without it (no storage, or a private window that refuses everything),
@@ -172,9 +206,9 @@ function storageWorks() {
 
 // Returns false only when storage works but refuses this write because it is full.
 function save() {
-  const text = JSON.stringify(db)
+  const text = asText()
   try {
-    localStorage.setItem(STORAGE_KEY, text)
+    if (storageKey !== null) localStorage.setItem(storageKey, text)
   } catch {
     if (storageWorks()) return false
   }
@@ -191,15 +225,18 @@ function replaceContents(target, source) {
 // Put the in-memory state back to what is stored. Sessions are restored in place: a write still waiting on the
 // planner keeps working on the same object.
 function rollback() {
-  const saved = JSON.parse(stored)
+  const back = JSON.parse(stored)
+  const dob = db.user?.authId ? db.user.dob : undefined
   const live = new Map(db.sessions.map((s) => [s.id, s]))
-  saved.sessions = saved.sessions.map((s) => {
+  back.sessions = back.sessions.map((s) => {
     const same = live.get(s.id)
     if (!same) return s
     replaceContents(same, s)
     return same
   })
-  replaceContents(db, saved)
+  replaceContents(db, back)
+  // The date of birth is not in the save (see asText), so it is put back from memory.
+  if (dob && db.user?.authId) db.user.dob = dob
 }
 
 function broadcast(event) {
@@ -295,37 +332,254 @@ function membersFor(session) {
     })
 }
 
+// Who ranking places is for: the people with a start, as membersFor sends them. A known place can be set before
+// anyone has shared a start, and the planner needs at least one person, so then everyone is sent starting at the
+// meeting area (they have no trip to it, so nobody is favoured).
+// How to call: rankingMembers(session) -> [{ id, name, start: { lat, lng }, end: { lat, lng } }]
+function rankingMembers(session) {
+  const members = membersFor(session)
+  if (members.length || !session.meeting) return members
+  const centre = areaById(session.meeting.areaId)
+  return activeIds(session).map((id) => ({ id, name: nameOf(id), start: { lat: centre.lat, lng: centre.lng }, end: { lat: centre.lat, lng: centre.lng } }))
+}
+
 // Sessions whose meeting area the planner is working out right now. getSession shows it as `findingMeeting`.
 const finding = new Set()
+// Sessions whose meeting spots the planner is working out right now. getSession shows it as `findingSpots`.
+const findingSpots = new Set()
+
+// ── Meeting spots ──────────────────────────────────────────────────────────
+
+// The app lists this many spots: the chosen area and its runners-up.
+const APP_SPOTS = 3
+// The planner prices up to this many extra areas in one request (its `include` limit): members' suggestions.
+const SUGGESTIONS_MAX = 8
+
+// The spots of a new session: nothing listed, approved or suggested yet. appMethod is how the planner described its own
+// pick last time ('same', 'fairest' or 'centre'), which confirming the app's first spot keeps. How to call: emptySpots()
+const emptySpots = () => ({ list: [], approvals: {}, suggestions: {}, appMethod: null })
+// How to call: sumOf([20, 25]) -> 45
+const sumOf = (numbers) => numbers.reduce((sum, n) => sum + n, 0)
+const SESSION_ENDED = 'This session has ended.'
+
+// Minutes by person, rounded. How to call: roundedTimes({ ian: 24.6 }) -> { ian: 25 }
+const roundedTimes = (travelByMember) => Object.fromEntries(Object.entries(travelByMember).map(([id, minutes]) => [id, Math.round(minutes)]))
+
+// What the planner answered as a list of priced areas, the chosen one first. An older backend sends no `candidates`:
+// then the chosen area is the only one.
+// How to call: candidatesOf(data) -> [{ area, travelByMember, approximate, source? }]
+const candidatesOf = (data) => (data.candidates?.length ? data.candidates : [data])
+
+// Are the planner's times all its own estimate? The flag on a candidate only says a route call failed, so with no routing
+// account (every time is a straight-line estimate) it stays false; the answer's `travel.source` says it.
+// How to call: estimatedBy({ travel: { source: 'estimate' } }) -> true
+const estimatedBy = (data) => data.travel?.source === 'estimate'
+
+// One priced area as a spot's numbers: the longest trip, the average and each person's minutes, all from the same
+// rounded minutes the screens show. Alike for the app's spots and a member's. The times are approximate when the
+// candidate says so or when `estimated` (the whole answer is the planner's estimate). `exactWorst` is the longest trip
+// before rounding: the screens round, but the order of spots never does.
+// How to call: pricedSpot({ travelByMember: { ian: 20, jonathan: 30 }, approximate: false }, false) -> { worstMinutes: 30, meanMinutes: 25, ... }
+function pricedSpot(candidate, estimated = false) {
+  const times = roundedTimes(candidate.travelByMember)
+  const minutes = Object.values(times)
+  return {
+    worstMinutes: Math.max(...minutes),
+    meanMinutes: Math.round(sumOf(minutes) / minutes.length),
+    exactWorst: Math.max(...Object.values(candidate.travelByMember)),
+    times,
+    approximate: !!candidate.approximate || estimated,
+  }
+}
+
+// How the planner's own pick is described: 'same' (everyone starts together), 'fairest' or 'centre' (routing is off).
+// How to call: plannerMethod(members, data) -> 'fairest'
+function plannerMethod(members, data) {
+  const same = members.every((m) => P.distanceKm(m.start, members[0].start) < P.SAME_PLACE_KM)
+  return same ? 'same' : data.method === 'station' ? 'fairest' : 'centre'
+}
 
 // The meeting area, in the shape meetingResultLine and recalculate read: { areaId, method, times, maxMinutes, ... }.
-async function computeMeeting(session) {
-  const members = membersFor(session)
-  if (members.length < P.MIN_LOCATIONS) return null
-  // While the group is collecting locations, the meeting point waits for everyone. Once the plan has moved on, a
-  // late location (someone invited later) is worked in through the re-plan prompt instead.
-  if (session.status === 'locating' && members.length < activeIds(session).length) return null
-  // Show the new location and the "finding" animation straight away; the answer follows.
-  finding.add(session.id)
-  let data
-  try {
-    emit({ type: 'pending', sessionId: session.id })
-    ;[data] = await Promise.all([planner.meetingArea({ members, routing: db.conditions.routing }), wait(DELAY.meeting)])
-  } finally {
-    finding.delete(session.id)
-  }
-  const times = Object.fromEntries(Object.entries(data.travelByMember).map(([id, minutes]) => [id, Math.round(minutes)]))
+// How to call: meetingFrom(members, data)
+function meetingFrom(members, data) {
+  const times = roundedTimes(data.travelByMember)
   const minutes = Object.values(times)
-  const same = members.every((m) => P.distanceKm(m.start, members[0].start) < P.SAME_PLACE_KM)
   return {
     areaId: data.area.id,
-    method: same ? 'same' : data.method === 'station' ? 'fairest' : 'centre',
+    method: plannerMethod(members, data),
     times,
     maxMinutes: Math.max(...minutes),
-    totalMinutes: minutes.reduce((sum, m) => sum + m, 0),
+    totalMinutes: sumOf(minutes),
     count: members.length,
-    approximate: data.approximate,
+    approximate: !!data.approximate || estimatedBy(data),
   }
+}
+
+// The meeting area for a chosen spot: the host's pick, or what the group approved. `spot` has times (maybe none),
+// worstMinutes and approximate. With no start shared yet there is no trip to count.
+// How to call: meetingAtSpot('bugis', 'chosen', spot) -> { areaId: 'bugis', method: 'chosen', times, maxMinutes, ... }
+function meetingAtSpot(areaId, method, spot) {
+  const minutes = Object.values(spot.times)
+  return { areaId, method, times: { ...spot.times }, maxMinutes: spot.worstMinutes ?? 0, totalMinutes: sumOf(minutes), count: minutes.length, approximate: spot.approximate }
+}
+
+// One request to the planner for the meeting area. `bar`: show the "finding the meeting point" bar and keep it up for
+// a moment. `spots`: say the spots are being worked out. Show the change straight away; the answer follows.
+// How to call: await askMeeting(session, membersFor(session), { alternatives: 2 }, { spots: true })
+async function askMeeting(session, members, extra, { bar = false, spots = false } = {}) {
+  if (bar) finding.add(session.id)
+  if (spots) findingSpots.add(session.id)
+  try {
+    if (bar || spots) emit({ type: 'pending', sessionId: session.id })
+    const [data] = await Promise.all([planner.meetingArea({ members, routing: db.conditions.routing, ...extra }), bar ? wait(DELAY.meeting) : null])
+    return data
+  } finally {
+    finding.delete(session.id)
+    findingSpots.delete(session.id)
+  }
+}
+
+// Which areas members suggested, once each: they go in the planner's `include`.
+// How to call: suggestedAreas(session) -> ['bugis']
+const suggestedAreas = (session) => [...new Set(Object.values(session.spots.suggestions).map((s) => s.areaId))]
+
+// The planner's answer as spots: the app's areas in its order, and every priced area by id. `method` describes the
+// app's first suggestion.
+// How to call: spotsFrom(members, data) -> { appIds: ['bishan', ...], entries: Map, method: 'fairest' }
+function spotsFrom(members, data) {
+  const candidates = candidatesOf(data)
+  return {
+    appIds: candidates.filter((c) => c.source !== 'included').slice(0, APP_SPOTS).map((c) => c.area.id),
+    entries: new Map(candidates.map((c) => [c.area.id, pricedSpot(c, estimatedBy(data))])),
+    method: plannerMethod(members, data),
+  }
+}
+// Fewer than two starts: the app has nothing to list.
+const NO_SPOTS = { appIds: [], entries: new Map(), method: null }
+
+// The list of spots: the app's, then each suggested area that is not one of them. A spot is the app's when the app
+// lists it, even if a member suggested it too; otherwise it is the first member who suggested it, and it carries "here"
+// if any of them marked it. An area with no price is left out.
+// How to call: listFrom(['bishan'], entries, { jonathan: { areaId: 'bugis', here: false } }) -> [{ areaId: 'bishan', by: 'app', ... }, ...]
+function listFrom(appIds, entries, suggestions) {
+  const order = [...appIds]
+  for (const { areaId } of Object.values(suggestions)) if (!order.includes(areaId)) order.push(areaId)
+  return order
+    .filter((areaId) => entries.has(areaId))
+    .map((areaId) => {
+      const suggesters = Object.entries(suggestions).filter(([, s]) => s.areaId === areaId)
+      const { worstMinutes, meanMinutes, exactWorst, times, approximate } = entries.get(areaId)
+      return { areaId, by: appIds.includes(areaId) ? 'app' : suggesters[0][0], here: suggesters.some(([, s]) => s.here), worstMinutes, meanMinutes, exactWorst, times: { ...times }, approximate }
+    })
+}
+
+// The list again from what is stored, with no planner: for a change that adds no new area to price.
+// How to call: relistFromStored(session) -> a list
+function relistFromStored(session) {
+  const { list, suggestions } = session.spots
+  return listFrom(list.filter((s) => s.by === 'app').map((s) => s.areaId), new Map(list.map((s) => [s.areaId, s])), suggestions)
+}
+
+// Make `list` the session's spots. Approvals for a spot that is no longer listed go with it.
+// Returns the area ids that lost approvals.
+// How to call: setSpotList(session, list) -> ['orchard']
+function setSpotList(session, list) {
+  const listed = new Set(list.map((s) => s.areaId))
+  const lost = new Set()
+  const { approvals } = session.spots
+  for (const [person, areas] of Object.entries(approvals)) {
+    const kept = areas.filter((a) => listed.has(a))
+    for (const a of areas) if (!listed.has(a)) lost.add(a)
+    if (kept.length) approvals[person] = kept
+    else delete approvals[person]
+  }
+  session.spots.list = list
+  return [...lost]
+}
+
+// Work in what the planner answered: the app's spots and every spot's travel times are new. A suggestion the planner
+// could not price (an older backend) is dropped. Returns the area ids that lost approvals.
+// How to call: applyPlannedSpots(session, spotsFrom(members, data)) -> []
+function applyPlannedSpots(session, planned) {
+  const { spots } = session
+  const list = listFrom(planned.appIds, planned.entries, spots.suggestions)
+  if (planned !== NO_SPOTS) {
+    const listed = new Set(list.map((s) => s.areaId))
+    for (const [person, s] of Object.entries(spots.suggestions)) if (!listed.has(s.areaId)) delete spots.suggestions[person]
+  }
+  spots.appMethod = planned.method
+  return setSpotList(session, list)
+}
+
+// The words for approvals that went with a spot. How to call: lostApprovalsNote(['orchard']) -> 'Orchard is no longer on the list, so approvals for it were removed.'
+function lostApprovalsNote(areaIds) {
+  const names = areaIds.map((areaId) => areaById(areaId)?.name || areaId)
+  const one = names.length === 1
+  const joined = one ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+  return `${joined} ${one ? 'is' : 'are'} no longer on the list, so approvals for ${one ? 'it' : 'them'} were removed.`
+}
+// The banner that says so, the way VOTES_CLEARED does for votes. `reason` is the sentence before it.
+// How to call: lostApprovalsBanner('Jonathan\'s start location changed.', ['orchard']) -> { text, at, approvalsRemoved: true }
+const lostApprovalsBanner = (reason, areaIds) => ({ text: `${reason} ${lostApprovalsNote(areaIds)}`, at: Date.now(), approvalsRemoved: true })
+
+// How many active members said a spot works for them. How to call: approvalCount(session, 'bugis') -> 2
+const approvalCount = (session, areaId) => activeIds(session).filter((id) => session.spots.approvals[id]?.includes(areaId)).length
+
+// The longest trip to a spot, before rounding when it is known: the screens round, the order never does.
+// How to call: longestTrip({ worstMinutes: 30, exactWorst: 29.6 }) -> 29.6
+const longestTrip = (spot) => spot.exactWorst ?? spot.worstMinutes ?? 0
+
+// The spot the host is offered. With nobody's approval it is the first of the list, which is the planner's own pick (never
+// reordered by rounded minutes). Otherwise the most approved; a tie among those goes to the shortest longest trip, then to
+// the list's own order. Null when no spot is listed.
+// How to call: preselectedSpot(session) -> { areaId: 'bugis', ... }
+function preselectedSpot(session) {
+  const { list } = session.spots
+  const most = Math.max(0, ...list.map((s) => approvalCount(session, s.areaId)))
+  if (!most) return list[0] || null
+  return list.filter((s) => approvalCount(session, s.areaId) === most).reduce((best, s) => (longestTrip(s) < longestTrip(best) ? s : best))
+}
+
+// A meeting that was chosen, not found: its area stays when a start changes, and only the travel times move.
+// How to call: pinnedAreaOf(session) -> 'bugis', or null
+const pinnedAreaOf = (session) => (['voted', 'chosen'].includes(session.meeting?.method) ? session.meeting.areaId : null)
+
+// A chosen meeting area, with its travel times from the starts there are. Asks the planner once, to price that area.
+// With no start shared there is nothing to ask. Returns { meeting, pinnedSpot } (pinnedSpot: the area's new numbers).
+// How to call: await computePinned(session, membersFor(session), 'bugis')
+async function computePinned(session, members, areaId, method = session.meeting.method, { bar = true } = {}) {
+  if (!members.length) return { meeting: meetingAtSpot(areaId, method, { times: {}, worstMinutes: null, approximate: false }), pinnedSpot: null }
+  const data = await askMeeting(session, members, { include: [areaId] }, { bar })
+  const candidate = candidatesOf(data).find((c) => c.area.id === areaId)
+  if (!candidate) throw new Error(`The planner could not work out travel times to ${areaById(areaId).name}.`)
+  const pinnedSpot = { areaId, ...pricedSpot(candidate, estimatedBy(data)) }
+  return { meeting: meetingAtSpot(areaId, method, pinnedSpot), pinnedSpot }
+}
+
+// Put a chosen area's new numbers on its spot in the list, when it has one.
+// How to call: refreshSpot(session, { areaId, worstMinutes, meanMinutes, exactWorst, times, approximate })
+function refreshSpot(session, priced) {
+  const spot = session.spots.list.find((s) => s.areaId === priced.areaId)
+  if (spot) Object.assign(spot, { worstMinutes: priced.worstMinutes, meanMinutes: priced.meanMinutes, exactWorst: priced.exactWorst, times: { ...priced.times }, approximate: priced.approximate })
+}
+
+// The meeting area, and while the group is choosing where to meet, the spots. One request to the planner does both.
+// Returns { meeting, spots, pinnedSpot }: meeting in the shape meetingResultLine and recalculate read ({ areaId, method,
+// times, maxMinutes, ... }), spots as spotsFrom gives them (or null when they are not worked out in this state).
+// How to call: const { meeting, spots } = await computeMeeting(session)
+async function computeMeeting(session) {
+  const members = membersFor(session)
+  const pinned = pinnedAreaOf(session)
+  if (pinned) return { spots: null, ...(await computePinned(session, members, pinned)) }
+  const locating = session.status === 'locating'
+  if (members.length < P.MIN_LOCATIONS) return { meeting: null, spots: locating ? NO_SPOTS : null, pinnedSpot: null }
+  // While the group is collecting locations, the meeting point waits for everyone, but the spots are listed from two
+  // starts on. Once the plan has moved on, a late location (someone invited later) is worked in through the re-plan
+  // prompt instead.
+  const wantMeeting = !locating || members.length === activeIds(session).length
+  const extra = locating ? { alternatives: APP_SPOTS - 1, include: suggestedAreas(session) } : {}
+  const data = await askMeeting(session, members, extra, { bar: wantMeeting, spots: locating })
+  return { meeting: wantMeeting ? meetingFrom(members, data) : null, spots: locating ? spotsFrom(members, data) : null, pinnedSpot: null }
 }
 
 function activePrefs(session) {
@@ -368,7 +622,7 @@ function endPlaceOf(session, id) {
 // while they still fit. Every venue in the answer is remembered, so options and the itinerary can show it later.
 async function rankSlot(session, slot, slots, currentOptionIds = session.options[slot.id] || []) {
   const ranked = await planner.rankSlot({
-    members: membersFor(session),
+    members: rankingMembers(session),
     centre: areaById(session.meeting.areaId),
     date: session.date,
     slot,
@@ -393,6 +647,55 @@ const takeTicket = (session, kind) => {
   const key = `${session.id}:${kind}`
   const ticket = (tickets[key] = (tickets[key] || 0) + 1)
   return () => ticket === tickets[key]
+}
+
+// What a request for the meeting area and spots depended on: who has a start and where, who is in, whether the group is
+// still choosing (or has confirmed an area, which then stays), the routing switch, and the areas members suggested.
+// How to call: askedFor(session) -> { basis: '...', suggested: ['bugis'] }
+const askedFor = (session) => ({
+  basis: JSON.stringify([session.status === 'locating', pinnedAreaOf(session), db.conditions.routing, activeIds(session), membersFor(session)]),
+  suggested: suggestedAreas(session),
+})
+// Was an answer asked for the session as it is now? It must be for the same starts, people and state, and have priced every
+// area suggested since (an extra priced area does no harm).
+// How to call: fitsNow(asked, session) -> true
+function fitsNow(asked, session) {
+  const now = askedFor(session)
+  return now.basis === asked.basis && now.suggested.every((areaId) => asked.suggested.includes(areaId))
+}
+
+// Per session, whether the newest request put its answer in (true), or failed or was out of date (false).
+const newestRun = {}
+// How many times a request asks again when what it asked for has changed meanwhile.
+const ASK_AGAIN = 3
+
+// Ask the planner about the session as it is now and put the answer in with `apply(answer)`, so that an older answer never
+// overwrites a newer state. Every request that rebuilds the meeting area or the spots shares one ticket. An answer is put
+// in only if it is the newest request's and was asked for the starts, people and suggestions the session has now; if it
+// is not the newest, it waits for the newer one and, when that one fails, asks again; if the session changed in a way no
+// newer request covers (the host confirmed a spot, say), it asks again for the session as it is. `ask` runs for each try.
+// Returns true when an answer is in (this request's or a newer one's), false after the last try.
+// How to call: await latestAnswer(session, () => computeMeeting(session), async (answer) => { session.meeting = answer.meeting })
+async function latestAnswer(session, ask, apply) {
+  for (let attempt = 0; attempt < ASK_AGAIN; attempt++) {
+    const isLatest = takeTicket(session, 'meeting')
+    const asked = askedFor(session)
+    let settle
+    newestRun[session.id] = new Promise((resolve) => { settle = resolve })
+    let put = false
+    try {
+      const answer = await ask()
+      if (isLatest() && fitsNow(asked, session)) {
+        await apply(answer)
+        put = true
+        return true
+      }
+    } finally {
+      settle(put)
+    }
+    if (!isLatest() && (await newestRun[session.id])) return true
+  }
+  return false
 }
 
 // Every place that fits a slot, best first: the suggestions, then current options ranked further down.
@@ -424,11 +727,10 @@ const VOTES_CLEARED = 'Votes for places were cleared.'
 // Does a session hold any vote for a place? How to call: hasVotes(session) -> true
 const hasVotes = (session) => Object.values(session.votes || {}).some((votes) => Object.keys(votes).length > 0)
 
-// A start or end location changed, a late location arrived, or someone opted out.
-async function applyTrigger(session, trigger) {
-  const isLatest = takeTicket(session, 'meeting')
-  const next = await computeMeeting(session)
-  if (!isLatest()) return
+// Work what the planner answered into the session after a trigger: the meeting area, the spots (while choosing) and the place
+// options. Runs only for an answer that is current (see latestAnswer).
+// How to call: await putInMeeting(session, { kind: 'start', personName: 'Ian' }, await computeMeeting(session))
+async function putInMeeting(session, trigger, { meeting: next, spots, pinnedSpot }) {
   const previous = session.meeting
   const outcome = P.recalculate({
     status: session.status,
@@ -444,28 +746,106 @@ async function applyTrigger(session, trigger) {
   }
   if (outcome.mode !== 'apply') return
   session.meeting = next
+  // The spots are new too (while locating). Approvals for a spot that dropped out of the list went with it.
+  const lost = spots ? applyPlannedSpots(session, spots) : []
+  if (pinnedSpot) refreshSpot(session, pinnedSpot)
   // Votes that were there and are gone: the banner says so, and SessionNotices shows it (votesCleared).
   const cleared = outcome.clearVotes && hasVotes(session)
   if (outcome.clearVotes) session.votes = {}
   if (outcome.refreshSuggestions) session.options = {}
   await syncOptions(session)
-  if (outcome.banner) session.banner = { text: cleared ? `${outcome.banner} ${VOTES_CLEARED}` : outcome.banner, at: Date.now(), ...(cleared ? { votesCleared: true } : {}) }
+  let text = outcome.banner ? (cleared ? `${outcome.banner} ${VOTES_CLEARED}` : outcome.banner) : null
+  if (lost.length) text = lostApprovalsBanner(text || P.recalcBanner({ previousName: null, nextName: null, trigger }), lost).text
+  if (text) session.banner = { text, at: Date.now(), ...(cleared ? { votesCleared: true } : {}), ...(lost.length ? { approvalsRemoved: true } : {}) }
 }
 
-// For a write that needs the planner: if the planner cannot answer, put the session back as it was, so nothing
-// is half-saved (a location kept but not shown, Voting with no options). The caller still gets the error.
-async function orUndo(session, change) {
-  const before = clone(session)
-  try {
-    return await change()
-  } catch (err) {
+// A start or end location changed, a late location arrived, or someone opted out. The answer is put in only if it is
+// current: not the newest request's, or asked before the host confirmed a spot, it is dropped and asked again.
+// How to call: await applyTrigger(session, { kind: 'start', personName: 'Ian' })
+async function applyTrigger(session, trigger) {
+  await latestAnswer(session, () => computeMeeting(session), (answer) => putInMeeting(session, trigger, answer))
+}
+
+// ── A write that fails takes back only its own change ───────────────────────
+
+// Writes saved so far, per session. A write that fails compares it with the count it began at: a different count means
+// another write was saved while it waited (a host confirmed, someone said a spot works for them).
+const commits = {}
+const commitsOf = (session) => commits[session.id] || 0
+// The writes now waiting on the planner, per session, with what each changed straight away.
+const waiting = {}
+
+// An object that is not an array or null. How to call: isPlain({}) -> true
+const isPlain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+// Equal as stored data (the session is plain JSON). How to call: sameValue({ a: 1 }, { a: 1 }) -> true
+const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+// The value at a path of keys, or undefined. How to call: valueAt({ a: { b: 1 } }, ['a', 'b']) -> 1
+const valueAt = (root, path) => path.reduce((value, key) => (value == null ? undefined : value[key]), root)
+
+// Where two values differ, as paths of keys, going down through objects; an array or a plain value is compared whole.
+// How to call: changedPaths({ a: { b: 1, c: 1 } }, { a: { b: 2, c: 1 } }) -> [['a', 'b']]
+function changedPaths(from, to, path = []) {
+  if (isPlain(from) && isPlain(to)) return [...new Set([...Object.keys(from), ...Object.keys(to)])].flatMap((key) => changedPaths(from[key], to[key], [...path, key]))
+  return sameValue(from, to) ? [] : [path]
+}
+
+// Put a value at a path; undefined removes it. A path whose parent is gone is left alone.
+// How to call: putAt(session, ['spots', 'suggestions', 'faith'], undefined)
+function putAt(root, path, value) {
+  const parent = valueAt(root, path.slice(0, -1))
+  if (!isPlain(parent)) return
+  if (value === undefined) delete parent[path.at(-1)]
+  else parent[path.at(-1)] = value
+}
+
+// Do two paths run into each other (one is the start of the other)? How to call: overlap(['a', 'b'], ['a']) -> true
+const overlap = (a, b) => a.slice(0, b.length).every((key, i) => key === b[i]) && b.slice(0, a.length).every((key, i) => key === a[i])
+
+// Put back what a failed write changed. Alone, that is the whole session as it was. With others around it is only its own
+// change: what it changed straight away goes back unless someone changed it since; what it changed later (after the
+// planner answered) goes back only if no other write was saved meanwhile, and never what another waiting write changed.
+// Whatever the session moved on to (a confirmed spot, an approval) stays.
+// How to call: takeBack(session, before, mine, commitsAtStart)
+function takeBack(session, before, mine, commitsAtStart) {
+  const others = [...(waiting[session.id] || [])].filter((entry) => entry !== mine)
+  const movedOn = commitsOf(session) !== commitsAtStart
+  if (!others.length && !movedOn) {
     for (const key of Object.keys(session)) delete session[key]
     Object.assign(session, before)
+    return
+  }
+  mine.paths.forEach((path, i) => {
+    if (sameValue(valueAt(session, path), mine.values[i])) putAt(session, path, clone(valueAt(before, path)))
+  })
+  if (movedOn) return
+  const theirs = others.flatMap((entry) => entry.paths)
+  for (const path of changedPaths(before, session)) if (!theirs.some((other) => overlap(path, other))) putAt(session, path, clone(valueAt(before, path)))
+}
+
+// For a write that needs the planner: if the planner cannot answer, take back what the write changed, so nothing is
+// half-saved (a location kept but not shown, Voting with no options). The caller still gets the error. It takes back
+// only the write's own change: if the session moved on meanwhile (the host confirmed a spot), that stays.
+// How to call: return orUndo(session, async () => { session.locations.ian = place; await applyTrigger(...); return touch(session, 'location') })
+async function orUndo(session, change) {
+  const before = clone(session)
+  const commitsAtStart = commitsOf(session)
+  const running = change()
+  // The part of the write that ran before its first wait is the write's own, whatever else is going on.
+  const mine = { paths: changedPaths(before, session) }
+  mine.values = mine.paths.map((path) => clone(valueAt(session, path)))
+  const mineAndOthers = (waiting[session.id] ||= new Set())
+  mineAndOthers.add(mine)
+  try {
+    return await running
+  } catch (err) {
+    takeBack(session, before, mine, commitsAtStart)
     // Save the session as it was, and show it again (a "pending" update may have shown the change already).
     // If storage refuses even that, the caller still gets the first error, which is the one worth reading.
     save()
     broadcast({ type: 'pending', sessionId: session.id })
     throw err
+  } finally {
+    mineAndOthers.delete(mine)
   }
 }
 
@@ -473,20 +853,200 @@ async function orUndo(session, change) {
 function touch(session, type) {
   session.updatedAt = Date.now()
   emit({ type, sessionId: session.id })
+  commits[session.id] = commitsOf(session) + 1
   return summary(session)
 }
 
 // ── Account ────────────────────────────────────────────────────────────────
 
-// The account, with its home area's name.
+// The account, with its home area's name. It is always `id: HOST_ID` (the local id of "me"). `authId` is the Supabase
+// user id of a real account and null for a local one; `local` is true for a local account (the demo account, and every
+// account when Supabase is not set up). `email` is '' when none is known.
+// How to call: account() -> { id: 'ian', authId: null, local: true, email: 'ian@jio.demo', name: 'Ian', ... }
 function account() {
   if (!db.user) return null
-  return { ...clone(db.user), homeAreaName: areaById(db.user.homeAreaId)?.name || '' }
+  return {
+    ...clone(db.user),
+    email: db.user.email || '',
+    authId: db.user.authId || null,
+    local: !db.user.authId,
+    homeAreaName: areaById(db.user.homeAreaId)?.name || '',
+  }
 }
 
+// Is sign-up and sign-in against a real Supabase project? False: every account is local, as before.
+// How to call: if (realAccountsOn()) showLoginLink()
+export function realAccountsOn() {
+  return auth.configured()
+}
+
+// Real accounts being switched to, by Supabase user id, so two callers share one switch.
+const adopting = new Map()
+// How many sign-up, sign-in or sign-out calls of this file are running, so the session listener does not answer its own.
+let acting = 0
+
+// Make a real account the signed-in one: load its own save (or start a fresh one) and write to its own key.
+// `known`: the details just typed at sign-up ({ name, username, dob, homeAreaId, photo, friends }); without it the
+// profile comes from Supabase (when `fetchProfile` is true), then from the save, then from the sign-up metadata, so a
+// failed read still signs in. At start-up `fetchProfile` is false: the person is shown from the save at once and the
+// profile is read afterwards (see refreshProfile).
+// How to call: await adoptAccount({ id: authId, email: 'sam@example.com', username: 'sam', dob: '2001-05-06' })
+async function adoptAccount(sessionUser, known = null, fetchProfile = true) {
+  let remote = null
+  if (!known && fetchProfile) {
+    try {
+      remote = await auth.loadProfile(sessionUser.id)
+    } catch {
+      remote = null
+    }
+  }
+  const key = accountKey(sessionUser.id)
+  const found = load(key)
+  const mine = found.user?.authId === sessionUser.id ? found : null
+  const was = mine?.user
+  const pick = known || remote || {}
+  const user = {
+    id: HOST_ID,
+    authId: sessionUser.id,
+    email: sessionUser.email || was?.email || '',
+    name: pick.name || was?.name || sessionUser.username || '',
+    username: pick.username || was?.username || sessionUser.username || '',
+    // The date of birth is never read from the save (it is not written to it): it comes from the account or the session.
+    dob: pick.dob || sessionUser.dob || '',
+    // A photo stays in this browser: it is a data URL in the save, never uploaded.
+    photo: known ? known.photo || '' : was?.photo || '',
+    homeAreaId: pick.homeAreaId || was?.homeAreaId || '',
+  }
+  const { conditions } = db
+  if (mine) {
+    db = { ...mine, user }
+  } else {
+    db = freshDb({ user, friends: [...(known?.friends || [])] })
+    db.conditions = conditions
+  }
+  storageKey = key
+  stored = asText()
+  // A save that cannot be written (storage full or missing) does not stop sign-in: the account works in memory.
+  save()
+  broadcast({ type: 'user' })
+  return account()
+}
+
+// How to call: await adopt(sessionUser) (the same account asked for twice at once is switched to once)
+//   await adopt(sessionUser, null, false) switches without reading the profile first (start-up)
+function adopt(sessionUser, known = null, fetchProfile = true) {
+  if (known) return adoptAccount(sessionUser, known)
+  if (!adopting.has(sessionUser.id)) {
+    adopting.set(sessionUser.id, adoptAccount(sessionUser, null, fetchProfile).finally(() => adopting.delete(sessionUser.id)))
+  }
+  return adopting.get(sessionUser.id)
+}
+
+// Read the signed-in person's profile from their account and bring the account up to date with it: the name, username,
+// date of birth and home area. A field changed here while the read was running is left as it is. Quiet when the read
+// fails or the person has changed. Called after the first screen is up, never waited for.
+// How to call: await refreshProfile()
+export async function refreshProfile() {
+  const authId = db.user?.authId
+  if (!authId) return
+  const before = { ...db.user }
+  let remote
+  try {
+    remote = await auth.loadProfile(authId)
+  } catch {
+    return
+  }
+  if (!remote || db.user?.authId !== authId) return
+  const fresh = { name: remote.name, username: remote.username, dob: remote.dob, homeAreaId: remote.homeAreaId }
+  const changes = Object.fromEntries(Object.entries(fresh).filter(([key, value]) => value && db.user[key] === before[key] && db.user[key] !== value))
+  if (Object.keys(changes).length === 0) return
+  db.user = { ...db.user, ...changes }
+  // A save that cannot be written does not matter here: the change is in memory.
+  save()
+  broadcast({ type: 'user' })
+}
+
+// End the Supabase session on this browser, if Supabase is set up. Never throws.
+// How to call: await endSession()
+async function endSession() {
+  if (!auth.configured()) return
+  acting += 1
+  try {
+    await auth.signOut()
+  } finally {
+    acting -= 1
+  }
+}
+
+// Nobody is signed in any more, but a real account's save stays where it is. Nothing is written until someone signs up.
+// How to call: detachAccount()
+function detachAccount() {
+  const { conditions } = db
+  db = freshDb()
+  db.conditions = conditions
+  storageKey = null
+  stored = asText()
+}
+
+// The Supabase session changed without this app asking: another tab signed out (or in), or the refresh token expired.
+auth.onChange(({ event, user }) => {
+  if (acting > 0 || adopting.size > 0) return
+  if (event === 'signedOut' && db.user?.authId) {
+    detachAccount()
+    broadcast({ type: 'reset', reason: 'session-ended' })
+  } else if (event === 'signedIn' && user && db.user?.authId !== user.id && (db.user?.authId || !db.user)) {
+    // Another tab signed in as someone else: getUser switches to them.
+    setTimeout(() => broadcast({ type: 'user' }), 0)
+  } else if (event === 'refreshed') {
+    // A token was refreshed, so Supabase can be reached again: a "could not be reached" note is out of date.
+    broadcast({ type: 'reachable' })
+  }
+})
+
+// A local account with no Supabase account behind it is not a login when real accounts are on, unless this build keeps
+// local accounts (development, or VITE_ALLOW_LOCAL_ACCOUNTS=1). The local save is left where it is and is not shown.
+// How to call: dropStrayLocalAccount()
+function dropStrayLocalAccount() {
+  if (auth.configured() && !localAccountsAllowed() && db.user && !db.user.authId) detachAccount()
+}
+dropStrayLocalAccount()
+
+// Who is signed in, and whether Supabase could be asked. With Supabase set up, a stored session decides who is signed
+// in: its account's own save is loaded (the profile is not read here; see refreshProfile). A session that cannot be
+// checked because Supabase cannot be reached (or does not answer within `bounded` milliseconds) is neither kept nor
+// thrown away: the person is shown from the saved copy and `unreachable` is true. With no session, the answer is the
+// local account in the local save, when this build keeps local accounts, or null.
+// How to call: const { user, unreachable } = await whoIsSignedIn({ bounded: auth.timing.startMs })
+async function whoIsSignedIn({ bounded = 0 } = {}) {
+  let unreachable = false
+  if (auth.configured()) {
+    const asking = auth.checkSession()
+    const answer = bounded ? await Promise.race([asking, auth.pause(bounded).then(() => ({ user: null, unreachable: true }))]) : await asking
+    unreachable = answer.unreachable
+    const session = answer.user || (unreachable ? auth.savedUser() : null)
+    if (session) {
+      if (db.user?.authId !== session.id) await adopt(session, null, false)
+    } else if (db.user?.authId && !unreachable) {
+      detachAccount()
+    }
+    if (!session) dropStrayLocalAccount()
+  }
+  return { user: account(), unreachable }
+}
+
+// The signed-in person, or null.
+// How to call: const user = await getUser() (null when nobody is signed in)
 export async function getUser() {
   await wait(DELAY.read)
-  return account()
+  return (await whoIsSignedIn()).user
+}
+
+// The signed-in person for the first screen: from the saved copy, within a fixed time, without reading the profile.
+// `unreachable` is true when the session could not be checked, so the screen can say so.
+// How to call: const { user, unreachable } = await startUser()
+export async function startUser() {
+  await wait(DELAY.read)
+  return whoIsSignedIn({ bounded: auth.timing.startMs })
 }
 
 // Sign-up rules, the same as the database's: a username is 3 to 20 lowercase letters, numbers or underscores,
@@ -528,12 +1088,22 @@ function assertDob(dob) {
 // to show under the field when the name, username or date of birth breaks a rule.
 // `demo: true` is for the demo tools' account only: it starts with the sample history in mock/people.js (10 meetups
 // and 1,000 JioCoins). Anyone else starts with no meetups, no JioCoins and no rank.
+//
+// With Supabase set up, a sign-up that is not `demo` creates a real account: `profile.password` goes to Supabase and
+// nowhere else. It resolves with the account as soon as the account exists, without waiting for its name and home area
+// to be written to it; if that write fails, a `{ type: 'sync-failed', message }` event follows (`syncError` is always
+// ''). When the project wants the email confirmed first it resolves with
+// `{ needsConfirmation: true, email }` and nobody signed in. It rejects with the messages in lib/auth.js.
+// How to call: const user = await signUp({ email, password, name, username, dob, homeAreaId, friends })
 export async function signUp(profile) {
   await wait(DELAY.write)
   assertName(profile.name)
   assertUsername(profile.username)
   assertDob(profile.dob)
-  // The real app creates a Supabase account here. The demo account is always the host, Ian's id.
+  if (auth.configured() && !profile.demo) return signUpReal(profile)
+  // The demo account is always local, even with Supabase set up, and ends any real session first.
+  await endSession()
+  // The demo account is always the host, Ian's id.
   const user = {
     id: HOST_ID,
     email: profile.email,
@@ -548,27 +1118,110 @@ export async function signUp(profile) {
   const { conditions } = db
   db = freshDb({ user, friends: [...(profile.friends || [])] })
   db.conditions = conditions
+  if (storageKey !== STORAGE_KEY) {
+    // Coming from a real account (or from nobody): a local account writes to the local save again.
+    storageKey = STORAGE_KEY
+    stored = asText()
+  }
   emit({ type: 'user' })
   return account()
 }
 
+// A real sign-up. The profile's other fields (photo, friends) stay in this browser, in the account's own save.
+// How to call: await signUpReal({ email, password, name, username, dob, homeAreaId })
+async function signUpReal(profile) {
+  const name = profile.name.trim()
+  acting += 1
+  try {
+    const result = await auth.signUp({
+      email: profile.email,
+      password: profile.password,
+      username: profile.username,
+      dob: profile.dob,
+      name,
+      homeAreaId: profile.homeAreaId,
+    })
+    if (result.needsConfirmation) return { needsConfirmation: true, email: result.user.email }
+    const known = { name, username: profile.username, dob: profile.dob, homeAreaId: profile.homeAreaId, photo: profile.photo, friends: profile.friends }
+    const mine = await adopt(result.user, known)
+    // The name and home area are written to the account in the background; a failure is announced when it happens.
+    result.profileWrite?.then((message) => {
+      if (message) broadcast({ type: 'sync-failed', message })
+    })
+    return { ...mine, syncError: '' }
+  } finally {
+    acting -= 1
+  }
+}
+
+// Sign in to a real account with its email and password, and bring back that account's own save on this browser (a
+// browser with no save for it starts fresh). Rejects with the messages in lib/auth.js; the same message whether the
+// email is registered or not.
+// How to call: const user = await signIn({ email: 'sam@example.com', password: 'Sup3r-secret' })
+export async function signIn({ email, password }) {
+  await wait(DELAY.write)
+  acting += 1
+  try {
+    const { user } = await auth.signIn({ email, password })
+    return await adopt(user)
+  } finally {
+    acting -= 1
+  }
+}
+
+// What a signed-in person may change on a real account: the name, photo, home area and date of birth. The username
+// and email are not editable.
+const REAL_EDITABLE = ['name', 'photo', 'homeAreaId', 'dob']
+
+// patch: { name?, photo?, homeAreaId?, dob?, ... }. A local account takes any field, as before. A real account takes
+// the four it may edit, and the name, home area and date of birth are also written to Supabase. The change is kept
+// here even when that write fails: the answer then carries `syncError` with a message to show.
+// How to call: const user = await updateUser({ name: 'Sam T.' })
 export async function updateUser(patch) {
   await wait(DELAY.write)
-  db.user = { ...db.user, ...patch }
+  if (!db.user?.authId) {
+    db.user = { ...db.user, ...patch }
+    emit({ type: 'user' })
+    return account()
+  }
+  const allowed = Object.fromEntries(REAL_EDITABLE.filter((key) => key in patch).map((key) => [key, patch[key]]))
+  db.user = { ...db.user, ...allowed }
   emit({ type: 'user' })
-  return account()
+  const { photo, ...remote } = allowed
+  let syncError = ''
+  if (Object.keys(remote).length > 0) {
+    try {
+      await auth.saveProfile(db.user.authId, remote)
+    } catch (err) {
+      syncError = err.message
+    }
+  }
+  return { ...account(), syncError }
 }
 
+// A local account: erases the account and every meetup, as before. A real account: ends this browser's session and
+// leaves the account's save where it is for the next sign-in. Resolves even when Supabase cannot be reached.
+// How to call: await signOut()
 export async function signOut() {
   await wait(DELAY.write)
+  const local = !!db.user && !db.user.authId
+  if (!local) await endSession()
+  const wasLocalSave = storageKey === STORAGE_KEY
   db = freshDb()
+  if (!wasLocalSave) {
+    storageKey = null
+    stored = asText()
+  }
   emit({ type: 'reset' })
 }
 
-// Rejects with a message fit to show under the field when the username breaks the rules.
+// Rejects with a message fit to show under the field when the username breaks the rules. With Supabase set up this asks
+// the database function username_available; without it, the local list.
+// How to call: const { available } = await checkUsername('sam')
 export async function checkUsername(username) {
   await wait(DELAY.read)
   assertUsername(username)
+  if (auth.configured()) return { available: await auth.usernameAvailable(username) }
   const taken = PEOPLE.some((p) => p.id !== HOST_ID && p.username === username)
   return { available: !taken }
 }
@@ -721,58 +1374,101 @@ export async function listAreas() {
   return clone(AREAS)
 }
 
-// "SUPREME COURT BUILDING" -> "Supreme Court Building": OneMap writes names in capitals. A name that is not all
-// capitals (Google's "Teo Heng KTV Studio") is kept as it is.
-const titleCase = (text) => (text === text.toUpperCase() ? text.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase()) : text)
+// The area nearest to a point, or null outside Singapore. The one rule that turns a coordinate into an area:
+// the current location and every address the backend finds go through it.
+// How to call: areaForPoint({ lat: 1.3521, lng: 103.9448 }) -> the Tampines area
+function areaForPoint(point) {
+  return P.inSingapore(point) ? P.nearest(point, AREAS) : null
+}
 
-// Search for a start or end location, or a spot to meet: an MRT area by name, then real addresses, postal codes and
-// buildings from OneMap (through the backend). Each result names the area it is in, which is all the group ever sees.
-// When OneMap cannot be reached, the sample addresses are searched instead, so the sheet still works offline.
-// How to call: await searchPlaces('520201') // [{ id, label, sub, areaId }], at most 8
-export async function searchPlaces(query) {
-  const q = query.trim().toLowerCase()
-  if (!q) return []
-  const areas = AREAS.filter((a) => a.name.toLowerCase().includes(q)).map((a) => ({ id: a.id, label: a.name, sub: 'MRT station and area', areaId: a.id }))
-  let addresses
-  try {
-    // One letter matches half of Singapore: wait for two.
-    const found = q.length < 2 ? [] : await planner.searchAddress(query.trim())
-    addresses = found
-      .filter((r) => P.inSingapore(r))
-      .map((r) => {
-        const area = P.nearest(r, AREAS)
-        const postal = /^\d{6}$/.test(r.postal || '') ? r.postal : ''
-        return {
-          id: `onemap-${postal || `${r.lat.toFixed(5)},${r.lng.toFixed(5)}`}`,
-          // A home address comes back named only by its postal code ("760201"): show the street address instead.
-          label: titleCase(!r.name || /^\d+$/.test(r.name) ? r.address || r.name || 'Place' : r.name),
-          sub: `${postal ? `Singapore ${postal} · ` : ''}${area.name}`,
-          areaId: area.id,
-        }
-      })
-  } catch {
-    await wait(DELAY.read)
-    addresses = ADDRESSES.filter((a) => a.label.toLowerCase().includes(q) || a.postal.startsWith(q)).map((a) => ({
-      id: a.id,
-      label: a.label,
-      sub: `Singapore ${a.postal} · ${areaById(a.areaId).name}`,
-      areaId: a.areaId,
-    }))
-  }
-  // The same building can come back once per entrance: keep the first of each name and postal code. A result named
-  // only by its postal code is dropped when another result already has that postal code.
+const PLACE_ROWS = 8
+const ANSWERS_KEPT = 40
+// What the backend answered for each query this page has searched, so typing a word again (or backspacing to it) asks
+// nothing. Only answers are kept, never failures. Oldest out first.
+const placeAnswers = new Map()
+
+const cancelled = () => Object.assign(new Error('The search was cancelled.'), { name: 'AbortError' })
+
+// The backend's results as rows for the search sheet. Only the area they fall in is kept with the building's name, never
+// their coordinates. A result outside Singapore, or with no name, is left out; so is a repeat of an earlier row.
+// How to call: addressRows([{ name: 'TAMPINES MALL', postal: '529510', lat: 1.3525, lng: 103.9447 }])
+function addressRows(results) {
   const seen = new Set()
-  const named = new Set(addresses.filter((a) => !/^\d{6}$/.test(a.label)).map((a) => a.sub))
-  const unique = addresses.filter((a) => !(/^\d{6}$/.test(a.label) && named.has(a.sub)) && !seen.has(`${a.label}|${a.sub}`) && seen.add(`${a.label}|${a.sub}`))
-  return [...areas, ...unique].slice(0, 8)
+  const rows = []
+  for (const r of results) {
+    const area = Number.isFinite(r?.lat) && Number.isFinite(r?.lng) ? areaForPoint(r) : null
+    const label = displayName(r?.name)
+    if (!area || !label) continue
+    const key = `${sameKey(label)}|${r.postal || ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    rows.push({
+      id: `om-${r.postal || sameKey(label)}-${rows.length}`,
+      label,
+      sub: [r.postal && `Singapore ${r.postal}`, area.name].filter(Boolean).join(' · '),
+      areaId: area.id,
+      areaName: area.name,
+      near: label,
+    })
+  }
+  return rows
+}
+
+// Search for a start or end location by place name, address or postal code.
+// The areas that match come first and at once (onBuiltIn gets them before any network call, so a caller can show them
+// while the rest is searched). Then the backend's address search (OneMap) adds addresses and buildings, each with the
+// area it falls in. A query under 2 characters, or over what the backend accepts, stays on this page. When the backend
+// cannot be reached or answers an error, the areas still come back with unavailable: true, and the built-in sample
+// addresses are listed too, as they are whenever the backend had nothing. At most 8 rows.
+// `signal` cancels the search: it rejects with an AbortError and the caller drops it.
+// Rows are { id, label, sub, areaId, areaName, near }. They carry no coordinates: what a person stores from one is the area
+// and the label (setLocation), and the label is private to them.
+// How to call: const { places, unavailable } = await searchPlaces('tampines mall', { signal, onBuiltIn: (rows) => show(rows) })
+export async function searchPlaces(query, { signal, onBuiltIn } = {}) {
+  const text = String(query ?? '').trim()
+  const q = text.toLowerCase()
+  if (!q) return { places: [], unavailable: false }
+  if (signal?.aborted) throw cancelled()
+  const areas = AREAS.filter((a) => a.name.toLowerCase().includes(q)).map((a) => ({ id: a.id, label: a.name, sub: 'MRT station and area', areaId: a.id, areaName: a.name, near: null }))
+  onBuiltIn?.(areas.slice(0, PLACE_ROWS))
+
+  let found = []
+  let unavailable = false
+  if (text.length >= SEARCH_MIN_CHARS && text.length <= SEARCH_MAX_CHARS) {
+    if (placeAnswers.has(q)) {
+      found = placeAnswers.get(q)
+    } else {
+      try {
+        found = addressRows(await planner.searchAddresses(text, { signal }))
+        placeAnswers.set(q, found)
+        if (placeAnswers.size > ANSWERS_KEPT) placeAnswers.delete(placeAnswers.keys().next().value)
+      } catch (err) {
+        if (signal?.aborted || err?.name === 'AbortError') throw cancelled()
+        unavailable = true
+      }
+    }
+  }
+  if (signal?.aborted) throw cancelled()
+
+  // The areas stand for themselves: a result that is only one of them under another spelling ("Tampines MRT Station") goes.
+  const known = new Set(areas.map((a) => sameKey(a.label)))
+  const wider = found.filter((row) => !known.has(sameKey(row.label)))
+  // The sample addresses are the fallback for when the backend gave nothing.
+  const samples = found.length
+    ? []
+    : ADDRESSES.filter((a) => a.label.toLowerCase().includes(q) || a.postal.startsWith(q)).map((a) => {
+        const area = areaById(a.areaId)
+        return { id: a.id, label: a.label, sub: `Singapore ${a.postal} · ${area.name}`, areaId: a.areaId, areaName: area.name, near: a.label.split(',')[0] }
+      })
+  return { places: [...areas, ...wider, ...samples].slice(0, PLACE_ROWS), unavailable }
 }
 
 // The known area for a pair of coordinates, or null outside Singapore.
+// How to call: await placeFromCoords(1.3521, 103.9448) -> { id: 'here-tampines', label: 'Current location', sub: 'Tampines', areaId: 'tampines' }
 export async function placeFromCoords(lat, lng) {
   await wait(DELAY.read)
-  const point = { lat, lng }
-  if (!P.inSingapore(point)) return null
-  const area = P.nearest(point, AREAS)
+  const area = areaForPoint({ lat, lng })
+  if (!area) return null
   return { id: `here-${area.id}`, label: 'Current location', sub: area.name, areaId: area.id }
 }
 
@@ -807,6 +1503,29 @@ function publicLocations(session) {
   )
 }
 
+// The meeting spots as the screens read them: each spot with its area (name and the area's own coordinates, never a
+// member's), who suggested it, who approved it and how many, and the spot the host is offered.
+// How to call: spotsView(session) -> { list: [{ areaId, by, byName, here, worstMinutes, meanMinutes, times, approximate, area, approvedBy, approvalCount }], approvals, suggestions, preselectedAreaId, appMethod }
+function spotsView(session) {
+  const { list, approvals, suggestions, appMethod } = session.spots
+  return {
+    list: list.map((spot) => {
+      const approvedBy = activeIds(session).filter((id) => approvals[id]?.includes(spot.areaId))
+      return {
+        ...clone(spot),
+        byName: spot.by === 'app' ? null : nameOf(spot.by),
+        area: { ...areaById(spot.areaId) },
+        approvedBy: approvedBy.map((id) => ({ id, name: nameOf(id) })),
+        approvalCount: approvedBy.length,
+      }
+    }),
+    approvals: clone(approvals),
+    suggestions: clone(suggestions),
+    preselectedAreaId: preselectedSpot(session)?.areaId ?? null,
+    appMethod,
+  }
+}
+
 // A session as the screens read it. Photos are big (data URLs), so a session carries only their count:
 // getPhotos has the pictures.
 function summary(session) {
@@ -826,6 +1545,8 @@ function summary(session) {
     areaName: session.meeting ? areaById(session.meeting.areaId).name : '',
     isToday: isSessionDay(session),
     findingMeeting: finding.has(session.id),
+    findingSpots: findingSpots.has(session.id),
+    spots: spotsView(session),
     // The search radius the group chose, in metres, or null to let the planner widen on its own.
     radius: session.radius ?? null,
     slots: slots.map((s) => ({ ...s, optionCount: (session.options[s.id] || []).length })),
@@ -862,6 +1583,7 @@ export async function createSession({ title, date, start, end, hostId = HOST_ID 
     members: [{ id: hostId, role: 'host', state: 'joined' }, ...(hostId === HOST_ID ? [] : [{ id: HOST_ID, role: 'guest', state: 'joined' }])],
     locations: {},
     meeting: null,
+    spots: emptySpots(),
     prefs: {},
     deletedSlots: [],
     options: {},
@@ -964,11 +1686,165 @@ export async function setLocation(id, personId, which, place) {
   })
 }
 
+// Confirm the meeting point: the spot with the most approvals while spots are listed (a tie goes to the shortest longest
+// trip), otherwise the meeting area as it is. Moves the session to Voting. For a particular spot, use confirmSpot.
+// How to call: await useMeetingArea('s1')
 export async function useMeetingArea(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (!session.meeting) throw new Error('Everyone needs to share where they are starting first.')
   return orUndo(session, async () => {
+    const spot = session.status === 'locating' ? preselectedSpot(session) : null
+    if (spot) return settleOnSpot(session, spot)
+    session.status = 'voting'
+    session.banner = null
+    await syncOptions(session)
+    return touch(session, 'session')
+  })
+}
+
+// ── Meeting spots: suggest, approve, confirm ───────────────────────────────
+
+// The checks every change to the spots makes: the session is still going, and the group is still choosing where to
+// meet. With a person, they must be in the session.
+// How to call: assertSpotsOpen(session, 'jonathan')
+function assertSpotsOpen(session, personId) {
+  if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
+  if (session.status !== 'locating') throw new Error('Spots can only change while the group is choosing where to meet.')
+  if (personId !== undefined && !activeIds(session).includes(personId)) throw new Error('Only people in this session can do that.')
+}
+
+// How to call: assertHost(session, 'confirm a spot') (throws unless the signed-in person is the host)
+function assertHost(session, what) {
+  if (session.hostId !== HOST_ID) throw new Error(`Only the host can ${what}.`)
+}
+
+// Settle on a spot: it becomes the meeting area and the session moves to Voting. The method says how it was chosen:
+// 'voted' when anyone approved it; the planner's own method when nobody did and it is the app's first suggestion;
+// otherwise 'chosen' (the host picked it).
+// How to call: await settleOnSpot(session, session.spots.list[0]) (inside orUndo)
+async function settleOnSpot(session, spot) {
+  const first = session.spots.list[0]
+  const appFirst = first?.areaId === spot.areaId && first.by === 'app' && session.spots.appMethod
+  const method = approvalCount(session, spot.areaId) > 0 ? 'voted' : appFirst || 'chosen'
+  session.meeting = meetingAtSpot(spot.areaId, method, spot)
+  session.status = 'voting'
+  session.banner = null
+  await syncOptions(session)
+  return touch(session, 'session')
+}
+
+// A member suggests a spot: an area the group could meet in, priced for everyone like the app's own. A member has one
+// suggestion at a time; suggesting again replaces it, and approvals for the old spot go with it unless it is still
+// listed (the app's own, or another member's). `here: true` only labels it "we are here already"; any member may set it.
+// Asks the planner once (not at all for an area already listed). Needs two starts, so the spots exist.
+// Throws if the group is not choosing where to meet, the person is not in the session, the area is unknown, or the
+// planner cannot answer (nothing is saved then).
+// How to call: await suggestSpot('s1', 'jonathan', 'bugis', { here: true })
+export async function suggestSpot(id, personId, areaId, { here = false } = {}) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  assertSpotsOpen(session, personId)
+  const area = areaById(areaId)
+  if (!area) throw new Error('This area does not exist.')
+  const { suggestions, list } = session.spots
+  const others = Object.entries(suggestions).filter(([person]) => person !== personId).map(([, s]) => s.areaId)
+  if (new Set([...others, areaId]).size > SUGGESTIONS_MAX) throw new Error(`The group can suggest up to ${SUGGESTIONS_MAX} different spots. Ask someone to withdraw theirs first.`)
+  const listed = list.some((s) => s.areaId === areaId)
+  if (!listed && membersFor(session).length < P.MIN_LOCATIONS) throw new Error('Spots open once two people have shared where they start.')
+  return orUndo(session, async () => {
+    delete suggestions[personId]
+    suggestions[personId] = { areaId, here: !!here }
+    let lost = []
+    if (listed) lost = setSpotList(session, relistFromStored(session))
+    else {
+      // Every request that rebuilds the list shares one ticket (latestAnswer): this one asks for every suggestion there is,
+      // is put in only if it is current, and asks again if the starts or suggestions changed while it waited. If the host
+      // confirmed meanwhile, the spots are closed and the asking stops with an error, which takes this suggestion back.
+      await latestAnswer(
+        session,
+        async () => {
+          assertSpotsOpen(session)
+          const members = membersFor(session)
+          return { members, data: await askMeeting(session, members, { alternatives: APP_SPOTS - 1, include: suggestedAreas(session) }, { spots: true }) }
+        },
+        ({ members, data }) => { lost = applyPlannedSpots(session, spotsFrom(members, data)) },
+      )
+    }
+    assertSpotsOpen(session)
+    if (!session.spots.list.some((s) => s.areaId === areaId)) throw new Error(`The planner could not work out travel times to ${area.name}.`)
+    if (lost.length) session.banner = lostApprovalsBanner(`${nameOf(personId)} suggested ${area.name}.`, lost)
+    return touch(session, 'spots')
+  })
+}
+
+// A member takes their suggestion back. The spot leaves the list unless it is the app's or another member's, and
+// approvals for it go with it. Does nothing (and writes nothing) when the person has no suggestion. No planner call.
+// How to call: await withdrawSpot('s1', 'jonathan')
+export async function withdrawSpot(id, personId) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  assertSpotsOpen(session, personId)
+  if (!session.spots.suggestions[personId]) return summary(session)
+  delete session.spots.suggestions[personId]
+  const lost = setSpotList(session, relistFromStored(session))
+  if (lost.length) session.banner = lostApprovalsBanner(`${nameOf(personId)} withdrew their suggestion.`, lost)
+  return touch(session, 'spots')
+}
+
+// "Works for me": a member says a spot suits them, or takes it back (on: false). Any number of spots per member, no
+// order, no points; approving twice is one approval. Any member, while the group is choosing where to meet. No planner
+// call, so it works with the backend off.
+// Throws if the spot is not on the list.
+// How to call: await approveSpot('s1', 'faith', 'bugis', true)
+export async function approveSpot(id, personId, areaId, on = true) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  assertSpotsOpen(session, personId)
+  if (!session.spots.list.some((s) => s.areaId === areaId)) throw new Error('That spot is not on the list.')
+  const mine = (session.spots.approvals[personId] || []).filter((a) => a !== areaId)
+  const next = on ? [...mine, areaId] : mine
+  if (next.length) session.spots.approvals[personId] = next
+  else delete session.spots.approvals[personId]
+  return touch(session, 'spots')
+}
+
+// The host settles on a spot, whether or not anyone approved it: it becomes the meeting area and the session moves to
+// Voting, where the places are chosen. The spot offered first is session.spots.preselectedAreaId.
+// Throws if the person is not the host, the group is not choosing where to meet, or the spot is not on the list.
+// How to call: await confirmSpot('s1', 'bugis')
+export async function confirmSpot(id, areaId) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
+  assertHost(session, 'confirm a spot')
+  assertSpotsOpen(session)
+  const spot = session.spots.list.find((s) => s.areaId === areaId)
+  if (!spot) throw new Error('That spot is not on the list.')
+  return orUndo(session, () => settleOnSpot(session, spot))
+}
+
+// The host sets the meeting area straight away because the group has already decided: from inviting or locating to
+// voting. The list becomes that one area (method 'chosen') and approvals are cleared. Members can still share where they
+// start; that only adds travel times, and the area stays. From inviting, pending invites lapse and two people are
+// needed, as when a session starts. Asks the planner once for travel times when anyone has shared a start.
+// Throws if the person is not the host, the session is past locating, the area is unknown, or the planner cannot answer.
+// How to call: await setKnownPlace('s1', 'bugis')
+export async function setKnownPlace(id, areaId) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
+  assertHost(session, 'set a known place')
+  if (!['inviting', 'locating'].includes(session.status)) throw new Error('A known place can only be set before the group votes on places.')
+  if (!areaById(areaId)) throw new Error('This area does not exist.')
+  if (activeIds(session).length < 2) throw new Error('A session needs at least 2 people.')
+  return orUndo(session, async () => {
+    // Invites nobody accepted yet lapse: the session goes ahead with whoever is in.
+    session.members = session.members.filter((m) => m.state !== 'invited')
+    const { meeting, pinnedSpot } = await computePinned(session, membersFor(session), areaId, 'chosen', { bar: false })
+    const priced = pinnedSpot || { worstMinutes: null, meanMinutes: null, times: {}, approximate: false }
+    session.spots = { ...emptySpots(), list: [{ areaId, by: session.hostId, here: false, worstMinutes: priced.worstMinutes, meanMinutes: priced.meanMinutes, exactWorst: priced.exactWorst, times: { ...priced.times }, approximate: priced.approximate }] }
+    session.meeting = meeting
     session.status = 'voting'
     session.banner = null
     await syncOptions(session)
@@ -979,10 +1855,15 @@ export async function useMeetingArea(id) {
 export async function optOut(id, personId) {
   await wait(DELAY.write)
   const session = sessionById(id)
+  if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
   const member = session.members.find((m) => m.id === personId)
   if (!member || member.role === 'host') throw new Error('The host cannot opt out.')
   return orUndo(session, async () => {
     member.state = 'opted_out'
+    // Their approvals go, and while the group is choosing where to meet so does their suggestion (the list below is
+    // worked out again, and approvals for a spot that leaves with it are removed).
+    delete session.spots.approvals[personId]
+    if (session.status === 'locating') delete session.spots.suggestions[personId]
     await applyTrigger(session, { kind: 'optout', personName: nameOf(personId) })
     await syncOptions(session)
     return touch(session, 'optout')
@@ -1071,7 +1952,7 @@ export async function searchVenuesForSlot(id, slotId, query) {
   if (!q || !slot) return []
   const results = await planner.searchSlot({
     query: q,
-    members: membersFor(session),
+    members: rankingMembers(session),
     centre: areaById(session.meeting.areaId),
     date: session.date,
     slot,
@@ -1226,7 +2107,10 @@ export async function getPlan(id) {
 
 // ── Step 7 and after: confirm, the itinerary, the day itself ───────────────
 
-export async function confirmPlan(id) {
+// suggestion: the Confirm dialog's order from suggestOrder(), or null for the voted order. It is used when it covers
+// exactly the stops this confirm makes and its times belong to its order (P.suggestionFits); otherwise (a tie came out
+// differently) the plan keeps the voted order.
+export async function confirmPlan(id, suggestion = null) {
   await wait(DELAY.plan)
   const session = sessionById(id)
   const ids = activeIds(session)
@@ -1248,6 +2132,11 @@ export async function confirmPlan(id) {
     if (winner) stops.push({ slotId: slot.id, category: slot.category, venueId: winner, plannedStart: slot.start, duration: slot.duration })
   })
   session.plan = { stops, modes: [], startAt: stops[0]?.plannedStart ?? null }
+  // A plain copy: the screen hands over a reactive object, which cannot be stored.
+  suggestion = suggestion ? JSON.parse(JSON.stringify(suggestion)) : null
+  if (suggestion && P.suggestionFits(stops, suggestion)) {
+    applyOrder(session, { order: suggestion.order, stops: suggestion.stops.map((s) => ({ id: s.slotId, start: s.start })), reason: suggestion.reason, source: suggestion.source })
+  }
   session.confirmedRanking = confirmedRanking
   session.status = 'confirmed'
   session.banner = null
@@ -1273,6 +2162,8 @@ export async function getItinerary(id) {
     legs,
     end: P.endPoint(last),
     trips: P.tripsHome(last, people),
+    // Why the AI chose this order on confirm: { reason, source: 'ai' | 'rules' }, or null once a stop is moved by hand.
+    aiNote: session.plan.aiNote ? { reason: P.cleanReason(session.plan.aiNote.reason), source: session.plan.aiNote.source === 'ai' ? 'ai' : 'rules' } : null,
     area: area ? { ...area } : null,
     starts: activeIds(session)
       .filter((pid) => session.locations[pid]?.start)
@@ -1296,6 +2187,86 @@ export async function setTravelMode(id, legIndex, mode) {
   return touch(session, 'plan')
 }
 
+// Asks the backend for an order of `stops` (plan stops: { slotId, category, venueId, plannedStart, duration }). Food
+// stops keep their place and their slot's time; Claude chooses among the orders that keep every place open.
+// How to call: await requestOrder(session, stops, { startAt: 600 })
+async function requestOrder(session, stops, { startAt, modes = [] }) {
+  const HOURS = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/
+  // The times the itinerary would show now.
+  const shownNow = P.buildItinerary(stops.map((s) => ({ ...s, venue: venueById(s.venueId) })), modes, startAt).stops
+  const startMinutes = P.toMinutes(session.start)
+  let endAt = P.toMinutes(session.end)
+  if (endAt <= startMinutes) endAt += 1440
+  return planner.arrangeItinerary({
+    stops: stops.map((s, i) => {
+      const v = venueById(s.venueId)
+      return {
+        id: s.slotId,
+        name: String(v.name).slice(0, 80),
+        category: s.category,
+        ...(v.kind ? { kind: String(v.kind).slice(0, 80) } : {}),
+        lat: v.lat,
+        lng: v.lng,
+        duration: s.duration,
+        // A meal is anchored to its slot's time from voting.
+        start: s.category === 'eat' && Number.isFinite(s.plannedStart) ? s.plannedStart : shownNow[i].start,
+        hours: (v.hours || []).filter((h) => HOURS.test(h)).slice(0, 4),
+        ...(typeof v.indoor === 'boolean' ? { indoor: v.indoor } : {}),
+        ...(Number.isFinite(v.mrtWalk) ? { mrtWalk: v.mrtWalk } : {}),
+      }
+    }),
+    startAt,
+    endAt,
+    rain: !!db.conditions.rain,
+    // The voted order may be the best one, so it is allowed too.
+    includeCurrent: true,
+  })
+}
+
+// Puts the plan's stops in the answer's order. Each stop keeps the backend's time as its earliest start, so a meal
+// stays at its time and a shop waits to open.
+function applyOrder(session, answer) {
+  const bySlot = Object.fromEntries(session.plan.stops.map((s) => [s.slotId, s]))
+  const startOf = Object.fromEntries(answer.stops.map((s) => [s.id, s.start]))
+  session.plan.stops = answer.order.map((slotId) => ({ ...bySlot[slotId], notBefore: startOf[slotId] }))
+  session.plan.modes = []
+  session.plan.aiNote = { reason: P.cleanReason(answer.reason), source: answer.source === 'ai' ? 'ai' : 'rules' }
+}
+
+// The stops confirming would make now: each voted slot with its most voted place. A tie goes to the first option,
+// so a tie can come out differently on confirm; confirmPlan then keeps its own order (see `suggestion` there).
+function wouldConfirm(session) {
+  return planSlotsOf(session)
+    .map((slot) => {
+      const venueId = P.pickWinner(session.options[slot.id] || [], session.votes[slot.id])
+      return venueId ? { slotId: slot.id, category: slot.category, venueId, plannedStart: slot.start, duration: slot.duration } : null
+    })
+    .filter(Boolean)
+}
+
+// The order the Confirm dialog suggests: Claude's choice among the orders that keep every place open, food at meal
+// times. It may keep the voted order when that is already the best. Nothing is saved. Returns null when there is
+// nothing to arrange (fewer than 2 stops that are not food) or no order works.
+// How to call: const suggestion = await suggestOrder('s1')
+//   suggestion // { order: ['activity', 'eat', 'shop'], stops: [{ slotId, category, venueId, name, start, duration }], reason, source }
+export async function suggestOrder(id) {
+  const session = sessionById(id)
+  if (session.status !== 'voting') return null
+  const stops = wouldConfirm(session)
+  if (stops.filter((s) => s.category !== 'eat').length < 2) return null
+  const startAt = Math.min(...stops.map((s) => s.plannedStart))
+  const answer = await requestOrder(session, stops, { startAt })
+  if (answer.status !== 'ok') return null
+  const bySlot = Object.fromEntries(stops.map((s) => [s.slotId, s]))
+  const startOf = Object.fromEntries(answer.stops.map((s) => [s.id, s.start]))
+  return {
+    order: answer.order,
+    stops: answer.order.map((slotId) => ({ ...bySlot[slotId], name: venueById(bySlot[slotId].venueId).name, start: startOf[slotId] })),
+    reason: P.cleanReason(answer.reason),
+    source: answer.source === 'ai' ? 'ai' : 'rules',
+  }
+}
+
 // Rearrange the itinerary: move the stop at `from` to `to`. The plan keeps its start time and every stop is
 // re-timed after the one before it. Travel modes go back to their defaults, because the legs are new pairs.
 export async function reorderStops(id, from, to) {
@@ -1305,8 +2276,9 @@ export async function reorderStops(id, from, to) {
   const { stops } = session.plan
   if (from === to || from < 0 || to < 0 || from >= stops.length || to >= stops.length) return summary(session)
   if (session.plan.startAt == null) session.plan.startAt = Math.min(...stops.map((s) => s.plannedStart))
-  session.plan.stops = P.moveItem(stops, from, to)
+  session.plan.stops = P.moveItem(stops, from, to).map(({ notBefore, ...s }) => s)
   session.plan.modes = []
+  session.plan.aiNote = null
   return touch(session, 'plan')
 }
 
@@ -1316,7 +2288,8 @@ export async function deleteStop(id, index) {
   const { stops, modes = [] } = planOf(session)
   if (!Number.isInteger(index) || index < 0 || index >= stops.length) throw new Error('This stop does not exist.')
   if (stops.length <= 1) throw new Error('A plan needs at least one stop.')
-  session.plan.stops = stops.filter((_, i) => i !== index)
+  session.plan.stops = stops.filter((_, i) => i !== index).map(({ notBefore, ...s }) => s)
+  session.plan.aiNote = null
   // The plan starts when its first stop does: if the first stop goes, the next one starts at its own planned time
   // instead of being pulled forward to the old start.
   if (index === 0) session.plan.startAt = session.plan.stops[0].plannedStart
@@ -1352,11 +2325,12 @@ export async function replan(id) {
 
 async function reopenVoting(session, trigger) {
   const previous = session.meeting
-  const next = await computeMeeting(session)
+  const { meeting: next, pinnedSpot } = await computeMeeting(session)
   session.status = 'voting'
   session.plan = null
   delete session.confirmedRanking
   session.meeting = next
+  if (pinnedSpot) refreshSpot(session, pinnedSpot)
   const moved = (previous?.areaId ?? null) !== (next?.areaId ?? null)
   // Votes that were there and are gone: say so, even when the re-plan was asked for by hand (no trigger).
   const cleared = moved && hasVotes(session)
@@ -1458,7 +2432,16 @@ export async function setConditions(patch) {
   db.conditions = { ...db.conditions, ...known }
   // Routing changes how the meeting area is found, so sessions still locating are re-calculated.
   if ('routing' in known) {
-    for (const session of db.sessions.filter((s) => s.status === 'locating')) session.meeting = await computeMeeting(session)
+    for (const session of db.sessions.filter((s) => s.status === 'locating')) {
+      // A session the host confirmed a spot for while an earlier one was worked out is not asked about: its area stays.
+      if (session.status !== 'locating') continue
+      await latestAnswer(session, () => computeMeeting(session), ({ meeting, spots }) => {
+        session.meeting = meeting
+        // The travel times change with routing, and the app's three can too.
+        const lost = spots ? applyPlannedSpots(session, spots) : []
+        if (lost.length) session.banner = lostApprovalsBanner('Travel times were worked out again.', lost)
+      })
+    }
   }
   emit({ type: 'conditions' })
   return clone(db.conditions)

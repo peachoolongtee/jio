@@ -1,7 +1,8 @@
 <script setup>
 // The confirmed plan, on one screen. On the day itself it is titled "Today's plan".
 //   - A timeline of stops: time and duration on one line, name, category icon, price tier, a photo, and the stop
-//     number in its category colour (the same as its pin; the map has a key).
+//     number in its category colour (the same as its pin; the map has a key). The map shows the stops, the route and the
+//     meeting area, and no one's start.
 //   - Between stops: a visible Walk / MRT / Car switch, each with its own time. It moves every later stop.
 //     Two stops in the same building just say so.
 //   - On desktop the timeline is as tall as the map beside it, with the stops spread out.
@@ -11,10 +12,16 @@
 //   - The end point, and each person's trip home (folded away; anyone over 60 minutes is flagged above).
 //   - In edit mode, drag a stop by its handle (or focus the handle and use the arrow keys) to rearrange the day. Times follow;
 //     a stop that would be closed at its new time, or an end far from the MRT, is flagged.
-//   - Edit mode also shows "Re-plan". "End plan" on the day.
+//   - Edit mode also shows "Re-plan".
+//   - The footer's one button follows the session (itineraryAction in lib/session.js): before the day it is "Save plan",
+//     which only goes Home (the plan was saved when it was confirmed); on the day it is "Finish outing", which asks
+//     first, completes the outing and pays out the coins. A completed or cancelled session has neither.
+//   - When the host confirmed a suggested order (see PlannerView), one line says where it came from (an AI suggestion,
+//     or chosen by travel and waiting time) and why, above the stops until a stop is moved or deleted by hand.
 //   - The photo strip shows the latest pictures (loaded with the events store) and links to Photos.
 //   - Travel and trip-home times are estimates from distance, so they read "about" or "est.".
 import { coins } from '@/lib/currency.js'
+import { itineraryAction } from '@/lib/session.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -38,6 +45,7 @@ import TravelConnector from '@/components/event/TravelConnector.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
 import { fromMinutes } from '@/lib/planner/format.js'
+import { sourceIcon, sourceText } from '@/lib/confirmOrder.js'
 import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -97,6 +105,8 @@ const itinerary = computed(() => events.itineraries[props.id])
 const status = computed(() => session.value?.status)
 const confirmed = computed(() => status.value === 'confirmed')
 const today = computed(() => confirmed.value && session.value?.isToday)
+// 'finish', 'save' or null: the footer's button.
+const footer = computed(() => (session.value ? itineraryAction(session.value) : null))
 const longTrips = computed(() => (itinerary.value?.trips || []).filter((t) => t.long))
 const lastStop = computed(() => itinerary.value?.stops[itinerary.value.stops.length - 1])
 // A confirmed plan with two or more stops can be rearranged, and a stop deleted, while editing.
@@ -127,7 +137,6 @@ watch([() => props.id, photoCount], loadPhotos, { immediate: true })
 const mapPlaces = computed(() =>
   (itinerary.value?.stops || []).map((s, i) => ({ id: s.venue.id, name: s.venue.name, lat: s.venue.lat, lng: s.venue.lng, label: String(i + 1), category: s.category })),
 )
-const mapPeople = computed(() => (itinerary.value?.starts || []).map((p) => ({ id: p.id, name: p.name, lat: p.area.lat, lng: p.area.lng, areaName: p.area.name })))
 
 async function act(fn) {
   error.value = ''
@@ -202,7 +211,7 @@ async function endPlan() {
 <template>
   <NotFoundView v-if="missing" />
   <main v-else-if="session" class="screen" data-testid="event-view">
-    <SessionHeader :session="session" :title="today ? 'Today\'s plan' : ''" back="/">
+    <SessionHeader :session="session" :title="today ? 'Today\'s plan' : ''">
       <template v-if="session.plan" #actions>
         <IconButton v-if="confirmed" label="Edit itinerary" :tone="editing ? 'brand' : ''" :aria-pressed="String(editing)" @click="editing = !editing">
           <AppIcon :name="editing ? 'check' : 'edit'" />
@@ -252,6 +261,12 @@ async function endPlan() {
           <span class="photos-cta__go" aria-hidden="true"><span class="photos-cta__word">Add photos</span> <AppIcon name="arrow-right" :size="16" /></span>
         </RouterLink>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
+
+        <!-- Where the suggested order came from, when the host confirmed it. Moving or deleting a stop by hand clears it. -->
+        <p v-if="itinerary?.aiNote" class="ai-note caption-sm text-muted" role="status">
+          <AppIcon :name="sourceIcon(itinerary.aiNote)" :size="14" />
+          <span>{{ sourceText(itinerary.aiNote) }}</span>
+        </p>
 
         <SplitView v-model:view="view" label="Itinerary" even>
           <template #list>
@@ -331,7 +346,7 @@ async function endPlan() {
           </template>
 
           <template #map>
-            <PlannerMap :places="mapPlaces" :people="mapPeople" :area="itinerary?.area" route fit-to="places" label="Itinerary map" :selected="selected" @select="selected = $event" />
+            <PlannerMap :places="mapPlaces" :area="itinerary?.area" route fit-to="places" label="Itinerary map" :selected="selected" @select="selected = $event" />
             <CategoryKey :categories="mapPlaces.map((p) => p.category)" />
             <AppButton variant="secondary" small class="map-open" :to="`/sessions/${id}/map`">
               <AppIcon name="expand" />
@@ -342,16 +357,17 @@ async function endPlan() {
       </template>
     </div>
 
-    <footer v-if="today" class="screen__footer">
-      <AppButton block :disabled="busy" @click="endOpen = true">End plan</AppButton>
+    <footer v-if="footer" class="screen__footer">
+      <AppButton v-if="footer === 'finish'" block :disabled="busy" @click="endOpen = true">Finish outing</AppButton>
+      <AppButton v-else block to="/">Save plan</AppButton>
     </footer>
 
-    <ModalDialog v-model:open="endOpen" title="End plan?">
+    <ModalDialog v-model:open="endOpen" title="Finish outing?">
       <template #content>
         <p class="body-md">+<CoinBadge :amount="POINTS_PER_MEETUP" /> each for {{ session.activeIds.length }} people, to spend on sample café vouchers</p>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
-      <AppButton block :disabled="busy" @click="endPlan">End plan</AppButton>
+      <AppButton block :disabled="busy" @click="endPlan">Finish outing</AppButton>
       <AppButton block variant="secondary" @click="endOpen = false">Not yet</AppButton>
     </ModalDialog>
 
@@ -398,6 +414,8 @@ async function endPlan() {
 
 /* The timeline: one rail joins every stop, leg and the end point. */
 .timeline:focus { outline: none; }
+.ai-note { display: flex; align-items: flex-start; gap: 6px; margin: 0; }
+.ai-note :deep(svg) { flex-shrink: 0; margin-top: 2px; }
 .timeline:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .timeline { position: relative; display: flex; flex-direction: column; gap: 0; padding: var(--spacing-base); }
 .timeline::before { content: ""; position: absolute; top: 34px; bottom: 34px; left: calc(var(--spacing-base) + 13px); width: 2px; border-radius: var(--rounded-full); background: var(--hairline); }

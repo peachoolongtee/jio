@@ -4,10 +4,12 @@
 //
 // It answers only the two requests the showcase needs, in the shape the backend answers them, so plannerApi.js and
 // api.js read the answer as they read the real one:
-//   POST /api/meeting-area  the area (of the app's own list) that keeps the longest straight-line trip shortest
+//   POST /api/meeting-area  the area (of the app's own list) that keeps the longest straight-line trip shortest, and when
+//                           asked with `alternatives` or `include`, the runners-up and named areas as `candidates`, so the
+//                           meeting spots (a list of areas members vote on) can be priced
 //   POST /api/converge      the venues of one category nearest the meeting area that are open for the slot
-// The numbers are rough (distance, not transport) and every answer says `approximate`. It never runs unless the real
-// backend did not answer, and the real backend's answers are never changed.
+// The numbers are rough (distance, not transport) and every answer says `approximate` and `travel.source: 'estimate'`, so
+// the screens say "about". It never runs unless the real backend did not answer, and the real backend's answers are never changed.
 //   const offline = useOfflinePlanner(api)   // api: the axios client of plannerApi.js
 //   ...run the showcase...
 //   offline.restore()                        // and offline.used says how many answers it gave
@@ -49,25 +51,56 @@ export function isOpenFor(hours, start, minutes) {
   })
 }
 
+// One area priced for the group, as the backend's `candidates` entries are: each member's trip in minutes, the longest and
+// the average. It is always approximate, because every time here is straight-line distance.
+// How to call: pricedArea(AREAS[0], members, 'ranked') -> { area, worstMinutes, meanMinutes, travelByMember, approximate: true, source: 'ranked' }
+function pricedArea(area, members, source) {
+  const travelByMember = Object.fromEntries(members.map((m) => [m.id, tripMinutes(distanceKm(m.start, area))]))
+  const minutes = Object.values(travelByMember)
+  return {
+    area: { id: area.id, name: area.name, lat: area.lat, lng: area.lng },
+    worstMinutes: Math.max(...minutes),
+    meanMinutes: Math.round((minutes.reduce((sum, n) => sum + n, 0) / minutes.length) * 10) / 10,
+    travelByMember,
+    approximate: true,
+    source,
+  }
+}
+
 // The area that keeps the farthest member's straight-line trip shortest (the first of any tie, in the app's order). With
 // `centroid` it is the area nearest the geographic centre of the starts instead, as the backend does with routing off.
-// How to call: standInMeetingArea({ members: [{ id: 'ian', start: { lat: 1.35, lng: 103.85 } }, ...], method: 'station' })
-export function standInMeetingArea({ members, method = 'station' }) {
+// Asked with `alternatives` or `include`, as the backend is, the answer also carries `candidates`: the chosen area, then the
+// `alternatives` next-best areas by the same rule (the first of a tie, in the app's order), then each area in `include` that is
+// not already there, with source 'included'. Whatever the method, the runners-up are the shortest-longest-trip areas. An id
+// the app does not know is skipped. The times are the planner's estimate, and `travel.source` says so, so the screens say "about".
+// How to call: standInMeetingArea({ members: [{ id: 'ian', start: { lat: 1.35, lng: 103.85 } }, ...], method: 'station', alternatives: 2, include: ['bugis'] })
+export function standInMeetingArea({ members, method = 'station', alternatives, include }) {
   const starts = members.map((m) => m.start)
   const centre = { lat: starts.reduce((s, p) => s + p.lat, 0) / starts.length, lng: starts.reduce((s, p) => s + p.lng, 0) / starts.length }
   const worst = (area) => Math.max(...starts.map((p) => distanceKm(p, area)))
   const score = method === 'centroid' ? (area) => distanceKm(centre, area) : worst
   let best = AREAS[0]
   for (const area of AREAS) if (score(area) < score(best)) best = area
-  const travelByMember = Object.fromEntries(members.map((m) => [m.id, tripMinutes(distanceKm(m.start, best))]))
-  return {
-    area: { id: best.id, name: best.name, lat: best.lat, lng: best.lng },
+  const chosen = pricedArea(best, members, 'ranked')
+  const answer = {
+    area: chosen.area,
     centre,
-    travelByMember,
-    worstMinutes: Math.max(...Object.values(travelByMember)),
+    travelByMember: chosen.travelByMember,
+    worstMinutes: chosen.worstMinutes,
+    meanMinutes: chosen.meanMinutes,
     method,
     approximate: true,
+    travel: { source: 'estimate' },
   }
+  if (alternatives === undefined && include === undefined) return answer
+  // Array.sort keeps the app's order among equal scores.
+  const runnersUp = AREAS.filter((area) => area.id !== best.id).sort((a, b) => worst(a) - worst(b)).slice(0, Math.max(0, alternatives ?? 0))
+  const candidates = [chosen, ...runnersUp.map((area) => pricedArea(area, members, 'ranked'))]
+  for (const id of include || []) {
+    const area = AREAS.find((a) => a.id === id)
+    if (area && !candidates.some((c) => c.area.id === id)) candidates.push(pricedArea(area, members, 'included'))
+  }
+  return { ...answer, candidates }
 }
 
 // Venues of the slot's category around the centre that are open for it, nearest first, as /api/converge answers. If none
