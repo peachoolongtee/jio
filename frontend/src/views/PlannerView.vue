@@ -38,6 +38,7 @@ import { distanceText } from '@/lib/planner/format.js'
 import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, votedRows } from '@/lib/confirmOrder.js'
 import { placeImage } from '@/lib/placeImages.js'
 import { placeFromOption } from '@/lib/reviewPick.js'
+import { walkFromText } from '@/lib/cardText.js'
 import { reviewsFor } from '@/lib/mock/reviews.js'
 import { HOST_ID } from '@/lib/mock/people.js'
 import { getPlace } from '@/lib/api.js'
@@ -102,6 +103,8 @@ const active = computed(() => session.value?.activeIds || [])
 const outingIds = computed(() => active.value.filter((id) => id !== HOST_ID))
 const friendIds = computed(() => groups.friends.map((p) => p.id))
 const slots = computed(() => plan.value?.slots || [])
+// Where the walking times on the cards are measured from, said once above the list. Nothing without a meeting area.
+const walkFrom = computed(() => (session.value?.meeting ? walkFromText(session.value.area?.name) : ''))
 const shown = computed(() => (filter.value ? slots.value.filter((s) => s.category === filter.value) : slots.value))
 // Under All, categories with nothing nearby fold into one line instead of an empty section each.
 const listed = computed(() => (filter.value ? shown.value : shown.value.filter((s) => s.options.length)))
@@ -128,10 +131,10 @@ async function vote(slot, option) {
 // opens with the planner off; the address is added from the place list when the place is in it.
 const reviewing = ref(null)
 
-// How to call: openReviews(option) (from a card's review line)
-function openReviews(option) {
+// How to call: openReviews(option, 'name') (from a card's name or photo; 'review' from its review line, the default)
+function openReviews(option, from = 'review') {
   const place = placeFromOption(option)
-  reviewing.value = { optionId: option.id, place, reviews: reviewsFor(option.venue) }
+  reviewing.value = { optionId: option.id, from, place, reviews: reviewsFor(option.venue) }
   if (place.address) return
   getPlace(option.venue.id, session.value?.area?.id)
     .then((known) => {
@@ -140,13 +143,14 @@ function openReviews(option) {
     .catch(() => {})
 }
 
-// Close the detail and put focus back on the review line that opened it.
+// Close the detail and put focus back on the control that opened it: the card's name (its photo shares that control) or its review line.
 // How to call: closeReviews()
 async function closeReviews() {
   const id = reviewing.value?.optionId
+  const attr = reviewing.value?.from === 'name' ? 'data-open-for' : 'data-review-for'
   reviewing.value = null
   await nextTick()
-  document.querySelector(`[data-review-for="${CSS.escape(id ?? '')}"]`)?.focus({ preventScroll: true })
+  document.querySelector(`[${attr}="${CSS.escape(id ?? '')}"]`)?.focus({ preventScroll: true })
 }
 
 async function more(slot) {
@@ -307,6 +311,7 @@ async function confirm() {
 
         <SplitView v-model:view="view" label="Places">
           <template #list>
+            <p v-if="!loading && listed.length && walkFrom" class="walk-from caption-sm text-muted" data-testid="walk-from">{{ walkFrom }}</p>
             <div v-if="loading" class="stack gap-md">
               <SkeletonRow v-for="n in 3" :key="n" avatar :lines="3" />
             </div>
@@ -331,6 +336,9 @@ async function confirm() {
                     :selected="selected === option.id"
                     :outing="outingIds"
                     :friends="friendIds"
+                    :stop="{ start: slot.start, duration: slot.duration }"
+                    :group-size="active.length"
+                    :me="HOST_ID"
                     @vote="vote(slot, $event)"
                     @swap="swap(slot, $event)"
                     @open="openReviews"
@@ -445,6 +453,7 @@ async function confirm() {
 /* The filter: one row of chips, scrolling sideways on a phone. */
 .filter { display: flex; gap: var(--spacing-sm); }
 .filter__count { margin-left: var(--spacing-xs); opacity: 0.6; }
+.walk-from { margin: 0; }
 .slot { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .slot + .slot { padding-top: var(--spacing-lg); }
 .slot__head { display: flex; align-items: center; gap: var(--spacing-md); }
