@@ -1019,3 +1019,11 @@ The lead asked whether the open pull requests overlap with work in flight, then 
 | 22.1 | Code reviewer, read-only | The new Google calls, cost per request, what reaches the browser, the search routes' rules, the engine change | Nothing | Every finding has a file, a line and a way to trigger it | Running |
 | 22.2 | Verifier | Run it with a fake Google and try to break it; count calls; check the frontend still works with Google results in its answers | Nothing in the repo | Each claim confirmed or refuted with output | Running |
 | 22.3 | Lead | Check findings, fix or record, merge into `dev` after the pitch | Fixes on `feat/real-search-integration` | Suites pass | Pending |
+
+### 21.5 and after: the schema, reconciled, and two migrations applied (2026-10-11, night)
+
+- **Reconciled by a backend agent** with the session endpoint design, as four migrations (invites; meeting spots; the slot plan's details; the plan, the suggested order and proposals), each with an access test, 316 steps in all. On a stand-in database a fresh build matched the old files plus the migrations, and every test passed. None of that ran on the live project.
+- **Applied by the lead agent at the lead's word ("apply"): `jio_invites` and `jio_meeting_spots`.** Before: three migrations listed, the invites table empty and in its old shape. Each migration was sent as one statement that refuses to run unless its text has the file's checksum, runs it, and then runs the lead's own checks as real roles in a block that is always undone (ten for invites, six groups for meeting spots); the migration is kept only if they pass. Both passed first time.
+- **After:** five migrations listed; the new objects present; signed-out callers may run only the invite preview; row counts unchanged (1 account, 1 profile, every session table empty).
+- **Not run on the live project:** the agent's four long access tests. The lead read both migrations in full before applying them.
+- **Now true of the live schema, on the design's recommendations:** a pending invitation by username lives in `invites`, with no member row until it is accepted; the meeting columns stay empty while a session is locating; a spot's travel times are by area.
