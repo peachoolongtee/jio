@@ -1,8 +1,12 @@
 <script setup>
 // The app frame: the screen, with the tab bar (TabBar) on top-level screens: a floating pill at the bottom on
 // mobile, a full-width bar along the top from tablet up. Other screens have their own back button and, often, an action bar at the bottom.
+// Until the app knows who is signed in (auth.ready, a few hundred milliseconds, at most about four seconds), it shows a
+// placeholder of the same shape, so the page is never blank.
 import { computed, defineAsyncComponent, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
+import JioLogo from '@/components/ui/JioLogo.vue'
+import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SyncNotice from '@/components/ui/SyncNotice.vue'
 import TabBar from '@/components/ui/TabBar.vue'
 import { useAuthStore } from '@/stores/auth.js'
@@ -26,7 +30,20 @@ const showTabs = computed(() => showNav.value && route.meta.tabs === true)
 </script>
 
 <template>
-  <div class="app" :class="{ 'has-tabs': showTabs }">
+  <div v-if="!auth.ready" class="app">
+    <div class="app__main">
+      <main class="screen" aria-busy="true" data-testid="app-starting">
+        <header class="screen__header">
+          <div class="screen__bar"><JioLogo :height="36" /></div>
+        </header>
+        <div class="screen__body" role="status">
+          <span class="sr-only">Loading Jio</span>
+          <SkeletonRow v-for="n in 3" :key="n" :lines="3" />
+        </div>
+      </main>
+    </div>
+  </div>
+  <div v-else class="app" :class="{ 'has-tabs': showTabs }">
     <div class="app__main">
       <SyncNotice v-if="route.meta.nav !== false" />
       <RouterView />
