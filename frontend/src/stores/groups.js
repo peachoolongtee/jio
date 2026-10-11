@@ -2,6 +2,8 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '@/lib/api.js'
+import { NEUTRAL_NAME } from '@/lib/peopleSource.js'
+import { currentUserId } from '@/lib/currentUser.js'
 
 export const useGroupsStore = defineStore('groups', () => {
   const people = ref([])
@@ -16,9 +18,16 @@ export const useGroupsStore = defineStore('groups', () => {
   const me = computed(() => leaderboard.value.find((row) => row.isMe) || null)
   const friends = computed(() => people.value.filter((p) => p.isFriend))
   const suggested = computed(() => people.value.filter((p) => !p.isFriend))
-  const nameOf = (id) => people.value.find((p) => p.id === id)?.name || ''
+  // Never blank: a person not on the list (not read yet, opted out of a session, or the signed-in person, whom a screen names from
+  // the account) reads as "Someone".
+  const nameOf = (id) => people.value.find((p) => p.id === id)?.name || NEUTRAL_NAME
+
+  // Has the list been asked for? A real account's list can be empty and still need making again when someone joins a session,
+  // so "empty" does not mean "never loaded".
+  let peopleAsked = false
 
   async function loadPeople() {
+    peopleAsked = true
     loading.value.people = true
     people.value = await api.listPeople()
     loading.value.people = false
@@ -58,17 +67,50 @@ export const useGroupsStore = defineStore('groups', () => {
     return redemption
   }
 
+  // A profile that cannot be read again (the person is not in this account's world any more, for example after another
+  // account signed in) is dropped instead of being kept or thrown at nobody.
+  // How to call: reloadProfiles()
+  function reloadProfiles() {
+    for (const id of Object.keys(profiles.value)) {
+      loadProfile(id).catch(() => {
+        const { [id]: _gone, ...rest } = profiles.value
+        profiles.value = rest
+      })
+    }
+  }
+
+  // Whose people, standings, vouchers and profiles the store holds. A change of person, with or without a sign-out between,
+  // empties them, so one account never shows another's, and what a screen had asked for is asked for again for the new person.
+  // How to call: forgetEverything() (when the signed-in person changes)
+  let owner = currentUserId()
+  function forgetEverything() {
+    const had = { people: people.value.length > 0 || peopleAsked, leaderboard: leaderboard.value.length > 0, season: !!season.value, rewards: rewards.value.length > 0 }
+    people.value = []
+    peopleAsked = false
+    leaderboard.value = []
+    season.value = null
+    profiles.value = {}
+    rewards.value = []
+    redemptions.value = []
+    if (had.people) loadPeople().catch(() => {})
+    if (had.leaderboard) loadLeaderboard().catch(() => {})
+    if (had.season) loadSeason().catch(() => {})
+    if (had.rewards) loadRewards().catch(() => {})
+  }
+
   api.subscribe((event) => {
-    if (['stats', 'reset', 'user', 'friends'].includes(event.type)) {
-      if (people.value.length) loadPeople()
+    if (currentUserId() !== owner) {
+      owner = currentUserId()
+      forgetEverything()
+    }
+    if (['stats', 'reset', 'user', 'friends', 'people'].includes(event.type)) {
+      if (people.value.length || peopleAsked) loadPeople()
       if (leaderboard.value.length) loadLeaderboard()
       if (season.value) loadSeason()
       if (rewards.value.length) loadRewards()
-      for (const id of Object.keys(profiles.value)) loadProfile(id)
+      reloadProfiles()
     }
-    if (event.type === 'session' && Object.keys(profiles.value).length) {
-      for (const id of Object.keys(profiles.value)) loadProfile(id)
-    }
+    if (event.type === 'session' && Object.keys(profiles.value).length) reloadProfiles()
   })
 
   return { people, leaderboard, season, profiles, rewards, redemptions, loading, me, friends, suggested, nameOf, loadPeople, loadLeaderboard, loadSeason, loadProfile, loadRewards, setFriend, redeem }

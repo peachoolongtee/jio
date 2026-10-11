@@ -24,13 +24,14 @@ import SessionNotices from '@/components/event/SessionNotices.vue'
 import NotFoundView from './NotFoundView.vue'
 import { PHOTOS_MAX } from '@/lib/api.js'
 import { compressImage } from '@/lib/image.js'
-import { HOST_ID } from '@/lib/mock/people.js'
 import { sessionPath } from '@/lib/session.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({ id: { type: String, required: true } })
 
 const events = useEventsStore()
+const auth = useAuthStore()
 const missing = ref(false)
 const viewing = ref(-1)
 // The print in the middle of the line.
@@ -222,7 +223,7 @@ async function confirmDelete() {
       :photos="ordered"
       :origin="tileImage"
       :place="placeOf"
-      :can-delete="(p) => p.personId === HOST_ID"
+      :can-delete="(p) => p.personId === auth.myId"
       @delete="askDelete"
     />
 

@@ -173,7 +173,7 @@ describe('the Vote page\'s use of them', () => {
   it('gives each card its stop, the group size and the signed-in person', () => {
     expect(source).toContain(':stop="{ start: slot.start, duration: slot.duration }"')
     expect(source).toContain(':group-size="active.length"')
-    expect(source).toContain(':me="HOST_ID"')
+    expect(source).toContain(':me="auth.myId"')
   })
 
   it('returns focus to the name when it opened the detail, and to the review line otherwise', () => {

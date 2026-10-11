@@ -33,6 +33,7 @@ const api = await import('../api.js')
 const { default: RoamView } = await import('../../views/RoamView.vue')
 const { default: ProposedStops } = await import('../../components/event/ProposedStops.vue')
 const { useEventsStore } = await import('../../stores/events.js')
+const { useAuthStore } = await import('../../stores/auth.js')
 
 const venue = (id, name, extra = {}) => ({ id, name, category: 'eat', area: 'Bishan', price: 12, lat: 1.35, lng: 103.85, ...extra })
 const place = (id, name, extra = {}) => ({
@@ -51,6 +52,8 @@ beforeEach(() => {
   pinia = createPinia()
   setActivePinia(pinia)
   events = useEventsStore()
+  // The signed-in person is the sample person Ian, as for the demo account.
+  useAuthStore().user = { id: 'ian', name: 'Ian', username: 'ian', local: true }
   events.byId = { s1: session() }
   vi.spyOn(events, 'loadSession').mockResolvedValue(session())
   for (const name of ['proposeMyStop', 'resolveProposal']) vi.spyOn(events, name).mockResolvedValue({})

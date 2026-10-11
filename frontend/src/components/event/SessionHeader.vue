@@ -18,8 +18,8 @@ import CountdownChip from '../ui/CountdownChip.vue'
 import SessionSteps, { backFor } from './SessionSteps.vue'
 import InviteDialog from '../group/InviteDialog.vue'
 import { CANCEL_OUTING, dateLine } from '@/lib/session.js'
-import { HOST_ID } from '@/lib/mock/people.js'
 import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({
@@ -33,12 +33,13 @@ const props = defineProps({
 const route = useRoute()
 const router = useRouter()
 const events = useEventsStore()
+const auth = useAuthStore()
 const cancelOpen = ref(false)
 const inviteOpen = ref(false)
 const busy = ref(false)
 
 const status = computed(() => props.session.status)
-const back = computed(() => (props.back ? { label: 'Back', to: props.back } : backFor(props.session, route.path, props.session.hostId === HOST_ID, exitFor())))
+const back = computed(() => (props.back ? { label: 'Back', to: props.back } : backFor(props.session, route.path, props.session.hostId === auth.myId, exitFor())))
 // While inviting, the page has its own Invite button, so the header does not repeat it.
 const canInvite = computed(() => ['locating', 'voting'].includes(status.value))
 const canCancel = computed(() => !['completed', 'cancelled'].includes(status.value))

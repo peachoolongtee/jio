@@ -40,7 +40,6 @@ import { placeImage } from '@/lib/placeImages.js'
 import { placeFromOption } from '@/lib/reviewPick.js'
 import { walkFromText } from '@/lib/cardText.js'
 import { reviewsFor } from '@/lib/mock/reviews.js'
-import { HOST_ID } from '@/lib/mock/people.js'
 import { getPlace } from '@/lib/api.js'
 import { confetti } from '@/lib/confetti.js'
 import { mealWindow, MEAL_WINDOWS } from '@/lib/planner/timeOfDay.js'
@@ -97,10 +96,10 @@ const session = computed(() => events.byId[props.id])
 const plan = computed(() => planner.plans[props.id])
 const loading = computed(() => planner.loading[props.id] && !plan.value?.slots?.length)
 const voting = computed(() => session.value?.status === 'voting')
-const nameOf = (id) => (id === 'ian' ? auth.user?.name ?? '' : groups.nameOf(id))
+const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
 // Who a card's review line may quote: the other people in this outing, then the signed-in person's friends.
-const outingIds = computed(() => active.value.filter((id) => id !== HOST_ID))
+const outingIds = computed(() => active.value.filter((id) => id !== auth.myId))
 const friendIds = computed(() => groups.friends.map((p) => p.id))
 const slots = computed(() => plan.value?.slots || [])
 // Where the walking times on the cards are measured from, said once above the list. Nothing without a meeting area.
@@ -338,7 +337,7 @@ async function confirm() {
                     :friends="friendIds"
                     :stop="{ start: slot.start, duration: slot.duration }"
                     :group-size="active.length"
-                    :me="HOST_ID"
+                    :me="auth.myId"
                     @vote="vote(slot, $event)"
                     @swap="swap(slot, $event)"
                     @open="openReviews"

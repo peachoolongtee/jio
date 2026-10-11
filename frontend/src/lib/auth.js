@@ -13,9 +13,10 @@ let client = supabase
 
 // How long to wait, in milliseconds. `startMs`: the most the first screen waits to learn who is signed in. `signOutMs`:
 // the most a sign-out waits for the server before it ends this browser's session without it. `confirmMs`: the most it
-// then waits for the client to say nobody is signed in. A test sets them short.
+// then waits for the client to say nobody is signed in. `peopleMs`: the most a read of other people's profiles waits
+// (lib/peopleSource.js) before they show as "Someone". A test sets them short.
 // How to call: timing.signOutMs = 50
-export const timing = { startMs: 4000, signOutMs: 2000, confirmMs: 1000 }
+export const timing = { startMs: 4000, signOutMs: 2000, confirmMs: 1000, peopleMs: 4000 }
 
 // A promise that settles after `ms`.
 // How to call: await Promise.race([call, pause(2000)])
@@ -126,10 +127,29 @@ export function configured() {
   return client !== null && client !== undefined
 }
 
-// Give this module another client (a test's stand-in), or null. Listeners added with onChange move across.
-// How to call: useClient(fakeSupabase())
-export function useClient(next) {
+// The client for plain reads under row-level security (the people source reads `profiles` through it), or null when
+// Supabase is not set up. It follows useClient, so a test's stand-in is the one that is read.
+// How to call: const c = dataClient(); if (c) await c.from('profiles').select('id, username').in('id', ids)
+export function dataClient() {
+  return client ?? null
+}
+
+// Does the client keep its session in local storage under `jio-auth`? True for the real client. The development-only made-up
+// account says false, so signing it out never removes a real session kept there, and the saved copy is never read.
+let usesStorage = true
+
+// Give this module another client (a test's stand-in), or null. Listeners added with onChange move across. `storage: false`
+// says the stand-in keeps no session in local storage (see usesStorage).
+// How to call: useClient(fakeSupabase()) ; useClient(fakeSupabase({ memoryOnly: true }), { storage: false })
+export function useClient(next, { storage = true } = {}) {
+  // The swap is for the account tests and the development-only made-up account. In a production build it does nothing, so
+  // no script that reaches this module can put another client in place of the real one.
+  if (!import.meta.env.DEV && !import.meta.env.VITEST) {
+    console.warn('lib/auth.js: useClient is only for development and tests, so it did nothing.')
+    return
+  }
   client = next
+  usesStorage = storage
   watch()
 }
 
@@ -279,6 +299,7 @@ export async function signIn({ email, password }) {
 // can be waiting on the network; only the saved copy of who was signed in is read, never the tokens.
 // How to call: savedUser() -> { id: 'a1b2', email: 'sam@example.com', username: 'sam', dob: '2001-05-06' }
 export function savedUser() {
+  if (!usesStorage) return null
   try {
     const saved = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY))
     return saved?.user?.id ? summary(saved.user) : null
@@ -290,6 +311,7 @@ export function savedUser() {
 // Remove the stored session without asking the server. Never throws.
 // How to call: forgetSession()
 function forgetSession() {
+  if (!usesStorage) return
   try {
     for (const key of [AUTH_STORAGE_KEY, `${AUTH_STORAGE_KEY}-user`, `${AUTH_STORAGE_KEY}-code-verifier`]) localStorage.removeItem(key)
   } catch {

@@ -86,7 +86,8 @@ describe('the list of places near the group', () => {
     expect(planner.roamNearby).toHaveBeenCalledTimes(1)
     const request = planner.roamNearby.mock.calls[0][0]
     expect(request.current).toEqual({ lat: bishan.lat, lng: bishan.lng })
-    expect(request.members).toEqual([{ id: 'ian', name: 'Ian' }, { id: 'jonathan', name: 'Jonathan' }])
+    // The planner needs only an id: a name is not sent (a long one could be over its limit and refuse the request).
+    expect(request.members).toEqual([{ id: 'ian' }, { id: 'jonathan' }])
     expect(request.minutes).toBe(60)
     expect(request.date).toBe('2026-10-09')
     // The time is when the last stop ends (the plan's two stops end after 10:00, the fake clock), as HH:MM.

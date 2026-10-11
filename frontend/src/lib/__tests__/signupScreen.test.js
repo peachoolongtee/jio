@@ -20,6 +20,11 @@ beforeAll(() => {
 })
 afterEach(() => vi.unstubAllGlobals())
 
+// The last question: a real account is not offered the sample people as friends, so its last question is the home area
+// (step 6); local accounts also get "Suggested friends" (step 7).
+// How to call: lastStep(fakeSupabase()) -> 6
+const lastStep = (fake) => (fake ? 6 : 7)
+
 // The sign-up screen with the draft filled in and on the last question. `fake` null means local accounts only.
 // How to call: const t = await setUp(fakeSupabase(), { password: 'weak' })
 async function setUp(fake, draft = {}) {
@@ -29,14 +34,14 @@ async function setUp(fake, draft = {}) {
   setActivePinia(pinia)
   const { useAuthStore } = await import('@/stores/auth.js')
   const store = useAuthStore()
-  Object.assign(store.draft, { ...PROFILE, step: 7, ...draft })
+  Object.assign(store.draft, { ...PROFILE, step: lastStep(fake), ...draft })
   const { routes } = await import('@/router/routes.js')
   const stub = { render: () => null }
   const router = createRouter({ history: createMemoryHistory(), routes: routes.map((r) => ({ ...r, component: stub })) })
   await router.push('/signup')
   const { default: AuthView } = await import('@/views/AuthView.vue')
   const view = await mountScreen(AuthView, { plugins: [pinia, router] })
-  await until(() => store.draft.step === (draft.step ?? 7))
+  await until(() => store.draft.step === (draft.step ?? lastStep(fake)))
   return { fake, store, router, view }
 }
 
@@ -63,6 +68,18 @@ describe('the password rule on screen', () => {
   it('draws the four-part checklist for local accounts', async () => {
     const { view } = await setUp(null, { step: 1, password: '' })
     expect(view.all('.checklist__item')).toHaveLength(4)
+  })
+})
+
+describe('suggested friends', () => {
+  it('are not offered to a real account, which starts with nobody but itself, and are kept for local accounts', async () => {
+    const real = await setUp(fakeSupabase(), { step: 6 })
+    expect(real.view.text('h1')).toBe('Home area')
+    expect(real.view.text()).not.toContain('Suggested friends')
+    expect(real.view.text(mainButton(real.view))).toContain('Finish')
+    const local = await setUp(null, { step: 7 })
+    expect(local.view.text('h1')).toBe('Suggested friends')
+    expect(local.view.text(mainButton(local.view))).toContain('Finish')
   })
 })
 
@@ -97,7 +114,7 @@ describe('a failed sign-up', () => {
     await until(() => store.draft.step === 1)
     view.type('input[autocomplete=new-password]', 'Sup3r-secret!')
     await view.click(mainButton(view))
-    await until(() => store.draft.step === 7)
+    await until(() => store.draft.step === lastStep(fake))
     expect(fake.state.signUpCalls).toHaveLength(1)
     await view.click(mainButton(view))
     await until(() => store.signedIn)

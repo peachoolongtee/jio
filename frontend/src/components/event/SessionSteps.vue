@@ -112,15 +112,16 @@ let carried = null
 //   <SessionSteps />                        on the create page
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { HOST_ID } from '@/lib/mock/people.js'
 import { goBackIfBehind } from '@/lib/stepNav.js'
+import { useAuthStore } from '@/stores/auth.js'
 
 const props = defineProps({ session: { type: Object, default: null } })
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const root = ref(null)
 
-const steps = computed(() => stepsFor(props.session, route.path, props.session?.hostId === HOST_ID))
+const steps = computed(() => stepsFor(props.session, route.path, props.session?.hostId === auth.myId))
 // The Create and Invite screens are one stop in the browser's history (leaving either for the other replaces it), so
 // Back from either goes to where the person came from, never to an empty create form.
 const swapsHistory = computed(() => route.path.endsWith('/invite') || route.path.endsWith('/edit'))

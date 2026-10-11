@@ -26,8 +26,8 @@ import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import TextField from '@/components/ui/TextField.vue'
 import NotFoundView from './NotFoundView.vue'
 import { fromMinutes, toMinutes } from '@/lib/planner/format.js'
-import { HOST_ID } from '@/lib/mock/people.js'
 import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const TITLE_IDEAS = ['Saturday hangout', 'Dinner catch-up', 'Weekend makan trip']
@@ -37,6 +37,7 @@ const props = defineProps({ id: { type: String, default: '' } })
 const router = useRouter()
 const route = useRoute()
 const events = useEventsStore()
+const auth = useAuthStore()
 
 const title = ref('')
 const date = ref('') // yyyy-MM-dd
@@ -51,7 +52,7 @@ const editing = computed(() => !!props.id)
 const session = computed(() => (editing.value ? events.byId[props.id] : null))
 const missing = ref(false)
 let filled = false
-const isHost = computed(() => session.value?.hostId === HOST_ID)
+const isHost = computed(() => session.value?.hostId === auth.myId)
 const started = computed(() => !!session.value && session.value.status !== 'inviting')
 // Why the form is not offered, or '' when it is.
 const closed = computed(() => (!session.value ? '' : !isHost.value ? 'Only the host can change the date and times.' : started.value ? 'The date and times are locked once a session has started.' : ''))

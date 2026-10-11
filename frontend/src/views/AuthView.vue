@@ -20,7 +20,7 @@ export function passwordChecks(password, realAccounts) {
 <script setup>
 // Sign-up: one question per screen, with a back arrow and a progress bar.
 // Email, password with a live checklist, name, date of birth, username, profile photo (can be skipped), home area,
-// suggested friends. It ends on Home.
+// suggested friends (local accounts only: a real account has no sample friends). It ends on Home.
 // The answers live in the auth store's draft, so nothing is lost if the window is resized.
 // With real accounts the password goes to Supabase and is emptied afterwards, whatever happens: after a failed attempt
 // the screen goes back to the question the problem belongs to, keeps every other answer, and asks for the password again
@@ -41,10 +41,13 @@ import * as api from '@/lib/api.js'
 import { DOB_MIN, fieldForSignUpError, NAME_MAX, todayIso, USERNAME_HINT, validateDob, validateName, validateUsername } from '@/lib/signupRules.js'
 import { useAuthStore } from '@/stores/auth.js'
 
-const STEPS = ['email', 'password', 'name', 'dob', 'username', 'photo', 'home', 'friends']
+const ALL_STEPS = ['email', 'password', 'name', 'dob', 'username', 'photo', 'home', 'friends']
 
 const router = useRouter()
 const auth = useAuthStore()
+// A real account starts with nobody but itself, so it is not offered the sample people to add as friends: its friends are
+// the people it shares a session with. Local accounts keep the step.
+const STEPS = auth.realAccounts ? ALL_STEPS.filter((name) => name !== 'friends') : ALL_STEPS
 const draft = computed(() => auth.draft)
 const step = computed(() => STEPS[draft.value.step])
 
@@ -188,7 +191,7 @@ async function next() {
 const buttonLabel = computed(() => {
   if (phase.value === 'checking') return 'Checking username'
   if (phase.value === 'creating') return 'Creating your account'
-  return step.value === 'friends' ? 'Finish' : 'Next'
+  return step.value === STEPS.at(-1) ? 'Finish' : 'Next'
 })
 
 // Development builds only: the first question also offers the demo account, with or without showcase data

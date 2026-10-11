@@ -24,6 +24,7 @@ import SampleNote from '../ui/SampleNote.vue'
 import SkeletonRow from '../ui/SkeletonRow.vue'
 import UserAvatar from '../ui/UserAvatar.vue'
 import { directionsUrl } from '@/lib/maps.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { useGroupsStore } from '@/stores/groups.js'
 import { placeImage, placeKind } from '@/lib/placeImages.js'
 import { useFocusTrap } from '@/lib/useFocusTrap.js'
@@ -57,6 +58,7 @@ const { onKeydown } = useFocusTrap(open, panel, { restoreOnUnmount: true })
 
 // Who is a friend, from the people list (loaded here if Home has not yet).
 const groups = useGroupsStore()
+const auth = useAuthStore()
 if (!groups.people.length) groups.loadPeople()
 const isFriend = (id) => !!groups.people.find((p) => p.id === id)?.isFriend
 const adding = ref('')
@@ -150,7 +152,7 @@ onBeforeUnmount(() => {
                       <RouterLink :to="`/people/${review.personId}`" class="title-sm review__link">{{ review.name }}</RouterLink>
                       <span v-if="inOuting(review.personId)" class="review__friend caption-sm"><AppIcon name="people" :size="12" />In this outing</span>
                       <span v-else-if="isFriend(review.personId)" class="review__friend caption-sm"><AppIcon name="check" :size="12" />Friend</span>
-                      <button v-if="!isFriend(review.personId)" type="button" class="review__add caption" :disabled="adding === review.personId" @click="addFriend(review.personId)">
+                      <button v-if="auth.sampleWorld && !isFriend(review.personId)" type="button" class="review__add caption" :disabled="adding === review.personId" @click="addFriend(review.personId)">
                         <AppIcon name="user-plus" :size="14" />Add friend
                       </button>
                     </span>

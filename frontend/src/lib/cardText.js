@@ -80,7 +80,10 @@ export function votersText({ voters = [], votes = 0, groupSize = 0, me = '' } = 
   // Names that are missing, or a list that does not match the count, are not worth guessing from.
   if (voters.length !== votes || voters.some((v) => !(v.id === me || (typeof v.name === 'string' && v.name.trim())))) return count
   if (groupSize > 1 && votes >= groupSize) return 'Everyone voted'
-  const names = [...voters.filter((v) => v.id === me).map(() => 'You'), ...voters.filter((v) => v.id !== me).map((v) => v.name.trim())]
+  // "You" is the signed-in person, chosen by id. Someone whose name is the word "You" keeps it, in quotes, so the line never
+  // reads "You and You voted" and nobody is merged with the signed-in person on the strength of a name.
+  const others = voters.filter((v) => v.id !== me).map((v) => (/^you$/i.test(v.name.trim()) ? `\u201c${v.name.trim()}\u201d` : v.name.trim()))
+  const names = [...voters.filter((v) => v.id === me).map(() => 'You'), ...others]
   const list = names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
   return `${list} voted`
 }

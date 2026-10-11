@@ -45,7 +45,6 @@ import * as api from '@/lib/api.js'
 import { enterGame } from '@/lib/enterGame.js'
 import { activeMeetups, dayLabel, pinName, pinsFor, routesFor, selectMeetup } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
-import { HOST_ID } from '@/lib/mock/people.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useNow } from '@/lib/useNow.js'
 import { canViewTransition, withViewTransition } from '@/lib/viewTransition.js'
@@ -98,7 +97,7 @@ onMounted(loadHome)
 const route = useRoute()
 const router = useRouter()
 const now = useNow()
-const nameOf = (id) => (id === HOST_ID ? auth.user?.name ?? '' : groups.nameOf(id))
+const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 // The meetups still going (not completed or cancelled), soonest first, and the one selected: named by ?meetup=, else
 // the soonest. Home is about the selected one.
 // What the lists show: every session, unless the demo tour is on (lib/sessionFilter.js).
@@ -353,7 +352,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
     <!-- The band: a muted map of Singapore; the routes meet at the selected meetup (or under the main action, in the middle). -->
     <section class="hero" :class="{ 'has-meetup': hasMeetups, 'hero--full': fullMap }" aria-labelledby="home-hello">
       <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
-        <UserAvatar :name="auth.user?.name ?? ''" :src="auth.user?.photo" person="ian" :size="44" />
+        <UserAvatar :name="auth.user?.name ?? ''" :src="auth.user?.photo" :person="auth.myId" :size="44" />
       </RouterLink>
 
       <div class="hero__hello">
@@ -366,7 +365,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
       <div class="hero__stage">
         <SingaporeMap :key="mapKey" class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" :quick="quickMap" hide-meet />
         <template v-if="hasMeetups">
-          <MeetupPins class="hero__pins" :pins="pins" :meetups="meetups" :my-id="HOST_ID" :names="nameOf" :selected-id="selected.id" :center="MEET" :span="mapSpan" @select="select" />
+          <MeetupPins class="hero__pins" :pins="pins" :meetups="meetups" :my-id="auth.myId" :names="nameOf" :selected-id="selected.id" :center="MEET" :span="mapSpan" @select="select" />
         </template>
         <div v-else class="hero__action" :class="{ 'is-pin': events.loaded }">
           <SkeletonRow v-if="!events.loaded && !loadError" :lines="1" />
@@ -391,13 +390,13 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 
       <!-- Meetups going: the selected one, and with two or more, all of them. -->
       <div v-if="events.loaded && selected" class="home__meetups" :class="{ 'is-split': meetups.length > 1 }">
-        <MeetupDetail class="rise" :meetup="selected" :my-id="HOST_ID" :names="nameOf" />
+        <MeetupDetail class="rise" :meetup="selected" :my-id="auth.myId" :names="nameOf" />
         <section v-if="meetups.length > 1" class="section rise" style="--i: 1" aria-labelledby="home-meetups">
           <div class="section__head">
             <h2 id="home-meetups" class="display-sm">Your meetups</h2>
             <AppButton v-if="hasFinished" variant="tertiary" underline to="/sessions">All meetups</AppButton>
           </div>
-          <MeetupList :meetups="meetups" :selected-id="selected.id" :my-id="HOST_ID" :start-href="startHref" @select="select" @start="startAnother" />
+          <MeetupList :meetups="meetups" :selected-id="selected.id" :my-id="auth.myId" :start-href="startHref" @select="select" @start="startAnother" />
         </section>
         <template v-else>
           <!-- One meetup: its card is above, so the list is the action alone. -->
