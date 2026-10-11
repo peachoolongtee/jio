@@ -18,7 +18,7 @@ import { useRouter } from 'vue-router'
 import AppButton from '../ui/AppButton.vue'
 import BannerNote from '../ui/BannerNote.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
-import { isPaused } from '@/lib/session.js'
+import { CANCEL_OUTING, isPaused } from '@/lib/session.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({ session: { type: Object, required: true } })
@@ -71,14 +71,14 @@ async function cancel() {
       Not enough people. Invite someone or cancel.
       <template #actions>
         <AppButton small :to="`/sessions/${session.id}/invite`">Invite someone</AppButton>
-        <AppButton small variant="secondary" @click="cancelOpen = true">Cancel session</AppButton>
+        <AppButton small variant="secondary" @click="cancelOpen = true">{{ CANCEL_OUTING.action }}</AppButton>
       </template>
     </BannerNote>
 
 
-    <ModalDialog v-model:open="cancelOpen" title="Cancel this session?">
-      <AppButton block variant="secondary" @click="cancelOpen = false">Keep session</AppButton>
-      <AppButton block variant="danger" :disabled="busy" @click="cancel">Cancel session</AppButton>
+    <ModalDialog v-model:open="cancelOpen" :title="CANCEL_OUTING.title" :text="CANCEL_OUTING.text">
+      <AppButton block variant="secondary" @click="cancelOpen = false">{{ CANCEL_OUTING.keep }}</AppButton>
+      <AppButton block variant="danger" :disabled="busy" @click="cancel">{{ CANCEL_OUTING.confirm }}</AppButton>
     </ModalDialog>
   </div>
 </template>

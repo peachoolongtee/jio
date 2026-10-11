@@ -8,7 +8,7 @@
 //   secondary Ink outline on white.
 //   tertiary  Text only. Add `underline` when it stands alone as a link.
 //   pill      Small Rausch pill, for example "Set".
-//   danger    Error-red fill, for an action that cannot be undone, for example "Cancel session".
+//   danger    Error-red fill, for an action that cannot be undone, for example "Cancel outing".
 // `small` makes primary and secondary buttons 44px tall with smaller text, for actions inside cards.
 // Pass `to` to make it a router link, or `href` for a link to another site (add target="_blank" to open a new tab;
 // it gets rel="noopener noreferrer"). A disabled button always renders as a real <button>.
@@ -123,7 +123,7 @@ const attrs = computed(() =>
 .btn--pill:not(:disabled):active { background: var(--primary-active); }
 .btn--pill:disabled { background: var(--primary-disabled); cursor: not-allowed; }
 
-/* Destructive confirmation, always with words ("Cancel session", "Delete"). */
+/* Destructive confirmation, always with words ("Cancel outing", "Delete"). */
 .btn--danger { height: 48px; padding: 0 var(--spacing-lg); border-radius: var(--rounded-sm); background: var(--primary-error-text); color: var(--on-primary); }
 .btn--danger:not(:disabled):active { background: var(--primary-error-text-hover); }
 .btn--danger:disabled { opacity: 0.5; cursor: not-allowed; }
