@@ -7,6 +7,8 @@
 // goes back to the invite step, and Back goes there without saving. Only the host can, and only while the session is
 // still inviting; after that the screen says the day and times are locked. Create and Invite are one stop in the
 // browser's history (each replaces the other), so Back in the browser never returns to an empty create form.
+// The host may also name a place the group has already decided on ("We already have a place"). A known place needs at
+// least two people, so the choice is kept (components/spots/knownPlaceChoice.js) and used when the session starts.
 //   <CreateEventView />                  /sessions/new
 //   <CreateEventView id="s1" />          /sessions/s1/edit
 import { computed, onMounted, ref, watch } from 'vue'
@@ -19,6 +21,8 @@ import CalendarPicker from '@/components/ui/CalendarPicker.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import SessionSteps from '@/components/event/SessionSteps.vue'
+import KnownPlaceField from '@/components/spots/KnownPlaceField.vue'
+import { recalledKnownPlace, rememberKnownPlace } from '@/components/spots/knownPlaceChoice.js'
 import RadialTimePicker from '@/components/ui/RadialTimePicker.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import TextField from '@/components/ui/TextField.vue'
@@ -38,6 +42,8 @@ const title = ref('')
 const date = ref('') // yyyy-MM-dd
 const start = ref('')
 const end = ref('')
+// The area the host already has in mind, or ''.
+const knownArea = ref('')
 const busy = ref(false)
 const error = ref('')
 
@@ -69,6 +75,7 @@ function fill(found) {
   date.value = found.date
   start.value = found.start
   end.value = found.end
+  knownArea.value = recalledKnownPlace(found)
 }
 if (editing.value) onMounted(load)
 watch(session, fill, { immediate: true })
@@ -92,6 +99,7 @@ async function next() {
   const values = { title: title.value, date: date.value, start: start.value, end: endValue.value }
   try {
     const saved = editing.value ? await events.update(props.id, values) : await events.create(values)
+    rememberKnownPlace(saved, knownArea.value)
     router.replace(`/sessions/${saved.id}/invite`)
   } catch (e) {
     error.value = e.message
@@ -142,6 +150,7 @@ async function next() {
             <RadialTimePicker v-model="end" label="End time" :fallback="endValue || '18:00'" :error="endError" :hint="!end && start ? `Ends ${endValue} unless you change it` : ''" />
           </div>
         </section>
+        <KnownPlaceField v-model="knownArea" />
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </form>
 

@@ -19,5 +19,7 @@ const icon = computed(() => ICONS[props.step.tone] || '')
 </template>
 
 <style scoped>
-.next-step { max-width: 100%; }
+/* A long step ("Say which spots work for you") wraps inside its row instead of running past it at 320px. The corner is a
+   little less round so a wrapped label still sits in a tidy shape. */
+.next-step.tag { max-width: 100%; border-radius: var(--rounded-md); white-space: normal; text-align: left; }
 </style>
