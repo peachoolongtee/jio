@@ -29,7 +29,7 @@ Jio decides where a group should meet, fairly, and plans the outing around it. I
 
 ### Issue tracker
 
-Work is tracked in GitHub Issues on `peachoolongtee/jio`. The map to follow is issue #109, "Jio to the freeze", grouped by feature; issue #1 is the first map, kept as a record, and the audit tracker is issue #47. See `docs/agents/issue-tracker.md`.
+Work is tracked in GitHub Issues on `peachoolongtee/jio`. The one live map is issue #109, "Jio to the freeze", grouped by feature. The first map (issue #1) and the audit tracker (issue #47) were closed as records on 2026-10-11; every ticket of theirs that still describes work is under #109. See `docs/agents/issue-tracker.md`.
 
 ### Design language
 
@@ -92,6 +92,10 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 
 **Round 2, 2026-10-09, fixes: completed.** A backend agent hardened the login check; the lead revised the schema on the live project. An independent tester confirmed the results. A second review asked for more changes.
 
+**Round 23, 2026-10-11, the tracker cleared, the demo tour checked, and each real service run once.** Open tickets went from 66 to 36 under one map. With the lead's keys: OneMap routing, the live forecast and Gemini answered; with the Google key set every converge result was a Google place.
+
+**Rounds 21 and 22, 2026-10-11, five pieces built in parallel and the place-search pull request audited.** Weather's backend half, Roam in a meetup, the demo tour and the session schema are on `integration/after-pitch`; the place-search fixes are on `feat/real-search-integration`, held for the Google decision.
+
 **Round 20, 2026-10-11, decisions and a new map.** Dietary needs, weather, the demo tour and invites were settled; the map is issue #109.
 
 **Round 19, 2026-10-11, the team's walkthrough: completed.** Eighteen items reconciled; nine built for the pitch by three frontend agents, the rest on the map.
@@ -130,22 +134,23 @@ See the closed tickets on the tracker, and `docs/agents/work-log.md` for agent r
 
 ## Work In Progress
 
-A ticket's assignee is its owner. Query the tracker for open, assigned tickets. No agent work is running.
+A ticket's assignee is its owner. Query the tracker for open, assigned tickets. No agent work is running. Finished work that waits for the pitch to pass is on `integration/after-pitch` and goes to `dev` as one pull request.
 
 ## Outstanding Tasks
 
-The tracker is the source of truth. Start from the audit tracker, issue #47: three tickets to fix before any public deploy, the seven "Overhaul N of 7" tickets in order, and four decisions for the lead.
+The tracker is the source of truth: the open tickets under issue #109, in the order its Notes give. First the lead's account and key checklist, then sessions on the server in five stages.
 
 ## Known Issues
 
-Recorded as tickets under issue #47. The ones that change how you work today:
+Recorded as tickets under issue #109. The ones that change how you work today:
 
-- **Sign-up is still local.** The screens now collect a date of birth and a username the database accepts, but nothing is sent to Supabase and there is no login screen.
+- **Sign-up and login are built and have never met the real project.** Email confirmation is still on there, and no real token has been checked by `GET /api/me`.
+- **A Google key changes every ranking.** With `GOOGLE_MAPS_API_KEY` set, a real converge returned ten Google places out of ten, stalls in one food court, one of them first on a single review. Google's terms do not allow them beside the OneMap map. Leave the key empty until the lead decides.
 - **The planner routes accept anyone.** The login check exists but is not applied to them, because the frontend sends no token yet.
 - **Points, season prizes and voucher codes are computed in the browser** and can be edited there. They are labelled as a demo and must not be presented as real.
 - **The signed-in user's id is hard-coded** in several views, so nothing works for two real people yet.
 - **An old database password is in git history.** The repo must stay private until the lead resets it.
-- **CI runs only on pull requests and `main`**, and runs only the backend tests.
+- **CI has no end-to-end step.** It runs both unit suites and the build on pull requests and on pushes to `main` and `dev`.
 - **A host's account cannot be deleted**, and nothing deletes sessions. Account erasure needs a server route.
 
 ## Testing and Verification
@@ -203,8 +208,12 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-09 | `feature/external-apis` merged with `main` (working tree) | `pnpm --filter jio-frontend test` | 186 passed, 20 files |
 | 2026-10-09 | `feature/external-apis` merged with `main` (working tree) | `pnpm build` | Succeeded |
 | 2026-10-09 | `feature/external-apis` merged with `main`, real OneMap account | Live server: roam, meeting area, address search | Roam: live weather, 9 of 9 trips routed by OneMap. Meeting area for Tampines + Clementi: Bugis, 28 min worst, 32 routes. Address search found Bishan MRT |
+| 2026-10-11 | `integration/after-pitch` with the demo tour merged in (`14b1cd5`) | `pnpm test`; `pnpm --filter jio-frontend test`; `pnpm build` | 897 passed, 2 skipped, 32 files; 941 passed, 62 files; succeeded |
+| 2026-10-11 | `feat/demo-tour`, development server, no backend | `/demo`, then each of the eight checkpoints by the strip's next button, about 560 px wide | Lands on Home at checkpoint 1; all eight open their screen; no horizontal overflow; no page errors |
+| 2026-10-11 | `feat/real-search-integration`, working tree | `pnpm test`, also with outbound calls blocked; frontend suite; build | 986 passed, 2 skipped, 34 files, both times; 886 passed, 59 files; succeeded |
+| 2026-10-11 | `dev` at `36a8bf0`, the lead's real keys, own server on a spare port | One call to each real service, by a verifier agent | OneMap: logged in, search 0.16 s, meeting area for Tampines and Clementi 3.2 s cold (10 trips routed, 22 estimated) and 2 ms warm. Forecast: live. Gemini: an order and a sentence in 1.1 s. Google: 19 places added; all 10 converge results were Google places. No server warnings. Not run: a Google photo, a real login token |
 
-Not yet verified: a real user's login token against `GET /api/me`, and anything end to end.
+Not yet verified: a real user's login token against `GET /api/me`, a Google photo, and anything end to end.
 
 ## Next Steps
 

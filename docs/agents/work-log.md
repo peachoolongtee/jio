@@ -1027,3 +1027,53 @@ The lead asked whether the open pull requests overlap with work in flight, then 
 - **After:** five migrations listed; the new objects present; signed-out callers may run only the invite preview; row counts unchanged (1 account, 1 profile, every session table empty).
 - **Not run on the live project:** the agent's four long access tests. The lead read both migrations in full before applying them.
 - **Now true of the live schema, on the design's recommendations:** a pending invitation by username lives in `invites`, with no member row until it is accepted; the meeting columns stay empty while a session is locating; a spot's travel times are by area.
+
+## Round 23: the tracker cleared, the demo tour checked, each real service run once (2026-10-11, evening)
+
+The lead asked what is still outstanding on each map and for the maps to be cleared of what is done or replaced; then said the remaining API keys were in `backend/.env`.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 23.1 | Lead | Read every open ticket and its latest note; close what is done or replaced, saying where each remainder went; move what is still work under one map | The tracker | No ticket closed without a note naming its evidence or its carrier | **Completed** |
+| 23.2 | Lead | Check the demo tour (21.2), commit, push, merge into `integration/after-pitch` | `feat/demo-tour`, the staging branch | Suites and build by the lead; the checkpoints opened in a browser | **Completed** |
+| 23.3 | Lead | Check the place-search fixes (22.3), commit and push | `feat/real-search-integration` | Suites by the lead, also with outbound calls blocked | **Completed; not merged** |
+| 23.4 | Verifier | One call to each real service with the lead's keys, on its own server, under hard caps | Nothing | Each claim seen in a response; the caps kept | **Completed** |
+| 23.5 | General-purpose | Redraw the pitch's tech stack diagram from the code | `docs/pitch/` | Every claim on it traced to a file | **Completed** |
+
+### 23.1 The tracker
+
+- **Before:** 66 open tickets under three maps. **After:** 36, all under "Jio to the freeze"; the first map and the audit tracker are closed as records.
+- **Closed, 29:** 8 from the first map, 15 from the audit tracker (5 of them "Overhaul" tickets), 4 from the new map (CI, the unplanned-features decision, the leaderboard audit's findings, the review of meeting spots), and the two older maps themselves. Each has a note naming the commit or test that settles it, or the ticket that now carries what was left.
+- **Carriers updated, 17**, so no remainder was lost: dietary needs, weather, the real-service run, deploy, voting on the server, place photos, the signed-in account, dead ends, Bootstrap, the endpoint design, account setup, the Google decision, layout widths, login on the planner routes, Roam in a meetup, the demo tour, the invented venues.
+- **Moved under the live map, 11**, and one created: "Small calls for the lead, each with a recommendation", eight lines gathered from tickets that were otherwise finished.
+- **A mistake caught:** a note on the walkthrough ticket said two leaderboard defects were unfixed. Round 8's table shows both were fixed; the note was deleted.
+- **Not closed although folded:** the database password. Its ticket is closed into the account checklist, where it is the first line and is marked not done.
+
+### 23.2 The demo tour
+
+- **Agent:** a frontend-engineer subagent (21.2). Its report: `/demo`, one outing at eight checkpoints, a strip, three side cases, a stand-in planner for a backend that is off, the flag `VITE_DEMO_TOUR`, which needs `VITE_ALLOW_LOCAL_ACCOUNTS=1` and refuses to start without it.
+- **Run by the lead on the branch:** frontend suite 862 passed, 59 files; build succeeded.
+- **Opened by the lead** on a spare port with no backend, about 560 px wide: `/demo` landed on Home at checkpoint 1 in under 8 s; the strip's next button opened `/sessions/s2/invite`, `/sessions/s3`, `/sessions/s4`, `/sessions/s5/plan`, `/sessions/s6/itinerary`, `/sessions/s7/itinerary` and `/sessions/s8/photos`, with the footer buttons the report gives; no horizontal overflow; no page errors. The console showed 12 failed requests to the absent backend, not the one the report gives.
+- **Found by the lead:** opening another checkpoint's address by hand leaves the strip on the old checkpoint. On a phone the strip takes about a fifth of the screen.
+- **Merged into `integration/after-pitch`** (`14b1cd5`), one conflict in `DESIGN.md`, both sections kept. There: 897 backend passed, 2 skipped; 941 frontend passed, 62 files; build succeeded.
+- **Not verified by anyone:** reduced motion in a browser; a real cold start of a deployed backend.
+
+### 23.3 The place-search fixes
+
+- **Agent:** a backend implementer (22.3) on `feat/real-search-integration`, the staging branch with the pull request merged in. Its report: all eleven audit items fixed, with 77 new tests of which 51 fail on the unfixed code; the worst case for one ranking with a hung Google fell from about 9 s to 3.3 s.
+- **Run by the lead:** backend suite 986 passed, 2 skipped, 34 files, and the same with outbound calls blocked; frontend 886 passed; build succeeded.
+- **Not merged into the staging branch.** The frontend half of the pull request still keeps Google's place details in the browser and shows them beside the OneMap map; that waits on the lead's decision about Google places.
+- **Reported and not rechecked:** each item's behaviour; the no-key comparison (10 answers identical, 11 differ only in order and a `google` block).
+
+### 23.4 Each real service, once
+
+- **Agent:** a verifier, read-only, on its own server on a spare port, with caps on each kind of call. It did not read the env files.
+- **Worked:** OneMap login, search (0.16 s) and routing (meeting area for Tampines and Clementi: Lavender, 29.5 min worst, 3.2 s cold with 10 trips routed and 22 estimated, 2 ms warm); the live forecast; Gemini (an order and a sentence in 1.1 s, so the model name is accepted); Google (19 places added to a ranking).
+- **What it means for a demo:** with the Google key set, all ten converge results were Google places, the top five stalls at one address, the first on a single five-star review, one with a mixed English and Chinese address; no curated, CDC or OneMap place and no activity appeared.
+- **Not run:** a Google photo (no place had one); a real login token (both 401s were refused on shape, so fetching Supabase's signing keys is unproven); Anthropic.
+
+### 23.5 The tech stack diagram
+
+- **Agent:** general-purpose. Files in `docs/pitch/`, untracked. It corrected five beliefs in its brief from the code, among them that 36 of the 1,819 venues are invented samples.
+- **Seen by the lead:** the preview image. One line in the notes was out of date by the evening (meeting-spot tables went live) and was corrected.
+- **Not done:** placing it in Canva. The connected Canva account does not hold the deck.
