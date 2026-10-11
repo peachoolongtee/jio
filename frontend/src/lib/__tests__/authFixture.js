@@ -1,22 +1,56 @@
-// A stand-in for the Supabase browser client, for the account tests. It keeps its users, session and profile rows in
-// one object (`state`) that outlives a module reload, the way Supabase's own storage outlives a page reload. It never
-// touches the network. Not a test file itself (the name does not end in .test.js).
+// A stand-in for the Supabase browser client, for the account tests. It keeps its users and profile rows in one object
+// (`state`) that outlives a module reload, the way Supabase's own database outlives a page reload. The session lives
+// where the real client keeps it: in local storage, under the key named in supabase.js, so a sign-out that does not
+// remove it leaves the person signed in after a "reload" (a new boot on the same storage). It never touches the network.
+// Not a test file itself (the name does not end in .test.js).
 //
-// It answers the way Supabase does for the calls lib/auth.js makes: errors carry `name`, `code` and `status`, sign-up
-// with email confirmation on returns a user and no session, and a repeat sign-up of a registered email returns a user
-// with no identities. Profile writes follow the database's column grants (db/policies.sql).
+// It answers the way the installed client (@supabase/auth-js 2.117) does for the calls lib/auth.js makes: errors carry
+// `name`, `code` and `status`; a lost connection is an AuthRetryableFetchError with status 0; and every HTTP 5xx is also
+// an AuthRetryableFetchError, with its status and no code (the client's NETWORK_ERROR_CODES), so the sign-up trigger's
+// "Database error saving new user" arrives as a 500 of that class. Sign-up with email confirmation on returns a user and
+// no session, and a repeat sign-up of a registered email returns a user with no identities. Profile writes follow the
+// database's column grants (db/policies.sql).
 import { loadApi } from './planFixture.js'
+import { AUTH_STORAGE_KEY } from '../supabase.js'
 
 const OWN_PROFILE_COLUMNS = ['display_name', 'avatar_url']
 const OWN_PRIVATE_COLUMNS = ['dob', 'home_area_id', 'dietary', 'budget_max_per_person', 'needs_step_free']
 
-// Options: confirmEmail (sign-up returns no session), signOutMode ('ok', 'reject', 'throw' or 'error'), down (every
-// call fails like a lost connection), failWrites (profile updates fail), staleUsernameCheck (the rpc says free
-// even when the name is taken, so the trigger's unique violation is what catches it).
+// Options:
+//   confirmEmail        sign-up returns no session
+//   signOutMode         'ok' ends the session; 'reject', 'throw', 'error' and 'hang' (never answers) leave it where it is
+//   down                every call fails like a lost connection
+//   failWrites          profile updates fail
+//   writesHang          profile updates never answer (a slow connection)
+//   readsHang           profile reads never answer
+//   rpcError            the username check answers with this error and a 500
+//   staleUsernameCheck  the username check says free until a sign-up has been tried, so the trigger's failure is what
+//                       catches a name taken in between
+//   breakTrigger        sign-up fails the way the trigger does for a bad date of birth: a 500, username free
+//   expired             the stored access token has expired, so getSession refreshes first
+//   refreshMode         'ok', 'retryable' (no connection), 'server' (a 502) or 'refused' (the server refuses the refresh
+//                       token and the client removes the session)
+//   getSessionMode      'ok' or 'hang' (the client is waiting on the network and never answers)
+//   signUpError         an error to answer sign-up with
 // How to call: const fake = fakeSupabase({ confirmEmail: true })
 export function fakeSupabase(options = {}) {
   const state = {
-    options: { confirmEmail: false, signOutMode: 'ok', down: false, failWrites: false, staleUsernameCheck: false, ...options },
+    options: {
+      confirmEmail: false,
+      signOutMode: 'ok',
+      down: false,
+      failWrites: false,
+      writesHang: false,
+      readsHang: false,
+      rpcError: null,
+      staleUsernameCheck: false,
+      breakTrigger: false,
+      expired: false,
+      refreshMode: 'ok',
+      getSessionMode: 'ok',
+      signUpError: null,
+      ...options,
+    },
     users: [],
     session: null,
     profiles: {},
@@ -25,6 +59,7 @@ export function fakeSupabase(options = {}) {
     signUpCalls: [],
     signInCalls: [],
     signOutCalls: [],
+    refreshCalls: 0,
     rpcCalls: [],
     writes: [],
     listeners: new Set(),
@@ -34,21 +69,61 @@ export function fakeSupabase(options = {}) {
     for (const fn of [...state.listeners]) fn(event, state.session)
   }
   const apiError = (status, code, message, extra = {}) => ({ name: 'AuthApiError', status, code, message, ...extra })
-  const lost = () => {
-    if (state.options.down) throw new TypeError('Failed to fetch')
-  }
+  // What the installed client makes of a failed request: status 0 for no answer, the status for any 5xx.
+  const retryable = (status, message) => Object.assign(new Error(message), { name: 'AuthRetryableFetchError', status })
+  const sessionMissing = () => Object.assign(new Error('Auth session missing!'), { name: 'AuthSessionMissingError', status: 400, code: 'session_missing' })
+  // What the data client (PostgREST) returns when the request never got an answer.
+  const lostData = () => ({ data: null, error: { message: 'TypeError: Failed to fetch', details: '', hint: '', code: '' }, status: 0 })
   const publicUser = (u) => ({ id: u.id, email: u.email, user_metadata: { ...u.meta }, identities: [{ id: u.id }] })
+
+  // The session is kept in local storage, as the real client keeps it; without a storage it is only in `state`.
+  const disk = () => (typeof localStorage === 'undefined' ? null : localStorage)
+  const write = (session) => {
+    state.session = session
+    const d = disk()
+    if (!d) return
+    if (session) d.setItem(AUTH_STORAGE_KEY, JSON.stringify(session))
+    else d.removeItem(AUTH_STORAGE_KEY)
+  }
+  const read = () => {
+    const d = disk()
+    if (!d) return state.session
+    try {
+      return JSON.parse(d.getItem(AUTH_STORAGE_KEY))
+    } catch {
+      return null
+    }
+  }
   const start = (u) => {
     state.count += 1
-    state.session = { access_token: `token-${state.count}`, user: publicUser(u) }
+    write({ access_token: `token-${state.count}`, refresh_token: `refresh-${state.count}`, user: publicUser(u) })
     fire('SIGNED_IN')
+  }
+  const refresh = async () => {
+    state.refreshCalls += 1
+    const stored = read()
+    if (!stored) return { data: { user: null, session: null }, error: sessionMissing() }
+    const { refreshMode, down } = state.options
+    if (down || refreshMode === 'retryable') return { data: { user: null, session: null }, error: retryable(0, 'Failed to fetch') }
+    if (refreshMode === 'server') return { data: { user: null, session: null }, error: retryable(502, 'Bad Gateway') }
+    if (refreshMode === 'refused') {
+      write(null)
+      fire('SIGNED_OUT')
+      return { data: { user: null, session: null }, error: apiError(400, 'refresh_token_not_found', 'Invalid Refresh Token: Refresh Token Not Found') }
+    }
+    state.count += 1
+    write({ ...stored, access_token: `token-${state.count}` })
+    state.options.expired = false
+    fire('TOKEN_REFRESHED')
+    return { data: { user: state.session.user, session: state.session }, error: null }
   }
 
   const client = {
     auth: {
       async signUp({ email, password, options: opts }) {
         state.signUpCalls.push(structuredClone({ email, password, options: opts }))
-        lost()
+        if (state.options.down) return { data: { user: null, session: null }, error: retryable(0, 'Failed to fetch') }
+        if (state.options.signUpError) return { data: { user: null, session: null }, error: state.options.signUpError }
         if (password === 'weak') {
           return { data: { user: null, session: null }, error: { ...apiError(422, 'weak_password', 'Password should be at least 8 characters.'), name: 'AuthWeakPasswordError', reasons: ['length'] } }
         }
@@ -58,8 +133,8 @@ export function fakeSupabase(options = {}) {
           return { data: { user: null, session: null }, error: apiError(422, 'user_already_exists', 'User already registered') }
         }
         const meta = opts?.data || {}
-        if (Object.values(state.profiles).some((p) => p.username === meta.username)) {
-          return { data: { user: null, session: null }, error: apiError(500, 'unexpected_failure', 'Database error saving new user') }
+        if (state.options.breakTrigger || Object.values(state.profiles).some((p) => p.username === meta.username)) {
+          return { data: { user: null, session: null }, error: retryable(500, 'Database error saving new user') }
         }
         const user = { id: `uid-${state.users.length + 1}`, email, password, meta }
         state.users.push(user)
@@ -71,7 +146,7 @@ export function fakeSupabase(options = {}) {
       },
       async signInWithPassword({ email, password }) {
         state.signInCalls.push({ email })
-        lost()
+        if (state.options.down) return { data: { user: null, session: null }, error: retryable(0, 'Failed to fetch') }
         const user = state.users.find((u) => u.email === email && u.password === password)
         if (!user) return { data: { user: null, session: null }, error: apiError(400, 'invalid_credentials', 'Invalid login credentials') }
         start(user)
@@ -79,21 +154,30 @@ export function fakeSupabase(options = {}) {
       },
       signOut(args) {
         state.signOutCalls.push(args)
-        if (state.options.signOutMode === 'throw') throw new Error('boom')
-        if (state.options.signOutMode === 'reject') return Promise.reject(new Error('Failed to fetch'))
-        if (state.options.signOutMode === 'error') return Promise.resolve({ error: { name: 'AuthRetryableFetchError', message: 'down' } })
-        state.session = null
+        const mode = state.options.signOutMode
+        if (mode === 'throw') throw new Error('boom')
+        if (mode === 'reject') return Promise.reject(new Error('Failed to fetch'))
+        if (mode === 'error') return Promise.resolve({ error: retryable(0, 'Failed to fetch') })
+        if (mode === 'hang') return new Promise(() => {})
+        write(null)
         fire('SIGNED_OUT')
         return Promise.resolve({ error: null })
       },
       async getSession() {
-        return { data: { session: state.session }, error: null }
+        if (state.options.getSessionMode === 'hang') return new Promise(() => {})
+        const stored = read()
+        if (!stored) return { data: { session: null }, error: null }
+        // An expired access token is refreshed first, as the real client does. If the refresh cannot be made the
+        // session is not returned, but it is left in storage unless the server refused it.
+        if (state.options.expired) {
+          const { data, error } = await refresh()
+          if (error) return { data: { session: null }, error }
+          return { data: { session: data.session }, error: null }
+        }
+        return { data: { session: stored }, error: null }
       },
       async refreshSession() {
-        if (!state.session) return { data: { session: null }, error: apiError(400, 'session_missing', 'no session') }
-        state.count += 1
-        state.session = { ...state.session, access_token: `token-${state.count}` }
-        return { data: { session: state.session }, error: null }
+        return refresh()
       },
       onAuthStateChange(fn) {
         state.listeners.add(fn)
@@ -102,9 +186,11 @@ export function fakeSupabase(options = {}) {
     },
     async rpc(name, args) {
       state.rpcCalls.push({ name, args })
-      lost()
+      if (state.options.down) return lostData()
+      if (state.options.rpcError) return { data: null, error: state.options.rpcError, status: 500 }
       const taken = Object.values(state.profiles).some((p) => p.username === args.p_username)
-      return { data: state.options.staleUsernameCheck ? true : !taken, error: null }
+      const stale = state.options.staleUsernameCheck && state.signUpCalls.length === 0
+      return { data: stale ? true : !taken, error: null }
     },
     from(table) {
       const rows = table === 'profiles' ? state.profiles : state.priv
@@ -113,7 +199,8 @@ export function fakeSupabase(options = {}) {
           return {
             eq: (_col, id) => ({
               maybeSingle: async () => {
-                lost()
+                if (state.options.readsHang) return new Promise(() => {})
+                if (state.options.down) return lostData()
                 const row = rows[id]
                 if (!row) return { data: null, error: null }
                 return { data: row, error: null }
@@ -127,9 +214,11 @@ export function fakeSupabase(options = {}) {
               select: async () => {
                 const allowed = table === 'profiles' ? OWN_PROFILE_COLUMNS : OWN_PRIVATE_COLUMNS
                 state.writes.push({ table, row: { ...row }, id })
+                if (state.options.writesHang) return new Promise(() => {})
+                if (state.options.down) return lostData()
                 if (state.options.failWrites) return { data: null, error: { message: 'down' } }
                 if (!Object.keys(row).every((c) => allowed.includes(c))) return { data: null, error: { message: 'permission denied' } }
-                if (state.session?.user.id !== id || !rows[id]) return { data: [], error: null }
+                if (read()?.user.id !== id || !rows[id]) return { data: [], error: null }
                 Object.assign(rows[id], row)
                 return { data: [{ id }], error: null }
               },
@@ -141,7 +230,7 @@ export function fakeSupabase(options = {}) {
   }
   // The session ends without the app asking, as when a refresh token expires or another tab signs out.
   state.endSession = () => {
-    state.session = null
+    write(null)
     fire('SIGNED_OUT')
   }
   return { client, state }
