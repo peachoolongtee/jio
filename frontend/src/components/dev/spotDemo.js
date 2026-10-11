@@ -16,7 +16,9 @@ const APPROVAL_PICKS = [[1, 0], [1], [1, 2], [2], [1]]
 export const hasSpots = (session) => !!session && session.status === 'locating' && (session.spots?.list || []).length > 0
 
 // A friend suggests a spot: the first friend who has not suggested one yet (or the first friend, whose suggestion is then
-// replaced), at the first area on the list above that is not already a spot. `here` marks "we are here already".
+// replaced). With `here` ("we are here already") the spot is the area the friend starts in, when that is not listed or
+// suggested already, so the label is true; otherwise, and for any other suggestion, it is the first area on the list above
+// that is not already a spot.
 // How to call: await friendSuggests(api, session, ['jonathan', 'faith'], { here: true }) -> 'Jonathan suggested Kovan, and is there already.'
 export async function friendSuggests(api, session, friendIds, { here = false } = {}) {
   if (!friendIds.length) return 'Invite a friend first.'
@@ -24,7 +26,8 @@ export async function friendSuggests(api, session, friendIds, { here = false } =
   const listed = new Set(session.spots.list.map((s) => s.areaId))
   const friend = friendIds.find((id) => !suggestions[id]) || friendIds[0]
   const taken = new Set([...listed, ...Object.values(suggestions).map((s) => s.areaId)])
-  const areaId = [...SUGGESTED_AREAS, ...AREAS.map((a) => a.id)].find((id) => !taken.has(id) && AREAS.some((a) => a.id === id))
+  const own = here ? session.locations?.[friend]?.start?.areaId : null
+  const areaId = [own, ...SUGGESTED_AREAS, ...AREAS.map((a) => a.id)].find((id) => id && !taken.has(id) && AREAS.some((a) => a.id === id))
   await api.suggestSpot(session.id, friend, areaId, { here })
   const name = AREAS.find((a) => a.id === areaId).name
   return `${friendName(friend)} suggested ${name}${here ? ', and is there already' : ''}.`

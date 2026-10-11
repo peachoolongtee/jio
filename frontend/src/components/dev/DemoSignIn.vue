@@ -57,7 +57,7 @@ async function enter(withShowcase) {
     <AppButton block variant="secondary" :disabled="!!busy" @click="enter(true)">
       {{ busy === 'showcase' ? 'Loading showcase data' : 'Use the demo account with showcase data' }}
     </AppButton>
-    <p class="body-sm text-muted">The same, plus ten sessions in every state a screen can show. It takes about ten seconds.</p>
+    <p class="body-sm text-muted">The same, plus ten sessions in every state a screen can show, including the vote for where to meet. It takes about ten seconds.</p>
 
     <p v-if="progress" class="body-sm" role="status">{{ progress }}</p>
     <div v-if="error" class="demo-in__error">
