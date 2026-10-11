@@ -13,8 +13,14 @@
 //   const offline = useOfflinePlanner(api)   // api: the axios client of plannerApi.js
 //   ...run the showcase...
 //   offline.restore()                        // and offline.used says how many answers it gave
+//
+// The demo tour (tour/) keeps it on while the tour is on and asks for all five requests the screens make, not only these two:
+//   useOfflinePlanner(api, { everything: true, giveUpMs: 8000, coolDownMs: 45000 })
+// `everything` adds /api/search, /api/itinerary/arrange and /api/places/search. `giveUpMs` stops waiting for a backend that
+// is asleep (a host that is waking up takes much longer than a person waits) and `coolDownMs` then skips the backend for a
+// while, so the next screens do not each wait again. `backend: false` is for a build that has no backend address at all.
 import axios from 'axios'
-import { AREAS } from '@/lib/mock/places.js'
+import { ADDRESSES, AREAS } from '@/lib/mock/places.js'
 import { VENUES } from '@/lib/mock/venues.js'
 import { distanceKm, toMinutes } from '@/lib/planner/index.js'
 
@@ -134,7 +140,60 @@ export function standInConverge({ categories = ['eat'], centre, dateTime, durati
   return { status: 'ok', centre, results, current, notice: null }
 }
 
+// Places whose name contains the words typed, of the slot's categories, nearest to the centre first, as /api/search answers.
+// A place that is not open for the slot is listed but says why it does not fit. At most 8.
+// How to call: standInSearch({ query: 'market', categories: ['eat'], centre, dateTime: '2026-10-17T12:00', durationMinutes: 90 })
+export function standInSearch({ query = '', categories = ['eat'], centre, dateTime, durationMinutes = 60, maxKm }) {
+  const words = String(query).toLowerCase().split(/\s+/).filter(Boolean)
+  const start = toMinutes(String(dateTime).slice(11, 16))
+  const km = (v) => distanceKm(centre, v)
+  const found = VENUES.filter((v) => categories.includes(v.category) && words.every((w) => `${v.name} ${v.area}`.toLowerCase().includes(w)) && (!maxKm || km(v) <= maxKm))
+  const fits = (v) => isOpenFor(v.hours, start, durationMinutes)
+  const ranked = [...found].sort((a, b) => Number(fits(b)) - Number(fits(a)) || km(a) - km(b) || a.id.localeCompare(b.id))
+  const results = ranked.slice(0, 8).map((v) => ({
+    venueId: v.id,
+    name: v.name,
+    area: v.area,
+    category: v.category,
+    walkMinutes: Math.max(1, Math.round((km(v) * 1000) / 80)),
+    distanceKm: Math.round(km(v) * 100) / 100,
+    fits: fits(v),
+    unfit: fits(v) ? [] : ['meal_period'],
+  }))
+  return { status: 'ok', results }
+}
+
+// An order for the plan's stops: the order they were voted in, timed one after another (a meal never earlier than its time).
+// It never invents a different order, so it answers "no other order" when asked for one that is not the current.
+// How to call: standInArrange({ stops: [{ id: 'eat', duration: 90, start: 720 }], startAt: 720, endAt: 1080, includeCurrent: true })
+export function standInArrange({ stops = [], startAt = 0, includeCurrent = false }) {
+  if (!includeCurrent) return { status: 'no_other_order', message: 'The planner is not running, so there is no other order to suggest.' }
+  let clock = startAt
+  const timed = stops.map((stop) => {
+    const start = Math.max(clock, Number.isFinite(stop.start) ? stop.start : clock)
+    clock = start + stop.duration
+    return { id: stop.id, start, end: clock }
+  })
+  return { status: 'ok', order: stops.map((stop) => stop.id), stops: timed, reason: 'Kept in the order the group voted. The planner is not running, so no other order was tried.', source: 'rules' }
+}
+
+// Addresses and buildings from the app's sample list that match the words typed, as /api/places/search answers. They have a
+// postal code and a point inside the area they are in, as the real answer does; the real answer has many more.
+// How to call: standInPlaces({ q: 'tampines mall' }) -> { results: [{ name, address, postal, lat, lng }] }
+export function standInPlaces({ q = '' } = {}) {
+  const text = String(q).trim().toLowerCase()
+  const results = ADDRESSES.filter((a) => text && (a.label.toLowerCase().includes(text) || a.postal.startsWith(text)))
+    .slice(0, 10)
+    .map((a) => {
+      const area = AREAS.find((x) => x.id === a.areaId)
+      return { name: a.label.split(',')[0].toUpperCase(), address: a.label, postal: a.postal, lat: area.lat, lng: area.lng }
+    })
+  return { results }
+}
+
+// What answers each request. The first two are always stood in for; the rest only when asked for (`everything`).
 const ANSWERS = { '/api/meeting-area': standInMeetingArea, '/api/converge': standInConverge }
+const MORE_ANSWERS = { '/api/search': standInSearch, '/api/itinerary/arrange': standInArrange, '/api/places/search': standInPlaces }
 
 // Did the planner not answer at all? No response (nothing listening, a timeout), or an error that is not the backend's own
 // ({ error: '<code>' }): the Vite dev server answers 500 with an empty body for a backend that is not there. Anything the
@@ -146,35 +205,55 @@ export function notAnswered(err) {
   return status >= 500 && !(data && typeof data === 'object' && data.error)
 }
 
-// Let the stand-in answer the two planner requests whenever the backend does not. The real backend is always tried
-// first. Replaces the client's adapter until restore() is called.
+// Let the stand-in answer planner requests whenever the backend does not. The real backend is always tried first (except
+// with `backend: false`). Replaces the client's adapter until restore() is called.
+//   everything   also answer /api/search, /api/itinerary/arrange and /api/places/search (default: the two the showcase needs)
+//   backend      false: there is no backend to ask, so answer at once
+//   giveUpMs     stop waiting for the backend after this long (0: wait as long as the client's own timeout)
+//   coolDownMs   after the backend gave no answer, do not ask it again for this long
+//   onAnswer     (source: 'backend' | 'stand-in') after every request this handles, for a screen to say which answered
+//   now          the clock, for a test
 // How to call: const offline = useOfflinePlanner(api); try { ... } finally { offline.restore() }
-export function useOfflinePlanner(client) {
+export function useOfflinePlanner(client, { everything = false, backend = true, giveUpMs = 0, coolDownMs = 0, onAnswer = () => {}, now = Date.now } = {}) {
   const previous = client.defaults.adapter
   const real = axios.getAdapter(previous)
   const used = { backend: 0, standIn: 0 }
-  client.defaults.adapter = async (config) => {
-    const answer = ANSWERS[config.url]
-    if (!answer) return real(config)
+  const answers = everything ? { ...ANSWERS, ...MORE_ANSWERS } : ANSWERS
+  let silentSince = -Infinity
+  const standIn = (answer, config) => {
+    used.standIn += 1
+    onAnswer('stand-in')
+    const body = typeof config.data === 'string' && config.data ? JSON.parse(config.data) : config.data
+    return { data: answer(config.method === 'get' ? config.params || {} : body || {}), status: 200, statusText: 'OK', headers: {}, config, request: null }
+  }
+  let active = true
+  const mine = async (config) => {
+    const answer = answers[config.url]
+    if (!active || !answer) return real(config)
+    if (!backend || now() - silentSince < coolDownMs) return standIn(answer, config)
     try {
-      const response = await real(config)
+      const response = await real(giveUpMs ? { ...config, timeout: Math.min(config.timeout || giveUpMs, giveUpMs) } : config)
       used.backend += 1
+      onAnswer('backend')
       return response
     } catch (err) {
       if (!notAnswered(err)) throw err
-      used.standIn += 1
-      const body = typeof config.data === 'string' ? JSON.parse(config.data) : config.data
-      return { data: answer(body), status: 200, statusText: 'OK', headers: {}, config, request: null }
+      silentSince = now()
+      return standIn(answer, config)
     }
   }
+  client.defaults.adapter = mine
   return {
     used,
     // Which kind answered: 'backend', 'stand-in' or 'both' (the backend went away part way), '' if nothing was asked.
     get source() {
       return used.backend && used.standIn ? 'both' : used.backend ? 'backend' : used.standIn ? 'stand-in' : ''
     },
+    // Put the client back. If something else was put on top of this since (the showcase, while the tour is on), it stays and
+    // this one only stops answering, so taking one off never takes the other with it.
     restore() {
-      client.defaults.adapter = previous
+      active = false
+      if (client.defaults.adapter === mine) client.defaults.adapter = previous
     },
   }
 }

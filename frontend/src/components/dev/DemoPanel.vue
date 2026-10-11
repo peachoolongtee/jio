@@ -25,6 +25,7 @@ import { useAuthStore } from '@/stores/auth.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useEventsStore } from '@/stores/events.js'
 import { usePlannerStore } from '@/stores/planner.js'
+import { useTourStore } from '@/tour/store.js'
 
 const SPAN = 3000
 // Which option each friend votes for, by rank, so one place usually leads.
@@ -35,6 +36,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const events = useEventsStore()
 const planner = usePlannerStore()
+const tour = useTourStore()
 
 const open = ref(false)
 const running = ref('')
@@ -208,6 +210,24 @@ const loadShowcaseData = () => act('showcase', async () => {
   }
 })
 
+// Replace the sessions with the demo tour (tour/): one outing in eight checkpoints, and a few side cases. The strip appears
+// on every screen and the lists show the selected checkpoint. This panel closes on the way, since Home is where it starts.
+// How to call: startTheTour()
+const startTheTour = () => act('tour', async () => {
+  note.value = 'Loading the tour'
+  open.value = false
+  try {
+    await tour.start({ onProgress: ({ done, total }) => (note.value = `Loading the tour: ${done} of ${total} sessions`) })
+  } catch (err) {
+    open.value = true
+    throw err
+  } finally {
+    await events.loadSessions()
+  }
+  note.value = ''
+  router.push({ path: '/', query: { meetup: tour.sessionId(0) } })
+})
+
 // A new demo account with the sample history (10 meetups and 1,000 JioCoins), then Home. This panel closes on the way,
 // since it only shows while signed in. If the profile is rejected nothing is erased, so the panel opens again with the
 // reason. If sign-up fails after the wipe, the person is sent to the sign-up page, which shows the reason.
@@ -259,6 +279,10 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       <p class="body-sm text-muted">Replaces your sessions with ten, one for each state a screen can show, including two in the vote for where to meet (you host one, a friend hosts the other) and one where the place was already decided.</p>
       <AppButton block variant="secondary" :disabled="!!running" @click="askShowcase = true">
         {{ running === 'showcase' ? 'Loading showcase data' : 'Load showcase data' }}
+      </AppButton>
+      <p class="body-sm text-muted">The demo tour is the same idea told as one outing: eight checkpoints in a strip at the top of every screen, and a few side cases. It also replaces your sessions. Outside development it is at /demo.</p>
+      <AppButton block variant="secondary" :disabled="!!running" @click="startTheTour">
+        {{ running === 'tour' ? 'Loading the tour' : 'Start the tour' }}
       </AppButton>
     </section>
 

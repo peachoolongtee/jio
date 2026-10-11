@@ -10,9 +10,13 @@ import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SyncNotice from '@/components/ui/SyncNotice.vue'
 import TabBar from '@/components/ui/TabBar.vue'
 import { useAuthStore } from '@/stores/auth.js'
+import { TOUR_BUILT } from '@/lib/tourFlag.js'
 
 // The demo tools exist only in development builds.
 const DemoPanel = import.meta.env.DEV ? defineAsyncComponent(() => import('@/components/dev/DemoPanel.vue')) : null
+
+// The demo tour's strip exists only in a build that has the tour (lib/tourFlag.js); it hides itself when the tour is not on.
+const TourStrip = TOUR_BUILT ? defineAsyncComponent(() => import('@/tour/TourStrip.vue')) : null
 
 const route = useRoute()
 const router = useRouter()
@@ -46,6 +50,7 @@ const showTabs = computed(() => showNav.value && route.meta.tabs === true)
   <div v-else class="app" :class="{ 'has-tabs': showTabs }">
     <div class="app__main">
       <SyncNotice v-if="route.meta.nav !== false" />
+      <component :is="TourStrip" v-if="TourStrip && auth.signedIn && route.meta.nav !== false" />
       <RouterView />
     </div>
     <TabBar v-if="showTabs" class="app__tabs" />
