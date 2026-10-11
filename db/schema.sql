@@ -177,20 +177,13 @@ create table if not exists public.sessions (
 );
 create index if not exists sessions_host_id_idx on public.sessions (host_id);
 
--- Why the stops are in the order they are in, written when the host confirms the itinerary. Server only.
--- reason is one short sentence; source says whether the AI or the planner's own rules chose the order.
--- Both are set or both are null; the server clears them when someone moves a stop by hand.
-alter table public.sessions
-  add column if not exists order_reason text
-    constraint order_reason_length check (char_length(order_reason) <= 200),
-  add column if not exists order_source text
-    constraint order_source_values check (order_source in ('ai', 'rules'));
+-- Raised by one on every write the server makes to a plan, so a late answer can be told from a current one and
+-- clients know when to refetch. Server only.
+alter table public.sessions add column if not exists plan_version bigint not null default 0;
 
--- Two changes to a sessions table that may already exist, so they are guarded constraints and not part
--- of the table definition above:
---   - meeting_method also accepts 'voted' and 'chosen'. The old check is dropped by what it checks, not
---     by its name, and the new one is added under the name Postgres gave the old one.
---   - order_reason and order_source come as a pair.
+-- meeting_method also accepts 'voted' and 'chosen' on a sessions table that may already exist, so it is a
+-- guarded constraint as well as part of the table definition above. The old check is dropped by what it
+-- checks, not by its name, and the new one is added under the name Postgres gave the old one.
 do $sessions_checks$
 declare
   old_check record;
@@ -210,6 +203,26 @@ begin
     alter table public.sessions add constraint sessions_meeting_method_check
       check (meeting_method in ('same', 'fairest', 'centre', 'voted', 'chosen'));
   end if;
+end;
+$sessions_checks$;
+
+-- The suggested order of the stops. All server only.
+-- order_reason is one short sentence; order_source says whether the AI or the planner's own rules chose the
+-- order. Both are set or both are null; the server clears them when someone moves a stop by hand.
+-- order_suggestion is what the server last suggested: { basis, order, starts, reason, source, at }, where basis
+-- is a 64-character hash of the winners and the session's date and times, and order lists at most 8 slot ids.
+-- plan_start_minute is when the plan starts, in minutes after midnight, which reordering keeps.
+alter table public.sessions
+  add column if not exists order_reason text
+    constraint order_reason_length check (char_length(order_reason) between 1 and 200),
+  add column if not exists order_source text
+    constraint order_source_values check (order_source in ('ai', 'rules')),
+  add column if not exists order_suggestion jsonb,
+  add column if not exists plan_start_minute integer
+    constraint plan_start_minute_range check (plan_start_minute between 0 and 1439);
+
+do $sessions_order_checks$
+begin
   if not exists (
     select 1 from pg_constraint
     where conname = 'order_note_pair' and conrelid = 'public.sessions'::regclass
@@ -217,8 +230,24 @@ begin
     alter table public.sessions add constraint order_note_pair
       check ((order_reason is null) = (order_source is null));
   end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'order_suggestion_shape' and conrelid = 'public.sessions'::regclass
+  ) then
+    alter table public.sessions add constraint order_suggestion_shape
+      check (
+        order_suggestion is null or (
+          jsonb_typeof(order_suggestion) = 'object'
+          and octet_length(order_suggestion::text) <= 4000
+          and coalesce((order_suggestion ->> 'basis') ~ '^[0-9a-f]{64}$', false)
+          and case when jsonb_typeof(order_suggestion -> 'order') = 'array'
+                   then jsonb_array_length(order_suggestion -> 'order') <= 8
+                   else false end
+        )
+      );
+  end if;
 end;
-$sessions_checks$;
+$sessions_order_checks$;
 
 -- Who is in a session and what they want to do. Every member can read every row here, so it holds
 -- only what the group may see: the area someone starts from, never the exact place.
@@ -300,20 +329,62 @@ create table if not exists public.session_member_places (
   check ((end_lat is null) = (end_lng is null))
 );
 
--- Invite links. The token is 32 random bytes, so links cannot be guessed or counted through.
+-- Invite links, and invitations to one named person. The token is 32 random bytes, so links cannot be guessed
+-- or counted through. A link expires 7 days after it is made unless the host sets an earlier time, and never
+-- later than 30 days. A host can revoke a link and nothing else about it changes.
 create table if not exists public.invites (
   token text primary key
     default translate(encode(extensions.gen_random_bytes(32), 'base64'), '+/=', '-_'),
   session_id uuid not null references public.sessions (id) on delete cascade,
   created_by uuid not null references public.profiles (id) on delete cascade,
-  expires_at timestamptz,
+  expires_at timestamptz not null default now() + interval '7 days',
   revoked boolean not null default false,
-  -- How many people have joined with this link.
+  -- How many people have joined with this link. An invitation to one person is used once.
   uses integer not null default 0,
   created_at timestamptz not null default now()
 );
 create index if not exists invites_session_id_idx on public.invites (session_id);
 create index if not exists invites_created_by_idx on public.invites (created_by);
+
+-- invitee_id is set on an invitation to one named person; a link made for anyone leaves it null. Until the
+-- person accepts there is no row for them in session_members, so they read nothing of the session.
+-- declined_at is set when the invitee says no. Only the server's functions write it.
+alter table public.invites
+  add column if not exists invitee_id uuid references public.profiles (id) on delete cascade,
+  add column if not exists declined_at timestamptz;
+
+do $invites_checks$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'invites_expiry_limit' and conrelid = 'public.invites'::regclass
+  ) then
+    alter table public.invites add constraint invites_expiry_limit
+      check (expires_at <= created_at + interval '30 days');
+  end if;
+  -- Only an invitation to a named person can be declined, and it is accepted at most once.
+  if not exists (
+    select 1 from pg_constraint where conname = 'invites_decline_needs_invitee' and conrelid = 'public.invites'::regclass
+  ) then
+    alter table public.invites add constraint invites_decline_needs_invitee
+      check (declined_at is null or invitee_id is not null);
+  end if;
+  if not exists (
+    select 1 from pg_constraint where conname = 'invites_personal_single_use' and conrelid = 'public.invites'::regclass
+  ) then
+    alter table public.invites add constraint invites_personal_single_use
+      check (invitee_id is null or uses <= 1);
+  end if;
+end;
+$invites_checks$;
+
+-- One live link per session: to replace a link, revoke it and make another. An expired link that was never
+-- revoked still counts as live here, because an index cannot ask what time it is.
+create unique index if not exists invites_one_live_link_idx
+  on public.invites (session_id) where invitee_id is null and not revoked;
+-- One invitation per person per session, so a decline cannot be nagged. It is final even if the host
+-- later revokes the invitation.
+create unique index if not exists invites_one_per_invitee_idx on public.invites (session_id, invitee_id);
+create index if not exists invites_invitee_id_idx on public.invites (invitee_id);
 
 -- ── Planning ────────────────────────────────────────────────────────────
 -- Everything in this section is written by the server only. Members read it, and vote.
@@ -336,6 +407,13 @@ create table if not exists public.slots (
   updated_at timestamptz not null default now(),
   unique (session_id, category)
 );
+
+-- What the planner said about the slot as a whole: the notice, whether it came up empty, whether more places
+-- are available, and the weather behind it ({ notice, empty, moreAvailable, weather }). Stored with the slot
+-- so a reload shows the same thing without a planner call. Server only.
+alter table public.slots
+  add column if not exists details jsonb not null default '{}'
+    constraint slots_details_shape check (jsonb_typeof(details) = 'object' and octet_length(details::text) <= 4000);
 
 -- The places the group is voting on for a slot. The planner ranks them. A member can ask for one
 -- to be added, through the server, which checks that the venue exists and fits the slot.
@@ -395,61 +473,77 @@ create index if not exists stops_slot_id_idx on public.stops (slot_id);
 -- The earliest a stop can start, in minutes after midnight: a meal waits for its time, a shop for its
 -- opening. Written with the itinerary, by the server. Null means the stop has no earliest start.
 alter table public.stops
-  add column if not exists earliest_start_minute integer
-    constraint earliest_start_minute_range check (earliest_start_minute between 0 and 1439);
+  add column if not exists not_before_minute integer
+    constraint not_before_minute_range check (not_before_minute between 0 and 1439);
 
 -- ── Meeting spots ───────────────────────────────────────────────────────
 -- While a session is "locating" the group chooses where to meet from a short list of areas. The server
 -- writes the list and every travel figure on it; members read it and say which spots work for them.
 
--- One area on a session's list: the app's own suggestions (at most three), then members' (one each).
--- suggested_by is null for the app's own spot. A spot a member suggested leaves the list with them, and
--- approvals follow their spot, so the server drops a spot by deleting its row. To re-price the list, update
--- the rows that stay and delete only the ones that drop out: deleting and re-inserting all of them would
--- also delete everyone's approvals.
--- worst_minutes is the longest trip, mean_minutes the average, both whole minutes. approximate is true
--- when the times are estimates and not routes. seq is the order the screens show, the app's first.
+-- True when a jsonb value is minutes by member: an object whose keys are user ids and whose values are numbers
+-- from 0 to 1440, and which is no larger than 30 members' worth. Used by the check on session_spots.
+--   select public.member_minutes_ok('{"6f1c7b1e-2d7e-4a8e-9a0e-3c3d9a2f7b10": 24.6}');  -- true
+create or replace function public.member_minutes_ok(m jsonb)
+returns boolean
+language sql immutable set search_path = ''
+as $$
+  select case
+    when jsonb_typeof(m) <> 'object' or octet_length(m::text) > 4000 then false
+    else not exists (
+      select 1 from jsonb_each(m) e
+      where e.key !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        or case when jsonb_typeof(e.value) = 'number'
+                then (e.value #>> '{}')::numeric not between 0 and 1440
+                else true end
+    )
+  end;
+$$;
+
+-- The list of areas the group is choosing between while a session is "locating". Written by the server only.
+-- A row is there because the app lists it (rank 1 to 3, fairest first), because a member suggested it
+-- (rank null) or both. Who suggested it is in spot_suggestions and is worked out on read.
+-- The minutes are not rounded: the screens round them, but the tie-break between spots compares the longest
+-- trip exactly. worst_minutes is the longest trip, mean_minutes the mean of the members' minutes, and
+-- travel_minutes holds each located member's minutes by user id (areas only, never a place).
+-- approximate is true when the times are estimates and not routes. computed_at is when they were worked out.
+-- To re-price the list, upsert the rows that stay and delete only the ones that drop out: approvals follow
+-- their spot, so deleting and re-inserting every row would also delete everyone's approvals.
+-- The mean may sit a hair above the longest trip when everyone's minutes are equal (floating-point sums).
 create table if not exists public.session_spots (
   session_id uuid not null references public.sessions (id) on delete cascade,
   area_id text not null check (char_length(area_id) between 1 and 60),
-  suggested_by uuid,
-  -- "We are here already": a label on the spot, which any member may put on a suggestion.
-  here boolean not null default false,
-  seq integer not null check (seq between 0 and 49),
-  worst_minutes integer not null check (worst_minutes between 0 and 1440),
-  mean_minutes integer not null check (mean_minutes between 0 and 1440),
+  rank integer check (rank between 1 and 3),
+  worst_minutes numeric not null check (worst_minutes between 0 and 1440),
+  mean_minutes numeric not null check (mean_minutes between 0 and 1440),
+  travel_minutes jsonb not null default '{}' check (public.member_minutes_ok(travel_minutes)),
   approximate boolean not null default false,
-  priced_at timestamptz not null default now(),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
+  computed_at timestamptz not null default now(),
   primary key (session_id, area_id),
-  foreign key (session_id, suggested_by) references public.session_members (session_id, user_id)
-    on delete cascade,
-  check (mean_minutes <= worst_minutes),
-  -- Checked at the end of the transaction, so spots can swap places in one go.
-  unique (session_id, seq) deferrable initially deferred
+  check (mean_minutes <= worst_minutes + 0.001),
+  -- Checked at the end of the transaction, so the ranks can swap places in one statement. Several rows
+  -- may have no rank.
+  unique (session_id, rank) deferrable initially deferred
 );
--- A member has one suggestion at a time. This also indexes the key above.
-create unique index if not exists session_spots_one_suggestion_idx
-  on public.session_spots (session_id, suggested_by) where suggested_by is not null;
 
--- Minutes from each person's start to a spot. A table and not a jsonb column, like
--- session_members.travel_minutes and the ledger, so a person leaving the session takes their figures
--- with them and a figure always belongs to a member of the session.
-create table if not exists public.session_spot_times (
+-- What each member suggested: one suggestion at a time per member, and several members may suggest the same
+-- area. There is deliberately no key to session_spots. A suggestion is kept while the list is empty (fewer than
+-- two starts are shared), and the list is built from the app's spots plus these. "here" labels the suggestion
+-- "we are here already". Written by the server only; the oldest suggestion comes first on screen.
+-- A member who leaves takes their suggestion with them. At most 8 different areas may be suggested in a
+-- session; the server checks that under the session's lock.
+create table if not exists public.spot_suggestions (
   session_id uuid not null,
-  area_id text not null,
   user_id uuid not null,
-  minutes integer not null check (minutes between 0 and 1440),
-  primary key (session_id, area_id, user_id),
-  foreign key (session_id, area_id) references public.session_spots (session_id, area_id) on delete cascade,
+  area_id text not null check (char_length(area_id) between 1 and 60),
+  here boolean not null default false,
+  created_at timestamptz not null default now(),
+  primary key (session_id, user_id),
   foreign key (session_id, user_id) references public.session_members (session_id, user_id) on delete cascade
 );
-create index if not exists session_spot_times_member_idx on public.session_spot_times (session_id, user_id);
 
--- "Works for me": one row per member and spot, any number of spots per member. This is the table a
--- member writes: their own approval, while the session is "locating". The key to session_spots means
--- only a listed spot can be approved, and an approval goes when its spot leaves the list.
+-- "Works for me": one row per member and spot, any number of spots per member. This is the table a member
+-- writes: their own approval, while the session is "locating". The key to session_spots means only a listed
+-- spot can be approved, and an approval goes when its spot leaves the list or its member leaves.
 create table if not exists public.spot_approvals (
   session_id uuid not null,
   area_id text not null,
@@ -462,19 +556,22 @@ create table if not exists public.spot_approvals (
 create index if not exists spot_approvals_member_idx on public.spot_approvals (session_id, user_id);
 
 -- A place a member proposes while the group is out (Roam). The host accepts it, which the server turns into a
--- stop, or dismisses it. A proposal is pending until resolved_at is set. Written by the server only.
+-- stop, or dismisses it; the proposer may dismiss their own. A proposal is pending until it is resolved.
+-- Written by the server only: it checks that the venue exists, and accepting one writes stops. At most 10 are
+-- pending in a session and 3 per member; the server checks that under the session's lock. A proposal goes
+-- with its proposer when they leave.
 create table if not exists public.stop_proposals (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.sessions (id) on delete cascade,
   venue_id text not null check (char_length(venue_id) between 1 and 80),
   proposed_by uuid not null,
+  status text not null default 'pending' check (status in ('pending', 'accepted', 'dismissed')),
   created_at timestamptz not null default now(),
-  resolution text check (resolution in ('accepted', 'dismissed')),
   resolved_at timestamptz,
   resolved_by uuid references public.profiles (id) on delete set null,
   foreign key (session_id, proposed_by) references public.session_members (session_id, user_id) on delete cascade,
-  -- A proposal is resolved or pending, never half of each.
-  check ((resolution is null) = (resolved_at is null)),
+  -- Resolved or pending, never half of each.
+  check ((status = 'pending') = (resolved_at is null)),
   check (resolved_by is null or resolved_at is not null)
 );
 create index if not exists stop_proposals_session_id_idx on public.stop_proposals (session_id, created_at);
@@ -482,7 +579,7 @@ create index if not exists stop_proposals_proposer_idx on public.stop_proposals 
 create index if not exists stop_proposals_resolved_by_idx on public.stop_proposals (resolved_by);
 -- The same place cannot wait for the host twice.
 create unique index if not exists stop_proposals_one_pending_idx
-  on public.stop_proposals (session_id, venue_id) where resolution is null;
+  on public.stop_proposals (session_id, venue_id) where status = 'pending';
 
 -- ── Fairness and routing ────────────────────────────────────────────────
 
@@ -570,18 +667,8 @@ as $$
     and not sl.deleted;
 $$;
 
--- The sessions the signed-in user has joined, in any stage. Used for reading meeting spots,
--- approvals and proposals: someone who opted out reads none of them.
---   select * from public.my_joined_session_ids();
-create or replace function public.my_joined_session_ids()
-returns setof uuid
-language sql stable security definer set search_path = ''
-as $$
-  select m.session_id from public.session_members m
-  where m.user_id = (select auth.uid()) and m.state = 'joined';
-$$;
-
--- The sessions the signed-in user has joined that are choosing where to meet. Used for "Works for me".
+-- The sessions the signed-in user has joined that are choosing where to meet. Used for "Works for me":
+-- someone who opted out, and anyone once the host has confirmed, approves nothing.
 --   select * from public.my_locating_session_ids();
 create or replace function public.my_locating_session_ids()
 returns setof uuid
@@ -609,26 +696,45 @@ $$;
 
 -- ── Functions the app calls ─────────────────────────────────────────────
 
+-- invite_preview() used to return the session id and the member count as well. A function cannot change
+-- its columns in place, so the old one is dropped (only when it still has them) and made again below.
+do $invite_preview$
+begin
+  if exists (
+    select 1 from pg_proc p
+    where p.pronamespace = 'public'::regnamespace and p.proname = 'invite_preview'
+      and pg_get_function_result(p.oid) like '%member_count%'
+  ) then
+    drop function public.invite_preview(text);
+  end if;
+end;
+$invite_preview$;
+
 -- What an invite link leads to, for the join page. Callable when logged out.
--- Returns no row when the link is revoked or expired, or the session can no longer be joined.
+-- Returns no row when the link is revoked, expired or unknown, or the session can no longer be joined.
+-- Gives the title, date, times and host's name and nothing else. An invitation to a named person
+-- previews only for that person.
 --   const { data } = await supabase.rpc('invite_preview', { invite_token: token })
 create or replace function public.invite_preview(invite_token text)
-returns table (session_id uuid, title text, date date, start_time time, end_time time, host_name text, member_count bigint)
+returns table (title text, date date, start_time time, end_time time, host_name text)
 language sql stable security definer set search_path = ''
 as $$
-  select s.id, s.title, s.date, s.start_time, s.end_time, coalesce(p.display_name, p.username),
-         (select count(*) from public.session_members m where m.session_id = s.id and m.state = 'joined')
+  select s.title, s.date, s.start_time, s.end_time, coalesce(p.display_name, p.username)
   from public.invites i
   join public.sessions s on s.id = i.session_id
   join public.profiles p on p.id = s.host_id
   where i.token = invite_token
     and not i.revoked
-    and (i.expires_at is null or i.expires_at > now())
+    and i.expires_at > now()
+    and i.declined_at is null
+    and (i.invitee_id is null or (i.invitee_id = (select auth.uid()) and i.uses = 0))
     and s.status in ('inviting', 'locating', 'voting');
 $$;
 
--- Join a session with an invite link. Returns the session id.
--- Raises an error when the link is revoked or expired, or the session is already confirmed or over.
+-- Join a session with an invite link or a personal invitation. Returns the session id.
+-- Raises an error when the link is revoked, expired or unknown, when it is a personal invitation that is not
+-- the caller's, was declined or was used, or when the session is already confirmed or over (all the same
+-- error, so a token tells a stranger nothing), and when the session already has 30 joined members.
 -- Someone already in the session, opted out or not, is left exactly as they are.
 --   const { data: sessionId, error } = await supabase.rpc('join_session', { invite_token: token })
 create or replace function public.join_session(invite_token text)
@@ -644,16 +750,28 @@ begin
     raise exception 'Sign in to join a session.' using errcode = '28000';
   end if;
 
+  -- The session row is locked until the join is done, so two people cannot take the last place together.
   select i.session_id into target
   from public.invites i
   join public.sessions s on s.id = i.session_id
   where i.token = invite_token
     and not i.revoked
-    and (i.expires_at is null or i.expires_at > now())
-    and s.status in ('inviting', 'locating', 'voting');
+    and i.expires_at > now()
+    and i.declined_at is null
+    and (i.invitee_id is null or (i.invitee_id = me and i.uses = 0))
+    and s.status in ('inviting', 'locating', 'voting')
+  for update of s;
 
   if target is null then
     raise exception 'This invite link is no longer valid.' using errcode = 'P0002';
+  end if;
+
+  if exists (select 1 from public.session_members m where m.session_id = target and m.user_id = me) then
+    return target;
+  end if;
+
+  if (select count(*) from public.session_members m where m.session_id = target and m.state = 'joined') >= 30 then
+    raise exception 'This session is full.' using errcode = 'P0001', hint = 'session_full';
   end if;
 
   insert into public.session_members (session_id, user_id, role, state)
@@ -668,6 +786,52 @@ begin
 end;
 $$;
 
+-- The open invitations addressed to the signed-in user, newest first, for Home: enough to show the invitation
+-- and to answer it, and nothing about the session beyond that. An invitation drops out once it is accepted,
+-- declined, revoked or expired, or when the session is no longer open.
+--   const { data } = await supabase.rpc('my_invitations')
+create or replace function public.my_invitations()
+returns table (token text, title text, date date, start_time time, end_time time, host_name text, invited_at timestamptz)
+language sql stable security definer set search_path = ''
+as $$
+  select i.token, s.title, s.date, s.start_time, s.end_time, coalesce(p.display_name, p.username), i.created_at
+  from public.invites i
+  join public.sessions s on s.id = i.session_id
+  join public.profiles p on p.id = s.host_id
+  where i.invitee_id = (select auth.uid())
+    and not i.revoked
+    and i.declined_at is null
+    and i.uses = 0
+    and i.expires_at > now()
+    and s.status in ('inviting', 'locating', 'voting')
+    and not exists (
+      select 1 from public.session_members m where m.session_id = s.id and m.user_id = i.invitee_id
+    )
+  order by i.created_at desc;
+$$;
+
+-- The invitee says no. The host sees the decline; the other members do not. Raises the same error as an
+-- unknown token when the invitation is not the caller's, or is revoked or already accepted. Declining twice
+-- does nothing the second time.
+--   await supabase.rpc('decline_invite', { invite_token: token })
+create or replace function public.decline_invite(invite_token text)
+returns void
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  me uuid := (select auth.uid());
+begin
+  if me is null then
+    raise exception 'Sign in to answer an invitation.' using errcode = '28000';
+  end if;
+  update public.invites set declined_at = coalesce(declined_at, now())
+  where token = invite_token and invitee_id = me and not revoked and uses = 0;
+  if not found then
+    raise exception 'This invitation is no longer valid.' using errcode = 'P0002';
+  end if;
+end;
+$$;
+
 -- Each joined member's private planner needs, for the server only (the service key). The backend
 -- first loads the session as the signed-in user, which proves they are a member, then calls this.
 --   const { data } = await serviceClient.rpc('session_member_needs', { sid: sessionId })
@@ -679,6 +843,22 @@ as $$
   from public.session_members m
   join public.profile_private pp on pp.id = m.user_id
   where m.session_id = sid and m.state = 'joined';
+$$;
+
+-- Each joined member's commute balance over the last 90 days, from the ledger rows of their other sessions: the
+-- sum of delta_from_mean, clamped to plus or minus 14,400 minutes. Positive means they travelled more than
+-- the average. For the server only (the service key); the planner uses it to favour whoever has travelled most.
+--   const { data } = await serviceClient.rpc('session_travel_debt', { sid: sessionId })
+create or replace function public.session_travel_debt(sid uuid)
+returns table (user_id uuid, debt_minutes numeric)
+language sql stable security definer set search_path = ''
+as $$
+  select m.user_id, greatest(-14400, least(14400, coalesce(sum(l.delta_from_mean), 0)))
+  from public.session_members m
+  left join public.commute_ledger l
+    on l.user_id = m.user_id and l.session_id <> sid and l.created_at > now() - interval '90 days'
+  where m.session_id = sid and m.state = 'joined'
+  group by m.user_id;
 $$;
 
 -- ── Triggers ────────────────────────────────────────────────────────────
@@ -703,8 +883,6 @@ create or replace trigger session_member_places_set_updated_at before update on 
 create or replace trigger slots_set_updated_at before update on public.slots
   for each row execute function public.set_updated_at();
 create or replace trigger votes_set_updated_at before update on public.votes
-  for each row execute function public.set_updated_at();
-create or replace trigger session_spots_set_updated_at before update on public.session_spots
   for each row execute function public.set_updated_at();
 
 -- Records when a member last changed their picks, so the client cannot set that time itself.
@@ -737,6 +915,46 @@ $$;
 
 create or replace trigger sessions_add_host after insert on public.sessions
   for each row execute function public.add_host_membership();
+
+-- Runs before every insert into invites, whoever inserts. The session must be open. A personal invitation
+-- must not be for the host or for someone already in the session, and a session has at most 30 open ones
+-- (not revoked, declined, accepted or expired). The session row is locked, so two inserts at once cannot
+-- both take the last place.
+create or replace function public.check_invite_insert()
+returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  s public.sessions%rowtype;
+begin
+  select * into s from public.sessions where id = new.session_id for update;
+  if not found or s.status not in ('inviting', 'locating', 'voting') then
+    raise exception 'Invitations can only be made while a session is open.' using errcode = '42501';
+  end if;
+  if new.invitee_id is null then
+    return new;
+  end if;
+  if new.invitee_id = s.host_id then
+    raise exception 'The host is already in the session.' using errcode = '42501';
+  end if;
+  if exists (
+    select 1 from public.session_members m where m.session_id = new.session_id and m.user_id = new.invitee_id
+  ) then
+    raise exception 'That person is already in the session.' using errcode = '42501';
+  end if;
+  if (
+    select count(*) from public.invites i
+    where i.session_id = new.session_id and i.invitee_id is not null
+      and not i.revoked and i.declined_at is null and i.uses = 0 and i.expires_at > now()
+  ) >= 30 then
+    raise exception 'A session can have at most 30 open invitations.' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+create or replace trigger invites_check_insert before insert on public.invites
+  for each row execute function public.check_invite_insert();
 
 -- Limits what anyone but the server can change on a session. The server (the service key) and
 -- database owners are let through; every other role is held to these rules:
