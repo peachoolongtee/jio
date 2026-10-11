@@ -37,6 +37,9 @@ const MAX = {
   stopHours: 4, // opening-hour ranges per stop
   mrtWalkMinutes: 120,
   shownOrders: 50,
+  // POST /api/weather/stops: the stops of one plan (an itinerary holds at most this many), and the exposure scale.
+  weatherStops: 8,
+  exposure: 5,
 }
 const text = (max = MAX.text) => z.string().min(1).max(max)
 
@@ -255,5 +258,22 @@ export function makePlanSchemas(data) {
       path: ['stops'],
     })
 
-  return { converge, roam, meetingArea, search, placeSearch, arrange }
+  // POST /api/weather/stops: where and when each stop of a plan is, to ask what the weather will be there.
+  const weatherStop = z.object({
+    id: text(),
+    point: point.pick({ lat: true, lng: true }),
+    start: dateTime,
+    exposure: z.number().min(0).max(MAX.exposure).optional(),
+    setting: z.enum(['indoor', 'outdoor', 'mixed']).optional(),
+  })
+  const weatherStops = z.object({
+    stops: z
+      .array(weatherStop)
+      .min(1)
+      .max(MAX.weatherStops)
+      .refine((stops) => new Set(stops.map((s) => s.id)).size === stops.length, 'stop ids must be different'),
+    weatherCase,
+  })
+
+  return { converge, roam, meetingArea, search, placeSearch, arrange, weatherStops }
 }
