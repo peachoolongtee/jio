@@ -102,9 +102,11 @@ function toOption(r) {
 //   alternatives: how many runners-up to ask for besides the chosen area (0 to 3). The app's three spots are alternatives: 2.
 //   include:      area ids to work out whatever their rank (up to 8), such as the spots members suggested.
 // Both are optional. Left out, the request is exactly what it always was and the answer has no `candidates`.
-// Returns the backend's answer: { area: { id, name, lat, lng }, centre, travelByMember, worstMinutes, method, approximate }.
+// Returns the backend's answer: { area: { id, name, lat, lng }, centre, travelByMember, worstMinutes, method, approximate, travel }.
 // With alternatives or include it also has candidates, the chosen area first:
 // [{ area, worstMinutes, meanMinutes, travelByMember, approximate, source: 'ranked' | 'included' }].
+// `approximate` is false when routing is off, although every time is then an estimate: travel.source is 'estimate' then
+// (and 'onemap' when at least one trip got a real time). Say "about" for either.
 // How to call: await meetingArea({ members, routing: true, alternatives: 2, include: ['bugis'] })
 export async function meetingArea({ members, routing = true, alternatives, include }) {
   const body = { members, method: routing ? 'station' : 'centroid' }

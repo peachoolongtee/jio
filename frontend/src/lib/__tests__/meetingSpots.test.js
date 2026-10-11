@@ -5,30 +5,41 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { STORAGE_KEY, confirmedSave, loadApi, loadConfirmed, stubPlanner } from './planFixture.js'
 import { AREAS } from '../mock/places.js'
-import { nextStepFor } from '../homeMeetups.js'
+import { leadingSpot, nextStepFor, placeText, whereStands } from '../homeMeetups.js'
+import { peopleTrips, pinName, tripsLine, unpricedSuggestion } from '../../components/spots/spotText.js'
 import { meetingResultLine } from '../planner/index.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn() }))
 vi.mock('../plannerApi.js', () => planner)
 
 // Each area's longest trip. The first member of a request travels that long; everyone else five minutes less, plus
-// whatever `extra` says for them. `ranked` is the app's order, fairest first.
+// whatever `extra` says for them and whatever `skew` says for the area they start in. `fixed` sets a trip outright,
+// before rounding ({ bugis: { ian: 29.6 } }). `ranked` is the app's order, fairest first. A test can also slow the
+// planner (`delay`: ms, or (call, n) => ms), make it fail (`fail`: true, or (n) => true for the nth call) or have it say
+// its times are estimates (`estimate`), and read the requests it got (`calls`).
 const WORST = { bugis: 25, bishan: 30, orchard: 31, novena: 27, kovan: 33, 'toa-payoh': 29, clementi: 40, serangoon: 35, bedok: 38, punggol: 36, woodlands: 41, 'boon-lay': 45 }
 let world
 const area = (id) => AREAS.find((a) => a.id === id)
 
 // The planner as the new backend answers: the chosen area and its runners-up ('ranked'), then each included area
 // that is not one of them ('included'). With neither `alternatives` nor `include`, no candidates, as before.
-function answerLikeTheNewBackend({ members, alternatives, include = [] }) {
+async function answerLikeTheNewBackend({ members, alternatives, include = [] }) {
+  const call = { ids: members.map((m) => m.id), include }
+  world.calls.push(call)
+  const n = world.calls.length
+  const slow = typeof world.delay === 'function' ? world.delay(call, n) : world.delay
+  if (slow) await new Promise((resolve) => setTimeout(resolve, slow))
+  if (typeof world.fail === 'function' ? world.fail(n) : world.fail) throw new Error('Cannot reach the Jio planner right now. Check your connection and try again.')
+  const startOf = (m) => AREAS.find((a) => a.lat === m.start.lat && a.lng === m.start.lng)?.id
   const price = (areaId, source) => {
-    const travelByMember = Object.fromEntries(members.map((m, i) => [m.id, WORST[areaId] - (i === 0 ? 0 : 5) + (world.extra[m.id] || 0)]))
+    const travelByMember = Object.fromEntries(members.map((m, i) => [m.id, world.fixed[areaId]?.[m.id] ?? WORST[areaId] - (i === 0 ? 0 : 5) + (world.extra[m.id] || 0) + (world.skew[startOf(m)] || 0)]))
     const minutes = Object.values(travelByMember)
     return { area: area(areaId), worstMinutes: Math.max(...minutes), meanMinutes: minutes.reduce((a, b) => a + b, 0) / minutes.length, travelByMember, approximate: false, source }
   }
   const ranked = world.ranked.slice(0, 1 + (alternatives || 0))
   const candidates = [...ranked.map((a) => price(a, 'ranked')), ...include.filter((a) => !ranked.includes(a)).map((a) => price(a, 'included'))]
   const [first] = candidates
-  const answer = { area: first.area, method: 'station', travelByMember: first.travelByMember, worstMinutes: first.worstMinutes, approximate: false }
+  const answer = { area: first.area, method: 'station', travelByMember: first.travelByMember, worstMinutes: first.worstMinutes, approximate: false, ...(world.estimate ? { travel: { source: 'estimate' } } : {}) }
   return alternatives === undefined && !include.length ? answer : { ...answer, candidates }
 }
 
@@ -40,7 +51,7 @@ beforeAll(async () => {
 })
 beforeEach(() => {
   stubPlanner(planner)
-  world = { ranked: ['bugis', 'bishan', 'orchard'], extra: {} }
+  world = { ranked: ['bugis', 'bishan', 'orchard'], extra: {}, skew: {}, fixed: {}, delay: 0, fail: false, estimate: false, calls: [] }
   planner.meetingArea.mockImplementation(async (args) => answerLikeTheNewBackend(args))
 })
 afterEach(() => vi.unstubAllGlobals())
@@ -60,6 +71,7 @@ async function locating({ starts = START, started = true, friends = ['jonathan',
   if (started) await api.startSession(id)
   for (const [person, areaId] of Object.entries(starts)) await api.setLocation(id, person, 'start', { areaId })
   planner.meetingArea.mockClear()
+  world.calls.length = 0
   return { api, id }
 }
 
@@ -635,7 +647,7 @@ describe('the words and the next step', () => {
       spots: { list: [{ areaId: 'bugis' }], approvals: { jonathan: ['bugis'] } },
     }
     expect(nextStepFor(session, 'ian')).toMatchObject({ label: 'Confirm the spot', tone: 'action', to: '/sessions/s1' })
-    expect(nextStepFor(session, 'faith')).toMatchObject({ label: 'Say which spots work for you', tone: 'action' })
+    expect(nextStepFor(session, 'faith')).toMatchObject({ label: 'Pick your spots', tone: 'action' })
     expect(nextStepFor(session, 'jonathan')).toMatchObject({ label: 'Waiting for the host', tone: 'wait' })
     // Still first: share your start, and wait while the planner works.
     expect(nextStepFor({ ...session, locations: {} }, 'faith').label).toBe('Share your start')
@@ -643,6 +655,454 @@ describe('the words and the next step', () => {
     // No spots listed: the old answers.
     expect(nextStepFor({ ...session, spots: { list: [], approvals: {} }, meeting: { areaId: 'bugis' } }, 'ian').label).toBe('Confirm the meeting point')
     expect(nextStepFor({ ...session, spots: undefined, meeting: null }, 'ian').label).toBe('Waiting for others')
+  })
+})
+
+// What the planner gets, and when it answers: the host can confirm while a request is out, and a request can fail.
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const message = async (promise) => {
+  try {
+    await promise
+    return null
+  } catch (err) {
+    return err.message
+  }
+}
+const COULD_NOT = /Cannot reach the Jio planner/
+
+// These wait for the planner twice (the first answer, then the confirmed area again), each with the "finding the meeting point" bar.
+describe('an answer that arrives after the host confirmed', { timeout: 20_000 }, () => {
+  it('leaves the confirmed spot, and the votes for places, alone when a new start is added meanwhile', async () => {
+    const { api, id } = await locating()
+    world.delay = (call, n) => (n === 1 ? 300 : 0)
+    // Faith's start would make Bugis the meeting area and move it off Orchard.
+    const adding = api.setLocation(id, 'faith', 'start', { areaId: 'woodlands' })
+    await sleep(100)
+    await api.confirmSpot(id, 'orchard')
+    const { slots } = await api.getPlan(id)
+    await api.vote(id, slots[0].id, 'ian', slots[0].options[0].id)
+    await adding
+    const session = await api.getSession(id)
+    expect(session).toMatchObject({ status: 'voting', areaName: 'Orchard' })
+    expect(session.meeting).toMatchObject({ areaId: 'orchard', method: 'chosen', count: 3 })
+    // The confirmed area now also has Faith's trip, as for any start that comes in after a confirm.
+    expect(Object.keys(session.meeting.times).sort()).toEqual(['faith', 'ian', 'jonathan'])
+    expect(session.banner?.text ?? '').not.toMatch(/moved|Bugis/)
+    expect(session.votes[slots[0].id]).toEqual({ ian: slots[0].options[0].id })
+    expect(Object.keys(session.options).length).toBeGreaterThan(0)
+  })
+
+  it('does not leave Voting with no meeting area when a start changes while one person still has none', async () => {
+    const { api, id } = await locating()
+    world.delay = (call, n) => (n === 1 ? 300 : 0)
+    const changing = api.setLocation(id, 'jonathan', 'start', { areaId: 'woodlands' })
+    await sleep(100)
+    await api.confirmSpot(id, 'bishan')
+    await changing
+    const session = await api.getSession(id)
+    expect(session).toMatchObject({ status: 'voting', areaName: 'Bishan' })
+    expect(session.meeting.areaId).toBe('bishan')
+    expect(Object.keys(session.options).length).toBeGreaterThan(0)
+  })
+
+  it('asks again for the confirmed area instead of putting the old answer in', async () => {
+    const { api, id } = await locating()
+    world.delay = (call, n) => (n === 1 ? 300 : 0)
+    const changing = api.setLocation(id, 'jonathan', 'start', { areaId: 'woodlands' })
+    await sleep(100)
+    await api.confirmSpot(id, 'bishan')
+    await changing
+    // The second request prices the area that was confirmed, for the starts there are now.
+    expect(world.calls).toHaveLength(2)
+    expect(world.calls[1].include).toContain('bishan')
+  })
+
+  for (const approved of [false, true]) {
+    it(`keeps a spot the host ${approved ? 'confirmed with approvals as voted' : 'chose as chosen'}, whichever answer comes last`, async () => {
+      const { api, id } = await locating()
+      if (approved) await api.approveSpot(id, 'ian', 'orchard', true)
+      world.delay = (call, n) => (n === 1 ? 200 : 0)
+      const adding = api.setLocation(id, 'faith', 'start', { areaId: 'bedok' })
+      await sleep(80)
+      await api.confirmSpot(id, 'orchard')
+      await adding
+      expect((await api.getSession(id)).meeting).toMatchObject({ areaId: 'orchard', method: approved ? 'voted' : 'chosen' })
+    })
+  }
+
+  it('also holds for the demo\'s routing switch', async () => {
+    const { api, id } = await locating()
+    world.delay = (call, n) => (n === 1 ? 300 : 0)
+    const switching = api.setConditions({ routing: false })
+    await sleep(100)
+    await api.confirmSpot(id, 'orchard')
+    await switching
+    const session = await api.getSession(id)
+    expect(session).toMatchObject({ status: 'voting', areaName: 'Orchard' })
+    expect(session.meeting.areaId).toBe('orchard')
+  })
+})
+
+describe('a write that fails after the host confirmed', () => {
+  it('takes back a start, but not the confirmation', async () => {
+    const { api, id } = await locating()
+    world.delay = 300
+    world.fail = (n) => n === 1
+    const changing = message(api.setLocation(id, 'jonathan', 'start', { areaId: 'woodlands' }))
+    await sleep(100)
+    world.delay = 0
+    await api.confirmSpot(id, 'orchard')
+    expect(await changing).toMatch(COULD_NOT)
+    const session = await api.getSession(id)
+    expect(session).toMatchObject({ status: 'voting', areaName: 'Orchard' })
+    expect(session.meeting.method).toBe('chosen')
+    expect(session.locations.jonathan.start.areaId).toBe('jurong-east')
+    expect(Object.keys(session.options).length).toBeGreaterThan(0)
+  })
+
+  it('takes back a suggestion, but not the confirmation', async () => {
+    const { api, id } = await locating()
+    world.delay = 300
+    world.fail = (n) => n === 1
+    const suggesting = message(api.suggestSpot(id, 'faith', 'bedok'))
+    await sleep(100)
+    world.delay = 0
+    await api.confirmSpot(id, 'bishan')
+    expect(await suggesting).toMatch(COULD_NOT)
+    const session = await api.getSession(id)
+    expect(session).toMatchObject({ status: 'voting', areaName: 'Bishan' })
+    expect(session.spots.suggestions).toEqual({})
+  })
+
+  it('tells a suggestion that arrives after the confirm that the spots are closed, and does not keep it', async () => {
+    const { api, id } = await locating()
+    world.delay = (call, n) => (n === 1 ? 300 : 0)
+    const suggesting = message(api.suggestSpot(id, 'faith', 'bedok'))
+    await sleep(100)
+    await api.confirmSpot(id, 'bishan')
+    expect(await suggesting).toMatch(/choosing where to meet/)
+    const session = await api.getSession(id)
+    expect(session).toMatchObject({ status: 'voting', areaName: 'Bishan' })
+    expect(session.spots.suggestions).toEqual({})
+  })
+
+  it('keeps an approval tapped during someone else\'s failing write', async () => {
+    const { api, id } = await locating()
+    world.delay = 300
+    world.fail = (n) => n === 1
+    const changing = message(api.setLocation(id, 'jonathan', 'start', { areaId: 'woodlands' }))
+    await sleep(100)
+    await api.approveSpot(id, 'faith', 'orchard', true)
+    expect(await changing).toMatch(COULD_NOT)
+    const session = await api.getSession(id)
+    expect(session.spots.approvals).toEqual({ faith: ['orchard'] })
+    expect(session).toMatchObject({ status: 'locating' })
+    expect(session.locations.jonathan.start.areaId).toBe('jurong-east')
+  })
+
+  it('does not take back another write\'s start while it waits', async () => {
+    const { api, id } = await locating()
+    world.delay = (call, n) => (n === 1 ? 100 : 400)
+    world.fail = (n) => n === 1
+    const failing = message(api.suggestSpot(id, 'jonathan', 'bedok'))
+    await sleep(60)
+    const adding = api.setLocation(id, 'faith', 'start', { areaId: 'woodlands' })
+    expect(await failing).toMatch(COULD_NOT)
+    await adding
+    const session = await api.getSession(id)
+    expect(session.locations.faith.start.areaId).toBe('woodlands')
+    expect(session.spots.suggestions).toEqual({})
+    expect(session.meeting).not.toBeNull()
+  })
+})
+
+describe('suggestions that overlap', () => {
+  for (const [name, delay] of [['the first answer slower', (call, n) => (n === 1 ? 400 : 50)], ['the first answer faster', (call, n) => (n === 1 ? 50 : 400)]]) {
+    it(`both keep their suggestions when two members suggest within the planner's latency (${name})`, async () => {
+      const { api, id } = await locating()
+      world.delay = delay
+      await Promise.all([api.suggestSpot(id, 'faith', 'novena'), api.suggestSpot(id, 'jonathan', 'kovan')])
+      const session = await api.getSession(id)
+      expect(session.spots.suggestions).toEqual({ faith: { areaId: 'novena', here: false }, jonathan: { areaId: 'kovan', here: false } })
+      expect(areaIds(session)).toEqual(['bugis', 'bishan', 'orchard', 'novena', 'kovan'])
+      expect(session.banner).toBeNull()
+    })
+  }
+
+  it('does not lose a suggestion with its approvals to the answer to an earlier request', async () => {
+    const { api, id } = await locating({ friends: ['jonathan', 'faith', 'darryl'] })
+    await api.suggestSpot(id, 'faith', 'novena')
+    await api.approveSpot(id, 'ian', 'novena', true)
+    world.delay = (call, n) => (n === 1 ? 400 : 50)
+    await Promise.all([api.suggestSpot(id, 'jonathan', 'kovan'), api.suggestSpot(id, 'darryl', 'bedok')])
+    const session = await api.getSession(id)
+    expect(areaIds(session)).toEqual(['bugis', 'bishan', 'orchard', 'novena', 'kovan', 'bedok'])
+    expect(session.spots.approvals).toEqual({ ian: ['novena'] })
+  })
+
+  it('prices a suggestion for the starts there are when a start changes while it is out', async () => {
+    const { api, id } = await locating()
+    world.skew = { woodlands: 15 }
+    world.delay = (call, n) => (n === 1 ? 400 : 0)
+    const suggesting = api.suggestSpot(id, 'faith', 'bedok')
+    await sleep(100)
+    await api.setLocation(id, 'jonathan', 'start', { areaId: 'woodlands' })
+    await suggesting
+    const bedok = (await api.getSession(id)).spots.list.find((s) => s.areaId === 'bedok')
+    // Ian travels 38; Jonathan 38 - 5 + 15 from Woodlands, not the 33 from where he started.
+    expect(bedok).toMatchObject({ worstMinutes: 48, times: { ian: 38, jonathan: 48 } })
+  })
+
+  it('asks again when the request that took over fails', async () => {
+    const { api, id } = await locating()
+    world.skew = { woodlands: 15 }
+    world.delay = (call, n) => (n === 1 ? 300 : 80)
+    world.fail = (n) => n === 2
+    const moving = api.setLocation(id, 'jonathan', 'start', { areaId: 'woodlands' })
+    await sleep(100)
+    expect(await message(api.suggestSpot(id, 'faith', 'bedok'))).toMatch(COULD_NOT)
+    await moving
+    const session = await api.getSession(id)
+    // The start change is in, priced for the new start, and the suggestion that failed is gone.
+    expect(session.locations.jonathan.start.areaId).toBe('woodlands')
+    expect(session.spots.list[0].times.jonathan).toBe(WORST.bugis - 5 + 15)
+    expect(session.spots.suggestions).toEqual({})
+    expect(world.calls).toHaveLength(3)
+  })
+
+  it('does not leave the spots marked as being worked out', async () => {
+    const { api, id } = await locating()
+    world.delay = (call, n) => (n === 1 ? 300 : 50)
+    await Promise.all([api.suggestSpot(id, 'faith', 'novena'), api.suggestSpot(id, 'jonathan', 'kovan')])
+    expect((await api.getSession(id)).findingSpots).toBe(false)
+  })
+})
+
+describe('a suggestion saved before it was priced', () => {
+  it('is on the stored session after a reload, with no row, and can be priced again or withdrawn', async () => {
+    const { api, id } = await locating()
+    world.delay = 600
+    const suggesting = api.suggestSpot(id, 'ian', 'bedok', { here: true })
+    await sleep(150)
+    // A reload now: the stored session has the suggestion and no row for it.
+    const reloaded = await loadApi({ data: { [STORAGE_KEY]: api.storage.store[STORAGE_KEY] } })
+    const stuck = await reloaded.getSession(id)
+    expect(stuck.spots.suggestions).toEqual({ ian: { areaId: 'bedok', here: true } })
+    expect(areaIds(stuck)).not.toContain('bedok')
+    expect(unpricedSuggestion(stuck, 'ian')).toEqual({ areaId: 'bedok', name: 'Bedok', here: true })
+    await suggesting
+    // Priced again, it has its row; withdrawn, it is gone and so is the offer.
+    world.delay = 0
+    expect(areaIds(await reloaded.suggestSpot(id, 'ian', 'bedok', { here: true }))).toContain('bedok')
+    expect(unpricedSuggestion(await reloaded.getSession(id), 'ian')).toBeNull()
+    expect(unpricedSuggestion(stuck, 'ian')).not.toBeNull()
+    const gone = await reloaded.withdrawSpot(id, 'ian')
+    expect(gone.spots.suggestions).toEqual({})
+    expect(areaIds(gone)).not.toContain('bedok')
+  })
+
+  it('is offered only for your own suggestion, while the group is choosing and the planner is not working on it', () => {
+    const base = { status: 'locating', findingSpots: false, spots: { list: [{ areaId: 'bugis' }], suggestions: { ian: { areaId: 'bedok', here: false } } } }
+    expect(unpricedSuggestion(base, 'ian')).toMatchObject({ areaId: 'bedok', name: 'Bedok' })
+    expect(unpricedSuggestion(base, 'faith')).toBeNull()
+    expect(unpricedSuggestion({ ...base, findingSpots: true }, 'ian')).toBeNull()
+    expect(unpricedSuggestion({ ...base, status: 'voting' }, 'ian')).toBeNull()
+    expect(unpricedSuggestion({ ...base, spots: { ...base.spots, list: [{ areaId: 'bedok' }] } }, 'ian')).toBeNull()
+    expect(unpricedSuggestion({ status: 'locating' }, 'ian')).toBeNull()
+  })
+})
+
+describe('travel times that are estimates', () => {
+  it('are approximate for every spot and the meeting area when the planner says its times are estimates', async () => {
+    const { api, id } = await locating()
+    world.estimate = true
+    const session = await api.setLocation(id, 'faith', 'start', { areaId: 'woodlands' })
+    expect(session.meeting.approximate).toBe(true)
+    expect(session.spots.list.every((s) => s.approximate)).toBe(true)
+    // A suggestion is priced from the same answer.
+    const suggested = await api.suggestSpot(id, 'faith', 'novena')
+    expect(suggested.spots.list.find((s) => s.areaId === 'novena').approximate).toBe(true)
+    // Every place the minutes are written says "about".
+    const spot = suggested.spots.list[0]
+    expect(tripsLine(spot)).toMatch(/^Longest trip about \d+ min · Average about \d+ min$/)
+    expect(peopleTrips(spot, (person) => person, 'ian').every((trip) => trip.text.startsWith('about '))).toBe(true)
+    expect(pinName(spot, 1, 'ian')).toContain('Longest trip about')
+    expect(whereStands({ ...suggested, status: 'voting', spots: { list: [] } }, 'ian').text).toContain('about')
+    expect(session.resultLine).toContain('about')
+  })
+
+  it('are approximate for a confirmed area that is priced again for a new start', async () => {
+    const { api, id } = await locating()
+    world.estimate = true
+    await api.confirmSpot(id, 'orchard')
+    const session = await api.setLocation(id, 'faith', 'start', { areaId: 'woodlands' })
+    expect(session.meeting).toMatchObject({ areaId: 'orchard', approximate: true })
+    expect(session.spots.list.find((s) => s.areaId === 'orchard').approximate).toBe(true)
+  })
+
+  it('are approximate for a known place priced from the starts there are', async () => {
+    const { api, id } = await locating()
+    world.estimate = true
+    const session = await api.setKnownPlace(id, 'novena')
+    expect(session.meeting.approximate).toBe(true)
+    expect(session.spots.list[0].approximate).toBe(true)
+  })
+
+  it('are not approximate when the routes are real, and say so with no "about"', async () => {
+    const { api, id } = await locating()
+    const session = await api.setLocation(id, 'faith', 'start', { areaId: 'woodlands' })
+    expect(session.meeting.approximate).toBe(false)
+    expect(session.spots.list.every((s) => !s.approximate)).toBe(true)
+    expect(tripsLine(session.spots.list[0])).toBe('Longest trip 25 min · Average 22 min')
+    expect(peopleTrips(session.spots.list[0], (person) => person, 'ian').some((trip) => trip.text.includes('about'))).toBe(false)
+  })
+
+  it('stay approximate for the areas whose own routes failed, even when the others are real', async () => {
+    const { api, id } = await locating()
+    planner.meetingArea.mockImplementation(async (args) => {
+      const answer = await answerLikeTheNewBackend(args)
+      return { ...answer, travel: { source: 'onemap' }, candidates: answer.candidates?.map((c, i) => ({ ...c, approximate: i === 1 })) }
+    })
+    const session = await api.setLocation(id, 'jonathan', 'start', { areaId: 'woodlands' })
+    expect(session.spots.list.map((s) => s.approximate)).toEqual([false, true, false])
+  })
+})
+
+describe('the spot the host is offered, to the minute', () => {
+  // Bugis: 29.6 and 25.6 before rounding. Bishan: 30.4 and 22.8. The planner puts Bugis first (29.6 is less than 30.4), but
+  // both longest trips round to 30 and Bishan's average rounds lower (27 against 28; with Faith's trips too, 24 against 28).
+  const closeCall = () => {
+    world.fixed = { bugis: { ian: 29.6, jonathan: 25.6, faith: 28 }, bishan: { ian: 30.4, jonathan: 22.8, faith: 20 } }
+  }
+
+  it('is the planner\'s pick when nobody has approved, not the runner-up with the lower rounded average', async () => {
+    closeCall()
+    const { api, id } = await locating()
+    const session = await api.getSession(id)
+    expect(session.spots.list.slice(0, 2).map((s) => [s.areaId, s.worstMinutes, s.meanMinutes])).toEqual([['bugis', 30, 28], ['bishan', 30, 27]])
+    expect(session.spots.preselectedAreaId).toBe('bugis')
+  })
+
+  it('is confirmed by the host as the planner\'s choice, not as a pick against it', async () => {
+    closeCall()
+    const { api, id } = await locating()
+    const confirmed = await api.confirmSpot(id, (await api.getSession(id)).spots.preselectedAreaId)
+    expect(confirmed.meeting).toMatchObject({ areaId: 'bugis', method: 'fairest' })
+  })
+
+  it('is what useMeetingArea confirms', async () => {
+    closeCall()
+    const { api, id } = await locating()
+    await api.setLocation(id, 'faith', 'start', { areaId: 'woodlands' })
+    const confirmed = await api.useMeetingArea(id)
+    expect(confirmed.meeting).toMatchObject({ areaId: 'bugis', method: 'fairest' })
+  })
+
+  it('goes, among equally approved spots under a minute apart, to the shorter longest trip before rounding', async () => {
+    world.fixed = { bishan: { ian: 30.4, jonathan: 22.8 }, novena: { ian: 30.2, jonathan: 22.8 } }
+    const { api, id } = await locating()
+    await api.suggestSpot(id, 'faith', 'novena')
+    for (const spot of ['bishan', 'novena']) await api.approveSpot(id, 'ian', spot, true)
+    const session = await api.getSession(id)
+    // Both read 30 minutes; Bishan is first in the list, Novena has the shorter trip.
+    expect(session.spots.list.filter((s) => ['bishan', 'novena'].includes(s.areaId)).map((s) => s.worstMinutes)).toEqual([30, 30])
+    expect(session.spots.preselectedAreaId).toBe('novena')
+  })
+
+  it('goes to the shorter longest trip among approved spots, and to the list\'s order when those are equal too', async () => {
+    const { api, id } = await locating()
+    for (const spot of ['bishan', 'orchard']) await api.approveSpot(id, 'ian', spot, true)
+    // Bishan 30 before Orchard 31.
+    expect((await api.getSession(id)).spots.preselectedAreaId).toBe('bishan')
+    // The same trips to the decimal: the earlier row.
+    world.fixed = { bishan: { ian: 31, jonathan: 20 }, orchard: { ian: 31, jonathan: 20 } }
+    await api.setLocation(id, 'jonathan', 'start', { areaId: 'woodlands' })
+    const tied = await api.getSession(id)
+    expect(tied.spots.list.find((s) => s.areaId === 'bishan').worstMinutes).toBe(tied.spots.list.find((s) => s.areaId === 'orchard').worstMinutes)
+    expect(tied.spots.preselectedAreaId).toBe('bishan')
+  })
+
+  it('reads an older save, which has no unrounded minutes, by its rounded ones', async () => {
+    const { api, id } = await locating()
+    for (const spot of ['bishan', 'orchard']) await api.approveSpot(id, 'ian', spot, true)
+    const state = JSON.parse(api.storage.store[STORAGE_KEY])
+    for (const spot of state.sessions[0].spots.list) delete spot.exactWorst
+    const old = await loadApi({ data: { [STORAGE_KEY]: JSON.stringify(state) } })
+    expect((await old.getSession(id)).spots.preselectedAreaId).toBe('bishan')
+  })
+})
+
+describe('what Home says while the group is choosing', () => {
+  const spots = (leading) => ({
+    list: [
+      { areaId: 'bugis', area: { name: 'Bugis' }, approvalCount: leading === 'bugis' ? 2 : 0, times: { ian: 25 } },
+      { areaId: 'novena', area: { name: 'Novena' }, approvalCount: leading === 'novena' ? 3 : 0, times: { ian: 27 } },
+    ],
+    approvals: {},
+    preselectedAreaId: leading || 'bugis',
+  })
+  const session = (leading, over = {}) => ({ id: 's1', hostId: 'ian', status: 'locating', activeIds: ['ian', 'jonathan', 'faith'], locations: { ian: { start: {} }, jonathan: { start: {} } }, spots: spots(leading), meeting: null, area: null, ...over })
+
+  it('does not say there is no meeting point when the host is asked to confirm a spot', () => {
+    const early = session(null)
+    expect(nextStepFor(early, 'ian').label).toBe('Confirm the spot')
+    expect(whereStands(early, 'ian')).toMatchObject({ kind: 'spots', text: '2 spots to choose from', areaName: '' })
+    expect(placeText(early)).toBe('choosing a spot')
+  })
+
+  it('names the spot that leads, not the planner\'s fairest area, with the minutes for you', () => {
+    // Everyone has a start, so the planner's fairest area (Bugis) is the meeting area while Novena leads.
+    const all = session('novena', { meeting: { areaId: 'bugis', times: { ian: 25 } }, area: { id: 'bugis', name: 'Bugis' } })
+    expect(leadingSpot(all).areaId).toBe('novena')
+    expect(whereStands(all, 'ian')).toMatchObject({ kind: 'spots', areaName: 'Novena', minutes: 27, text: 'Novena is leading · about 27 min for you', note: 'is leading · about 27 min for you' })
+    expect(placeText(all)).toBe('Novena')
+    expect(whereStands(session('novena'), 'faith').text).toBe('Novena is leading')
+  })
+
+  it('says the fairest area is only one of the spots until something leads', () => {
+    const all = session(null, { meeting: { areaId: 'bugis', times: { ian: 25 } }, area: { id: 'bugis', name: 'Bugis' } })
+    expect(whereStands(all, 'ian').text).toBe('2 spots to choose from')
+    expect(placeText(all)).toBe('choosing a spot')
+  })
+
+  it('keeps the old words once the group has moved on, or when no spots are listed', () => {
+    const done = session('novena', { status: 'voting', meeting: { areaId: 'novena', times: { ian: 27 } }, area: { id: 'novena', name: 'Novena' } })
+    expect(leadingSpot(done)).toBeNull()
+    expect(whereStands(done, 'ian')).toMatchObject({ kind: 'area', text: 'Novena · about 27 min for you', areaName: 'Novena', note: 'about 27 min for you' })
+    expect(placeText(done)).toBe('Novena')
+    const none = session(null, { spots: { list: [], approvals: {} } })
+    expect(whereStands(none, 'ian').kind).toBe('waiting')
+    expect(placeText(none)).toBe('no meeting point yet')
+    expect(whereStands(session(null, { spots: { list: [{ areaId: 'bugis', area: { name: 'Bugis' }, approvalCount: 0 }], approvals: {} } }), 'ian').text).toBe('1 spot to choose from')
+  })
+
+  it('keeps every next-step label short enough to stay a pill', () => {
+    const start = { areaId: 'x' }
+    const base = { id: 's1', hostId: 'ian', status: 'locating', activeIds: ['ian', 'faith'], members: [], locations: { ian: { start }, faith: { start } }, votes: {}, meeting: null, findingMeeting: false, spots: { list: [{ areaId: 'bugis' }], approvals: {} } }
+    const labels = [nextStepFor(base, 'ian').label, nextStepFor(base, 'faith').label, nextStepFor({ ...base, spots: { list: [{ areaId: 'bugis' }], approvals: { faith: ['bugis'] } } }, 'faith').label]
+    expect(labels).toEqual(['Confirm the spot', 'Pick your spots', 'Waiting for the host'])
+    for (const label of labels) expect(label.length).toBeLessThanOrEqual(20)
+  })
+})
+
+describe('a session that has ended', () => {
+  it('cannot be left by a member: opting out writes nothing', async () => {
+    const cancelled = await locating()
+    await cancelled.api.cancelSession(cancelled.id)
+    const saved = cancelled.api.storage.writes
+    planner.meetingArea.mockClear()
+    await expect(cancelled.api.optOut(cancelled.id, 'faith')).rejects.toThrow(/has ended/)
+    expect(cancelled.api.storage.writes).toBe(saved)
+    expect(planner.meetingArea).not.toHaveBeenCalled()
+    expect((await cancelled.api.getSession(cancelled.id)).activeIds).toContain('faith')
+
+    const { api, id } = await loadConfirmed()
+    await api.endPlan(id)
+    const writes = api.storage.writes
+    planner.meetingArea.mockClear()
+    await expect(api.optOut(id, 'jonathan')).rejects.toThrow(/has ended/)
+    expect(api.storage.writes).toBe(writes)
+    expect(planner.meetingArea).not.toHaveBeenCalled()
   })
 })
 

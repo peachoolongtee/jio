@@ -342,13 +342,26 @@ const roundedTimes = (travelByMember) => Object.fromEntries(Object.entries(trave
 // How to call: candidatesOf(data) -> [{ area, travelByMember, approximate, source? }]
 const candidatesOf = (data) => (data.candidates?.length ? data.candidates : [data])
 
+// Are the planner's times all its own estimate? The flag on a candidate only says a route call failed, so with no routing
+// account (every time is a straight-line estimate) it stays false; the answer's `travel.source` says it.
+// How to call: estimatedBy({ travel: { source: 'estimate' } }) -> true
+const estimatedBy = (data) => data.travel?.source === 'estimate'
+
 // One priced area as a spot's numbers: the longest trip, the average and each person's minutes, all from the same
-// rounded minutes the screens show. Alike for the app's spots and a member's.
-// How to call: pricedSpot({ travelByMember: { ian: 20, jonathan: 30 }, approximate: false }) -> { worstMinutes: 30, meanMinutes: 25, ... }
-function pricedSpot(candidate) {
+// rounded minutes the screens show. Alike for the app's spots and a member's. The times are approximate when the
+// candidate says so or when `estimated` (the whole answer is the planner's estimate). `exactWorst` is the longest trip
+// before rounding: the screens round, but the order of spots never does.
+// How to call: pricedSpot({ travelByMember: { ian: 20, jonathan: 30 }, approximate: false }, false) -> { worstMinutes: 30, meanMinutes: 25, ... }
+function pricedSpot(candidate, estimated = false) {
   const times = roundedTimes(candidate.travelByMember)
   const minutes = Object.values(times)
-  return { worstMinutes: Math.max(...minutes), meanMinutes: Math.round(sumOf(minutes) / minutes.length), times, approximate: !!candidate.approximate }
+  return {
+    worstMinutes: Math.max(...minutes),
+    meanMinutes: Math.round(sumOf(minutes) / minutes.length),
+    exactWorst: Math.max(...Object.values(candidate.travelByMember)),
+    times,
+    approximate: !!candidate.approximate || estimated,
+  }
 }
 
 // How the planner's own pick is described: 'same' (everyone starts together), 'fairest' or 'centre' (routing is off).
@@ -370,7 +383,7 @@ function meetingFrom(members, data) {
     maxMinutes: Math.max(...minutes),
     totalMinutes: sumOf(minutes),
     count: members.length,
-    approximate: data.approximate,
+    approximate: !!data.approximate || estimatedBy(data),
   }
 }
 
@@ -409,7 +422,7 @@ function spotsFrom(members, data) {
   const candidates = candidatesOf(data)
   return {
     appIds: candidates.filter((c) => c.source !== 'included').slice(0, APP_SPOTS).map((c) => c.area.id),
-    entries: new Map(candidates.map((c) => [c.area.id, pricedSpot(c)])),
+    entries: new Map(candidates.map((c) => [c.area.id, pricedSpot(c, estimatedBy(data))])),
     method: plannerMethod(members, data),
   }
 }
@@ -427,8 +440,8 @@ function listFrom(appIds, entries, suggestions) {
     .filter((areaId) => entries.has(areaId))
     .map((areaId) => {
       const suggesters = Object.entries(suggestions).filter(([, s]) => s.areaId === areaId)
-      const { worstMinutes, meanMinutes, times, approximate } = entries.get(areaId)
-      return { areaId, by: appIds.includes(areaId) ? 'app' : suggesters[0][0], here: suggesters.some(([, s]) => s.here), worstMinutes, meanMinutes, times: { ...times }, approximate }
+      const { worstMinutes, meanMinutes, exactWorst, times, approximate } = entries.get(areaId)
+      return { areaId, by: appIds.includes(areaId) ? 'app' : suggesters[0][0], here: suggesters.some(([, s]) => s.here), worstMinutes, meanMinutes, exactWorst, times: { ...times }, approximate }
     })
 }
 
@@ -484,14 +497,19 @@ const lostApprovalsBanner = (reason, areaIds) => ({ text: `${reason} ${lostAppro
 // How many active members said a spot works for them. How to call: approvalCount(session, 'bugis') -> 2
 const approvalCount = (session, areaId) => activeIds(session).filter((id) => session.spots.approvals[id]?.includes(areaId)).length
 
-// The spot the host is offered: the most approvals; a tie goes to the shortest longest trip, then the lower average,
-// then the list's own order (the app's fairest first). Null when no spot is listed.
+// The longest trip to a spot, before rounding when it is known: the screens round, the order never does.
+// How to call: longestTrip({ worstMinutes: 30, exactWorst: 29.6 }) -> 29.6
+const longestTrip = (spot) => spot.exactWorst ?? spot.worstMinutes ?? 0
+
+// The spot the host is offered. With nobody's approval it is the first of the list, which is the planner's own pick (never
+// reordered by rounded minutes). Otherwise the most approved; a tie among those goes to the shortest longest trip, then to
+// the list's own order. Null when no spot is listed.
 // How to call: preselectedSpot(session) -> { areaId: 'bugis', ... }
 function preselectedSpot(session) {
-  const ranked = [...session.spots.list].sort(
-    (a, b) => approvalCount(session, b.areaId) - approvalCount(session, a.areaId) || (a.worstMinutes ?? 0) - (b.worstMinutes ?? 0) || (a.meanMinutes ?? 0) - (b.meanMinutes ?? 0),
-  )
-  return ranked[0] || null
+  const { list } = session.spots
+  const most = Math.max(0, ...list.map((s) => approvalCount(session, s.areaId)))
+  if (!most) return list[0] || null
+  return list.filter((s) => approvalCount(session, s.areaId) === most).reduce((best, s) => (longestTrip(s) < longestTrip(best) ? s : best))
 }
 
 // A meeting that was chosen, not found: its area stays when a start changes, and only the travel times move.
@@ -506,15 +524,15 @@ async function computePinned(session, members, areaId, method = session.meeting.
   const data = await askMeeting(session, members, { include: [areaId] }, { bar })
   const candidate = candidatesOf(data).find((c) => c.area.id === areaId)
   if (!candidate) throw new Error(`The planner could not work out travel times to ${areaById(areaId).name}.`)
-  const pinnedSpot = { areaId, ...pricedSpot(candidate) }
+  const pinnedSpot = { areaId, ...pricedSpot(candidate, estimatedBy(data)) }
   return { meeting: meetingAtSpot(areaId, method, pinnedSpot), pinnedSpot }
 }
 
 // Put a chosen area's new numbers on its spot in the list, when it has one.
-// How to call: refreshSpot(session, { areaId, worstMinutes, meanMinutes, times, approximate })
+// How to call: refreshSpot(session, { areaId, worstMinutes, meanMinutes, exactWorst, times, approximate })
 function refreshSpot(session, priced) {
   const spot = session.spots.list.find((s) => s.areaId === priced.areaId)
-  if (spot) Object.assign(spot, { worstMinutes: priced.worstMinutes, meanMinutes: priced.meanMinutes, times: { ...priced.times }, approximate: priced.approximate })
+  if (spot) Object.assign(spot, { worstMinutes: priced.worstMinutes, meanMinutes: priced.meanMinutes, exactWorst: priced.exactWorst, times: { ...priced.times }, approximate: priced.approximate })
 }
 
 // The meeting area, and while the group is choosing where to meet, the spots. One request to the planner does both.
@@ -603,6 +621,55 @@ const takeTicket = (session, kind) => {
   return () => ticket === tickets[key]
 }
 
+// What a request for the meeting area and spots depended on: who has a start and where, who is in, whether the group is
+// still choosing (or has confirmed an area, which then stays), the routing switch, and the areas members suggested.
+// How to call: askedFor(session) -> { basis: '...', suggested: ['bugis'] }
+const askedFor = (session) => ({
+  basis: JSON.stringify([session.status === 'locating', pinnedAreaOf(session), db.conditions.routing, activeIds(session), membersFor(session)]),
+  suggested: suggestedAreas(session),
+})
+// Was an answer asked for the session as it is now? It must be for the same starts, people and state, and have priced every
+// area suggested since (an extra priced area does no harm).
+// How to call: fitsNow(asked, session) -> true
+function fitsNow(asked, session) {
+  const now = askedFor(session)
+  return now.basis === asked.basis && now.suggested.every((areaId) => asked.suggested.includes(areaId))
+}
+
+// Per session, whether the newest request put its answer in (true), or failed or was out of date (false).
+const newestRun = {}
+// How many times a request asks again when what it asked for has changed meanwhile.
+const ASK_AGAIN = 3
+
+// Ask the planner about the session as it is now and put the answer in with `apply(answer)`, so that an older answer never
+// overwrites a newer state. Every request that rebuilds the meeting area or the spots shares one ticket. An answer is put
+// in only if it is the newest request's and was asked for the starts, people and suggestions the session has now; if it
+// is not the newest, it waits for the newer one and, when that one fails, asks again; if the session changed in a way no
+// newer request covers (the host confirmed a spot, say), it asks again for the session as it is. `ask` runs for each try.
+// Returns true when an answer is in (this request's or a newer one's), false after the last try.
+// How to call: await latestAnswer(session, () => computeMeeting(session), async (answer) => { session.meeting = answer.meeting })
+async function latestAnswer(session, ask, apply) {
+  for (let attempt = 0; attempt < ASK_AGAIN; attempt++) {
+    const isLatest = takeTicket(session, 'meeting')
+    const asked = askedFor(session)
+    let settle
+    newestRun[session.id] = new Promise((resolve) => { settle = resolve })
+    let put = false
+    try {
+      const answer = await ask()
+      if (isLatest() && fitsNow(asked, session)) {
+        await apply(answer)
+        put = true
+        return true
+      }
+    } finally {
+      settle(put)
+    }
+    if (!isLatest() && (await newestRun[session.id])) return true
+  }
+  return false
+}
+
 // Every place that fits a slot, best first: the suggestions, then current options ranked further down.
 const rankedIds = (ranked) => [...new Set([...ranked.options, ...ranked.current].map((o) => o.venue.id))]
 
@@ -632,11 +699,10 @@ const VOTES_CLEARED = 'Votes for places were cleared.'
 // Does a session hold any vote for a place? How to call: hasVotes(session) -> true
 const hasVotes = (session) => Object.values(session.votes || {}).some((votes) => Object.keys(votes).length > 0)
 
-// A start or end location changed, a late location arrived, or someone opted out.
-async function applyTrigger(session, trigger) {
-  const isLatest = takeTicket(session, 'meeting')
-  const { meeting: next, spots, pinnedSpot } = await computeMeeting(session)
-  if (!isLatest()) return
+// Work what the planner answered into the session after a trigger: the meeting area, the spots (while choosing) and the place
+// options. Runs only for an answer that is current (see latestAnswer).
+// How to call: await putInMeeting(session, { kind: 'start', personName: 'Ian' }, await computeMeeting(session))
+async function putInMeeting(session, trigger, { meeting: next, spots, pinnedSpot }) {
   const previous = session.meeting
   const outcome = P.recalculate({
     status: session.status,
@@ -665,20 +731,93 @@ async function applyTrigger(session, trigger) {
   if (text) session.banner = { text, at: Date.now(), ...(cleared ? { votesCleared: true } : {}), ...(lost.length ? { approvalsRemoved: true } : {}) }
 }
 
-// For a write that needs the planner: if the planner cannot answer, put the session back as it was, so nothing
-// is half-saved (a location kept but not shown, Voting with no options). The caller still gets the error.
-async function orUndo(session, change) {
-  const before = clone(session)
-  try {
-    return await change()
-  } catch (err) {
+// A start or end location changed, a late location arrived, or someone opted out. The answer is put in only if it is
+// current: not the newest request's, or asked before the host confirmed a spot, it is dropped and asked again.
+// How to call: await applyTrigger(session, { kind: 'start', personName: 'Ian' })
+async function applyTrigger(session, trigger) {
+  await latestAnswer(session, () => computeMeeting(session), (answer) => putInMeeting(session, trigger, answer))
+}
+
+// ── A write that fails takes back only its own change ───────────────────────
+
+// Writes saved so far, per session. A write that fails compares it with the count it began at: a different count means
+// another write was saved while it waited (a host confirmed, someone said a spot works for them).
+const commits = {}
+const commitsOf = (session) => commits[session.id] || 0
+// The writes now waiting on the planner, per session, with what each changed straight away.
+const waiting = {}
+
+// An object that is not an array or null. How to call: isPlain({}) -> true
+const isPlain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+// Equal as stored data (the session is plain JSON). How to call: sameValue({ a: 1 }, { a: 1 }) -> true
+const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+// The value at a path of keys, or undefined. How to call: valueAt({ a: { b: 1 } }, ['a', 'b']) -> 1
+const valueAt = (root, path) => path.reduce((value, key) => (value == null ? undefined : value[key]), root)
+
+// Where two values differ, as paths of keys, going down through objects; an array or a plain value is compared whole.
+// How to call: changedPaths({ a: { b: 1, c: 1 } }, { a: { b: 2, c: 1 } }) -> [['a', 'b']]
+function changedPaths(from, to, path = []) {
+  if (isPlain(from) && isPlain(to)) return [...new Set([...Object.keys(from), ...Object.keys(to)])].flatMap((key) => changedPaths(from[key], to[key], [...path, key]))
+  return sameValue(from, to) ? [] : [path]
+}
+
+// Put a value at a path; undefined removes it. A path whose parent is gone is left alone.
+// How to call: putAt(session, ['spots', 'suggestions', 'faith'], undefined)
+function putAt(root, path, value) {
+  const parent = valueAt(root, path.slice(0, -1))
+  if (!isPlain(parent)) return
+  if (value === undefined) delete parent[path.at(-1)]
+  else parent[path.at(-1)] = value
+}
+
+// Do two paths run into each other (one is the start of the other)? How to call: overlap(['a', 'b'], ['a']) -> true
+const overlap = (a, b) => a.slice(0, b.length).every((key, i) => key === b[i]) && b.slice(0, a.length).every((key, i) => key === a[i])
+
+// Put back what a failed write changed. Alone, that is the whole session as it was. With others around it is only its own
+// change: what it changed straight away goes back unless someone changed it since; what it changed later (after the
+// planner answered) goes back only if no other write was saved meanwhile, and never what another waiting write changed.
+// Whatever the session moved on to (a confirmed spot, an approval) stays.
+// How to call: takeBack(session, before, mine, commitsAtStart)
+function takeBack(session, before, mine, commitsAtStart) {
+  const others = [...(waiting[session.id] || [])].filter((entry) => entry !== mine)
+  const movedOn = commitsOf(session) !== commitsAtStart
+  if (!others.length && !movedOn) {
     for (const key of Object.keys(session)) delete session[key]
     Object.assign(session, before)
+    return
+  }
+  mine.paths.forEach((path, i) => {
+    if (sameValue(valueAt(session, path), mine.values[i])) putAt(session, path, clone(valueAt(before, path)))
+  })
+  if (movedOn) return
+  const theirs = others.flatMap((entry) => entry.paths)
+  for (const path of changedPaths(before, session)) if (!theirs.some((other) => overlap(path, other))) putAt(session, path, clone(valueAt(before, path)))
+}
+
+// For a write that needs the planner: if the planner cannot answer, take back what the write changed, so nothing is
+// half-saved (a location kept but not shown, Voting with no options). The caller still gets the error. It takes back
+// only the write's own change: if the session moved on meanwhile (the host confirmed a spot), that stays.
+// How to call: return orUndo(session, async () => { session.locations.ian = place; await applyTrigger(...); return touch(session, 'location') })
+async function orUndo(session, change) {
+  const before = clone(session)
+  const commitsAtStart = commitsOf(session)
+  const running = change()
+  // The part of the write that ran before its first wait is the write's own, whatever else is going on.
+  const mine = { paths: changedPaths(before, session) }
+  mine.values = mine.paths.map((path) => clone(valueAt(session, path)))
+  const mineAndOthers = (waiting[session.id] ||= new Set())
+  mineAndOthers.add(mine)
+  try {
+    return await running
+  } catch (err) {
+    takeBack(session, before, mine, commitsAtStart)
     // Save the session as it was, and show it again (a "pending" update may have shown the change already).
     // If storage refuses even that, the caller still gets the first error, which is the one worth reading.
     save()
     broadcast({ type: 'pending', sessionId: session.id })
     throw err
+  } finally {
+    mineAndOthers.delete(mine)
   }
 }
 
@@ -686,6 +825,7 @@ async function orUndo(session, change) {
 function touch(session, type) {
   session.updatedAt = Date.now()
   emit({ type, sessionId: session.id })
+  commits[session.id] = commitsOf(session) + 1
   return summary(session)
 }
 
@@ -1234,13 +1374,23 @@ export async function suggestSpot(id, personId, areaId, { here = false } = {}) {
   return orUndo(session, async () => {
     delete suggestions[personId]
     suggestions[personId] = { areaId, here: !!here }
-    let lost
+    let lost = []
     if (listed) lost = setSpotList(session, relistFromStored(session))
     else {
-      const members = membersFor(session)
-      const data = await askMeeting(session, members, { alternatives: APP_SPOTS - 1, include: suggestedAreas(session) }, { spots: true })
-      lost = applyPlannedSpots(session, spotsFrom(members, data))
+      // Every request that rebuilds the list shares one ticket (latestAnswer): this one asks for every suggestion there is,
+      // is put in only if it is current, and asks again if the starts or suggestions changed while it waited. If the host
+      // confirmed meanwhile, the spots are closed and the asking stops with an error, which takes this suggestion back.
+      await latestAnswer(
+        session,
+        async () => {
+          assertSpotsOpen(session)
+          const members = membersFor(session)
+          return { members, data: await askMeeting(session, members, { alternatives: APP_SPOTS - 1, include: suggestedAreas(session) }, { spots: true }) }
+        },
+        ({ members, data }) => { lost = applyPlannedSpots(session, spotsFrom(members, data)) },
+      )
     }
+    assertSpotsOpen(session)
     if (!session.spots.list.some((s) => s.areaId === areaId)) throw new Error(`The planner could not work out travel times to ${area.name}.`)
     if (lost.length) session.banner = lostApprovalsBanner(`${nameOf(personId)} suggested ${area.name}.`, lost)
     return touch(session, 'spots')
@@ -1312,7 +1462,7 @@ export async function setKnownPlace(id, areaId) {
     session.members = session.members.filter((m) => m.state !== 'invited')
     const { meeting, pinnedSpot } = await computePinned(session, membersFor(session), areaId, 'chosen', { bar: false })
     const priced = pinnedSpot || { worstMinutes: null, meanMinutes: null, times: {}, approximate: false }
-    session.spots = { ...emptySpots(), list: [{ areaId, by: session.hostId, here: false, worstMinutes: priced.worstMinutes, meanMinutes: priced.meanMinutes, times: { ...priced.times }, approximate: priced.approximate }] }
+    session.spots = { ...emptySpots(), list: [{ areaId, by: session.hostId, here: false, worstMinutes: priced.worstMinutes, meanMinutes: priced.meanMinutes, exactWorst: priced.exactWorst, times: { ...priced.times }, approximate: priced.approximate }] }
     session.meeting = meeting
     session.status = 'voting'
     session.banner = null
@@ -1324,6 +1474,7 @@ export async function setKnownPlace(id, areaId) {
 export async function optOut(id, personId) {
   await wait(DELAY.write)
   const session = sessionById(id)
+  if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
   const member = session.members.find((m) => m.id === personId)
   if (!member || member.role === 'host') throw new Error('The host cannot opt out.')
   return orUndo(session, async () => {
@@ -1809,11 +1960,14 @@ export async function setConditions(patch) {
   // Routing changes how the meeting area is found, so sessions still locating are re-calculated.
   if ('routing' in known) {
     for (const session of db.sessions.filter((s) => s.status === 'locating')) {
-      const { meeting, spots } = await computeMeeting(session)
-      session.meeting = meeting
-      // The travel times change with routing, and the app's three can too.
-      const lost = spots ? applyPlannedSpots(session, spots) : []
-      if (lost.length) session.banner = lostApprovalsBanner('Travel times were worked out again.', lost)
+      // A session the host confirmed a spot for while an earlier one was worked out is not asked about: its area stays.
+      if (session.status !== 'locating') continue
+      await latestAnswer(session, () => computeMeeting(session), ({ meeting, spots }) => {
+        session.meeting = meeting
+        // The travel times change with routing, and the app's three can too.
+        const lost = spots ? applyPlannedSpots(session, spots) : []
+        if (lost.length) session.banner = lostApprovalsBanner('Travel times were worked out again.', lost)
+      })
     }
   }
   emit({ type: 'conditions' })
