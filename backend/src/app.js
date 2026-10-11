@@ -4,6 +4,8 @@ import { loadPlanData } from './db/venues.js'
 import { createMeRouter } from './routes/me.js'
 import { rateLimit } from './middleware/rate-limit.js'
 import { createPlanRouter } from './routes/plan.js'
+import { createWeatherRouter } from './routes/weather.js'
+import { createWeatherResolver } from './planner/weather-window.js'
 import { createHttp } from './services/http.js'
 import { createGooglePlaces } from './services/google-places.js'
 import { createItineraryAi } from './services/itinerary-ai.js'
@@ -24,7 +26,9 @@ import { createWeather } from './services/weather.js'
 //   stub           - true answers external API calls from fixtures.
 //   http           - The HTTP helper to share. Defaults to one built from `stub`.
 //   planData       - Venues and settings the planner reads. Defaults to loadPlanData() (mock + curated + CDC).
-//   weather        - The weather service, from createWeather(). Defaults to one built on `http`.
+//   weather        - The weather service, from createWeather(). Defaults to one built on `http` and `now`.
+//   now            - Returns the time in milliseconds, for the weather: which forecast a stop is judged by depends on
+//                    how far away it is. Defaults to Date.now. Tests pass a fake clock.
 //   onemap         - OneMap search and public transport routing, from createOneMap(). Defaults to the stub
 //                    routes in stub mode and to none otherwise, so a test app never calls OneMap. index.js
 //                    passes the real one.
@@ -48,7 +52,8 @@ export function createApp({
   stub = false,
   http = createHttp({ stub }),
   planData = loadPlanData(),
-  weather = createWeather({ http }),
+  now = Date.now,
+  weather = createWeather({ http, now }),
   onemap = stub ? createOneMap({ http, stub: true }) : null,
   places = stub ? createGooglePlaces({ http, stub: true }) : null,
   itineraryAi = createItineraryAi({ stub: true }),
@@ -85,20 +90,29 @@ export function createApp({
     res.status(200).json({ ok: true })
   })
 
+  // One limiter and one weather resolver, shared by every route that uses them: a caller's requests to the planner
+  // and to the weather route count together, and a forecast failure is logged once a minute across both.
+  const limiter = planRateLimit ? rateLimit(planRateLimit) : null
+  const weatherResolver = createWeatherResolver({ data: planData, weather, now })
+
   // Planner: /api/meeting-area, /api/converge, /api/roam, /api/search, /api/places/search, /api/itinerary/arrange.
   app.use(
     '/api',
     createPlanRouter({
       data: planData,
       weather,
+      weatherResolver,
       onemap,
       places,
       ai: itineraryAi,
       allowSimulatedWeather: allowSimulatedWeather || stub,
       routingDeadlineMs,
-      limiter: planRateLimit ? rateLimit(planRateLimit) : null,
+      limiter,
     }),
   )
+
+  // The weather at the stops of a plan: /api/weather/stops.
+  app.use('/api', createWeatherRouter({ data: planData, resolver: weatherResolver, allowSimulatedWeather: allowSimulatedWeather || stub, limiter }))
 
   // Routes that need a login. The planner routes above do not check one yet: the frontend has to
   // start sending the session token first.

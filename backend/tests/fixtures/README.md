@@ -8,6 +8,9 @@ Canned API responses. In stub mode the backend answers from these files instead 
 |---|---|---|
 | `datagov/two-hr-forecast.dry.json` | Recorded live on 2026-10-05. All 47 areas are "Fair (Day)". | Scenarios `dry` and `routing-fail` |
 | `datagov/two-hr-forecast.rain.json` | The dry file with every forecast changed to "Heavy Thundery Showers". | Scenario `rain` |
+| `datagov/twenty-four-hr-forecast.real.json` | Recorded live from `https://api-open.data.gov.sg/v2/real-time/api/twenty-four-hr-forecast` on 2026-10-11 at 16:02 Singapore time, unchanged: three periods, thundery in the west, north and centre from midday to 6 pm. Contains information from the 24-hour Weather Forecast accessed on 11 Oct 2026 from data.gov.sg, which is made available under the terms of the Singapore Open Data Licence version 1.0 (https://data.gov.sg/open-data-licence). | The parser tests, and the base for the time-shifted answers in `tests/helpers/weather-world.js` |
+| `datagov/twenty-four-hr-forecast.dry.json` | The real file with every region changed to "Partly Cloudy (Day)" or "(Night)" and the general forecast to "Partly Cloudy (Day)". The stub moves its times to cover the next 18 to 24 hours (`shiftTwentyFourHourForecast`). | Scenarios `dry` and `routing-fail` |
+| `datagov/twenty-four-hr-forecast.rain.json` | The real file with every region changed to "Heavy Thundery Showers", times moved the same way. | Scenario `rain` |
 | `onemap/search.json` | Recorded live on 2026-10-05, postal code 178879. The call had no token, so OneMap added an `error` warning field, which was removed. | Every stubbed search, whatever the query |
 | `onemap/token.json` | Made up. The expiry is the year 2100, as epoch seconds in a string, like the real API. | Every stubbed token call |
 | `onemap/route.pt.sample.json` | Copied from OneMap's documentation and trimmed. Not a real recording. | Unit-testing the route parser only |

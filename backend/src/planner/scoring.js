@@ -6,6 +6,8 @@
 // (a date-night ranking was led by a dim sum hall). Travel is measured against a ceiling instead:
 // 0 minutes = 0, the ceiling (default 60) = 100.
 
+import { forecastStateOf } from '../services/weather.js';
+
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 const mean = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
 
@@ -121,6 +123,25 @@ const RAIN_LIKELY = 0.6, RAIN_EXPOSED = 2;
 
 /** Rain is likely where this venue is. */
 const rainLikelyAt = (venue, weatherByArea) => weatherByArea[venue.forecastArea].rainRisk >= RAIN_LIKELY;
+
+/**
+ * What the weather is where this venue is, for a screen: { state, phrase, rainLikely }.
+ *   state       'dry' | 'cloudy' | 'showers' | 'thundery' | 'unknown'. From the forecast sentence when the entry has
+ *               one; for a simulated case (no sentence) 'showers' when rain is likely and 'dry' otherwise; 'unknown'
+ *               when the entry says so (weather has no effect on this ranking).
+ *   phrase      the weather service's own sentence, or null when there is none (simulated, or no forecast)
+ *   rainLikely  the same test as rainWarning's first half
+ *
+ * How to call:
+ *   weatherOf(venue, data.weatherCases.live) // { state: 'thundery', phrase: 'Thundery Showers', rainLikely: true }
+ */
+const weatherOf = (venue, weatherByArea) => {
+  const w = weatherByArea[venue.forecastArea];
+  if (!w) return { state: 'unknown', phrase: null, rainLikely: false };
+  const phrase = typeof w.forecast === 'string' ? w.forecast : null;
+  const state = w.state ?? (phrase ? forecastStateOf(phrase).state : w.rainRisk >= RAIN_LIKELY ? 'showers' : 'dry');
+  return { state, phrase, rainLikely: w.rainRisk >= RAIN_LIKELY };
+};
 
 /** Rain is likely AND the venue is open-air or a long walk from shelter: show a rain warning and an indoor swap. */
 const rainWarning = (venue, weatherByArea) =>
@@ -255,5 +276,5 @@ function paretoFront(items, keys) {
 export {
   DEFAULT_WEIGHTS, travelPenalty, normalizeMinMax, computeOccasionFit, cuisineMatch, healthMatch, preferencePenalty,
   pricePenalty, weatherPenalty, ratingPenalty, cdcPenalty, antiRepeatPenalty, combine, explain,
-  regretCounterfactual, paretoFront, crowdEstimate, crowdPenalty, crowdLevel, rainLikelyAt, rainWarning, reasonTags,
+  regretCounterfactual, paretoFront, crowdEstimate, crowdPenalty, crowdLevel, rainLikelyAt, rainWarning, reasonTags, weatherOf, RAIN_LIKELY, RAIN_EXPOSED,
 };
