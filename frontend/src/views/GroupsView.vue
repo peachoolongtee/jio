@@ -10,6 +10,7 @@ import SessionCard from '@/components/event/SessionCard.vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
+import { visibleSessions } from '@/lib/sessionFilter.js'
 
 const auth = useAuthStore()
 const events = useEventsStore()
@@ -19,7 +20,7 @@ const tab = ref('upcoming')
 onMounted(() => Promise.all([events.loadSessions(), groups.loadPeople()]))
 
 const isPast = (s) => ['completed', 'cancelled'].includes(s.status)
-const list = computed(() => events.sessions.filter((s) => (tab.value === 'past' ? isPast(s) : !isPast(s))))
+const list = computed(() => visibleSessions(events.sessions).filter((s) => (tab.value === 'past' ? isPast(s) : !isPast(s))))
 const nameOf = (id) => (id === 'ian' ? auth.user?.name ?? '' : groups.nameOf(id))
 </script>
 

@@ -33,6 +33,7 @@ import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 import { personColour } from '@/lib/people.js'
+import { visibleSessions } from '@/lib/sessionFilter.js'
 
 const props = defineProps({ id: { type: String, default: '' } })
 
@@ -72,6 +73,8 @@ watch(personId, load)
 watch(() => props.id, (id) => id === 'ian' && router.replace('/profile'), { immediate: true })
 
 const person = computed(() => groups.profiles[personId.value])
+// The sessions listed on your own profile: all of them, unless the demo tour is on (lib/sessionFilter.js).
+const sessions = computed(() => visibleSessions(events.sessions))
 const nameOf = (id) => (id === 'ian' ? auth.user?.name ?? '' : groups.nameOf(id))
 const dateText = (d) => format(parseISO(d), 'd MMM yyyy')
 const colour = computed(() => personColour(personId.value))
@@ -159,13 +162,13 @@ async function signOut() {
         </section>
 
         <!-- Ian: his sessions, once he has some. -->
-        <section v-if="isMe && (!events.loaded || events.sessions.length)" class="section" aria-labelledby="my-sessions">
+        <section v-if="isMe && (!events.loaded || sessions.length)" class="section" aria-labelledby="my-sessions">
           <div class="section__head">
             <h2 id="my-sessions" class="display-sm">Sessions</h2>
           </div>
           <div v-if="!events.loaded" class="stack"><SkeletonRow v-for="n in 2" :key="n" :lines="3" /></div>
           <ul v-else class="grid-3">
-            <li v-for="s in events.sessions" :key="s.id"><SessionCard :session="s" :names="nameOf" /></li>
+            <li v-for="s in sessions" :key="s.id"><SessionCard :session="s" :names="nameOf" /></li>
           </ul>
         </section>
 
