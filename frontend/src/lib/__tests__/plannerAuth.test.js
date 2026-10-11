@@ -3,9 +3,13 @@
 import { AxiosError } from 'axios'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as auth from '../auth.js'
-import { api, meetingArea, plannerErrorMessage, rankSlot } from '../plannerApi.js'
+import { api, goesToPlanner, meetingArea, plannerErrorMessage, rankSlot } from '../plannerApi.js'
+import { AUTH_STORAGE_KEY } from '../supabase.js'
+import { fakeStorage } from './planFixture.js'
+import { fakeSupabase } from './authFixture.js'
 
 const ENDED = 'Your session has ended. Log in again.'
+const TRY_AGAIN = 'Jio cannot check your login right now. Try again in a moment.'
 const UNAUTHENTICATED = { error: 'unauthenticated', message: 'The session token is not valid or has expired. Sign in again.' }
 const OK = { area: { id: 'bishan' } }
 const HUB = { lat: 1.35, lng: 103.85 }
@@ -17,6 +21,7 @@ let state
 let seen
 
 // A stand-in for Supabase: one token that can be replaced, a refresh that gives the next one, and a sign-out that clears it.
+// `refresh`: true gives the next token; false is refused (no session); 'retryable' is a lost connection; 'server' a 502.
 function fakeClient(first = 'token-1', { refresh = true } = {}) {
   state = { token: first, count: 1, refreshes: 0, signOuts: 0 }
   return {
@@ -25,6 +30,8 @@ function fakeClient(first = 'token-1', { refresh = true } = {}) {
       refreshSession: async () => {
         state.refreshes += 1
         await Promise.resolve()
+        if (refresh === 'retryable') return { data: { session: null }, error: Object.assign(new Error('Failed to fetch'), { name: 'AuthRetryableFetchError', status: 0 }) }
+        if (refresh === 'server') return { data: { session: null }, error: Object.assign(new Error('Bad Gateway'), { name: 'AuthRetryableFetchError', status: 502 }) }
         if (!refresh) return { data: { session: null }, error: { message: 'no session' } }
         state.count += 1
         state.token = `token-${state.count}`
@@ -168,6 +175,161 @@ describe('a 401 from the login check', () => {
     await expect(meetingArea({ members: [] })).rejects.toThrow('Not allowed here.')
     expect(state.refreshes).toBe(0)
     expect(state.signOuts).toBe(0)
+  })
+})
+
+describe('a refresh that fails for a reason that may pass', () => {
+  it.each([
+    ['there is no connection', 'retryable'],
+    ['the server answers a 502', 'server'],
+  ])('fails the request with a "try again" sentence and keeps the person signed in when %s', async (_name, refresh) => {
+    auth.useClient(fakeClient('token-1', { refresh }))
+    script([401, UNAUTHENTICATED], [200, OK])
+    const failure = await meetingArea({ members: [] }).catch((e) => e)
+    expect(failure.message).toBe(TRY_AGAIN)
+    expect(failure.message).not.toBe(ENDED)
+    expect(seen).toEqual(['Bearer token-1'])
+    expect(state.refreshes).toBe(1)
+    expect(state.signOuts).toBe(0)
+    expect(state.token).toBe('token-1')
+    // The next request still carries the same session's token, and works once the server is back.
+    script([200, OK])
+    await expect(meetingArea({ members: [] })).resolves.toEqual(OK)
+    expect(seen).toEqual(['Bearer token-1'])
+  })
+
+  it('still signs out when the refresh is refused (the server will not accept it)', async () => {
+    auth.useClient(fakeClient('token-1', { refresh: false }))
+    script([401, UNAUTHENTICATED])
+    await expect(meetingArea({ members: [] })).rejects.toThrow(ENDED)
+    expect(state.signOuts).toBe(1)
+  })
+
+  it('tells a refused refresh from one that may pass by its name and status', async () => {
+    const { client } = fakeSupabase()
+    auth.useClient(client)
+    const answer = (error) => {
+      client.auth.refreshSession = async () => ({ data: { session: null, user: null }, error })
+      return auth.refreshedToken().then((value) => ({ value }), (err) => ({ code: err.code }))
+    }
+    expect(await answer(Object.assign(new Error('x'), { name: 'AuthRetryableFetchError', status: 0 }))).toEqual({ code: 'try_again' })
+    expect(await answer(Object.assign(new Error('x'), { name: 'AuthRetryableFetchError', status: 500 }))).toEqual({ code: 'try_again' })
+    expect(await answer(Object.assign(new Error('Failed to fetch'), { name: 'Error' }))).toEqual({ code: 'try_again' })
+    expect(await answer({ name: 'AuthApiError', status: 400, code: 'refresh_token_not_found', message: 'gone' })).toEqual({ value: null })
+    expect(await answer({ name: 'AuthSessionMissingError', status: 400, message: 'Auth session missing!' })).toEqual({ value: null })
+    // An unexpected exception is not a refusal either.
+    client.auth.refreshSession = async () => {
+      throw new TypeError('bug')
+    }
+    expect(await auth.refreshedToken().catch((err) => ({ code: err.code }))).toEqual({ code: 'try_again' })
+  })
+})
+
+describe('401s that arrive a little apart', () => {
+  it('retries a late 401 with the token already refreshed, without refreshing again', async () => {
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    let slow = 0
+    seen = []
+    api.defaults.adapter = async (config) => {
+      const token = config.headers.get('Authorization')
+      seen.push(token)
+      const stale = token === 'Bearer token-1'
+      // The second request's 401 is held back until the first request's refresh has finished and settled.
+      if (stale && (slow += 1) === 2) await gate
+      const response = { status: stale ? 401 : 200, data: stale ? UNAUTHENTICATED : OK, headers: {}, config, request: {} }
+      if (stale) throw new AxiosError('401', 'ERR_BAD_REQUEST', config, {}, response)
+      return response
+    }
+    const first = meetingArea({ members: [] })
+    const second = rankSlot({ ...ASK })
+    await expect(first).resolves.toEqual(OK)
+    expect(state.refreshes).toBe(1)
+    release()
+    expect(await second).toMatchObject({ options: [] })
+    // Two requests, each sent with token-1 and then with token-2; one refresh for both.
+    expect(seen.filter((t) => t === 'Bearer token-1')).toHaveLength(2)
+    expect(seen.filter((t) => t === 'Bearer token-2')).toHaveLength(2)
+    expect(state.refreshes).toBe(1)
+    expect(state.signOuts).toBe(0)
+  })
+})
+
+describe('the token goes only to the planner', () => {
+  it('says which requests go to the planner: a relative path, or an address on the planner\'s own origin', () => {
+    const base = 'https://jio-api.example.com'
+    expect(goesToPlanner({ baseURL: base, url: '/api/converge' })).toBe(true)
+    expect(goesToPlanner({ baseURL: base, url: 'api/converge' })).toBe(true)
+    expect(goesToPlanner({ baseURL: base, url: 'https://jio-api.example.com/api/converge' })).toBe(true)
+    expect(goesToPlanner({ baseURL: '', url: '/api/converge' })).toBe(true)
+    for (const url of ['https://evil.example/api', 'http://jio-api.example.com/api', 'https://jio-api.example.com.evil.example/', 'https://jio-api.example.com@evil.example/', '//evil.example/api', 'HTTPS://EVIL.example/']) {
+      expect(goesToPlanner({ baseURL: base, url })).toBe(false)
+    }
+    expect(goesToPlanner({ baseURL: '', url: 'https://evil.example/x' })).toBe(false)
+  })
+
+  it('sends no Authorization header to another site, and does to the planner', async () => {
+    api.defaults.baseURL = 'https://jio-api.example.com'
+    script([200, OK])
+    await api.get('/api/places')
+    await api.get('https://jio-api.example.com/api/places')
+    await api.get('https://evil.example/collect')
+    await api.get('//evil.example/collect')
+    expect(seen).toEqual(['Bearer token-1', 'Bearer token-1', null, null])
+  })
+})
+
+describe('signing out after the planner refused the login', () => {
+  // A person signed in on the shared stand-in, with real storage under it and a short wait.
+  async function signedIn(options) {
+    vi.stubGlobal('localStorage', fakeStorage())
+    const fake = fakeSupabase(options)
+    fake.state.users.push({ id: 'uid-1', email: 'sam@example.com', password: 'x', meta: { username: 'sam' } })
+    auth.useClient(fake.client)
+    auth.timing.signOutMs = 30
+    auth.timing.confirmMs = 30
+    await fake.client.auth.signInWithPassword({ email: 'sam@example.com', password: 'x' })
+    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toBeTruthy()
+    return fake
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    auth.timing.signOutMs = 2000
+    auth.timing.confirmMs = 1000
+  })
+
+  it('ends the session within the limit after a second 401 even when the server never answers the sign-out', async () => {
+    const fake = await signedIn({ signOutMode: 'hang' })
+    script([401, UNAUTHENTICATED])
+    const started = performance.now()
+    await expect(meetingArea({ members: [] })).rejects.toThrow(ENDED)
+    expect(performance.now() - started).toBeLessThan(1500)
+    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull()
+    expect(await auth.accessToken()).toBeNull()
+    expect(fake.state.signOutCalls).toEqual([{ scope: 'local' }])
+  })
+
+  it('does the same after a refused refresh', async () => {
+    const fake = await signedIn({ signOutMode: 'hang' })
+    // A refresh the server refuses outright, as it does for a refresh token that was already used.
+    fake.client.auth.refreshSession = async () => ({ data: { session: null, user: null }, error: { name: 'AuthApiError', status: 400, code: 'refresh_token_already_used', message: 'used' } })
+    script([401, UNAUTHENTICATED], [200, OK])
+    await expect(meetingArea({ members: [] })).rejects.toThrow(ENDED)
+    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull()
+    expect(await auth.accessToken()).toBeNull()
+    expect(seen).toEqual(['Bearer token-1'])
+  })
+
+  it('says the session has ended even when the session cannot be removed', async () => {
+    await signedIn({ signOutMode: 'hang' })
+    localStorage.removeItem = () => {
+      throw new Error('denied')
+    }
+    script([401, UNAUTHENTICATED])
+    await expect(meetingArea({ members: [] })).rejects.toThrow(ENDED)
   })
 })
 

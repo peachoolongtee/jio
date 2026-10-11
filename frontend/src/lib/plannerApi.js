@@ -74,16 +74,49 @@ export function notJsonMessage({ dev = import.meta.env.DEV } = {}) {
     : 'The planner sent an answer Jio could not read. Try again later.'
 }
 
-// Several requests that fail together share one refresh. Settled by the time the next failure comes in.
+// Several requests that fail together share one refresh while it runs.
 let refreshing = null
 
-// A fresh token, or null after ending the session when there is none. Never throws.
-// How to call: const token = await renewedToken()
-function renewedToken() {
+// Does this request go to the planner itself (a relative path, or an address on the planner's own origin)? Only such a
+// request may carry the login token: an absolute address on another site must never get it.
+// How to call: goesToPlanner({ baseURL: 'https://jio-api.example.com', url: '/api/converge' }) -> true
+export function goesToPlanner(config) {
+  const target = String(config?.url || '')
+  // Relative paths are joined to the base address by axios. A protocol-relative address ("//host") is absolute.
+  if (!/^([a-z][a-z\d+\-.]*:)?\/\//i.test(target)) return true
+  const page = typeof location !== 'undefined' ? location.origin : 'http://localhost'
+  try {
+    const own = new URL(config.baseURL || page, page).origin
+    return new URL(target, own).origin === own
+  } catch {
+    return false
+  }
+}
+
+// Sign the person out after the planner refused their login, without letting a failure to do so escape: the error the
+// caller sees is the "session has ended" sentence.
+// How to call: await endSession()
+async function endSession() {
+  try {
+    await auth.signOut()
+  } catch {
+    // The caller is told the session has ended whatever happened.
+  }
+}
+
+// A token to retry a request with after the login check refused `sentToken`. If the session already holds a different
+// token (another request's refresh finished since), that one is used and nothing is refreshed. Otherwise the session is
+// refreshed (once for requests that fail together). Resolves null, after ending the session, when the refresh is refused.
+// Rejects with the "try again" error when the refresh failed for a reason that may pass (no connection, a server error):
+// the session is left as it is and the person stays signed in.
+// How to call: const token = await renewedToken('token-1')
+async function renewedToken(sentToken) {
+  const current = await auth.accessToken()
+  if (current && current !== sentToken) return current
   if (!refreshing) {
     refreshing = (async () => {
       const token = await auth.refreshedToken()
-      if (!token) await auth.signOut()
+      if (!token) await endSession()
       return token
     })().finally(() => {
       refreshing = null
@@ -92,23 +125,25 @@ function renewedToken() {
   return refreshing
 }
 
-// Before each request: stop when a production build has no backend to call, then attach the token read right now.
-// A retry (see below) already holds its new token and keeps it.
+// Before each request: stop when a production build has no backend to call, then attach the token read right now (to the
+// planner only). A retry (see below) already holds its new token and keeps it.
 api.interceptors.request.use(async (config) => {
   const absolute = /^https?:\/\//i.test(config.url || '')
   if (!config.baseURL && !absolute && !import.meta.env.DEV) {
     refuseWithoutBackend()
   }
-  if (!config.jioRetried) {
+  if (!config.jioRetried && goesToPlanner(config)) {
     const token = await auth.accessToken()
     if (token) config.headers.set('Authorization', `Bearer ${token}`)
   }
   return config
 })
 
-// A 401 from the login check on a request that carried a token: refresh once, send it again once. A refresh that
-// gives nothing, or a second 401, ends the Supabase session (lib/auth.js signOut, so api.js's listener signs the app
-// out and the screens show the login). It is called here, not api.js's signOut, because api.js imports this file.
+// A 401 from the login check on a request that carried a token: send it again once with the session's current token,
+// refreshing first only if the request failed with the current one. A refresh that is refused, or a second 401, ends the
+// Supabase session (lib/auth.js signOut, so api.js's listener signs the app out and the screens show the login). A
+// refresh that failed for a reason that may pass (no connection, a server error) fails this request with a "try again"
+// sentence and leaves the person signed in. It is called here, not api.js's signOut, because api.js imports this file.
 api.interceptors.response.use(
   (res) => {
     // A string or nothing is not the planner (the static host's page, say). Reading it as "no places" would be wrong.
@@ -121,14 +156,20 @@ api.interceptors.response.use(
     // A request with no token (a local account) is not retried and signs nobody out.
     if (loginCheck && err.config?.headers?.has?.('Authorization')) {
       if (!err.config.jioRetried) {
-        const token = await renewedToken()
+        const sent = String(err.config.headers.get('Authorization') || '').replace(/^Bearer /, '')
+        let token
+        try {
+          token = await renewedToken(sent)
+        } catch {
+          throw new Error(AUTH_UNAVAILABLE)
+        }
         if (token) {
           err.config.jioRetried = true
           err.config.headers.set('Authorization', `Bearer ${token}`)
           return api.request(err.config)
         }
       } else {
-        await auth.signOut()
+        await endSession()
       }
       throw new Error(SESSION_ENDED)
     }
