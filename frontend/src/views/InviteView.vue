@@ -1,22 +1,30 @@
 <script setup>
-// Step 2: invite friends. Ian picks friends from a list; everyone on it already has the app. The back arrow returns to
-// the create form (title, day and times, filled in) while the session is inviting; the steps bar's Create does the same.
-// One card, one column at every size: the session and how many are in it, a search box, who is already in
-// (the host first, with a Host badge), then friends and suggested people to pick, and Cancel / Send invites.
+// Step 2: invite friends, and the Invite step of the steps bar at any later time. The host picks friends from a list;
+// everyone on it already has the app. The back arrow goes to the Create form (title, day and times, filled in) for the
+// host, and Home for a guest. One card, one column at every size: the session and how many are in it, a search box, who
+// is already in (the host first, with a Host badge), then friends and suggested people to pick, and Send invites.
 // After sending, the screen confirms each invite. Each friend shows as Invited until they accept (in the demo, on
 // their own a moment later).
+// Once the session has started the page still opens. The host can invite while the group is locating or voting (the data
+// layer allows it, and the header's Invite button already does), and when a confirmed plan is left with too few people.
+// Otherwise (a confirmed plan with enough people, a finished or cancelled session, or anyone but the host) the page lists
+// who is in and says why invites are closed, with no picker and no Send button (inviteAccess in lib/session.js).
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
+import BannerNote from '@/components/ui/BannerNote.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import IllustrationBlob from '@/components/ui/IllustrationBlob.vue'
 import ListRow from '@/components/ui/ListRow.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
-import SessionSteps from '@/components/event/SessionSteps.vue'
+import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
+import { HOST_ID } from '@/lib/mock/people.js'
+import { inviteAccess } from '@/lib/session.js'
+import { goBackIfBehind, isBehind } from '@/lib/stepNav.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
@@ -24,6 +32,7 @@ import { useGroupsStore } from '@/stores/groups.js'
 const props = defineProps({ id: { type: String, required: true } })
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const events = useEventsStore()
 const groups = useGroupsStore()
@@ -38,14 +47,14 @@ onMounted(async () => {
 })
 
 const session = computed(() => events.byId[props.id])
-// Back: to the create form, with the title, day and times filled in, while the host can still change them; otherwise
-// to the session. The form takes this screen's place in the browser's history (replace), so Back in
-// the browser still goes to where the person came from and can never land on an empty create form.
-const back = computed(() =>
-  session.value?.status === 'inviting' && session.value.hostId === (auth.user?.id || 'ian')
-    ? { label: 'Back to date and times', to: { path: `/sessions/${props.id}/edit`, replace: true } }
-    : { label: 'Back to session', to: `/sessions/${props.id}` },
-)
+// Back: the step before this one (backFor). For the host that is the create form, with the title, day and times filled
+// in; it takes this screen's place in the browser's history (replace), so Back in the browser still goes to where the
+// person came from and can never land on an empty create form. A guest goes Home.
+const mine = computed(() => session.value?.hostId === HOST_ID)
+const back = computed(() => (session.value ? backFor(session.value, route.path, mine.value) : { label: 'Back', to: '/' }))
+const hostName = computed(() => (session.value?.hostId === HOST_ID ? auth.user?.name : groups.nameOf(session.value?.hostId)) || 'the host')
+// Whether this person can add people now, and if not, why not.
+const access = computed(() => (session.value ? inviteAccess(session.value, mine.value, hostName.value) : { open: false, text: '' }))
 const inSession = (personId) => session.value?.members.some((m) => m.id === personId && ['joined', 'invited'].includes(m.state))
 const isInvited = (personId) => session.value?.members.some((m) => m.id === personId && m.state === 'invited')
 // Search by name or @username. Empty: everyone.
@@ -54,11 +63,18 @@ const matches = (p) => {
   const q = query.value.trim().toLowerCase().replace(/^@/, '')
   return !q || p.name.toLowerCase().includes(q) || p.username.toLowerCase().includes(q)
 }
-// Already in the session: the host (Ian), then anyone who has joined. Everyone else can be picked.
+// Already in the session: the host first, then everyone who has joined or been invited, as the session lists them.
+// Everyone else can be picked.
 const members = computed(() => {
   if (!session.value) return []
-  const joined = groups.people.filter((p) => inSession(p.id))
-  return [{ id: auth.user?.id || 'ian', name: auth.user?.name || 'You', username: auth.user?.username || '', homeArea: auth.user?.homeAreaName || '', host: true }, ...joined]
+  const rows = session.value.members
+    .filter((m) => ['joined', 'invited'].includes(m.state))
+    .map((m) => {
+      const me = m.id === HOST_ID
+      const p = me ? { name: auth.user?.name || 'You', username: auth.user?.username || '', homeArea: auth.user?.homeAreaName || '' } : groups.people.find((x) => x.id === m.id) || { name: groups.nameOf(m.id) || 'Someone', username: '', homeArea: '' }
+      return { id: m.id, name: p.name, username: p.username || '', homeArea: p.homeArea || '', host: m.role === 'host', me }
+    })
+  return [...rows.filter((r) => r.host), ...rows.filter((r) => !r.host)]
 })
 const lists = computed(() => [
   { id: 'friends', title: 'Friends', people: groups.friends.filter((p) => !inSession(p.id) && matches(p)) },
@@ -91,8 +107,12 @@ async function send() {
   busy.value = false
 }
 
+// Back to the session. If it is the page just behind this one it goes Back, so the history has no repeat.
+// How to call: done()
 function done() {
-  router.replace(`/sessions/${props.id}`)
+  const to = `/sessions/${props.id}`
+  if (isBehind(to)) router.back()
+  else router.replace(to)
 }
 </script>
 
@@ -100,12 +120,12 @@ function done() {
   <main class="screen screen--invite">
     <header class="screen__header">
       <div class="screen__bar">
-        <IconButton :label="back.label" :to="back.to"><AppIcon name="back" /></IconButton>
+        <IconButton :label="back.label" :to="back.to" @click.capture="goBackIfBehind($event, router, back.to)"><AppIcon name="back" /></IconButton>
       </div>
       <!-- Before the title, as on every session screen, so the bar does not move between them. -->
       <SessionSteps v-if="session" :session="session" />
       <div class="screen__titles">
-        <h1 class="display-xl">{{ sent.length ? 'Invites sent' : 'Invite friends' }}</h1>
+        <h1 class="display-xl">{{ sent.length ? 'Invites sent' : access.open ? 'Invite friends' : 'Who is in' }}</h1>
       </div>
     </header>
 
@@ -124,6 +144,36 @@ function done() {
           </template>
         </ListRow>
       </ul>
+    </div>
+
+    <!-- Invites are closed (or this is a guest): who is in, and why nobody can be added. No picker, no Send button. -->
+    <div v-else-if="!access.open" class="screen__body">
+      <BannerNote icon="info">{{ access.text }}</BannerNote>
+      <section class="invite card" aria-labelledby="invite-in">
+        <header class="invite__session">
+          <span class="invite__badge" aria-hidden="true">{{ initial }}</span>
+          <div class="stack">
+            <span class="title-md">{{ session.title }}</span>
+            <span class="invite__count caption text-muted"><AppIcon name="people" :size="16" />{{ members.length }} in this session</span>
+          </div>
+        </header>
+        <hr class="invite__rule" />
+        <section class="invite__group">
+          <h2 id="invite-in" class="caption text-muted">In this session</h2>
+          <ul class="invite__list">
+            <li v-for="person in members" :key="person.id" class="invite__row">
+              <UserAvatar :name="person.name" :person="person.id" :size="44" />
+              <span class="invite__who">
+                <span class="title-sm truncate">{{ person.name }}<template v-if="person.me"> (you)</template></span>
+                <span class="caption-sm text-muted truncate"><template v-if="person.username">@{{ person.username }}</template><template v-if="person.username && person.homeArea"> · </template>{{ person.homeArea }}</span>
+              </span>
+              <span v-if="person.host" class="invite__tag invite__tag--host"><AppIcon name="crown" :size="14" />Host</span>
+              <span v-else-if="isInvited(person.id)" class="invite__tag invite__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
+              <span v-else class="invite__tag"><AppIcon name="check" :size="14" />Joined</span>
+            </li>
+          </ul>
+        </section>
+      </section>
     </div>
 
     <div v-else class="screen__body">
@@ -156,7 +206,7 @@ function done() {
             <li v-for="person in members" :key="person.id" class="invite__row">
               <UserAvatar :name="person.name" :person="person.id" :size="44" />
               <span class="invite__who">
-                <span class="title-sm truncate">{{ person.name }}<template v-if="person.host"> (you)</template></span>
+                <span class="title-sm truncate">{{ person.name }}<template v-if="person.me"> (you)</template></span>
                 <span class="caption-sm text-muted truncate"><template v-if="person.username">@{{ person.username }}</template><template v-if="person.username && person.homeArea"> · </template>{{ person.homeArea }}</span>
               </span>
               <span v-if="person.host" class="invite__tag invite__tag--host"><AppIcon name="crown" :size="14" />Host</span>
@@ -187,7 +237,7 @@ function done() {
       </section>
     </div>
 
-    <footer v-if="session" class="screen__footer">
+    <footer v-if="session && access.open" class="screen__footer">
       <AppButton v-if="sent.length" next block @click="done">Done</AppButton>
       <template v-else>
         <span class="caption text-muted invite__picked" aria-live="polite">{{ picked.length }} selected</span>

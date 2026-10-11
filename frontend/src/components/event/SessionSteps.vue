@@ -1,13 +1,13 @@
 <script>
 // The five steps, and what each one is for a session on the page at `path`. No DOM, so it can be tested on its own.
 //   Create    the form for the title, day and times (/edit once the session exists)
-//   Invite    the people page (Invite and Locate are both /sessions/:id)
-//   Locate    the people page
+//   Invite    /invite: who is in, and for the host the way to add people while that is still open
+//   Locate    the session page (/sessions/:id, which is also the lobby while the session is inviting)
 //   Vote      /plan
 //   Itinerary /itinerary (and its photos and full map)
 const STEPS = [
   { key: 'create', label: 'Create', page: '/edit' },
-  { key: 'invite', label: 'Invite', page: '' },
+  { key: 'invite', label: 'Invite', page: '/invite' },
   { key: 'locate', label: 'Locate', page: '' },
   { key: 'vote', label: 'Vote', page: '/plan' },
   { key: 'itinerary', label: 'Itinerary', page: '/itinerary' },
@@ -26,8 +26,9 @@ export function reachedStep(session) {
   return session.activeIds?.length > 1 ? 2 : 1
 }
 
-// The step for the page on screen. `tail` is the path after /sessions/:id ('' for the people page, '/plan'...).
-// The people page is Locate once the session has gone past inviting, and the invite page is always Invite.
+// The step for the page on screen. `tail` is the path after /sessions/:id ('' for the session page, '/plan'...).
+// The session page is Locate once the session has gone past inviting (before that it is the lobby, which is Invite), and
+// the invite page is always Invite.
 // How to call: viewingStep({ status: 'voting' }, '/plan') -> 3
 export function viewingStep(session, tail) {
   if (!session) return 0
@@ -38,12 +39,13 @@ export function viewingStep(session, tail) {
   return reachedStep(session) >= 2 ? 2 : 1
 }
 
-// Every step as the bar draws it. open: a link. locked: the Create step of a session that has started (the page it
-// opens says the day and times can no longer change). `mine`: the signed-in person is the host, the only one who may
-// open Create. here: the page on screen. exact: that step's own page, which has nothing to link to.
+// Every step as the bar draws it. open: a link (every step the session has reached, and Create for the host). locked: the
+// Create step of a session that has started (the page it opens says the day and times can no longer change). `mine`: the
+// signed-in person is the host, the only one who may open Create. here: the page on screen. exact: that step's own page,
+// which has nothing to link to.
 // How to call: stepsFor(session, '/sessions/s1/plan', true) -> [{ key: 'create', open: true, locked: true, ... }, ...]
 export function stepsFor(session, path, mine = true) {
-  const tail = session ? path.replace(`/sessions/${session.id}`, '') : null
+  const tail = tailOf(session, path)
   const reached = reachedStep(session)
   const viewing = viewingStep(session, tail)
   return STEPS.map((step, i) => ({
@@ -57,6 +59,32 @@ export function stepsFor(session, path, mine = true) {
   }))
 }
 
+// The path after /sessions/:id: '' for the session page, '/plan', '/invite'... Null with no session.
+// How to call: tailOf({ id: 's1' }, '/sessions/s1/plan') -> '/plan'
+function tailOf(session, path) {
+  return session ? path.replace(`/sessions/${session.id}`, '') : null
+}
+
+// Where the back arrow goes from the page at `path`: the step before the one on screen, among those the session has
+// reached (a page opened by its address before its step was reached goes back to the last step that was). From the first
+// step the person can open, it is Home: Create for the host, Invite for a guest. The photos and the full map belong to the
+// Itinerary, so they go back to it. Create and Invite are one stop in the browser's history, so moving between them
+// replaces. `label` says where it goes.
+// How to call: backFor({ id: 's1', status: 'voting' }, '/sessions/s1/plan', true) -> { label: 'Back to Locate', to: '/sessions/s1' }
+export function backFor(session, path, mine = true) {
+  const home = { label: 'Back to Home', to: '/' }
+  if (!session) return home
+  const tail = tailOf(session, path)
+  if (['/photos', '/map'].includes(tail)) return { label: 'Back to Itinerary', to: `/sessions/${session.id}/itinerary` }
+  const viewing = viewingStep(session, tail)
+  const target = Math.min(viewing - 1, reachedStep(session))
+  if (target < 0 || (target === 0 && !mine)) return home
+  const step = STEPS[target]
+  const to = `/sessions/${session.id}${step.page}`
+  const swaps = ['/invite', '/edit'].includes(tail) && target <= 1
+  return { label: target === 0 ? 'Back to date and times' : `Back to ${step.label}`, to: swaps ? { path: to, replace: true } : to }
+}
+
 // Going to the next screen builds its bar from scratch, so the step that was pressed goes with the old screen and focus
 // would drop to the page. The step pressed is remembered here, and the next bar to appear puts focus on the same step.
 let carried = null
@@ -66,9 +94,11 @@ let carried = null
 // Where a session is, as a progress bar of its five steps, which doubles as its navigation:
 //   Create · Invite · Locate · Vote · Itinerary
 // It starts on the create page, before the session exists (no `session`), and runs until the itinerary is
-// confirmed. Steps the session has reached are filled in Rausch and open their page (Invite and Locate are both
-// the People page); later steps are greyed out. Create opens the form again with the session's values, for the
-// host; once the session has started the form says they are locked. The page you are on has its label in bold ink.
+// confirmed. Steps the session has reached are filled in Rausch and open their page (Invite the invite page, Locate
+// the session page, Vote the plan, Itinerary the itinerary); later steps are greyed out. Create opens the form again
+// with the session's values, for the host; once the session has started the form says they are locked. The page you
+// are on has its label in bold ink. A step that is the page just behind this one in the browser's history goes Back
+// instead of adding another entry (lib/stepNav.js), and Create and Invite replace each other.
 // The itinerary's own pages (photos, the full map) count as the Itinerary step.
 // The bar has its own view-transition name, like the tab bar, so it stays where it is while the screens around it
 // cross-fade; it sits right under the back row on every session screen so it is in the same place on all of them; and
@@ -76,11 +106,13 @@ let carried = null
 //   <SessionSteps :session="session" />    on a session's pages
 //   <SessionSteps />                        on the create page
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { HOST_ID } from '@/lib/mock/people.js'
+import { goBackIfBehind } from '@/lib/stepNav.js'
 
 const props = defineProps({ session: { type: Object, default: null } })
 const route = useRoute()
+const router = useRouter()
 const root = ref(null)
 
 const steps = computed(() => stepsFor(props.session, route.path, props.session?.hostId === HOST_ID))
@@ -125,11 +157,13 @@ onMounted(() => {
         <RouterLink
           v-if="step.open && !step.exact"
           :to="step.to"
-          :replace="step.key === 'create' && swapsHistory"
+          :replace="['create', 'invite'].includes(step.key) && swapsHistory"
           class="steps__step"
           :data-step="step.key"
           :aria-label="label(step, i)"
+          :aria-current="step.here ? 'step' : undefined"
           :title="step.locked ? 'The date and times are locked once the session starts' : undefined"
+          @click.capture="goBackIfBehind($event, router, step.to)"
           @click="remember(step.key)"
         >
           <span class="steps__bar" aria-hidden="true" />
