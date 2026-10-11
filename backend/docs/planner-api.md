@@ -381,6 +381,131 @@ Every error has the same flat body: `{ "error": "<code>", "message": "<text>" }`
 
 `/api/meeting-area` and `/api/search` do not use weather and have no `weather` field.
 
+### Which forecast, by how far away the stop is
+
+Added 11 Oct 2026 (ticket #108). Before this, every ranking used the two-hour forecast as of now, whatever the date of the outing. Now the stop's `dateTime` (Singapore local time) decides. "Now" comes from the server clock, compared as Singapore local time; the server's own time zone plays no part.
+
+| The stop starts | `weather.basis` | What scores the venues |
+|---|---|---|
+| within 2 hours of now, or already in the past, or no `dateTime` | `area` | The area forecast (two-hour), as before. Each venue takes the forecast of its nearest two-hour area. |
+| later than that, when a period of the regional forecast covers the start | `regional` | The regional forecast (24-hour). Each venue takes the forecast of the region its two-hour area falls in (a fixed table in `backend/src/services/weather-regions.js`). |
+| later than that, and no period covers it (or it is more than 25 hours away) | `none` | **Weather has no effect**: no weather penalty beyond the `clear` case, no rain warning, no indoor swap, no "Indoor" reason tag. |
+| any date, when the request sends `weatherCase` and the server allows it | `simulated` | The simulated case, as before. The forecast window does not apply, so "Simulate rain" shows the new marks for an outing next week. |
+
+The regional forecast reaches 18 to 24 hours (and up to 25 minutes) ahead, depending on when NEA last issued it: a stop up to 18 hours away is always covered, one 18 to 24 hours away only part of the time. The number of periods (three or four) is not assumed. The server checks that the forecast's last period has not ended; an answer that has run out of periods covers nothing and counts as unavailable.
+
+**The `weather` block of a ranking.** Every field the answer had keeps its meaning. New fields are additive:
+
+| Field | Meaning |
+|---|---|
+| `source` | `live` (area or regional forecast used), `simulated`, `unavailable` (the forecast could not be fetched or used), or **`none`** (new: the stop is outside the forecast window, so no weather applies; nothing is wrong). A client that only knows `live`, `simulated` and `unavailable` treats `none` as "no weather information". |
+| `basis` | `area`, `regional`, `simulated` or `none`. |
+| `issuedAt` | When NEA issued the forecast used. Not for `simulated` or `none`. |
+| `validUntil` | When the forecast used ends: the area forecast's end, or the end of the regional period that covers the stop. |
+| `phrase` | NEA's own phrase, only when the whole forecast used has just one (for example every area says "Fair (Day)"). Left out otherwise: each result carries its own. |
+| `reason` | Only with `basis: 'none'`: `outside_window` (a screen can say "Weather is checked from the day before") or `unavailable` (the forecast failed; `source` is `unavailable` too). |
+| `simulationIgnored` | As before. |
+
+Real examples. A stop this evening, scored from the regional forecast; a stop next week; a simulated one; and one whose forecast failed:
+
+```json
+{ "source": "live", "basis": "regional", "issuedAt": "2026-10-11T14:42:00+08:00", "validUntil": "2026-10-11T18:00:00+08:00" }
+{ "source": "none", "basis": "none", "reason": "outside_window" }
+{ "source": "simulated", "basis": "simulated" }
+{ "source": "unavailable", "basis": "none", "reason": "unavailable" }
+```
+
+**Each result carries `weather`,** and so does the `swap` venue:
+
+```json
+"weather": { "state": "thundery", "phrase": "Thundery Showers", "rainLikely": true }
+```
+
+| Field | Meaning |
+|---|---|
+| `state` | One of `dry`, `cloudy`, `showers`, `thundery`, and `unknown` ("Not known"). Every sentence in `RAIN_RISK` has a state in the table beside it (`FORECAST_STATE` in `services/weather.js`); a sentence not in the table is `unknown` and logged once. A simulated case has no sentence: `showers` when rain is likely, `dry` otherwise. With `basis: 'none'` it is `unknown`. |
+| `phrase` | NEA's own phrase for the venue's area or region, or `null` (simulated, or none). |
+| `rainLikely` | The planner's threshold (risk 0.6 or more). It is true over an indoor venue too: only an exposed one earns the rain warning (`warnings: ["rain"]`, with a `swap`). |
+
+A real exposed result and its swap, from a simulated rain for a stop next week:
+
+```json
+{
+  "name": "Food stalls at 40 Beo Crescent Dbs Havelock Road",
+  "warnings": ["rain"],
+  "weather": { "state": "showers", "phrase": null, "rainLikely": true },
+  "swap": {
+    "venueId": "loos-curry-rice",
+    "name": "Loo's Hainanese Curry Rice",
+    "weather": { "state": "showers", "phrase": null, "rainLikely": true }
+  }
+}
+```
+
+Weather does not change which meeting spots `/api/meeting-area` suggests. Roam's list does use it.
+
+**A forecast that cannot be used never fails a request.** If the regional forecast fails, times out, is malformed, has no period, or has only periods that have ended, the answer is 200 with `basis: 'none'` and `reason: 'unavailable'`. It never falls back to the area forecast for a stop the regional one should cover. The failure is logged once a minute at most, for each forecast.
+
+**Bounds on the weather service.** data.gov.sg allows 6 calls per 10 seconds without a key, possibly shared between the two forecasts.
+
+| Forecast | Cached | Failure remembered | Timeout | Shared in-flight |
+|---|---|---|---|---|
+| Area (two-hour) | 5 minutes | 30 seconds | the HTTP helper's 10 seconds | yes |
+| Regional (24-hour) | 10 minutes (NEA issues it four times a day) | 30 seconds | the same | yes |
+
+A request makes at most one call per forecast kind, through the cache. A stop more than 25 hours away fetches nothing.
+
+## POST /api/weather/stops
+
+The weather at the stops of a plan. The itinerary asks when it opens and every 30 minutes on the day. It does not rank anything and suggests no swap. It sits under the same rate limit as the planner routes (the same counter), and `weatherCase` follows the same rule as there.
+
+Request:
+
+```json
+{
+  "stops": [
+    { "id": "park", "point": { "lat": 1.3333, "lng": 103.7424 }, "start": "2026-10-11T15:30", "setting": "outdoor", "exposure": 5 },
+    { "id": "cafe", "point": { "lat": 1.3333, "lng": 103.7424 }, "start": "2026-10-11T15:30", "setting": "indoor", "exposure": 0 },
+    { "id": "late", "point": { "lat": 1.3333, "lng": 103.7424 }, "start": "2026-10-12T22:00" }
+  ]
+}
+```
+
+| Field | Rule |
+|---|---|
+| `stops` | 1 to 8, with different `id`s. |
+| `id` | 1 to 80 characters. |
+| `point` | `lat` 1.1 to 1.5 and `lng` 103.5 to 104.1 (as everywhere in the planner). |
+| `start` | `"YYYY-MM-DDTHH:MM"`, Singapore local time, like `dateTime`. |
+| `exposure` | Optional, 0 to 5. Missing counts as 0, so a stop that does not say how exposed it is earns no warning. |
+| `setting` | Optional: `indoor`, `outdoor` or `mixed`. |
+| `weatherCase` | Optional, as in `/converge`: used when the server allows it, otherwise ignored and flagged. |
+
+Response (real output, with the clock at 12:30 on 11 Oct 2026 and the recorded regional forecast, where the west and centre were thundery in the afternoon and the east and south were not; a fourth stop in the east, which was dry, is left out here):
+
+```json
+{
+  "stops": [
+    { "id": "park", "basis": "regional", "issuedAt": "2026-10-11T14:42:00+08:00", "validUntil": "2026-10-11T18:00:00+08:00",
+      "state": "thundery", "phrase": "Thundery Showers", "rainLikely": true, "rainWarning": true },
+    { "id": "cafe", "basis": "regional", "issuedAt": "2026-10-11T14:42:00+08:00", "validUntil": "2026-10-11T18:00:00+08:00",
+      "state": "thundery", "phrase": "Thundery Showers", "rainLikely": true, "rainWarning": false },
+    { "id": "late", "basis": "none", "reason": "outside_window",
+      "state": "unknown", "phrase": null, "rainLikely": false, "rainWarning": false }
+  ],
+  "weather": { "source": "live", "basis": "mixed", "issuedAt": "2026-10-11T14:42:00+08:00", "validUntil": "2026-10-11T18:00:00+08:00" }
+}
+```
+
+Per stop: `basis`, `state`, `phrase`, `rainLikely`, and `rainWarning` (the planner's rule: rain likely, not `indoor`, exposure 2 or more). With a forecast it also has `issuedAt` and `validUntil`; with `basis: 'none'` it has `reason`.
+
+The top-level `weather` block has the same fields as a ranking's, summarising the stops: `basis` is the stops' shared basis, or **`mixed`** when they differ (this route only); `issuedAt` and `validUntil` are the earliest among the forecasts used; `phrase` is there only when every stop with a forecast has the same one; `source` is `simulated`, else `live` if any stop has a forecast, else `unavailable` if any failed, else `none`; `reason` appears when no stop has a forecast.
+
+Errors are the flat shape: 400 `invalid_input` with `issues` (for example `stops.0.point.lat`, `stops.0.start`, `stops.0.exposure`, or `stops` for 9 stops), 429 `rate_limited`.
+
+What the screen half still needs: the on-the-day check (call this route when the itinerary opens and every 30 minutes, show a banner when `rainWarning` turns true for a stop still to come, and ask the host to accept or dismiss the swap with `POST /api/converge` or `/roam` for the indoor alternative); and the data.gov.sg attribution, see [external-apis.md](external-apis.md#nea-24-hour-regional-forecast).
+
+
 ## Getting more options per slot
 
 By default a slot gets few options, because of two limits:
@@ -600,6 +725,7 @@ Every list and number has an upper limit, so one request cannot keep the server 
 | `cuisineLikes`, `cuisineDislikes` | 20 each per member |
 | any id, name or label | 80 characters |
 | `stops` of `/api/itinerary/arrange` | 8, of which at most 6 are not food (see that route's table) |
+| `stops` of `/api/weather/stops` | 8, with different ids; `exposure` 0 to 5 |
 | any weight | 1000 |
 | `budgetMaxPerPerson` | 10000 |
 | `max_price_pp:N` | 5 digits |
@@ -612,3 +738,4 @@ Start the backend with `STUB_EXTERNALS=1 pnpm dev:backend`. Then send the `x-jio
 - `rain`: the forecast fixture says heavy thundery showers everywhere, unless the body sends `weatherCase`.
 - `routing-fail`: every OneMap route fails, so travel falls back to the estimate (`travel.source: 'estimate'`) and results come back with `approximate: true`.
 - No header (`dry`): routes are generated from distance in OneMap's format, so `travel.source` is `onemap`.
+- The regional forecast is stubbed too (`rain`: heavy thundery showers everywhere; otherwise partly cloudy), moved in time on each call so it always covers the next 18 to 24 hours. A stop within 2 hours uses the area fixture, a stop up to 25 hours away the regional one, anything later has no weather.
