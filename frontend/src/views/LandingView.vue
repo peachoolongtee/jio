@@ -7,8 +7,11 @@
 //                           soonest is selected. The routes meet at the selected one's meeting area, only that pin bobs,
 //                           and under the map a card shows it: when, where it stands, who is in, what it needs next from
 //                           you, and Open meetup. With two or more, Your meetups lists them all (a row selects, like
-//                           a pin; hovering or focusing a pin opens a small card of its details), and a meetup with no meeting point yet is there, with no pin. "Jio your friends" stays
-//                           in the map's corner, so another can always be started.
+//                           a pin; hovering or focusing a pin opens a small card of its details), and a meetup with no
+//                           meeting point yet is there, with no pin. The first row of that list is "Plan a new meetup" /
+//                           "Jio your friends" (StartMeetupRow), a link to the create screen that is not a meetup and
+//                           never selects; with one meetup going it is the only row, under the card. Nothing sits in the
+//                           map's corner, so no pin has a control beside it.
 //   Meetup with a midpoint  Places near that meeting area below: places around it, nearest first, with one Filter
 //                           button. They follow the selected meetup.
 // The selected meetup lives in the address (?meetup=id), so a reload or a shared link opens the same one; an id that
@@ -94,7 +97,7 @@ onMounted(loadHome)
 const route = useRoute()
 const router = useRouter()
 const now = useNow()
-const nameOf = (id) => (id === HOST_ID ? auth.user.name : groups.nameOf(id))
+const nameOf = (id) => (id === HOST_ID ? auth.user?.name ?? '' : groups.nameOf(id))
 // The meetups still going (not completed or cancelled), soonest first, and the one selected: named by ?meetup=, else
 // the soonest. Home is about the selected one.
 const meetups = computed(() => activeMeetups(events.sessions, now.value))
@@ -156,9 +159,9 @@ const blurb = computed(() => {
   return 'Once everyone shares where they are starting, Jio works out the midpoint.'
 })
 
-// "Jio your friends" while meetups are going: the same move as the main pin (the red burst into the create screen),
-// from this button. A click with a modifier key opens a new tab as a link does.
-// How to call: <a :href="startHref" @click="startAnother">
+// "Plan a new meetup" while meetups are going: the same move as the main pin (the red burst into the create screen), from
+// the plus on the row (StartMeetupRow). A click with a modifier key opens a new tab as a link does.
+// How to call: <MeetupList :start-href="startHref" @start="startAnother" />
 const startHref = computed(() => router.resolve('/sessions/new').href)
 let starting = false
 async function startAnother(event) {
@@ -166,7 +169,7 @@ async function startAnother(event) {
   event.preventDefault()
   if (starting) return
   starting = true
-  const box = event.currentTarget.getBoundingClientRect()
+  const box = (event.currentTarget.querySelector('[data-burst]') || event.currentTarget).getBoundingClientRect()
   try {
     await enterGame({ x: box.left + box.width / 2, y: box.top + box.height / 2, go: () => router.push('/sessions/new') })
   } finally {
@@ -267,7 +270,7 @@ async function showPlace(id) {
   reviews.value = null
   placeError.value = ''
   missingPlace.value = false
-  const loading = api.getPlace(id, area.value?.id || auth.user.homeAreaId)
+  const loading = api.getPlace(id, area.value?.id || auth.user?.homeAreaId)
   // Wait a moment for the details and reviews, so the view opens complete and nothing arrives mid-animation to
   // make it jump. A slow answer is not waited for: the view opens with placeholders and fills in.
   const early = await Promise.race([loading.catch(() => null), new Promise((resolve) => setTimeout(() => resolve(null), 350))])
@@ -347,12 +350,12 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
     <!-- The band: a muted map of Singapore; the routes meet at the selected meetup (or under the main action, in the middle). -->
     <section class="hero" :class="{ 'has-meetup': hasMeetups, 'hero--full': fullMap }" aria-labelledby="home-hello">
       <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
-        <UserAvatar :name="auth.user.name" :src="auth.user.photo" person="ian" :size="44" />
+        <UserAvatar :name="auth.user?.name ?? ''" :src="auth.user?.photo" person="ian" :size="44" />
       </RouterLink>
 
       <div class="hero__hello">
         <p class="caption text-muted">{{ today }}</p>
-        <h1 id="home-hello" class="hello"><span class="hello__hi">Hi,</span> <span class="hello__name">{{ auth.user.name }}</span></h1>
+        <h1 id="home-hello" class="hello"><span class="hello__hi">Hi,</span> <span class="hello__name">{{ auth.user?.name }}</span></h1>
         <p class="body-md home__blurb">{{ blurb }}</p>
       </div>
 
@@ -361,7 +364,6 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <SingaporeMap :key="mapKey" class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" :quick="quickMap" hide-meet />
         <template v-if="hasMeetups">
           <MeetupPins class="hero__pins" :pins="pins" :meetups="meetups" :my-id="HOST_ID" :names="nameOf" :selected-id="selected.id" :center="MEET" :span="mapSpan" @select="select" />
-          <AppButton class="hero__start" variant="secondary" small :href="startHref" @click="startAnother"><AppIcon name="plus" :size="16" />Jio your friends</AppButton>
         </template>
         <div v-else class="hero__action" :class="{ 'is-pin': events.loaded }">
           <SkeletonRow v-if="!events.loaded && !loadError" :lines="1" />
@@ -392,9 +394,13 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
             <h2 id="home-meetups" class="display-sm">Your meetups</h2>
             <AppButton v-if="hasFinished" variant="tertiary" underline to="/sessions">All meetups</AppButton>
           </div>
-          <MeetupList :meetups="meetups" :selected-id="selected.id" :my-id="HOST_ID" @select="select" />
+          <MeetupList :meetups="meetups" :selected-id="selected.id" :my-id="HOST_ID" :start-href="startHref" @select="select" @start="startAnother" />
         </section>
-        <div v-else-if="hasFinished" class="home__all"><AppButton variant="tertiary" underline to="/sessions">All meetups</AppButton></div>
+        <template v-else>
+          <!-- One meetup: its card is above, so the list is the action alone. -->
+          <MeetupList class="rise" style="--i: 1" :meetups="[]" :start-href="startHref" @start="startAnother" />
+          <div v-if="hasFinished" class="home__all"><AppButton variant="tertiary" underline to="/sessions">All meetups</AppButton></div>
+        </template>
       </div>
       <p class="sr-only" role="status">{{ announce }}</p>
 
@@ -498,11 +504,9 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 .hero__action { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 /* The pin stands on the meeting point: its tip, the bottom of its box, is where the routes meet. */
 .hero__action.is-pin { transform: translate(-50%, -100%); }
-/* The pins sit over the map in the same box, so the same centre and span put each on its meeting point. Above the
-   corner button, so a pin's card is never under it; the bars are fixed and above all of this. */
+/* The pins sit over the map in the same box, so the same centre and span put each on its meeting point. Above the map's
+   other layers, so a pin's card is never under them; the bars are fixed and above all of this. */
 .hero__pins { position: absolute; z-index: 5; inset: 0 auto 0 50%; width: min(100vw, 1440px); transform: translateX(-50%); }
-/* "Jio your friends" while meetups are going: in the map's bottom corner, on white so it reads over the dots. */
-.hero__start { position: absolute; z-index: 4; right: var(--gutter); bottom: var(--spacing-md); box-shadow: var(--shadow-float); }
 .home__me { position: absolute; z-index: 2; top: var(--spacing-md); right: var(--gutter); flex-shrink: 0; border-radius: var(--rounded-full); }
 @media (max-width: 743px) {
   /* Phones: the avatar sits top right, so the greeting keeps clear of it on both sides (to stay centred). */
@@ -534,7 +538,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 .home__meetups { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 .home__all { display: flex; }
 @media (min-width: 744px) {
-  .home__meetups:not(.is-split) > :first-child { max-width: var(--form-max-width); }
+  .home__meetups:not(.is-split) > * { max-width: var(--form-max-width); }
   .home__meetups.is-split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
   .home__meetups.is-split > :first-child { position: sticky; top: calc(var(--topbar-height) + var(--spacing-base)); }
 }

@@ -6,15 +6,22 @@
 // place that knows how a session is stored.
 import axios from 'axios'
 import { ref } from 'vue'
+import * as auth from './auth.js'
 
 // Calls to the Jio backend (planner, geocode and weather proxy).
-// Attaching the Supabase session token waits on the JWT verification decision.
+// Each request carries the Supabase session token when there is one (see the interceptors below). The backend
+// verifies it locally; a local account or a build without Supabase has none, and the requests go without.
 // In development, leave VITE_API_BASE_URL blank: requests go to /api on the page's own address and the Vite dev
 // server forwards them to the backend (see vite.config.js). Deployed, it is the backend's URL.
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '',
   timeout: 15000,
 })
+
+// What the login check's answers say, in words a person can act on.
+const SESSION_ENDED = 'Your session has ended. Log in again.'
+const LOGIN_NEEDED = 'The planner needs you to be logged in. Log in and try again.'
+const AUTH_UNAVAILABLE = 'Jio cannot check your login right now. Try again in a moment.'
 
 // What a failed request says. Screens show err.message, so say what went wrong in words a person can act on.
 // Developer text (commands, environment variable names, request details) is only for development builds;
@@ -33,6 +40,10 @@ export function plannerErrorMessage(err, { dev = import.meta.env.DEV, baseURL = 
   }
   const { status, data } = err.response
   if (status === 429) return 'Too many requests. Wait a few seconds and try again.'
+  // The login check's two answers (backend/src/middleware/auth.js). A 401 reaches here only when it could not be fixed
+  // by refreshing the token, which is a request that carried none.
+  if (status === 503 && data?.error === 'auth_unavailable') return AUTH_UNAVAILABLE
+  if (status === 401 && data?.error === 'unauthenticated') return LOGIN_NEEDED
   const issues = data?.issues?.map((i) => `${i.path}: ${i.message}`).join('; ')
   if (issues) return dev ? `The planner could not use this request (${issues}).` : 'The planner could not use this request. Try again.'
   // A 404 message names the route, which is developer text.
@@ -40,9 +51,128 @@ export function plannerErrorMessage(err, { dev = import.meta.env.DEV, baseURL = 
   return data?.message || 'The planner had a problem. Try again.'
 }
 
+// A production build with no VITE_API_BASE_URL would send every request to the static host that serves the page, which
+// answers with its HTML page. The request is refused with this sentence for the person; the developer text goes to the
+// console once, because the check only runs outside development (in development an empty address means the Vite proxy).
+const NO_BACKEND = 'The Jio planner is not available right now. Try again later.'
+let toldDeveloper = false
+
+// How to call: refuseWithoutBackend() (throws NO_BACKEND)
+function refuseWithoutBackend() {
+  if (!toldDeveloper) {
+    toldDeveloper = true
+    console.error('Jio: this build has no VITE_API_BASE_URL, so it has no backend to call. Set it to the backend URL (see frontend/.env.example) and build again.')
+  }
+  throw Object.assign(new Error(NO_BACKEND), { planner: true })
+}
+
+// What an answer that is not JSON says (usually the static host's HTML page, with status 200).
+// How to call: notJsonMessage({ dev: false }) -> 'The planner sent an answer Jio could not read. Try again later.'
+export function notJsonMessage({ dev = import.meta.env.DEV } = {}) {
+  return dev
+    ? 'The planner answered with something other than JSON. Check VITE_API_BASE_URL points at the backend, not the page itself.'
+    : 'The planner sent an answer Jio could not read. Try again later.'
+}
+
+// Several requests that fail together share one refresh while it runs.
+let refreshing = null
+
+// Does this request go to the planner itself (a relative path, or an address on the planner's own origin)? Only such a
+// request may carry the login token: an absolute address on another site must never get it.
+// How to call: goesToPlanner({ baseURL: 'https://jio-api.example.com', url: '/api/converge' }) -> true
+export function goesToPlanner(config) {
+  const target = String(config?.url || '')
+  // Relative paths are joined to the base address by axios. A protocol-relative address ("//host") is absolute.
+  if (!/^([a-z][a-z\d+\-.]*:)?\/\//i.test(target)) return true
+  const page = typeof location !== 'undefined' ? location.origin : 'http://localhost'
+  try {
+    const own = new URL(config.baseURL || page, page).origin
+    return new URL(target, own).origin === own
+  } catch {
+    return false
+  }
+}
+
+// Sign the person out after the planner refused their login, without letting a failure to do so escape: the error the
+// caller sees is the "session has ended" sentence.
+// How to call: await endSession()
+async function endSession() {
+  try {
+    await auth.signOut()
+  } catch {
+    // The caller is told the session has ended whatever happened.
+  }
+}
+
+// A token to retry a request with after the login check refused `sentToken`. If the session already holds a different
+// token (another request's refresh finished since), that one is used and nothing is refreshed. Otherwise the session is
+// refreshed (once for requests that fail together). Resolves null, after ending the session, when the refresh is refused.
+// Rejects with the "try again" error when the refresh failed for a reason that may pass (no connection, a server error):
+// the session is left as it is and the person stays signed in.
+// How to call: const token = await renewedToken('token-1')
+async function renewedToken(sentToken) {
+  const current = await auth.accessToken()
+  if (current && current !== sentToken) return current
+  if (!refreshing) {
+    refreshing = (async () => {
+      const token = await auth.refreshedToken()
+      if (!token) await endSession()
+      return token
+    })().finally(() => {
+      refreshing = null
+    })
+  }
+  return refreshing
+}
+
+// Before each request: stop when a production build has no backend to call, then attach the token read right now (to the
+// planner only). A retry (see below) already holds its new token and keeps it.
+api.interceptors.request.use(async (config) => {
+  const absolute = /^https?:\/\//i.test(config.url || '')
+  if (!config.baseURL && !absolute && !import.meta.env.DEV) {
+    refuseWithoutBackend()
+  }
+  if (!config.jioRetried && goesToPlanner(config)) {
+    const token = await auth.accessToken()
+    if (token) config.headers.set('Authorization', `Bearer ${token}`)
+  }
+  return config
+})
+
+// A 401 from the login check on a request that carried a token: send it again once with the session's current token,
+// refreshing first only if the request failed with the current one. A refresh that is refused, or a second 401, ends the
+// Supabase session (lib/auth.js signOut, so api.js's listener signs the app out and the screens show the login). A
+// refresh that failed for a reason that may pass (no connection, a server error) fails this request with a "try again"
+// sentence and leaves the person signed in. It is called here, not api.js's signOut, because api.js imports this file.
 api.interceptors.response.use(
-  (res) => res,
-  (err) => {
+  (res) => {
+    // A string or nothing is not the planner (the static host's page, say). Reading it as "no places" would be wrong.
+    if (res.data === null || typeof res.data !== 'object') throw new Error(notJsonMessage())
+    return res
+  },
+  async (err) => {
+    if (err?.planner) throw err
+    const loginCheck = err?.response?.status === 401 && err.response.data?.error === 'unauthenticated'
+    // A request with no token (a local account) is not retried and signs nobody out.
+    if (loginCheck && err.config?.headers?.has?.('Authorization')) {
+      if (!err.config.jioRetried) {
+        const sent = String(err.config.headers.get('Authorization') || '').replace(/^Bearer /, '')
+        let token
+        try {
+          token = await renewedToken(sent)
+        } catch {
+          throw new Error(AUTH_UNAVAILABLE)
+        }
+        if (token) {
+          err.config.jioRetried = true
+          err.config.headers.set('Authorization', `Bearer ${token}`)
+          return api.request(err.config)
+        }
+      } else {
+        await endSession()
+      }
+      throw new Error(SESSION_ENDED)
+    }
     throw new Error(plannerErrorMessage(err))
   },
 )
@@ -145,6 +275,22 @@ export async function rankSlot({ members, centre, date, slot, lastStop, currentO
   if (data.status !== 'ok') return { options: [], current: [], widened: false, few: null, empty: data, weather }
   const few = data.notice?.type === 'few_options' ? { found: data.notice.found, widenToKm: data.notice.widenToKm } : null
   return { options: data.results.map(toOption), current: data.current.map(toOption), widened: !!data.notice, few, empty: null, weather }
+}
+
+// How long the order is waited for: the host can confirm the voted order, so a slow answer is given up on.
+export const ARRANGE_TIMEOUT_MS = 10000
+
+// The AI order for a plan, chosen by Claude on the backend (asked for when the group confirms). Food stops keep their
+// place and time (meals stay at meal times); the drink, shop and activity stops may move. `includeCurrent` lets the
+// voted order be chosen when it is already the best.
+//   stops:   [{ id, name, category, kind?, lat, lng, duration, start?, hours: ['10:00-22:00'], indoor?, mrtWalk? }] in the voted order
+//   startAt, endAt: when the plan starts and the session ends, in minutes after midnight
+// Returns { status: 'ok', order: [stop ids], stops: [{ id, start, end }], reason, source: 'ai' | 'rules' }
+//      or { status: 'no_other_order', message }.
+// How to call: await arrangeItinerary({ stops, startAt: 600, endAt: 1020, includeCurrent: true })
+export async function arrangeItinerary({ stops, startAt, endAt, shown = [], rain = false, includeCurrent = false }) {
+  const { data } = await api.post('/api/itinerary/arrange', { stops, startAt, endAt, shown, rain, includeCurrent }, { timeout: ARRANGE_TIMEOUT_MS })
+  return data
 }
 
 // Find places by name for a slot. Each says whether it fits, and the first reason it does not.

@@ -44,7 +44,7 @@ As of 2026-10-09. The Supabase foundation was built on branch `feat/supabase-fou
 
 | Area | State |
 |---|---|
-| Frontend screens | Sign-up, sessions, meeting area, voting, itinerary, photos, leaderboard with seasons, rewards in JioCoins, profiles. Home shows every current meetup as a pin on the map, with a detail on hover and a list below. A host can edit a session's title, date and times until it starts. A top bar from 744 px and a pill tab bar on phones. All data is in one browser's local storage. |
+| Frontend screens | Sign-up, sessions, meeting area, voting, itinerary, photos, leaderboard with seasons, rewards in JioCoins, profiles. Home shows every current meetup as a pin on the map, with a detail on hover and a list below, whose first row starts a new meetup. In development builds the sign-up screen and the demo tools can load a showcase: ten sessions, one in each state. A host can edit a session's title, date and times until it starts. A top bar from 744 px and a pill tab bar on phones. All data is in one browser's local storage. |
 | Backend planner | Built on `dev`: `/api/meeting-area`, `/api/converge`, `/api/roam`, `/api/search`. Travel times and weather are internal estimates. Open to anyone. |
 | Database | Session schema and access rules applied to the live `jio` project on 2026-10-09, then revised twice the same day after two reviews (three migrations). No app code reads or writes it yet. |
 | Login | Backend token check and `GET /api/me` built and hardened after two reviews. No login screen; the frontend sends no token. |
@@ -88,13 +88,15 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 
 **Round 12, 2026-10-11, audit of the Google Places pull request and its fixes: completed.** Two read-only reviewers and a verifier found nothing unsafe and twelve defects; two backend agents fixed them. Went to `main` from `feat/google-places-integration`.
 
-**Round 13, 2026-10-11, Home's start row and showcase demo data: built on `feat/demo-showcase`.** See the work log for whether it has been committed.
+**Round 13, 2026-10-11, Home's start row and showcase demo data: completed.** One frontend agent. Went to `main` from `feat/demo-showcase`.
 
 **Round 14, 2026-10-11, decisions on meeting spots and Roam.** Nothing built; the handoff is `docs/handoffs/meeting-spots-and-roam.md`.
 
 **Round 15, 2026-10-11, meeting spots, slices 1 and 2: built on `feat/meeting-spots`.** A backend agent added runners-up and named areas to `/api/meeting-area`; a frontend agent added spots, approvals, confirm and the known place to the data layer (save version 9). The lead checked both.
 
 **Round 16, 2026-10-11, the Locate screen for meeting spots (slice 3): built on `feat/meeting-spots`.** A frontend agent built the spot list, "Works for me", "Suggest a spot", the host's confirm, "We already have a place", the map pins and the demo tools. The lead opened it in a browser, and found and fixed one defect (the page stayed on Locate after confirming). Slices 4 to 6 (Roam, then review) are next.
+
+**Round 17, 2026-10-11, real sign-up and login, the frontend half: built on `feat/login`.** Three frontend agents built the account layer over Supabase Auth, the login screen with its route and guard, and the planner client sending the token. The lead checked each and opened the screens. Nothing has run against the real Supabase project: that needs `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `frontend/.env` and the lead's own sign-up. The planner routes do not require a login yet. Rounds 15 and 16 (meeting spots) are on `feat/meeting-spots`.
 
 **Rounds 10 and 11, 2026-10-10, Home as a map of every meetup, and four problems the lead found by using the app: completed.** One frontend agent each. Both went to `main` from `feat/home-meetups-map`.
 
@@ -168,6 +170,7 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-10 | `feat/home-meetups-map` after round 11 | `pnpm --filter jio-frontend test`; `pnpm test`; `pnpm build` | 324 passed, 30 files; 383 passed, 1 skipped; succeeded |
 | 2026-10-11 | `feat/google-places-integration` after round 12 | `pnpm test`, also with outbound calls blocked | 547 passed, 1 skipped, 24 files, both times |
 | 2026-10-11 | `feat/google-places-integration` after round 12 | `pnpm --filter jio-frontend test`; `pnpm build` | 324 passed, 30 files; succeeded |
+| 2026-10-11 | `feat/demo-showcase` on top of round 12 | `pnpm test`; `pnpm --filter jio-frontend test`; `pnpm build` | 547 passed, 1 skipped; 353 passed, 33 files; succeeded |
 | 2026-10-11 | the pull request before the fixes, and `main` | OneMap route calls for one meeting-area request, 30 members, stubbed | 60 on both (round 9 recorded 59; the cap is 60) |
 | 2026-10-11 | `feat/meeting-spots` at `2e1643d`, before round 15, on the Windows machine | backend suite; frontend suite; build | 546 passed, 1 failed, 1 skipped, 24 files; 324 passed, 30 files; succeeded. The failure is a line-ending test (see round 15) |
 | 2026-10-11 | `feat/meeting-spots`, working tree after round 15 | backend suite, also with outbound calls blocked | 677 passed, 1 failed (the same test), 2 skipped, 26 files, both times |
@@ -175,6 +178,9 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-11 | an untouched export of `origin/main` at `2e1643d` | `meeting-area-baseline.test.js` with its fixture, three times | 85 of 85 passed each time |
 | 2026-10-11 | `feat/meeting-spots`, working tree after round 16 | frontend suite; build | 398 passed, 32 files; succeeded |
 | 2026-10-11 | `feat/meeting-spots`, working tree after round 16, stub backend | Browser check of the Locate screen at 320, 375, 744 and 1280 px | No horizontal overflow; suggest, "Works for me", confirm and the known place all work and land on Vote; no console errors |
+| 2026-10-11 | `feat/login` at `aa64d15`, before round 17, on the Windows machine | frontend suite; build; backend suite | 353 passed, 33 files; succeeded; 544 passed, 3 failed, 1 skipped (Windows path and line-ending tests, fixed in part on `feat/meeting-spots`) |
+| 2026-10-11 | `feat/login`, working tree after round 17 | frontend suite; build | 457 passed, 40 files; succeeded |
+| 2026-10-11 | `feat/login`, working tree after round 17, made-up Supabase values | Browser check of `/login` and `/signup` at 320, 375, 744 and 1280 px | No horizontal overflow; the guard remembers the page and drops an outside address; a failed login keeps the email and empties the password |
 | 2026-10-10 | `fix/leaderboard-audit-defects`, working tree | `pnpm --filter jio-frontend test` | 229 passed, 25 files |
 | 2026-10-10 | `fix/leaderboard-audit-defects`, working tree | `pnpm test`, `pnpm build` | 317 passed, 1 skipped; succeeded |
 | 2026-10-10 | external-APIs pull request merged with `main`, throwaway worktree | `pnpm test`, also with outbound calls blocked | 334 passed, 1 skipped, both times |

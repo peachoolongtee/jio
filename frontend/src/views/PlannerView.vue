@@ -22,6 +22,7 @@ import ModalDialog from '@/components/ui/ModalDialog.vue'
 import PopoverPanel from '@/components/ui/PopoverPanel.vue'
 import PriceTier from '@/components/ui/PriceTier.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
+import SegmentTabs from '@/components/ui/SegmentTabs.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
 import TextField from '@/components/ui/TextField.vue'
@@ -31,7 +32,8 @@ import SuggestionCard from '@/components/event/SuggestionCard.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
 import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
-import { distanceText, timeAndDuration } from '@/lib/planner/format.js'
+import { distanceText } from '@/lib/planner/format.js'
+import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, votedRows } from '@/lib/confirmOrder.js'
 import { placeImage } from '@/lib/placeImages.js'
 import { confetti } from '@/lib/confetti.js'
 import { mealWindow, MEAL_WINDOWS } from '@/lib/planner/timeOfDay.js'
@@ -88,7 +90,7 @@ const session = computed(() => events.byId[props.id])
 const plan = computed(() => planner.plans[props.id])
 const loading = computed(() => planner.loading[props.id] && !plan.value?.slots?.length)
 const voting = computed(() => session.value?.status === 'voting')
-const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
+const nameOf = (id) => (id === 'ian' ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
 const slots = computed(() => plan.value?.slots || [])
 const shown = computed(() => (filter.value ? slots.value.filter((s) => s.category === filter.value) : slots.value))
@@ -194,11 +196,35 @@ const winners = computed(() =>
     return { stop, option: sorted[0] }
   }),
 )
+
+// The suggested order, asked for when the dialog opens (the AI's, or the rules' when it is not set up or is slow). The
+// dialog opens on the voted order, usable at once; a suggestion that differs is offered as a second choice and never
+// selected for the host. The store keeps one answer per question and ignores late older ones (events.suggestOrder).
+// Without a suggestion (nothing to arrange, a failure, a timeout) the voted order stays.
+const picked = ref(VOTED)
+const votedList = computed(() => votedRows(winners.value))
+const orderKey = computed(() => confirmKey(winners.value, session.value, planner.conditions?.rain))
+// The answer to this question, once asked: its loading flag and its suggestion.
+const order = computed(() => {
+  const entry = events.orders[props.id]
+  return confirmOpen.value && entry && entry.key === orderKey.value ? entry : null
+})
+const suggesting = computed(() => confirmOpen.value && (!order.value || order.value.loading))
+const orderView = computed(() => confirmView({ voted: votedList.value, suggestion: order.value?.answer ?? null, picked: picked.value }))
+watch([confirmOpen, orderKey], ([open]) => {
+  if (!open) return
+  // A new open, or new votes, start again from the voted order.
+  picked.value = VOTED
+  events.suggestOrder(props.id, orderKey.value)
+})
+
 async function confirm() {
   busy.value = true
   error.value = ''
+  // What is shown is what is saved: the suggestion when its order is shown, nothing for the voted order.
+  const { pass } = orderView.value
   try {
-    await events.confirm(props.id)
+    await events.confirm(props.id, pass)
     confirmOpen.value = false
     // A moment to celebrate: confetti, and the itinerary opens with a "Plan confirmed" card.
     confetti()
@@ -318,15 +344,26 @@ async function confirm() {
 
     <ModalDialog v-model:open="confirmOpen" title="Confirm plan?">
       <template #content>
+        <div v-if="suggesting || orderView.choice" class="order-pick">
+          <SegmentTabs v-if="orderView.choice" v-model="picked" label="Order of the stops" :tabs="ORDER_TABS" />
+          <p v-else class="caption-sm text-muted">Looking for a suggested order…</p>
+        </div>
         <ul class="winners">
-          <li v-for="w in winners" :key="w.stop.category" class="winners__row">
-            <CategoryIcon :category="w.stop.category" :size="28" />
+          <li v-for="row in orderView.rows" :key="row.key" class="winners__row">
+            <CategoryIcon :category="row.category" :size="28" />
             <span class="stack">
-              <span class="caption-sm text-muted">{{ timeAndDuration(w.stop.time, w.stop.duration) }}</span>
-              <span class="title-sm">{{ w.option?.venue.name || 'No place' }}</span>
+              <span class="caption-sm text-muted">{{ row.when }}</span>
+              <span class="title-sm">{{ row.name }}</span>
             </span>
           </li>
         </ul>
+        <p class="order-note caption-sm text-muted" :class="{ 'order-note--held': suggesting || !!orderView.note }" role="status">
+          <template v-if="orderView.note">
+            <AppIcon :name="sourceIcon(orderView.note)" :size="14" />
+            <span>{{ sourceText(orderView.note) }}</span>
+          </template>
+          <template v-else>You can rearrange stops after confirming.</template>
+        </p>
       </template>
       <AppButton block :disabled="busy" @click="confirm">Confirm</AppButton>
       <AppButton block variant="secondary" @click="confirmOpen = false">Not yet</AppButton>
@@ -382,4 +419,11 @@ async function confirm() {
 .add-row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 64px; }
 .add-row + .add-row { border-top: 1px solid var(--hairline-soft); }
 .add-row__text { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.order-pick { display: flex; align-items: center; min-height: var(--tap-min); }
+.order-pick p { margin: 0; }
+.order-pick :deep(.seg) { flex: 1 1 auto; }
+.order-note { display: flex; align-items: flex-start; gap: 6px; margin: 0; }
+.order-note :deep(svg) { flex-shrink: 0; margin-top: 2px; }
+/* While an answer is awaited or shown, room for three lines, so the buttons below do not move when it arrives. */
+.order-note--held { min-height: 3lh; }
 </style>

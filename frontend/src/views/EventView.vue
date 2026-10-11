@@ -12,6 +12,8 @@
 //   - In edit mode, drag a stop by its handle (or focus the handle and use the arrow keys) to rearrange the day. Times follow;
 //     a stop that would be closed at its new time, or an end far from the MRT, is flagged.
 //   - Edit mode also shows "Re-plan". "End plan" on the day.
+//   - When the host confirmed a suggested order (see PlannerView), one line says where it came from (an AI suggestion,
+//     or chosen by travel and waiting time) and why, above the stops until a stop is moved or deleted by hand.
 //   - The photo strip shows the latest pictures (loaded with the events store) and links to Photos.
 //   - Travel and trip-home times are estimates from distance, so they read "about" or "est.".
 import { coins } from '@/lib/currency.js'
@@ -38,6 +40,7 @@ import TravelConnector from '@/components/event/TravelConnector.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
 import { fromMinutes } from '@/lib/planner/format.js'
+import { sourceIcon, sourceText } from '@/lib/confirmOrder.js'
 import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -253,6 +256,12 @@ async function endPlan() {
         </RouterLink>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
+        <!-- Where the suggested order came from, when the host confirmed it. Moving or deleting a stop by hand clears it. -->
+        <p v-if="itinerary?.aiNote" class="ai-note caption-sm text-muted" role="status">
+          <AppIcon :name="sourceIcon(itinerary.aiNote)" :size="14" />
+          <span>{{ sourceText(itinerary.aiNote) }}</span>
+        </p>
+
         <SplitView v-model:view="view" label="Itinerary" even>
           <template #list>
             <div v-if="!itinerary" class="stack gap-md">
@@ -398,6 +407,8 @@ async function endPlan() {
 
 /* The timeline: one rail joins every stop, leg and the end point. */
 .timeline:focus { outline: none; }
+.ai-note { display: flex; align-items: flex-start; gap: 6px; margin: 0; }
+.ai-note :deep(svg) { flex-shrink: 0; margin-top: 2px; }
 .timeline:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .timeline { position: relative; display: flex; flex-direction: column; gap: 0; padding: var(--spacing-base); }
 .timeline::before { content: ""; position: absolute; top: 34px; bottom: 34px; left: calc(var(--spacing-base) + 13px); width: 2px; border-radius: var(--rounded-full); background: var(--hairline); }

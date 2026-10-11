@@ -56,6 +56,16 @@ describe('real mode', () => {
     expect(err.status).toBe(401)
   })
 
+  it('names Gemini for its host, and Google for the other Google APIs', async () => {
+    const http = createHttp({ fetchImpl: fakeFetch('{}', 429) })
+    const gemini = await http.postJson('https://generativelanguage.googleapis.com/v1beta/models/gemini-x:generateContent', {}).catch((e) => e)
+    expect(gemini).toBeInstanceOf(ExternalApiError)
+    expect(gemini.service).toBe('gemini')
+    expect(gemini.message).toBe('gemini answered 429')
+    const places = await http.postJson('https://places.googleapis.com/v1/places:searchNearby', {}).catch((e) => e)
+    expect(places.service).toBe('google')
+  })
+
   it('throws on a 200 with an empty body', async () => {
     const http = createHttp({ fetchImpl: fakeFetch('') })
 

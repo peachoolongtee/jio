@@ -21,6 +21,7 @@ function serviceOf(url) {
   if (hostname.endsWith('onemap.gov.sg')) return 'onemap'
   if (hostname.endsWith('data.gov.sg')) return 'datagov'
   if (hostname.endsWith('mytransport.sg')) return 'lta'
+  if (hostname === 'generativelanguage.googleapis.com') return 'gemini'
   if (hostname.endsWith('googleapis.com')) return 'google'
   return 'unknown'
 }

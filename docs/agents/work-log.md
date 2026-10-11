@@ -710,7 +710,7 @@ No reviewer could leak the key, steer the photo route to another host, or exceed
 
 ## Round 13: Home's start row and showcase demo data (2026-10-11)
 
-The lead chose both from a short list of options: the action that starts a meetup becomes the first row of Home's list, and the demo tools gain a spread of sessions in every state. One frontend-engineer subagent, on branch `feat/demo-showcase` in the main checkout. Not committed when this was written; the results are recorded here so they are not lost.
+The lead chose both from a short list of options: the action that starts a meetup becomes the first row of Home's list, and the demo tools gain a spread of sessions in every state. One frontend-engineer subagent, on branch `feat/demo-showcase` in the main checkout. Committed and sent to `main` at the lead's word on 2026-10-11, on top of round 12; on that tree `pnpm test` gave 547 passed, 1 skipped, `pnpm --filter jio-frontend test` 353 passed, 33 files, and `pnpm build` succeeded.
 
 - **Built:** `StartMeetupRow.vue` (a link, first in the list, the corner pill removed); `components/dev/showcase.js` (`loadShowcase`, ten sessions made through the data layer's public functions); `components/dev/offlinePlanner.js` (a stand-in used only while the showcase loads and only when the backend gives no answer); `DemoSignIn.vue` (two buttons on the sign-up screen in development builds); `createSession({ hostId })` and `inviteFriends(..., { acceptAfter })` in `lib/api.js`, neither used by the app itself.
 - **Run by the lead:** `pnpm --filter jio-frontend test` 353 passed, 33 files; `pnpm build` succeeded; the production bundle contains neither "showcase" nor "Use the demo account".
@@ -802,3 +802,152 @@ Baseline before any change: backend suite 677 passed, 1 failed (the line-ending 
   - The banner for removed approvals is drawn in `GroupDetailView`, not in `SessionNotices`.
   - The area picker does not put the cursor in its search box when it opens with a click.
   - "Hold to end" shows on the Locate screen when someone else is the host. It was there before this round (the signed-in user's id is hard-coded).
+
+## Round 17: real sign-up and login, the frontend's account layer (2026-10-11)
+
+Parent task: the lead asked for the login functionality to be started on its own branch. The work is the frontend half of the tracker ticket "Overhaul 3 of 7: real sign-up, login and token checks" (peachoolongtee/jio#78), which also covers "Add a login screen and fix the sign-out crash" (#60) and the token part of "Make the production build reach the backend and send the login token" (#50). The backend's token check and `GET /api/me` were built in rounds 1 to 3.
+
+Branch `feat/login`, cut from `main` at `aa64d15` (the showcase pull request, #102, had just merged). Rounds 15 and 16 are on `feat/meeting-spots`, which is pushed and not merged, so they are not in this file on this branch.
+
+Baseline before any change, run by the lead agent on the Windows machine: frontend suite 353 passed, 33 files; build succeeded; backend suite 544 passed, 3 failed, 1 skipped, 24 files. The three failures are the Windows path and line-ending tests that round 15 describes; the path fix is on `feat/meeting-spots`, not here.
+
+What the lead agent found first:
+
+- `frontend/src/lib/supabase.js` is imported by nothing and throws when its two variables are missing.
+- On this machine `frontend/.env` holds the backend's variable names (the Supabase URL, anon key and service-role key, the OneMap account, the port) and neither `VITE_SUPABASE_URL` nor `VITE_SUPABASE_ANON_KEY`. Only names were read, never values. Vite does not put a variable without the `VITE_` prefix into the bundle, so the service-role key is not exposed, but it does not belong in that file. The frontend cannot reach Supabase here until the lead sets the two `VITE_` variables.
+- The lead agent cannot create an account on the live Supabase project, so a real sign-up and login are for the lead to try. Tests use a stand-in client.
+
+Defaults taken, for the lead to confirm or change:
+
+1. Login is by email and password, which the sign-up screen already collects.
+2. Without the two `VITE_` variables the app keeps today's local accounts, so tests, the demo account and a teammate with no env file still work.
+3. The demo account stays a local account even when Supabase is set.
+4. Meetups stay in the browser until the data layer moves to Supabase (#79). The local id of "me" stays `ian` for now; the Supabase user id is kept beside it. The save is kept per account, so signing out no longer erases a person's meetups and a second account in the same browser gets its own.
+5. The planner routes are not yet made to require a login. That needs the lead's word, because it changes how the demo account and local development reach the planner.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 17.1 | Frontend | The account layer: a Supabase auth module, and sign-up, sign-in, sign-out, the signed-in user, profile updates and the username check in the data layer and the auth store. No screens. | `frontend/src/lib/` and `frontend/src/stores/` and their tests | One test per rule; the suite and build pass with and without the Supabase variables; no call leaves the machine; no existing test deleted, skipped or weakened | **Done and checked by the lead** (results below) |
+| 17.2 | Frontend | The login screen and route, the router guard, the sign-up screen sending the password and showing "check your email", and sign-out that never throws (tickets #78 and #60) | Views, components, the router and their tests; not `lib/` or `stores/` beyond a reported defect | A returning user can log in; signing out never throws, with a test; no overflow at 320, 375, 744 and 1280 px; suite and build pass | **Done and checked by the lead**, with two small fixes by the lead (results below) |
+| 17.4 | Frontend | The planner client sends the login token, refreshes once on a 401 and then signs out; a missing backend address and an answer that is not JSON are errors (tickets #78 and #50) | `frontend/src/lib/plannerApi.js` and its tests | One test per rule; suite and build pass | **Done and checked by the lead** (results below) |
+| 17.3 | Lead | Verify, record, and list what only the lead can try | Docs | Suites and build run by the lead; the riskiest claim read in the code | Done |
+
+### 17.1 result: the account layer
+
+- **Built (frontend agent):** `lib/auth.js`, the one place that talks to Supabase Auth and the profile tables (`configured`, `signUp`, `signIn`, `signOut`, `currentUser`, `accessToken`, `refreshedToken`, `loadProfile`, `saveProfile`, `usernameAvailable`, `onChange`, `useClient` for tests, and the messages a person sees in `MESSAGES`). `lib/supabase.js` no longer throws: it exports the client or null. In `lib/api.js`: a new `signIn`, `realAccountsOn`, and real-account paths in `signUp`, `signOut`, `getUser`, `updateUser` and `checkUsername`. In `stores/auth.js`: `signIn`, `pendingConfirmation`, `syncNotice`, `realAccounts`, `dismissConfirmation`, and a `signOut` that never throws. New tests: `accounts.test.js` (30) and `authStore.test.js` (12), with `authFixture.js` standing in for Supabase.
+- **The account object** is always `id: 'ian'`, with `authId` (the Supabase user id, or null), `local`, `email`, and the fields it had. A local account saves to `jio-demo-v1` as before; a real account saves to `jio-demo-v1:acct:<its id>`, which survives sign-out.
+- **Run by the lead:** the frontend suite, 395 passed, 35 files; the build succeeded. Only `frontend/src/lib/` and `frontend/src/stores/` changed.
+- **Checked by the lead:** the whole diff of `lib/api.js`. The password is passed to `auth.signUp` and `auth.signIn` and is in no object that is saved; a real account's save is loaded only when its `authId` matches; `save()` writes nothing after a real account signs out; the local sign-up path builds the account from named fields, as before.
+- **Not checked by the lead:** the run with outbound calls blocked (the agent reports 395 passed and no blocked call); the agent's two mutation checks; anything against the real Supabase project.
+- **Differences from the brief, accepted:** `currentUser`, `accessToken` and `refreshedToken` are async; the client is always null under the test runner, so a developer's own env file cannot make the suite create accounts; sign-out ends this browser's session only; `api.signUp` answers the account, or `{ needsConfirmation, email }`.
+- **Rests on reading, not on a live call:** how Supabase words its errors. A taken username at the trigger is told from the text "Database error saving new user"; with email confirmation on, an email already registered is told from an empty identities list.
+- **For the lead to decide:**
+  - In a build with Supabase set up, a local account left in the browser from before (or the demo account) still counts as signed in after a reload, with no login. That follows the default that the demo account stays local.
+  - After a sign-up that needs the email confirmed, the name and home area typed are lost: the name starts as the username and the home area is empty.
+  - A real account signing in on a new browser starts with no friends suggested.
+
+### 17.4 result: the planner client sends the login token
+
+- **Built (frontend agent):** in `lib/plannerApi.js`, a request interceptor that reads the token for each request and sends it as `Authorization: Bearer …` when there is one; on the login check's 401 for a request that carried a token, one refresh and one retry, shared by requests that fail together; with no fresh token, or a second 401, it ends the Supabase session (`auth.signOut`, because `api.js` imports this file) and rejects with "Your session has ended. Log in again."; a 503 `auth_unavailable` says "Jio cannot check your login right now. Try again in a moment."; a production build with no `VITE_API_BASE_URL` refuses the request with a plain sentence and tells the developer once in the console; an answer that is not JSON is an error and is no longer read as "no places". New tests: `plannerAuth.test.js` (15). `meetingArea`, `rankSlot` and `searchSlot` are untouched.
+- **Checked by the lead:** the whole diff of `plannerApi.js`. A request with no token is never retried and signs nobody out; a retry cannot repeat (`jioRetried`).
+- **For the lead to know:** a deployment that serves the frontend and the backend from one address through a proxy, with no `VITE_API_BASE_URL`, would now be refused. The rule is what ticket #50 asks for; it would need an opt-out for that kind of deployment.
+
+### 17.2 result: the login screen, the guard, sign-up and sign-out
+
+- **Built (frontend agent, in two runs; the first stopped at its turn limit with no report and was resumed):** `views/LoginView.vue` at `/login`; the route table moved to `router/routes.js` and the rules to `router/guard.js` (`guardFor`, `safeNext`); the sign-up screen (`AuthView.vue`) sends the password, returns to the right question after a failure, shows "Check your email", and links to the login screen; `ProfileView.vue` says what signing out does for each kind of account and lands on the right page; the unguarded reads of `auth.user` named in ticket #60 are guarded in `LandingView`, `GroupsView`, `PlannerView`, `GroupDetailView` and `ProfileView`; a new `components/ui/SyncNotice.vue`. New tests: `loginGuard` (18), `loginScreen` (11), `signupScreen` (11), `signOutScreens` (6), drawn with `domless.js`, a stand-in for the page.
+- **Outside the files the brief allowed, accepted:** two lines in `App.vue` to show `SyncNotice` above every signed-in screen.
+- **Added by the lead:**
+  - The app frame now sends a person to the login screen when their session ends while a page is open (the login expired, the planner refused the token, or another tab signed out). The store counts those in `sessionEnds`; a sign-out the person asked for is not counted. One new store test. Without this the planner client's "session ended" left the page up with a blank name.
+  - The "Log in" link on the sign-up screen was 41 px wide at 320 px; it now has the minimum width.
+- **Run by the lead, after those changes:** the frontend suite, 457 passed, 40 files; the build succeeded.
+- **Seen by the lead in the browser** (frontend only on 5174, started with made-up Supabase values that point at nothing, stopped afterwards):
+  - A signed-out visit to `/sessions/new?x=1` lands on `/login?next=/sessions/new?x=1`; `/login?next=//evil.example/x` becomes a bare `/login`.
+  - The login screen has labelled Email and Password fields with `username` and `current-password` autocomplete. Enter submits. With nothing answering, it says "Could not reach Jio. Check your connection and try again.", keeps the email, empties the password and puts the cursor in it. The made-up password was in no local storage key afterwards.
+  - The sign-up screen shows "Already have an account? Log in" and the demo account buttons.
+  - No horizontal overflow on `/login` and `/signup` at 320, 744 and 1280 px, and on `/login` at 375 px. No control under 44 px on `/login` at 320, 375 and 744.
+- **Not seen by the lead:** a successful login or sign-up, "Check your email", the sign-out dialog and where it lands, the sync notice, the Profile note for a local account, and the new redirect when a session ends. They rest on the tests. Nothing has run against the real Supabase project.
+- **Found and left:** the "Use the demo account with showcase data" button's text runs past its box at 320 px. It is from the showcase round and shows only in development builds.
+- **For the lead to know:** with real accounts on, the sign-up screen shows one password rule, "6 or more characters", which is Supabase's default; the project's own setting was not checked. With real accounts off, a failed local sign-up now empties the password, which it did not before.
+
+## Round 18: audit of three branches, then merge in the lead's order (2026-10-11)
+
+The lead asked: "audit and merge login first then ai itinerary then meeting spots". None has a pull request.
+
+| Branch | By | Head | Against `main` at `aa64d15` |
+|---|---|---|---|
+| `feat/login` | the lead's other session (round 17) | `fa827dc` | 4 commits, 28 files, merges cleanly |
+| `feature/ai-itinerary` | faithpho | `01c35ee` | 2 commits, 20 files, merges cleanly |
+| `feat/meeting-spots` | the lead's other session (rounds 15 and 16) | `36030e8` | 11 commits ahead and 8 behind, 39 files, one conflict (`DemoPanel.vue`) |
+
+- **Before any review, by the lead, on each branch's head:** `feat/login`: `pnpm test` 547 passed, 1 skipped; frontend 457 passed, 40 files. `feature/ai-itinerary`: 565 passed, 1 skipped; frontend 354 passed. `feat/meeting-spots`: 678 passed, 2 skipped; frontend 398 passed. Every backend suite also passed with outbound calls blocked, and every build succeeded.
+- **Known before the audit:** meeting spots conflicts with login (`CLAUDE.md`, the work log, `DemoPanel.vue`) and with the AI itinerary (`DemoPanel.vue`, `stores/events.js`). The lead cut "Ask AI" on 2026-10-09; by asking for the AI itinerary to be merged, the lead has decided this different AI feature goes in.
+- **Where the work happens:** a throwaway worktree per branch. Fixes go on integration branches (`feat/login-integration` and so on), not on the branches themselves.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 18.1 | Code reviewer, read-only | Login: the account layer, token handling, the guard, storage | Nothing | Every finding has a file, a line and a way to trigger it | **Completed**: "changes required" |
+| 18.2 | Verifier | Login: run it against a fake auth server on this machine and try to break it | Nothing in the repo | Each claim confirmed or refuted with output | **Completed** |
+| 18.3 | Code reviewer, read-only | AI itinerary: the AI service, keys, cost, what is sent, the arrange rules, the route | Nothing | Same | **Completed**: "changes required" |
+| 18.4 | Verifier | AI itinerary: run it in stub mode and with a fake AI; count calls; failures | Nothing in the repo | Same | **Completed** |
+| 18.5 | Code reviewer, read-only | Meeting spots: the backend change, the data layer, the screen's code | Nothing | Same | **Completed**: "changes required" |
+| 18.6 | Verifier | Meeting spots: the rules in the handoff's section 3, through the data layer and a headless browser | Nothing in the repo | Each rule confirmed or refuted with output | **Completed** |
+| 18.7 | Lead | Check findings, fix or record, merge each in order, resolve conflicts, re-run suites after each merge | Fixes on integration branches, docs, the tracker | All suites pass after each merge | Running |
+| 18.8 | Frontend | Login: fix the audit's findings | `frontend/` on `feat/login-integration` | Suites pass, also offline; a production build has no demo strings | Running |
+| 18.9 | Backend | AI itinerary: a call budget, a cache, a deadline, a pause after failures, a smaller model, checks on the answer and the prompt | `backend/` on `feat/ai-itinerary-integration` | Suites pass, also offline; other routes unchanged | Running |
+| 18.10 | Frontend | AI itinerary: confirm never blocked, a choice of orders, a request ticket, honest labels | `frontend/` on the same branch | Suite and build pass | Running |
+| 18.11 | Frontend | Meeting spots: the timing defects, "about" on estimates, preselection, focus, Home's words, the design document | `frontend/` and `DESIGN.md` on `feat/meeting-spots-integration` | Suite and build pass | Running |
+| 18.12 | Backend | Meeting spots: naming an area in `include` must not change the planner's pick | `backend/` on the same branch | The baseline test untouched and passing; suites pass, also offline | Running |
+
+### 18.1 and 18.2 Login: no blocker, the main claims hold, eight defects
+
+**Confirmed by reading and by a browser run against a fake Supabase on this machine:** the password is in no storage, URL, console message or saved object; two real accounts in one browser are stored apart and neither sees the other's sessions, nor does a signed-out person through Back or a direct address; 22 hostile `next` values stay on the site; a real account's planner requests carry the current token and no other origin receives it; a 401 `unauthenticated` causes exactly one refresh and one retry, five together share one refresh, and other 401s and a 503 sign nobody out; the demo account and showcase work beside real accounts; a production build has no demo strings. The frontend suite passes with outbound calls blocked.
+
+| # | Defect | Evidence |
+|---|---|---|
+| 1 | Sign-up freezes when the username check fails: Next stays disabled, nothing is shown | Reproduced in the browser; `next()` in `AuthView.vue` has no `finally` |
+| 2 | A username taken at the database shows "Could not reach Jio", because the installed auth client turns every 500 into a retryable network error | Reproduced with a fake answering 500; the real server's status is unverified |
+| 3 | Sign-out waits on the server: with a server that never answers, still signed in after 15 s | Reproduced. Down, 500 and slow do end signed out |
+| 4 | A blank page while the app starts: about 26 s with an expired token and Supabase unreachable; no end with a server that never answers | Reproduced; the guard awaits `auth.init()` with no limit |
+| 5 | Any refresh failure signs the person out, including a network error | By reading |
+| 6 | With real accounts on, a leftover or hand-made local save counts as logged in | Reproduced on a production build |
+| 7 | A production build without the Supabase settings silently becomes open local sign-up | Reproduced |
+| 8 | Smaller: login errors not tied to fields; "Sign in" and "Log in" mixed; `safeNext` can return a `//` path (not exploitable through the guard); the token is attached before the destination is checked; the date of birth stays in the local save after sign-out; no progress text on a slow sign-up | By reading and in the browser |
+
+**Decided by the lead agent:** defect 6 was listed by round 17 for the lead; the audit brief required that nobody passes the guard in production without an account, so a local user is treated as signed out in a production build with Supabase configured. One build-time opt-out, `VITE_ALLOW_LOCAL_ACCOUNTS=1`, covers 6 and 7, because a deployed demo will need local accounts.
+**For the lead, not fixed:** with email confirmation on, sign-up tells a person that an email is already registered, which Supabase hides on purpose.
+
+### 18.3 and 18.4 AI itinerary: the rules are right, the AI call was unbounded
+
+**Confirmed:** the rules module agreed with the tester's independent timeline model on 571 random plans, and every answer kept each place open and each meal in its window; at most 720 orders are enumerated, in about a millisecond; the keys are sent in headers only and appear in no response or start-up line; nothing about a person is sent to the AI provider; the AI's choice is range-checked; other routes answer exactly as on `main` (12 of 12); a save from `main` loads with all ten sessions.
+
+| # | Defect | Evidence |
+|---|---|---|
+| 1 | Nothing bounds AI calls: 310 requests in a burst made 300 calls; 50 identical bodies made 50 | Measured on the real server wiring with a fake AI |
+| 2 | A hung AI holds each request 20 s (Gemini) or 40 s (Claude), every time; the SDK can sleep longer on `retry-after` | Measured; the SDK's retry read in `node_modules` |
+| 3 | An unexpected 200 from the provider answers 500 | Four shapes reproduced |
+| 4 | Claude is asked for the largest model with a 2,000-token ceiling to choose one number | By reading |
+| 5 | A stop's name reaches the prompt raw (a newline forged an "Order 7" line) and the AI's sentence is returned raw | Reproduced with an obedient fake |
+| 6 | A key with a space inside counts as set | Start-up run |
+| 7 | The confirm button is disabled while the AI answers (20 to 30 s with a hung AI); the suggested order cannot be declined; a stale answer can win | Browser run and reading |
+| 8 | The sentence is not labelled as an AI's; "The AI is off" shows when it only failed; "least travel" was wrong in 47 of 364 plans | Browser run and a count |
+| 9 | The doc's example request does not give its example answer | Three variants tried |
+
+**Recorded, not fixed:** the route takes that day's hours from the caller and cannot be told a venue is closed on the date (the frontend has no closure data); the model names and the beta header could not be checked against the live services; the planner's rate limit keys on the caller's address and nothing sets `trust proxy`.
+**Disclosed by both browser testers:** early headless runs let the page load map tiles from OneMap before a block on non-local requests was added. No API, routing or search call was made.
+
+### 18.5 and 18.6 Meeting spots: the backend holds, two timing defects in the data layer
+
+**Confirmed:** 180 requests without the new fields answer byte for byte as on `main`, with identical route calls; 86 checks on the new fields pass; route calls stay at or under 60 with 30 members, 3 alternatives and 8 included areas; every rule in the handoff's section 3 held outside the races, with the tester's own 49 data-layer cases; no horizontal overflow or clipped text at 320, 375, 744 and 1280 px with five spots and six members; every control has an accessible name and a visible focus ring; list and pins select each other; the steps bar did not move or fade across 300 samples at 1280 px; no demo strings in the production build.
+
+| # | Defect | Evidence |
+|---|---|---|
+| 1 | A planner answer that arrives after the host confirmed is applied: the confirmed area is replaced, or the session is left in voting with no meeting area | Two failing cases in the tester's `c8.test.js` |
+| 2 | A write that fails after the host confirmed restores an old snapshot and undoes the confirmation | Two failing cases |
+| 3 | `suggestSpot` takes no "latest wins" ticket: a slow suggestion leaves a stale list; two close suggestions can delete each other | One failing case; the second by reading |
+| 4 | Times show as exact when the server has no OneMap account and every time is an estimate | By reading |
+| 5 | Naming an area in `include` can change the planner's pick in routing mode, against the docs | By reading; no test could show it with the stub's times |
+| 6 | The preselected spot is compared on rounded minutes and can differ from the planner's pick with no approvals | By reading |
+| 7 | Keyboard focus is lost after "Works for me" | Reproduced in the browser |
+| 8 | Smaller: every Home chip restyled; Home's chip and text disagree; a suggestion can be left with no Withdraw after a reload mid-request; a Leaflet console error on starting with a known place from the create screen | By reading and in the browser |
+
+**For the merge:** this branch bumps the saved-data version from 8 to 9, so sessions in a browser are reset on first load and the account is kept. `main`'s showcase test expects two Home labels that this branch changes, its `createSession` has `hostId` and no `spots`, and its offline planner returns no `candidates`.
