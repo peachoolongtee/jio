@@ -192,6 +192,12 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
 - **Billing tier.** The nearby search's field mask asks for rating, review count, opening hours and price level. That is likely the dearer billing tier, but it is not confirmed: check Google's pricing page for Places API (New) Nearby Search. Dropping those fields would make the call cheaper and lose the ratings and hours the planner scores on.
 - **Terms and the map.** Google's terms restrict showing Places content alongside a non-Google map, and Jio's map is OneMap. Whether the current use is allowed has not been checked against the current terms.
 
+### Google search by name, and looking a place up by id
+
+- **Text Search (New)** (`places:searchText`) finds places by name, address or postal code near a point: the Vote page's "Search" (`POST /api/search`) and, when OneMap finds fewer than 3, the location search for start and end points and meeting spots (`GET /api/places/search`). At most 10 places, cached 10 minutes.
+- **Place Details (New)** (`places/{id}`) looks up one Google place the group added from a search, so the planner can rank it: it is not among the 20 nearest. Cached 10 minutes, at most 6 per ranking. Only the place id is ever kept, which Google's terms allow.
+- Both use the same field list as the nearby search, the same per-minute budget (`GOOGLE_CALLS_PER_MINUTE`), the same 3 s timeout and the same pause after repeated failures. Stub mode answers from `tests/fixtures/google/places-text-search.json` (invented places) and the nearby fixture.
+
 ### Google reviews (not built: feasibility, checked 10 Oct 2026)
 
 - **Demo Key:** Place Details returns the rating and review count, but **no review texts** (0 returned), the same as photos. It does return `googleMapsLinks.reviewsUri`, a link to the place's reviews on Google Maps, which works now.

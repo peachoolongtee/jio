@@ -42,6 +42,11 @@ const ACTIVITY_KIND = {
   zoo: 'attraction',
 };
 
+// Activities a place is mainly for even when Google's primary type says otherwise: every Teo Heng KTV is "bar" first
+// and "karaoke" second, and a bowling alley or an arcade may be "restaurant" first. Not art_gallery: many cafés carry
+// it for the paintings on their walls.
+const MAIN_ACTIVITY_TYPES = ['karaoke', 'bowling_alley', 'video_arcade', 'movie_theater', 'amusement_center', 'amusement_park'];
+
 /**
  * Which kind of place, and which Jio category, a Google place is.
  * Cafés, coffee and bars are 'drink', dessert is 'eat', malls and markets are 'shop', the same as the frontend's own list.
@@ -57,6 +62,8 @@ function kindOf(place) {
   if (ACTIVITY_KIND[place.primaryType]) return { category: 'activity', kind: ACTIVITY_KIND[place.primaryType], cuisine: place.primaryType };
   if (MALL_TYPES.includes(place.primaryType)) return { category: 'shop', kind: 'mall', cuisine: 'mall' };
   if (MARKET_TYPES.includes(place.primaryType)) return { category: 'shop', kind: 'market', cuisine: 'market' };
+  const mainActivity = MAIN_ACTIVITY_TYPES.find(t => types.includes(t));
+  if (mainActivity) return { category: 'activity', kind: ACTIVITY_KIND[mainActivity], cuisine: mainActivity };
   if (has('food_court')) return { category: 'eat', kind: 'hawker', cuisine: 'hawker' };
   if (has('bar', 'pub', 'wine_bar', 'cocktail_bar', 'night_club')) return { category: 'drink', kind: 'bar', cuisine: 'bar' };
   if (has('dessert_shop', 'ice_cream_shop', 'dessert_restaurant', 'bakery', 'confectionery')) return { category: 'eat', kind: 'dessert', cuisine: 'dessert' };
@@ -66,7 +73,10 @@ function kindOf(place) {
   if (activityType) return { category: 'activity', kind: ACTIVITY_KIND[activityType], cuisine: activityType };
   if (has(...MALL_TYPES)) return { category: 'shop', kind: 'mall', cuisine: 'mall' };
   if (has(...MARKET_TYPES)) return { category: 'shop', kind: 'market', cuisine: 'market' };
-  return { category: 'eat', kind: 'restaurant', cuisine: 'restaurant' };
+  if (has('store', 'clothing_store', 'shoe_store', 'book_store', 'electronics_store', 'gift_shop', 'jewelry_store', 'home_goods_store', 'furniture_store', 'sporting_goods_store')) return { category: 'shop', kind: 'mall', cuisine: 'store' };
+  // Nothing says food, drink or shopping: something to do (a climbing gym, an escape room, a museum, a park). Only a
+  // place someone searched for by name gets here; the nearby search asks Google for Jio's own types.
+  return { category: 'activity', kind: 'attraction', cuisine: place.primaryType ?? 'attraction' };
 }
 
 const hhmm = t => `${String(t.hour ?? 0).padStart(2, '0')}:${String(t.minute ?? 0).padStart(2, '0')}`;
@@ -104,10 +114,13 @@ function weekdayOf(dateTime) {
 /**
  * One Google place -> one engine venue, for a visit on a given date-time (the hours are that day's).
  * Returns null for a place that has closed down (by Google's status or its own name), has no location, or is a shop
- * with fewer than 50 reviews, or an activity with fewer than 30 reviews, an advert for a name, or lessons.
+ * with fewer than 50 reviews, or an activity with fewer than 30 reviews, an advert for a name, or lessons. With
+ * `searched` (someone typed its name, or the group added it from a search), only the first two apply: the group
+ * asked for that place, so a small karaoke with few reviews is still theirs to pick.
  *
  * How to call:
  *   const venue = fromGooglePlace(place, '2026-10-10T19:00')
+ *   const venue = fromGooglePlace(place, '2026-10-10T19:00', { searched: true })
  */
 // A shop or an activity needs this many Google reviews: fewer usually means one small store, a private studio, or a
 // listing nobody visits. Food and drink have no minimum: a small hawker stall with few reviews is still a real meal.
@@ -122,15 +135,15 @@ const CLOSED_NAME = /no longer in operation|permanently closed|\bclosed down\b/i
 const ADVERT_NAME = name => name.length > 60 || (name.match(/\//g) ?? []).length >= 2;
 const LESSONS_NAME = /\b(academy|school|tuition|coaching|enrichment|classes)\b/i;
 
-function fromGooglePlace(place, dateTime) {
+function fromGooglePlace(place, dateTime, { searched = false } = {}) {
   const lat = place.location?.latitude, lng = place.location?.longitude;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (place.businessStatus && place.businessStatus !== 'OPERATIONAL') return null;
   if (CLOSED_NAME.test(place.displayName?.text ?? '')) return null;
   const { category, kind, cuisine } = kindOf(place);
-  if ((place.userRatingCount ?? 0) < (MIN_REVIEWS[category] ?? 0)) return null;
+  if (!searched && (place.userRatingCount ?? 0) < (MIN_REVIEWS[category] ?? 0)) return null;
   const name = place.displayName?.text ?? '';
-  if (category === 'activity' && (ADVERT_NAME(name) || LESSONS_NAME.test(name))) return null;
+  if (!searched && category === 'activity' && (ADVERT_NAME(name) || LESSONS_NAME.test(name))) return null;
   const d = KIND_DEFAULTS[kind] ?? KIND_DEFAULTS.restaurant;
   const price = Object.hasOwn(PRICE_BY_LEVEL, place.priceLevel) ? PRICE_BY_LEVEL[place.priceLevel] : undefined;
   const dayHours = hoursOnDay(place.regularOpeningHours, weekdayOf(dateTime));
@@ -172,15 +185,16 @@ function fromGooglePlace(place, dateTime) {
  *
  * How to call:
  *   const venues = fromGooglePlaces(raw, '2026-10-10T19:00')
+ *   const venues = fromGooglePlaces(raw, '2026-10-10T19:00', { searched: true }) // see fromGooglePlace
  */
-function fromGooglePlaces(places, dateTime) {
+function fromGooglePlaces(places, dateTime, options = {}) {
   if (!Array.isArray(places)) return [];
   const venues = [];
   for (const place of places) {
     if (place === null || typeof place !== 'object' || typeof place.id !== 'string' || place.id === '') continue;
     if (!Number.isFinite(place.location?.latitude) || !Number.isFinite(place.location?.longitude)) continue;
     try {
-      const venue = fromGooglePlace(place, dateTime);
+      const venue = fromGooglePlace(place, dateTime, options);
       if (venue) venues.push(venue);
     } catch {
       // One odd place must not cost the request its other venues.

@@ -2,9 +2,9 @@ import { Router } from 'express'
 import { ZodError } from 'zod'
 import { converge, meetingArea, meetingAreaPlan, resolveMembers, roam, searchVenues } from '../planner/engine.js'
 import { fromGooglePlaces } from '../planner/google-adapter.js'
-import { centroid, fairnessWeights, minimaxCenter } from '../planner/geo.js'
+import { centroid, fairnessWeights, haversineKm, minimaxCenter } from '../planner/geo.js'
 import { dropKnownPlaces, withEstimatedMrtWalk } from '../db/venues.js'
-import { GoogleUnavailableError, PHOTO_NAME, snapPhotoWidth } from '../services/google-places.js'
+import { GoogleUnavailableError, PHOTO_NAME, PLACE_ID, snapPhotoWidth } from '../services/google-places.js'
 import { withLiveWeather } from '../planner/live-weather.js'
 import { createWeatherResolver } from '../planner/weather-window.js'
 import { OneMapUnavailableError } from '../services/budget.js'
@@ -20,8 +20,10 @@ import { createItineraryAi } from '../services/itinerary-ai.js'
 //   POST /api/meeting-area  where the group should meet (a named MRT station or neighbourhood)
 //   POST /api/converge      rank venues for the group around a point (one call per itinerary slot)
 //   POST /api/roam          rank venues near one person's current point ("What next?")
-//   POST /api/search        find a venue by name to add as an option, and say whether it fits the slot
-//   GET  /api/places/search find an address, postal code or building with OneMap, for start and end points
+//   POST /api/search        find a venue by name, address or postal code to add as an option (our places, OneMap for a
+//                           postal code, and Google), and say whether it fits the slot
+//   GET  /api/places/search find an address, postal code or building with OneMap (and a place by name with Google), for
+//                           start and end points and meeting spots
 //   GET  /api/places/photo  a Google place photo, by its name (redirects to the image; the key stays on the server)
 //   POST /api/itinerary/arrange  a new order for a confirmed itinerary, chosen by an AI, Gemini or Claude (food stays at meal times)
 //
@@ -66,6 +68,12 @@ const MEETING_CANDIDATES_WITH_ROUTING = 16
 
 // Of those, only the 5 whose estimated result is best get real routes. The others keep the estimate.
 const MEETING_AREAS_ROUTED = 5
+
+// The most Google options one ranking looks up by id (a slot holds at most 6 options).
+const MAX_GOOGLE_OPTIONS = 6
+
+// Where a place search with no meeting point leans: the middle of Singapore.
+const SINGAPORE_CENTRE = { lat: 1.3521, lng: 103.8198 }
 
 // Google places. /converge and /roam add restaurants, cafés, bars, dessert shops, malls and private activities (bowling,
 // cinemas, karaoke, arcades, galleries...) from Google near the point they
@@ -121,6 +129,130 @@ export function createPlanRouter({
     if (input.seed === 'minimax') return minimaxCenter(starts).center
     if (input.seed === 'centroid') return centroid(starts)
     return centroid(starts, fairnessWeights(members, input.fairnessScaleMinutes ?? 60))
+  }
+
+  // Venues from Google places, ready for the engine: each placed in its forecast area (with a live forecast) and given
+  // an estimated walk to the MRT, like the nearby ones.
+  //
+  // How to call:
+  //   const venues = readyGoogleVenues(fromGooglePlaces(raw, dateTime), forecast)
+  function readyGoogleVenues(venues, forecast) {
+    let ready = venues
+    if (forecast) ready = withLiveWeather({ ...data, venues: ready }, forecast).venues
+    return ready.map((v) => withEstimatedMrtWalk(v, data.areas))
+  }
+
+  // Google places the group already has as options (ids "google_...") that this request's plan data does not have,
+  // looked up by id. A place someone found by searching is usually not among the 20 nearest, so without this the
+  // planner would not know it and would say it does not fit. At most MAX_GOOGLE_OPTIONS look-ups per request; a
+  // place Google no longer has, or a failed look-up, is left out (the option then shows as not fitting).
+  //
+  // How to call:
+  //   const withOptions = await addGoogleOptions(input, planData, forecast)
+  async function addGoogleOptions(input, planData, forecast) {
+    if (!places?.enabled) return planData
+    const known = new Set(planData.venues.map((v) => v.id))
+    const wanted = [...new Set(input.currentOptionIds ?? [])]
+      .filter((id) => id.startsWith('google_') && !known.has(id) && PLACE_ID.test(id.slice(7)))
+      .slice(0, MAX_GOOGLE_OPTIONS)
+    if (wanted.length === 0) return planData
+    const raw = await Promise.all(
+      wanted.map((id) =>
+        places.details(id.slice(7)).catch((err) => {
+          if (!(err instanceof ExternalApiError)) throw err
+          return null
+        }),
+      ),
+    )
+    const found = readyGoogleVenues(fromGooglePlaces(raw.filter(Boolean), input.dateTime ?? nowInSingapore(), { searched: true }), forecast)
+    return found.length ? { ...planData, venues: [...planData.venues, ...found] } : planData
+  }
+
+  // Addresses, postal codes and buildings for GET /api/places/search: OneMap first (free, and it knows every address
+  // and postal code); when it finds fewer than 3, Google's text search adds places by name (a shop, a karaoke, a
+  // landmark OneMap does not list). Each is { name, address, postal, lat, lng }, at most 10. Throws ExternalApiError
+  // only when neither could answer.
+  //
+  // How to call:
+  //   const results = await searchAddresses('Teo Heng')
+  async function searchAddresses(q) {
+    let found = []
+    let failure = null
+    if (onemap) {
+      try {
+        found = await onemap.search(q)
+      } catch (err) {
+        if (!(err instanceof ExternalApiError)) throw err
+        failure = err
+      }
+    }
+    if (found.length < 3 && places?.enabled) {
+      try {
+        const raw = await places.searchText(q, SINGAPORE_CENTRE)
+        const known = new Set(found.map((r) => r.name.toLowerCase()))
+        for (const p of raw) {
+          const lat = p.location?.latitude
+          const lng = p.location?.longitude
+          const name = p.displayName?.text
+          if (!Number.isFinite(lat) || !Number.isFinite(lng) || typeof name !== 'string' || known.has(name.toLowerCase())) continue
+          const address = typeof p.formattedAddress === 'string' ? p.formattedAddress : ''
+          found.push({ name, address, postal: address.match(/Singapore (\d{6})/)?.[1] ?? '', lat, lng })
+          known.add(name.toLowerCase())
+        }
+        failure = null
+      } catch (err) {
+        if (!(err instanceof ExternalApiError)) throw err
+      }
+    }
+    if (failure && found.length === 0) throw failure
+    // A home address comes back from OneMap named only by its postal code ("760201"): name it by its street address.
+    return found.slice(0, 10).map((r) => (/^\d+$/.test(r.name ?? '') && r.address ? { ...r, name: r.address } : r))
+  }
+
+  // POST /api/search: our saved places by name, area or address; for a postal code, also the saved places at that
+  // building (found with OneMap); and Google's places matching the words (text search near the meeting point), so a
+  // place like "Teo Heng" or "Have Fun Karaoke" can be found even though it is not saved and not among the 20 nearest.
+  // Google's places come back with an id starting "google_"; adding one as an option works because the ranking looks
+  // it up by id (addGoogleOptions). Says where Google stood in `google: { source, added }` as /converge does. OneMap
+  // or Google being down never fails the search: it answers with what it has.
+  //
+  // How to call (the route does this):
+  //   const { results, google } = await searchEverywhere(input, data)
+  async function searchEverywhere(input, planData) {
+    const query = input.query.trim()
+    const postal = /^\d{6}$/.test(query)
+    const alsoMatch = []
+    let venues = planData.venues
+
+    // A postal code: the saved places within 150 m of the building OneMap finds for it.
+    if (postal && onemap) {
+      try {
+        const [hit] = await onemap.search(query)
+        if (hit) for (const v of venues) if (haversineKm(hit, v) <= 0.15) alsoMatch.push(v.id)
+      } catch (err) {
+        if (!(err instanceof ExternalApiError)) throw err
+      }
+    }
+
+    // Google: places matching whatever was typed, near the meeting point. Every kind is kept: a place of another kind
+    // than the slot comes back marked 'category', so the screen can say "Eat, not Activity" instead of hiding it.
+    let google = { source: 'off', added: 0 }
+    if (places?.enabled) {
+      try {
+        const raw = await places.searchText(postal ? `Singapore ${query}` : query, input.centre)
+        // Google sometimes answers a postal code with the bare address, named only by its number: not a place to go.
+        const named = raw.filter((p) => !/^\d+$/.test(p?.displayName?.text ?? ''))
+        const fresh = readyGoogleVenues(dropKnownPlaces(fromGooglePlaces(named, input.dateTime, { searched: true }), venues), null)
+        for (const v of fresh) alsoMatch.push(v.id)
+        venues = [...venues, ...fresh]
+        google = { source: 'google', added: fresh.length }
+      } catch (err) {
+        if (!(err instanceof ExternalApiError)) throw err
+        google = { source: 'unavailable', added: 0 }
+      }
+    }
+
+    return { results: searchVenues({ ...input, alsoMatch }, { ...planData, venues }), google }
   }
 
   // Adds Google's restaurants and cafés near the ranking point to this request's plan data. Places the venue list
@@ -217,7 +349,8 @@ export function createPlanRouter({
       const { weatherCase, planData: weatherData, forecast, weather: weatherBlock } = await resolveWeather(
         simulationIgnored ? { ...input, weatherCase: undefined } : input,
       )
-      const { planData, google } = await addGooglePlaces(input, weatherData, forecast)
+      const { planData: nearbyData, google } = await addGooglePlaces(input, weatherData, forecast)
+      const planData = await addGoogleOptions(input, nearbyData, forecast)
       const { result, travel } = usesTravel
         ? await runWithTravel(withOptionCounts({ ...input, weatherCase }), planData, run, travelOptions)
         : { result: await run(withOptionCounts({ ...input, weatherCase }), planData, depsFor()) }
@@ -268,7 +401,7 @@ export function createPlanRouter({
   )
   router.post('/converge', ...guard, handle(schemas.converge, converge, { usesWeather: true, usesTravel: true }))
   router.post('/roam', ...guard, handle(schemas.roam, roam, { usesWeather: true, usesTravel: true }))
-  router.post('/search', ...guard, handle(schemas.search, (input, planData) => ({ results: searchVenues(input, planData) })))
+  router.post('/search', ...guard, handle(schemas.search, searchEverywhere))
 
   // A new order for a confirmed itinerary. Food stops keep their place, so meals stay at meal times; the other
   // stops are put in the order the AI (Gemini or Claude) finds nicest among the orders that keep every place open
@@ -313,16 +446,17 @@ export function createPlanRouter({
   })
 
   // GET /api/places/search?q=520201 -> { results: [{ name, address, postal, lat, lng }] }, at most 10.
-  // For start and end points. Answers 503 when OneMap cannot be reached or this server has no OneMap service.
+  // For start and end points and meeting spots: OneMap, and Google by name when OneMap finds fewer than 3
+  // (searchAddresses). Answers 503 when neither can answer or this server has neither.
   // When the server's shared OneMap call budget is used up it also sends Retry-After, in whole seconds.
   router.get('/places/search', ...guard, async (req, res, next) => {
     try {
       const { q } = schemas.placeSearch.parse(req.query)
-      if (!onemap) {
+      if (!onemap && !places?.enabled) {
         res.status(503).json({ error: 'search_unavailable', message: 'Address search is not set up on this server.' })
         return
       }
-      res.json({ results: (await onemap.search(q)).slice(0, 10) })
+      res.json({ results: await searchAddresses(q) })
     } catch (err) {
       if (err instanceof ZodError) {
         invalid(res, err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })))
