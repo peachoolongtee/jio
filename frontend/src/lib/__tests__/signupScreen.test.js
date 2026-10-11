@@ -130,7 +130,7 @@ describe('a failed sign-up', () => {
     const { view, store } = await setUp(fake)
     await view.click(mainButton(view))
     await until(() => store.draft.step === 0)
-    expect(view.text()).toContain('An account with that email already exists. Sign in instead.')
+    expect(view.text()).toContain('An account with that email already exists. Log in instead.')
     expect(view.one('a[href="/login"]')).toBeTruthy()
   })
 })
@@ -162,5 +162,137 @@ describe('local accounts', () => {
     await until(() => store.signedIn)
     await until(() => router.currentRoute.value.name === 'home')
     expect(store.user.local).toBe(true)
+  })
+})
+
+describe('the username question when the check cannot be made', () => {
+  const UNCHECKED = 'Could not check that username right now. Press Next to carry on; it is checked again when you sign up.'
+
+  it.each([
+    ['Supabase is unreachable', { down: true }],
+    ['the function answers a 500', { rpcError: { message: 'boom', code: 'XX000', details: '', hint: '' } }],
+  ])('shows a message under the field and lets Next work again, then goes on, when %s', async (_name, options) => {
+    const { view, store, fake } = await setUp(fakeSupabase(options), { step: 4 })
+    await view.click(mainButton(view))
+    await until(() => view.text().includes(UNCHECKED))
+    // Still on the question, with the message under the username field, and the button usable again.
+    expect(store.draft.step).toBe(4)
+    expect(view.text('h1')).toBe('Pick a username')
+    expect(view.text('p[role=alert]')).toBe(UNCHECKED)
+    expect(mainButton(view).disabled).toBe(false)
+    expect(view.text(mainButton(view))).toContain('Next')
+    // The next press goes on without asking again.
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 5)
+    expect(fake.state.rpcCalls).toHaveLength(1)
+  })
+
+  it('checks again when the username is changed', async () => {
+    const { view, store, fake } = await setUp(fakeSupabase({ down: true }), { step: 4 })
+    await view.click(mainButton(view))
+    await until(() => view.text().includes(UNCHECKED))
+    view.type('input[autocomplete=nickname]', 'samuel')
+    await view.tick()
+    expect(view.has('p[role=alert]')).toBe(false)
+    fake.state.options.down = false
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 5)
+    expect(fake.state.rpcCalls).toHaveLength(2)
+  })
+
+  it('says a taken username is taken, and does not go on', async () => {
+    const fake = fakeSupabase()
+    fake.state.profiles.other = { username: PROFILE.username }
+    const { view, store } = await setUp(fake, { step: 4 })
+    await view.click(mainButton(view))
+    await until(() => view.text().includes('That username is taken. Try another one.'))
+    expect(store.draft.step).toBe(4)
+    expect(mainButton(view).disabled).toBe(false)
+  })
+
+  it('says what the button is doing while it checks, and does not offer the browser the saved email', async () => {
+    const { view, fake, store } = await setUp(fakeSupabase(), { step: 4 })
+    expect(view.has('input[autocomplete=username]')).toBe(false)
+    expect(view.one('input[autocomplete=nickname]')).toBeTruthy()
+    let answer
+    fake.client.rpc = () => new Promise((resolve) => (answer = resolve))
+    await view.click(mainButton(view))
+    expect(view.text(mainButton(view))).toContain('Checking username')
+    expect(mainButton(view).disabled).toBe(true)
+    expect(view.text('[role=status]')).toBe('Checking username')
+    await until(() => answer)
+    answer({ data: true, error: null })
+    await until(() => store.draft.step === 5)
+    expect(view.has('[role=status]')).toBe(false)
+  })
+})
+
+describe('creating the account', () => {
+  it('says so on the button while it waits, and the button cannot be pressed twice', async () => {
+    const { view, store, fake } = await setUp(fakeSupabase())
+    let answer
+    const real = fake.client.auth.signUp
+    fake.client.auth.signUp = (args) => new Promise((resolve) => (answer = () => resolve(real(args))))
+    await view.click(mainButton(view))
+    await until(() => view.text(mainButton(view)).includes('Creating your account'))
+    expect(mainButton(view).disabled).toBe(true)
+    await view.click(mainButton(view))
+    await until(() => answer)
+    answer()
+    await until(() => store.signedIn)
+    expect(fake.state.signUpCalls).toHaveLength(1)
+  })
+
+  it('does not wait for the profile writes: the person is in while they have not answered', async () => {
+    const { view, store, router } = await setUp(fakeSupabase({ writesHang: true }))
+    await view.click(mainButton(view))
+    await until(() => store.signedIn)
+    await until(() => router.currentRoute.value.name === 'home')
+  })
+
+  it('tells the person afterwards that the profile could not be saved to the account', async () => {
+    const { view, store } = await setUp(fakeSupabase({ failWrites: true }))
+    await view.click(mainButton(view))
+    await until(() => store.signedIn)
+    await until(() => store.syncNotice !== '')
+    expect(store.syncNotice).toMatch(/could not be saved to your account/)
+  })
+
+  it('does not send the person to the username when the server failed for another reason: "something went wrong", on the password step', async () => {
+    const { view, store, fake } = await setUp(fakeSupabase({ breakTrigger: true }))
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 1)
+    expect(view.text('[data-testid=signup-error]')).toBe('Something went wrong. Try again.')
+    expect(view.text()).not.toMatch(/username is taken|Could not reach Jio/)
+    expect(store.draft.password).toBe('')
+    expect(store.draft.username).toBe('sam')
+    // It asked once whether the username was taken, and was told it was free.
+    expect(fake.state.rpcCalls).toHaveLength(1)
+  })
+
+  it('sends a taken username, found when the account was created, to the username question', async () => {
+    const fake = fakeSupabase({ staleUsernameCheck: true })
+    fake.state.profiles.other = { username: PROFILE.username }
+    const { view, store } = await setUp(fake)
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 4)
+    expect(view.text()).toContain('That username is taken. Choose another one.')
+    expect(view.text()).not.toMatch(/Could not reach Jio/)
+  })
+
+  it('sends a refused email address back to the email question with an email message', async () => {
+    const { view, store } = await setUp(fakeSupabase({ signUpError: { name: 'AuthApiError', status: 422, code: 'email_address_invalid', message: 'bad' } }))
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 0)
+    expect(view.text()).toContain('That email address does not look right. Check it and try again.')
+    expect(view.text('h1')).toBe('Your email')
+  })
+
+  it('the password step offers Show and Hide with its words only', async () => {
+    const { view } = await setUp(fakeSupabase(), { step: 1 })
+    const peek = view.all('button').find((b) => ['Show', 'Hide'].includes(view.text(b)))
+    expect(peek.attrs['aria-pressed']).toBeUndefined()
+    await view.click(peek)
+    expect(view.text(peek)).toBe('Hide')
   })
 })

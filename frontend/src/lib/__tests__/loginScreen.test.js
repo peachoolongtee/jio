@@ -68,13 +68,16 @@ describe('the login screen', () => {
     expect(view.one('a[href="/signup"]')).toBeTruthy()
   })
 
-  it('shows the password only when asked, and says which state the button is in', async () => {
+  it('shows the password only when asked, and says which state the button is in with its words, not also aria-pressed', async () => {
     const { view } = await setUp()
-    const peek = view.all('button').find((b) => b.attrs['aria-pressed'] !== undefined)
-    expect(peek.attrs['aria-pressed']).toBe('false')
+    const peek = view.all('button').find((b) => ['Show', 'Hide'].includes(view.text(b)))
+    expect(view.text(peek)).toBe('Show')
+    expect(view.one('input#login-password').attrs.type).toBe('password')
     await view.click(peek)
     expect(view.one('input#login-password').attrs.type).toBe('text')
-    expect(peek.attrs['aria-pressed']).toBe('true')
+    expect(view.text(peek)).toBe('Hide')
+    // One signal for the state, not two.
+    expect(peek.attrs['aria-pressed']).toBeUndefined()
   })
 
   it('shows the sentence for a failed sign-in, keeps the email, empties the password and puts focus on it', async () => {
@@ -142,6 +145,42 @@ describe('the login screen', () => {
     expect(fake.state.signInCalls).toHaveLength(0)
   })
 
+  it('ties each empty-field message to its own field, and keeps the wrong-credentials message as the form\'s alert', async () => {
+    const { view } = await setUp()
+    const email = () => view.one('input#login-email')
+    const password = () => view.one('input#login-password')
+    await view.click('button[type=submit]')
+    expect(email().attrs['aria-invalid']).toBe('true')
+    expect(email().attrs['aria-describedby']).toBe('login-email-help')
+    expect(view.text('#login-email-help')).toBe('Enter the email address you signed up with.')
+    expect(password().attrs['aria-invalid']).toBeUndefined()
+    // It goes away when the person types in that field.
+    view.type('#login-email', PROFILE.email)
+    await view.tick()
+    expect(view.has('#login-email-help')).toBe(false)
+    expect(email().attrs['aria-invalid']).toBeUndefined()
+    await view.click('button[type=submit]')
+    expect(password().attrs['aria-invalid']).toBe('true')
+    expect(password().attrs['aria-describedby']).toBe('login-password-help')
+    expect(view.text('#login-password-help')).toBe('Enter your password.')
+    expect(email().attrs['aria-invalid']).toBeUndefined()
+    // No loose alert for either: the only alert is the field's own.
+    expect(view.has('[data-testid=login-error]')).toBe(false)
+    // A wrong password is the form's alert, under the fields, and marks neither field.
+    view.type('#login-password', 'not-the-password')
+    await view.click('button[type=submit]')
+    await until(() => view.has('[data-testid=login-error]'))
+    expect(view.text('[data-testid=login-error]')).toBe('That email and password do not match. Check them and try again.')
+    expect(email().attrs['aria-invalid']).toBeUndefined()
+    expect(password().attrs['aria-invalid']).toBeUndefined()
+    expect(view.has('#login-password-help')).toBe(false)
+  })
+
+  it('uses "log in" for the action everywhere on the screen', async () => {
+    const { view } = await setUp()
+    expect(view.text()).not.toMatch(/sign in/i)
+  })
+
   it('never puts the email or the password in the address', async () => {
     const { view, router } = await setUp()
     fillIn(view, PROFILE.email, 'not-the-password')
@@ -177,6 +216,6 @@ describe('the login screen', () => {
     fillIn(view, PROFILE.email, PROFILE.password)
     await view.click('button[type=submit]')
     await until(() => view.has('p[role=alert]'))
-    expect(view.text('p[role=alert]')).toBe('Confirm your email first. Open the link we sent you, then sign in.')
+    expect(view.text('p[role=alert]')).toBe('Confirm your email first. Open the link we sent you, then log in.')
   })
 })

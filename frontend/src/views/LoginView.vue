@@ -2,7 +2,8 @@
 // Log in: an email and a password, one button, a link to sign up. Only reached when accounts are real (the router sends
 // /login to /signup otherwise). On success it goes to the page the person was heading for (?next=, checked to be a path
 // inside this app) or to Home. The email and password are never put in the address.
-// A wrong password and an unknown email give the same sentence (lib/auth.js), shown as it is under the fields.
+// A wrong password and an unknown email give the same sentence (lib/auth.js), shown as it is under the fields. A field
+// left empty is told so under that field.
 import { nextTick, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -19,9 +20,13 @@ const auth = useAuthStore()
 const email = ref(auth.pendingConfirmation?.email || '')
 const password = ref('')
 const error = ref('')
+const emailError = ref('')
+const passwordError = ref('')
 const busy = ref(false)
 const showPassword = ref(false)
 
+// Does this look like an email address?
+// How to call: emailValid('sam@example.com') -> true
 const emailValid = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
 
 // Where to go once signed in: the remembered page when it is a real screen of this app, otherwise Home.
@@ -43,13 +48,15 @@ async function refocus(id) {
 async function submit() {
   if (busy.value) return
   error.value = ''
+  emailError.value = ''
+  passwordError.value = ''
   if (!emailValid(email.value)) {
-    error.value = 'Enter the email address you signed up with.'
+    emailError.value = 'Enter the email address you signed up with.'
     await refocus('login-email')
     return
   }
   if (!password.value) {
-    error.value = 'Enter your password.'
+    passwordError.value = 'Enter your password.'
     await refocus('login-password')
     return
   }
@@ -87,11 +94,13 @@ async function submit() {
         autocapitalize="none"
         spellcheck="false"
         placeholder="name@example.com"
+        :error="emailError"
         autofocus
+        @input="emailError = ''"
       />
-      <TextField id="login-password" v-model="password" label="Password" :type="showPassword ? 'text' : 'password'" autocomplete="current-password">
+      <TextField id="login-password" v-model="password" label="Password" :type="showPassword ? 'text' : 'password'" autocomplete="current-password" :error="passwordError" @input="passwordError = ''">
         <template #trailing>
-          <button type="button" class="login__peek" :aria-pressed="String(showPassword)" @click="showPassword = !showPassword">{{ showPassword ? 'Hide' : 'Show' }}</button>
+          <button type="button" class="login__peek" @click="showPassword = !showPassword">{{ showPassword ? 'Hide' : 'Show' }}</button>
         </template>
       </TextField>
       <p v-if="error" class="body-sm text-error" role="alert" data-testid="login-error">{{ error }}</p>

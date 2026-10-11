@@ -95,7 +95,8 @@ async function signOut() {
   signingOut.value = true
   signOutError.value = ''
   try {
-    // Never throws. Real accounts go to the login screen; with local accounts only, there is nothing to log in to.
+    // Rejects only when a real account's session could not be ended on this browser. Real accounts go to the login screen;
+    // with local accounts only, there is nothing to log in to.
     const toLogin = auth.realAccounts
     await auth.signOut()
     await router.replace(toLogin ? '/login' : '/signup')

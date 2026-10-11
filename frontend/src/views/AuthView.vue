@@ -52,6 +52,8 @@ const areas = ref([])
 const people = ref([])
 // Messages under a field: from the data layer, shown on the question they belong to.
 const usernameError = ref('')
+// The username that could not be checked (Supabase did not answer): the person was told and may go on with it.
+const usernameUnchecked = ref('')
 const nameError = ref('')
 const dobError = ref('')
 const submitError = ref('')
@@ -65,6 +67,8 @@ const confirmTitle = ref(null)
 const demoError = ref('')
 const photoError = ref('')
 const busy = ref(false)
+// What the busy state is for, so the main button can say so: 'checking' (the username) or 'creating' (the account).
+const phase = ref('')
 const showPassword = ref(false)
 const stepTitle = ref(null)
 
@@ -102,6 +106,8 @@ const canContinue = computed(() => {
 
 const areaOptions = computed(() => [...areas.value].sort((a, b) => a.name.localeCompare(b.name)).map((a) => ({ value: a.id, label: a.name })))
 
+// One question back.
+// How to call: back()
 function back() {
   submitError.value = ''
   if (draft.value.step > 0) draft.value.step -= 1
@@ -132,6 +138,39 @@ function askForPassword() {
   draft.value.step = STEPS.indexOf('password')
 }
 
+// What the username question says when the check could not be made. It is not a refusal: the next press of Next goes on,
+// and the name is checked again when the account is created.
+const UNCHECKED = 'Could not check that username right now. Press Next to carry on; it is checked again when you sign up.'
+
+// Is this username free? True when it is, false (with the reason under the field) when it is taken, and false too, with a
+// note, the first time the check itself fails; the person then presses Next again to go on with the name unchecked.
+// How to call: if (await usernameFree()) draft.value.step += 1
+async function usernameFree() {
+  const name = draft.value.username
+  if (usernameUnchecked.value === name) return true
+  busy.value = true
+  phase.value = 'checking'
+  try {
+    const { available } = await api.checkUsername(name)
+    if (!available) usernameError.value = 'That username is taken. Try another one.'
+    return available
+  } catch (err) {
+    if (err?.code) {
+      usernameUnchecked.value = name
+      usernameError.value = UNCHECKED
+    } else {
+      // A rule of the username itself (not a failed call): shown as it is.
+      usernameError.value = err?.message || UNCHECKED
+    }
+    return false
+  } finally {
+    busy.value = false
+    phase.value = ''
+  }
+}
+
+// The Next / Finish button: check this question, then go on to the next one, or create the account on the last.
+// How to call: await next()
 async function next() {
   if (!canContinue.value || busy.value) return
   submitError.value = ''
@@ -140,18 +179,17 @@ async function next() {
     draft.value.step = STEPS.length - 1
     return
   }
-  if (step.value === 'username') {
-    busy.value = true
-    const { available } = await api.checkUsername(draft.value.username)
-    busy.value = false
-    if (!available) {
-      usernameError.value = 'That username is taken. Try another one.'
-      return
-    }
-  }
+  if (step.value === 'username' && !(await usernameFree())) return
   if (draft.value.step < STEPS.length - 1) draft.value.step += 1
   else finish()
 }
+
+// What the main button says: its usual word, or what is happening while it waits.
+const buttonLabel = computed(() => {
+  if (phase.value === 'checking') return 'Checking username'
+  if (phase.value === 'creating') return 'Creating your account'
+  return step.value === 'friends' ? 'Finish' : 'Next'
+})
 
 // Development builds only: the first question also offers the demo account, with or without showcase data
 // (components/dev/DemoSignIn.vue). In a production build this is null, so the buttons and their words are left out.
@@ -175,6 +213,8 @@ const quickAccount = import.meta.env.DEV
     }
   : null
 
+// Create the account from the draft. On a problem, go back to the question it belongs to with the reason on the field.
+// How to call: await finish()
 async function finish() {
   // The password is emptied after every attempt, so a retry asks for it again before anything is sent.
   if (auth.realAccounts && !draft.value.password) {
@@ -182,6 +222,7 @@ async function finish() {
     return
   }
   busy.value = true
+  phase.value = 'creating'
   submitError.value = ''
   try {
     const account = await auth.signUp()
@@ -198,8 +239,8 @@ async function finish() {
     if (field) draft.value.step = STEPS.indexOf(field)
     if (auth.realAccounts) {
       reenter.value = true
-      if (err?.code === 'email_taken') {
-        // This email is already registered: back to the email question, where the "Log in" link is.
+      if (err?.code === 'email_taken' || err?.code === 'email_invalid') {
+        // This email is already registered, or is not one: back to the email question, where the "Log in" link is.
         submitError.value = ''
         emailError.value = message
         draft.value.step = STEPS.indexOf('email')
@@ -210,9 +251,12 @@ async function finish() {
     }
   } finally {
     busy.value = false
+    phase.value = ''
   }
 }
 
+// Read the chosen picture, shrink it, and keep it in the draft.
+// How to call: onPhoto(event) (the file input's change)
 function onPhoto(event) {
   const file = event.target.files?.[0]
   photoError.value = ''
@@ -241,12 +285,17 @@ function onPhoto(event) {
   reader.readAsDataURL(file)
 }
 
+// Add a suggested friend, or take them off the list.
+// How to call: toggleFriend('darius')
 function toggleFriend(id) {
   const list = draft.value.friends
   draft.value.friends = list.includes(id) ? list.filter((f) => f !== id) : [...list, id]
 }
 
-watch(() => draft.value.username, () => (usernameError.value = ''))
+watch(() => draft.value.username, () => {
+  usernameError.value = ''
+  usernameUnchecked.value = ''
+})
 watch(() => draft.value.name, () => (nameError.value = ''))
 watch(() => draft.value.dob, () => (dobError.value = ''))
 </script>
@@ -290,7 +339,7 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Create a password</h1>
         <TextField v-model="draft.password" label="Password" :type="showPassword ? 'text' : 'password'" autocomplete="new-password" :error="passwordError" @input="passwordError = ''">
           <template #trailing>
-            <button type="button" class="signup__peek" :aria-pressed="String(showPassword)" @click="showPassword = !showPassword">{{ showPassword ? 'Hide' : 'Show' }}</button>
+            <button type="button" class="signup__peek" @click="showPassword = !showPassword">{{ showPassword ? 'Hide' : 'Show' }}</button>
           </template>
         </TextField>
         <ul class="checklist" aria-label="Password checklist" aria-live="polite">
@@ -326,7 +375,7 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
         <TextField
           v-model="draft.username"
           label="Username"
-          autocomplete="username"
+          autocomplete="nickname"
           autocapitalize="none"
           placeholder="ian"
           :hint="USERNAME_HINT"
@@ -372,11 +421,12 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
     <footer class="screen__footer signup__footer">
       <p v-if="demoError || auth.startOverError" class="body-sm text-error" role="alert">{{ demoError || auth.startOverError }}</p>
       <p v-if="submitError" class="body-sm text-error" role="alert" data-testid="signup-error">{{ submitError }}</p>
+      <p v-if="phase" class="sr-only" role="status">{{ buttonLabel }}</p>
       <template v-if="step === 'photo'">
         <AppButton next block @click="next">{{ draft.photo ? 'Next' : 'Skip' }}</AppButton>
       </template>
       <template v-else>
-        <AppButton next block :disabled="!canContinue || busy" @click="next">{{ step === 'friends' ? 'Finish' : 'Next' }}</AppButton>
+        <AppButton next block :disabled="!canContinue || busy" @click="next">{{ buttonLabel }}</AppButton>
       </template>
       <AppButton v-if="quickAccount && step !== 'email'" variant="tertiary" underline small class="signup__dev" :disabled="busy" @click="quickAccount">Dev: create a demo account</AppButton>
     </footer>

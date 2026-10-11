@@ -151,4 +151,21 @@ describe('safeNext', () => {
     const bad = ['', undefined, null, 5, ['/profile'], 'profile', 'http://evil.example', '//evil.example', '/\\x', '/a b', '/signup', '/login?x=1', 'javascript:alert(1)', `/${'a'.repeat(600)}`]
     for (const value of bad) expect(safeNext(value)).toBe('')
   })
+
+  it('returns nothing when dot segments resolve to a protocol-relative address', async () => {
+    const { safeNext } = await import('@/router/guard.js')
+    // The address parser turns each of these into '//evil.example', which a router or a browser would read as another site.
+    for (const value of ['/.//evil.example', '/..//evil.example', '/a/..//evil.example', '/%2e//evil.example', '/%2E%2e//evil.example']) {
+      expect(new URL(value, 'http://jio.invalid').pathname.startsWith('//')).toBe(true)
+      expect(safeNext(value)).toBe('')
+    }
+    // Dot segments that stay on this site are still fine, rebuilt without them.
+    expect(safeNext('/./sessions/../profile')).toBe('/profile')
+  })
+
+  it('drops such a destination from the login address too', async () => {
+    const { router } = await setUp(fakeSupabase())
+    await router.push({ path: '/login', query: { next: '/.//evil.example' } })
+    expect(router.currentRoute.value.fullPath).toBe('/login')
+  })
 })

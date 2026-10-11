@@ -8,8 +8,9 @@ import { useAuthStore } from '@/stores/auth.js'
 const BASE = 'http://jio.invalid'
 
 // The in-app path for a ?next= value, or '' when it is anything else (an outside address, a protocol-relative address,
-// a backslash trick, control characters, a path back to the login or sign-up screen, a list of values). Only a path
-// that stays on this site comes back, and it comes back rebuilt from the parsed address.
+// a backslash trick, control characters, dot segments that resolve to a protocol-relative address, a path back to the
+// login or sign-up screen, a list of values). Only a path that stays on this site comes back, and it comes back rebuilt
+// from the parsed address.
 // How to call: safeNext('/sessions/s1?tab=past') -> '/sessions/s1?tab=past';  safeNext('//evil.example') -> ''
 export function safeNext(raw) {
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > 500) return ''
@@ -24,7 +25,10 @@ export function safeNext(raw) {
   }
   if (url.origin !== BASE) return ''
   if (/^\/(login|signup)(\/|$)/.test(url.pathname)) return ''
-  return url.pathname + url.search + url.hash
+  const path = url.pathname + url.search + url.hash
+  // Dot segments are resolved by the parser: '/.//evil.example' becomes '//evil.example', an address on another site.
+  if (path.startsWith('//')) return ''
+  return path
 }
 
 // Where the visitor goes instead of `to`, or true to let them through. `auth` is the auth store, already initialised.
