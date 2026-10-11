@@ -6,15 +6,22 @@
 // place that knows how a session is stored.
 import axios from 'axios'
 import { ref } from 'vue'
+import * as auth from './auth.js'
 
 // Calls to the Jio backend (planner, geocode and weather proxy).
-// Attaching the Supabase session token waits on the JWT verification decision.
+// Each request carries the Supabase session token when there is one (see the interceptors below). The backend
+// verifies it locally; a local account or a build without Supabase has none, and the requests go without.
 // In development, leave VITE_API_BASE_URL blank: requests go to /api on the page's own address and the Vite dev
 // server forwards them to the backend (see vite.config.js). Deployed, it is the backend's URL.
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '',
   timeout: 15000,
 })
+
+// What the login check's answers say, in words a person can act on.
+const SESSION_ENDED = 'Your session has ended. Log in again.'
+const LOGIN_NEEDED = 'The planner needs you to be logged in. Log in and try again.'
+const AUTH_UNAVAILABLE = 'Jio cannot check your login right now. Try again in a moment.'
 
 // What a failed request says. Screens show err.message, so say what went wrong in words a person can act on.
 // Developer text (commands, environment variable names, request details) is only for development builds;
@@ -33,6 +40,10 @@ export function plannerErrorMessage(err, { dev = import.meta.env.DEV, baseURL = 
   }
   const { status, data } = err.response
   if (status === 429) return 'Too many requests. Wait a few seconds and try again.'
+  // The login check's two answers (backend/src/middleware/auth.js). A 401 reaches here only when it could not be fixed
+  // by refreshing the token, which is a request that carried none.
+  if (status === 503 && data?.error === 'auth_unavailable') return AUTH_UNAVAILABLE
+  if (status === 401 && data?.error === 'unauthenticated') return LOGIN_NEEDED
   const issues = data?.issues?.map((i) => `${i.path}: ${i.message}`).join('; ')
   if (issues) return dev ? `The planner could not use this request (${issues}).` : 'The planner could not use this request. Try again.'
   // A 404 message names the route, which is developer text.
@@ -40,9 +51,87 @@ export function plannerErrorMessage(err, { dev = import.meta.env.DEV, baseURL = 
   return data?.message || 'The planner had a problem. Try again.'
 }
 
+// A production build with no VITE_API_BASE_URL would send every request to the static host that serves the page, which
+// answers with its HTML page. The request is refused with this sentence for the person; the developer text goes to the
+// console once, because the check only runs outside development (in development an empty address means the Vite proxy).
+const NO_BACKEND = 'The Jio planner is not available right now. Try again later.'
+let toldDeveloper = false
+
+// How to call: refuseWithoutBackend() (throws NO_BACKEND)
+function refuseWithoutBackend() {
+  if (!toldDeveloper) {
+    toldDeveloper = true
+    console.error('Jio: this build has no VITE_API_BASE_URL, so it has no backend to call. Set it to the backend URL (see frontend/.env.example) and build again.')
+  }
+  throw Object.assign(new Error(NO_BACKEND), { planner: true })
+}
+
+// What an answer that is not JSON says (usually the static host's HTML page, with status 200).
+// How to call: notJsonMessage({ dev: false }) -> 'The planner sent an answer Jio could not read. Try again later.'
+export function notJsonMessage({ dev = import.meta.env.DEV } = {}) {
+  return dev
+    ? 'The planner answered with something other than JSON. Check VITE_API_BASE_URL points at the backend, not the page itself.'
+    : 'The planner sent an answer Jio could not read. Try again later.'
+}
+
+// Several requests that fail together share one refresh. Settled by the time the next failure comes in.
+let refreshing = null
+
+// A fresh token, or null after ending the session when there is none. Never throws.
+// How to call: const token = await renewedToken()
+function renewedToken() {
+  if (!refreshing) {
+    refreshing = (async () => {
+      const token = await auth.refreshedToken()
+      if (!token) await auth.signOut()
+      return token
+    })().finally(() => {
+      refreshing = null
+    })
+  }
+  return refreshing
+}
+
+// Before each request: stop when a production build has no backend to call, then attach the token read right now.
+// A retry (see below) already holds its new token and keeps it.
+api.interceptors.request.use(async (config) => {
+  const absolute = /^https?:\/\//i.test(config.url || '')
+  if (!config.baseURL && !absolute && !import.meta.env.DEV) {
+    refuseWithoutBackend()
+  }
+  if (!config.jioRetried) {
+    const token = await auth.accessToken()
+    if (token) config.headers.set('Authorization', `Bearer ${token}`)
+  }
+  return config
+})
+
+// A 401 from the login check on a request that carried a token: refresh once, send it again once. A refresh that
+// gives nothing, or a second 401, ends the Supabase session (lib/auth.js signOut, so api.js's listener signs the app
+// out and the screens show the login). It is called here, not api.js's signOut, because api.js imports this file.
 api.interceptors.response.use(
-  (res) => res,
-  (err) => {
+  (res) => {
+    // A string or nothing is not the planner (the static host's page, say). Reading it as "no places" would be wrong.
+    if (res.data === null || typeof res.data !== 'object') throw new Error(notJsonMessage())
+    return res
+  },
+  async (err) => {
+    if (err?.planner) throw err
+    const loginCheck = err?.response?.status === 401 && err.response.data?.error === 'unauthenticated'
+    // A request with no token (a local account) is not retried and signs nobody out.
+    if (loginCheck && err.config?.headers?.has?.('Authorization')) {
+      if (!err.config.jioRetried) {
+        const token = await renewedToken()
+        if (token) {
+          err.config.jioRetried = true
+          err.config.headers.set('Authorization', `Bearer ${token}`)
+          return api.request(err.config)
+        }
+      } else {
+        await auth.signOut()
+      }
+      throw new Error(SESSION_ENDED)
+    }
     throw new Error(plannerErrorMessage(err))
   },
 )
