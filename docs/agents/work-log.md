@@ -788,3 +788,86 @@ Defaults taken, for the lead to confirm or change:
 - **Not seen by the lead:** a successful login or sign-up, "Check your email", the sign-out dialog and where it lands, the sync notice, the Profile note for a local account, and the new redirect when a session ends. They rest on the tests. Nothing has run against the real Supabase project.
 - **Found and left:** the "Use the demo account with showcase data" button's text runs past its box at 320 px. It is from the showcase round and shows only in development builds.
 - **For the lead to know:** with real accounts on, the sign-up screen shows one password rule, "6 or more characters", which is Supabase's default; the project's own setting was not checked. With real accounts off, a failed local sign-up now empties the password, which it did not before.
+
+## Round 18: audit of three branches, then merge in the lead's order (2026-10-11)
+
+The lead asked: "audit and merge login first then ai itinerary then meeting spots". None has a pull request.
+
+| Branch | By | Head | Against `main` at `aa64d15` |
+|---|---|---|---|
+| `feat/login` | the lead's other session (round 17) | `fa827dc` | 4 commits, 28 files, merges cleanly |
+| `feature/ai-itinerary` | faithpho | `01c35ee` | 2 commits, 20 files, merges cleanly |
+| `feat/meeting-spots` | the lead's other session (rounds 15 and 16) | `36030e8` | 11 commits ahead and 8 behind, 39 files, one conflict (`DemoPanel.vue`) |
+
+- **Before any review, by the lead, on each branch's head:** `feat/login`: `pnpm test` 547 passed, 1 skipped; frontend 457 passed, 40 files. `feature/ai-itinerary`: 565 passed, 1 skipped; frontend 354 passed. `feat/meeting-spots`: 678 passed, 2 skipped; frontend 398 passed. Every backend suite also passed with outbound calls blocked, and every build succeeded.
+- **Known before the audit:** meeting spots conflicts with login (`CLAUDE.md`, the work log, `DemoPanel.vue`) and with the AI itinerary (`DemoPanel.vue`, `stores/events.js`). The lead cut "Ask AI" on 2026-10-09; by asking for the AI itinerary to be merged, the lead has decided this different AI feature goes in.
+- **Where the work happens:** a throwaway worktree per branch. Fixes go on integration branches (`feat/login-integration` and so on), not on the branches themselves.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 18.1 | Code reviewer, read-only | Login: the account layer, token handling, the guard, storage | Nothing | Every finding has a file, a line and a way to trigger it | **Completed**: "changes required" |
+| 18.2 | Verifier | Login: run it against a fake auth server on this machine and try to break it | Nothing in the repo | Each claim confirmed or refuted with output | **Completed** |
+| 18.3 | Code reviewer, read-only | AI itinerary: the AI service, keys, cost, what is sent, the arrange rules, the route | Nothing | Same | **Completed**: "changes required" |
+| 18.4 | Verifier | AI itinerary: run it in stub mode and with a fake AI; count calls; failures | Nothing in the repo | Same | **Completed** |
+| 18.5 | Code reviewer, read-only | Meeting spots: the backend change, the data layer, the screen's code | Nothing | Same | **Completed**: "changes required" |
+| 18.6 | Verifier | Meeting spots: the rules in the handoff's section 3, through the data layer and a headless browser | Nothing in the repo | Each rule confirmed or refuted with output | **Completed** |
+| 18.7 | Lead | Check findings, fix or record, merge each in order, resolve conflicts, re-run suites after each merge | Fixes on integration branches, docs, the tracker | All suites pass after each merge | Running |
+| 18.8 | Frontend | Login: fix the audit's findings | `frontend/` on `feat/login-integration` | Suites pass, also offline; a production build has no demo strings | Running |
+| 18.9 | Backend | AI itinerary: a call budget, a cache, a deadline, a pause after failures, a smaller model, checks on the answer and the prompt | `backend/` on `feat/ai-itinerary-integration` | Suites pass, also offline; other routes unchanged | Running |
+| 18.10 | Frontend | AI itinerary: confirm never blocked, a choice of orders, a request ticket, honest labels | `frontend/` on the same branch | Suite and build pass | Running |
+| 18.11 | Frontend | Meeting spots: the timing defects, "about" on estimates, preselection, focus, Home's words, the design document | `frontend/` and `DESIGN.md` on `feat/meeting-spots-integration` | Suite and build pass | Running |
+| 18.12 | Backend | Meeting spots: naming an area in `include` must not change the planner's pick | `backend/` on the same branch | The baseline test untouched and passing; suites pass, also offline | Running |
+
+### 18.1 and 18.2 Login: no blocker, the main claims hold, eight defects
+
+**Confirmed by reading and by a browser run against a fake Supabase on this machine:** the password is in no storage, URL, console message or saved object; two real accounts in one browser are stored apart and neither sees the other's sessions, nor does a signed-out person through Back or a direct address; 22 hostile `next` values stay on the site; a real account's planner requests carry the current token and no other origin receives it; a 401 `unauthenticated` causes exactly one refresh and one retry, five together share one refresh, and other 401s and a 503 sign nobody out; the demo account and showcase work beside real accounts; a production build has no demo strings. The frontend suite passes with outbound calls blocked.
+
+| # | Defect | Evidence |
+|---|---|---|
+| 1 | Sign-up freezes when the username check fails: Next stays disabled, nothing is shown | Reproduced in the browser; `next()` in `AuthView.vue` has no `finally` |
+| 2 | A username taken at the database shows "Could not reach Jio", because the installed auth client turns every 500 into a retryable network error | Reproduced with a fake answering 500; the real server's status is unverified |
+| 3 | Sign-out waits on the server: with a server that never answers, still signed in after 15 s | Reproduced. Down, 500 and slow do end signed out |
+| 4 | A blank page while the app starts: about 26 s with an expired token and Supabase unreachable; no end with a server that never answers | Reproduced; the guard awaits `auth.init()` with no limit |
+| 5 | Any refresh failure signs the person out, including a network error | By reading |
+| 6 | With real accounts on, a leftover or hand-made local save counts as logged in | Reproduced on a production build |
+| 7 | A production build without the Supabase settings silently becomes open local sign-up | Reproduced |
+| 8 | Smaller: login errors not tied to fields; "Sign in" and "Log in" mixed; `safeNext` can return a `//` path (not exploitable through the guard); the token is attached before the destination is checked; the date of birth stays in the local save after sign-out; no progress text on a slow sign-up | By reading and in the browser |
+
+**Decided by the lead agent:** defect 6 was listed by round 17 for the lead; the audit brief required that nobody passes the guard in production without an account, so a local user is treated as signed out in a production build with Supabase configured. One build-time opt-out, `VITE_ALLOW_LOCAL_ACCOUNTS=1`, covers 6 and 7, because a deployed demo will need local accounts.
+**For the lead, not fixed:** with email confirmation on, sign-up tells a person that an email is already registered, which Supabase hides on purpose.
+
+### 18.3 and 18.4 AI itinerary: the rules are right, the AI call was unbounded
+
+**Confirmed:** the rules module agreed with the tester's independent timeline model on 571 random plans, and every answer kept each place open and each meal in its window; at most 720 orders are enumerated, in about a millisecond; the keys are sent in headers only and appear in no response or start-up line; nothing about a person is sent to the AI provider; the AI's choice is range-checked; other routes answer exactly as on `main` (12 of 12); a save from `main` loads with all ten sessions.
+
+| # | Defect | Evidence |
+|---|---|---|
+| 1 | Nothing bounds AI calls: 310 requests in a burst made 300 calls; 50 identical bodies made 50 | Measured on the real server wiring with a fake AI |
+| 2 | A hung AI holds each request 20 s (Gemini) or 40 s (Claude), every time; the SDK can sleep longer on `retry-after` | Measured; the SDK's retry read in `node_modules` |
+| 3 | An unexpected 200 from the provider answers 500 | Four shapes reproduced |
+| 4 | Claude is asked for the largest model with a 2,000-token ceiling to choose one number | By reading |
+| 5 | A stop's name reaches the prompt raw (a newline forged an "Order 7" line) and the AI's sentence is returned raw | Reproduced with an obedient fake |
+| 6 | A key with a space inside counts as set | Start-up run |
+| 7 | The confirm button is disabled while the AI answers (20 to 30 s with a hung AI); the suggested order cannot be declined; a stale answer can win | Browser run and reading |
+| 8 | The sentence is not labelled as an AI's; "The AI is off" shows when it only failed; "least travel" was wrong in 47 of 364 plans | Browser run and a count |
+| 9 | The doc's example request does not give its example answer | Three variants tried |
+
+**Recorded, not fixed:** the route takes that day's hours from the caller and cannot be told a venue is closed on the date (the frontend has no closure data); the model names and the beta header could not be checked against the live services; the planner's rate limit keys on the caller's address and nothing sets `trust proxy`.
+**Disclosed by both browser testers:** early headless runs let the page load map tiles from OneMap before a block on non-local requests was added. No API, routing or search call was made.
+
+### 18.5 and 18.6 Meeting spots: the backend holds, two timing defects in the data layer
+
+**Confirmed:** 180 requests without the new fields answer byte for byte as on `main`, with identical route calls; 86 checks on the new fields pass; route calls stay at or under 60 with 30 members, 3 alternatives and 8 included areas; every rule in the handoff's section 3 held outside the races, with the tester's own 49 data-layer cases; no horizontal overflow or clipped text at 320, 375, 744 and 1280 px with five spots and six members; every control has an accessible name and a visible focus ring; list and pins select each other; the steps bar did not move or fade across 300 samples at 1280 px; no demo strings in the production build.
+
+| # | Defect | Evidence |
+|---|---|---|
+| 1 | A planner answer that arrives after the host confirmed is applied: the confirmed area is replaced, or the session is left in voting with no meeting area | Two failing cases in the tester's `c8.test.js` |
+| 2 | A write that fails after the host confirmed restores an old snapshot and undoes the confirmation | Two failing cases |
+| 3 | `suggestSpot` takes no "latest wins" ticket: a slow suggestion leaves a stale list; two close suggestions can delete each other | One failing case; the second by reading |
+| 4 | Times show as exact when the server has no OneMap account and every time is an estimate | By reading |
+| 5 | Naming an area in `include` can change the planner's pick in routing mode, against the docs | By reading; no test could show it with the stub's times |
+| 6 | The preselected spot is compared on rounded minutes and can differ from the planner's pick with no approvals | By reading |
+| 7 | Keyboard focus is lost after "Works for me" | Reproduced in the browser |
+| 8 | Smaller: every Home chip restyled; Home's chip and text disagree; a suggestion can be left with no Withdraw after a reload mid-request; a Leaflet console error on starting with a known place from the create screen | By reading and in the browser |
+
+**For the merge:** this branch bumps the saved-data version from 8 to 9, so sessions in a browser are reset on first load and the account is kept. `main`'s showcase test expects two Home labels that this branch changes, its `createSession` has `hostId` and no `spots`, and its offline planner returns no `candidates`.
