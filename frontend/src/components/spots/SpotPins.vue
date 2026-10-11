@@ -3,10 +3,10 @@
 // details that opens AT the pin. The same pins and card as Home's (MeetupPins), on a Leaflet map.
 //   <PlannerMap ref="map" ... @view="pins.refresh()" />
 //   <SpotPins ref="pins" :spots="spots" :selected-id="shown" :project="(lat, lng) => map.project(lat, lng)" :names="nameOf"
-//             my-id="ian" @select="picked = $event" />
+//             my-id="ian" confirmed-id="bugis" @select="picked = $event" />
 // Give it the same box as the map (it fills its parent, which must be positioned). Call refresh() whenever the map moves
 // (PlannerMap's `view` event): a pin is placed from the map's own projection, so it stays on its area.
-// spots: session.spots.list. project: (lat, lng) => { x, y } in px from the map's top-left, or null before the map exists.
+// spots: the session's spots as the screen lists them (spotsToShow). project: (lat, lng) => { x, y } in px from the map's top-left, or null before the map exists.
 // Each pin is a button with the spot's number in its head (the number on its row) and a name a screen reader can say.
 // The selected pin is larger, filled red with a white head, and bobs; a click or Enter selects it (so does a row).
 // The card (one at a time, never changes the selection):
@@ -27,6 +27,8 @@ const props = defineProps({
   // (id) => name, for the card.
   names: { type: Function, default: (id) => id },
   myId: { type: String, default: '' },
+  // The area the host confirmed, or '': its pin and card say so.
+  confirmedId: { type: String, default: '' },
 })
 const emit = defineEmits(['select'])
 
@@ -220,7 +222,7 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="spin"
-        :aria-label="pinName(pin.spot, pin.number, myId)"
+        :aria-label="pinName(pin.spot, pin.number, myId, pin.spot.areaId === confirmedId)"
         :aria-pressed="pin.spot.areaId === selectedId"
         :aria-describedby="pin.spot.areaId === openId ? cardId(pin.spot.areaId) : undefined"
         @click="onPinClick(pin.spot.areaId, $event)"
@@ -239,6 +241,7 @@ onBeforeUnmount(() => {
       <Transition name="scard">
         <div v-if="pin.spot.areaId === openId" :id="cardId(pin.spot.areaId)" class="scard" :data-side="placement?.side" :style="cardStyle">
           <p class="scard__name title-md">{{ pin.spot.area.name }}</p>
+          <p v-if="pin.spot.areaId === confirmedId" class="body-sm"><strong>Confirmed</strong></p>
           <p class="caption-sm text-muted">{{ byLine(pin.spot, myId) }}<template v-if="pin.spot.here"> · We are here already</template></p>
           <p v-if="tripsLine(pin.spot)" class="body-sm tnum">{{ tripsLine(pin.spot) }}</p>
           <p class="body-sm" :class="{ 'text-muted': !pin.spot.approvalCount }">{{ worksForText(pin.spot) }}</p>

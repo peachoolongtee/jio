@@ -8,6 +8,9 @@
 // for you. own: your suggestion of this area ({ here }), or null. fairest / leading: tags. canApprove: false once the group
 // has moved on. busy: a change is being saved; the controls say so (aria-busy) but stay enabled, so a key press never drops
 // the focus, and the list ignores a second press until the first is saved.
+// readonly: the group has moved on from choosing, so the row has no controls (no "Works for me", "We are here already" or
+// Withdraw); who said it works for them stays, as words. confirmed: this is the spot the host confirmed; it says
+// "Confirmed" in place of the Leading or Fairest tag.
 // Emits select, approve (true or false: the new state), here (true or false), withdraw.
 // Only areas are shown, never a member's exact place. Times say "about" when they are estimates.
 import AppButton from '../ui/AppButton.vue'
@@ -25,6 +28,8 @@ const props = defineProps({
   own: { type: Object, default: null },
   fairest: { type: Boolean, default: false },
   leading: { type: Boolean, default: false },
+  readonly: { type: Boolean, default: false },
+  confirmed: { type: Boolean, default: false },
   canApprove: { type: Boolean, default: true },
   busy: { type: Boolean, default: false },
   names: { type: Function, default: (id) => id },
@@ -41,7 +46,8 @@ const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
         <span class="spot__name title-md">{{ spot.area.name }}</span>
         <span class="spot__by caption-sm text-muted">{{ byLine(spot, myId) }}</span>
       </span>
-      <InfoTag v-if="leading" tone="strong" class="spot__tag">Leading</InfoTag>
+      <InfoTag v-if="confirmed" tone="strong" class="spot__tag">Confirmed</InfoTag>
+      <InfoTag v-else-if="leading" tone="strong" class="spot__tag">Leading</InfoTag>
       <InfoTag v-else-if="fairest" tone="strong" class="spot__tag">Fairest</InfoTag>
     </button>
 
@@ -58,7 +64,7 @@ const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
     </div>
     <p v-else class="body-sm text-muted">No trips to compare yet. They appear as people share where they start.</p>
 
-    <div class="spot__choose">
+    <div v-if="!readonly" class="spot__choose">
       <ChipButton check :selected="mine" :disabled="!canApprove" :aria-busy="busy ? 'true' : undefined" :aria-label="`Works for me: ${spot.area.name}`" @click="emit('approve', !mine)">Works for me</ChipButton>
       <span class="spot__count">
         <AvatarStack v-if="spot.approvedBy.length" :people="spot.approvedBy" :size="24" :max="4" />
@@ -66,7 +72,14 @@ const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
       </span>
     </div>
 
-    <div v-if="own" class="spot__own">
+    <div v-else-if="spot.approvalCount" class="spot__choose">
+      <span class="spot__count">
+        <AvatarStack :people="spot.approvedBy" :size="24" :max="4" />
+        <span class="body-sm">{{ worksForText(spot) }}</span>
+      </span>
+    </div>
+
+    <div v-if="own && !readonly" class="spot__own">
       <ChipButton check :selected="own.here" :aria-busy="busy ? 'true' : undefined" :aria-label="`We are here already: ${spot.area.name}`" @click="emit('here', !own.here)">We are here already</ChipButton>
       <AppButton variant="tertiary" :aria-busy="busy ? 'true' : undefined" @click="emit('withdraw')">Withdraw<span class="sr-only"> my suggestion of {{ spot.area.name }}</span></AppButton>
     </div>

@@ -83,6 +83,60 @@ export function shownSpotId(spots, picked = '') {
   return list[0]?.areaId ?? null
 }
 
+// Has the group settled where to meet? Yes from Voting on: the host confirmed a spot (or named a known place), and the
+// Locate screen keeps showing the spots, with that one marked and nothing left to press.
+// How to call: isSettled({ status: 'voting' }) -> true
+export const isSettled = (session) => ['voting', 'confirmed', 'completed'].includes(session.status)
+
+// The area that was confirmed, or '' while the group is still choosing (or the session was called off before it was).
+// How to call: confirmedAreaId({ status: 'voting', meeting: { areaId: 'bugis' } }) -> 'bugis'
+export const confirmedAreaId = (session) => (isSettled(session) && session.meeting?.areaId) || ''
+
+// A row for the confirmed area when the list has none (the meeting area moved to somewhere that was never a spot, after a
+// start changed during voting), built from the meeting itself. It reads as the app's, and says "Nobody has to travel"
+// only when there really are trips to compare.
+// How to call: spotFromMeeting(session) -> { areaId, area, by: 'app', worstMinutes, ... } or null
+function spotFromMeeting(session) {
+  const { meeting } = session
+  const area = session.area || AREAS.find((a) => a.id === meeting?.areaId)
+  if (!meeting || !area) return null
+  const times = { ...(meeting.times || {}) }
+  const trips = Object.keys(times).length
+  return {
+    areaId: meeting.areaId, area: { ...area }, by: 'app', byName: null, here: false,
+    worstMinutes: trips ? meeting.maxMinutes : null,
+    meanMinutes: trips && meeting.count ? Math.round(meeting.totalMinutes / meeting.count) : null,
+    times, approximate: !!meeting.approximate, approvedBy: [], approvalCount: 0,
+  }
+}
+
+// The spots as the Locate screen lists them. While the group is choosing, the list as the data layer keeps it. Once a
+// spot is confirmed, the same spots with the confirmed one first (a known place leaves just that one). Every other spot
+// stays, so the page keeps its shape.
+// How to call: spotsToShow(session) -> [{ areaId: 'bugis', ... }, { areaId: 'bishan', ... }]
+export function spotsToShow(session) {
+  const list = session.spots?.list || []
+  const confirmed = confirmedAreaId(session)
+  if (!confirmed) return list
+  const spot = list.find((s) => s.areaId === confirmed) || spotFromMeeting(session)
+  return spot ? [spot, ...list.filter((s) => s.areaId !== confirmed)] : list
+}
+
+// The spot shown as selected: the one the person picked if it is listed, else the confirmed one, else the usual rule
+// (shownSpotId). The row's outline and the map's red pin follow it.
+// How to call: shownFor(session, 'bishan') -> 'bishan'
+export function shownFor(session, picked = '') {
+  const list = spotsToShow(session)
+  if (picked && list.some((s) => s.areaId === picked)) return picked
+  const confirmed = confirmedAreaId(session)
+  if (confirmed && list.some((s) => s.areaId === confirmed)) return confirmed
+  return shownSpotId(session.spots, picked)
+}
+
+// The line under "Where to meet" once a spot is confirmed.
+// How to call: confirmedLine('Bugis') -> 'Bugis is confirmed as the meeting spot.'
+export const confirmedLine = (areaName) => `${areaName} is confirmed as the meeting spot.`
+
 // Your own suggestion when the list has no row for it: it was saved, but a reload came before the planner priced it. Null
 // when you have none, it has a row, the planner is working on it right now, or the group is not choosing any more. The
 // screen offers to price it again or take it back, so nobody is stuck with a suggestion they cannot withdraw.
@@ -95,7 +149,8 @@ export function unpricedSuggestion(session, myId) {
 }
 
 // What a screen reader says for a spot's pin on the map.
+// A confirmed spot says so, after its name.
 // How to call: pinName(spot, 1, 'ian') -> 'Spot 1, Bishan. Suggested by Jio. Longest trip about 30 min. Works for 2 people.'
-export function pinName(spot, number, myId = '') {
-  return [`Spot ${number}, ${spot.area.name}`, byLine(spot, myId), tripsLine(spot).split(' · ')[0], worksForText(spot)].filter(Boolean).join('. ') + '.'
+export function pinName(spot, number, myId = '', confirmed = false) {
+  return [`Spot ${number}, ${spot.area.name}`, confirmed && 'Confirmed', byLine(spot, myId), tripsLine(spot).split(' · ')[0], worksForText(spot)].filter(Boolean).join('. ') + '.'
 }

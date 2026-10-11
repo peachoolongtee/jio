@@ -6,11 +6,14 @@
 // session: a session summary (lib/api.js). selectedId: the area shown as chosen (SpotRow outlines it; the map's pin matches).
 // Changes go through the events store as the signed-in person: approveMySpot, suggestMySpot, withdrawMySpot, and the
 // host's setKnownPlace. A refusal or a planner failure is sentence-sized and goes up as `error` (the write has rolled back).
-// Emits select (an area id) and error (a message, or '' to clear). Setting a known place moves the session on to Voting;
-// the screen sees the status change and takes the host there, so there is no event for it.
-// States: fewer than two starts (no list; says what opens it), the planner working it out (placeholder rows), the list,
-// the list while its times are updated, and your own suggestion with no row (a reload caught it before it was priced):
-// "Try again" prices it, "Withdraw" takes it back.
+// Emits select (an area id) and error (a message, or '' to clear). Confirming a spot or setting a known place moves the
+// session on to Voting, and this list stays where it is.
+// States: the group is choosing (the list, with every control); the group has moved on (the same spots with the confirmed
+// one first and marked "Confirmed", and no control on any of them: no "Works for me", "Suggest a spot", "We already have a
+// place" or Withdraw); the planner working it out (placeholder rows); the list while its times are updated; and your own
+// suggestion with no row (a reload caught it before it was priced): "Try again" prices it, "Withdraw" takes it back.
+// With fewer than two starts there is no list and nothing to say about it (the "Waiting for N people" card on the screen
+// says who is missing): the section shows only for the host, who can still name a known place.
 // A control that starts a change stays enabled while it saves (aria-busy), so a key press never drops the keyboard focus; a
 // second press is ignored until the first is saved.
 import { computed, ref } from 'vue'
@@ -22,7 +25,7 @@ import SpotRow from './SpotRow.vue'
 import { AREAS } from '@/lib/mock/places.js'
 import { TRAVEL_TONES } from '@/lib/planner/travel.js'
 import { useEventsStore } from '@/stores/events.js'
-import { canApprove, canSuggest, isChoosing, startsShared, unpricedSuggestion } from './spotText.js'
+import { canApprove, canSuggest, confirmedAreaId, confirmedLine, isChoosing, spotsToShow, unpricedSuggestion } from './spotText.js'
 
 const props = defineProps({
   session: { type: Object, required: true },
@@ -44,24 +47,29 @@ const placeArea = ref(null)
 const dialogError = ref('')
 
 const spots = computed(() => props.session.spots || { list: [], approvals: {}, suggestions: {}, preselectedAreaId: null, appMethod: null })
-const list = computed(() => spots.value.list)
+const choosing = computed(() => isChoosing(props.session))
+// The spots as listed now: while choosing, the data layer's list; after, the confirmed one first.
+const list = computed(() => spotsToShow(props.session))
+const confirmedId = computed(() => confirmedAreaId(props.session))
 const mine = computed(() => new Set(spots.value.approvals?.[props.myId] || []))
 const own = computed(() => spots.value.suggestions?.[props.myId] || null)
 const unpriced = computed(() => unpricedSuggestion(props.session, props.myId))
-const shared = computed(() => startsShared(props.session))
-const total = computed(() => (props.session.activeIds || []).length)
 const offerSuggest = computed(() => canSuggest(props.session, props.myId))
 const offerKnown = computed(() => props.isHost && isChoosing(props.session))
 const approving = computed(() => canApprove(props.session, props.myId))
 // "Fairest" belongs to the app's first spot, and only when the planner really chose it by fairness.
-const fairestId = computed(() => (spots.value.appMethod === 'fairest' ? list.value.find((s) => s.by === 'app')?.areaId : ''))
+const fairestId = computed(() => (choosing.value && spots.value.appMethod === 'fairest' ? list.value.find((s) => s.by === 'app')?.areaId : ''))
 const leadingId = computed(() => {
-  const spot = list.value.find((s) => s.areaId === spots.value.preselectedAreaId)
+  const spot = choosing.value ? list.value.find((s) => s.areaId === spots.value.preselectedAreaId) : null
   return spot && spot.approvalCount > 0 ? spot.areaId : ''
 })
+// Is there anything to show? Not with fewer than two starts for anyone who cannot name a known place.
+const visible = computed(() => list.value.length > 0 || !!props.session.findingSpots || offerKnown.value || !!unpriced.value)
 const hasTrips = computed(() => list.value.some((s) => Object.keys(s.times || {}).length > 0))
 const intro = computed(() => {
   if (!list.value.length) return ''
+  if (confirmedId.value) return confirmedLine(list.value[0].area.name)
+  if (!choosing.value) return ''
   return props.isHost ? 'Pick a spot and confirm it when you are ready. You do not need to wait for anyone.' : `Say which spots work for you. ${props.hostName} confirms the final spot.`
 })
 
@@ -116,12 +124,12 @@ async function settleKnown() {
 </script>
 
 <template>
-  <section class="spots" aria-labelledby="spots-head" data-testid="spots">
+  <section v-if="visible" class="spots" aria-labelledby="spots-head" data-testid="spots">
     <div class="section__head">
       <h2 id="spots-head" class="display-sm">Where to meet</h2>
     </div>
     <p v-if="intro" class="body-sm text-muted">{{ intro }}</p>
-    <p v-if="own" class="caption-sm text-muted">You have one suggestion. A new one replaces it.</p>
+    <p v-if="own && choosing" class="caption-sm text-muted">You have one suggestion. A new one replaces it.</p>
 
     <div v-if="offerSuggest || offerKnown" class="spots__actions">
       <AppButton v-if="offerSuggest" variant="secondary" small :aria-busy="busy ? 'true' : undefined" @click="busy || (suggestOpen = true)">Suggest a spot</AppButton>
@@ -140,6 +148,8 @@ async function settleKnown() {
         :fairest="spot.areaId === fairestId"
         :leading="spot.areaId === leadingId"
         :can-approve="approving"
+        :readonly="!choosing"
+        :confirmed="spot.areaId === confirmedId"
         :busy="busy"
         :names="names"
         :my-id="myId"
@@ -151,10 +161,6 @@ async function settleKnown() {
     </ul>
     <div v-else-if="session.findingSpots" class="spots__wait" role="status" aria-label="Working out where to meet">
       <SkeletonRow v-for="n in 3" :key="n" />
-    </div>
-    <div v-else class="spots__empty">
-      <h3 class="title-md">No spots yet</h3>
-      <p class="body-sm text-muted">Spots open once two people have shared where they start. So far, {{ shared }} of {{ total }} have.</p>
     </div>
     <p v-if="list.length && session.findingSpots" class="caption-sm text-muted" role="status">Updating travel times…</p>
 

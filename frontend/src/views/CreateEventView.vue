@@ -3,16 +3,16 @@
 // The times sit to the right of the calendar from tablet up (start on top, end below), and under it on phones.
 // Next stays disabled until the title, the date and the start time are set.
 // The same form edits a session (/sessions/:id/edit), reached from the invite step's back arrow or the steps bar's
-// Create: the heading says "Edit session", the form starts with the session's title, day and times, Next saves them and
-// goes back to the invite step, and Back goes there without saving. Only the host can, and only while the session is
-// still inviting; after that the screen says the day and times are locked. Create and Invite are one stop in the
-// browser's history (each replaces the other), so Back in the browser never returns to an empty create form.
-// The host may also name a place the group has already decided on ("We already have a place"). A known place needs at
-// least two people, so the choice is kept (components/spots/knownPlaceChoice.js) and used when the session starts.
+// Create: the heading says "Edit session", the form starts with the session's title, day and times, and Next saves them
+// and goes on to the invite step. The back arrow goes Home, as from the first step of any session. Only the host can
+// edit, and only while the session is still inviting; after that the screen says the day and times are locked. Create and
+// Invite are one stop in the browser's history (each replaces the other), so Back in the browser never returns to an
+// empty create form.
+// "We already have a place" is not asked here: it is on the Locate step, where the spots are (SpotList).
 //   <CreateEventView />                  /sessions/new
 //   <CreateEventView id="s1" />          /sessions/s1/edit
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { addDays, format, startOfDay } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -20,15 +20,14 @@ import BannerNote from '@/components/ui/BannerNote.vue'
 import CalendarPicker from '@/components/ui/CalendarPicker.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import SessionSteps from '@/components/event/SessionSteps.vue'
-import KnownPlaceField from '@/components/spots/KnownPlaceField.vue'
-import { recalledKnownPlace, rememberKnownPlace } from '@/components/spots/knownPlaceChoice.js'
+import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
 import RadialTimePicker from '@/components/ui/RadialTimePicker.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import TextField from '@/components/ui/TextField.vue'
 import NotFoundView from './NotFoundView.vue'
 import { fromMinutes, toMinutes } from '@/lib/planner/format.js'
 import { HOST_ID } from '@/lib/mock/people.js'
+import { goBackIfBehind } from '@/lib/stepNav.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const TITLE_IDEAS = ['Saturday hangout', 'Dinner catch-up', 'Weekend makan trip']
@@ -36,14 +35,13 @@ const DEFAULT_LENGTH = 6 * 60
 
 const props = defineProps({ id: { type: String, default: '' } })
 const router = useRouter()
+const route = useRoute()
 const events = useEventsStore()
 
 const title = ref('')
 const date = ref('') // yyyy-MM-dd
 const start = ref('')
 const end = ref('')
-// The area the host already has in mind, or ''.
-const knownArea = ref('')
 const busy = ref(false)
 const error = ref('')
 
@@ -57,7 +55,8 @@ const isHost = computed(() => session.value?.hostId === HOST_ID)
 const started = computed(() => !!session.value && session.value.status !== 'inviting')
 // Why the form is not offered, or '' when it is.
 const closed = computed(() => (!session.value ? '' : !isHost.value ? 'Only the host can change the date and times.' : started.value ? 'The date and times are locked once a session has started.' : ''))
-const back = computed(() => (editing.value ? { label: closed.value ? 'Back to session' : 'Back to invite', to: closed.value ? `/sessions/${props.id}` : { path: `/sessions/${props.id}/invite`, replace: true } } : { label: 'Back', to: '/' }))
+// Create is the first step, so the arrow goes Home whether the session is new or being edited.
+const back = computed(() => (editing.value && session.value ? backFor(session.value, route.path, isHost.value) : { label: 'Back', to: '/' }))
 
 async function load() {
   missing.value = false
@@ -75,7 +74,6 @@ function fill(found) {
   date.value = found.date
   start.value = found.start
   end.value = found.end
-  knownArea.value = recalledKnownPlace(found)
 }
 if (editing.value) onMounted(load)
 watch(session, fill, { immediate: true })
@@ -99,7 +97,6 @@ async function next() {
   const values = { title: title.value, date: date.value, start: start.value, end: endValue.value }
   try {
     const saved = editing.value ? await events.update(props.id, values) : await events.create(values)
-    rememberKnownPlace(saved, knownArea.value)
     router.replace(`/sessions/${saved.id}/invite`)
   } catch (e) {
     error.value = e.message
@@ -113,7 +110,7 @@ async function next() {
   <main v-else class="screen screen--wide-form" data-testid="create-event-view">
     <header class="screen__header">
       <div class="screen__bar">
-        <IconButton :label="back.label" :to="back.to"><AppIcon name="back" /></IconButton>
+        <IconButton :label="back.label" :to="back.to" @click.capture="goBackIfBehind($event, router, back.to)"><AppIcon name="back" /></IconButton>
       </div>
       <!-- Before the title, as on every session screen, so the bar does not move between them. -->
       <SessionSteps :session="session" />
@@ -150,7 +147,6 @@ async function next() {
             <RadialTimePicker v-model="end" label="End time" :fallback="endValue || '18:00'" :error="endError" :hint="!end && start ? `Ends ${endValue} unless you change it` : ''" />
           </div>
         </section>
-        <KnownPlaceField v-model="knownArea" />
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </form>
 

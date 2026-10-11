@@ -26,7 +26,7 @@ vi.mock('../../components/ui/ModalDialog.vue', async () => {
 vi.stubGlobal('localStorage', fakeStorage())
 const { default: SpotList } = await import('../../components/spots/SpotList.vue')
 const { default: SpotConfirm } = await import('../../components/spots/SpotConfirm.vue')
-const { canApprove, canSuggest, shownSpotId, tripsLine, unpricedSuggestion } = await import('../../components/spots/spotText.js')
+const { canApprove, canSuggest, confirmedAreaId, pinName, shownFor, shownSpotId, spotsToShow, tripsLine, unpricedSuggestion } = await import('../../components/spots/spotText.js')
 const { useEventsStore } = await import('../../stores/events.js')
 const { clearApprovals, friendSuggests, friendsApprove, hasSpots } = await import('../../components/dev/spotDemo.js')
 
@@ -93,14 +93,31 @@ describe('the list of spots', () => {
     expect(text).not.toContain('0 min')
   })
 
-  it('says what opens the list when fewer than two starts are in, and offers no suggestion', () => {
+  // The "No spots yet" block is gone: with fewer than two starts the screen shows the people, the "Waiting for N people"
+  // card and the map, and nothing that reads as an error. The host can still name a known place.
+  it('says nothing about the list when fewer than two starts are in, and offers no suggestion', () => {
     const early = session({ locations: { ian: { start: { areaId: 'tampines' } } } })
     early.spots = { list: [], approvals: {}, suggestions: {}, preselectedAreaId: null, appMethod: null }
     const page = list(early)
-    expect(page.text()).toContain('No spots yet')
-    expect(page.text()).toContain('two people have shared where they start. So far, 1 of 3 have.')
+    expect(page.text()).not.toContain('No spots yet')
+    expect(page.text()).not.toContain('So far')
+    expect(page.text()).not.toMatch(/error|could not|cannot/i)
     expect(page.button('Suggest a spot')).toBeNull()
     expect(page.button('We already have a place')).not.toBeNull()
+  })
+
+  it('shows nothing at all to a member when there is no list yet', () => {
+    const early = session({ locations: { ian: { start: { areaId: 'tampines' } } } })
+    early.spots = { list: [], approvals: {}, suggestions: {}, preselectedAreaId: null, appMethod: null }
+    const page = list(early, { isHost: false })
+    expect(page.text()).toBe('')
+    expect(page.button('We already have a place')).toBeNull()
+  })
+
+  it('still shows the placeholder rows while the planner works the first list out', () => {
+    const early = session({ findingSpots: true })
+    early.spots = { list: [], approvals: {}, suggestions: {}, preselectedAreaId: null, appMethod: null }
+    expect(list(early, { isHost: false }).text()).toContain('Where to meet')
   })
 })
 
@@ -130,9 +147,9 @@ describe('Works for me', () => {
     expect(text).toContain('No one yet')
   })
 
-  it('is off once the group has moved on', () => {
-    const page = list(session({ status: 'voting' }))
-    expect(page.button('Works for me').props.disabled).toBe(true)
+  it('is off once the group has moved on: the control is gone, not disabled', () => {
+    const page = list(session({ status: 'voting', meeting: { areaId: 'bugis', times: {} } }))
+    expect(page.button('Works for me')).toBeNull()
     expect(canApprove(session({ status: 'voting' }), 'ian')).toBe(false)
   })
 
@@ -370,5 +387,111 @@ describe('the demo tools for spots', () => {
     const early = session({ status: 'inviting' })
     expect(hasSpots(early)).toBe(false)
     expect(hasSpots(session({ spots: { list: [], approvals: {}, suggestions: {} } }))).toBe(false)
+  })
+})
+
+// After the host confirms a spot, or names a known place, the Locate screen keeps its list: the same spots, the confirmed
+// one first and marked, and no control on any of them. Coming back to Locate at any later status shows the same list.
+describe('the list once a spot is confirmed', () => {
+  const settled = (status = 'voting', more = {}) => {
+    const s = session({ status, meeting: { areaId: 'bishan', method: 'chosen', times: { ian: 30, jonathan: 20 }, maxMinutes: 30, totalMinutes: 50, count: 2, approximate: false }, area: { id: 'bishan', name: 'Bishan', lat: 1.3, lng: 103.8 }, ...more })
+    return s
+  }
+  // The spots' rows (a row also holds one item per person's trip).
+  const rows = (page) => page.all('li').filter((li) => page.attr(li, 'data-area'))
+
+  it('puts the confirmed spot first and marks it "Confirmed" in words, with every other spot still listed', () => {
+    const s = settled()
+    expect(confirmedAreaId(s)).toBe('bishan')
+    expect(spotsToShow(s).map((x) => x.areaId)).toEqual(['bishan', 'bugis', 'novena'])
+    const page = list(s, { selectedId: shownFor(s) })
+    const text = page.text()
+    expect(text).toContain('Bishan is confirmed as the meeting spot.')
+    expect(text).toContain('Confirmed')
+    expect(text).toContain('Bugis')
+    expect(text).toContain('Novena')
+    expect(text).toContain('Suggested by Jonathan')
+    expect(text).toContain('Longest trip 30 min')
+    // Confirmed once, and it is on the confirmed spot's row.
+    expect(text.match(/Confirmed/g)).toHaveLength(1)
+    expect(rows(page).map((li) => page.attr(li, 'data-area'))).toEqual(['bishan', 'bugis', 'novena'])
+  })
+
+  it('has no control on any spot: no "Works for me", "Suggest a spot", "We already have a place", Withdraw or Confirm', () => {
+    const s = settled()
+    s.spots.suggestions = { ian: { areaId: 'novena', here: false } }
+    s.spots.list[2] = spot('novena', 'Novena', { by: 'ian', byName: 'Ian' })
+    const page = list(s, { selectedId: shownFor(s) })
+    for (const name of ['Works for me', 'Suggest a spot', 'We already have a place', 'Withdraw', 'We are here already', 'Try again']) expect(page.button(name)).toBeNull()
+    expect(page.text()).not.toContain('Confirm Bishan')
+    expect(page.text()).not.toContain('You have one suggestion')
+    // What is left to press is the row's own button, which only selects the spot.
+    expect(page.all('button').length).toBe(3)
+  })
+
+  it('is the same at every status after confirming, for the host and for a member', () => {
+    for (const status of ['voting', 'confirmed', 'completed']) {
+      for (const isHost of [true, false]) {
+        const s = settled(status)
+        const page = list(s, { selectedId: shownFor(s), isHost })
+        expect(page.text()).toContain('Bishan is confirmed as the meeting spot.')
+        expect(rows(page)).toHaveLength(3)
+        expect(page.button('Works for me')).toBeNull()
+        expect(page.button('We already have a place')).toBeNull()
+      }
+    }
+  })
+
+  it('keeps saying who said a spot works, as words, without the control', () => {
+    const s = settled()
+    s.spots.list[1] = spot('bugis', 'Bugis', { approvedBy: [{ id: 'faith', name: 'Faith' }, { id: 'jonathan', name: 'Jonathan' }], approvalCount: 2 })
+    const text = list(s, { selectedId: 'bishan' }).text()
+    expect(text).toContain('Works for 2 people')
+    expect(text).not.toContain('No one yet')
+  })
+
+  it('shows a known place as the single confirmed row', () => {
+    const s = settled('voting', { meeting: { areaId: 'novena', method: 'chosen', times: {}, maxMinutes: 0, totalMinutes: 0, count: 0, approximate: false } })
+    s.spots.list = [spot('novena', 'Novena', { by: 'ian', byName: 'Ian', worstMinutes: null, meanMinutes: null, times: {} })]
+    s.spots.suggestions = {}
+    const page = list(s, { selectedId: shownFor(s) })
+    expect(rows(page)).toHaveLength(1)
+    expect(page.text()).toContain('Novena is confirmed as the meeting spot.')
+    expect(page.text()).toContain('Confirmed')
+    expect(page.text()).not.toContain('null')
+    expect(page.text()).not.toContain('Nobody has to travel')
+  })
+
+  it('shows the meeting area as a confirmed row when it is no longer one of the spots', () => {
+    const s = settled('voting', { meeting: { areaId: 'kovan', method: 'fairest', times: { ian: 22, jonathan: 18 }, maxMinutes: 22, totalMinutes: 40, count: 2, approximate: true }, area: { id: 'kovan', name: 'Kovan', lat: 1.36, lng: 103.88 } })
+    const shown = spotsToShow(s)
+    expect(shown.map((x) => x.areaId)).toEqual(['kovan', 'bugis', 'bishan', 'novena'])
+    expect(shown[0]).toMatchObject({ worstMinutes: 22, meanMinutes: 20, approximate: true })
+    expect(list(s, { selectedId: shownFor(s) }).text()).toContain('Kovan is confirmed as the meeting spot.')
+  })
+
+  it('selects the confirmed spot, unless the person picked another that is listed', () => {
+    const s = settled()
+    expect(shownFor(s)).toBe('bishan')
+    expect(shownFor(s, 'novena')).toBe('novena')
+    expect(shownFor(s, 'gone')).toBe('bishan')
+    // While choosing it is the usual rule.
+    expect(shownFor(session())).toBe('bugis')
+  })
+
+  it('is untouched while the group is still choosing, and for a session called off before a spot was confirmed', () => {
+    expect(spotsToShow(session()).map((x) => x.areaId)).toEqual(['bugis', 'bishan', 'novena'])
+    const called = session({ status: 'cancelled', meeting: { areaId: 'bishan', times: {} } })
+    expect(confirmedAreaId(called)).toBe('')
+    expect(spotsToShow(called).map((x) => x.areaId)).toEqual(['bugis', 'bishan', 'novena'])
+    const page = list(called)
+    expect(page.text()).not.toContain('Confirmed')
+    expect(page.button('Works for me')).toBeNull()
+  })
+
+  it('says "Confirmed" in a pin\'s name only for the confirmed spot', () => {
+    const s = settled()
+    expect(pinName(spotsToShow(s)[0], 1, 'ian', true)).toBe('Spot 1, Bishan. Confirmed. Suggested by Jio. Longest trip 30 min. No one yet.')
+    expect(pinName(spotsToShow(s)[1], 2, 'ian')).not.toContain('Confirmed')
   })
 })
