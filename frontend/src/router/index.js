@@ -12,6 +12,7 @@ const routes = [
   { path: '/sessions', name: 'sessions', component: () => import('@/views/GroupsView.vue'), meta: { tabs: true, tab: 'home', title: 'Sessions' } },
   { path: '/sessions/new', name: 'session-create', component: () => import('@/views/CreateEventView.vue'), meta: { title: 'Create session' } },
   { path: '/sessions/:id', name: 'session', component: () => import('@/views/GroupDetailView.vue'), props: true, meta: { title: 'Session' } },
+  { path: '/sessions/:id/edit', name: 'session-edit', component: () => import('@/views/CreateEventView.vue'), props: true, meta: { title: 'Edit session' } },
   { path: '/sessions/:id/invite', name: 'session-invite', component: () => import('@/views/InviteView.vue'), props: true, meta: { title: 'Invite friends' } },
   { path: '/sessions/:id/plan', name: 'session-plan', component: () => import('@/views/PlannerView.vue'), props: true, meta: { title: 'Vote' } },
   { path: '/sessions/:id/itinerary', name: 'session-itinerary', component: () => import('@/views/EventView.vue'), props: true, meta: { title: 'Itinerary' } },
@@ -31,6 +32,12 @@ const router = createRouter({
   scrollBehavior: (to, from, saved) => {
     // Only the query changed on the same screen, such as a place opening over Home (?place=…): stay put.
     if (to.path === from.path && to.hash === from.hash) return false
+    // Between the steps of one session, with the steps bar still on screen: stay put, so the bar a person just
+    // pressed does not jump to the top of the window. Otherwise (the bar scrolled away) a new screen starts at the top.
+    if (!saved && !to.hash && to.params.id && to.params.id === from.params.id) {
+      const bar = document.querySelector('.steps')?.getBoundingClientRect()
+      if (bar && bar.bottom > 0 && bar.top < window.innerHeight) return false
+    }
     if (saved) return saved
     // A link to a section, such as /sessions/s1#photos: give the screen a moment to draw it, then scroll there
     // (without gliding, for people who asked for less motion).

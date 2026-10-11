@@ -3,7 +3,7 @@
 // Email, password with a live checklist, name, date of birth, username, profile photo (can be skipped), home area,
 // suggested friends. It ends on Home.
 // The answers live in the auth store's draft, so nothing is lost if the window is resized.
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -98,6 +98,10 @@ async function next() {
   else finish()
 }
 
+// Development builds only: the first question also offers the demo account, with or without showcase data
+// (components/dev/DemoSignIn.vue). In a production build this is null, so the buttons and their words are left out.
+const DemoSignIn = import.meta.env.DEV ? defineAsyncComponent(() => import('@/components/dev/DemoSignIn.vue')) : null
+
 // Development builds only: skip the steps with a ready-made demo account. In a production build this is null, so the
 // button and the demo account are left out.
 const quickAccount = import.meta.env.DEV
@@ -188,6 +192,7 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
       <template v-if="step === 'email'">
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Your email</h1>
         <TextField v-model="draft.email" label="Email" type="email" autocomplete="email" inputmode="email" placeholder="name@example.com" autofocus />
+        <component :is="DemoSignIn" v-if="DemoSignIn" />
       </template>
 
       <template v-else-if="step === 'password'">
@@ -282,7 +287,7 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
       <template v-else>
         <AppButton next block :disabled="!canContinue || busy" @click="next">{{ step === 'friends' ? 'Finish' : 'Next' }}</AppButton>
       </template>
-      <AppButton v-if="quickAccount" variant="tertiary" underline small class="signup__dev" :disabled="busy" @click="quickAccount">Dev: create a demo account</AppButton>
+      <AppButton v-if="quickAccount && step !== 'email'" variant="tertiary" underline small class="signup__dev" :disabled="busy" @click="quickAccount">Dev: create a demo account</AppButton>
     </footer>
   </main>
 </template>

@@ -551,3 +551,174 @@ Parent task: the lead asked for the OneMap changes to be made, the defect fixes 
 - **Not verified by anyone:** anything against the real OneMap service. The agent's start-up login line is covered by a unit test only.
 - **Known trade-offs, as reported:** a meeting-area result can compare real times for the routed areas with estimates for the rest, so the winner can be an estimate-only area (the answer says `approximate`); with 30 members only two areas fit under the cap; address search draws on the same budget as routing, with no reserved share.
 - **Commits:** nine for the defect fixes, the merge of the external-APIs branch, six for the OneMap changes, then this log and `CLAUDE.md`.
+
+## Round 10: Home as a map of every current meetup (2026-10-10)
+
+Parent task: the lead asked for Home to show all current meetups on the map, with a detail for the one selected and a list below, built on a separate branch, keeping the animations and improving them where there is a case. In parallel `dev` was brought level with `main` through a pull request from `main` into `dev`, merged.
+
+Today Home is built around one meetup: the most recently created one that is not completed or cancelled. Any other active meetup is not shown on Home at all. Work is on branch `feat/home-meetups-map`, cut from `main`.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 10.1 | Frontend | Home shows every active meetup: a pin each on the dotted map, a detail card for the selected one, a list sorted soonest first, and a way to start another | `frontend/src/views/LandingView.vue`, `components/ui/SingaporeMap.vue` (additions only), new components under `components/home/`, a new `lib/homeMeetups.js` and its test | With three active meetups, all three are reachable from Home; selecting by pin or by row shows the same detail; a meetup without a meeting point appears in the list; nothing overflows at 320 px; every animation that exists today still plays and respects reduced motion; frontend suite and build pass | **Completed** |
+| 10.2 | Lead | Verify in a browser, bring `DESIGN.md` in step | `DESIGN.md`, docs | 10.1 | **Completed** |
+
+### 10.1 Home as a map of every current meetup: completed
+
+- **Agent:** a frontend-engineer subagent, in two passes. The second pass came from the lead, who looked at the first and asked for the details to appear at the pin on hover, as first requested. The lead agent had steered the first brief toward a card under the map; that was the lead agent's call and the wrong one.
+- **Built:** `lib/homeMeetups.js` (ordering soonest first, the next step for the signed-in person, pin positions with a fan-out for shared areas, selection, and where a pin's card sits); `components/home/MeetupPins.vue`, `MeetupSummary.vue`, `MeetupDetail.vue`, `MeetupList.vue`, `NextStepChip.vue`; `LandingView.vue` rewired around a selected meetup kept in `?meetup=<id>`; one additive `quick` prop on `SingaporeMap.vue`; a section in `DesignSystemView.vue`.
+- **Kept:** every existing animation, and the no-meetup Home, which the agent compared box for box and by screenshot hash against `main` at 375 and 1280 px.
+- **Verified by the lead, in a browser on a spare port, with three meetups created through the real planner** (two with meeting points, one still inviting):
+  - Both meetups with a meeting point have a pin; the third is in the list with no pin. Pins are 50 by 64 px.
+  - Clicking the "Tue" pin gives `?meetup=s2`, the Study session detail, a pressed pin and row, and "Places near Caldecott".
+  - Selecting the meetup with no pin by its row gives `?meetup=s3` and no pressed pin.
+  - Hovering a pin: no card at 60 ms, a card after the delay, 264 by 269 px, to the right of the pin, inside the map and the viewport, not covering the pin, with the right meetup and link. The selection and the address did not change.
+  - No horizontal overflow at 320, 375 and 1280 px. No console errors.
+  - The lead's pane was not on screen, so the hover was driven by dispatched pointer events and the card's closing transition could not finish there; the agent measured the close in a headless browser at about 300 ms.
+- **Reported by the agent and not rechecked by the lead:** keyboard and touch behaviour of the pin card; placement at 320, 375 and 768 px with ten meetups; reduced motion; the fan-out of pins on one area.
+- **Results:** `pnpm --filter jio-frontend test` 280 passed, 26 files; `pnpm test` 383 passed, 1 skipped; `pnpm build` succeeded.
+- **Also fixed by the lead:** `frontend/src/lib/__tests__/api.backend.test.js` started the real backend with real HTTP, so its first ranking fetched the live forecast and once ran past the 5-second limit. It now uses stub HTTP. With outbound network blocked the whole frontend suite passes and nothing tries to leave the machine.
+- **Open, for the lead:** on phones the pin card is taller than the map can hold, so it overlays the greeting or the card below; neighbouring areas' pins can overlap, since only identical areas fan out; selecting a low row on a phone does not scroll the card into view; with one meetup on a wide screen the right half beside the card is empty. An older Leaflet teardown error on leaving the plan page quickly was noticed and not touched.
+
+## Round 11: four problems the lead found by using the app (2026-10-10)
+
+Parent task: the lead reported four problems and asked for them to be inspected, fixed and merged to `main`. Work continues on `feat/home-meetups-map`, so the merge takes the new Home with it.
+
+| # | The lead's words | Where to look first |
+|---|---|---|
+| 1 | "name cut off on home page" | The greeting on Home: large text filled with a gradient, on a tight line height |
+| 2 | "when selecting end time, +/-2 hour too close to next" | `RadialTimePicker`'s ring of step buttons against the "Next" button and the other picker |
+| 3 | "no back button after selecting date of session" | Create session goes straight to the invite step with no way back to the date and times |
+| 4 | "toggling between different stages in the session using the bar on top abit glitchy" | `SessionSteps` as pages change |
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 11.1 | Frontend | Reproduce each problem with a measurement, fix it, measure again | The files named in its brief, under `frontend/src/` | Each problem has a before and an after number; frontend suite and build pass | **Completed** |
+| 11.2 | Lead | Verify, bring `DESIGN.md` in step, commit, push, merge to `main` | Docs and the tracker | All suites pass; pull request merged | **Completed** up to the commits; the pull request and `git log` record the merge |
+
+### 11.1 Four problems from use: completed
+
+- **Agent:** a frontend-engineer subagent. It reproduced all four in a headless browser before changing anything, and measured each again afterwards.
+
+| # | Problem | Before | Cause | After |
+|---|---|---|---|---|
+| 1 | Name cut off on Home | "Peggy Png" had 267 pixels of ink outside the name's box at desktop widths; "Farhan W" ran 4.1 px past the right edge; "Ian" had none | The name is painted through `background-clip: text`, which only shows inside the element's box: a 0.95 line with 0.06em of padding and negative letter spacing | 0 pixels outside the box for six names at seven widths |
+| 2 | "+/-2 hour too close to next" | The End picker's ring overlapped the "Next" button by 25 px on phones and 33 px from 744 px, and floated above it; each ring overlapped the other picker's pill by 23 px on phones | The ring reaches 141 px each way and the form left 48 to 115 px | At least 14.6 px from "Next" and 16.6 px from the other pill; a tap on either button changed the time and never navigated |
+| 3 | No back after the date | The invite step's only back control went to the session; the Create step was a dead label; browser Back went Home | Creating a session replaced the page with the invite step, and no edit path existed | A back arrow to an "Edit session" form with the values filled in; `api.updateSession`, host only and only while inviting; the Create step links there |
+| 4 | Steps bar glitchy | The bar dipped to 81% opacity and drifted 6 px on every click; keyboard focus was lost in 160 of 160 activations; a second press 80 ms after the first was lost 3 times of 3; the bar's height differed between screens by up to 39 px | The bar was part of the page's cross-fade, and each header laid it out differently | Opacity stays at 1 with no drift; focus stays on the pressed step 160 times of 160; the second press took effect 6 times of 6; one height on all six screens at each width |
+
+- **Also fixed by the agent, found during the sweep for problem 1:** a long meetup title on Home could not be read anywhere. The full-size card now wraps it; the pin card and list rows carry it as a tooltip.
+- **Verified by the lead, in a browser on a spare port at 1280 px:**
+  - With the account named "Peggy Png", the greeting's name box is 103 px tall for a 76 px line, with 0.22em of padding below; no horizontal overflow.
+  - The invite step's back control is "Back to date and times" and leads to `/sessions/s1/edit`; that page is headed "Edit session" with the title and both times filled in; its back control returns to the invite step.
+  - On the edit form the End picker's pill is 140 px above "Next", and 154 px below the Start picker's pill.
+  - The steps bar is at the same height (84 px) on the session, invite and edit screens, and carries the transition name `session-steps`.
+  - The lead did not open a ring or click through the steps; the pane was not on screen, so those rest on the agent's measurements.
+- **Results:** `pnpm --filter jio-frontend test` 324 passed, 30 files; `pnpm test` 383 passed, 1 skipped; `pnpm build` succeeded.
+- **Left, as reported:** a single word longer than the screen in the greeting is cut by the page's edge; the session header clips a title of about 60 characters at 320 px; with a mouse on a narrow window that has the sticky footer, an open End ring can still sit over the footer; keyboard users can type a time and cannot reach the ring's buttons; an old Leaflet error on leaving the plan page quickly.
+
+## Round 12: audit of the Google Places pull request, then merge (2026-10-11)
+
+The lead asked: "review the PR and merge together to main". The pull request is peachoolongtee/jio#91, "Add OneMap places, hawker closures and Google Places", by faithpho, from `feature/google-places` at `f9eef70`. It is backend only: 29 files, 38,231 lines added, of which 36,159 are one saved data file.
+
+- **Where the work happens:** a throwaway worktree on branch `feat/google-places-integration`, which is `main` at `5b975c2` with the pull request merged in. The merge had no conflicts.
+- **Before any review, by the lead, on the merged tree:** `pnpm test` 421 passed, 1 skipped, 22 files, and the same with outbound calls blocked (no call attempted); `pnpm --filter jio-frontend test` 324 passed, 30 files; `pnpm build` succeeded.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 12.1 | Code reviewer, read-only | The Google service, the photo route, the key, cost and the planner routes' new inputs | Nothing | Every finding has a file, a line and a way to trigger it | **Completed**: "changes required" |
+| 12.2 | Code reviewer, read-only | The saved OneMap places, the hawker closures, the venue lists and the filters | Nothing | Same | **Completed**: "changes required" |
+| 12.3 | Verifier | Run the merged server in stub mode and try to break it; count OneMap and Google calls; scan for secrets | Nothing in the repo | Each claim in the pull request is marked confirmed or not, with output | **Completed** |
+| 12.4 | Lead | Check each finding, decide, fix or record, merge to `main` | Docs, the tracker, fixes on the integration branch | All suites pass; the review is on the pull request | **Completed** up to the commits; the pull request and `git log` record the merge |
+| 12.5 | Backend | Fix the Google findings: a call budget, a circuit and timeout, shape checks, the photo route, the key, an invented fixture | The Google files, their tests and docs | Suites pass, also with outbound calls blocked; defaults unchanged | **Completed** |
+| 12.6 | Backend | Fix the OneMap-places findings: closure matching, the CDC merge, broken links and text, duplicates, closed weekdays, guessed values, stale closures | The OneMap-places files, their tests and docs | Same; venues that existed before are unchanged except where intended | **Completed** |
+
+### 12.1 to 12.3 The audit: nothing unsafe, several real defects
+
+No reviewer could leak the key, steer the photo route to another host, or exceed the OneMap limit of 60 routed trips per request. All three asked for changes.
+
+**Confirmed true, with evidence:**
+- The Google key is sent only as a request header. It was in no response body, header, redirect or log line across converge, roam and photo requests (a fake key, stub and fake-fetch runs).
+- The photo route fetched only `places.googleapis.com/v1/places/<id>/photos/<id>/media` for 34 hostile inputs (traversal, full URLs, encoded slashes, repeated parameters, control characters).
+- One Google call per planner request at most, none for the meeting area or search; the cache is bounded at 500 and 2,000 entries.
+- With no key the server makes no Google call and answers `google: { source: 'off' }`.
+- `minOptions` and `shortlistSize`: answers are identical with the fields left out and with the defaults sent, for six fixed requests; both reject 0, negatives, 31, floats and strings.
+- OneMap route calls per request stayed at or under 60 at the widest settings. One meeting-area request with 30 members measured 60 on this tree and on `main` (round 9 recorded 59; the cap is 60 and was not passed).
+- Speed: converge and roam medians went from about 3 to 5 ms to about 5 to 6 ms; loading the plan data went from 13 ms to about 65 ms at start-up.
+- A hawker centre is left out on each day of its closure, including the last, and is back the day after.
+- No secrets in the 38,733 added lines. One organisation's contact email address sits in a saved opening-hours text.
+- The edited OneMap limits test still proves what it proved.
+
+**Defects found (the lead read the Google code and confirmed 1 to 5 there before delegating the fixes):**
+
+| # | Where | Defect |
+|---|---|---|
+| 1 | Google service | Nothing caps Google calls for the process. One caller at the planner's 300 requests a minute caused 300 nearby searches and, separately, 300 photo calls in a minute; the cache key holds the exact radius, so 2,901 radii are 2,901 keys |
+| 2 | Google service | A hung Google added 10 s to every planner request (six at once took 10.06 s each, and the next 10.0 s again); nothing backs off, and each failure writes a log line |
+| 3 | Google adapter | A 200 from Google with an unexpected shape answered 500 for the whole request (four shapes), and the body was cached for 10 minutes |
+| 4 | Photo route | A fractional width is forwarded; every width is its own billed call; the name has no length limit; the redirect target is not checked (a `javascript:` link and another host were redirected to) |
+| 5 | Start-up | A whitespace-only key counts as a key |
+| 6 | Test fixture | The Google fixture is a recorded real response (real place ids, names, addresses, ratings, hours), against the code's own note that only a place id may be stored |
+| 7 | Hawker closures | 15 venues take the closures of two or three neighbouring centres, adding 19 future periods that are not theirs; one centre's row matches no venue |
+| 8 | CDC merge | An OneMap centre replacing its CDC copy loses the copy's dietary hints, so a halal or vegetarian group loses venues it had; about 20 centres named by street and block do not merge at all |
+| 9 | Saved places | 92 photo links have no scheme; names and credits are garbled ("SandsÂ®"); 21 places appear twice across lists, and two curated hawker centres are duplicated |
+| 10 | Opening hours | "Closed on Monday" is ignored, so a closed attraction is offered on a Monday; by-appointment places are offered |
+| 11 | Guessed values | Every attraction is priced at $15 and tagged from the guess; community-club and school halls are offered as theatres |
+| 12 | Closure data | All cleaning dates end in 2026; from January 2027 every centre reads as open, with no warning |
+
+**Not defects, but for the lead:** the nearby search's field mask asks for rating, review count, hours and price level, which is probably Google's dearer billing tier (not looked up); Google's terms restrict showing Places content beside a non-Google map, and Jio's map is OneMap; a Google venue exists only in the request that fetched it, so an option being voted on can vanish when the cache expires; the planner's validation error has `issues` and no `message`.
+
+### 12.5 Google fixes: completed
+
+- **Agent:** an implementer subagent, on the Google files only.
+- **Call cap.** Every nearby search and photo call goes through one budget (`createCallBudget`, now reusable for a second service): 60 calls a minute by default (`GOOGLE_CALLS_PER_MINUTE`), 4 at once. A refused call throws `GoogleUnavailableError`, so the planner answers 200 with `google.source: 'unavailable'` and the photo route 503. The search radius snaps up to 500, 1000, 2000 or 3000 m for the request and the cache key.
+- **Failure.** Three failures in a row pause Google for 60 seconds, then one probe is let through. Google calls time out after 3 seconds (a new per-call `timeoutMs` on the HTTP helper; every other service keeps 10). A failure is logged once a minute per reason.
+- **Shape.** A `places` that is not a list is a failure and is not cached. An entry that cannot be read is skipped; an answer with skipped entries is used and not cached.
+- **Photo route.** Widths snap to 200, 400, 800 or 1600; each id in the name is 1 to 300 characters; the redirect goes only to an `https` address on `googleusercontent.com` or `ggpht.com`, otherwise 502; the redirect carries `Cache-Control: public, max-age=1800`; a Google 404 or 400 is remembered for 5 minutes and answers 404.
+- **Key.** `readGoogleSettings(env)` trims it; blank, or anything outside printable ASCII, counts as not set, with a warning that never prints the value. Start-up prints one line when Google is on.
+- **Fixture.** Replaced with six invented places (`stub_place_01` to `06`). The recorded one remains in git history.
+- **Also:** the point Google is asked about now follows the engine's `seed`; the planner's validation error carries a `message` beside `issues`; `photo.credits` lists every author.
+- **Reported by the agent, not acted on:** existing test files open servers with `listen(0)` on every address, and a port can collide with another program on this machine (3 failures in 37 runs once the new file was added; the new file listens on `127.0.0.1` only, and 18 runs in a row passed). With a hung Google, the fifth and later requests in the first burst can wait about 6 seconds before the pause begins. Whether real Google photo ids stay under 300 characters is unchecked.
+
+### 12.6 OneMap places and closures fixes: completed
+
+- **Agent:** an implementer subagent, on the places files only.
+- **Closures.** Each venue takes one centre's dates at most, its own. Closure periods attached went from 824 on 178 venues to 606 on 145. Bukit Timah Market's row matches nothing because the saved OneMap list has no centre by that name within 2.9 km; it is reported in `_meta.closures.rowsWithoutVenue`.
+- **CDC merge.** An OneMap centre that replaces a CDC site keeps the site's dietary hints, stalls and kind. The site dropped is now the one with the same postal code, then a large site, then the nearest; the first-in-file rule had picked the wrong neighbour for 25 of 122 centres. Every OneMap hawker row is a centre whatever its name. CDC sites replaced: 111 by OneMap centres and 8 by curated ones (90 together before).
+- **Text and links.** The adapter re-decodes text that was UTF-8 read as Windows-1252, strips tags, repairs postal codes, removes contact details and drops descriptions that are only codes. `pnpm repair:onemap-places` applied the same functions to the saved file with no network: 300 lines changed in 251 of 483 places, and a second run changed nothing.
+- **Duplicates.** 16 OneMap rows dropped as the same place as another, 20 as already in a hand-made list. Central Library and Central Arts Library stay separate, as do 13 close pairs listed in the snapshot test.
+- **Closed weekdays.** "Closed on Monday" becomes `closedWeekdays` at load and the hours filter answers `closed`; seven attractions are affected. Two by-appointment places leave the pool.
+- **Guessed values.** 16 theatre rows (community clubs, schools, an auditorium, an amphitheatre, two studio rooms), 10 interim parks and 2 islets leave the pool and stay in the file. 18 theatres remain.
+- **Stale closures.** The plan data reports the covered range (`lastCleaning` 2026-12-30) and warns at load from 30 days before it. The build script refuses to overwrite the file with an empty list, writes in a stable order, and prints one line when the login fails.
+- **Pool:** 1,894 venues before the fixes, 1,819 after (eat 1,462, drink 16, activity 326, shop 15); 417 of the 483 saved OneMap places reach the planner.
+- **Venues that existed before the pull request:** 42 CDC sites removed (now replaced by their centre), 13 added back (the wrong neighbour had been dropped), `closures` changed on 4, a new `closuresFrom` field on 30, no other field changed. The mock "Tampines Hawker Hub" lost four closure periods it had taken from a centre 478 m away.
+
+### 12.4 The lead's checks and decisions
+
+- **Changed by the lead:** the agent's rule withheld "Budget friendly" and "within budget" from every venue with a guessed price, which took the tag from all 1,303 CDC venues that had it before. The rule now applies to OneMap and Google venues only (`priceIsKnown` in `scoring.js`); whether CDC venues should lose it too is left to the lead.
+- **Run by the lead on the fixed tree:** `pnpm test` 547 passed, 1 skipped, 24 files, and the same with outbound calls blocked (no call attempted); `pnpm --filter jio-frontend test` 324 passed, 30 files; `pnpm build` succeeded.
+- **Checked by the lead with a separate script (a fake fetch under the real HTTP helper, outbound blocked):**
+  - East Coast Lagoon Food Village is closed on 2026-10-12 and 14 and open on the 11th and 15th; Toa Payoh Lorong 4 Blk 93 has four periods, all its own, and is open on 2026-11-08.
+  - North Bridge Road Market has `halal: likely`, `cdcAccepted` and 16 stalls.
+  - Esplanade, Chinatown Complex, Kovan 209 and the National Museum each appear once; no photo link lacks `https://`; no name is garbled.
+  - A `places` of the wrong type gives 200 with `google.source: 'unavailable'`; with a cap of 5, twelve searches at different points made 5 Google calls and the other seven answered `unavailable`; a blank key makes no call.
+  - A photo link on another host answers 502 with no `Location`; a good one answers 302 with the cache header, and a width of 250.7 was asked of Google as 400.
+  - Eurasian Heritage Centre is `closed` on Monday 2026-10-12 at 10:00 and fits on the Tuesday.
+- **Not checked by the lead:** radius snapping (the lead's attempt ran with the budget already empty, so it rests on the agent's tests and its mutation check); anything against the real Google or OneMap services.
+- **Secrets:** none in the changes. The one key-shaped string is a labelled fake in a test.
+- **For the lead:** Google's billing tier for the field mask; Google's terms on showing Places content beside a non-Google map; the recorded fixture in git history; whether the four school-owned theatres that sell public tickets should stay; whether "SAM at 8Q" and "Singapore Art Museum" are one place.
+
+## Round 13: Home's start row and showcase demo data (2026-10-11)
+
+The lead chose both from a short list of options: the action that starts a meetup becomes the first row of Home's list, and the demo tools gain a spread of sessions in every state. One frontend-engineer subagent, on branch `feat/demo-showcase` in the main checkout. Committed and sent to `main` at the lead's word on 2026-10-11, on top of round 12; on that tree `pnpm test` gave 547 passed, 1 skipped, `pnpm --filter jio-frontend test` 353 passed, 33 files, and `pnpm build` succeeded.
+
+- **Built:** `StartMeetupRow.vue` (a link, first in the list, the corner pill removed); `components/dev/showcase.js` (`loadShowcase`, ten sessions made through the data layer's public functions); `components/dev/offlinePlanner.js` (a stand-in used only while the showcase loads and only when the backend gives no answer); `DemoSignIn.vue` (two buttons on the sign-up screen in development builds); `createSession({ hostId })` and `inviteFriends(..., { acceptAfter })` in `lib/api.js`, neither used by the app itself.
+- **Run by the lead:** `pnpm --filter jio-frontend test` 353 passed, 33 files; `pnpm build` succeeded; the production bundle contains neither "showcase" nor "Use the demo account".
+- **Checked by the lead on the lead's own dev server:** "Use the demo account with showcase data" signed in and loaded ten sessions in about eight seconds against the real backend (s1 to s10: two inviting, three locating, two voting, two confirmed, one completed; s10 hosted by Darius); Home showed five pins, no corner pill, and "Plan a new meetup" as the first row, a link to the create screen.
+- **Not checked by the lead:** widths and overflow (the browser pane was not on screen), which rest on the agent's headless runs.
+- **Differences from the brief:** the long title is 60 characters, the form's limit; the app has no fallback when the planner backend is off, so the stand-in was added for the showcase only.
+- **Incident:** the agent stopped its own backend with `pkill -f "node src/index.js"`, which also stopped the lead's backend on port 3000. The lead agent restarted it through the lead's own `node --watch` process by touching a watched file, and confirmed the port was listening. Briefs that let an agent start a server now say: stop only the processes you started, by process id.
+
+## Round 14: decisions on meeting spots and Roam, and a handoff (2026-10-11)
+
+The lead took the recommended answer to ten questions on how converge and roam should work. The decisions, the contract, six slices and the delegation briefs are in `docs/handoffs/meeting-spots-and-roam.md`, written for a fresh session. Nothing is built.

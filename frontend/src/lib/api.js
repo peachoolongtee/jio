@@ -15,7 +15,7 @@ import { reviewsFor } from './mock/reviews.js'
 import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
-import { format } from 'date-fns'
+import { addDays, format, isValid, parseISO } from 'date-fns'
 
 export { api } from './plannerApi.js'
 
@@ -251,6 +251,8 @@ function sessionById(id) {
 // whose time has passed (after a reload, the timers are gone). Returns true when someone joined.
 const ACCEPT_AFTER = 1400
 const ACCEPT_GAP = 900
+// An invite held longer than this gets no timer (a page that stays open for days should not hold one); a read accepts it.
+const TIMER_MAX = 60 * 1000
 function settleInvites(session, now = Date.now()) {
   let changed = false
   for (const member of session.members) {
@@ -810,19 +812,23 @@ export async function getSession(id) {
   return summary(sessionById(id))
 }
 
-export async function createSession({ title, date, start, end }) {
+// hostId: the app always makes the signed-in person the host. A friend's id makes a session that friend hosts, with the
+// signed-in person already a guest in it (the demo's showcase uses it to show a session the person does not run).
+// How to call: await createSession({ title: 'Dinner', date: '2026-10-17', start: '18:00', end: '21:00', hostId: 'darius' })
+export async function createSession({ title, date, start, end, hostId = HOST_ID }) {
   await wait(DELAY.write)
+  if (hostId !== HOST_ID && !personById(hostId)) throw new Error('This person does not exist.')
   const session = {
     id: `s${db.seq++}`,
     title: title.trim(),
     date,
     start,
     end,
-    hostId: HOST_ID,
+    hostId,
     status: 'inviting',
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    members: [{ id: HOST_ID, role: 'host', state: 'joined' }],
+    members: [{ id: hostId, role: 'host', state: 'joined' }, ...(hostId === HOST_ID ? [] : [{ id: HOST_ID, role: 'guest', state: 'joined' }])],
     locations: {},
     meeting: null,
     prefs: {},
@@ -839,13 +845,48 @@ export async function createSession({ title, date, start, end }) {
   return touch(session, 'session')
 }
 
+// The checks the create form makes before it lets a host carry on: a title of 1 to 60 characters, a real day from
+// today to three months ahead, two times of the day, the end after the start. Throws the first thing wrong; answers
+// the values as they are stored (the title trimmed).
+// How to call: checkSessionFields({ title: ' Dinner ', date: '2026-10-17', start: '18:00', end: '21:00' })
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/
+function checkSessionFields({ title, date, start, end }) {
+  const name = String(title ?? '').trim()
+  if (!name) throw new Error('A session needs a title.')
+  if (name.length > 60) throw new Error('A title can be at most 60 characters.')
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? parseISO(date) : null
+  if (!day || !isValid(day) || format(day, 'yyyy-MM-dd') !== date) throw new Error('Pick a day for the session.')
+  if (date < todayKey()) throw new Error('That day has passed.')
+  if (date > format(addDays(new Date(), 90), 'yyyy-MM-dd')) throw new Error('Sessions can be planned up to 3 months ahead.')
+  if (!TIME.test(start || '')) throw new Error('Start must be a time such as 14:00.')
+  if (!TIME.test(end || '')) throw new Error('End must be a time such as 18:00.')
+  if (end <= start) throw new Error('End time must be after the start time.')
+  return { title: name, date, start, end }
+}
+
+// Changes a session's title, day and times, for the host going back to the create form from the invite step. Only the
+// host may, and only while the session is inviting: once it starts, the group plans around the day and times. Nothing
+// else on the session changes. Checked like the create form (checkSessionFields).
+// How to call: await updateSession('s1', { title: 'Dinner', date: '2026-10-17', start: '18:00', end: '21:00' })
+export async function updateSession(id, fields) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (session.hostId !== HOST_ID) throw new Error('Only the host can change a session.')
+  if (session.status !== 'inviting') throw new Error('The date and times can only change before the session starts.')
+  Object.assign(session, checkSessionFields(fields))
+  return touch(session, 'session')
+}
+
 // Invited friends accept automatically: they already have the app.
 // Invite friends. By default they join straight away (tests and demo scripts). With { pending: true }, as the app
 // does, each one is Invited until they accept, which in the demo they do on their own, one after another.
-export async function inviteFriends(id, personIds, { pending = false } = {}) {
+// acceptAfter (with pending): how long the first invite stays pending, in ms, instead of ACCEPT_AFTER. A long wait gets
+// no timer; the invite is accepted by the first read after it passes. The demo's showcase uses it to leave invites pending.
+// How to call: await inviteFriends('s1', ['faith'], { pending: true, acceptAfter: 7 * 24 * 60 * 60 * 1000 })
+export async function inviteFriends(id, personIds, { pending = false, acceptAfter = ACCEPT_AFTER } = {}) {
   await wait(DELAY.write)
   const session = sessionById(id)
-  let at = Date.now() + ACCEPT_AFTER
+  let at = Date.now() + acceptAfter
   for (const personId of personIds) {
     let member = session.members.find((m) => m.id === personId)
     if (member?.state === 'joined') continue
@@ -856,7 +897,7 @@ export async function inviteFriends(id, personIds, { pending = false } = {}) {
     if (pending) {
       member.state = 'invited'
       member.acceptAt = at
-      scheduleAccept(session, at)
+      if (acceptAfter <= TIMER_MAX) scheduleAccept(session, at)
       at += ACCEPT_GAP
     } else {
       member.state = 'joined'

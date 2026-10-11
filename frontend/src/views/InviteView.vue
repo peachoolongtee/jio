@@ -1,5 +1,6 @@
 <script setup>
-// Step 2: invite friends. Ian picks friends from a list; everyone on it already has the app.
+// Step 2: invite friends. Ian picks friends from a list; everyone on it already has the app. The back arrow returns to
+// the create form (title, day and times, filled in) while the session is inviting; the steps bar's Create does the same.
 // One card, one column at every size: the session and how many are in it, a search box, who is already in
 // (the host first, with a Host badge), then friends and suggested people to pick, and Cancel / Send invites.
 // After sending, the screen confirms each invite. Each friend shows as Invited until they accept (in the demo, on
@@ -15,6 +16,7 @@ import IllustrationBlob from '@/components/ui/IllustrationBlob.vue'
 import ListRow from '@/components/ui/ListRow.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
+import SessionSteps from '@/components/event/SessionSteps.vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
@@ -36,6 +38,14 @@ onMounted(async () => {
 })
 
 const session = computed(() => events.byId[props.id])
+// Back: to the create form, with the title, day and times filled in, while the host can still change them; otherwise
+// to the session. The form takes this screen's place in the browser's history (replace), so Back in
+// the browser still goes to where the person came from and can never land on an empty create form.
+const back = computed(() =>
+  session.value?.status === 'inviting' && session.value.hostId === (auth.user?.id || 'ian')
+    ? { label: 'Back to date and times', to: { path: `/sessions/${props.id}/edit`, replace: true } }
+    : { label: 'Back to session', to: `/sessions/${props.id}` },
+)
 const inSession = (personId) => session.value?.members.some((m) => m.id === personId && ['joined', 'invited'].includes(m.state))
 const isInvited = (personId) => session.value?.members.some((m) => m.id === personId && m.state === 'invited')
 // Search by name or @username. Empty: everyone.
@@ -90,8 +100,10 @@ function done() {
   <main class="screen screen--invite">
     <header class="screen__header">
       <div class="screen__bar">
-        <IconButton label="Back to session" :to="`/sessions/${id}`"><AppIcon name="back" /></IconButton>
+        <IconButton :label="back.label" :to="back.to"><AppIcon name="back" /></IconButton>
       </div>
+      <!-- Before the title, as on every session screen, so the bar does not move between them. -->
+      <SessionSteps v-if="session" :session="session" />
       <div class="screen__titles">
         <h1 class="display-xl">{{ sent.length ? 'Invites sent' : 'Invite friends' }}</h1>
       </div>
@@ -214,7 +226,7 @@ function done() {
 .invite__picked { display: none; }
 
 /* Tablet and up: the action follows the card: "N selected" on the left, Send invites on the right. Phones keep the
-   pinned full-width Send button, where the thumb is. There is no Cancel: the back arrow already returns to the session. */
+   pinned full-width Send button, where the thumb is. There is no Cancel: the back arrow already goes back a step. */
 @media (min-width: 744px) {
   .screen__body { flex: 0 0 auto; }
   .screen__footer { position: static; flex-direction: row; justify-content: flex-end; align-items: center; padding-top: 0; border-top: 0; }

@@ -1,23 +1,7 @@
-<script setup>
-// A 24-hour time in a round pill. Hover it (or tap it on a touch screen) and eight buttons orbit out around it:
-// +15m, +30m, +1h, +2h on the right and the same back on the left. Click the time to type one instead;
-// "930" becomes 09:30 when you leave the field.
-//   <RadialTimePicker v-model="start" label="Start time" />                  start is "HH:mm", or "" for none yet
-//   <RadialTimePicker v-model="end" label="End time" fallback="18:00" hint="Ends 18:00" :error="endError" />
-// `fallback` is the time the buttons count from while the field is empty (and is shown as its placeholder).
-// Times stay within the day: 00:00 to 23:59.
-import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
-
-const model = defineModel({ type: String, default: '' })
-const props = defineProps({
-  label: { type: String, required: true },
-  fallback: { type: String, default: '09:00' },
-  hint: { type: String, default: '' },
-  error: { type: String, default: '' },
-})
-
-// How far the buttons sit from the centre of the time, in px.
+<script>
+// How far the buttons sit from the centre of the time, in px, and how big each is (the CSS of .tp__node says 56 too).
 const ORBIT = 125
+const NODE = 56
 // Where each button sits around the time, in degrees clockwise from the top.
 const NODES = [
   { label: '+15m', minutes: 15, angle: 25 },
@@ -32,6 +16,42 @@ const NODES = [
   const radians = ((node.angle - 90) * Math.PI) / 180
   return { ...node, x: Math.round(ORBIT * Math.cos(radians)), y: Math.round(ORBIT * Math.sin(radians)) }
 })
+
+// How far the ring reaches above and below the middle of the time, to the far edge of a button: 141px. The form
+// around a picker keeps this much room, and a gap, clear.
+export const RING_REACH = Math.max(...NODES.map((node) => Math.abs(node.y))) + NODE / 2
+
+// How far to scroll the page so a ring centred at `centreY` clears what is stuck over the page: `view.top` is the
+// lowest edge of anything fixed at the top, `view.bottom` the top edge of anything fixed at the bottom (a sticky
+// footer), both in viewport px. Positive scrolls down. A ring too tall for the space lines its top up instead.
+// How to call: ringScroll(700, RING_REACH, { top: 0, bottom: 712 }) -> 141 (scroll down 141px)
+export function ringScroll(centreY, reach, view, margin = 12) {
+  const up = view.top + margin - (centreY - reach)
+  if (up > 0) return -up
+  return Math.max(0, centreY + reach + margin - view.bottom)
+}
+</script>
+
+<script setup>
+// A 24-hour time in a round pill. Hover it (or tap it on a touch screen) and eight buttons orbit out around it:
+// +15m, +30m, +1h, +2h on the right and the same back on the left. Click the time to type one instead;
+// "930" becomes 09:30 when you leave the field.
+//   <RadialTimePicker v-model="start" label="Start time" />                  start is "HH:mm", or "" for none yet
+//   <RadialTimePicker v-model="end" label="End time" fallback="18:00" hint="Ends 18:00" :error="endError" />
+// `fallback` is the time the buttons count from while the field is empty (and is shown as its placeholder).
+// Times stay within the day: 00:00 to 23:59.
+// The ring reaches RING_REACH (141px) above and below the middle of the time, over whatever is there. The form keeps
+// that much room and a gap clear around each picker; a tap that opens it also scrolls it clear of a sticky footer.
+import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
+
+const model = defineModel({ type: String, default: '' })
+const props = defineProps({
+  label: { type: String, required: true },
+  fallback: { type: String, default: '09:00' },
+  hint: { type: String, default: '' },
+  error: { type: String, default: '' },
+})
+
 const id = `time-${useId()}`
 const text = ref(model.value)
 watch(model, (v) => { text.value = v })
@@ -99,7 +119,22 @@ function onPointerDown(event) {
     event.preventDefault()
     tapped.value = true
     document.addEventListener('pointerdown', closeOnOutside, true)
+    clearOfFooter()
   }
+}
+
+// Once a tap has opened the ring, scroll the page so the ring is clear of a sticky footer (a form's Next button) and
+// is not left half under it. Only for a tap: with a mouse the page moving would pull the time out from under the pointer.
+// How to call: clearOfFooter()
+async function clearOfFooter() {
+  await nextTick()
+  const box = root.value?.getBoundingClientRect()
+  if (!box) return
+  const footer = document.querySelector('.screen__footer')
+  const stuck = footer && ['sticky', 'fixed'].includes(getComputedStyle(footer).position)
+  const view = { top: 0, bottom: stuck ? footer.getBoundingClientRect().top : window.innerHeight }
+  const delta = ringScroll(box.top + box.height / 2, RING_REACH, view)
+  if (delta) window.scrollBy({ top: delta, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
 }
 function closeOnOutside(event) {
   if (root.value?.contains(event.target)) return

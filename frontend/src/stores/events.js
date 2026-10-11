@@ -72,6 +72,8 @@ export const useEventsStore = defineStore('events', () => {
   const act = (fn) => async (id, ...args) => put(await fn(id, ...args))
 
   const create = async (data) => put(await api.createSession(data))
+  // The host changes the title, day and times while the session is still inviting. How to call: update('s1', { title, date, start, end })
+  const update = act(api.updateSession)
   // Invites from the app are pending until each friend accepts.
   const invite = act((id, personIds) => api.inviteFriends(id, personIds, { pending: true }))
   const start = act(api.startSession)
@@ -137,6 +139,6 @@ export const useEventsStore = defineStore('events', () => {
   return {
     sessions, byId, itineraries, photos, loaded, current,
     loadSessions, loadSession, loadItinerary, loadPhotos,
-    create, invite, start, setMyLocation, useArea, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, addPhoto, deletePhoto,
+    create, update, invite, start, setMyLocation, useArea, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, addPhoto, deletePhoto,
   }
 })

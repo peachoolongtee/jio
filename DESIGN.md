@@ -839,6 +839,51 @@ On 10 Oct 2026, after this document was written from commit `65567bb`, nine defe
 
 No token, colour or copy rule changed.
 
+### Home, since 10 Oct 2026 (branch `feat/home-meetups-map`)
+
+Home now shows every current meetup, where before it showed one. Where a sentence elsewhere in this document describes Home as a single `PinButton` on the meeting point with `SessionCard`s below, that is now the layout only when no meetup is going. With one or more going:
+
+| Piece | File | What it is |
+|---|---|---|
+| Pins | `components/home/MeetupPins.vue` | One real `<button>` per meetup that has a meeting area, laid over `SingaporeMap` at that area. 50 by 64px, the day in its head. The selected pin is larger, filled red with a white head, and bobs. Pins on the same area fan out sideways by 46px. Props: `pins`, `selectedId`, `meetups`, `myId`, `names`. |
+| Pin card | inside `MeetupPins.vue` | A 264px card anchored to a pin, over the map. It opens on hover after 120ms, on keyboard focus, or on a tap, and closes 150ms after the pointer leaves both pin and card, or on Escape. No backdrop and no focus trap. Hovering does not select. |
+| Summary | `components/home/MeetupSummary.vue` | The content shared by the pin card and the card under the map: status, countdown, title, date line, where it stands, who is in, the next step, "Open meetup". `compact` for the pin card. |
+| Detail card | `components/home/MeetupDetail.vue` | The selected meetup, in a card under the map. From 744px it sits beside the list. |
+| List | `components/home/MeetupList.vue` | "Your meetups": every current meetup, soonest first, each row a button that selects it. Shown with two or more. A meetup without a meeting point has a dashed day badge and no pin. |
+| Next step | `components/home/NextStepChip.vue` | The one thing a meetup needs from the signed-in person. |
+| Logic | `lib/homeMeetups.js` | Ordering, the next step, pin positions, selection, and where the pin card sits. No DOM. |
+
+- **Selection** lives in the page address as `?meetup=<id>`. The soonest meetup is selected by default. A pin and its row do the same thing.
+- **"Jio your friends"** was a secondary button on the map's corner whenever a meetup is going. It is now the first row of the list (see "The start row, 11 Oct 2026" below).
+- **"Places near {area}"** follows the selected meetup.
+- **Motion added**, all off under reduced motion: the selected pin's bob (2.8s, endless, that pin only); pin scale on select (200ms, `--ease-spring`); routes redrawing toward the selected meetup's area (0.7s, `SingaporeMap`'s new `quick` prop); the detail card's cross-fade (120ms out, 200ms in); the pin card's fade and 5px rise (160ms in, 100ms out).
+- **Stacking:** the pin layer is at 5 and an open pin card at 6 within it; the top bar and tab bar at 20 stay above.
+- **No new colour and no white text on `--primary`.** The day in a selected pin's head is ink on white. "Open meetup" is a secondary button for the same reason, and so is the start row's plus (red on a tint, not white on red).
+- **Not changed:** with no meetup going, Home is the same as before, checked box for box against `main`.
+
+### The start row, 11 Oct 2026 (branch `feat/demo-showcase`)
+
+The action that starts another meetup moved from a small white pill in the map's bottom-right corner to the first row of the meetups list. The pill read as a map control, looked secondary though it is the page's main action, and could sit near pins. With no meetup going Home is unchanged: the red `PinButton` stays in the middle of the map.
+
+| Piece | File | What it is |
+|---|---|---|
+| Row | `components/home/StartMeetupRow.vue` | A real link (`<a href="/sessions/new">`), so it opens in a new tab. The box of a meetup row: 12px 16px padding, 1px border, `--rounded-md`, a 44px round badge, a 12px gap. A plus where a meetup row has its day, "Plan a new meetup" (`title-md`) over "Jio your friends" (`body-sm`, muted). Two lines, so about 70px tall where a meetup row is about 98px; width, padding, radius and badge match. |
+| List | `components/home/MeetupList.vue` | New prop `startHref` and event `start`. With `startHref` the row is the first `<li>`. With no meetups and a `startHref` the list is that row alone, which is how Home shows it with one meetup going (under the card, 480px wide from 744px like the card). |
+
+- **Treatment.** A 1px outline of the brand red at 35% on white, a badge tinted with the brand red at 11%, and a red plus on it. These are the in-place tints already used by `TabBar` (11%) and `HoldButton` (35% border). Hover (devices that hover) sets the border to `--primary` and the fill to `--surface-soft`. No new colour, no shadow, no red fill. Every word is ink or muted.
+- **Contrast.** The plus is an icon, red on the 11% tint, 3.04:1, which meets the 3:1 for icons and is the same pair as the current tab's icon in Known Conflicts item 3. No white text sits on red.
+- **Not a meetup.** It is never selected, has no `aria-pressed` and never changes `?meetup=`. A tab order of pins, the card's buttons, the start row, the first meetup row was measured.
+- **Motion.** A plain click still plays `enterGame`, now from the centre of the plus (the element marked `data-burst`) instead of the old pill. A click with a modifier key opens a new tab as a link does. Under reduced motion `enterGame` navigates at once and the row's colour transition is off.
+- **Removed.** `.hero__start` and its button in `LandingView`.
+
+### Four fixes from use, 10 Oct 2026
+
+- **The greeting.** `.hello__name` in `LandingView` is painted through `background-clip: text`, which only shows inside the element's own box, so letters hanging below the line (g, j, p, y) and the last letter's right edge were cut. It now carries padding (`0.12em 0.1em 0.22em 0.06em`) with a matching negative margin and `background-origin: content-box`. Rule for any new gradient-filled text: give it padding for its descenders and its last letter.
+- **Time pickers.** `RadialTimePicker`'s ring reaches 141px above and below its pill. `CreateEventView` now keeps 72px between the two pickers and under the End picker, and a ring opened by a tap scrolls clear of a sticky footer by 12px. Rule: leave a ring's reach free of other controls.
+- **Editing a session.** `CreateEventView` also serves `/sessions/:id/edit` ("Edit session"), for the host while the session is still inviting. The invite step's back arrow ("Back to date and times") and the steps bar's Create step lead there. Once the session has started, the page says the date and times are locked.
+- **The steps bar.** `SessionSteps` now sits directly under the back row and before the title on every session screen, including the invite and edit steps, so it is at the same height on all of them at a given width. It has its own view-transition name, `session-steps`, so it neither fades nor drifts while the page behind it changes, and keyboard focus stays on the step that was pressed. `SessionHeader`'s order is now: back arrow, `SessionSteps`, title, date.
+- **Titles.** The full-size meetup card on Home wraps a long title; the pin card and the list rows keep their ellipsis and carry the full title as a tooltip.
+
 ## Known Conflicts
 
 Each item is a place where the shipped code departs from a rule written in `CLAUDE.md`, in `frontend/src/styles/README.md`, or in a comment in the code. They are recorded as facts. Nothing here has been changed, and the lead decides each one. Contrast ratios are computed from the token values with the WCAG 2 formula; 4.5:1 is the threshold `CLAUDE.md` names.
