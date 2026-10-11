@@ -770,3 +770,35 @@ Baseline before any source change, run by the lead agent: backend 546 passed, 1 
   - With no approvals, the preselected spot is the one with the shortest longest trip, which can be a member's suggestion.
   - The group can hold at most 8 different suggested areas, the planner's `include` limit.
 - **Known gaps:** `suggestSpot` does not take the "latest request wins" ticket that a location change takes, so a suggestion racing a location change could apply the older answer. After a known place, when some members have a start and others do not, places are ranked for the ones with a start only.
+
+## Round 16: the Locate screen for meeting spots, slice 3 (2026-10-11)
+
+Parent task: the lead asked for slice 3 to be finished. Slices 1 and 2 are committed on `feat/meeting-spots` (seven commits on `2e1643d`, not pushed); at the lead's request the commits carry no co-author line.
+
+Baseline before any change: backend suite 677 passed, 1 failed (the line-ending test from round 15), 2 skipped, 26 files; frontend suite 376 passed, 31 files; build succeeded.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 16.1 | Frontend | The Locate step in `GroupDetailView.vue`: the list of spots, "Works for me", "Suggest a spot", the host's confirm, "We already have a place" there and on the create screen, pins on the map, Home's chips, demo tools (ticket #96) | `frontend/src/views/GroupDetailView.vue`, `CreateEventView.vue`, new components, Home's chip and summary components, `components/dev/`, tests; not `lib/api.js` beyond a reported defect | No overflow at 320, 375, 744 and 1280 px; every control reachable by keyboard and named; the steps bar does not move; frontend suite and build pass; no existing test deleted, skipped or weakened | **Done and checked by the lead**, with one defect found and fixed by the lead (results below) |
+| 16.2 | Lead | Verify the report, open the screen, record results | Docs | Suites and build run by the lead; the screen opened by the lead at the four widths, or what was not seen said plainly | Done |
+
+### 16.1 result: the Locate screen for meeting spots
+
+- **Built (frontend agent, in two runs; the first stopped at its turn limit with no report and was resumed):** `GroupDetailView.vue` shows "Where to meet" while locating; new `components/spots/` (`SpotList`, `SpotRow`, `SpotConfirm`, `SpotPins`, `KnownPlaceField`, `spotText.js`, `knownPlaceChoice.js`); "We already have a place" on the create screen, in the lobby and on Locate; a "Meeting spots" group in the demo tools (`components/dev/spotDemo.js`); `NextStepChip` wraps a long step. New tests: `spotsScreen.test.js` (22) with `miniDom.js`, a small stand-in for the page.
+- **Outside the files the brief allowed, accepted:** `PlannerMap.vue` gained a `keep` prop, a `view` event and an exposed `project(lat, lng)`, so the spot pins can sit at their place on the map; `LocationSheet.vue` gained an optional `title`; `frontend/vite.config.js` compiles one test file for the browser so components can be rendered in a test. Existing callers pass none of the new props.
+- **Defect found by the lead in the browser, and fixed by the lead:** after the host confirmed a spot, or set a known place from Locate, the session moved to Voting but the page stayed on Locate. `SpotConfirm` and `SpotList` show only while locating, so they were gone from the page before their "done" event could arrive. `GroupDetailView` now takes the host to the Vote screen itself when this session's status goes from locating to voting. No test covers this; it was checked in the browser both ways.
+- **Run by the lead, after the fix:** the frontend suite, 398 passed, 32 files; the build succeeded.
+- **Seen by the lead in the browser** (stub backend on 3101, frontend on 5174, both stopped afterwards; a session of three with two starts shared):
+  - The list shows the app's three spots with "Fairest" on the first, and Faith's suggestion with "We are here already"; each has the longest trip, the average and each person's minutes.
+  - "Works for me" on Braddell filled with ink, showed "Works for 1 person" and "Leading", and the confirm button became "Confirm Braddell". Selecting Caldecott's row selected its pin and made the button "Confirm Caldecott".
+  - "Suggest a spot" opened the area picker under the button; searching "Bishan" and picking it added the spot with a "We are here already" toggle and "Withdraw", and the caption "You have one suggestion. A new one replaces it."
+  - Hovering Faith's pin showed its card above the pin, at the pin.
+  - With another person as host (the save edited by hand): no confirm button, "Waiting for Jonathan to confirm", and "Suggest a spot" still offered.
+  - Confirming landed on `/sessions/s2/plan` with method `fairest`; an approved spot gave `voted`. "We already have a place", then Bugis, then "Meet at Bugis" landed on `/sessions/s3/plan` with method `chosen`. Back on Locate after that, the page shows the area and how it was chosen, with no "null".
+  - No horizontal overflow: 1280 (host), 375 (host), 320 and 744 (member), 744 (host). No control under 44 px at 375 outside the map. No console errors.
+- **Not seen by the lead:** the steps bar's offset across screens (the agent measured Locate and Vote equal, and did not reach Itinerary); the new Home chips on a real Home (every session in the lead's run had moved to Voting; the agent measured the chip at 320 px); the demo tools' new buttons; the known place chosen on the create screen and applied at "Start session"; the banner for removed approvals; keyboard order, focus rings, a screen reader and reduced motion. A pin's card did not open on a scripted focus; whether it opens on a real Tab was not checked.
+- **For the lead to know:**
+  - "We already have a place" on the create screen is remembered in the browser's session storage and applied when the host presses "Start session", because a known place needs two people and a new session has one. It is not a field on the session.
+  - The banner for removed approvals is drawn in `GroupDetailView`, not in `SessionNotices`.
+  - The area picker does not put the cursor in its search box when it opens with a click.
+  - "Hold to end" shows on the Locate screen when someone else is the host. It was there before this round (the signed-in user's id is hard-coded).
