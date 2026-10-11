@@ -1,8 +1,8 @@
 // The steps bar: which step a session has reached, which one is on screen, and which can be opened. Imported from the
 // single-file component, like the other small pure functions.
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { backFor, reachedStep, stepsFor, viewingStep } from '../../components/event/SessionSteps.vue'
-import { goBackIfBehind, isBehind, pathOf } from '../stepNav.js'
+import { exitFor, forgetEntry, goBackIfBehind, isBehind, pathOf, rememberEntry } from '../stepNav.js'
 
 const session = (status, more = {}) => ({ id: 's1', status, hostId: 'ian', ...more })
 
@@ -106,29 +106,26 @@ describe('what each step opens', () => {
   })
 })
 
-describe('where the back arrow goes', () => {
+describe('where the button at the top left goes', () => {
   const back = (status, path, mine = true, more = {}) => backFor(session(status, more), `/sessions/s1${path}`, mine)
+  const home = { label: 'Back to Home', to: '/' }
 
-  it('goes to the step before, among those the session has reached', () => {
-    expect(back('confirmed', '/itinerary')).toEqual({ label: 'Back to Vote', to: '/sessions/s1/plan' })
-    expect(back('voting', '/plan')).toEqual({ label: 'Back to Locate', to: '/sessions/s1' })
-    expect(back('locating', '')).toEqual({ label: 'Back to Invite', to: '/sessions/s1/invite' })
+  it('leaves for Home from the session page, Vote and the Itinerary, at every status', () => {
+    for (const status of ['inviting', 'locating', 'voting', 'confirmed', 'completed']) {
+      for (const path of ['', '/plan', '/itinerary']) expect(back(status, path)).toEqual(home)
+    }
+    expect(back('voting', '', false, { hostId: 'faith' })).toEqual(home)
   })
 
   it('goes from Invite to Create for the host, replacing it, and Home for a guest', () => {
     expect(back('inviting', '/invite')).toEqual({ label: 'Back to date and times', to: { path: '/sessions/s1/edit', replace: true } })
     expect(back('voting', '/invite')).toEqual({ label: 'Back to date and times', to: { path: '/sessions/s1/edit', replace: true } })
-    expect(back('voting', '/invite', false, { hostId: 'faith' })).toEqual({ label: 'Back to Home', to: '/' })
+    expect(back('voting', '/invite', false, { hostId: 'faith' })).toEqual(home)
   })
 
   it('goes Home from Create, the first step', () => {
-    expect(back('inviting', '/edit')).toEqual({ label: 'Back to Home', to: '/' })
-    expect(backFor(null, '/sessions/new')).toEqual({ label: 'Back to Home', to: '/' })
-  })
-
-  it('reads the lobby of a session that is inviting as the Invite step', () => {
-    expect(back('inviting', '')).toEqual({ label: 'Back to date and times', to: '/sessions/s1/edit' })
-    expect(back('inviting', '', false, { hostId: 'faith' })).toEqual({ label: 'Back to Home', to: '/' })
+    expect(back('inviting', '/edit')).toEqual(home)
+    expect(backFor(null, '/sessions/new')).toEqual(home)
   })
 
   it('takes the photos and the full map back to the Itinerary', () => {
@@ -136,23 +133,28 @@ describe('where the back arrow goes', () => {
     expect(back('confirmed', '/map')).toEqual({ label: 'Back to Itinerary', to: '/sessions/s1/itinerary' })
   })
 
-  it('never goes to a step the session has not reached, whatever the address', () => {
-    // The plan page of a session still inviting: its step is not reached, so the arrow lands on the last one that is.
-    expect(back('inviting', '/plan')).toEqual({ label: 'Back to Invite', to: '/sessions/s1/invite' })
-    expect(back('locating', '/itinerary')).toEqual({ label: 'Back to Locate', to: '/sessions/s1' })
+  it('leaves to the screen the session was opened from, when told one', () => {
+    const sessions = { label: 'Back to Sessions', to: '/sessions' }
+    for (const path of ['', '/plan', '/itinerary']) expect(backFor(session('voting'), `/sessions/s1${path}`, true, sessions)).toEqual(sessions)
+    // The forms leave to it too, where they used to go Home; the photos and the map still go to the Itinerary.
+    expect(backFor(session('inviting'), '/sessions/s1/edit', true, sessions)).toEqual(sessions)
+    expect(backFor(session('voting', { hostId: 'faith' }), '/sessions/s1/invite', false, sessions)).toEqual(sessions)
+    expect(backFor(session('confirmed'), '/sessions/s1/photos', true, sessions).to).toBe('/sessions/s1/itinerary')
   })
 
-  it('has every step of the chain, from the itinerary to Home, without a loop', () => {
-    const chain = []
-    let path = '/itinerary'
-    for (let i = 0; i < 8; i++) {
-      const next = back('confirmed', path)
-      chain.push(next.label)
-      const to = typeof next.to === 'string' ? next.to : next.to.path
-      if (to === '/') break
-      path = to.replace('/sessions/s1', '')
+  it('reaches Home in at most three presses from anywhere, without a loop', () => {
+    for (const start of ['/photos', '/map', '/itinerary', '/plan', '', '/invite', '/edit']) {
+      const seen = []
+      let path = start
+      for (let i = 0; i < 4 && path !== null; i++) {
+        const next = back('confirmed', path)
+        const to = typeof next.to === 'string' ? next.to : next.to.path
+        seen.push(to)
+        path = to === '/' ? null : to.replace('/sessions/s1', '')
+      }
+      expect(seen.at(-1)).toBe('/')
+      expect(new Set(seen).size).toBe(seen.length)
     }
-    expect(chain).toEqual(['Back to Vote', 'Back to Locate', 'Back to Invite', 'Back to date and times', 'Back to Home'])
   })
 })
 
@@ -186,5 +188,42 @@ describe('going back instead of adding a page', () => {
       expect(event.defaultPrevented).toBe(false)
     }
     expect(r.calls).toBe(0)
+  })
+})
+
+describe('the screen a session was opened from', () => {
+  const tabs = (path, title, fullPath = path) => ({ path, fullPath, meta: { tabs: true, title } })
+  const page = (path) => ({ path, fullPath: path, meta: {} })
+  beforeEach(forgetEntry)
+
+  it('is Home until a session is opened from somewhere', () => {
+    expect(exitFor()).toEqual({ label: 'Back to Home', to: '/' })
+  })
+
+  it('remembers the tab-bar screen a session was opened from, with its query', () => {
+    rememberEntry(page('/sessions/s1'), tabs('/sessions', 'Sessions'))
+    expect(exitFor()).toEqual({ label: 'Back to Sessions', to: '/sessions' })
+    rememberEntry(page('/sessions/s2/plan'), tabs('/', 'Home', '/?meetup=s2'))
+    expect(exitFor()).toEqual({ label: 'Back to Home', to: '/?meetup=s2' })
+  })
+
+  it('keeps it while the person moves about inside the session, and to other pages without the tab bar', () => {
+    rememberEntry(page('/sessions/s1'), tabs('/profile', 'Profile'))
+    rememberEntry(page('/sessions/s1/plan'), page('/sessions/s1'))
+    rememberEntry(page('/sessions/s1/itinerary'), page('/sessions/s1/plan'))
+    rememberEntry(page('/people/faith'), page('/sessions/s1'))
+    expect(exitFor()).toEqual({ label: 'Back to Profile', to: '/profile' })
+  })
+
+  it('does not take the Sessions list itself, or any other tab-bar screen, for a session', () => {
+    rememberEntry(tabs('/sessions', 'Sessions'), tabs('/', 'Home'))
+    rememberEntry(tabs('/leaderboard', 'Leaderboard'), tabs('/', 'Home'))
+    expect(exitFor()).toEqual({ label: 'Back to Home', to: '/' })
+  })
+
+  it('forgets it when asked', () => {
+    rememberEntry(page('/sessions/s1'), tabs('/sessions', 'Sessions'))
+    forgetEntry()
+    expect(exitFor().to).toBe('/')
   })
 })

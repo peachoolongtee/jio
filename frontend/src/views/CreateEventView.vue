@@ -27,7 +27,7 @@ import TextField from '@/components/ui/TextField.vue'
 import NotFoundView from './NotFoundView.vue'
 import { fromMinutes, toMinutes } from '@/lib/planner/format.js'
 import { HOST_ID } from '@/lib/mock/people.js'
-import { goBackIfBehind } from '@/lib/stepNav.js'
+import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const TITLE_IDEAS = ['Saturday hangout', 'Dinner catch-up', 'Weekend makan trip']
@@ -56,7 +56,7 @@ const started = computed(() => !!session.value && session.value.status !== 'invi
 // Why the form is not offered, or '' when it is.
 const closed = computed(() => (!session.value ? '' : !isHost.value ? 'Only the host can change the date and times.' : started.value ? 'The date and times are locked once a session has started.' : ''))
 // Create is the first step, so the arrow goes Home whether the session is new or being edited.
-const back = computed(() => (editing.value && session.value ? backFor(session.value, route.path, isHost.value) : { label: 'Back', to: '/' }))
+const back = computed(() => (editing.value && session.value ? backFor(session.value, route.path, isHost.value, exitFor()) : exitFor()))
 
 async function load() {
   missing.value = false

@@ -24,7 +24,7 @@ import UserAvatar from '@/components/ui/UserAvatar.vue'
 import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
 import { HOST_ID } from '@/lib/mock/people.js'
 import { inviteAccess } from '@/lib/session.js'
-import { goBackIfBehind, isBehind } from '@/lib/stepNav.js'
+import { exitFor, goBackIfBehind, isBehind } from '@/lib/stepNav.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
@@ -51,7 +51,7 @@ const session = computed(() => events.byId[props.id])
 // in; it takes this screen's place in the browser's history (replace), so Back in the browser still goes to where the
 // person came from and can never land on an empty create form. A guest goes Home.
 const mine = computed(() => session.value?.hostId === HOST_ID)
-const back = computed(() => (session.value ? backFor(session.value, route.path, mine.value) : { label: 'Back', to: '/' }))
+const back = computed(() => (session.value ? backFor(session.value, route.path, mine.value, exitFor()) : exitFor()))
 const hostName = computed(() => (session.value?.hostId === HOST_ID ? auth.user?.name : groups.nameOf(session.value?.hostId)) || 'the host')
 // Whether this person can add people now, and if not, why not.
 const access = computed(() => (session.value ? inviteAccess(session.value, mine.value, hostName.value) : { open: false, text: '' }))
