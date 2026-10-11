@@ -160,20 +160,47 @@ export const useEventsStore = defineStore('events', () => {
     await loadItinerary(id)
   }
 
+  // Forget everything kept for the sessions of the last account: the list, each session, its itinerary, its photos and the
+  // suggested orders. Every account's first session is `s1`, so a kept `s1` would be shown as the next account's. Loads that
+  // were still running for the last account find their ticket out of date and drop their answer.
+  // `list` also empties the list and the sessions by id (a different person), where a reset leaves them for the load that follows.
+  // How to call: forgetSessions({ list: true }) (when the signed-in person changes)
+  function forgetSessions({ list = false } = {}) {
+    for (const tickets of [seq, itinerarySeq, photoSeq, orderSeq]) for (const id of Object.keys(tickets)) tickets[id] += 1
+    for (const id of Object.keys(orderPending)) delete orderPending[id]
+    if (list) {
+      sessions.value = []
+      byId.value = {}
+      loaded.value = false
+    }
+    itineraries.value = {}
+    photos.value = {}
+    orders.value = {}
+  }
+  // Whose sessions the store holds. A change of person, with or without a sign-out between, empties it (see forgetSessions).
+  let owner = currentUserId()
+
   api.subscribe(async (event) => {
+    if (currentUserId() !== owner) {
+      owner = currentUserId()
+      forgetSessions({ list: true })
+      if (!['reset', 'user', 'conditions', 'people'].includes(event.type)) await loadSessions()
+    }
     if (event.type === 'reset') {
       // A suggestion asked for before the reset belongs to data that is gone.
-      orders.value = {}
-      for (const id of Object.keys(orderSeq)) orderSeq[id] += 1
-      itineraries.value = {}
-      photos.value = {}
+      forgetSessions()
       await loadSessions()
       return
     }
     if (event.sessionId) {
-      await loadSession(event.sessionId)
-      if (itineraries.value[event.sessionId] !== undefined) await loadItinerary(event.sessionId)
-      if (event.type === 'photos' && photos.value[event.sessionId] !== undefined) await loadPhotos(event.sessionId)
+      try {
+        await loadSession(event.sessionId)
+        if (itineraries.value[event.sessionId] !== undefined) await loadItinerary(event.sessionId)
+        if (event.type === 'photos' && photos.value[event.sessionId] !== undefined) await loadPhotos(event.sessionId)
+      } catch {
+        // The session is not there any more (the person changed or signed out since the write): nothing to refresh, and no
+        // screen is waiting on this live update to report it to.
+      }
     }
     // 'people': a real person's profile was read, so the names on every session may have changed.
     if (event.type === 'user' || event.type === 'conditions' || event.type === 'people') await loadSessions()

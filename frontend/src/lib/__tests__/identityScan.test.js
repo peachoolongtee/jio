@@ -16,8 +16,9 @@ const ALLOWED_FILES = {
   // The design page draws sample sessions of the sample people, to show the components; it signs nobody in.
   'views/DesignSystemView.vue': 'sample data for the design page',
 }
-// File -> why it may read HOST_ID, the constant that holds the sample person's id. The local account is the sample person,
-// and the data layer says so in the four places pinned by the test below. A real account reaches none of them.
+// File -> why it may read HOST_ID, the constant that holds the sample person's id. The local account is the sample person, and
+// the data layer says so where it makes a local account, seeds the sample history, checks a username and lists sample people.
+// Those are covered by behaviour tests (accounts.test.js, realAccountData.test.js, api.season.test.js), not by pinning lines.
 const ALLOWED_CONSTANT_FILES = { 'lib/api.js': 'the local account and the sample history' }
 
 const files = []
@@ -78,25 +79,5 @@ describe('the signed-in person is never the sample person Ian in the source', ()
       .filter((path) => !allowedConstant(path))
       .flatMap((path) => codeOf(readFileSync(path, 'utf8')).split('\n').flatMap((line, i) => (AS_CONSTANT.test(line) ? [`${rel(path)}:${i + 1}: ${line.trim()}`] : [])))
     expect(found).toEqual([])
-  })
-
-  it('keeps the data layer\'s reads of the sample person to the four places it needs', () => {
-    const code = codeOf(readFileSync(join(SRC, 'lib/api.js'), 'utf8'))
-    const uses = code.split('\n').filter((line) => AS_CONSTANT.test(line) && !line.startsWith('import '))
-    expect(uses.map((line) => line.trim())).toEqual([
-      'const seeded = (table, id, demo) => (id === HOST_ID && !demo ? 0 : table[id] ?? 0)',
-      'id: HOST_ID,',
-      "const taken = PEOPLE.some((p) => p.id !== HOST_ID && p.username === username)",
-      'if (!isReal()) return PEOPLE.filter((p) => p.id !== (me() || HOST_ID)).map((p) => publicPerson(p.id))',
-    ])
-  })
-
-  it('has the screens ask the account store, and the stores and helpers ask lib/currentUser.js', () => {
-    const read = (path) => readFileSync(join(SRC, path), 'utf8')
-    expect(read('stores/auth.js')).toContain("user.value?.id ?? ''")
-    expect(read('stores/events.js')).toContain("from '@/lib/currentUser.js'")
-    expect(read('stores/planner.js')).toContain("from '@/lib/currentUser.js'")
-    expect(read('lib/reviewPick.js')).toContain("from './currentUser.js'")
-    expect(read('lib/currentUser.js')).not.toMatch(/^import /m)
   })
 })

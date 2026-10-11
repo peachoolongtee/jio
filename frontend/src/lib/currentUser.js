@@ -12,10 +12,13 @@
 
 let read = () => ''
 
-// Give this file the function that says who is signed in. lib/api.js does this when it loads; a test may do it too.
+// Give this file the function that says who is signed in. lib/api.js does this when it loads; a test may do it too. It
+// answers with the reader it replaced, so a test can put things back: `const before = bindCurrentUser(fn); ...; bindCurrentUser(before)`.
 // How to call: bindCurrentUser(() => db.user?.id ?? '')
 export function bindCurrentUser(fn) {
+  const before = read
   read = typeof fn === 'function' ? fn : () => ''
+  return before
 }
 
 // The signed-in person's id, or '' when nobody is signed in. Never throws, and is always a string.

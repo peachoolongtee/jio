@@ -189,11 +189,15 @@ describe('the review a card shows', () => {
   })
   it('never chooses the signed-in person\'s own review', () => {
     // The signed-in person is the sample person Ian here, as for the demo account.
-    bindCurrentUser(() => 'ian')
-    const own = [review('own', 'ian', 'Ian'), review('r2', 'nicole', 'Nicole')]
-    expect(pickReview(own, { outing: ['ian'], friends: ['ian', 'nicole'] }).personId).toBe('nicole')
-    expect(pickReview(own, { outing: ['ian'], friends: ['ian'] })).toBeNull()
-    expect(pickReview([review('mine', 'faith')], { outing: ['faith'], self: 'faith' })).toBeNull()
+    const before = bindCurrentUser(() => 'ian')
+    try {
+      const own = [review('own', 'ian', 'Ian'), review('r2', 'nicole', 'Nicole')]
+      expect(pickReview(own, { outing: ['ian'], friends: ['ian', 'nicole'] }).personId).toBe('nicole')
+      expect(pickReview(own, { outing: ['ian'], friends: ['ian'] })).toBeNull()
+      expect(pickReview([review('mine', 'faith')], { outing: ['faith'], self: 'faith' })).toBeNull()
+    } finally {
+      bindCurrentUser(before)
+    }
   })
   it('chooses nobody when no reviewer is in the outing or a friend', () => {
     expect(pickReview(REVIEWS, { outing: [], friends: [] })).toBeNull()

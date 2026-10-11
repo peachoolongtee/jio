@@ -9,6 +9,11 @@
 // or the app has no Supabase), is not an error for a screen: the person shows as "Someone" and the read is tried again
 // a little later. The cache is for one account at a time: reset() empties it when the signed-in person changes.
 //
+// What is asked and what is shown is kept narrow. Only uuid-shaped ids go to the database (`profiles.id` is a uuid, and one
+// id that is not makes the database refuse the whole batch), so a sample id never does. A read waits at most a deadline.
+// Another person's photo address is theirs to set, so it is shown only when it is an image carried in the address itself or
+// is served by this project's own storage; anything else shows their initial.
+//
 // A person is { id, name, username, avatarUrl }.
 // How to call: const people = createPeopleSource({ client: () => supabase, own, sample }); await people.load(['7f3c...']); people.nameOf('7f3c...')
 
@@ -19,15 +24,30 @@ export const NEUTRAL_NAME = 'Someone'
 export const BATCH_SIZE = 100
 // How long to leave an id alone after a read of it failed.
 export const RETRY_AFTER_MS = 30 * 1000
+// How long a read of profiles may take before it counts as failed (lib/auth.js timing.peopleMs sets it for the app).
+export const READ_TIMEOUT_MS = 4000
+
+// Is this a uuid, the only kind of id the profiles table holds? How to call: isUuid('7f3c2a10-5b6d-4e8f-9a1b-0c2d3e4f5a6b') -> true
+export const isUuid = (id) => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+
+// A photo address that is safe to show for someone else: an image in the address itself, or a file served by this project's
+// own storage (`origin` is the project's origin, see supabase.js projectOrigin). Anything else is ''.
+// How to call: safeAvatar('https://abcd.supabase.co/storage/v1/object/public/a/b.png', 'https://abcd.supabase.co') -> that address
+export function safeAvatar(value, origin = '') {
+  if (typeof value !== 'string') return ''
+  if (/^data:image\//i.test(value)) return value
+  if (origin && value.startsWith(`${origin}/storage/v1/`)) return value
+  return ''
+}
 
 // A row of `profiles` as a person. A person with no display name shows their username.
 // How to call: personFromRow({ id: 'u1', username: 'sam', display_name: 'Sam', avatar_url: null }) -> { id: 'u1', name: 'Sam', username: 'sam', avatarUrl: '' }
-export function personFromRow(row) {
+export function personFromRow(row, avatarOrigin = '') {
   return {
     id: row.id,
     name: (typeof row.display_name === 'string' && row.display_name.trim()) || (typeof row.username === 'string' && row.username) || NEUTRAL_NAME,
     username: typeof row.username === 'string' ? row.username : '',
-    avatarUrl: typeof row.avatar_url === 'string' ? row.avatar_url : '',
+    avatarUrl: safeAvatar(row.avatar_url, avatarOrigin),
   }
 }
 
@@ -35,8 +55,9 @@ export function personFromRow(row) {
 export const unknownPerson = (id) => ({ id, name: NEUTRAL_NAME, username: '', avatarUrl: '' })
 
 // own(id), sample(id): a person or null. client(): a Supabase client or null. now(): the time in ms (a test sets it).
-// How to call: const people = createPeopleSource({ client: () => dataClient(), own: (id) => ownProfile(id), sample: (id) => samplePerson(id) })
-export function createPeopleSource({ client = () => null, own = () => null, sample = () => null, now = () => Date.now() } = {}) {
+// avatarOrigin: the project's origin, whose storage may serve photos. timeoutMs(): how long a read may take.
+// How to call: const people = createPeopleSource({ client: () => dataClient(), own: (id) => ownProfile(id), sample: (id) => samplePerson(id), avatarOrigin: projectOrigin() })
+export function createPeopleSource({ client = () => null, own = () => null, sample = () => null, now = () => Date.now(), avatarOrigin = '', timeoutMs = () => READ_TIMEOUT_MS } = {}) {
   // id -> person, for real people already read (a person with no profile row is kept as unknownPerson, so it is not asked again).
   const cache = new Map()
   // id -> the request that is reading it, so two asks for the same id at once make one request.
@@ -65,21 +86,26 @@ export function createPeopleSource({ client = () => null, own = () => null, samp
   async function readBatch(ids) {
     const mine = epoch
     let rows = null
+    let timer
     try {
       const c = client()
       if (c) {
-        const { data, error } = await c.from('profiles').select(PROFILE_COLUMNS).in('id', ids)
+        // A read that never answers is a failed read: the deadline wins and a late answer is dropped with the epoch check.
+        const gone = new Promise((resolve) => (timer = setTimeout(() => resolve({ error: { message: 'timed out' } }), timeoutMs())))
+        const { data, error } = await Promise.race([c.from('profiles').select(PROFILE_COLUMNS).in('id', ids), gone])
         if (!error && Array.isArray(data)) rows = data
       }
     } catch {
       rows = null
+    } finally {
+      clearTimeout(timer)
     }
     if (mine !== epoch) return
     if (rows === null) {
       for (const id of ids) failed.set(id, now())
       return
     }
-    const found = new Map(rows.filter((row) => row && typeof row.id === 'string').map((row) => [row.id, personFromRow(row)]))
+    const found = new Map(rows.filter((row) => row && typeof row.id === 'string').map((row) => [row.id, personFromRow(row, avatarOrigin)]))
     for (const id of ids) {
       cache.set(id, found.get(id) ?? unknownPerson(id))
       failed.delete(id)
@@ -93,7 +119,8 @@ export function createPeopleSource({ client = () => null, own = () => null, samp
   // How to call: const [sam, kim] = await people.load(['u1', 'u2'])
   async function load(ids) {
     const wanted = [...new Set((Array.isArray(ids) ? ids : []).filter((id) => typeof id === 'string' && id))]
-    const todo = wanted.filter((id) => !get(id) && !inflight.has(id) && !coolingDown(id))
+    // Only uuids can be in the table, and one other id would make the database refuse the whole batch.
+    const todo = wanted.filter((id) => isUuid(id) && !get(id) && !inflight.has(id) && !coolingDown(id))
     const started = []
     for (let i = 0; i < todo.length; i += BATCH_SIZE) {
       const batch = todo.slice(i, i + BATCH_SIZE)

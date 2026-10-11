@@ -51,7 +51,7 @@ const session = computed(() => events.byId[props.id])
 // person came from and can never land on an empty create form. A guest goes Home.
 const mine = computed(() => session.value?.hostId === auth.myId)
 const back = computed(() => (session.value ? backFor(session.value, route.path, mine.value, exitFor()) : exitFor()))
-const hostName = computed(() => (session.value?.hostId === auth.myId ? auth.user?.name : groups.nameOf(session.value?.hostId)) || 'the host')
+const hostName = computed(() => (session.value?.hostId === auth.myId ? auth.user?.name : groups.people.find((p) => p.id === session.value?.hostId)?.name) || 'the host')
 // Whether this person can add people now, and if not, why not.
 const access = computed(() => (session.value ? inviteAccess(session.value, mine.value, hostName.value) : { open: false, text: '' }))
 const inSession = (personId) => session.value?.members.some((m) => m.id === personId && ['joined', 'invited'].includes(m.state))

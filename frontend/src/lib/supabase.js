@@ -43,6 +43,17 @@ export const supabase =
 
 export const supabaseConfigured = supabase !== null
 
+// The origin of this project's Supabase address (its storage serves profile photos from it), or '' when it is not set up or
+// is not an address. Nothing from any other origin is trusted as a photo (see lib/peopleSource.js).
+// How to call: projectOrigin() -> 'https://abcd.supabase.co'
+export function projectOrigin(address = url) {
+  try {
+    return address ? new URL(address).origin : ''
+  } catch {
+    return ''
+  }
+}
+
 // May accounts that live only in this browser work? Always in development (the demo account). In a production build
 // only when it was built with VITE_ALLOW_LOCAL_ACCOUNTS=1, for a deployed demo; otherwise a local account with no
 // Supabase account behind it is not a login.

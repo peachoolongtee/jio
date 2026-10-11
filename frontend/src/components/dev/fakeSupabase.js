@@ -34,6 +34,8 @@ const OWN_PRIVATE_COLUMNS = ['dob', 'home_area_id', 'dietary', 'budget_max_per_p
 //                       token and the client removes the session)
 //   getSessionMode      'ok' or 'hang' (the client is waiting on the network and never answers)
 //   signUpError         an error to answer sign-up with
+//   uuidIds             new users get uuid-shaped ids (like the real project's) instead of `uid-1`
+//   memoryOnly          the session is kept in `state` only, and local storage (including the real client's key) is never touched
 // How to call: const fake = fakeSupabase({ confirmEmail: true })
 export function fakeSupabase(options = {}) {
   const state = {
@@ -52,6 +54,8 @@ export function fakeSupabase(options = {}) {
       refreshMode: 'ok',
       getSessionMode: 'ok',
       signUpError: null,
+      uuidIds: false,
+      memoryOnly: false,
       ...options,
     },
     users: [],
@@ -83,7 +87,7 @@ export function fakeSupabase(options = {}) {
   const publicUser = (u) => ({ id: u.id, email: u.email, user_metadata: { ...u.meta }, identities: [{ id: u.id }] })
 
   // The session is kept in local storage, as the real client keeps it; without a storage it is only in `state`.
-  const disk = () => (typeof localStorage === 'undefined' ? null : localStorage)
+  const disk = () => (typeof localStorage === 'undefined' || state.options.memoryOnly ? null : localStorage)
   const write = (session) => {
     state.session = session
     const d = disk()
@@ -142,7 +146,9 @@ export function fakeSupabase(options = {}) {
         if (state.options.breakTrigger || Object.values(state.profiles).some((p) => p.username === meta.username)) {
           return { data: { user: null, session: null }, error: retryable(500, 'Database error saving new user') }
         }
-        const user = { id: `uid-${state.users.length + 1}`, email, password, meta }
+        const number = state.users.length + 1
+        const id = state.options.uuidIds ? `00000000-0000-4000-8000-${String(number).padStart(12, '0')}` : `uid-${number}`
+        const user = { id, email, password, meta }
         state.users.push(user)
         state.profiles[user.id] = { username: meta.username, display_name: meta.username, avatar_url: null }
         state.priv[user.id] = { dob: meta.dob, home_area_id: null }
@@ -209,6 +215,10 @@ export function fakeSupabase(options = {}) {
               if (state.options.readsHang) return new Promise(() => {})
               if (state.options.down) return lostData()
               if (state.options.readError) return { data: null, error: { message: 'boom', code: '500' }, status: 500 }
+              // `profiles.id` is a uuid column: one value that is not a uuid makes the database refuse the whole request.
+              const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+              const bad = ids.find((id) => !UUID.test(id))
+              if (bad !== undefined) return { data: null, error: { message: `invalid input syntax for type uuid: "${bad}"`, code: '22P02' }, status: 400 }
               if (table !== 'profiles' || !read()) return { data: null, error: { message: 'permission denied' }, status: 403 }
               const named = String(columns).split(',').map((c) => c.trim())
               const rowFor = (id) => Object.fromEntries(named.map((c) => [c, c === 'id' ? id : rows[id][c] ?? null]))

@@ -3,9 +3,9 @@
 // Signing up for real needs a Supabase project, which a developer's browser must not reach for a check like this. So this
 // puts a stand-in for the Supabase client (fakeSupabase.js, the one the account tests use) inside lib/auth.js and signs up
 // through the real code path: the account store, lib/api.js's real sign-up, the account's own save under its own key. What
-// is made up is only the server. The account has an id like `uid-1`, not a uuid, and lives in this tab's memory; the
-// session it stores in local storage is not one the real client can refresh, so after a reload the app shows the account
-// from its saved copy with the "could not be reached" note.
+// is made up is only the server. The account has a uuid-shaped id and lives in this tab's memory only: the stand-in never
+// writes to local storage, so it cannot overwrite a real session the real client keeps there (`jio-auth`). After a reload the
+// stand-in is gone and the person is signed out; the account's save stays under its own key.
 //
 // Only development builds load this file (DemoSignIn.vue imports it behind import.meta.env.DEV), so it is not in a
 // production bundle.
@@ -31,8 +31,8 @@ let stand = null
 // How to call: const { state } = installStandIn()
 export function installStandIn() {
   if (!stand) {
-    stand = fakeSupabase()
-    lib.useClient(stand.client)
+    stand = fakeSupabase({ uuidIds: true, memoryOnly: true })
+    lib.useClient(stand.client, { storage: false })
   }
   return stand
 }

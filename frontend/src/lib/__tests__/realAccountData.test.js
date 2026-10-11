@@ -17,6 +17,10 @@ vi.mock('../plannerApi.js', () => planner)
 // Walking a session takes a few real seconds (the meeting point's loading bar); the screens' helpers need a long test.
 vi.setConfig({ testTimeout: 60000 })
 
+// Other real people have uuid-shaped ids, as profiles.id does; the stand-in refuses anything else, as Postgres would.
+const UID9 = '00000000-0000-4000-8000-000000000009'
+const UID8 = '00000000-0000-4000-8000-000000000008'
+
 const area = (id) => AREAS.find((a) => a.id === id)
 
 // The planner as the backend answers: the chosen area and its runners-up, then each area a member suggested.
@@ -218,14 +222,23 @@ describe('a real account walks the flow with its own id', () => {
     expect(real.photos[0]).toMatchObject({ personId: 'uid-1', name: 'Sam' })
   })
 
-  it('gives the same answers as the demo account, except for the id and the name', () => {
-    const swap = (x, who) => JSON.stringify(x).replaceAll(`"${who.me}"`, '"ME"').replaceAll(who.user.name, 'NAME')
-    const parts = ['locatingAlone', 'choosing', 'voting', 'voted']
-    expect(JSON.stringify(real.choosing).match(/"uid-1"/g).length).toBeGreaterThan(5)
-    for (const part of parts) {
-      const strip = (s) => s.replace(/"(createdAt|updatedAt|at|id)":("[^"]*"|\d+)/g, '"$1":0')
-      expect(strip(swap(real[part], real)), part).toBe(strip(swap(demo[part], demo)))
+  it('gives the same answers as the demo account, with the ids and the name mapped one to the other and nothing blanked but the clock', () => {
+    // The demo account's answers with its id and its name turned into the real account's. Every id (voters, approvers, members,
+    // the host, who suggested what) is compared, not skipped; only the times a write was made are left out.
+    const asReal = (x) => JSON.stringify(x).replaceAll('"ian"', '"uid-1"').replaceAll('Ian', 'Sam')
+    const clock = (text) => text.replace(/"(createdAt|updatedAt|at)":\d+/g, '"$1":0')
+    expect(JSON.stringify(real.choosing).match(/"uid-1"/g).length).toBeGreaterThan(8)
+    for (const part of ['locatingAlone', 'choosing', 'voting', 'voted']) {
+      expect(clock(JSON.stringify(real[part])), part).toBe(clock(asReal(demo[part])))
+      // And the real account's answers hold no trace of the sample person.
+      expect(JSON.stringify(real[part]), part).not.toMatch(/"ian"|Ian/)
     }
+    // Spot-check the ids the mapping carries: who approved, who voted, who is a member.
+    const approvedBy = Object.fromEntries(real.choosing.spots.list.map((spot) => [spot.areaId, spot.approvedBy.map((p) => p.id)]))
+    expect(approvedBy).toMatchObject({ bugis: ['uid-1'], kovan: ['jonathan'] })
+    expect(real.choosing.spots.list.find((spot) => spot.areaId === 'kovan').by).toBe('uid-1')
+    expect(real.voted.slots.flatMap((slot) => slot.options.flatMap((o) => o.voters.map((v) => v.id))).filter((id) => id === 'uid-1')).toHaveLength(2)
+    expect(real.voting.members.map((m) => m.id)).toEqual(['uid-1', 'jonathan'])
   })
 
   it('earns JioCoins on the leaderboard under its own id, and nothing else is on it', async () => {
@@ -306,23 +319,23 @@ describe('what a real account sees of friends, the leaderboard and rewards', () 
 
   it('turns the people in its sessions into its friends, read from their profiles in one request', async () => {
     const fake = fakeSupabase()
-    fake.state.profiles['uid-9'] = { username: 'kim', display_name: 'Kim Tan', avatar_url: null }
-    fake.state.profiles['uid-8'] = { username: 'lee', display_name: 'Lee', avatar_url: null }
+    fake.state.profiles[UID9] = { username: 'kim', display_name: 'Kim Tan', avatar_url: null }
+    fake.state.profiles[UID8] = { username: 'lee', display_name: 'Lee', avatar_url: null }
     const { api } = await boot(fake)
     await api.signUp({ ...PROFILE })
     const { id } = await api.createSession({ ...SESSION })
     const events = []
     api.subscribe((event) => events.push(event.type))
-    await api.inviteFriends(id, ['uid-9', 'uid-8'])
+    await api.inviteFriends(id, [UID9, UID8])
     // Until their profiles arrive they read as "Someone"; the screens are told when they have.
     await vi.waitFor(() => expect(events).toContain('people'))
-    expect(fake.state.reads).toEqual([{ table: 'profiles', columns: 'id, username, display_name, avatar_url', ids: ['uid-9', 'uid-8'] }])
+    expect(fake.state.reads).toEqual([{ table: 'profiles', columns: 'id, username, display_name, avatar_url', ids: [UID9, UID8] }])
     const people = await api.listPeople()
     expect(people).toMatchObject([
-      { id: 'uid-9', name: 'Kim Tan', username: 'kim', isFriend: true, sample: false },
-      { id: 'uid-8', name: 'Lee', username: 'lee', isFriend: true, sample: false },
+      { id: UID9, name: 'Kim Tan', username: 'kim', isFriend: true, sample: false },
+      { id: UID8, name: 'Lee', username: 'lee', isFriend: true, sample: false },
     ])
-    expect((await api.getPerson('uid-9')).name).toBe('Kim Tan')
+    expect((await api.getPerson(UID9)).name).toBe('Kim Tan')
     expect(fake.state.reads).toHaveLength(1)
   })
 
@@ -348,10 +361,10 @@ describe('what a real account sees of friends, the leaderboard and rewards', () 
     const { api } = await boot(fake)
     await api.signUp({ ...PROFILE })
     const { id } = await api.createSession({ ...SESSION })
-    await api.inviteFriends(id, ['uid-9'])
-    expect((await api.getSession(id)).members.map((m) => m.id)).toEqual(['uid-1', 'uid-9'])
+    await api.inviteFriends(id, [UID9])
+    expect((await api.getSession(id)).members.map((m) => m.id)).toEqual(['uid-1', UID9])
     const people = await api.listPeople()
-    expect(people).toMatchObject([{ id: 'uid-9', name: 'Someone', username: '' }])
+    expect(people).toMatchObject([{ id: UID9, name: 'Someone', username: '' }])
     expect((await api.getSession(id)).hostName).toBe('Sam')
   })
 })
@@ -359,12 +372,12 @@ describe('what a real account sees of friends, the leaderboard and rewards', () 
 describe('two real accounts and the demo account in one browser', () => {
   it('each sees only its own sessions, and the people cache is not shared', async () => {
     const fake = fakeSupabase()
-    fake.state.profiles['uid-9'] = { username: 'kim', display_name: 'Kim Tan', avatar_url: null }
+    fake.state.profiles[UID9] = { username: 'kim', display_name: 'Kim Tan', avatar_url: null }
     const { api, storage } = await boot(fake)
 
     await api.signUp({ ...PROFILE })
     const first = await api.createSession({ ...SESSION, title: 'Sam only' })
-    await api.inviteFriends(first.id, ['uid-9'])
+    await api.inviteFriends(first.id, [UID9])
     await vi.waitFor(() => expect(fake.state.reads).toHaveLength(1))
     await vi.waitFor(async () => expect((await api.listPeople()).map((p) => p.name)).toEqual(['Kim Tan']))
     await api.signOut()
@@ -373,7 +386,7 @@ describe('two real accounts and the demo account in one browser', () => {
     await api.signUp({ ...OTHER, username: 'kim_two', email: 'kim2@example.com' })
     expect(await api.listSessions()).toEqual([])
     expect(await api.listPeople()).toEqual([])
-    await expect(api.getPerson('uid-9')).rejects.toThrow('This person does not exist.')
+    await expect(api.getPerson(UID9)).rejects.toThrow('This person does not exist.')
     const second = await api.createSession({ ...SESSION, title: 'Kim only' })
     expect((await api.listSessions()).map((s) => [s.title, s.hostId])).toEqual([['Kim only', 'uid-2']])
     await api.signOut()
@@ -383,7 +396,7 @@ describe('two real accounts and the demo account in one browser', () => {
     expect(await api.listSessions()).toEqual([])
     const demoSession = await api.createSession({ ...SESSION, title: 'Ian only' })
     expect(demoSession.hostId).toBe('ian')
-    await expect(api.getPerson('uid-9')).rejects.toThrow('This person does not exist.')
+    await expect(api.getPerson(UID9)).rejects.toThrow('This person does not exist.')
     expect(storage.store[STORAGE_KEY]).toContain('Ian only')
     expect(storage.store[STORAGE_KEY]).not.toContain('Sam only')
     // Signing out of a local account erases it, as before; the real accounts' saves are left where they are.
@@ -408,7 +421,7 @@ describe('two real accounts and the demo account in one browser', () => {
     expect(mine).not.toContain('Ian only')
     expect(theirs).toContain('Kim only')
     expect(theirs).not.toContain('uid-1')
-    expect(theirs).not.toContain('uid-9')
+    expect(theirs).not.toContain(UID9)
   })
 
   it('does not show the demo account\'s points, friends or sessions to a real account on the same browser', async () => {
@@ -425,7 +438,7 @@ describe('two real accounts and the demo account in one browser', () => {
 })
 
 describe('a save made when every real account was the sample person', () => {
-  it('is not read as this account\'s data: the profile is kept, the sessions start fresh', async () => {
+  it('is kept: copied aside first, then moved to this account\'s id, with the profile and the sessions (more in accountSwitch.test.js)', async () => {
     const fake = fakeSupabase()
     const first = await boot(fake)
     await first.api.signUp({ ...PROFILE })
@@ -445,12 +458,15 @@ describe('a save made when every real account was the sample person', () => {
         },
       ],
     }
-    const { api, storage } = await boot(fake, { data: { [key]: JSON.stringify(old) } })
+    const oldText = JSON.stringify(old)
+    const { api, storage } = await boot(fake, { data: { [key]: oldText } })
     const user = await api.signIn({ email: PROFILE.email, password: PROFILE.password })
     expect(user).toMatchObject({ id: 'uid-1', authId: 'uid-1', name: 'Sam', homeAreaId: 'tampines' })
-    expect(await api.listSessions()).toEqual([])
+    expect((await api.listSessions()).map((s) => [s.title, s.hostId])).toEqual([['Old', 'uid-1']])
     expect(await api.listPeople()).toEqual([])
     expect(JSON.parse(storage.store[key]).user.id).toBe('uid-1')
+    // The old text is still there, byte for byte, beside the new save.
+    expect(storage.store[`${key}:legacy`]).toBe(oldText)
   })
 })
 
@@ -515,10 +531,14 @@ describe('the screens\' helpers and the stores\' getters, asked about a real id'
     expect(inviteAccess(real.choosing, real.choosing.hostId === 'ian', 'Sam').open).toBe(false)
     const { bindCurrentUser } = await import('../currentUser.js')
     const { pickReview } = await import('../reviewPick.js')
-    bindCurrentUser(() => 'uid-1')
-    const reviews = [{ id: 'a', personId: 'uid-1', name: 'Sam' }, { id: 'b', personId: 'nicole', name: 'Nicole' }]
-    expect(pickReview(reviews, { outing: ['uid-1', 'nicole'], friends: [] }).personId).toBe('nicole')
-    bindCurrentUser(null)
+    const before = bindCurrentUser(() => 'uid-1')
+    try {
+      const reviews = [{ id: 'a', personId: 'uid-1', name: 'Sam' }, { id: 'b', personId: 'nicole', name: 'Nicole' }]
+      expect(pickReview(reviews, { outing: ['uid-1', 'nicole'], friends: [] }).personId).toBe('nicole')
+    } finally {
+      // Put back what api.js bound, so the rest of the file asks the same accessor it did before.
+      bindCurrentUser(before)
+    }
   })
 
   it('the account store: myId, sampleWorld, and the events and groups stores', async () => {
@@ -549,7 +569,8 @@ describe('the screens\' helpers and the stores\' getters, asked about a real id'
     expect(groups.me).toMatchObject({ id: 'uid-1', isMe: true })
     expect(groups.friends).toEqual([])
     expect(groups.suggested).toEqual([])
-    expect(groups.nameOf('uid-1')).toBe('')
+    // Never blank: the account itself is named by the screens from the account, and anyone not on the list reads "Someone".
+    expect(groups.nameOf('uid-1')).toBe('Someone')
 
     // The list was empty, and is made again when someone joins a session of this account.
     await api.inviteFriends(events.current.id, ['darius'])
