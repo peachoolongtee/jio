@@ -4,6 +4,7 @@
 // and their status as an icon
 // (Joined, Location submitted, Voted, Opted out; the name is the icon's label). Others' locations are the area name only.
 //   <MemberList :session="session" :names="nameOf" :voters="voterIds" />
+// `statuses` off leaves the icons out, for a page where a person's status is not the point (Locate once the spot is confirmed).
 import { computed } from 'vue'
 import AppIcon from '../ui/AppIcon.vue'
 import UserAvatar from '../ui/UserAvatar.vue'
@@ -14,6 +15,7 @@ const props = defineProps({
   session: { type: Object, required: true },
   names: { type: Function, required: true },
   voters: { type: Array, default: () => [] },
+  statuses: { type: Boolean, default: true },
 })
 
 const rows = computed(() =>
@@ -40,7 +42,7 @@ const TONE = { Joined: 'wait', 'Location submitted': 'done', Voted: 'done', 'Opt
         <span class="title-sm truncate">{{ row.name }}<span v-if="row.host" class="caption-sm text-muted"> (host)</span></span>
         <span v-if="row.meta" class="caption-sm text-muted truncate">{{ row.meta }}<template v-if="row.travel"> · <span class="member__min" :class="`is-${row.travel.tone}`">about {{ row.travel.minutes }} min</span></template></span>
       </RouterLink>
-      <span class="member__status" :class="`is-${TONE[row.status]}`" role="img" :aria-label="row.status" :title="row.status">
+      <span v-if="statuses" class="member__status" :class="`is-${TONE[row.status]}`" role="img" :aria-label="row.status" :title="row.status">
         <AppIcon :name="ICON[row.status]" :size="14" />
       </span>
     </li>

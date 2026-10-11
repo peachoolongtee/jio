@@ -1,7 +1,7 @@
 // The session screens' small rules, written once in lib/session.js: what the itinerary's footer button does for each
 // status, day and role; who may invite after the session has started; and the words for calling an outing off.
 import { describe, expect, it } from 'vitest'
-import { CANCEL_OUTING, inviteAccess, itineraryAction } from '../session.js'
+import { CANCEL_OUTING, inviteAccess, itineraryAction, locateNext } from '../session.js'
 
 const session = (status, more = {}) => ({ id: 's1', status, hostId: 'ian', activeIds: ['ian', 'faith', 'darius'], isToday: false, ...more })
 
@@ -69,5 +69,24 @@ describe('the words for calling an outing off', () => {
     // HoldButton reads `${label} (${action}). Press and hold...`.
     expect(`${CANCEL_OUTING.hold} (${CANCEL_OUTING.action})`).toContain(CANCEL_OUTING.hold)
     expect(Object.values(CANCEL_OUTING).join(' ')).not.toMatch(/\bend\b/i)
+  })
+})
+
+describe('the Locate page\'s main button once the spot is confirmed', () => {
+  it('opens the Vote page while the group votes', () => {
+    expect(locateNext({ id: 's1', status: 'voting' })).toEqual({ label: 'Choose places', to: '/sessions/s1/plan' })
+  })
+
+  it('opens the plan once it is confirmed, titled for today on the day', () => {
+    expect(locateNext({ id: 's1', status: 'confirmed', isToday: true })).toEqual({ label: "Today's plan", to: '/sessions/s1/itinerary' })
+    expect(locateNext({ id: 's1', status: 'confirmed', isToday: false })).toEqual({ label: 'See the plan', to: '/sessions/s1/itinerary' })
+  })
+
+  it('opens the plan of a finished outing, never as today\'s', () => {
+    expect(locateNext({ id: 's1', status: 'completed', isToday: true })).toEqual({ label: 'See the plan', to: '/sessions/s1/itinerary' })
+  })
+
+  it('never says "Next"', () => {
+    for (const status of ['voting', 'confirmed', 'completed']) expect(locateNext({ id: 's1', status }).label).not.toBe('Next')
   })
 })
