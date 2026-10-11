@@ -27,7 +27,8 @@ describe('Google text search and Place Details', () => {
 
   it('searches by words near a point, once per 10 minutes', async () => {
     const http = fakeHttp()
-    const places = createGooglePlaces({ http, apiKey: 'test-key' })
+    let clock = Date.UTC(2026, 9, 10, 4, 0, 0)
+    const places = createGooglePlaces({ http, apiKey: 'test-key', now: () => clock })
     const raw = await places.searchText('Teo Heng', ORCHARD)
     expect(raw.map((p) => p.id)).toEqual(['stub_text_01', 'stub_text_02'])
     const [url, body, { headers }] = http.postJson.mock.calls[0]
@@ -36,6 +37,12 @@ describe('Google text search and Place Details', () => {
     expect(headers['X-Goog-FieldMask']).toContain('places.regularOpeningHours')
     await places.searchText('teo heng ', ORCHARD)
     expect(http.postJson).toHaveBeenCalledTimes(1)
+    clock += 10 * 60 * 1000 - 1 // still inside the 10 minutes
+    await places.searchText('Teo Heng', ORCHARD)
+    expect(http.postJson).toHaveBeenCalledTimes(1)
+    clock += 2 // past them: asked again
+    await places.searchText('Teo Heng', ORCHARD)
+    expect(http.postJson).toHaveBeenCalledTimes(2)
   })
 
   it('looks one place up by id, says null for a place Google no longer has, and refuses a bad id', async () => {
@@ -164,7 +171,7 @@ describe('GET /api/places/search (start and end points, meeting spots)', () => {
   }
   const raw = [{ id: 'g1', displayName: { text: 'Teo Heng KTV' }, location: { latitude: 1.3, longitude: 103.84 }, formattedAddress: '1 Example Rd, Singapore 123456' }]
 
-  it('asks Google by name only when OneMap finds fewer than 3', async () => {
+  it('asks Google by name only when OneMap finds nothing', async () => {
     const searchText = vi.fn(async () => raw)
     const three = [1, 2, 3].map((i) => ({ name: `Block ${i}`, address: 'A', postal: '520201', lat: 1.35, lng: 103.94 }))
     const many = await start({ onemap: { routingEnabled: false, search: async () => three }, places: { enabled: true, searchText } })
@@ -174,10 +181,17 @@ describe('GET /api/places/search (start and end points, meeting spots)', () => {
     } finally {
       await many.close()
     }
+    const two = await start({ onemap: { routingEnabled: false, search: async () => three.slice(0, 2) }, places: { enabled: true, searchText } })
+    try {
+      expect((await two.get('Teo Heng')).body.results).toHaveLength(2)
+      expect(searchText).not.toHaveBeenCalled()
+    } finally {
+      await two.close()
+    }
     const none = await start({ onemap: { routingEnabled: false, search: async () => [] }, places: { enabled: true, searchText } })
     try {
       const { body } = await none.get('Teo Heng')
-      expect(body.results).toEqual([{ name: 'Teo Heng KTV', address: '1 Example Rd, Singapore 123456', postal: '123456', lat: 1.3, lng: 103.84 }])
+      expect(body.results).toEqual([{ name: 'Teo Heng KTV', address: '1 Example Rd, Singapore 123456', postal: '123456', lat: 1.3, lng: 103.84, source: 'google' }])
     } finally {
       await none.close()
     }

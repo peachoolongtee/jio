@@ -115,15 +115,18 @@ function namesOf(venue) {
  * counts: curated "Chinatown Complex Food Centre" is OneMap's "Smith Street Blk 335 (Chinatown Complex Market)", 60 m
  * away, and curated "Kovan 209 Market and Food Centre" is "Hougang Street 21 Blk 209 (Kovan Hougang Market and Food
  * Centre)", 140 m away. Distance alone is not enough for two hawker centres: neighbouring blocks are different centres.
+ * `sameKindMeters: 0` turns the same-kind rule off, so only a similar name within `meters` counts. The search for a
+ * place by name uses that: a café someone typed the name of is not hidden by an unrelated saved café 44 m away.
  *
  * How to call:
  *   const fresh = dropKnownPlaces(oneMapVenues, [...mockVenues, ...curatedVenues])
+ *   const fresh = dropKnownPlaces(searchedVenues, saved, { sameKindMeters: 0 }) // names only
  */
 export function dropKnownPlaces(candidates, known, { meters = 300, minSimilarity = 0.5, sameKindMeters = 50 } = {}) {
   return candidates.filter((c) => !known.some((k) => {
     const m = haversineKm(c, k) * 1000
     const similar = namesOf(c).some((a) => namesOf(k).some((b) => nameSimilarity(a, b) >= minSimilarity))
-    return (m <= meters && similar) || (m <= sameKindMeters && c.kind && c.kind === (k.kind ?? k.cuisine))
+    return (m <= meters && similar) || (sameKindMeters > 0 && m <= sameKindMeters && c.kind && c.kind === (k.kind ?? k.cuisine))
   }))
 }
 
