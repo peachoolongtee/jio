@@ -2,6 +2,7 @@
 // and the tests say the same thing. Nothing here touches a screen or the data layer; every function takes the session
 // as lib/api.js gives it (session.spots, session.locations, session.activeIds).
 import { travelTone } from '@/lib/planner/travel.js'
+import { AREAS } from '@/lib/mock/places.js'
 
 // The most different areas a group can suggest at once (the planner's limit; lib/api.js refuses more).
 export const SUGGESTIONS_MAX = 8
@@ -80,6 +81,17 @@ export function shownSpotId(spots, picked = '') {
   if (picked && list.some((s) => s.areaId === picked)) return picked
   if (spots?.preselectedAreaId && list.some((s) => s.areaId === spots.preselectedAreaId)) return spots.preselectedAreaId
   return list[0]?.areaId ?? null
+}
+
+// Your own suggestion when the list has no row for it: it was saved, but a reload came before the planner priced it. Null
+// when you have none, it has a row, the planner is working on it right now, or the group is not choosing any more. The
+// screen offers to price it again or take it back, so nobody is stuck with a suggestion they cannot withdraw.
+// How to call: unpricedSuggestion(session, 'ian') -> { areaId: 'bugis', name: 'Bugis', here: false }, or null
+export function unpricedSuggestion(session, myId) {
+  const own = session.spots?.suggestions?.[myId]
+  if (!own || !isChoosing(session) || session.findingSpots) return null
+  if ((session.spots.list || []).some((s) => s.areaId === own.areaId)) return null
+  return { areaId: own.areaId, name: AREAS.find((a) => a.id === own.areaId)?.name || own.areaId, here: !!own.here }
 }
 
 // What a screen reader says for a spot's pin on the map.

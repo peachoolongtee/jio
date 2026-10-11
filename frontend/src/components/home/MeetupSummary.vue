@@ -50,11 +50,11 @@ const peopleText = computed(() => {
     <p class="body-sm text-muted tnum">{{ dateLine(meetup) }}</p>
 
     <p class="sum__where" :class="{ 'is-finding': where.kind === 'finding' }">
-      <AppIcon v-if="where.kind === 'area' || where.kind === 'none'" name="pin" :size="16" />
+      <AppIcon v-if="where.kind === 'area' || where.kind === 'spots' || where.kind === 'none'" name="pin" :size="16" />
       <span v-else class="meetup__pulse" aria-hidden="true" />
-      <template v-if="where.kind === 'area'">
+      <template v-if="where.areaName">
         <span class="sum__area title-md">{{ where.areaName }}</span>
-        <span v-if="where.minutes" class="body-sm text-muted">about {{ where.minutes }} min for you</span>
+        <span v-if="where.note" class="body-sm text-muted">{{ where.note }}</span>
       </template>
       <span v-else class="body-sm" :class="where.kind === 'none' ? 'text-muted' : 'sum__status'">{{ where.text }}</span>
     </p>

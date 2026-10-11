@@ -2,6 +2,7 @@
 // actions are watched: the list of spots, "Works for me", "Suggest a spot", the host's confirm and the demo tools. The
 // area picker and the dialog are stood in for, because they open over the page.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { fakeStorage } from './planFixture.js'
 import { mount } from './miniDom.js'
@@ -25,7 +26,7 @@ vi.mock('../../components/ui/ModalDialog.vue', async () => {
 vi.stubGlobal('localStorage', fakeStorage())
 const { default: SpotList } = await import('../../components/spots/SpotList.vue')
 const { default: SpotConfirm } = await import('../../components/spots/SpotConfirm.vue')
-const { canApprove, canSuggest, shownSpotId, tripsLine } = await import('../../components/spots/spotText.js')
+const { canApprove, canSuggest, shownSpotId, tripsLine, unpricedSuggestion } = await import('../../components/spots/spotText.js')
 const { useEventsStore } = await import('../../stores/events.js')
 const { clearApprovals, friendSuggests, friendsApprove, hasSpots } = await import('../../components/dev/spotDemo.js')
 
@@ -146,11 +147,83 @@ describe('Works for me', () => {
     expect(events.withdrawMySpot).toHaveBeenCalledWith('s1')
   })
 
+  // A control that is operated is not disabled while it saves: a disabled button drops the keyboard focus, and the next key
+  // does nothing. It says it is busy instead, and a second press is ignored until the first is saved.
+  for (const [control, press, call] of [
+    ['Works for me', (page) => page.button('Works for me'), () => events.approveMySpot],
+    ['We are here already', (page) => page.button('We are here already'), () => events.suggestMySpot],
+    ['Withdraw', (page) => page.button('Withdraw'), () => events.withdrawMySpot],
+  ]) {
+    it(`keeps "${control}" enabled while it saves, and ignores a second press`, async () => {
+      const s = session()
+      s.spots.suggestions = { ian: { areaId: 'novena', here: false } }
+      s.spots.list[2] = spot('novena', 'Novena', { by: 'ian', byName: 'Ian' })
+      let finish
+      call().mockImplementation(() => new Promise((resolve) => (finish = resolve)))
+      const page = list(s)
+      const button = press(page)
+      const first = button.listeners.click({})
+      await nextTick()
+      button.listeners.click({})
+      // The others stay enabled too, and every one says the list is busy.
+      const controls = page.all('button').filter((b) => /Works for me|We are here already|Withdraw|Suggest a spot/.test(page.textOf(b)))
+      expect(controls.length).toBeGreaterThan(3)
+      for (const other of controls) {
+        expect(other.props.disabled).toBeFalsy()
+        expect(page.attr(other, 'aria-busy')).toBe('true')
+      }
+      expect(call()).toHaveBeenCalledTimes(1)
+      finish({})
+      await first
+      await nextTick()
+      expect(page.attr(button, 'aria-busy')).toBeUndefined()
+      expect(button.props.disabled).toBeFalsy()
+    })
+  }
+
+  it('does not open the area picker while a change is saving, so a pick is never thrown away', async () => {
+    let finish
+    events.approveMySpot.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
+    const page = list(session())
+    const first = page.button('Works for me').listeners.click({})
+    await nextTick()
+    await page.button('Suggest a spot').click()
+    expect(page.button('Picker: Suggest a spot')).toBeNull()
+    finish({})
+    await first
+  })
+
   it('shows the message the data layer gave when a change is refused', async () => {
     events.approveMySpot.mockRejectedValue(new Error('Cannot reach the Jio planner right now.'))
     const page = mount(SpotList, { session: session(), myId: 'ian', names, selectedId: 'bugis', isHost: true, onError: (m) => (page.message = m) }, [pinia])
     await page.button('Works for me').click()
     expect(page.message).toBe('Cannot reach the Jio planner right now.')
+  })
+})
+
+describe('a suggestion with no row', () => {
+  // A reload caught the planner before it priced your suggestion: it is saved, and the list has no row for it.
+  const stuck = () => {
+    const s = session()
+    s.spots.suggestions = { ian: { areaId: 'kovan', here: true } }
+    s.spots.list = s.spots.list.slice(0, 2)
+    return s
+  }
+
+  it('offers to price it again or take it back', async () => {
+    expect(unpricedSuggestion(stuck(), 'ian')).toEqual({ areaId: 'kovan', name: 'Kovan', here: true })
+    const page = list(stuck())
+    expect(page.text()).toContain('Kovan has no travel times yet')
+    await page.button('Try again').click()
+    expect(events.suggestMySpot).toHaveBeenCalledWith('s1', 'kovan', { here: true })
+    await page.button('Withdraw').click()
+    expect(events.withdrawMySpot).toHaveBeenCalledWith('s1')
+  })
+
+  it('is not shown for someone else\'s suggestion, or while the planner is pricing it, or once it has a row', () => {
+    expect(list(stuck(), { myId: 'faith' }).text()).not.toContain('has no travel times yet')
+    expect(list({ ...stuck(), findingSpots: true }).text()).not.toContain('has no travel times yet')
+    expect(list(session()).text()).not.toContain('has no travel times yet')
   })
 })
 
@@ -222,10 +295,43 @@ describe('confirming', () => {
 
   it('tells the host when the planner failed, and the spot stays unsettled', async () => {
     events.confirmSpot.mockRejectedValue(new Error('Cannot reach the Jio planner right now.'))
-    let message = ''
-    const page = confirmBar(session(), { onError: (m) => (message = m) })
+    const messages = []
+    const page = confirmBar(session(), { onError: (m) => messages.push(m) })
     await page.button('Confirm Bugis').click()
-    expect(message).toBe('Cannot reach the Jio planner right now.')
+    expect(events.confirmSpot).toHaveBeenCalledTimes(1)
+    // The error went up (after the empty message that clears an old one), nothing says the spot was settled, and the same
+    // button is still there to press again: enabled, not busy, still naming the same spot.
+    expect(messages).toEqual(['', 'Cannot reach the Jio planner right now.'])
+    const again = page.button('Confirm Bugis')
+    expect(again).not.toBeNull()
+    expect(again.props.disabled).toBeFalsy()
+    expect(page.attr(again, 'aria-busy')).toBeUndefined()
+    expect(page.text()).not.toContain('Waiting')
+    // Pressing it again asks again.
+    await again.click()
+    expect(events.confirmSpot).toHaveBeenCalledTimes(2)
+  })
+
+  it('stays enabled while the confirm is saving, so the focus stays, and ignores a second press', async () => {
+    let finish
+    events.confirmSpot.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
+    const page = confirmBar(session())
+    const button = page.button('Confirm Bugis')
+    const first = button.listeners.click({})
+    button.listeners.click({})
+    await nextTick()
+    expect(events.confirmSpot).toHaveBeenCalledTimes(1)
+    expect(button.props.disabled).toBeFalsy()
+    expect(page.attr(button, 'aria-busy')).toBe('true')
+    finish({})
+    await first
+    await nextTick()
+    expect(page.attr(button, 'aria-busy')).toBeUndefined()
+  })
+
+  it('declares no event that nothing listens to', () => {
+    expect(SpotConfirm.emits).toEqual(['error'])
+    expect(SpotList.emits).toEqual(['select', 'error'])
   })
 })
 

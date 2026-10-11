@@ -6,7 +6,8 @@
 //            @select="pick" @approve="(on) => ..." />
 // spot: one entry of session.spots.list. number: its place in the list, drawn on its pin too. mine: you said it works
 // for you. own: your suggestion of this area ({ here }), or null. fairest / leading: tags. canApprove: false once the group
-// has moved on. busy: a change is being saved.
+// has moved on. busy: a change is being saved; the controls say so (aria-busy) but stay enabled, so a key press never drops
+// the focus, and the list ignores a second press until the first is saved.
 // Emits select, approve (true or false: the new state), here (true or false), withdraw.
 // Only areas are shown, never a member's exact place. Times say "about" when they are estimates.
 import AppButton from '../ui/AppButton.vue'
@@ -58,7 +59,7 @@ const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
     <p v-else class="body-sm text-muted">No trips to compare yet. They appear as people share where they start.</p>
 
     <div class="spot__choose">
-      <ChipButton check :selected="mine" :disabled="!canApprove || busy" :aria-label="`Works for me: ${spot.area.name}`" @click="emit('approve', !mine)">Works for me</ChipButton>
+      <ChipButton check :selected="mine" :disabled="!canApprove" :aria-busy="busy ? 'true' : undefined" :aria-label="`Works for me: ${spot.area.name}`" @click="emit('approve', !mine)">Works for me</ChipButton>
       <span class="spot__count">
         <AvatarStack v-if="spot.approvedBy.length" :people="spot.approvedBy" :size="24" :max="4" />
         <span class="body-sm" :class="{ 'text-muted': !spot.approvalCount }">{{ worksForText(spot) }}</span>
@@ -66,8 +67,8 @@ const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
     </div>
 
     <div v-if="own" class="spot__own">
-      <ChipButton check :selected="own.here" :disabled="busy" :aria-label="`We are here already: ${spot.area.name}`" @click="emit('here', !own.here)">We are here already</ChipButton>
-      <AppButton variant="tertiary" :disabled="busy" @click="emit('withdraw')">Withdraw<span class="sr-only"> my suggestion of {{ spot.area.name }}</span></AppButton>
+      <ChipButton check :selected="own.here" :aria-busy="busy ? 'true' : undefined" :aria-label="`We are here already: ${spot.area.name}`" @click="emit('here', !own.here)">We are here already</ChipButton>
+      <AppButton variant="tertiary" :aria-busy="busy ? 'true' : undefined" @click="emit('withdraw')">Withdraw<span class="sr-only"> my suggestion of {{ spot.area.name }}</span></AppButton>
     </div>
   </li>
 </template>

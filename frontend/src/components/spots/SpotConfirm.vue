@@ -2,9 +2,11 @@
 // The foot of the Locate screen while the group is choosing where to meet. The host sees the screen's one main action,
 // "Confirm <area>", which works at any time (nobody is waited for); everyone else sees who is waiting on whom.
 //   <SpotConfirm :session="session" :is-host="isHost" host-name="Ian" :selected-id="shown" :disabled="loading"
-//                @confirmed="router.push(planPath)" @error="error = $event" />
-// selectedId: the area the host has selected in the list (or the one most people chose). It moves the session to Voting.
-// Emits confirmed (the session is voting now) and error (a message from the data layer; nothing was saved).
+//                @error="error = $event" />
+// selectedId: the area the host has selected in the list (or the one most people chose). It moves the session to Voting; the
+// screen sees the status change and takes the host on, so there is no event for it.
+// Emits error (a message from the data layer; nothing was saved). While it saves the button says so (aria-busy) but stays
+// enabled, so the keyboard focus stays on it if the save fails; a second press is ignored.
 import { computed, ref } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
@@ -18,7 +20,7 @@ const props = defineProps({
   // Something else is in flight (the planner is finding the meeting point).
   disabled: { type: Boolean, default: false },
 })
-const emit = defineEmits(['confirmed', 'error'])
+const emit = defineEmits(['error'])
 
 const events = useEventsStore()
 const working = ref(false)
@@ -33,7 +35,6 @@ async function confirm() {
   emit('error', '')
   try {
     await events.confirmSpot(props.session.id, spot.value.areaId)
-    emit('confirmed')
   } catch (e) {
     emit('error', e.message)
   }
@@ -42,7 +43,7 @@ async function confirm() {
 </script>
 
 <template>
-  <AppButton v-if="isHost" next block :disabled="!spot || working || disabled" @click="confirm"><span class="confirm__label">{{ label }}</span></AppButton>
+  <AppButton v-if="isHost" next block :disabled="!spot || disabled" :aria-busy="working ? 'true' : undefined" @click="confirm"><span class="confirm__label">{{ label }}</span></AppButton>
   <p v-else class="confirm__wait body-md"><AppIcon name="clock" :size="18" />Waiting for {{ hostName }} to confirm</p>
 </template>
 

@@ -228,6 +228,7 @@ async function dismissBanner() {
 const knownAreaId = ref('')
 const knownArea = computed(() => (isHost.value && status.value === 'inviting' ? AREAS.find((a) => a.id === knownAreaId.value) || null : null))
 watch(session, (found) => { knownAreaId.value = found ? recalledKnownPlace(found) : '' }, { immediate: true })
+// The host takes the place they named back. How to call: removeKnownPlace()
 function removeKnownPlace() {
   forgetKnownPlace(session.value)
   knownAreaId.value = ''
@@ -244,6 +245,7 @@ watch(() => [props.id, status.value], ([id, now], [beforeId, before]) => {
 })
 
 // Start the session. With a known place named, it starts straight into choosing places.
+// How to call: startSession()
 const startSession = () => {
   if (knownArea.value) return run(() => events.setKnownPlace(props.id, knownArea.value.id), () => { forgetKnownPlace(session.value); goToPlan() })
   return run(() => events.start(props.id))

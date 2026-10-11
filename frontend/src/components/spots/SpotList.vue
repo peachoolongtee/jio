@@ -2,13 +2,17 @@
 // "Where to meet": the meeting spots of a session that is choosing where to meet, with "Works for me" on each, "Suggest a
 // spot" (the area picker, in a popover) and, for the host, "We already have a place".
 //   <SpotList :session="session" my-id="ian" :names="nameOf" :selected-id="shown" :is-host="true" host-name="Ian"
-//             @select="picked = $event" @error="error = $event" @settled="router.push(planPath)" />
+//             @select="picked = $event" @error="error = $event" />
 // session: a session summary (lib/api.js). selectedId: the area shown as chosen (SpotRow outlines it; the map's pin matches).
 // Changes go through the events store as the signed-in person: approveMySpot, suggestMySpot, withdrawMySpot, and the
 // host's setKnownPlace. A refusal or a planner failure is sentence-sized and goes up as `error` (the write has rolled back).
-// Emits select (an area id), error (a message, or '' to clear), settled (the host set a known place; the session is voting).
+// Emits select (an area id) and error (a message, or '' to clear). Setting a known place moves the session on to Voting;
+// the screen sees the status change and takes the host there, so there is no event for it.
 // States: fewer than two starts (no list; says what opens it), the planner working it out (placeholder rows), the list,
-// and the list while its times are updated.
+// the list while its times are updated, and your own suggestion with no row (a reload caught it before it was priced):
+// "Try again" prices it, "Withdraw" takes it back.
+// A control that starts a change stays enabled while it saves (aria-busy), so a key press never drops the keyboard focus; a
+// second press is ignored until the first is saved.
 import { computed, ref } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
@@ -18,7 +22,7 @@ import SpotRow from './SpotRow.vue'
 import { AREAS } from '@/lib/mock/places.js'
 import { TRAVEL_TONES } from '@/lib/planner/travel.js'
 import { useEventsStore } from '@/stores/events.js'
-import { canApprove, canSuggest, isChoosing, startsShared } from './spotText.js'
+import { canApprove, canSuggest, isChoosing, startsShared, unpricedSuggestion } from './spotText.js'
 
 const props = defineProps({
   session: { type: Object, required: true },
@@ -29,7 +33,7 @@ const props = defineProps({
   isHost: { type: Boolean, default: false },
   hostName: { type: String, default: 'the host' },
 })
-const emit = defineEmits(['select', 'error', 'settled'])
+const emit = defineEmits(['select', 'error'])
 
 const events = useEventsStore()
 const busy = ref(false)
@@ -43,6 +47,7 @@ const spots = computed(() => props.session.spots || { list: [], approvals: {}, s
 const list = computed(() => spots.value.list)
 const mine = computed(() => new Set(spots.value.approvals?.[props.myId] || []))
 const own = computed(() => spots.value.suggestions?.[props.myId] || null)
+const unpriced = computed(() => unpricedSuggestion(props.session, props.myId))
 const shared = computed(() => startsShared(props.session))
 const total = computed(() => (props.session.activeIds || []).length)
 const offerSuggest = computed(() => canSuggest(props.session, props.myId))
@@ -60,9 +65,11 @@ const intro = computed(() => {
   return props.isHost ? 'Pick a spot and confirm it when you are ready. You do not need to wait for anyone.' : `Say which spots work for you. ${props.hostName} confirms the final spot.`
 })
 
-// Run a change as the signed-in person. A failure goes up as a message; the data layer has already put things back.
+// Run a change as the signed-in person. A failure goes up as a message; the data layer has already put things back. A press
+// while an earlier change is still being saved does nothing.
 // How to call: run(() => events.approveMySpot('s1', 'bugis', true))
 async function run(fn, after) {
+  if (busy.value) return
   busy.value = true
   emit('error', '')
   try {
@@ -74,9 +81,15 @@ async function run(fn, after) {
   busy.value = false
 }
 
+// "Works for me" on a spot, or taking it back. How to call: approve(spot, true)
 const approve = (spot, on) => run(() => events.approveMySpot(props.session.id, spot.areaId, on))
+// Suggest a spot (from the area picker), replacing your own. How to call: suggest({ areaId: 'bugis' })
 const suggest = (place) => run(() => events.suggestMySpot(props.session.id, place.areaId, { here: false }))
+// Mark your own suggestion "we are here already", or unmark it. How to call: setHere(spot, true)
 const setHere = (spot, on) => run(() => events.suggestMySpot(props.session.id, spot.areaId, { here: on }))
+// Price your suggestion again, keeping its "here" label. How to call: retry()
+const retry = () => run(() => events.suggestMySpot(props.session.id, unpriced.value.areaId, { here: unpriced.value.here }))
+// Take your suggestion back. How to call: withdraw()
 const withdraw = () => run(() => events.withdrawMySpot(props.session.id))
 
 // The host picked the known place's area: ask once before the list is replaced.
@@ -86,13 +99,15 @@ function pickKnown(place) {
   dialogError.value = ''
   confirmOpen.value = !!placeArea.value
 }
+// The host confirmed the known place: replace the list with it. A press while this is saving does nothing.
+// How to call: settleKnown()
 async function settleKnown() {
+  if (busy.value) return
   busy.value = true
   dialogError.value = ''
   try {
     await events.setKnownPlace(props.session.id, placeArea.value.id)
     confirmOpen.value = false
-    emit('settled')
   } catch (e) {
     dialogError.value = e.message
   }
@@ -109,8 +124,8 @@ async function settleKnown() {
     <p v-if="own" class="caption-sm text-muted">You have one suggestion. A new one replaces it.</p>
 
     <div v-if="offerSuggest || offerKnown" class="spots__actions">
-      <AppButton v-if="offerSuggest" variant="secondary" small :disabled="busy" @click="suggestOpen = true">Suggest a spot</AppButton>
-      <AppButton v-if="offerKnown" variant="tertiary" :disabled="busy" @click="placeOpen = true">We already have a place</AppButton>
+      <AppButton v-if="offerSuggest" variant="secondary" small :aria-busy="busy ? 'true' : undefined" @click="busy || (suggestOpen = true)">Suggest a spot</AppButton>
+      <AppButton v-if="offerKnown" variant="tertiary" :aria-busy="busy ? 'true' : undefined" @click="busy || (placeOpen = true)">We already have a place</AppButton>
     </div>
 
     <ul v-if="list.length" class="spots__list" :class="{ 'is-busy': session.findingSpots }" :aria-busy="session.findingSpots ? 'true' : undefined" aria-label="Meeting spots">
@@ -143,6 +158,15 @@ async function settleKnown() {
     </div>
     <p v-if="list.length && session.findingSpots" class="caption-sm text-muted" role="status">Updating travel times…</p>
 
+    <div v-if="unpriced" class="spots__empty" role="group" aria-label="Your suggestion">
+      <h3 class="title-md">{{ unpriced.name }} has no travel times yet</h3>
+      <p class="body-sm text-muted">Your suggestion was saved but not worked out. Try again, or take it back.</p>
+      <div class="spots__actions">
+        <AppButton variant="secondary" small :aria-busy="busy ? 'true' : undefined" @click="retry">Try again</AppButton>
+        <AppButton variant="tertiary" :aria-busy="busy ? 'true' : undefined" @click="withdraw">Withdraw<span class="sr-only"> my suggestion of {{ unpriced.name }}</span></AppButton>
+      </div>
+    </div>
+
     <p v-if="hasTrips" class="spots__key" aria-label="Travel time colours">
       <span v-for="t in TRAVEL_TONES" :key="t.id" class="spots__key-item"><span class="spots__dot" :class="`is-${t.id}`" />{{ t.label }}</span>
     </p>
@@ -152,7 +176,7 @@ async function settleKnown() {
     <ModalDialog v-model:open="confirmOpen" :title="`Meet at ${placeArea?.name || 'this place'}?`" text="This replaces the list of spots and takes the group on to choosing places. Everyone can still add where they start.">
       <template #content><p v-if="dialogError" class="body-sm text-error" role="alert">{{ dialogError }}</p></template>
       <AppButton block variant="secondary" @click="confirmOpen = false">Not yet</AppButton>
-      <AppButton block :disabled="busy" @click="settleKnown">Meet at {{ placeArea?.name }}</AppButton>
+      <AppButton block :aria-busy="busy ? 'true' : undefined" @click="settleKnown">Meet at {{ placeArea?.name }}</AppButton>
     </ModalDialog>
   </section>
 </template>

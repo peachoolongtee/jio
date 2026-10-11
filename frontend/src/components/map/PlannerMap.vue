@@ -22,6 +22,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { travelTone } from '@/lib/planner/travel.js'
 import { personIndex } from '@/lib/people.js'
+import { retireMap } from './retireMap.js'
 
 // People who asked for less motion get a map that jumps to its new view instead of gliding there.
 const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -244,6 +245,11 @@ function keepInView() {
   map.fitBounds(bounds.extend(map.getBounds()), { padding: [24, 24], maxZoom: 16, animate: !reducedMotion() })
 }
 
+// The map moved or changed size: tell the parent, which lays things over it (the Locate screen's spot pins).
+// How to call: map.on(VIEW_EVENTS, onView)
+const VIEW_EVENTS = 'move zoom moveend zoomend resize'
+const onView = () => emit('view')
+
 onMounted(() => {
   // OneMap serves zoom 11 and up; below that, Leaflet scales the zoom 11 tiles so a phone can see the whole island.
   map = L.map(el.value, { center: SINGAPORE, zoom: 11, minZoom: 10, maxZoom: 18, zoomSnap: 0.25, zoomControl: false, maxBounds: BOUNDS, zoomAnimation: !reducedMotion(), fadeAnimation: !reducedMotion(), markerZoomAnimation: !reducedMotion() })
@@ -252,7 +258,7 @@ onMounted(() => {
   layers = { base: L.layerGroup().addTo(map), radius: L.layerGroup().addTo(map) }
   draw()
   drawRadius()
-  map.on('move zoom moveend zoomend resize', () => emit('view'))
+  map.on(VIEW_EVENTS, onView)
   emit('view')
   // The map can start hidden (the List / Map switch on phones). Re-measure whenever its box changes.
   let lastWidth = el.value.clientWidth
@@ -269,10 +275,12 @@ onMounted(() => {
   observer.observe(el.value)
 })
 
+// Leaving: the map stops moving and is removed once Leaflet's own zoom timer has run (see retireMap.js), so a page left
+// while the map is still gliding does not end in an error.
 onBeforeUnmount(() => {
   cancelAnimationFrame(tween)
   observer?.disconnect()
-  map?.remove()
+  if (map) retireMap(map, VIEW_EVENTS, onView)
   map = null
 })
 

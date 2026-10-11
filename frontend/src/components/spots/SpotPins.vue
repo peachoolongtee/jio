@@ -75,12 +75,15 @@ let quiet = false
 
 const canHover = () => typeof matchMedia === 'function' && matchMedia('(hover: hover)').matches
 const clearTimers = () => { clearTimeout(openTimer); clearTimeout(closeTimer) }
+// Close the open card at once and forget what was holding it open.
+// How to call: hide()
 function hide() {
   clearTimers()
   openId.value = ''
   hoverId = focusId = tapId = ''
 }
 // Close the open card shortly, unless the pointer, focus or a tap still holds it.
+// How to call: settle()
 function settle() {
   clearTimeout(closeTimer)
   closeTimer = setTimeout(() => {
@@ -96,6 +99,8 @@ function onEnter(id, event) {
   clearTimeout(openTimer)
   openTimer = setTimeout(() => { if (hoverId === id) openId.value = id }, OPEN_DELAY)
 }
+// The pointer left a pin or its card: close the card shortly, unless something else holds it.
+// How to call: @pointerleave="onLeave(spot.areaId, $event)"
 function onLeave(id, event) {
   if (event.pointerType !== 'mouse') return
   if (hoverId === id) hoverId = ''
@@ -109,11 +114,15 @@ function onFocusIn(id, event) {
   focusId = id
   openId.value = id
 }
+// Focus left the pin and its card (moving between the two does not count): close the card shortly.
+// How to call: @focusout="onFocusOut(spot.areaId, $event)"
 function onFocusOut(id, event) {
   if (event.currentTarget.contains(event.relatedTarget)) return
   if (focusId === id) focusId = ''
   settle()
 }
+// Escape closes the open card and keeps focus on the pin.
+// How to call: @keydown="onKeydown"
 function onKeydown(event) {
   if (event.key !== 'Escape' || !openId.value) return
   hide()
@@ -134,12 +143,15 @@ function onPinClick(areaId, event) {
     openId.value = areaId
   }
 }
+// A press anywhere that is not a pin closes a card a tap opened.
+// How to call: document.addEventListener('pointerdown', onOutside)
 function onOutside(event) {
   if (tapId && !event.target.closest?.('.swrap')) hide()
 }
 
 // The box the card may use: the map's, less the bars; and the viewport, less the bars, for a phone where the map is too
 // short. Everything in viewport px.
+// How to call: boxes() -> { map: { left, right, top, bottom }, viewport: { left, right, top, bottom } }
 function boxes() {
   const area = layer.value.getBoundingClientRect()
   const root = getComputedStyle(document.documentElement)
@@ -155,6 +167,7 @@ function boxes() {
 }
 // Measure the card once it is in the page and put it by its pin. The wrapper has no size: its corner is the pin's tip.
 let placedFor = ''
+// How to call: await place('bugis') (or place('') to clear)
 async function place(id) {
   // The same card placed again (its pin was selected and grew) keeps showing while it moves; a new one starts hidden.
   if (id !== placedFor) placement.value = null

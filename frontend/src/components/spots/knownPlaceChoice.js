@@ -16,6 +16,8 @@ function readAll() {
     return {}
   }
 }
+// Keep every choice, by session id. Storage that refuses the write loses them with the page.
+// How to call: writeAll({ s1: { areaId: 'bugis', at: 1760000000000 } })
 function writeAll(all) {
   try {
     globalThis.sessionStorage?.setItem(KEY, JSON.stringify(all))
