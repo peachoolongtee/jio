@@ -990,3 +990,32 @@ The lead pasted a recording of the team testing the app together and asked for t
 - **A second map was charted,** "Jio to the freeze: wayfinder map", issue 109, grouped by feature, carrying execution. Sessions on the server is its first feature, in five stages. Invites are by link, which joins at once, and by username, which sends an invite to accept.
 - **Research answered:** Google's nearby search bills at its dearest tier with the fields asked for, and its terms forbid Places content on or beside a non-Google map; the 24-hour forecast reaches 18 to 24 hours ahead and its phrases are already known to the planner.
 - **Running when this was written:** an architect extending the session endpoint design, and a backend agent drafting the schema for meeting spots. Nothing is applied to the live database.
+
+## Round 21: work that does not touch the pitch build (2026-10-11, night)
+
+The lead asked what could carry on before the pitch and said "go" to five pieces, each on its own branch from `dev`, none to be merged until the lead has presented. All are tickets on the map, issue 109.
+
+| # | Role | Scope | Branch | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 21.1 | Backend | Weather, the backend half: the area forecast within two hours, the regional forecast where a published period covers the stop, no effect otherwise; four states and "not known" on each result; a route that answers the state of each stop of a plan | `feat/weather-forecast-window` | Old requests answer as before apart from the documented new fields; suites pass, also with outbound calls blocked | Running |
+| 21.2 | Frontend | The demo tour: `/demo`, one outing as a story saved at each checkpoint, a strip to jump between them, available in a deployed build when a flag is set | `feat/demo-tour` | Works with the backend off; suites and build pass; a build without the flag has none of it | Running |
+| 21.3 | Frontend | Roam inside a meetup: "What next?" on the itinerary on the day, a list of places nearby, proposals, the host's confirm | `feat/roam-in-meetup` | The rules each have a test; suites and build pass | Running |
+| 21.4 | Tracker | Check the audit tracker's and the first map's open tickets against `dev`; close what is done with its evidence, note what remains | none | Every ticket touched has a comment naming a file, a test or a pull request | Running |
+| 21.5 | Backend | Reconcile the schema draft with the session endpoint design, split by build slice; nothing applied | `feat/session-schema-spots` | A fresh build equals the old files plus the migrations; the access tests pass on a throwaway database | Running |
+| 21.6 | Lead | Verify each as it finishes; leave all unmerged | | Suites run by the lead on each branch | Pending |
+
+Held until after the pitch, because they edit the same screens: the signed-in account in place of the hard-coded one, the screen half of weather, and the walkthrough's later items.
+
+## Round 22: audit of the place-search pull request (2026-10-11, night)
+
+The lead asked whether the open pull requests overlap with work in flight, then for an audit of peachoolongtee/jio#132, "Search any place or location with Google and OneMap", by faithpho, from `feature/real-search` at `cf364da`: backend only, 10 files, 732 lines added. It is to be merged into `dev` after the pitch and before the weather branch, which edits six of the same files.
+
+- **Before any review, by the lead, on `dev` with the pull request merged in (no conflicts):** `pnpm test` 827 passed, 2 skipped, 30 files, and the same with outbound calls blocked, no call attempted; `pnpm --filter jio-frontend test` 807 passed, 56 files; `pnpm build` succeeded. The new Google fixture holds invented places.
+- **Read by the lead before delegating:** both new Google calls (a text search and a look-up by place id) go through the budget, timeout and pause that the Google Places audit added, with a 10-minute cache and the shape check.
+- **Known before the audit:** Google's terms, read on 11 October, forbid Places content on or beside a non-Google map; this pull request brings Google places to the Vote page and to the location sheet once a key is set. The decision is the lead's and is open on the map. With no key, the code does nothing.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 22.1 | Code reviewer, read-only | The new Google calls, cost per request, what reaches the browser, the search routes' rules, the engine change | Nothing | Every finding has a file, a line and a way to trigger it | Running |
+| 22.2 | Verifier | Run it with a fake Google and try to break it; count calls; check the frontend still works with Google results in its answers | Nothing in the repo | Each claim confirmed or refuted with output | Running |
+| 22.3 | Lead | Check findings, fix or record, merge into `dev` after the pitch | Fixes on `feat/real-search-integration` | Suites pass | Pending |
