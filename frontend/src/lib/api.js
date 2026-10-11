@@ -1195,8 +1195,9 @@ export async function getPlan(id) {
 
 // ── Step 7 and after: confirm, the itinerary, the day itself ───────────────
 
-// suggestion: the Confirm dialog's order from suggestOrder(), or null. It is used when it covers exactly the stops this
-// confirm makes, with the same places; otherwise (a tie came out differently) the plan keeps the voted order.
+// suggestion: the Confirm dialog's order from suggestOrder(), or null for the voted order. It is used when it covers
+// exactly the stops this confirm makes and its times belong to its order (P.suggestionFits); otherwise (a tie came out
+// differently) the plan keeps the voted order.
 export async function confirmPlan(id, suggestion = null) {
   await wait(DELAY.plan)
   const session = sessionById(id)
@@ -1219,10 +1220,9 @@ export async function confirmPlan(id, suggestion = null) {
     if (winner) stops.push({ slotId: slot.id, category: slot.category, venueId: winner, plannedStart: slot.start, duration: slot.duration })
   })
   session.plan = { stops, modes: [], startAt: stops[0]?.plannedStart ?? null }
-  const sameStops = (a, b) => a.length === b.length && a.every((s) => b.some((t) => t.slotId === s.slotId && t.venueId === s.venueId))
   // A plain copy: the screen hands over a reactive object, which cannot be stored.
   suggestion = suggestion ? JSON.parse(JSON.stringify(suggestion)) : null
-  if (suggestion && sameStops(stops, suggestion.stops)) {
+  if (suggestion && P.suggestionFits(stops, suggestion)) {
     applyOrder(session, { order: suggestion.order, stops: suggestion.stops.map((s) => ({ id: s.slotId, start: s.start })), reason: suggestion.reason, source: suggestion.source })
   }
   session.confirmedRanking = confirmedRanking
@@ -1251,7 +1251,7 @@ export async function getItinerary(id) {
     end: P.endPoint(last),
     trips: P.tripsHome(last, people),
     // Why the AI chose this order on confirm: { reason, source: 'ai' | 'rules' }, or null once a stop is moved by hand.
-    aiNote: session.plan.aiNote ? { ...session.plan.aiNote } : null,
+    aiNote: session.plan.aiNote ? { reason: P.cleanReason(session.plan.aiNote.reason), source: session.plan.aiNote.source === 'ai' ? 'ai' : 'rules' } : null,
     area: area ? { ...area } : null,
     starts: activeIds(session)
       .filter((pid) => session.locations[pid]?.start)
@@ -1318,7 +1318,7 @@ function applyOrder(session, answer) {
   const startOf = Object.fromEntries(answer.stops.map((s) => [s.id, s.start]))
   session.plan.stops = answer.order.map((slotId) => ({ ...bySlot[slotId], notBefore: startOf[slotId] }))
   session.plan.modes = []
-  session.plan.aiNote = { reason: answer.reason, source: answer.source }
+  session.plan.aiNote = { reason: P.cleanReason(answer.reason), source: answer.source === 'ai' ? 'ai' : 'rules' }
 }
 
 // The stops confirming would make now: each voted slot with its most voted place. A tie goes to the first option,
@@ -1350,8 +1350,8 @@ export async function suggestOrder(id) {
   return {
     order: answer.order,
     stops: answer.order.map((slotId) => ({ ...bySlot[slotId], name: venueById(bySlot[slotId].venueId).name, start: startOf[slotId] })),
-    reason: answer.reason,
-    source: answer.source,
+    reason: P.cleanReason(answer.reason),
+    source: answer.source === 'ai' ? 'ai' : 'rules',
   }
 }
 
