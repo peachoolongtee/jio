@@ -1,3 +1,4 @@
+import { toMinutes } from './filters.js';
 import { mockTravelMinutes, walkMinutes } from './geo.js';
 
 /**
@@ -51,10 +52,6 @@ export function legBetween(a, b) {
  */
 export function isOpenDuring(hours, start, end) {
   if (!hours?.length) return true;
-  const toMinutes = (t) => {
-    const [h, m] = t.split(':').map(Number);
-    return h * 60 + m;
-  };
   return hours.some((text) => {
     const [open, rawClose] = text.split('-').map(toMinutes);
     const close = rawClose <= open ? rawClose + 1440 : rawClose;
@@ -63,12 +60,12 @@ export function isOpenDuring(hours, start, end) {
 }
 
 // The earliest start at or after `at` when a place with these hours is open for `duration` minutes, or null.
+//
+// How to call:
+//   nextOpening(['10:30-21:30'], 10 * 60, 90) // 630 (10:30), because the place opens half an hour later
+//   nextOpening(['10:30-11:00'], 10 * 60, 90) // null: it is never open for 90 minutes
 function nextOpening(hours, at, duration) {
   if (!hours?.length) return at;
-  const toMinutes = (t) => {
-    const [h, m] = t.split(':').map(Number);
-    return h * 60 + m;
-  };
   const starts = hours.flatMap((text) => {
     const [open, rawClose] = text.split('-').map(toMinutes);
     const close = rawClose <= open ? rawClose + 1440 : rawClose;
@@ -114,20 +111,37 @@ export function timeStops(stops, startAt, { mealTimes = new Map() } = {}) {
 }
 
 // Every order of `items`. Only called with MAX_MOVABLE_STOPS items or fewer.
+//
+// How to call:
+//   permutations(['a', 'b', 'c']) // [['a','b','c'], ['a','c','b'], ['b','a','c'], ['b','c','a'], ['c','a','b'], ['c','b','a']]
 function permutations(items) {
   if (items.length <= 1) return [items];
   return items.flatMap((item, i) => permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest]));
 }
 
+// One string for an order of stop ids, to compare orders.
+//
+// How to call:
+//   orderKey(['s1', 's3', 's2']) // 's1|s3|s2'
 const orderKey = (ids) => ids.join('|');
 
-const clock = (minutes) => {
+/**
+ * Minutes after midnight as "HH:MM", wrapping past midnight.
+ *
+ * How to call:
+ *   clock(13 * 60 + 5) // '13:05'
+ *   clock(25 * 60)     // '01:00'
+ */
+export const clock = (minutes) => {
   const m = ((minutes % 1440) + 1440) % 1440;
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 };
 
 // Why an order does not work, in words for the group: a closed stop, a meal that would start too late, or a plan that
-// would run past the end of the session.
+// would run past the end of the session. Null when the order works.
+//
+// How to call:
+//   problemOf(timed.stops, mealTimes, 17 * 60) // 'Shaw Theatres is not open at 13:30-15:30', or null
 function problemOf(timed, mealTimes, endAt) {
   const closed = timed.find((s) => !s.open);
   if (closed) return `${closed.name} is not open at ${clock(closed.start)}-${clock(closed.end)}`;

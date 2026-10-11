@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MAX_MOVABLE_STOPS } from '../planner/arrange.js'
 
 // Request checks for the planner endpoints. Every request is checked here BEFORE the engine runs, so the
 // engine only ever sees input it can score, and the frontend gets a 400 that says which field is wrong.
@@ -29,6 +30,10 @@ const MAX = {
   // Rearranging an itinerary: the stops in it, and the orders already shown. Every order of the movable stops is
   // tried, so the stops are capped (planner/arrange.js also allows at most 6 to move).
   stops: 8,
+  movableStops: MAX_MOVABLE_STOPS, // the stops that are not meals
+  stopMinutes: { min: 15, max: 720 }, // how long one stop lasts
+  stopHours: 4, // opening-hour ranges per stop
+  mrtWalkMinutes: 120,
   shownOrders: 50,
 }
 const text = (max = MAX.text) => z.string().min(1).max(max)
@@ -200,15 +205,15 @@ export function makePlanSchemas(data) {
     kind: text().optional(),
     lat: point.shape.lat,
     lng: point.shape.lng,
-    duration: z.number().int().min(15).max(720),
+    duration: z.number().int().min(MAX.stopMinutes.min).max(MAX.stopMinutes.max),
     // When the itinerary shows the stop starting now, in minutes after midnight. A meal keeps this time.
     start: z.number().int().min(0).max(2 * MAX.minutes).optional(),
     hours: z
       .array(z.string().regex(openingHours, 'use HH:MM-HH:MM, e.g. 10:00-22:00'))
-      .max(4)
+      .max(MAX.stopHours)
       .default([]),
     indoor: z.boolean().optional(),
-    mrtWalk: z.number().min(0).max(120).optional(),
+    mrtWalk: z.number().min(0).max(MAX.mrtWalkMinutes).optional(),
   })
   const arrange = z
     .object({
@@ -224,7 +229,10 @@ export function makePlanSchemas(data) {
       includeCurrent: z.boolean().default(false),
     })
     .refine((b) => new Set(b.stops.map((s) => s.id)).size === b.stops.length, { message: 'stop ids must be different', path: ['stops'] })
-    .refine((b) => b.stops.filter((s) => s.category !== 'eat').length <= 6, { message: 'at most 6 stops that are not food can be rearranged', path: ['stops'] })
+    .refine((b) => b.stops.filter((s) => s.category !== 'eat').length <= MAX.movableStops, {
+      message: `at most ${MAX.movableStops} stops that are not food can be rearranged`,
+      path: ['stops'],
+    })
 
   return { converge, roam, meetingArea, search, placeSearch, arrange }
 }
