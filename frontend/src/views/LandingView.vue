@@ -97,7 +97,7 @@ onMounted(loadHome)
 const route = useRoute()
 const router = useRouter()
 const now = useNow()
-const nameOf = (id) => (id === HOST_ID ? auth.user.name : groups.nameOf(id))
+const nameOf = (id) => (id === HOST_ID ? auth.user?.name ?? '' : groups.nameOf(id))
 // The meetups still going (not completed or cancelled), soonest first, and the one selected: named by ?meetup=, else
 // the soonest. Home is about the selected one.
 const meetups = computed(() => activeMeetups(events.sessions, now.value))
@@ -270,7 +270,7 @@ async function showPlace(id) {
   reviews.value = null
   placeError.value = ''
   missingPlace.value = false
-  const loading = api.getPlace(id, area.value?.id || auth.user.homeAreaId)
+  const loading = api.getPlace(id, area.value?.id || auth.user?.homeAreaId)
   // Wait a moment for the details and reviews, so the view opens complete and nothing arrives mid-animation to
   // make it jump. A slow answer is not waited for: the view opens with placeholders and fills in.
   const early = await Promise.race([loading.catch(() => null), new Promise((resolve) => setTimeout(() => resolve(null), 350))])
@@ -350,12 +350,12 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
     <!-- The band: a muted map of Singapore; the routes meet at the selected meetup (or under the main action, in the middle). -->
     <section class="hero" :class="{ 'has-meetup': hasMeetups, 'hero--full': fullMap }" aria-labelledby="home-hello">
       <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
-        <UserAvatar :name="auth.user.name" :src="auth.user.photo" person="ian" :size="44" />
+        <UserAvatar :name="auth.user?.name ?? ''" :src="auth.user?.photo" person="ian" :size="44" />
       </RouterLink>
 
       <div class="hero__hello">
         <p class="caption text-muted">{{ today }}</p>
-        <h1 id="home-hello" class="hello"><span class="hello__hi">Hi,</span> <span class="hello__name">{{ auth.user.name }}</span></h1>
+        <h1 id="home-hello" class="hello"><span class="hello__hi">Hi,</span> <span class="hello__name">{{ auth.user?.name }}</span></h1>
         <p class="body-md home__blurb">{{ blurb }}</p>
       </div>
 

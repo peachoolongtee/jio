@@ -15,6 +15,8 @@ import { reviewsFor } from './mock/reviews.js'
 import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
+import * as auth from './auth.js'
+import { localAccountsAllowed } from './supabase.js'
 import { addDays, format, isValid, parseISO } from 'date-fns'
 
 export { api } from './plannerApi.js'
@@ -135,9 +137,18 @@ const keepable = (saved) => ({
   friends: isList(saved.friends, (f) => typeof f === 'string') ? saved.friends : [],
 })
 
-function load() {
+// Where the save in `db` is written. A local account (and every account before Supabase) uses STORAGE_KEY. A real
+// account has its own key, so two accounts in one browser never share a save and a local save is never shown to a
+// real account. null: nobody is signed in after a real account signed out, so nothing is written and the local
+// save, if there is one, is left alone.
+let storageKey = STORAGE_KEY
+// How to call: accountKey('7f3c...') -> 'jio-demo-v1:acct:7f3c...'
+const accountKey = (authId) => `${STORAGE_KEY}:acct:${authId}`
+
+// How to call: load() for the local save, or load(accountKey(user.id)) for a real account's
+function load(key = STORAGE_KEY) {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY))
+    const saved = JSON.parse(localStorage.getItem(key))
     if (hasShape(saved)) {
       // Only the switches the demo knows (a save from before the crowd switch was cut still has one).
       const defaults = defaultConditions()
@@ -154,8 +165,19 @@ function load() {
 }
 
 let db = load()
+
+// The state as text, for the save. A real account's date of birth stays out of it: it is a private field in the account
+// (profile_private), so it is kept in memory for this visit and read back from the account or the session, never left
+// in plain text in the browser after sign-out.
+// How to call: asText() -> '{"version":8,"user":{"id":"ian","authId":"7f3c..."},...}' (no "dob" on a real account)
+function asText(state = db) {
+  if (!state.user?.authId || !('dob' in state.user)) return JSON.stringify(state)
+  const { dob: _private, ...user } = state.user
+  return JSON.stringify({ ...state, user })
+}
+
 // The state as last saved (or loaded), as text. A write that cannot be saved puts the demo back to this.
-let stored = JSON.stringify(db)
+let stored = asText()
 const listeners = new Set()
 
 // Can storage take a small write at all? Without it (no storage, or a private window that refuses everything),
@@ -172,9 +194,9 @@ function storageWorks() {
 
 // Returns false only when storage works but refuses this write because it is full.
 function save() {
-  const text = JSON.stringify(db)
+  const text = asText()
   try {
-    localStorage.setItem(STORAGE_KEY, text)
+    if (storageKey !== null) localStorage.setItem(storageKey, text)
   } catch {
     if (storageWorks()) return false
   }
@@ -191,15 +213,18 @@ function replaceContents(target, source) {
 // Put the in-memory state back to what is stored. Sessions are restored in place: a write still waiting on the
 // planner keeps working on the same object.
 function rollback() {
-  const saved = JSON.parse(stored)
+  const back = JSON.parse(stored)
+  const dob = db.user?.authId ? db.user.dob : undefined
   const live = new Map(db.sessions.map((s) => [s.id, s]))
-  saved.sessions = saved.sessions.map((s) => {
+  back.sessions = back.sessions.map((s) => {
     const same = live.get(s.id)
     if (!same) return s
     replaceContents(same, s)
     return same
   })
-  replaceContents(db, saved)
+  replaceContents(db, back)
+  // The date of birth is not in the save (see asText), so it is put back from memory.
+  if (dob && db.user?.authId) db.user.dob = dob
 }
 
 function broadcast(event) {
@@ -478,15 +503,194 @@ function touch(session, type) {
 
 // ── Account ────────────────────────────────────────────────────────────────
 
-// The account, with its home area's name.
+// The account, with its home area's name. It is always `id: HOST_ID` (the local id of "me"). `authId` is the Supabase
+// user id of a real account and null for a local one; `local` is true for a local account (the demo account, and every
+// account when Supabase is not set up). `email` is '' when none is known.
+// How to call: account() -> { id: 'ian', authId: null, local: true, email: 'ian@jio.demo', name: 'Ian', ... }
 function account() {
   if (!db.user) return null
-  return { ...clone(db.user), homeAreaName: areaById(db.user.homeAreaId)?.name || '' }
+  return {
+    ...clone(db.user),
+    email: db.user.email || '',
+    authId: db.user.authId || null,
+    local: !db.user.authId,
+    homeAreaName: areaById(db.user.homeAreaId)?.name || '',
+  }
 }
 
+// Is sign-up and sign-in against a real Supabase project? False: every account is local, as before.
+// How to call: if (realAccountsOn()) showLoginLink()
+export function realAccountsOn() {
+  return auth.configured()
+}
+
+// Real accounts being switched to, by Supabase user id, so two callers share one switch.
+const adopting = new Map()
+// How many sign-up, sign-in or sign-out calls of this file are running, so the session listener does not answer its own.
+let acting = 0
+
+// Make a real account the signed-in one: load its own save (or start a fresh one) and write to its own key.
+// `known`: the details just typed at sign-up ({ name, username, dob, homeAreaId, photo, friends }); without it the
+// profile comes from Supabase (when `fetchProfile` is true), then from the save, then from the sign-up metadata, so a
+// failed read still signs in. At start-up `fetchProfile` is false: the person is shown from the save at once and the
+// profile is read afterwards (see refreshProfile).
+// How to call: await adoptAccount({ id: authId, email: 'sam@example.com', username: 'sam', dob: '2001-05-06' })
+async function adoptAccount(sessionUser, known = null, fetchProfile = true) {
+  let remote = null
+  if (!known && fetchProfile) {
+    try {
+      remote = await auth.loadProfile(sessionUser.id)
+    } catch {
+      remote = null
+    }
+  }
+  const key = accountKey(sessionUser.id)
+  const found = load(key)
+  const mine = found.user?.authId === sessionUser.id ? found : null
+  const was = mine?.user
+  const pick = known || remote || {}
+  const user = {
+    id: HOST_ID,
+    authId: sessionUser.id,
+    email: sessionUser.email || was?.email || '',
+    name: pick.name || was?.name || sessionUser.username || '',
+    username: pick.username || was?.username || sessionUser.username || '',
+    // The date of birth is never read from the save (it is not written to it): it comes from the account or the session.
+    dob: pick.dob || sessionUser.dob || '',
+    // A photo stays in this browser: it is a data URL in the save, never uploaded.
+    photo: known ? known.photo || '' : was?.photo || '',
+    homeAreaId: pick.homeAreaId || was?.homeAreaId || '',
+  }
+  const { conditions } = db
+  if (mine) {
+    db = { ...mine, user }
+  } else {
+    db = freshDb({ user, friends: [...(known?.friends || [])] })
+    db.conditions = conditions
+  }
+  storageKey = key
+  stored = asText()
+  // A save that cannot be written (storage full or missing) does not stop sign-in: the account works in memory.
+  save()
+  broadcast({ type: 'user' })
+  return account()
+}
+
+// How to call: await adopt(sessionUser) (the same account asked for twice at once is switched to once)
+//   await adopt(sessionUser, null, false) switches without reading the profile first (start-up)
+function adopt(sessionUser, known = null, fetchProfile = true) {
+  if (known) return adoptAccount(sessionUser, known)
+  if (!adopting.has(sessionUser.id)) {
+    adopting.set(sessionUser.id, adoptAccount(sessionUser, null, fetchProfile).finally(() => adopting.delete(sessionUser.id)))
+  }
+  return adopting.get(sessionUser.id)
+}
+
+// Read the signed-in person's profile from their account and bring the account up to date with it: the name, username,
+// date of birth and home area. A field changed here while the read was running is left as it is. Quiet when the read
+// fails or the person has changed. Called after the first screen is up, never waited for.
+// How to call: await refreshProfile()
+export async function refreshProfile() {
+  const authId = db.user?.authId
+  if (!authId) return
+  const before = { ...db.user }
+  let remote
+  try {
+    remote = await auth.loadProfile(authId)
+  } catch {
+    return
+  }
+  if (!remote || db.user?.authId !== authId) return
+  const fresh = { name: remote.name, username: remote.username, dob: remote.dob, homeAreaId: remote.homeAreaId }
+  const changes = Object.fromEntries(Object.entries(fresh).filter(([key, value]) => value && db.user[key] === before[key] && db.user[key] !== value))
+  if (Object.keys(changes).length === 0) return
+  db.user = { ...db.user, ...changes }
+  // A save that cannot be written does not matter here: the change is in memory.
+  save()
+  broadcast({ type: 'user' })
+}
+
+// End the Supabase session on this browser, if Supabase is set up. Never throws.
+// How to call: await endSession()
+async function endSession() {
+  if (!auth.configured()) return
+  acting += 1
+  try {
+    await auth.signOut()
+  } finally {
+    acting -= 1
+  }
+}
+
+// Nobody is signed in any more, but a real account's save stays where it is. Nothing is written until someone signs up.
+// How to call: detachAccount()
+function detachAccount() {
+  const { conditions } = db
+  db = freshDb()
+  db.conditions = conditions
+  storageKey = null
+  stored = asText()
+}
+
+// The Supabase session changed without this app asking: another tab signed out (or in), or the refresh token expired.
+auth.onChange(({ event, user }) => {
+  if (acting > 0 || adopting.size > 0) return
+  if (event === 'signedOut' && db.user?.authId) {
+    detachAccount()
+    broadcast({ type: 'reset', reason: 'session-ended' })
+  } else if (event === 'signedIn' && user && db.user?.authId !== user.id && (db.user?.authId || !db.user)) {
+    // Another tab signed in as someone else: getUser switches to them.
+    setTimeout(() => broadcast({ type: 'user' }), 0)
+  } else if (event === 'refreshed') {
+    // A token was refreshed, so Supabase can be reached again: a "could not be reached" note is out of date.
+    broadcast({ type: 'reachable' })
+  }
+})
+
+// A local account with no Supabase account behind it is not a login when real accounts are on, unless this build keeps
+// local accounts (development, or VITE_ALLOW_LOCAL_ACCOUNTS=1). The local save is left where it is and is not shown.
+// How to call: dropStrayLocalAccount()
+function dropStrayLocalAccount() {
+  if (auth.configured() && !localAccountsAllowed() && db.user && !db.user.authId) detachAccount()
+}
+dropStrayLocalAccount()
+
+// Who is signed in, and whether Supabase could be asked. With Supabase set up, a stored session decides who is signed
+// in: its account's own save is loaded (the profile is not read here; see refreshProfile). A session that cannot be
+// checked because Supabase cannot be reached (or does not answer within `bounded` milliseconds) is neither kept nor
+// thrown away: the person is shown from the saved copy and `unreachable` is true. With no session, the answer is the
+// local account in the local save, when this build keeps local accounts, or null.
+// How to call: const { user, unreachable } = await whoIsSignedIn({ bounded: auth.timing.startMs })
+async function whoIsSignedIn({ bounded = 0 } = {}) {
+  let unreachable = false
+  if (auth.configured()) {
+    const asking = auth.checkSession()
+    const answer = bounded ? await Promise.race([asking, auth.pause(bounded).then(() => ({ user: null, unreachable: true }))]) : await asking
+    unreachable = answer.unreachable
+    const session = answer.user || (unreachable ? auth.savedUser() : null)
+    if (session) {
+      if (db.user?.authId !== session.id) await adopt(session, null, false)
+    } else if (db.user?.authId && !unreachable) {
+      detachAccount()
+    }
+    if (!session) dropStrayLocalAccount()
+  }
+  return { user: account(), unreachable }
+}
+
+// The signed-in person, or null.
+// How to call: const user = await getUser() (null when nobody is signed in)
 export async function getUser() {
   await wait(DELAY.read)
-  return account()
+  return (await whoIsSignedIn()).user
+}
+
+// The signed-in person for the first screen: from the saved copy, within a fixed time, without reading the profile.
+// `unreachable` is true when the session could not be checked, so the screen can say so.
+// How to call: const { user, unreachable } = await startUser()
+export async function startUser() {
+  await wait(DELAY.read)
+  return whoIsSignedIn({ bounded: auth.timing.startMs })
 }
 
 // Sign-up rules, the same as the database's: a username is 3 to 20 lowercase letters, numbers or underscores,
@@ -528,12 +732,22 @@ function assertDob(dob) {
 // to show under the field when the name, username or date of birth breaks a rule.
 // `demo: true` is for the demo tools' account only: it starts with the sample history in mock/people.js (10 meetups
 // and 1,000 JioCoins). Anyone else starts with no meetups, no JioCoins and no rank.
+//
+// With Supabase set up, a sign-up that is not `demo` creates a real account: `profile.password` goes to Supabase and
+// nowhere else. It resolves with the account as soon as the account exists, without waiting for its name and home area
+// to be written to it; if that write fails, a `{ type: 'sync-failed', message }` event follows (`syncError` is always
+// ''). When the project wants the email confirmed first it resolves with
+// `{ needsConfirmation: true, email }` and nobody signed in. It rejects with the messages in lib/auth.js.
+// How to call: const user = await signUp({ email, password, name, username, dob, homeAreaId, friends })
 export async function signUp(profile) {
   await wait(DELAY.write)
   assertName(profile.name)
   assertUsername(profile.username)
   assertDob(profile.dob)
-  // The real app creates a Supabase account here. The demo account is always the host, Ian's id.
+  if (auth.configured() && !profile.demo) return signUpReal(profile)
+  // The demo account is always local, even with Supabase set up, and ends any real session first.
+  await endSession()
+  // The demo account is always the host, Ian's id.
   const user = {
     id: HOST_ID,
     email: profile.email,
@@ -548,27 +762,110 @@ export async function signUp(profile) {
   const { conditions } = db
   db = freshDb({ user, friends: [...(profile.friends || [])] })
   db.conditions = conditions
+  if (storageKey !== STORAGE_KEY) {
+    // Coming from a real account (or from nobody): a local account writes to the local save again.
+    storageKey = STORAGE_KEY
+    stored = asText()
+  }
   emit({ type: 'user' })
   return account()
 }
 
+// A real sign-up. The profile's other fields (photo, friends) stay in this browser, in the account's own save.
+// How to call: await signUpReal({ email, password, name, username, dob, homeAreaId })
+async function signUpReal(profile) {
+  const name = profile.name.trim()
+  acting += 1
+  try {
+    const result = await auth.signUp({
+      email: profile.email,
+      password: profile.password,
+      username: profile.username,
+      dob: profile.dob,
+      name,
+      homeAreaId: profile.homeAreaId,
+    })
+    if (result.needsConfirmation) return { needsConfirmation: true, email: result.user.email }
+    const known = { name, username: profile.username, dob: profile.dob, homeAreaId: profile.homeAreaId, photo: profile.photo, friends: profile.friends }
+    const mine = await adopt(result.user, known)
+    // The name and home area are written to the account in the background; a failure is announced when it happens.
+    result.profileWrite?.then((message) => {
+      if (message) broadcast({ type: 'sync-failed', message })
+    })
+    return { ...mine, syncError: '' }
+  } finally {
+    acting -= 1
+  }
+}
+
+// Sign in to a real account with its email and password, and bring back that account's own save on this browser (a
+// browser with no save for it starts fresh). Rejects with the messages in lib/auth.js; the same message whether the
+// email is registered or not.
+// How to call: const user = await signIn({ email: 'sam@example.com', password: 'Sup3r-secret' })
+export async function signIn({ email, password }) {
+  await wait(DELAY.write)
+  acting += 1
+  try {
+    const { user } = await auth.signIn({ email, password })
+    return await adopt(user)
+  } finally {
+    acting -= 1
+  }
+}
+
+// What a signed-in person may change on a real account: the name, photo, home area and date of birth. The username
+// and email are not editable.
+const REAL_EDITABLE = ['name', 'photo', 'homeAreaId', 'dob']
+
+// patch: { name?, photo?, homeAreaId?, dob?, ... }. A local account takes any field, as before. A real account takes
+// the four it may edit, and the name, home area and date of birth are also written to Supabase. The change is kept
+// here even when that write fails: the answer then carries `syncError` with a message to show.
+// How to call: const user = await updateUser({ name: 'Sam T.' })
 export async function updateUser(patch) {
   await wait(DELAY.write)
-  db.user = { ...db.user, ...patch }
+  if (!db.user?.authId) {
+    db.user = { ...db.user, ...patch }
+    emit({ type: 'user' })
+    return account()
+  }
+  const allowed = Object.fromEntries(REAL_EDITABLE.filter((key) => key in patch).map((key) => [key, patch[key]]))
+  db.user = { ...db.user, ...allowed }
   emit({ type: 'user' })
-  return account()
+  const { photo, ...remote } = allowed
+  let syncError = ''
+  if (Object.keys(remote).length > 0) {
+    try {
+      await auth.saveProfile(db.user.authId, remote)
+    } catch (err) {
+      syncError = err.message
+    }
+  }
+  return { ...account(), syncError }
 }
 
+// A local account: erases the account and every meetup, as before. A real account: ends this browser's session and
+// leaves the account's save where it is for the next sign-in. Resolves even when Supabase cannot be reached.
+// How to call: await signOut()
 export async function signOut() {
   await wait(DELAY.write)
+  const local = !!db.user && !db.user.authId
+  if (!local) await endSession()
+  const wasLocalSave = storageKey === STORAGE_KEY
   db = freshDb()
+  if (!wasLocalSave) {
+    storageKey = null
+    stored = asText()
+  }
   emit({ type: 'reset' })
 }
 
-// Rejects with a message fit to show under the field when the username breaks the rules.
+// Rejects with a message fit to show under the field when the username breaks the rules. With Supabase set up this asks
+// the database function username_available; without it, the local list.
+// How to call: const { available } = await checkUsername('sam')
 export async function checkUsername(username) {
   await wait(DELAY.read)
   assertUsername(username)
+  if (auth.configured()) return { available: await auth.usernameAvailable(username) }
   const taken = PEOPLE.some((p) => p.id !== HOST_ID && p.username === username)
   return { available: !taken }
 }
