@@ -8,7 +8,7 @@
 // The list and the map show the same places, and the map has a key to the categories of the places on it.
 // Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
 // shows the message and the rest of the page stays usable.
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -27,6 +27,7 @@ import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
 import TextField from '@/components/ui/TextField.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
+import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
 import CategoryKey from '@/components/map/CategoryKey.vue'
@@ -36,6 +37,10 @@ import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { distanceText } from '@/lib/planner/format.js'
 import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, votedRows } from '@/lib/confirmOrder.js'
 import { placeImage } from '@/lib/placeImages.js'
+import { placeFromOption } from '@/lib/reviewPick.js'
+import { reviewsFor } from '@/lib/mock/reviews.js'
+import { HOST_ID } from '@/lib/mock/people.js'
+import { getPlace } from '@/lib/api.js'
 import { confetti } from '@/lib/confetti.js'
 import { mealWindow, MEAL_WINDOWS } from '@/lib/planner/timeOfDay.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -93,6 +98,9 @@ const loading = computed(() => planner.loading[props.id] && !plan.value?.slots?.
 const voting = computed(() => session.value?.status === 'voting')
 const nameOf = (id) => (id === 'ian' ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
+// Who a card's review line may quote: the other people in this outing, then the signed-in person's friends.
+const outingIds = computed(() => active.value.filter((id) => id !== HOST_ID))
+const friendIds = computed(() => groups.friends.map((p) => p.id))
 const slots = computed(() => plan.value?.slots || [])
 const shown = computed(() => (filter.value ? slots.value.filter((s) => s.category === filter.value) : slots.value))
 // Under All, categories with nothing nearby fold into one line instead of an empty section each.
@@ -113,6 +121,32 @@ async function vote(slot, option) {
   } catch (e) {
     error.value = e.message
   }
+}
+
+// ── Sample reviews ──
+// A card's review line opens the place's detail over this page. It is built from the option, so no request is made and it
+// opens with the planner off; the address is added from the place list when the place is in it.
+const reviewing = ref(null)
+
+// How to call: openReviews(option) (from a card's review line)
+function openReviews(option) {
+  const place = placeFromOption(option)
+  reviewing.value = { optionId: option.id, place, reviews: reviewsFor(option.venue) }
+  if (place.address) return
+  getPlace(option.venue.id, session.value?.area?.id)
+    .then((known) => {
+      if (reviewing.value?.optionId === option.id && known.address) reviewing.value.place = { ...reviewing.value.place, address: known.address }
+    })
+    .catch(() => {})
+}
+
+// Close the detail and put focus back on the review line that opened it.
+// How to call: closeReviews()
+async function closeReviews() {
+  const id = reviewing.value?.optionId
+  reviewing.value = null
+  await nextTick()
+  document.querySelector(`[data-review-for="${CSS.escape(id ?? '')}"]`)?.focus({ preventScroll: true })
 }
 
 async function more(slot) {
@@ -295,8 +329,11 @@ async function confirm() {
                     :mine="slot.myVote === option.id"
                     :closed="!voting"
                     :selected="selected === option.id"
+                    :outing="outingIds"
+                    :friends="friendIds"
                     @vote="vote(slot, $event)"
                     @swap="swap(slot, $event)"
+                    @open="openReviews"
                   />
                 </div>
                 <div v-if="voting && slot.options.length < 6" class="slot__more">
@@ -343,6 +380,8 @@ async function confirm() {
     <footer v-else-if="['confirmed', 'completed'].includes(session.status)" class="screen__footer">
       <AppButton next block :to="`/sessions/${id}/itinerary`">Itinerary</AppButton>
     </footer>
+
+    <PlaceDetail v-if="reviewing" :place="reviewing.place" :reviews="reviewing.reviews" :outing="outingIds" :from="session.area.name" @close="closeReviews" />
 
     <ModalDialog v-model:open="confirmOpen" title="Confirm plan?">
       <template #content>

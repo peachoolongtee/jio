@@ -982,6 +982,34 @@ A guided demo for the lead and the graders: one link, one outing told in eight c
 
 Words: the strip says "sample data" and "rough"; it uses no exclamation mark and no upper-case label. The old ten-session showcase in the development tools is unchanged.
 
+### Locate once the spot is confirmed, and the button at the top left, 11 Oct 2026 (evening)
+
+Asked for by the lead after using the pitch build. It replaces two rows of the table above: "The back arrow" and "Confirming stays on Locate".
+
+| Change | What it is now | Where |
+|---|---|---|
+| Locate, settled | From Voting on, the list of spots is gone. One card holds the confirmed meeting spot: the Rausch pin, the caption "Meeting spot" and the area's name in `display-lg`, entering with the old reveal (420 ms, spring; none under reduced motion). The map shows the meeting pin and a dashed line from each person's start, with no spot pins. Confirming still leaves the person on this page, with focus on the footer's button. | `GroupDetailView`, `settledView` in `spots/spotText.js` |
+| The people card, settled | It is about the trips: each person's start area and travel time in its travel colour, and the colour key. The votes ring and the status icons are left out here, because "3 of 3 voted" on the Locate page read as a vote on the location. They are unchanged while the group is still choosing. | `GroupDetailView`; `statuses` on `MemberList` |
+| The footer's button, settled | Named for where it goes, never "Next": "Choose places" (to Vote) while the group votes; "Today's plan" on the day of a confirmed plan and "See the plan" otherwise (to the Itinerary). | `locateNext` in `lib/session.js` |
+| The button at the top left | A back arrow. On the session page, Vote and the Itinerary it leaves the session for the screen it was opened from (Home, Sessions, the profile), named "Back to Home" and so on; Home when that is not known, such as after a reload. The steps bar is how a person moves between steps. The photos and the full map go back to the Itinerary; Invite goes back to Create for the host. | `backFor` in `SessionSteps.vue`; `rememberEntry` and `exitFor` in `lib/stepNav.js`, called from the router |
+
+### Reviews on the places to vote on, 11 Oct 2026 (evening)
+
+Asked for by the lead: "show the reviews like the sample reviews on the home page". Built with two changes to that idea: the review that matters to a group is one from someone they know, so it is chosen by who wrote it and shown on the card where the choice is made; and the words follow the kind of place, so a place that is not food never gets a food text.
+
+| Piece | What it is | Where |
+|---|---|---|
+| The review line | Each `SuggestionCard` carries one line under its reasons: a 24px avatar, the reviewer's name, the start of their sample review in quotation marks cut to one line, and a quiet "Sample" `InfoTag`. It is its own 44px button, apart from the vote chip and the swap button, and adds one line to the card. It quotes someone in the outing first, then a friend; with neither it reads "N sample reviews". Its name for a screen reader says "sample review". | `event/SuggestionCard.vue`; `pickReview` and `cardLine` in `lib/reviewPick.js` |
+| The score | The place's score sits at the top right of the card's name, as a `RatingBadge` (a star and a score out of 10 with one decimal), as on Home's cards and in the detail. A place whose source gives no score shows none, so some cards have it and some do not. | `event/SuggestionCard.vue` |
+| The detail over Vote | Pressing the line opens `PlaceDetail` over the Vote page, built from the option, with no planner request. Reviews are ordered people in this outing, then friends, then everyone else; an outing member is tagged "In this outing" where a friend is tagged "Friend". "Sample reviews" and "Sample data for the demo" stay. "Navigate" is there, as on Home. Escape, the backdrop and its Back button close it and focus returns to the line; the browser's Back does not close it. | `views/PlannerView.vue`; `outing` on `event/PlaceDetail.vue`; `orderReviews` in `lib/reviewPick.js` |
+| The words | `reviewKind(venue)` picks the text set: the place's own kind, then its cuisine, then its category; where a kind and a category disagree about food, the category wins. New sets: theatre, games, bowling and a general activity set. Home's 63 places keep the reviews they had. | `lib/mock/reviews.js` |
+
+The reviews are invented and attached to real places in a real choice, which is why the label is on the card line as well as in the detail. Real reviews, written by a group after an outing, are ticketed for after the pitch. The Vote page's search rows and its map's pin card have no review line.
+
+`SpotList` still knows how to draw a confirmed list (its rows, "Confirmed", no controls); no screen uses that state now.
+
+Not built, suggested to the lead for after the pitch: the person's own trip and a "Directions" button on the meeting spot card; one bar per person on a shared scale, with the longest trip stated, so the fairness is seen; a line saying how the spot was chosen, with the other spots behind a disclosure; the start and end card shrunk once settled; the top navigation kept on session pages at desktop width.
+
 ## Known Conflicts
 
 Each item is a place where the shipped code departs from a rule written in `CLAUDE.md`, in `frontend/src/styles/README.md`, or in a comment in the code. They are recorded as facts. Nothing here has been changed, and the lead decides each one. Contrast ratios are computed from the token values with the WCAG 2 formula; 4.5:1 is the threshold `CLAUDE.md` names.

@@ -67,17 +67,20 @@ function tailOf(session, path) {
   return session ? path.replace(`/sessions/${session.id}`, '') : null
 }
 
-// Where the back arrow goes from the page at `path`: the step before the one on screen, among those the session has
-// reached (a page opened by its address before its step was reached goes back to the last step that was). From the first
-// step the person can open, it is Home: Create for the host, Invite for a guest. The photos, the full map and "What next?"
-// belong to the Itinerary, so they go back to it. Create and Invite are one stop in the browser's history, so moving between them
-// replaces. `label` says where it goes.
-// How to call: backFor({ id: 's1', status: 'voting' }, '/sessions/s1/plan', true) -> { label: 'Back to Locate', to: '/sessions/s1' }
-export function backFor(session, path, mine = true) {
-  const home = { label: 'Back to Home', to: '/' }
+// Where the button at the top left goes from the page at `path`. From a session's own pages (the session page, Vote and
+// the Itinerary) it leaves the session: the steps bar is how a person moves between steps, so the button does not
+// repeat it. It leaves to `exit`, the screen the person opened the session from (exitFor in lib/stepNav.js), which is
+// Home unless told otherwise. The photos, the full map and "What next?" belong to the Itinerary, so they go back to it. The two forms
+// keep their order: Invite goes back to Create for the host (one stop in the browser's history, so it replaces), and
+// Create, or Invite for a guest, leaves the session. `label` says where it goes.
+// How to call: backFor({ id: 's1', status: 'voting' }, '/sessions/s1/plan', true) -> { label: 'Back to Home', to: '/' }
+//              backFor(session, path, true, { label: 'Back to Sessions', to: '/sessions' }) -> that, from a step's page
+export function backFor(session, path, mine = true, exit = { label: 'Back to Home', to: '/' }) {
+  const home = exit
   if (!session) return home
   const tail = tailOf(session, path)
   if (ITINERARY_PAGES.includes(tail)) return { label: 'Back to Itinerary', to: `/sessions/${session.id}/itinerary` }
+  if (['', '/plan', '/itinerary'].includes(tail)) return home
   const viewing = viewingStep(session, tail)
   const target = Math.min(viewing - 1, reachedStep(session))
   if (target < 0 || (target === 0 && !mine)) return home

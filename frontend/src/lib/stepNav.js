@@ -3,6 +3,29 @@
 // this, Locate, Vote, back arrow, Vote would leave a trail of repeated pages that the browser's Back had to walk through.
 // No DOM of its own: the event, the router and the history state come in, so it can be tested on its own.
 
+// The page a person was on when they opened a session: Home, Sessions, their profile. The button at the top left of a
+// session goes back there, so it means "back" and not always "Home". Kept in memory only: after a reload it is Home.
+const HOME = { label: 'Back to Home', to: '/' }
+let entry = null
+
+// Called by the router after every move. Coming into a session's pages from a screen with the tab bar remembers that
+// screen (with its query, so Home opens on the same meetup); moving about inside the session leaves it alone.
+// How to call: router.afterEach((to, from) => rememberEntry(to, from))
+export function rememberEntry(to, from) {
+  if (!to?.path?.startsWith('/sessions/') || !from?.meta?.tabs) return
+  entry = { label: from.meta.title ? `Back to ${from.meta.title}` : 'Back', to: from.fullPath || from.path }
+}
+
+// Where the button at the top left of a session leaves to: the remembered screen, or Home.
+// How to call: exitFor() -> { label: 'Back to Sessions', to: '/sessions' }
+export const exitFor = () => entry || HOME
+
+// Forget the remembered screen (between tests).
+// How to call: forgetEntry()
+export function forgetEntry() {
+  entry = null
+}
+
 // The path of a location given as a string or as { path }, without a query or hash.
 // How to call: pathOf({ path: '/sessions/s1/plan', replace: true }) -> '/sessions/s1/plan'
 export function pathOf(to) {

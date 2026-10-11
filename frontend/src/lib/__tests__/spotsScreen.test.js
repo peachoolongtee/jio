@@ -26,7 +26,7 @@ vi.mock('../../components/ui/ModalDialog.vue', async () => {
 vi.stubGlobal('localStorage', fakeStorage())
 const { default: SpotList } = await import('../../components/spots/SpotList.vue')
 const { default: SpotConfirm } = await import('../../components/spots/SpotConfirm.vue')
-const { canApprove, canSuggest, confirmedAreaId, pinName, shownFor, shownSpotId, spotsToShow, tripsLine, unpricedSuggestion } = await import('../../components/spots/spotText.js')
+const { canApprove, canSuggest, confirmedAreaId, pinName, settledView, shownFor, shownSpotId, spotsToShow, tripsLine, unpricedSuggestion } = await import('../../components/spots/spotText.js')
 const { useEventsStore } = await import('../../stores/events.js')
 const { clearApprovals, friendSuggests, friendsApprove, hasSpots } = await import('../../components/dev/spotDemo.js')
 
@@ -493,5 +493,43 @@ describe('the list once a spot is confirmed', () => {
     const s = settled()
     expect(pinName(spotsToShow(s)[0], 1, 'ian', true)).toBe('Spot 1, Bishan. Confirmed. Suggested by Jio. Longest trip 30 min. No one yet.')
     expect(pinName(spotsToShow(s)[1], 2, 'ian')).not.toContain('Confirmed')
+  })
+})
+
+describe('the Locate screen once the meeting spot is settled', () => {
+  const start = (areaId, name, lat, lng) => ({ start: { areaId, name, label: name, lat, lng } })
+  const settled = (over = {}) => session({
+    status: 'voting',
+    locations: { ian: start('bugis', 'Bugis', 1.3, 103.85), jonathan: start('city-hall', 'City Hall', 1.29, 103.85), faith: {} },
+    meeting: { areaId: 'bishan', method: 'voted', times: { ian: 9, jonathan: 6 }, maxMinutes: 9, totalMinutes: 15, count: 2, approximate: true },
+    area: { id: 'bishan', name: 'Bishan', lat: 1.35, lng: 103.84 },
+    ...over,
+  })
+
+  it('gives the confirmed area and each person who shared a start, with their trip to it', () => {
+    const view = settledView(settled(), names)
+    expect(view.area).toMatchObject({ id: 'bishan', name: 'Bishan', lat: 1.35, lng: 103.84 })
+    expect(view.people).toEqual([
+      { id: 'ian', name: 'Ian', lat: 1.3, lng: 103.85, areaName: 'Bugis', minutes: 9 },
+      { id: 'jonathan', name: 'Jonathan', lat: 1.29, lng: 103.85, areaName: 'City Hall', minutes: 6 },
+    ])
+  })
+
+  it('leaves out anyone with no start, and gives no time where the meeting has none', () => {
+    const view = settledView(settled({ meeting: { areaId: 'bishan', method: 'chosen', times: {} } }), names)
+    expect(view.people.map((p) => p.id)).toEqual(['ian', 'jonathan'])
+    expect(view.people.every((p) => p.minutes === null)).toBe(true)
+  })
+
+  it('is the same at every status after confirming', () => {
+    for (const status of ['voting', 'confirmed', 'completed']) expect(settledView(settled({ status }), names)?.area.name).toBe('Bishan')
+  })
+
+  it('is null while the group is choosing, for a session called off, and with no meeting area', () => {
+    expect(settledView(session(), names)).toBeNull()
+    expect(settledView(settled({ status: 'cancelled' }), names)).toBeNull()
+    expect(settledView(settled({ status: 'inviting' }), names)).toBeNull()
+    expect(settledView(settled({ meeting: null }), names)).toBeNull()
+    expect(settledView(settled({ area: null }), names)).toBeNull()
   })
 })
