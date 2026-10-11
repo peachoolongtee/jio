@@ -10,6 +10,9 @@
 // finding    the meeting area is being worked out: a pulse between everyone instead of the area pin
 // radius     metres: a circle around the meeting area showing how far suggestions may be; it grows or shrinks
 //            smoothly to a new size
+// keep       extra points ({ lat, lng }) the view must also show, drawn by something laid over the map (the Locate
+//            screen's spot pins). Emits `view` whenever the map moves or resizes; project(lat, lng) says where a
+//            point is, in px from the map's top-left (call it through the component's ref).
 // Colour coding: each person in their own colour (lib/people.js, the same as their avatar) with their travel
 // time coloured by length (short, medium, long), places and numbered stops by category,
 // the leading place (highlight) ringed and labelled while the others (muted) fade back.
@@ -36,8 +39,9 @@ const props = defineProps({
   zoomPosition: { type: String, default: 'topleft' },
   finding: { type: Boolean, default: false },
   radius: { type: Number, default: 0 },
+  keep: { type: Array, default: () => [] },
 })
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'view'])
 
 const TILES = 'https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'
 const ATTRIBUTION = '<a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener noreferrer">OneMap</a> &copy; contributors &#124; <a href="https://www.sla.gov.sg/" target="_blank" rel="noopener noreferrer">Singapore Land Authority</a>'
@@ -168,6 +172,7 @@ function draw() {
   }
 
   // Fit the view when the set of things on the map changes, not on every small update.
+  for (const p of props.keep) points.push([p.lat, p.lng])
   const frame = props.fitTo === 'places' && focus.length ? focus : points
   const key = frame.map((p) => p.join(',')).sort().join('|')
   if (key !== fittedKey) {
@@ -247,6 +252,8 @@ onMounted(() => {
   layers = { base: L.layerGroup().addTo(map), radius: L.layerGroup().addTo(map) }
   draw()
   drawRadius()
+  map.on('move zoom moveend zoomend resize', () => emit('view'))
+  emit('view')
   // The map can start hidden (the List / Map switch on phones). Re-measure whenever its box changes.
   let lastWidth = el.value.clientWidth
   observer = new ResizeObserver(() => {
@@ -269,7 +276,7 @@ onBeforeUnmount(() => {
   map = null
 })
 
-watch(() => [props.people, props.area, props.places, props.route, props.spokes, props.selected, props.finding, props.radius], draw, { deep: true })
+watch(() => [props.people, props.area, props.places, props.route, props.spokes, props.selected, props.finding, props.radius, props.keep], draw, { deep: true })
 watch(() => [props.area?.lat, props.area?.lng, props.radius, props.finding], () => map && drawRadius())
 
 // Called by a parent after the map container becomes visible.
@@ -278,7 +285,14 @@ function refit() {
   map?.invalidateSize()
   draw()
 }
-defineExpose({ refit })
+// Where a point is on the map, in px from its top-left corner; null before the map exists.
+// How to call: mapRef.value.project(1.3521, 103.8198) -> { x: 120, y: 80 }
+function project(lat, lng) {
+  if (!map) return null
+  const point = map.latLngToContainerPoint([lat, lng])
+  return { x: point.x, y: point.y }
+}
+defineExpose({ refit, project })
 </script>
 
 <template>

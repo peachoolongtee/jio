@@ -2,6 +2,7 @@
 // Pick a start or end location: search for a place or postal code, or use the current location.
 // For an end location, "Same as start" is the first choice.
 //   <LocationSheet v-model:open="open" which="start" @select="save" />
+//   <LocationSheet v-model:open="open" which="spot" title="Suggest a spot" @select="suggest" />   an area for the group
 import { ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
@@ -14,6 +15,9 @@ const props = defineProps({
   which: { type: String, default: 'start' },
   // Ian's home area, offered as a quick choice.
   home: { type: Object, default: null },
+  // The heading, when it is not one of the two locations: which="spot" picks an area for the group (a suggested
+  // meeting spot, or a known place) instead of a place to start from. Only the area of what is picked is used.
+  title: { type: String, default: '' },
 })
 const emit = defineEmits(['select'])
 
@@ -67,7 +71,7 @@ function useCurrent() {
 </script>
 
 <template>
-  <PopoverPanel v-model:open="open" :title="which === 'end' ? 'Where you head after' : 'Where you start'" :width="400">
+  <PopoverPanel v-model:open="open" :title="title || (which === 'end' ? 'Where you head after' : 'Where you start')" :width="400">
     <TextField v-model="query" label="Place or postal code" hide-label placeholder="Search a place or postal code" type="text" inputmode="search" autocomplete="off" enterkeyhint="search">
       <template #trailing><AppIcon class="loc__search" name="search" /></template>
     </TextField>
