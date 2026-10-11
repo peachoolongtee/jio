@@ -82,7 +82,8 @@ describe('the Roam page', () => {
     expect(page.textOf(cards[0])).toContain('Green Kitchen')
     expect(page.textOf(cards[0])).toContain('about 4 min away · 300 m')
     expect(page.textOf(cards[0])).toContain('Near MRT')
-    expect(page.textOf(cards[0])).toContain('Short walk')
+    // The card no longer repeats the line above it: "Short walk" went from the place card on 11 October 2026.
+    expect(page.textOf(cards[0])).not.toContain('Short walk')
     expect(page.all('button', 'Propose')).toHaveLength(2)
     // The request was for the meeting area: no point.
     expect(api.roamNearby).toHaveBeenCalledWith('s1', { point: undefined, categories: ['eat', 'drink', 'shop', 'activity'] })

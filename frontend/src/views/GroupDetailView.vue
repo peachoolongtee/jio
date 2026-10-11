@@ -33,9 +33,10 @@ import PlannerMap from '@/components/map/PlannerMap.vue'
 import SpotConfirm from '@/components/spots/SpotConfirm.vue'
 import SpotList from '@/components/spots/SpotList.vue'
 import SpotPins from '@/components/spots/SpotPins.vue'
-import { confirmedAreaId, settledView, shownFor, spotsToShow } from '@/components/spots/spotText.js'
+import { confirmedAreaId, myTripLine, settledView, shownFor, spotsToShow } from '@/components/spots/spotText.js'
 import NotFoundView from './NotFoundView.vue'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
+import { directionsUrl } from '@/lib/maps.js'
 import { locateNext } from '@/lib/session.js'
 import { TRAVEL_TONES } from '@/lib/planner/travel.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -120,6 +121,11 @@ const refreshPins = () => pinsRef.value?.refresh()
 
 // Once a spot is confirmed: the meeting area and everyone's trip to it. Null while the group is choosing.
 const settled = computed(() => (session.value ? settledView(session.value, nameOf) : null))
+
+// On the meeting spot card: your own trip to it, and directions there by public transport (Google Maps, in a new tab).
+// The link goes to the area's centre: a meeting spot is an area, not an address.
+const myTrip = computed(() => myTripLine(settled.value, myId.value))
+const spotDirections = computed(() => (settled.value ? directionsUrl({ name: settled.value.area.name, lat: settled.value.area.lat, lng: settled.value.area.lng }) : ''))
 
 // The footer's button once settled, named for where it goes.
 const next = computed(() => (session.value ? locateNext(session.value) : null))
@@ -340,8 +346,12 @@ const startSession = () => run(() => events.start(props.id))
                 <div class="area__text">
                   <span class="caption-sm text-muted">Meeting spot</span>
                   <h2 id="area-head" class="display-lg truncate">{{ settled.area.name }}</h2>
+                  <span v-if="myTrip" class="caption-sm text-muted">{{ myTrip }}</span>
                 </div>
               </div>
+              <AppButton variant="secondary" small class="area__go" :href="spotDirections" target="_blank" :aria-label="`Directions to ${settled.area.name}, opens Google Maps in a new tab`">
+                <AppIcon name="route" :size="16" />Directions
+              </AppButton>
             </section>
 
             <!-- The meeting spots, while locating: members say which work for them and the host confirms one at any time. -->
@@ -460,6 +470,10 @@ button.route__row:focus-visible { outline: 2px solid var(--ink); outline-offset:
 .area__pin { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
 .area__text { display: flex; flex-direction: column; min-width: 0; }
 .area__text h2 { margin: 0; }
+/* Settled: the name gets the card's full width, and Directions sits under it. Beside it, the button squeezed the name
+   to a few letters in the list column and on a phone. */
+.area:not(.is-finding) { flex-direction: column; align-items: stretch; }
+.area__go { align-self: flex-start; }
 .area__main--reveal { animation: area-reveal 420ms var(--ease-spring) both; }
 @keyframes area-reveal { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .area__main--reveal { animation: none; } }

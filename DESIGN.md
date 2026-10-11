@@ -1006,6 +1006,18 @@ Asked for by the lead: "show the reviews like the sample reviews on the home pag
 
 The reviews are invented and attached to real places in a real choice, which is why the label is on the card line as well as in the detail. Real reviews, written by a group after an outing, are ticketed for after the pitch. The Vote page's search rows and its map's pin card have no review line.
 
+### The cards to vote on and the meeting spot card, 11 Oct 2026 (night)
+
+Taken by the lead from a list of suggestions. The repeated stock photos stay, at the lead's word.
+
+| Piece | What it is | Where |
+|---|---|---|
+| The photo and the name open the place | They are one control: a button inside the `h4`, named "Open <place>", whose `::after` covers the photo and the name, so either opens the place detail. Focus returns to whichever control opened it (this one, or the review line). The vote chip, the review line and the swap button are outside it. | `event/SuggestionCard.vue`, `views/PlannerView.vue` |
+| Tags | The planner's reasons without "Short walk", which the line under the name already says; "Near MRT" stays, because it is about the station. Then one opening-hours tag, worked out from the place's hours at the slot's start and length: "Open until 22:00", "Open until midnight" or "Open 24 hours" (neutral); "Closes at 21:00" or "Closed at this time" (warning tone, clock icon); nothing when no hours are listed. | `cardTags` and `hoursNote` in `lib/cardText.js` |
+| Where the walk is from | One quiet line above the first category: "Walking times are from <meeting area>". Once per page, not on each card; absent with no meeting area. | `views/PlannerView.vue`; `walkFromText` |
+| Who voted | In a session of four or fewer people the vote line names them: "Darius voted", "You and Nicole voted", "Everyone voted"; "0 votes" when none. A larger group keeps the count. If the names and the count disagree it falls back to the count. | `votersText` in `lib/cardText.js` |
+| The meeting spot card | Under the spot's name, the person's own trip ("About 13 min from Bugis", or "You are already there"), then a "Directions" button: Google Maps by public transport in a new tab, to the area's centre, because a meeting spot is an area and not an address. The button sits under the name; beside it, it squeezed the name to a few letters in the list column and on a phone. | `GroupDetailView`; `myTripLine` in `spots/spotText.js`; `lib/maps.js` |
+
 `SpotList` still knows how to draw a confirmed list (its rows, "Confirmed", no controls); no screen uses that state now.
 
 Not built, suggested to the lead for after the pitch: the person's own trip and a "Directions" button on the meeting spot card; one bar per person on a shared scale, with the longest trip stated, so the fairness is seen; a line saying how the spot was chosen, with the other spots behind a disclosure; the start and end card shrunk once settled; the top navigation kept on session pages at desktop width.
