@@ -1077,3 +1077,39 @@ The lead asked what is still outstanding on each map and for the maps to be clea
 - **Agent:** general-purpose. Files in `docs/pitch/`, untracked. It corrected five beliefs in its brief from the code, among them that 36 of the 1,819 venues are invented samples.
 - **Seen by the lead:** the preview image. One line in the notes was out of date by the evening (meeting-spot tables went live) and was corrected.
 - **Not done:** placing it in Canva. The connected Canva account does not hold the deck.
+
+## Round 24: the staging branch walked for the pitch, and three changes the lead asked for (2026-10-11, night)
+
+The lead asked whether the staging branch was safe to demo, then, using the pitch build, asked for the settled Locate page back, the back button to leave the session, and reviews on the places to vote on. The three changes are on `fix/locate-settled-view`, cut from `dev`, as peachoolongtee/jio#135 into `dev`; they are not on this branch yet.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 24.1 | Verifier | Walk `integration/after-pitch` in a real browser with the real OneMap and Gemini keys and Google off: the tour, the showcase, a fresh outing for tomorrow evening, an outing today with Roam, and the tour with the backend stopped | Nothing | Every claim seen on a screen or in a response | **Completed** |
+| 24.2 | Lead | Locate once the spot is confirmed; the footer button's name; the top-left button | `GroupDetailView`, `MemberList`, `spotText.js`, `session.js`, `SessionSteps`, `SessionHeader`, `stepNav.js`, the router, tests | Suites pass; seen in a browser | **Completed** |
+| 24.3 | Frontend | A sample review on each suggestion card, chosen by who wrote it, opening the place detail; review words by kind of place | `SuggestionCard`, `PlaceDetail`, `PlannerView`, `mock/reviews.js`, a new `reviewPick.js`, tests | No food text on a place that is not food; no planner request on opening; suites pass | **Completed** |
+
+### 24.1 The staging branch, walked
+
+- **Result:** no crash, console error, page error or failed request with the backend on, at 1280 and 390 px. All eight tour checkpoints, the showcase, a full outing from create to itinerary, and Roam (propose, accept, dismiss, finish) worked.
+- **Found:** loading the tour makes about 55 planner requests, which drew HTTP 429 from OneMap ten times; rankings then took 3 to 8 s and the tour up to 16 s to load. A three-hour outing with four categories was confirmed with no Eat stop and ended at 21:51, past its 21:30 end, with no warning (`slots.js`, the same on `dev`). An outing tomorrow evening gets no weather at all on this branch (`outside_window`), where `dev` ranks it against the weather now. Roam listed one place, or none, when the plan ended late. With the backend off the tour runs on sample data and the showcase's Vote page says it cannot reach the planner.
+- **The real 24-hour forecast answered** when called directly: a stop at 02:00 the next day got the regional forecast, issued 17:34 and valid to 06:00.
+- **Seen by the lead:** one of its screenshots (the confirmed itinerary). The rest is the verifier's report.
+- **Not checked:** Gemini's order inside a browser flow (the rules answered), a phone, two devices, a real login, a comparison run on `dev`.
+- **The lead agent's advice to the lead:** present from `dev`; the staging branch holds up if the tour or Roam is to be shown.
+- **Environment:** the lead's backend on port 3000 was started at 17:42 with the Google key still set, so Google is on in it. The lead was told three times; the env file is the lead's to edit.
+
+### 24.2 Locate, the footer and the back button
+
+- **By the lead agent**, after reading the page. The settled view had been replaced by the list of spots when meeting spots were built; it is back for every status from Voting on, without the votes ring and status icons. The footer button is named by `locateNext`. The top-left button first went Home with a house icon, then, on the lead's "go with your recommendations", became a back arrow to the screen the session was opened from (`rememberEntry`, `exitFor`).
+- **Run:** frontend suite 853 passed, 58 files, also with outbound calls blocked; backend 815 passed, 2 skipped; build succeeded.
+- **Seen in a browser with the showcase:** the settled page at 1280 px and at the pane's narrow width, no overflow; confirming a spot on a session still choosing switched the page and put focus on the footer button; from Sessions the button read "Back to Sessions" on Locate, Vote and the Itinerary, and from Home "Back to Home"; the three footer labels on a voting, a confirmed-today and a completed session; a session still choosing unchanged.
+- **A slip:** a patch built with an unsplit shell variable was empty, and the command before it had already reset the main folder's copies; for under a minute the lead's running app showed plain `dev`. Rebuilt and applied. Nothing was lost.
+- **Suggested and not built:** the person's own trip and a Directions button on the meeting spot card; a bar per person on one scale; how the spot was chosen; the start and end card shrunk; the top navigation on session pages at desktop width.
+
+### 24.3 Reviews on the places to vote on
+
+- **Agent:** a frontend-engineer subagent, in the same worktree on different files. Its report: 34 new tests; `reviewKind` checked over all 2,067 venues in the frontend and backend files; the line adds 32 px to a card; opening the detail makes no `/api` request; keyboard open and close with focus returned; no overflow at 1280, 375 and 320 px.
+- **Changed from the brief by the agent, and kept:** the full display name, not a first name; the detail is local state, so the browser's Back does not close it; the search rows and the map's pin card have no line. It also found the brief wrong about which kinds lacked texts (theatre, bowling, games and places with no kind, not parks or museums).
+- **Seen by the lead:** two of its screenshots, the Vote page at 1280 px with the line on each card and the detail at 375 px.
+- **Not verified by anyone:** a screen reader; Safari or Firefox; the real backend.
+- **Known and left:** the first card in that screenshot is one of the 36 invented venues, rated 9.0; the ticket on invented venues stands.
