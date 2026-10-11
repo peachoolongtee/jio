@@ -154,3 +154,12 @@ export async function searchSlot({ query, members, centre, date, slot, lastStop,
     return { id: r.venueId, name: r.name, area: r.area, category: r.category, walk: r.walkMinutes, unfit: UNFIT_WORDS[reason] || reason }
   })
 }
+
+// Find a start or end location, or a spot to meet: an address, postal code, building or station, searched with
+// OneMap on the backend, and by name with Google when OneMap finds few (GET /api/places/search). At most 10.
+// Returns [{ name, address, postal, lat, lng }]. Throws when the backend or OneMap cannot answer.
+// How to call: await searchAddress('520201')
+export async function searchAddress(query) {
+  const { data } = await api.get('/api/places/search', { params: { q: query } })
+  return data.results
+}

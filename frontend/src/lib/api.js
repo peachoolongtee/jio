@@ -721,19 +721,50 @@ export async function listAreas() {
   return clone(AREAS)
 }
 
-// Search for a start or end location by place name, address or postal code.
+// "SUPREME COURT BUILDING" -> "Supreme Court Building": OneMap writes names in capitals. A name that is not all
+// capitals (Google's "Teo Heng KTV Studio") is kept as it is.
+const titleCase = (text) => (text === text.toUpperCase() ? text.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase()) : text)
+
+// Search for a start or end location, or a spot to meet: an MRT area by name, then real addresses, postal codes and
+// buildings from OneMap (through the backend). Each result names the area it is in, which is all the group ever sees.
+// When OneMap cannot be reached, the sample addresses are searched instead, so the sheet still works offline.
+// How to call: await searchPlaces('520201') // [{ id, label, sub, areaId }], at most 8
 export async function searchPlaces(query) {
-  await wait(DELAY.read)
   const q = query.trim().toLowerCase()
   if (!q) return []
   const areas = AREAS.filter((a) => a.name.toLowerCase().includes(q)).map((a) => ({ id: a.id, label: a.name, sub: 'MRT station and area', areaId: a.id }))
-  const addresses = ADDRESSES.filter((a) => a.label.toLowerCase().includes(q) || a.postal.startsWith(q)).map((a) => ({
-    id: a.id,
-    label: a.label,
-    sub: `Singapore ${a.postal} · ${areaById(a.areaId).name}`,
-    areaId: a.areaId,
-  }))
-  return [...areas, ...addresses].slice(0, 8)
+  let addresses
+  try {
+    // One letter matches half of Singapore: wait for two.
+    const found = q.length < 2 ? [] : await planner.searchAddress(query.trim())
+    addresses = found
+      .filter((r) => P.inSingapore(r))
+      .map((r) => {
+        const area = P.nearest(r, AREAS)
+        const postal = /^\d{6}$/.test(r.postal || '') ? r.postal : ''
+        return {
+          id: `onemap-${postal || `${r.lat.toFixed(5)},${r.lng.toFixed(5)}`}`,
+          // A home address comes back named only by its postal code ("760201"): show the street address instead.
+          label: titleCase(!r.name || /^\d+$/.test(r.name) ? r.address || r.name || 'Place' : r.name),
+          sub: `${postal ? `Singapore ${postal} · ` : ''}${area.name}`,
+          areaId: area.id,
+        }
+      })
+  } catch {
+    await wait(DELAY.read)
+    addresses = ADDRESSES.filter((a) => a.label.toLowerCase().includes(q) || a.postal.startsWith(q)).map((a) => ({
+      id: a.id,
+      label: a.label,
+      sub: `Singapore ${a.postal} · ${areaById(a.areaId).name}`,
+      areaId: a.areaId,
+    }))
+  }
+  // The same building can come back once per entrance: keep the first of each name and postal code. A result named
+  // only by its postal code is dropped when another result already has that postal code.
+  const seen = new Set()
+  const named = new Set(addresses.filter((a) => !/^\d{6}$/.test(a.label)).map((a) => a.sub))
+  const unique = addresses.filter((a) => !(/^\d{6}$/.test(a.label) && named.has(a.sub)) && !seen.has(`${a.label}|${a.sub}`) && seen.add(`${a.label}|${a.sub}`))
+  return [...areas, ...unique].slice(0, 8)
 }
 
 // The known area for a pair of coordinates, or null outside Singapore.

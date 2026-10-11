@@ -415,18 +415,22 @@ function meetingArea(input, data, deps = {}) {
 
 /**
  * Search by name, to add an option by hand (the frontend's searchVenuesForSlot). Matches the venue name, its
- * area, or the name of a stall at a CDC site. Every match says whether it fits the slot and, if not, why:
+ * area, its address (so a postal code finds it), the name of a stall at a CDC site, or any id in `alsoMatch` (places
+ * the route found another way: by Google, or at a postal code's building). Every match says whether it fits the slot and, if not, why:
  * the hard-filter reasons ('closed', 'diet:halal', 'category', 'near_mrt'...) plus 'far' when it is more than
  * maxKm (default 3, the engine's cap) from the meeting point. Fitting places first, then by walking time.
  * @param input { query, centre, dateTime, members?, durationMinutes?, categories?, lastStop?, groupConstraints?,
- *                unknownPolicy?, maxKm?, limit? (default 12) }
+ *                unknownPolicy?, maxKm?, limit? (default 12), alsoMatch? (venue ids) }
  */
 function searchVenues(input, data) {
   const q = input.query.trim().toLowerCase();
   if (!q) return [];
+  // A place matches by its name, area, address (so a postal code finds it) or a stall's name, or because the caller
+  // already knows it is a match (`alsoMatch`: ids found by Google or at a postal code's building).
+  const alsoMatch = new Set(input.alsoMatch ?? []);
   const matches = data.venues
     .map(v => ({ v, stall: v.stalls?.find(st => st.name.toLowerCase().includes(q))?.name ?? null }))
-    .filter(({ v, stall }) => v.name.toLowerCase().includes(q) || (v.area ?? '').toLowerCase().includes(q) || stall);
+    .filter(({ v, stall }) => alsoMatch.has(v.id) || v.name.toLowerCase().includes(q) || (v.area ?? '').toLowerCase().includes(q) || (typeof v.address === 'string' && v.address.toLowerCase().includes(q)) || stall);
 
   const ctx = {
     members: input.members ?? [], groupConstraints: lastStopRules(input, {}).constraints, dateTime: input.dateTime,

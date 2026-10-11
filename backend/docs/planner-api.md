@@ -250,7 +250,13 @@ Same as `/api/converge`, with these differences:
 
 ## POST /api/search
 
-Find a place by name to add as an option (the frontend's `searchVenuesForSlot`). It matches the venue name, its area, or the name of a stall at a CDC site ("Ming Kee Chicken Rice" finds the hawker centre it is in).
+Find a place to add as an option (the frontend's `searchVenuesForSlot`), by name, address or postal code. It looks in three places:
+
+- **Our saved places:** the venue name, its area, its address, or the name of a stall at a CDC site ("Ming Kee Chicken Rice" finds the hawker centre it is in).
+- **A postal code (6 digits):** OneMap finds the building, and our saved places within 150 m of it match.
+- **Google** (with `GOOGLE_MAPS_API_KEY`): a text search for the words near `centre` ("Teo Heng", "Havefun Karaoke", or "Singapore 238843" for a postal code). Places of every kind are kept (one of another kind than the slot comes back with `unfit: ["category"]`, so the screen says "Eat, not Activity"), places we already have are skipped, and Google's review minimum and advert filter are not applied: the group asked for that place by name. These results have ids starting `google_` and `source: "google"`. The answer says where Google stood in `google: { source, added }`, as `/converge` does.
+
+A Google place added as an option is not saved anywhere but its id. Every ranking that has it in `currentOptionIds` looks it up again by id (Place Details, cached 10 minutes, at most 6 per request), so it is scored like any other option. OneMap or Google being down never fails the search: it answers with what it has.
 
 Request: the slot's fields, so the answer says whether the place fits.
 
@@ -446,7 +452,9 @@ How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 
 `GET /api/places/search?q=520201` → `{ "results": [{ "name", "address", "postal", "lat", "lng" }] }`, at most 10.
 
-For start and end points: an address, postal code or building name, searched with OneMap. It needs no OneMap account. Results are cached for a day. The rate limit applies, and so does the server's shared OneMap call budget (the same one routing draws from).
+For start and end points, and meeting spots: an address, postal code or building name, searched with OneMap. It needs no OneMap account. Results are cached for a day. The rate limit applies, and so does the server's shared OneMap call budget (the same one routing draws from).
+
+When OneMap finds fewer than 3, Google's text search adds places by name (a karaoke, a shop, a landmark OneMap does not list), in the same shape; `postal` is read from Google's address when it has one. The answer is 503 only when neither OneMap nor Google could answer.
 
 | Status | When |
 |---|---|

@@ -12,6 +12,7 @@ Canned API responses. In stub mode the backend answers from these files instead 
 | `onemap/token.json` | Made up. The expiry is the year 2100, as epoch seconds in a string, like the real API. | Every stubbed token call |
 | `onemap/route.pt.sample.json` | Copied from OneMap's documentation and trimmed. Not a real recording. | Unit-testing the route parser only |
 | `google/places-nearby.json` | Invented, in the shape of Google Places (New) answers: six made-up places near Bishan MRT with ids like `stub_place_01`, made-up names, addresses, ratings and hours, and one photo with a made-up name. Google's terms allow storing only a place id, so no real place's details are kept. No key is in the file. | Every stubbed Google nearby search, wherever it is |
+| `google/places-text-search.json` | Invented, in the same shape: two made-up places near Orchard with ids `stub_text_01` (a karaoke with 12 reviews) and `stub_text_02` (a noodle house). No real place's details, no key. | Every stubbed Google text search, whatever the words, and the stubbed Place Details look-ups (with the nearby fixture) |
 
 Stubbed routes are not read from a file. They are generated from the straight-line distance between the two points, in OneMap's response shape. See `syntheticRoute` in `backend/src/services/stubs.js`.
 

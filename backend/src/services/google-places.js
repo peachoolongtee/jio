@@ -23,6 +23,8 @@ import { currentScenario } from './scenario.js'
 // Docs: https://developers.google.com/maps/documentation/places/web-service/nearby-search
 
 export const NEARBY_URL = 'https://places.googleapis.com/v1/places:searchNearby'
+export const TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText'
+const DETAILS_URL = (placeId) => `https://places.googleapis.com/v1/places/${placeId}`
 const PHOTO_URL = (name, maxWidthPx) => `https://places.googleapis.com/v1/${name}/media?maxWidthPx=${maxWidthPx}&skipHttpRedirect=true`
 
 export const DEFAULT_GOOGLE_CALLS_PER_MINUTE = 60 // Nearby searches and photos together.
@@ -57,6 +59,17 @@ export const NEARBY_FIELDS = [
   'places.photos',
   'places.businessStatus',
 ].join(',')
+
+// The same fields for one place (Place Details), which has no "places." in front.
+export const DETAILS_FIELDS = NEARBY_FIELDS.split(',').map((f) => f.replace(/^places\./, '')).join(',')
+
+// A Google place id, as Jio stores it after "google_". Anything else is never sent to Google.
+export const PLACE_ID = /^[A-Za-z0-9_-]{1,300}$/
+
+// The most places one text search returns, and how far around the point it prefers places (it can still return
+// places further away; the planner then marks them "far").
+const TEXT_SEARCH_MAX = 10
+const TEXT_SEARCH_BIAS_METERS = 5000
 
 // Google's place types for each Jio category. For activities, OneMap's lists already have the government places
 // (parks, SportSG centres, museums, libraries, theatres), so Google adds the private ones OneMap does not list.
@@ -177,7 +190,8 @@ export function readGoogleSettings(env) {
 // A plain object that carries a place id: the least a Google place must have to be worth keeping.
 const isPlaceObject = (p) => p !== null && typeof p === 'object' && !Array.isArray(p) && typeof p.id === 'string' && p.id !== ''
 
-// A photo Google says does not exist (404) or does not accept (400). About that photo, not about Google being unwell.
+// A photo or place Google says does not exist (404) or does not accept (400). About that one thing, not about Google
+// being unwell.
 const isMissingPhoto = (err) =>
   err instanceof ExternalApiError && !(err instanceof GoogleUnavailableError) && (err.status === 404 || err.status === 400)
 
@@ -210,6 +224,8 @@ export function createGooglePlaces({
   const key = typeof apiKey === 'string' ? apiKey.trim() : ''
   const enabled = key !== '' || stub
   const nearbyCache = createCache({ ttlMs: 10 * 60 * 1000, maxItems: 500, now })
+  const textCache = createCache({ ttlMs: 10 * 60 * 1000, maxItems: 500, now })
+  const detailsCache = createCache({ ttlMs: 10 * 60 * 1000, maxItems: 1000, now })
   const photoCache = createCache({ ttlMs: 30 * 60 * 1000, maxItems: 2000, now })
   const photoMisses = createCache({ ttlMs: PHOTO_MISS_MS, maxItems: 2000, now })
   const budget = createCallBudget({
@@ -379,5 +395,71 @@ export function createGooglePlaces({
     }
   }
 
-  return { enabled, nearby, photoUrl }
+  // Google's raw places matching a name, an address or a postal code, preferring places near `point`. At most 10.
+  // For searching by name ("Teo Heng", "Have Fun Karaoke", "238859") where the nearby list only has the 20 nearest.
+  // Cached 10 minutes. Uses the same call budget and circuit as every other Google call.
+  //
+  // How to call:
+  //   const raw = await places.searchText('Teo Heng', { lat: 1.3048, lng: 103.8318 })
+  //
+  // Throws ExternalApiError when Google fails (GoogleUnavailableError when the budget is empty, the circuit is open
+  // or the answer cannot be read), and Error when the service is off.
+  async function searchText(query, point) {
+    if (!enabled) throw new Error('Google Places is off: set GOOGLE_MAPS_API_KEY')
+    const textQuery = String(query).trim().slice(0, 100)
+    if (!textQuery) return []
+    const cacheKey = `text:${currentScenario()}:${round3(point.lat)},${round3(point.lng)}:${textQuery.toLowerCase()}`
+    let partial = false
+    const list = await textCache.getOrSet(cacheKey, () =>
+      guarded(async () => {
+        const body = await http.postJson(
+          TEXT_SEARCH_URL,
+          {
+            textQuery,
+            pageSize: TEXT_SEARCH_MAX,
+            regionCode: 'sg',
+            languageCode: 'en',
+            locationBias: { circle: { center: { latitude: point.lat, longitude: point.lng }, radius: TEXT_SEARCH_BIAS_METERS } },
+          },
+          { headers: headers(NEARBY_FIELDS), timeoutMs },
+        )
+        const { places, dropped } = readPlaces(body)
+        partial = dropped > 0
+        return places.slice(0, TEXT_SEARCH_MAX)
+      }),
+    )
+    if (partial) textCache.set(cacheKey, list, { ttlMs: 0 })
+    return list
+  }
+
+  // One Google place by its id, with the same fields as a nearby search, or null when Google has no such place.
+  // For a Google place the group added from a search: it is not among the 20 nearest, so the planner looks it up by
+  // id to rank it. Google's terms allow keeping a place id; the details are fetched again and cached 10 minutes.
+  //
+  // How to call:
+  //   const raw = await places.details('ChIJ...')
+  //
+  // Throws ExternalApiError when Google fails, and Error for an id that is not a Google place id.
+  async function details(placeId) {
+    if (!enabled) throw new Error('Google Places is off: set GOOGLE_MAPS_API_KEY')
+    if (!PLACE_ID.test(placeId)) throw new Error('not a Google place id')
+    const cacheKey = `details:${currentScenario()}:${placeId}`
+    try {
+      return await detailsCache.getOrSet(cacheKey, () =>
+        guarded(
+          async () => {
+            const body = await http.getJson(DETAILS_URL(placeId), { headers: headers(DETAILS_FIELDS), timeoutMs })
+            if (!isPlaceObject(body)) throw new GoogleUnavailableError('bad_response', 'Google sent a place that cannot be read')
+            return body
+          },
+          { benign: isMissingPhoto },
+        ),
+      )
+    } catch (err) {
+      if (isMissingPhoto(err)) return null
+      throw err
+    }
+  }
+
+  return { enabled, nearby, photoUrl, searchText, details }
 }
