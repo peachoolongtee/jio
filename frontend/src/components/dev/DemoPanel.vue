@@ -17,6 +17,7 @@ import { lastWeather } from '@/lib/plannerApi.js'
 import { FRIEND_PICKS, HOST_ID, PEOPLE } from '@/lib/mock/people.js'
 import { DEMO_ACCOUNT } from './demoAccount.js'
 import { makeDemoPhotos } from './demoPhotos.js'
+import { clearApprovals, friendSuggests, friendsApprove, hasSpots } from './spotDemo.js'
 import { placeKind } from '@/lib/placeImages.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { AREAS } from '@/lib/mock/places.js'
@@ -52,8 +53,17 @@ const live = computed(() => ['locating', 'voting', 'confirmed'].includes(status.
 const hostLocated = computed(() => !!session.value?.locations?.[HOST_ID]?.start)
 const friendsHint = computed(() => {
   if (status.value === 'inviting') return friendsIn.value.length ? 'Tap Start session on the session page first. Friends share their locations after that.' : 'Invite at least one friend and start the session first.'
-  if (status.value === 'locating' && !hostLocated.value) return 'The meeting point appears once everyone, you included, has shared where they start. Set your From location on the session page.'
+  if (status.value === 'locating' && !hostLocated.value) return 'Spots open once two people have shared where they start, and the meeting point once everyone has. Set your From location on the session page.'
   return ''
+})
+
+// The meeting spots, while the group is choosing where to meet. Why the buttons may be off, so a click never seems to do nothing.
+const spotsOpen = computed(() => hasSpots(session.value))
+const anyApprovals = computed(() => Object.keys(session.value?.spots?.approvals || {}).length > 0)
+const spotsHint = computed(() => {
+  if (!session.value || spotsOpen.value) return ''
+  if (status.value === 'locating') return 'No spots yet. They open once two people have shared where they start: set your From location, then simulate friends submitting locations.'
+  return 'Spots change only while a session is choosing where to meet (after Start session, before Confirm).'
 })
 
 watch(open, async (isOpen) => {
@@ -154,6 +164,12 @@ const simulatePhotos = () => act('photos', async () => {
   note.value = failure ? `Posted ${posted}. ${failure}` : `Posted ${posted} photos. The album is full (${api.PHOTOS_MAX}).`
 })
 
+// A friend suggests a spot (here: they are there already), friends say which spots work for them, or every approval goes.
+// How to call: suggestSpot(true)
+const suggestSpot = (here) => act('spots', async () => { note.value = await friendSuggests(api, session.value, friendsIn.value, { here }) })
+const approveSpots = () => act('spots', async () => { note.value = await friendsApprove(api, session.value, friendsIn.value) })
+const clearSpotApprovals = () => act('spots', async () => { note.value = await clearApprovals(api, session.value) })
+
 const applyChange = () => act('change', async () => {
   const { personId, which, areaId } = change.value
   await api.setLocation(session.value.id, personId, which, { areaId })
@@ -229,6 +245,15 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       <AppButton block variant="secondary" :disabled="!session || !['confirmed', 'completed'].includes(status) || !!running" @click="simulatePhotos">
         {{ running === 'photos' ? 'Posting photos' : 'Fill the album with photos' }}
       </AppButton>
+    </section>
+
+    <section class="demo-group">
+      <h3 class="title-md">Meeting spots</h3>
+      <p v-if="spotsHint" class="body-sm text-muted">{{ spotsHint }}</p>
+      <AppButton block variant="secondary" :disabled="!spotsOpen || !!running" @click="suggestSpot(false)">A friend suggests a spot</AppButton>
+      <AppButton block variant="secondary" :disabled="!spotsOpen || !!running" @click="suggestSpot(true)">A friend suggests a spot they are at</AppButton>
+      <AppButton block variant="secondary" :disabled="!spotsOpen || !!running" @click="approveSpots">Friends say which spots work</AppButton>
+      <AppButton block variant="secondary" :disabled="!spotsOpen || !anyApprovals || !!running" @click="clearSpotApprovals">Clear the approvals</AppButton>
     </section>
 
     <section class="demo-group">
