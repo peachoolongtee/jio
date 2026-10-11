@@ -465,8 +465,20 @@ How it decides:
    - a stop whose place is not open yet waits for it: at most 30 minutes for the first stop (the group has just met), 60 for any other.
    An order works when every place is open for the whole stop, every meal is on time, and the plan ends by `endAt`.
 2. It leaves out the current order and every order in `shown` (except with `includeCurrent`, used on confirm, where the voted order may be the best). When all have been shown, it starts again and says `restarted: true`.
-3. The AI (`services/itinerary-ai.js`: Gemini with `GEMINI_API_KEY`, else Claude with `ANTHROPIC_API_KEY`) is shown the best 6 of those (by travel plus half the waiting) and picks the one that makes the nicest day, with one sentence saying why. Its answer is checked: a choice not on the list is never used. The AI can only choose an order the rules allow; it never invents one.
-4. Without a key, in stub mode, or when the AI fails, refuses or is out of free quota, the best order by those rules is used instead and `source` is `rules`.
+3. The AI (`services/itinerary-ai.js`: Gemini with `GEMINI_API_KEY`, else Claude with `ANTHROPIC_API_KEY`) is shown the best 6 of those (the lowest score: travel, plus half the waiting, plus 15 when the last stop is far from an MRT station) and picks the one that makes the nicest day, with one sentence saying why. Its answer is checked: a choice that is not a whole number on the list is never used, and the sentence is used only when it is plain text (no `<` or `>`, no control or bidirectional-control character, no link or anything shaped like a domain name; at most 200 characters). A valid choice with a sentence that fails the check keeps the AI's order and gets a fixed sentence instead; `source` stays `ai`. The AI can only choose an order the rules allow; it never invents one.
+4. Without a key, in stub mode, or when the AI cannot answer (it fails, is slow, refuses, answers something unreadable, is out of free quota, is over budget or is paused), the order the rules score best is used instead, at once, and `source` is `rules`. The request never fails and never waits for the AI more than 8 seconds. The sentence then is "Every place is open and every meal is on time in this order." The best score is not always the order with the least travel: waiting and the MRT penalty count too.
+
+**Travel and hours.** Travel between stops is the engine's own estimate (walking when a leg is 15 minutes or less, otherwise a public transport estimate from the distance). This route never calls OneMap, so the times can differ from the itinerary screen's. The route takes that day's `hours` from the caller and knows nothing of a venue's closed weekdays or closure dates: a stop that is closed on that weekday must be sent with `hours` that say so (or the caller must not offer it).
+
+**What limits the AI.** The AI is paid for (Gemini beyond its free tier, Claude always), so its use is bounded, the way Google Places is:
+
+- One budget for every AI call this server makes: `ITINERARY_AI_CALLS_PER_MINUTE` a minute (20 by default; an invalid value means 20) and at most 2 calls at once. A request that finds the budget used up, or both slots taken, is answered by the rules at once. It does not wait.
+- Three failures in a row (an error, a timeout, or an answer that cannot be used) pause the AI for 60 seconds. After that one call is tried; a success closes the circuit.
+- An answer is kept for 10 minutes, for at most 500 plans, under a key made from the provider, the model, the system prompt and the prompt. The same plan asked again within 10 minutes makes no call and gets the same answer. A failure is never kept.
+- One choice takes at most 8 seconds, whichever AI is asked. Gemini's timeout is that, and Claude's call is aborted at that time and never retried (the SDK would otherwise honour a `retry-after` header of any length).
+- A failure is logged at most once a minute per reason, with a fixed sentence and a status or an error name. The log never holds an error message, a response or a key.
+
+**What is sent to the AI.** Venue names and kinds (text from the request, with line breaks and control characters removed), indoor or outdoor, the times, the minutes of travel, whether the last stop is far from an MRT station, and whether rain is expected. Nothing about the people in the group. The model names (`claude-haiku-5-5` by default for Claude, `gemini-3.8-flash` for Gemini; `ANTHROPIC_MODEL` and `GEMINI_MODEL` change them) were not checked against the live APIs: a name the service rejects means a rules answer and one log line.
 
 Request:
 
@@ -474,32 +486,50 @@ Request:
 {
   "stops": [
     { "id": "s5-eat", "name": "WeWa", "category": "eat", "lat": 1.3204, "lng": 103.8438, "duration": 90, "hours": ["11:00-22:00"], "indoor": true },
-    { "id": "s5-activity", "name": "Shaw Theatres", "category": "activity", "lat": 1.3222, "lng": 103.8445, "duration": 120, "hours": ["10:00-23:59"] }
+    { "id": "s5-activity", "name": "Shaw Theatres", "category": "activity", "lat": 1.3222, "lng": 103.8445, "duration": 120, "hours": ["10:00-23:59"], "indoor": true },
+    { "id": "s5-shop", "name": "Velocity", "category": "shop", "lat": 1.3201, "lng": 103.8436, "duration": 90, "hours": ["10:00-22:00"], "indoor": true, "mrtWalk": 2 },
+    { "id": "s5-drink", "name": "Atlas", "category": "drink", "lat": 1.3195, "lng": 103.8441, "duration": 60, "hours": ["12:00-18:00"], "indoor": true }
   ],
-  "startAt": 600,
-  "endAt": 1020,
-  "shown": [["s5-activity", "s5-eat"]],
+  "startAt": 720,
+  "endAt": 1200,
   "rain": false,
   "includeCurrent": false
 }
 ```
 
-`stops` are in the current order. `id` is the frontend's slot id. `start` (optional) is the stop's time; a food stop keeps it as its meal time. `hours` are that day's opening hours; a stop with none counts as open. `startAt` and `endAt` are minutes after midnight (`endAt` over 1440 for past midnight, optional). `rain` tells Claude to prefer the outdoor stop while it is dry. `includeCurrent` lets the current order be chosen.
+`stops` are in the current order. `id` is the frontend's slot id. `start` (optional) is the stop's time; a food stop keeps it as its meal time. `hours` are that day's opening hours; a stop with none counts as open. `startAt` and `endAt` are minutes after midnight (`endAt` over 1440 for past midnight, optional). `rain` tells the AI to prefer the outdoor stop while it is dry. `includeCurrent` lets the current order be chosen.
 
-Answer:
+Answer (from a run on a server with no AI key, so `source` is `rules`; with a key it is `ai` and `reason` is the AI's own sentence):
 
 ```json
-{ "status": "ok", "order": ["s5-shop", "s5-eat", "s5-activity", "s5-drink"], "stops": [{ "id": "s5-shop", "start": 600, "end": 690 }], "reason": "Shops first while you are fresh, then lunch, the film and a calm coffee.", "source": "ai", "restarted": false, "others": 3 }
+{
+  "status": "ok",
+  "order": ["s5-eat", "s5-shop", "s5-drink", "s5-activity"],
+  "stops": [
+    { "id": "s5-eat", "start": 720, "end": 810 },
+    { "id": "s5-shop", "start": 810, "end": 900 },
+    { "id": "s5-drink", "start": 901, "end": 961 },
+    { "id": "s5-activity", "start": 966, "end": 1086 }
+  ],
+  "reason": "Every place is open and every meal is on time in this order.",
+  "source": "rules",
+  "restarted": false,
+  "others": 3
+}
 ```
 
-or `{ "status": "no_other_order", "message", "blockers" }` when no other order fits. `message` says why, for example "No other order works. Herschel Tangs Plaza is not open at 10:00-11:30." `stops` carries each stop's time; the frontend keeps it as the stop's earliest start (`notBefore`), so the free time and the meal times stay as planned.
+or `{ "status": "no_other_order", "message", "blockers" }` when no other order fits. `message` says why, for example "No other order works. Only one stop can move: food stays at meal times." (with `blockers: []`), or, for the same plan with only 3 stops and `endAt: 840`, "No other order works. The plan would end after 14:00." (with `blockers: ["the plan would end after 14:00"]`). `stops` carries each stop's time; the frontend keeps it as the stop's earliest start (`notBefore`), so the free time and the meal times stay as planned.
 
 | Field | Limit |
 |---|---|
 | `stops` | 2 to 8, with at most 6 that are not food, ids all different |
-| `shown` | 50 orders |
+| a stop's `id`, `name`, `kind` | 1 to 80 characters |
+| a stop's `lat`, `lng` | 1.1 to 1.5 and 103.5 to 104.1 (Singapore, with a little margin) |
+| `shown` | 50 orders, each of at most 8 ids |
 | `duration` | 15 to 720 minutes |
 | `hours` | 4 ranges, each `HH:MM-HH:MM` |
+| `mrtWalk` | 0 to 120 minutes |
+| `startAt`, `endAt`, a stop's `start` | `startAt` 0 to 1439; `endAt` and `start` 0 to 2880 (minutes after midnight, over 1440 for past midnight) |
 
 ## Limits
 
@@ -514,6 +544,7 @@ Every list and number has an upper limit, so one request cannot keep the server 
 | `categories` | 4 (repeats are removed) |
 | `cuisineLikes`, `cuisineDislikes` | 20 each per member |
 | any id, name or label | 80 characters |
+| `stops` of `/api/itinerary/arrange` | 8, of which at most 6 are not food (see that route's table) |
 | any weight | 1000 |
 | `budgetMaxPerPerson` | 10000 |
 | `max_price_pp:N` | 5 digits |
