@@ -136,6 +136,9 @@ export async function rankSlot({ members, centre, date, slot, lastStop, currentO
   return { options: data.results.map(toOption), current: data.current.map(toOption), widened: !!data.notice, few, empty: null, weather }
 }
 
+// How long the order is waited for: the host can confirm the voted order, so a slow answer is given up on.
+export const ARRANGE_TIMEOUT_MS = 10000
+
 // The AI order for a plan, chosen by Claude on the backend (asked for when the group confirms). Food stops keep their
 // place and time (meals stay at meal times); the drink, shop and activity stops may move. `includeCurrent` lets the
 // voted order be chosen when it is already the best.
@@ -145,7 +148,7 @@ export async function rankSlot({ members, centre, date, slot, lastStop, currentO
 //      or { status: 'no_other_order', message }.
 // How to call: await arrangeItinerary({ stops, startAt: 600, endAt: 1020, includeCurrent: true })
 export async function arrangeItinerary({ stops, startAt, endAt, shown = [], rain = false, includeCurrent = false }) {
-  const { data } = await api.post('/api/itinerary/arrange', { stops, startAt, endAt, shown, rain, includeCurrent }, { timeout: 30000 })
+  const { data } = await api.post('/api/itinerary/arrange', { stops, startAt, endAt, shown, rain, includeCurrent }, { timeout: ARRANGE_TIMEOUT_MS })
   return data
 }
 
