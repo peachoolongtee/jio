@@ -83,3 +83,12 @@ export function startsIn(session, now = new Date()) {
   if (days === 1) return { text: `Tomorrow, ${session.start}`, tone: 'later' }
   return { text: `In ${days} days`, tone: 'later' }
 }
+
+// The Locate page's main button once the meeting spot is confirmed: named for where it goes, never a bare "Next".
+// While the group votes it opens the Vote page; once the plan is confirmed, the plan itself (titled for today on the day).
+// How to call: locateNext({ id: 's1', status: 'voting' }) -> { label: 'Choose places', to: '/sessions/s1/plan' }
+export function locateNext(session) {
+  if (session.status === 'voting') return { label: 'Choose places', to: `/sessions/${session.id}/plan` }
+  const label = session.status === 'confirmed' && session.isToday ? "Today's plan" : 'See the plan'
+  return { label, to: `/sessions/${session.id}/itinerary` }
+}

@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { installGuard } from './guard.js'
 import { routes } from './routes.js'
+import { rememberEntry } from '@/lib/stepNav.js'
 import { installPageTransitions } from '@/lib/viewTransition.js'
 
 const router = createRouter({
@@ -29,8 +30,10 @@ const router = createRouter({
 // Who may open what, and where a visitor is sent instead (router/guard.js).
 installGuard(router)
 
-router.afterEach((to) => {
+router.afterEach((to, from) => {
   document.title = to.meta.title ? `${to.meta.title} · Jio` : 'Jio'
+  // Remember the screen a session was opened from, for the button at its top left (lib/stepNav.js).
+  rememberEntry(to, from)
 })
 
 // Moving between screens cross-fades instead of jumping (lib/viewTransition.js).

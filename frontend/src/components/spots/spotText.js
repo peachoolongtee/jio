@@ -133,6 +133,22 @@ export function shownFor(session, picked = '') {
   return shownSpotId(session.spots, picked)
 }
 
+// The Locate screen once the meeting spot is settled: the confirmed area, and everyone who shared a start with their trip
+// to it, for the single card and the map's lines. Null while the group is still choosing, and when there is no meeting
+// area to show (a session called off first). `names` is (id) => name.
+// How to call: settledView(session, nameOf) -> { area: { id, name, lat, lng }, people: [{ id, name, lat, lng, areaName, minutes }] }
+export function settledView(session, names) {
+  if (!isSettled(session) || !session.meeting || !session.area) return null
+  const times = session.meeting.times || {}
+  const people = (session.activeIds || [])
+    .filter((id) => session.locations?.[id]?.start)
+    .map((id) => {
+      const start = session.locations[id].start
+      return { id, name: names(id), lat: start.lat, lng: start.lng, areaName: start.name, minutes: times[id] ?? null }
+    })
+  return { area: session.area, people }
+}
+
 // The line under "Where to meet" once a spot is confirmed.
 // How to call: confirmedLine('Bugis') -> 'Bugis is confirmed as the meeting spot.'
 export const confirmedLine = (areaName) => `${areaName} is confirmed as the meeting spot.`

@@ -9,8 +9,10 @@
 //             While the planner works the spots out, the list and the map say so.
 //             While some people have not set a start, a card lists them. The host can carry on without each one
 //             (after a confirmation); others only see who it is waiting for.
-//   Voting+   the same page: the map with its pins and the list of spots, the confirmed one first and marked
-//             "Confirmed", every other spot still listed but with no control, and "Next" (to Vote) in the footer.
+//   Voting+   the same page, settled: one card with the confirmed meeting spot, everyone's travel time to it in the
+//             people list (coloured, with a key; no votes ring and no status icons, which belong to the Vote step),
+//             and the map with the meeting pin and a line from each person's start. The other spots are gone. The
+//             footer's button is named for where it goes: "Choose places", then "Today's plan" or "See the plan".
 //             Confirming a spot, or naming a known place, leaves the person here; it does not jump to Vote.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -31,9 +33,10 @@ import PlannerMap from '@/components/map/PlannerMap.vue'
 import SpotConfirm from '@/components/spots/SpotConfirm.vue'
 import SpotList from '@/components/spots/SpotList.vue'
 import SpotPins from '@/components/spots/SpotPins.vue'
-import { confirmedAreaId, shownFor, spotsToShow } from '@/components/spots/spotText.js'
+import { confirmedAreaId, settledView, shownFor, spotsToShow } from '@/components/spots/spotText.js'
 import NotFoundView from './NotFoundView.vue'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
+import { locateNext } from '@/lib/session.js'
 import { TRAVEL_TONES } from '@/lib/planner/travel.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore, waitingFor } from '@/stores/events.js'
@@ -115,9 +118,15 @@ const keepPoints = computed(() => spotList.value.map((s) => ({ lat: s.area.lat, 
 const projectPoint = (lat, lng) => mapRef.value?.project(lat, lng) ?? null
 const refreshPins = () => pinsRef.value?.refresh()
 
-// Map pins: each person's start AREA, with their travel time to the spot shown.
+// Once a spot is confirmed: the meeting area and everyone's trip to it. Null while the group is choosing.
+const settled = computed(() => (session.value ? settledView(session.value, nameOf) : null))
+
+// The footer's button once settled, named for where it goes.
+const next = computed(() => (session.value ? locateNext(session.value) : null))
+
+// Map pins: each person's start AREA, with their travel time to the spot shown (the confirmed one once settled).
 const mapPeople = computed(() =>
-  active.value
+  settled.value ? settled.value.people : active.value
     .filter((id) => session.value.locations?.[id]?.start)
     .map((id) => {
       const start = session.value.locations[id].start
@@ -232,7 +241,7 @@ const nextButton = ref(null)
 watch(() => [props.id, status.value], async ([id, now], [beforeId, before]) => {
   if (id !== beforeId || before !== 'locating' || now !== 'voting') return
   const name = session.value?.area?.name
-  announcement.value = name ? `${name} is confirmed. Press Next to choose places.` : 'The spot is confirmed. Press Next to choose places.'
+  announcement.value = `${name || 'The spot'} is confirmed. Press ${next.value?.label || 'Choose places'} to carry on.`
   await nextTick()
   await new Promise((resolve) => setTimeout(resolve, 0))
   const at = document.activeElement
@@ -323,9 +332,21 @@ const startSession = () => run(() => events.start(props.id))
             </section>
             <p v-if="session.areaNote" class="caption-sm text-muted">{{ session.areaNote }}</p>
 
-            <!-- The meeting spots. While locating, members say which work for them and the host confirms one at any time;
-                 after that the same list shows the confirmed spot first and nothing left to press. -->
+            <!-- Settled: the confirmed meeting spot on its own, like a reservation card. Everyone's trip to it is in
+                 the people list below and drawn on the map. -->
+            <section v-if="settled && !loading" class="area" aria-labelledby="area-head">
+              <div class="area__main area__main--reveal">
+                <span class="area__pin" aria-hidden="true"><AppIcon name="pin" :size="20" /></span>
+                <div class="area__text">
+                  <span class="caption-sm text-muted">Meeting spot</span>
+                  <h2 id="area-head" class="display-lg truncate">{{ settled.area.name }}</h2>
+                </div>
+              </div>
+            </section>
+
+            <!-- The meeting spots, while locating: members say which work for them and the host confirms one at any time. -->
             <SpotList
+              v-else-if="!settled"
               :session="session"
               :my-id="myId"
               :names="nameOf"
@@ -351,16 +372,17 @@ const startSession = () => run(() => events.start(props.id))
             </section>
 
             <section class="section card" aria-label="People">
-              <ProgressDonut v-if="progress" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
-              <MemberList :session="peopleSession" :names="nameOf" :voters="voterIds" />
+              <!-- Once the spot is confirmed this card is about the trips: no votes ring, no status icons. -->
+              <ProgressDonut v-if="progress && !settled" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
+              <MemberList :session="peopleSession" :names="nameOf" :voters="voterIds" :statuses="!settled" />
               <p v-if="!choosing && hasMeetingTrips && !loading" class="travel-key" aria-label="Travel time colours">
                 <span v-for="t in TRAVEL_TONES" :key="t.id" class="travel-key__item"><span class="travel-key__dot" :class="`is-${t.id}`" />{{ t.label }}</span>
               </p>
             </section>
           </template>
           <template #map>
-            <PlannerMap ref="mapRef" :people="mapPeople" :area="null" :finding="loading" spokes :keep="keepPoints" label="Meeting area map" @view="refreshPins" />
-            <SpotPins v-if="spotList.length" ref="pinsRef" :spots="spotList" :selected-id="shown || ''" :confirmed-id="confirmedId" :project="projectPoint" :names="nameOf" :my-id="myId" @select="picked = $event" />
+            <PlannerMap ref="mapRef" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" label="Meeting area map" @view="refreshPins" />
+            <SpotPins v-if="!settled && spotList.length" ref="pinsRef" :spots="spotList" :selected-id="shown || ''" :confirmed-id="confirmedId" :project="projectPoint" :names="nameOf" :my-id="myId" @select="picked = $event" />
             <div v-if="loading" class="map-wait map-wait--finding title-sm" role="status">Finding the meeting point… {{ Math.round(loadPct) }}%</div>
           </template>
         </SplitView>
@@ -379,7 +401,7 @@ const startSession = () => run(() => events.start(props.id))
         :disabled="loading || busy"
         @error="error = $event"
       />
-      <AppButton v-else ref="nextButton" next block :to="`/sessions/${id}/plan`">Next</AppButton>
+      <AppButton v-else ref="nextButton" next block :to="next.to">{{ next.label }}</AppButton>
     </footer>
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
@@ -430,9 +452,17 @@ button.route__row:focus-visible { outline: 2px solid var(--ink); outline-offset:
 .route__go { color: var(--muted); }
 /* No start yet: the row asks for it, in Rausch. */
 .route__row.is-empty .route__value, .route__row.is-empty .route__go { color: var(--primary); }
-/* Finding the meeting point: a card with a title over the segmented bar. */
+/* The meeting spot once it is confirmed: a reservation-card style block. The pin is the screen's Rausch moment besides
+   the CTA. While the planner is finding it, the same card holds a title over the segmented bar. */
 .area { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-lg); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); }
 .area.is-finding { flex-direction: column; align-items: stretch; gap: var(--spacing-base); }
+.area__main { display: flex; align-items: center; gap: var(--spacing-md); min-width: 0; }
+.area__pin { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: var(--rounded-full); background: var(--primary); color: var(--on-primary); }
+.area__text { display: flex; flex-direction: column; min-width: 0; }
+.area__text h2 { margin: 0; }
+.area__main--reveal { animation: area-reveal 420ms var(--ease-spring) both; }
+@keyframes area-reveal { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .area__main--reveal { animation: none; } }
 /* Who the meeting area is waiting for: name on the left, the host's action after it (it wraps under the name on a narrow screen). */
 .waiting { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 .waiting__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm) var(--spacing-md); padding: var(--spacing-sm) 0; }

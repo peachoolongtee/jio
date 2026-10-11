@@ -1,7 +1,8 @@
 <script setup>
-// The top of every session screen: back arrow, the session's steps as a progress bar you can click through
-// (SessionSteps), then the title and date. The back arrow goes to the step before the one on screen (backFor in
-// SessionSteps), and to Home from the first step the person can open. Top right: Invite (once the session has started,
+// The top of every session screen: the button at the top left, the session's steps as a progress bar you can click
+// through (SessionSteps), then the title and date. The button is a back arrow: it leaves the session for the screen it
+// was opened from (Home, Sessions, the profile; Home when that is not known), and on the photos and the full map it
+// goes back to the Itinerary (backFor in SessionSteps, exitFor in lib/stepNav.js). Top right: Invite (once the session has started,
 // while people can still join) and a "Hold to cancel" button: hold it until it fills, then confirm "Cancel outing", to
 // call the outing off for everyone. A screen reader, switch or voice control activates it with one press; the
 // confirmation follows either way.
@@ -18,7 +19,7 @@ import SessionSteps, { backFor } from './SessionSteps.vue'
 import InviteDialog from '../group/InviteDialog.vue'
 import { CANCEL_OUTING, dateLine } from '@/lib/session.js'
 import { HOST_ID } from '@/lib/mock/people.js'
-import { goBackIfBehind } from '@/lib/stepNav.js'
+import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({
@@ -37,7 +38,7 @@ const inviteOpen = ref(false)
 const busy = ref(false)
 
 const status = computed(() => props.session.status)
-const back = computed(() => (props.back ? { label: 'Back', to: props.back } : backFor(props.session, route.path, props.session.hostId === HOST_ID)))
+const back = computed(() => (props.back ? { label: 'Back', to: props.back } : backFor(props.session, route.path, props.session.hostId === HOST_ID, exitFor())))
 // While inviting, the page has its own Invite button, so the header does not repeat it.
 const canInvite = computed(() => ['locating', 'voting'].includes(status.value))
 const canCancel = computed(() => !['completed', 'cancelled'].includes(status.value))
