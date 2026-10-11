@@ -29,8 +29,8 @@ import { createWeather } from './services/weather.js'
 //                    routes in stub mode and to none otherwise, so a test app never calls OneMap. index.js
 //                    passes the real one.
 //   places         - Google Places, from createGooglePlaces(). Same default as `onemap`.
-//   itineraryAi    - Claude for rearranging itineraries, from createItineraryAi(). Defaults to one with no key, which
-//                    chooses by its rules, so a test app never calls Claude. index.js passes the real one.
+//   itineraryAi    - An AI (Gemini or Claude) for rearranging itineraries, from createItineraryAi(). Defaults to one with no key, which
+//                    chooses by its rules, so a test app never calls an AI. index.js passes the real one.
 //   allowSimulatedWeather - true lets a planner request send `weatherCase` to fake the forecast. Stub mode
 //                    always allows it. Otherwise the field is ignored and the answer says so. index.js sets
 //                    it from ALLOW_SIMULATED_WEATHER=1.

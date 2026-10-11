@@ -4,7 +4,7 @@ import { createSupabase } from './db/supabase.js'
 import { DEFAULT_CALLS_PER_MINUTE } from './services/budget.js'
 import { assertStubAllowed, createHttp } from './services/http.js'
 import { createGooglePlaces, readGoogleSettings } from './services/google-places.js'
-import { createItineraryAi } from './services/itinerary-ai.js'
+import { createItineraryAi, readItinerarySettings } from './services/itinerary-ai.js'
 import { createOneMap, readOneMapSettings } from './services/onemap.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -74,16 +74,26 @@ const places = createGooglePlaces({
 })
 
 // The AI order of an itinerary (suggested when the group confirms a plan). Gemini when GEMINI_API_KEY is set (free
-// tier), else Claude when ANTHROPIC_API_KEY is set. With neither, the plan still gets an order: the one with the least
-// travel. Stub mode never calls an AI. GEMINI_MODEL changes the Gemini model.
+// tier), else Claude when ANTHROPIC_API_KEY is set. With neither, the plan still gets an order: the one the rules score
+// best (travel, plus half the waiting). Stub mode never calls an AI. GEMINI_MODEL and ANTHROPIC_MODEL change the models.
+// A key is trimmed; a blank or malformed one counts as not set (the warning names the variable, never its value).
+//
+// ITINERARY_AI_CALLS_PER_MINUTE is the budget for every AI call this server makes. Default 20, at most 2 at once. Three
+// failures in a row pause the AI for a minute, an answer is kept for 10 minutes, and a call takes at most 8 seconds.
 //
 // How to turn it on:
 //   GEMINI_API_KEY=... in backend/.env
+// How to change the budget:
+//   ITINERARY_AI_CALLS_PER_MINUTE=10
+const itinerarySettings = readItinerarySettings(process.env)
+for (const warning of itinerarySettings.warnings) console.warn(warning)
 const itineraryAi = createItineraryAi({
   http,
-  geminiKey: process.env.GEMINI_API_KEY?.trim() || null,
-  geminiModel: process.env.GEMINI_MODEL?.trim() || undefined,
-  apiKey: process.env.ANTHROPIC_API_KEY?.trim() || null,
+  geminiKey: itinerarySettings.geminiKey,
+  geminiModel: itinerarySettings.geminiModel,
+  apiKey: itinerarySettings.anthropicKey,
+  anthropicModel: itinerarySettings.anthropicModel,
+  callsPerMinute: itinerarySettings.callsPerMinute,
   stub,
 })
 
@@ -156,8 +166,8 @@ createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, supabase, a
   if (!stub) {
     console.log(
       itineraryAi.enabled
-        ? `Itinerary AI is ON: ${itineraryAi.provider === 'gemini' ? 'Gemini' : 'Claude'} suggests the order of each plan when it is confirmed.`
-        : 'Itinerary AI is OFF: plans get the order with the least travel. Set GEMINI_API_KEY in backend/.env.',
+        ? `Itinerary AI is ON: ${itineraryAi.provider === 'gemini' ? 'Gemini' : 'Claude'} suggests the order of each plan when it is confirmed, at most ${itinerarySettings.callsPerMinute} AI calls a minute.`
+        : 'Itinerary AI is OFF: plans get the order the rules score best (travel and waiting). Set GEMINI_API_KEY in backend/.env.',
     )
   }
   if (allowSimulatedWeather) console.log('Simulated weather is ON: planner requests may send weatherCase to fake the forecast.')
