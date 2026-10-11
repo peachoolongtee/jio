@@ -1113,3 +1113,11 @@ The lead asked whether the staging branch was safe to demo, then, using the pitc
 - **Seen by the lead:** two of its screenshots, the Vote page at 1280 px with the line on each card and the detail at 375 px.
 - **Not verified by anyone:** a screen reader; Safari or Firefox; the real backend.
 - **Known and left:** the first card in that screenshot is one of the 36 invented venues, rated 9.0; the ticket on invented venues stands.
+
+### 24.4 The score on the cards, and the merge (2026-10-11, night)
+
+- **Asked for by the lead:** the place's score on each suggestion card. Added by the lead agent as a `RatingBadge` beside the name, with three tests. Seen in a browser against a stub backend on a spare port: 8 of 10 cards carry a score (the two without have none in the data), no overflow.
+- **Merged at the lead's word ("merge to dev"):** peachoolongtee/jio#135, five commits, into `dev` at `d9a80b5`. CI had passed on the fourth commit and was still running on the fifth when it was merged; the lead agent had run the suites on the fifth. `main` is untouched at `aa64d15`.
+- **Run on the merged code in the lead's main folder:** frontend 855 passed and 1 failed; with `VITE_API_BASE_URL` blanked for the run, 856 of 856. The failing test, in `plannerAuth.test.js`, fails the same way on plain `dev` in that folder: it depends on the machine's `frontend/.env`. Recorded on the tests ticket. Backend 815 passed, 2 skipped; build succeeded.
+- **A mistake in the lead agent's own check:** the test run's result was piped through a filter, so the failing run did not stop the commit that followed it. The failure was then traced before merging.
+- **Not on this branch:** `integration/after-pitch` does not have these five commits. `dev` must be merged into it before it goes to `dev`.
