@@ -891,12 +891,12 @@ The lead asked: "audit and merge login first then ai itinerary then meeting spot
 | 18.4 | Verifier | AI itinerary: run it in stub mode and with a fake AI; count calls; failures | Nothing in the repo | Same | **Completed** |
 | 18.5 | Code reviewer, read-only | Meeting spots: the backend change, the data layer, the screen's code | Nothing | Same | **Completed**: "changes required" |
 | 18.6 | Verifier | Meeting spots: the rules in the handoff's section 3, through the data layer and a headless browser | Nothing in the repo | Each rule confirmed or refuted with output | **Completed** |
-| 18.7 | Lead | Check findings, fix or record, merge each in order, resolve conflicts, re-run suites after each merge | Fixes on integration branches, docs, the tracker | All suites pass after each merge | Running |
-| 18.8 | Frontend | Login: fix the audit's findings | `frontend/` on `feat/login-integration` | Suites pass, also offline; a production build has no demo strings | Running |
-| 18.9 | Backend | AI itinerary: a call budget, a cache, a deadline, a pause after failures, a smaller model, checks on the answer and the prompt | `backend/` on `feat/ai-itinerary-integration` | Suites pass, also offline; other routes unchanged | Running |
-| 18.10 | Frontend | AI itinerary: confirm never blocked, a choice of orders, a request ticket, honest labels | `frontend/` on the same branch | Suite and build pass | Running |
-| 18.11 | Frontend | Meeting spots: the timing defects, "about" on estimates, preselection, focus, Home's words, the design document | `frontend/` and `DESIGN.md` on `feat/meeting-spots-integration` | Suite and build pass | Running |
-| 18.12 | Backend | Meeting spots: naming an area in `include` must not change the planner's pick | `backend/` on the same branch | The baseline test untouched and passing; suites pass, also offline | Running |
+| 18.7 | Lead | Check findings, fix or record, merge each in order, resolve conflicts, re-run suites after each merge | Fixes on integration branches, docs, the tracker | All suites pass after each merge | **Completed**: into `dev`, at the lead's word, with `main` left as it was |
+| 18.8 | Frontend | Login: fix the audit's findings | `frontend/` on `feat/login-integration` | Suites pass, also offline; a production build has no demo strings | **Completed** |
+| 18.9 | Backend | AI itinerary: a call budget, a cache, a deadline, a pause after failures, a smaller model, checks on the answer and the prompt | `backend/` on `feat/ai-itinerary-integration` | Suites pass, also offline; other routes unchanged | **Completed** |
+| 18.10 | Frontend | AI itinerary: confirm never blocked, a choice of orders, a request ticket, honest labels | `frontend/` on the same branch | Suite and build pass | **Completed** |
+| 18.11 | Frontend | Meeting spots: the timing defects, "about" on estimates, preselection, focus, Home's words, the design document | `frontend/` and `DESIGN.md` on `feat/meeting-spots-integration` | Suite and build pass | **Completed** |
+| 18.12 | Backend | Meeting spots: naming an area in `include` must not change the planner's pick | `backend/` on the same branch | The baseline test untouched and passing; suites pass, also offline | **Completed** |
 
 ### 18.1 and 18.2 Login: no blocker, the main claims hold, eight defects
 
@@ -951,3 +951,42 @@ The lead asked: "audit and merge login first then ai itinerary then meeting spot
 | 8 | Smaller: every Home chip restyled; Home's chip and text disagree; a suggestion can be left with no Withdraw after a reload mid-request; a Leaflet console error on starting with a known place from the create screen | By reading and in the browser |
 
 **For the merge:** this branch bumps the saved-data version from 8 to 9, so sessions in a browser are reset on first load and the account is kept. `main`'s showcase test expects two Home labels that this branch changes, its `createSession` has `hostId` and no `spots`, and its offline planner returns no `candidates`.
+
+### 18.7 to 18.12 The fixes, and the merges into `dev`
+
+The lead changed the destination on 11 October: "merge to dev instead and keep main safe for now". `dev` was brought level with `main` first (pull request 104).
+
+| Branch | What the fix agents changed | Suites on the fixed branch, run by the lead | Into `dev` |
+|---|---|---|---|
+| Login (`feat/login-integration`) | Sign-up no longer freezes on a failed username check; a server error is told from no connection, and a taken username is re-checked; sign-out ends the session in this browser within two seconds; a loading shell at start and a four-second bound, from the saved copy; only a refused refresh signs out; the token goes only to the planner's origin; a local account is not a login in a production build with Supabase set up; a production build with no Supabase settings shows "Jio is not available right now"; `VITE_ALLOW_LOCAL_ACCOUNTS=1` allows local accounts; the date of birth is kept out of the save | Frontend 543 passed, 43 files, also offline; backend 547 passed, 1 skipped; build succeeded; no demo strings in the bundle | Pull request 105 |
+| AI order of stops (`feat/ai-itinerary-integration`) | One budget of 20 AI calls a minute and 2 at once; a 10-minute cache; a pause after three failures; an 8-second deadline with no SDK retries; Claude Haiku by default with a 400-token ceiling; any throw at the provider boundary falls back to the rules; stop names cleaned before the prompt and a sentence with a link or markup replaced; keys validated and never logged. On the screens: confirm is never blocked, the host chooses "Voted order" or "Suggested order", a request ticket, labelled sources | Backend 674 passed, 1 skipped, also offline; frontend 407 passed alone and 597 with `dev` merged in; build succeeded | Pull request 106 |
+| Meeting spots (`feat/meeting-spots-integration`) | A late answer or a failed write no longer undoes a confirmation (`latestAnswer`, `orUndo` takes back only its own change); suggestions cannot delete each other; "about" on estimates; the preselected spot is the planner's pick when nobody has marked one; focus stays on a spot's controls; Home's words agree; the Leaflet error on leaving a map is fixed for every screen; naming an area in `include` cannot change the planner's pick | Backend 688 passed, 2 skipped, also offline; frontend 445 passed; build succeeded | With round 19, below |
+
+- **Undici, observed by the backend agent:** a header value with a line break or a null is quoted in the error message, so a key with one would have been logged. The AI service logs only fixed text.
+- **Not verified by anyone:** anything against the real Supabase project, Gemini or Anthropic. The model names and request options are unchecked.
+- **Left, on tickets:** sign-up says when an email is registered, which Supabase hides on purpose; the arrange route cannot be told a venue is closed on the date; the rate limit keys on the caller's address with no `trust proxy`.
+
+## Round 19: the team's walkthrough, the pitch build (2026-10-11)
+
+The lead pasted a recording of the team testing the app together and asked for the feedback to be reconciled and audited, with suggestions first. Eighteen items were checked against the code; the lead took the recommendations, with a split into a list for the pitch on 12 October and a list for after. Merging `dev` into the meeting spots branch produced four conflicts (the store's export list, the demo panel's imports, `CLAUDE.md`, this log), each resolved by keeping both sides, and seven failing frontend tests: five expected the old save version and two were the showcase's Home labels.
+
+| # | Role | Scope | Status |
+|---|---|---|---|
+| 19.1 | Frontend | The session screens: "Cancel outing"; "Save plan" and "Finish outing"; the known place off the create form; the steps bar as navigation and a back arrow that goes to the previous step; confirming a spot stays on Locate with "Next"; "No spots yet" and the "Fairest for" line removed; the map key on Vote; no people on the itinerary's maps | **Completed** |
+| 19.2 | Frontend | Location search through the backend's OneMap address search, built-in areas first, 300 ms debounce, cancellation, a fallback when the backend is off; one row per area when suggesting a spot | **Completed** |
+| 19.3 | Frontend | The showcase after the merges: the offline planner answers with candidates; ten sessions under the new rules, with a spot vote the person hosts, one a friend hosts, and one set by "We already have a place"; the demo tools reordered | **Completed** |
+| 19.4 | Lead | Verify, record, merge into `dev` | **Completed** up to the commits |
+
+- **Run by the lead on the finished branch:** `pnpm test` 815 passed, 2 skipped, 29 files; `pnpm --filter jio-frontend test` 807 passed, 56 files; both again with outbound calls blocked, no call attempted; `pnpm build` succeeded; the production bundle has none of the demo's strings.
+- **Reported by the agents from headless browser runs, not seen by the lead:** one session walked from Create to Itinerary at 375 and 1280 px with no horizontal overflow and the steps bar at one height; typing "tampines mall" makes one search request; the showcase loads ten sessions in about six seconds with the backend running and with it stopped.
+- **For the presenter:** run the backend. With it stopped the showcase loads, and confirming a spot and the voting screens cannot reach the planner. The meeting spots merge resets the sessions saved in a browser, so load the showcase again.
+- **Left for after the pitch, on the new map:** finishing an outing by itself and reminders; frequent hangouts and the Jio streak; default times, one create button and the radius control.
+
+## Round 20: decisions and a new map (2026-10-11)
+
+- **Dietary needs and weather** were settled with the lead in a grilling session; the decisions are on their tickets and the terms are in `CONTEXT.md`. None of it is built.
+- **A demo tour** (one link in, one outing as a story, a strip of checkpoints, available in the deployed build) was agreed, to be built after the merges.
+- **The live database was checked:** one account and one profile; every session table is empty. Nothing about a session has ever been saved to Supabase.
+- **A second map was charted,** "Jio to the freeze: wayfinder map", issue 109, grouped by feature, carrying execution. Sessions on the server is its first feature, in five stages. Invites are by link, which joins at once, and by username, which sends an invite to accept.
+- **Research answered:** Google's nearby search bills at its dearest tier with the fields asked for, and its terms forbid Places content on or beside a non-Google map; the 24-hour forecast reaches 18 to 24 hours ahead and its phrases are already known to the planner.
+- **Running when this was written:** an architect extending the session endpoint design, and a backend agent drafting the schema for meeting spots. Nothing is applied to the live database.
