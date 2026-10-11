@@ -15,6 +15,7 @@ import { reviewsFor } from './mock/reviews.js'
 import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
+import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
 import { localAccountsAllowed } from './supabase.js'
 import { addDays, format, isValid, parseISO } from 'date-fns'
@@ -1373,27 +1374,101 @@ export async function listAreas() {
   return clone(AREAS)
 }
 
+// The area nearest to a point, or null outside Singapore. The one rule that turns a coordinate into an area:
+// the current location and every address the backend finds go through it.
+// How to call: areaForPoint({ lat: 1.3521, lng: 103.9448 }) -> the Tampines area
+function areaForPoint(point) {
+  return P.inSingapore(point) ? P.nearest(point, AREAS) : null
+}
+
+const PLACE_ROWS = 8
+const ANSWERS_KEPT = 40
+// What the backend answered for each query this page has searched, so typing a word again (or backspacing to it) asks
+// nothing. Only answers are kept, never failures. Oldest out first.
+const placeAnswers = new Map()
+
+const cancelled = () => Object.assign(new Error('The search was cancelled.'), { name: 'AbortError' })
+
+// The backend's results as rows for the search sheet. Only the area they fall in is kept with the building's name, never
+// their coordinates. A result outside Singapore, or with no name, is left out; so is a repeat of an earlier row.
+// How to call: addressRows([{ name: 'TAMPINES MALL', postal: '529510', lat: 1.3525, lng: 103.9447 }])
+function addressRows(results) {
+  const seen = new Set()
+  const rows = []
+  for (const r of results) {
+    const area = Number.isFinite(r?.lat) && Number.isFinite(r?.lng) ? areaForPoint(r) : null
+    const label = displayName(r?.name)
+    if (!area || !label) continue
+    const key = `${sameKey(label)}|${r.postal || ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    rows.push({
+      id: `om-${r.postal || sameKey(label)}-${rows.length}`,
+      label,
+      sub: [r.postal && `Singapore ${r.postal}`, area.name].filter(Boolean).join(' · '),
+      areaId: area.id,
+      areaName: area.name,
+      near: label,
+    })
+  }
+  return rows
+}
+
 // Search for a start or end location by place name, address or postal code.
-export async function searchPlaces(query) {
-  await wait(DELAY.read)
-  const q = query.trim().toLowerCase()
-  if (!q) return []
-  const areas = AREAS.filter((a) => a.name.toLowerCase().includes(q)).map((a) => ({ id: a.id, label: a.name, sub: 'MRT station and area', areaId: a.id }))
-  const addresses = ADDRESSES.filter((a) => a.label.toLowerCase().includes(q) || a.postal.startsWith(q)).map((a) => ({
-    id: a.id,
-    label: a.label,
-    sub: `Singapore ${a.postal} · ${areaById(a.areaId).name}`,
-    areaId: a.areaId,
-  }))
-  return [...areas, ...addresses].slice(0, 8)
+// The areas that match come first and at once (onBuiltIn gets them before any network call, so a caller can show them
+// while the rest is searched). Then the backend's address search (OneMap) adds addresses and buildings, each with the
+// area it falls in. A query under 2 characters, or over what the backend accepts, stays on this page. When the backend
+// cannot be reached or answers an error, the areas still come back with unavailable: true, and the built-in sample
+// addresses are listed too, as they are whenever the backend had nothing. At most 8 rows.
+// `signal` cancels the search: it rejects with an AbortError and the caller drops it.
+// Rows are { id, label, sub, areaId, areaName, near }. They carry no coordinates: what a person stores from one is the area
+// and the label (setLocation), and the label is private to them.
+// How to call: const { places, unavailable } = await searchPlaces('tampines mall', { signal, onBuiltIn: (rows) => show(rows) })
+export async function searchPlaces(query, { signal, onBuiltIn } = {}) {
+  const text = String(query ?? '').trim()
+  const q = text.toLowerCase()
+  if (!q) return { places: [], unavailable: false }
+  if (signal?.aborted) throw cancelled()
+  const areas = AREAS.filter((a) => a.name.toLowerCase().includes(q)).map((a) => ({ id: a.id, label: a.name, sub: 'MRT station and area', areaId: a.id, areaName: a.name, near: null }))
+  onBuiltIn?.(areas.slice(0, PLACE_ROWS))
+
+  let found = []
+  let unavailable = false
+  if (text.length >= SEARCH_MIN_CHARS && text.length <= SEARCH_MAX_CHARS) {
+    if (placeAnswers.has(q)) {
+      found = placeAnswers.get(q)
+    } else {
+      try {
+        found = addressRows(await planner.searchAddresses(text, { signal }))
+        placeAnswers.set(q, found)
+        if (placeAnswers.size > ANSWERS_KEPT) placeAnswers.delete(placeAnswers.keys().next().value)
+      } catch (err) {
+        if (signal?.aborted || err?.name === 'AbortError') throw cancelled()
+        unavailable = true
+      }
+    }
+  }
+  if (signal?.aborted) throw cancelled()
+
+  // The areas stand for themselves: a result that is only one of them under another spelling ("Tampines MRT Station") goes.
+  const known = new Set(areas.map((a) => sameKey(a.label)))
+  const wider = found.filter((row) => !known.has(sameKey(row.label)))
+  // The sample addresses are the fallback for when the backend gave nothing.
+  const samples = found.length
+    ? []
+    : ADDRESSES.filter((a) => a.label.toLowerCase().includes(q) || a.postal.startsWith(q)).map((a) => {
+        const area = areaById(a.areaId)
+        return { id: a.id, label: a.label, sub: `Singapore ${a.postal} · ${area.name}`, areaId: a.areaId, areaName: area.name, near: a.label.split(',')[0] }
+      })
+  return { places: [...areas, ...wider, ...samples].slice(0, PLACE_ROWS), unavailable }
 }
 
 // The known area for a pair of coordinates, or null outside Singapore.
+// How to call: await placeFromCoords(1.3521, 103.9448) -> { id: 'here-tampines', label: 'Current location', sub: 'Tampines', areaId: 'tampines' }
 export async function placeFromCoords(lat, lng) {
   await wait(DELAY.read)
-  const point = { lat, lng }
-  if (!P.inSingapore(point)) return null
-  const area = P.nearest(point, AREAS)
+  const area = areaForPoint({ lat, lng })
+  if (!area) return null
   return { id: `here-${area.id}`, label: 'Current location', sub: area.name, areaId: area.id }
 }
 

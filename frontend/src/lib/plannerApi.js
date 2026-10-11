@@ -311,3 +311,23 @@ export async function searchSlot({ query, members, centre, date, slot, lastStop,
     return { id: r.venueId, name: r.name, area: r.area, category: r.category, walk: r.walkMinutes, unfit: UNFIT_WORDS[reason] || reason }
   })
 }
+
+// How long an address search is waited for. Typing makes many of them, so a slow one is given up on sooner than a ranking.
+export const PLACE_SEARCH_TIMEOUT_MS = 6000
+
+// Find an address, postal code or building by name with OneMap, through the backend (it needs no account).
+// Resolves the backend's results, at most 10: [{ name, address, postal, lat, lng }], possibly none.
+// Rejects in the client's usual way (an Error whose message a person can read) when the backend cannot answer, and with
+// an AbortError when `signal` aborts first, so the caller can tell a replaced search from a failed one.
+// How to call: await searchAddresses('tampines mall', { signal: controller.signal })
+export async function searchAddresses(query, { signal } = {}) {
+  try {
+    const { data } = await api.get('/api/places/search', { params: { q: query }, timeout: PLACE_SEARCH_TIMEOUT_MS, signal })
+    if (!Array.isArray(data.results)) throw new Error(notJsonMessage())
+    return data.results
+  } catch (err) {
+    // The response interceptor turns every failure into a plain Error, so a cancelled request is recognised by its signal.
+    if (signal?.aborted) throw Object.assign(new Error('The search was cancelled.'), { name: 'AbortError' })
+    throw err
+  }
+}
