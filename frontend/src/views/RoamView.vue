@@ -55,7 +55,7 @@ const working = ref('')
 let ticket = 0
 
 const session = computed(() => events.byId[props.id])
-const myId = computed(() => auth.user?.id || 'ian')
+const myId = computed(() => auth.myId)
 const closed = computed(() => closedText(session.value))
 const open = computed(() => !!session.value && roamOpen(session.value))
 const meetingName = computed(() => session.value?.areaName || '')

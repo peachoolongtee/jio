@@ -126,6 +126,13 @@ export function configured() {
   return client !== null && client !== undefined
 }
 
+// The client for plain reads under row-level security (the people source reads `profiles` through it), or null when
+// Supabase is not set up. It follows useClient, so a test's stand-in is the one that is read.
+// How to call: const c = dataClient(); if (c) await c.from('profiles').select('id, username').in('id', ids)
+export function dataClient() {
+  return client ?? null
+}
+
 // Give this module another client (a test's stand-in), or null. Listeners added with onChange move across.
 // How to call: useClient(fakeSupabase())
 export function useClient(next) {

@@ -22,7 +22,6 @@ import ListRow from '@/components/ui/ListRow.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
-import { HOST_ID } from '@/lib/mock/people.js'
 import { inviteAccess } from '@/lib/session.js'
 import { exitFor, goBackIfBehind, isBehind } from '@/lib/stepNav.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -50,9 +49,9 @@ const session = computed(() => events.byId[props.id])
 // Back: the step before this one (backFor). For the host that is the create form, with the title, day and times filled
 // in; it takes this screen's place in the browser's history (replace), so Back in the browser still goes to where the
 // person came from and can never land on an empty create form. A guest goes Home.
-const mine = computed(() => session.value?.hostId === HOST_ID)
+const mine = computed(() => session.value?.hostId === auth.myId)
 const back = computed(() => (session.value ? backFor(session.value, route.path, mine.value, exitFor()) : exitFor()))
-const hostName = computed(() => (session.value?.hostId === HOST_ID ? auth.user?.name : groups.nameOf(session.value?.hostId)) || 'the host')
+const hostName = computed(() => (session.value?.hostId === auth.myId ? auth.user?.name : groups.nameOf(session.value?.hostId)) || 'the host')
 // Whether this person can add people now, and if not, why not.
 const access = computed(() => (session.value ? inviteAccess(session.value, mine.value, hostName.value) : { open: false, text: '' }))
 const inSession = (personId) => session.value?.members.some((m) => m.id === personId && ['joined', 'invited'].includes(m.state))
@@ -70,7 +69,7 @@ const members = computed(() => {
   const rows = session.value.members
     .filter((m) => ['joined', 'invited'].includes(m.state))
     .map((m) => {
-      const me = m.id === HOST_ID
+      const me = m.id === auth.myId
       const p = me ? { name: auth.user?.name || 'You', username: auth.user?.username || '', homeArea: auth.user?.homeAreaName || '' } : groups.people.find((x) => x.id === m.id) || { name: groups.nameOf(m.id) || 'Someone', username: '', homeArea: '' }
       return { id: m.id, name: p.name, username: p.username || '', homeArea: p.homeArea || '', host: m.role === 'host', me }
     })

@@ -55,8 +55,8 @@ function openSignOut() {
   signOutOpen.value = true
 }
 
-const personId = computed(() => props.id || 'ian')
-const isMe = computed(() => personId.value === 'ian')
+const personId = computed(() => props.id || auth.myId)
+const isMe = computed(() => personId.value === auth.myId)
 
 async function load() {
   missing.value = false
@@ -69,13 +69,13 @@ async function load() {
 onMounted(load)
 watch(personId, load)
 
-// Ian's own profile route is /profile; /people/ian goes there too.
-watch(() => props.id, (id) => id === 'ian' && router.replace('/profile'), { immediate: true })
+// The signed-in person's own profile route is /profile; /people/<their id> goes there too.
+watch(() => props.id, (id) => id === auth.myId && router.replace('/profile'), { immediate: true })
 
 const person = computed(() => groups.profiles[personId.value])
 // The sessions listed on your own profile: all of them, unless the demo tour is on (lib/sessionFilter.js).
 const sessions = computed(() => visibleSessions(events.sessions))
-const nameOf = (id) => (id === 'ian' ? auth.user?.name ?? '' : groups.nameOf(id))
+const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const dateText = (d) => format(parseISO(d), 'd MMM yyyy')
 const colour = computed(() => personColour(personId.value))
 const rank = computed(() => groups.leaderboard.find((r) => r.id === personId.value)?.rank ?? null)
@@ -128,7 +128,7 @@ async function signOut() {
             <div class="hero__who">
               <h1 class="hero__name" data-grid-avoid>{{ person.name }}<span v-if="isMe" class="hero__you caption">You</span></h1>
               <p class="body-md text-muted">@{{ person.username }}<template v-if="person.homeArea"> · {{ person.homeArea }}</template></p>
-              <SampleNote v-if="!isMe" />
+              <SampleNote v-if="person.sample" />
             </div>
             <div class="hero__side">
               <dl class="stats">
@@ -145,7 +145,7 @@ async function signOut() {
                   <dd class="stats__value tnum"><CoinBadge :size="18" />{{ person.points }}</dd>
                 </div>
               </dl>
-              <AppButton v-if="!isMe" block :variant="person.isFriend ? 'secondary' : 'primary'" :disabled="friendBusy" :aria-pressed="String(person.isFriend)" @click="toggleFriend">
+              <AppButton v-if="!isMe && auth.sampleWorld" block :variant="person.isFriend ? 'secondary' : 'primary'" :disabled="friendBusy" :aria-pressed="String(person.isFriend)" @click="toggleFriend">
                 <AppIcon :name="person.isFriend ? 'check' : 'plus'" />
                 {{ person.isFriend ? 'Friends' : 'Add friend' }}
               </AppButton>
@@ -161,7 +161,7 @@ async function signOut() {
           <MeetupGraph :history="person.history" :planned="person.planned" />
         </section>
 
-        <!-- Ian: his sessions, once he has some. -->
+        <!-- The signed-in person: their sessions, once they have some. -->
         <section v-if="isMe && (!events.loaded || sessions.length)" class="section" aria-labelledby="my-sessions">
           <div class="section__head">
             <h2 id="my-sessions" class="display-sm">Sessions</h2>

@@ -18,7 +18,12 @@ export const useGroupsStore = defineStore('groups', () => {
   const suggested = computed(() => people.value.filter((p) => !p.isFriend))
   const nameOf = (id) => people.value.find((p) => p.id === id)?.name || ''
 
+  // Has the list been asked for? A real account's list can be empty and still need making again when someone joins a session,
+  // so "empty" does not mean "never loaded".
+  let peopleAsked = false
+
   async function loadPeople() {
+    peopleAsked = true
     loading.value.people = true
     people.value = await api.listPeople()
     loading.value.people = false
@@ -58,17 +63,27 @@ export const useGroupsStore = defineStore('groups', () => {
     return redemption
   }
 
+  // A profile that cannot be read again (the person is not in this account's world any more, for example after another
+  // account signed in) is dropped instead of being kept or thrown at nobody.
+  // How to call: reloadProfiles()
+  function reloadProfiles() {
+    for (const id of Object.keys(profiles.value)) {
+      loadProfile(id).catch(() => {
+        const { [id]: _gone, ...rest } = profiles.value
+        profiles.value = rest
+      })
+    }
+  }
+
   api.subscribe((event) => {
-    if (['stats', 'reset', 'user', 'friends'].includes(event.type)) {
-      if (people.value.length) loadPeople()
+    if (['stats', 'reset', 'user', 'friends', 'people'].includes(event.type)) {
+      if (people.value.length || peopleAsked) loadPeople()
       if (leaderboard.value.length) loadLeaderboard()
       if (season.value) loadSeason()
       if (rewards.value.length) loadRewards()
-      for (const id of Object.keys(profiles.value)) loadProfile(id)
+      reloadProfiles()
     }
-    if (event.type === 'session' && Object.keys(profiles.value).length) {
-      for (const id of Object.keys(profiles.value)) loadProfile(id)
-    }
+    if (event.type === 'session' && Object.keys(profiles.value).length) reloadProfiles()
   })
 
   return { people, leaderboard, season, profiles, rewards, redemptions, loading, me, friends, suggested, nameOf, loadPeople, loadLeaderboard, loadSeason, loadProfile, loadRewards, setFriend, redeem }

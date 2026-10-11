@@ -115,7 +115,7 @@ const today = computed(() => confirmed.value && session.value?.isToday)
 const footer = computed(() => (session.value ? itineraryAction(session.value) : null))
 // Under way: people can ask "What next?" and propose places.
 const underway = computed(() => !!session.value && roamOpen(session.value))
-const myId = computed(() => auth.user?.id || 'ian')
+const myId = computed(() => auth.myId)
 const longTrips = computed(() => (itinerary.value?.trips || []).filter((t) => t.long))
 const lastStop = computed(() => itinerary.value?.stops[itinerary.value.stops.length - 1])
 // A confirmed plan with two or more stops can be rearranged, and a stop deleted, while editing.

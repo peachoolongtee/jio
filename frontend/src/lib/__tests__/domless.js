@@ -79,6 +79,11 @@ class Node_ {
   get id() {
     return this.attrs.id
   }
+  // A <select> lists its <option>s, which v-model reads to mark the chosen one (the sign-up screen's last question for a
+  // real account is a select).
+  get options() {
+    return this.children.filter((child) => child.tag === 'option')
+  }
   addEventListener(name, fn) {
     ;(this.listeners[name] ||= []).push(fn)
   }

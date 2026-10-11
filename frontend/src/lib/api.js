@@ -19,6 +19,8 @@ import { ROAM, placeState, proposalsOf, proposeBlock } from './roam.js'
 import { itineraryAction } from './session.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
+import { bindCurrentUser, currentUserId } from './currentUser.js'
+import { createPeopleSource } from './peopleSource.js'
 import { localAccountsAllowed } from './supabase.js'
 import { addDays, format, isValid, parseISO } from 'date-fns'
 
@@ -42,9 +44,10 @@ const STORAGE_FULL = "Could not save: this browser's storage is full. Remove som
 
 // ── Storage ────────────────────────────────────────────────────────────────
 
-// A starting number from mock/people.js. Ian is the signed-in person: only the demo account starts with the sample
-// history, a person who signed up through the form starts with none. How to call: seeded(STARTING_MEETUPS, 'ian', false) -> 0
-const seeded = (table, id, demo) => (id === HOST_ID && !demo ? 0 : table[id])
+// A starting number from mock/people.js. The sample person HOST_ID is the demo account: only the demo account starts
+// with the sample history, a person who signed up through the form starts with none, and so does anyone who is not in
+// the sample list (a real account's own id). How to call: seeded(STARTING_MEETUPS, HOST_ID, false) -> 0
+const seeded = (table, id, demo) => (id === HOST_ID && !demo ? 0 : table[id] ?? 0)
 
 // Past meetup dates for a person, as the profile graph and the season standings both read them.
 // How to call: historyOf('darius', false) -> ['2026-08-02', ...]
@@ -75,21 +78,30 @@ function freshSeason(now = new Date(), demo = false) {
 }
 
 const defaultConditions = () => ({ rain: false, routing: true, sessionDay: false })
+// A person who has earned nothing. How to call: noStats() -> { meetups: 0, points: 0, seasonPoints: 0 }
+const noStats = () => ({ meetups: 0, points: 0, seasonPoints: 0 })
 
+// A real account (one with a Supabase user id) has no sample friends, no sample past season and no sample people's
+// numbers: nobody else is in its world yet, so its leaderboard is itself, in a first season with nothing before it. Its
+// own id gets a stats row of zeros, and a real person who joins a session gets one when first needed (statsOf).
+// How to call: freshDb({ user: { id: '7f3c...', authId: '7f3c...' }, friends: [] }) -> a save for that account
 function freshDb(keep = {}) {
   const { season, earned, pastSeason } = freshSeason(new Date(), !!keep.user?.demo)
+  const real = !!keep.user?.authId
   const meetups = (id) => seeded(STARTING_MEETUPS, id, !!keep.user?.demo)
   const prize = (id) => (pastSeason.winners.some((w) => w.id === id) ? pastSeason.prize : 0)
+  const stats = real ? {} : Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: meetups(p.id), points: meetups(p.id) * POINTS_PER_MEETUP + prize(p.id), seasonPoints: earned(p.id) }]))
+  if (keep.user?.id && !stats[keep.user.id]) stats[keep.user.id] = noStats()
   return {
     version: VERSION,
     user: keep.user || null,
-    friends: keep.friends || [],
+    friends: real ? [] : keep.friends || [],
     sessions: [],
     // points: what each person can spend. seasonPoints: what they earned this season, for the leaderboard.
-    stats: Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: meetups(p.id), points: meetups(p.id) * POINTS_PER_MEETUP + prize(p.id), seasonPoints: earned(p.id) }])),
-    season,
+    stats,
+    season: real ? { ...season, number: 1 } : season,
     // Past seasons, latest first: { number, startsAt, endsAt, winners: [{ id, seasonPoints }], prize, standings }.
-    pastSeasons: [pastSeason],
+    pastSeasons: real ? [] : [pastSeason],
     redemptions: [],
     conditions: defaultConditions(),
     // Every venue the planner has sent, by id. Suggestions can be any of the backend's venues, not only VENUES.
@@ -134,7 +146,8 @@ function hasShape(saved) {
     isList(saved.friends, (f) => typeof f === 'string') &&
     isList(saved.sessions, validSession) &&
     isObject(saved.stats) &&
-    PEOPLE.every((p) => isObject(saved.stats[p.id]) && ['meetups', 'points', 'seasonPoints'].every((key) => isCount(saved.stats[p.id][key]))) &&
+    // The sample people's numbers are in every save but a real account's, which holds only the numbers of real people.
+    (saved.user?.authId ? Object.values(saved.stats).every((row) => isObject(row) && ['meetups', 'points', 'seasonPoints'].every((key) => isCount(row[key]))) : PEOPLE.every((p) => isObject(saved.stats[p.id]) && ['meetups', 'points', 'seasonPoints'].every((key) => isCount(saved.stats[p.id][key])))) &&
     isObject(saved.season) &&
     ['number', 'startsAt', 'endsAt'].every((key) => isCount(saved.season[key])) &&
     isList(saved.pastSeasons, (x) => isObject(x) && isCount(x.endsAt) && Array.isArray(x.winners)) &&
@@ -179,6 +192,20 @@ function load(key = STORAGE_KEY) {
 }
 
 let db = load()
+
+// Who is signed in is read from the save by everything that needs it (see lib/currentUser.js): the sample person's id for
+// the demo account and local accounts, a real account's own Supabase user id otherwise, and '' for nobody. This file asks
+// through `me()`; the stores and helpers ask through currentUserId().
+bindCurrentUser(() => db.user?.id ?? '')
+// How to call: if (session.hostId === me()) ...
+const me = () => currentUserId()
+// Is a real account (one with a Supabase user id) signed in? Its world holds no sample friends.
+// How to call: if (isReal()) return []
+const isReal = () => !!db.user?.authId
+// The people in a real account's sessions that it last announced, as text. A session write that changes who is in them
+// announces it ('people'), so the lists built from those people (who can be invited, who is "Someone") are made again.
+// Declared here, before anything can sign an account out at load.
+let coMembersSeen = ''
 
 // The state as text, for the save. A real account's date of birth stays out of it: it is a private field in the account
 // (profile_private), so it is kept in memory for this visit and read back from the account or the session, never left
@@ -268,14 +295,40 @@ export function subscribe(fn) {
 // ── Lookups ────────────────────────────────────────────────────────────────
 
 const personById = (id) => PEOPLE.find((p) => p.id === id)
-// Who is on Ian's leaderboard: his circle, and anyone else on Jio once he has added them as a friend.
-const leaderboardPeople = () => PEOPLE.filter((p) => !isCommunity(p.id) || db.friends.includes(p.id))
+// Who is on the leaderboard, as ids. The demo and local accounts: the sample circle, and anyone else on Jio once added
+// as a friend. A real account: only itself, because nobody else is in its world yet.
+// How to call: leaderboardIds() -> ['ian', 'darius', ...]
+const leaderboardIds = () => (isReal() ? (db.user ? [db.user.id] : []) : PEOPLE.filter((p) => !isCommunity(p.id) || db.friends.includes(p.id)).map((p) => p.id))
 const areaById = (id) => AREAS.find((a) => a.id === id)
 const venueById = (id) => db.venues[id] || VENUES.find((v) => v.id === id)
 
-function nameOf(id) {
-  if (id === HOST_ID && db.user) return db.user.name
-  return personById(id)?.name || ''
+// What a person has earned, made when it is first needed (a real person who joined a session of this account).
+// How to call: statsOf('7f3c...') -> { meetups: 0, points: 0, seasonPoints: 0 }
+const statsOf = (id) => (db.stats[id] ??= noStats())
+
+// The people source: the signed-in account's own profile, the sample people, and (for real people) the `profiles` table
+// (lib/peopleSource.js). It is emptied whenever the signed-in person changes, so no account sees another's cache.
+// How to call: people.nameOf('7f3c...') -> 'Sam', or 'Someone' until the profile has been read
+const people = createPeopleSource({
+  client: () => auth.dataClient(),
+  own: (id) => (db.user && id === db.user.id ? { id, name: db.user.name, username: db.user.username, avatarUrl: db.user.photo || '' } : null),
+  sample: personById,
+})
+
+// A person's name for the screens: the signed-in person's own, a sample person's, a real person's once read, otherwise
+// the neutral "Someone". How to call: nameOf(session.hostId)
+const nameOf = (id) => people.nameOf(id)
+
+// Read the real people a session names, in one request for all of them, then tell the screens when something new arrived.
+// Quiet: a failed or offline read leaves them as "Someone". Not waited for.
+// How to call: warmPeople(session.members.map((m) => m.id))
+function warmPeople(ids) {
+  const missing = ids.filter((id) => !people.get(id))
+  if (!missing.length) return
+  const before = people.version()
+  people.load(missing).then(() => {
+    if (people.version() !== before) broadcast({ type: 'people' })
+  })
 }
 
 function sessionById(id) {
@@ -856,14 +909,15 @@ function touch(session, type) {
   session.updatedAt = Date.now()
   emit({ type, sessionId: session.id })
   commits[session.id] = commitsOf(session) + 1
+  announceCoMembers()
   return summary(session)
 }
 
 // ── Account ────────────────────────────────────────────────────────────────
 
-// The account, with its home area's name. It is always `id: HOST_ID` (the local id of "me"). `authId` is the Supabase
-// user id of a real account and null for a local one; `local` is true for a local account (the demo account, and every
-// account when Supabase is not set up). `email` is '' when none is known.
+// The account, with its home area's name. `id` is the id the account's data carries: the sample person's id for a local
+// account (the demo account, and every account when Supabase is not set up), and the Supabase user id for a real one, which
+// is then the same as `authId`. `authId` is null for a local account; `local` is true for it. `email` is '' when none is known.
 // How to call: account() -> { id: 'ian', authId: null, local: true, email: 'ian@jio.demo', name: 'Ian', ... }
 function account() {
   if (!db.user) return null
@@ -904,11 +958,14 @@ async function adoptAccount(sessionUser, known = null, fetchProfile = true) {
   }
   const key = accountKey(sessionUser.id)
   const found = load(key)
-  const mine = found.user?.authId === sessionUser.id ? found : null
-  const was = mine?.user
+  // A save made when every real account was the sample person's id carries that id in its sessions, votes and standings, not
+  // this account's, so it cannot be read as this account's data. Only its profile is kept; the sessions start fresh.
+  const sameAccount = found.user?.authId === sessionUser.id
+  const mine = sameAccount && found.user.id === sessionUser.id ? found : null
+  const was = sameAccount ? found.user : null
   const pick = known || remote || {}
   const user = {
-    id: HOST_ID,
+    id: sessionUser.id,
     authId: sessionUser.id,
     email: sessionUser.email || was?.email || '',
     name: pick.name || was?.name || sessionUser.username || '',
@@ -923,9 +980,12 @@ async function adoptAccount(sessionUser, known = null, fetchProfile = true) {
   if (mine) {
     db = { ...mine, user }
   } else {
-    db = freshDb({ user, friends: [...(known?.friends || [])] })
+    // A real account has no sample friends, whatever the sign-up draft held.
+    db = freshDb({ user, friends: [] })
     db.conditions = conditions
   }
+  people.reset()
+  coMembersSeen = ''
   storageKey = key
   stored = asText()
   // A save that cannot be written (storage full or missing) does not stop sign-in: the account works in memory.
@@ -986,6 +1046,8 @@ function detachAccount() {
   const { conditions } = db
   db = freshDb()
   db.conditions = conditions
+  people.reset()
+  coMembersSeen = ''
   storageKey = null
   stored = asText()
 }
@@ -1105,7 +1167,7 @@ export async function signUp(profile) {
   if (auth.configured() && !profile.demo) return signUpReal(profile)
   // The demo account is always local, even with Supabase set up, and ends any real session first.
   await endSession()
-  // The demo account is always the host, Ian's id.
+  // The demo account, and a local account, are the sample person Ian: that is the id their data carries.
   const user = {
     id: HOST_ID,
     email: profile.email,
@@ -1120,6 +1182,7 @@ export async function signUp(profile) {
   const { conditions } = db
   db = freshDb({ user, friends: [...(profile.friends || [])] })
   db.conditions = conditions
+  people.reset()
   if (storageKey !== STORAGE_KEY) {
     // Coming from a real account (or from nobody): a local account writes to the local save again.
     storageKey = STORAGE_KEY
@@ -1129,7 +1192,8 @@ export async function signUp(profile) {
   return account()
 }
 
-// A real sign-up. The profile's other fields (photo, friends) stay in this browser, in the account's own save.
+// A real sign-up. The profile's other field (the photo) stays in this browser, in the account's own save. The friends the
+// sign-up draft may hold are not kept: a real account starts with none (see freshDb).
 // How to call: await signUpReal({ email, password, name, username, dob, homeAreaId })
 async function signUpReal(profile) {
   const name = profile.name.trim()
@@ -1144,7 +1208,7 @@ async function signUpReal(profile) {
       homeAreaId: profile.homeAreaId,
     })
     if (result.needsConfirmation) return { needsConfirmation: true, email: result.user.email }
-    const known = { name, username: profile.username, dob: profile.dob, homeAreaId: profile.homeAreaId, photo: profile.photo, friends: profile.friends }
+    const known = { name, username: profile.username, dob: profile.dob, homeAreaId: profile.homeAreaId, photo: profile.photo }
     const mine = await adopt(result.user, known)
     // The name and home area are written to the account in the background; a failure is announced when it happens.
     result.profileWrite?.then((message) => {
@@ -1210,6 +1274,7 @@ export async function signOut() {
   if (!local) await endSession()
   const wasLocalSave = storageKey === STORAGE_KEY
   db = freshDb()
+  people.reset()
   if (!wasLocalSave) {
     storageKey = null
     stored = asText()
@@ -1230,30 +1295,68 @@ export async function checkUsername(username) {
 
 // ── People, friends and the leaderboard ────────────────────────────────────
 
+// The ids of the other people in this account's sessions, joined or invited, in the order they first appear. For a real
+// account these are its friends: a person's friends are whoever they have shared a session with (decided on ticket #125).
+// How to call: coMemberIds() -> ['7f3c...']
+function coMemberIds() {
+  const ids = new Set()
+  for (const session of db.sessions) for (const m of session.members) if (m.id !== me() && ['joined', 'invited'].includes(m.state)) ids.add(m.id)
+  return [...ids]
+}
+
+// How to call: announceCoMembers() (after a session changed; nothing happens unless the people in the sessions changed)
+function announceCoMembers() {
+  if (!isReal()) return
+  const now = coMemberIds().join(',')
+  if (now === coMembersSeen) return
+  coMembersSeen = now
+  broadcast({ type: 'people' })
+}
+
+// A person as a screen shows them. A real account's friends are the people it shares a session with; everyone else's are
+// the ones it added. `sample` is true for a made-up person, so a screen can say so and offer no friend button for it to
+// a real account.
+// How to call: publicPerson('darius') -> { id, name, username, photo, homeAreaId, homeArea, meetups, points, isFriend, sample }
 function publicPerson(id) {
+  const isMe = id === me() && !!db.user
   const base = personById(id)
-  const isMe = id === HOST_ID && db.user
+  const known = people.get(id)
+  const stats = db.stats[id] || noStats()
+  const homeAreaId = isMe ? db.user.homeAreaId : base?.homeAreaId || ''
   return {
     id,
-    name: isMe ? db.user.name : base.name,
-    username: isMe ? db.user.username : base.username,
-    photo: isMe ? db.user.photo : '',
-    homeAreaId: isMe ? db.user.homeAreaId : base.homeAreaId,
-    homeArea: areaById(isMe ? db.user.homeAreaId : base.homeAreaId)?.name || '',
-    meetups: db.stats[id].meetups,
-    points: db.stats[id].points,
-    isFriend: db.friends.includes(id),
+    name: people.nameOf(id),
+    username: known?.username || '',
+    photo: isMe ? db.user.photo : known?.avatarUrl || '',
+    homeAreaId,
+    homeArea: areaById(homeAreaId)?.name || '',
+    meetups: stats.meetups,
+    points: stats.points,
+    isFriend: isReal() ? coMemberIds().includes(id) : db.friends.includes(id),
+    sample: !isMe && !!base,
   }
 }
 
+// The people other than the signed-in one that this account knows. The demo and local accounts: the sample people. A real
+// account: the people in its sessions (none until a session is shared), read from their profiles in one request.
+// How to call: const people = await listPeople()
 export async function listPeople() {
   await wait(DELAY.read)
-  return PEOPLE.filter((p) => p.id !== HOST_ID).map((p) => publicPerson(p.id))
+  // With nobody signed in (the sign-up screen's friends step) the sample person is the one signing up, so is left out too.
+  if (!isReal()) return PEOPLE.filter((p) => p.id !== (me() || HOST_ID)).map((p) => publicPerson(p.id))
+  const ids = coMemberIds()
+  await people.load(ids)
+  return ids.map(publicPerson)
 }
 
+// One person's profile. The demo and local accounts: any sample person. A real account: itself, a person in one of its
+// sessions, or a sample person met as the writer of a sample review. Anyone else does not exist as far as it can tell.
+// How to call: const profile = await getPerson('darius')
 export async function getPerson(id) {
   await wait(DELAY.read)
-  if (!personById(id)) throw new Error('This person does not exist.')
+  const known = id === me() || !!personById(id) || (isReal() && coMemberIds().includes(id))
+  if (!known) throw new Error('This person does not exist.')
+  if (!people.get(id)) await people.load([id])
   const sessions = db.sessions
     .filter((s) => s.members.some((m) => m.id === id))
     .map((s) => ({ id: s.id, title: s.title, date: s.date, status: s.status, areaName: s.meeting ? areaById(s.meeting.areaId).name : '' }))
@@ -1273,8 +1376,12 @@ export async function getPerson(id) {
   return { ...publicPerson(id), sessions, activity, history, planned }
 }
 
+// Add or remove a friend. Only the demo and local accounts keep a list of their own; a real account's friends are the people
+// it shares sessions with, so there is nothing to add yet.
+// How to call: await setFriend('nicole', true)
 export async function setFriend(id, isFriend) {
   await wait(DELAY.write)
+  if (isReal()) throw new Error('Friends are the people you share a session with.')
   db.friends = isFriend ? [...new Set([...db.friends, id])] : db.friends.filter((f) => f !== id)
   emit({ type: 'friends' })
   return [...db.friends]
@@ -1284,17 +1391,17 @@ export async function setFriend(id, isFriend) {
 
 // What decides a season: points earned this season, then all-time points from meetups, then the name.
 // How to call: standingOf('ian') -> { id, name, seasonPoints, allTime }
-const standingOf = (id) => ({ id, name: nameOf(id), seasonPoints: db.stats[id].seasonPoints, allTime: db.stats[id].meetups * POINTS_PER_MEETUP })
+const standingOf = (id) => ({ id, name: nameOf(id), seasonPoints: statsOf(id).seasonPoints, allTime: statsOf(id).meetups * POINTS_PER_MEETUP })
 
 // End the current season at `at`: the winner get the prize to spend, then season points start again.
 function closeSeason(at) {
   const ended = { ...db.season, endsAt: at }
-  const winners = Season.seasonWinners(leaderboardPeople().map((p) => standingOf(p.id)))
-  for (const id of winners) db.stats[id].points += Season.SEASON_PRIZE
+  const winners = Season.seasonWinners(leaderboardIds().map(standingOf))
+  for (const id of winners) statsOf(id).points += Season.SEASON_PRIZE
   // standings: everyone's season total, so the leaderboard can show a past season in full.
-  const standings = leaderboardPeople().map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints }))
-  db.pastSeasons.unshift({ ...ended, prize: Season.SEASON_PRIZE, winners: winners.map((id) => ({ id, seasonPoints: db.stats[id].seasonPoints })), standings })
-  for (const p of PEOPLE) db.stats[p.id].seasonPoints = 0
+  const standings = leaderboardIds().map((id) => ({ id, seasonPoints: statsOf(id).seasonPoints }))
+  db.pastSeasons.unshift({ ...ended, prize: Season.SEASON_PRIZE, winners: winners.map((id) => ({ id, seasonPoints: statsOf(id).seasonPoints })), standings })
+  for (const id of Object.keys(db.stats)) db.stats[id].seasonPoints = 0
   db.season = Season.nextSeason(db.season, at)
 }
 
@@ -1312,7 +1419,7 @@ function catchUpSeasons(now = Date.now()) {
 function publicSeason(season) {
   return {
     ...clone(season),
-    winners: (season.winners || []).map((w) => ({ ...w, name: nameOf(w.id), isMe: w.id === HOST_ID })),
+    winners: (season.winners || []).map((w) => ({ ...w, name: nameOf(w.id), isMe: w.id === me() })),
   }
 }
 
@@ -1338,7 +1445,7 @@ export async function endSeason() {
 export async function getLeaderboard() {
   await wait(DELAY.read)
   if (catchUpSeasons()) emit({ type: 'stats' })
-  return ranked(leaderboardPeople().map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints })))
+  return ranked(leaderboardIds().map((id) => ({ id, seasonPoints: statsOf(id).seasonPoints })))
 }
 
 // A past season's final ranking, the same shape as getLeaderboard. [] for a season with no standings kept.
@@ -1360,12 +1467,12 @@ function ranked(rows) {
   let rank = 0
   let last = null
   return sorted.map((row, i) => {
-    if (!row.seasonPoints) return { ...row, rank: null, isMe: row.id === HOST_ID }
+    if (!row.seasonPoints) return { ...row, rank: null, isMe: row.id === me() }
     if (row.seasonPoints !== last) {
       rank = i + 1
       last = row.seasonPoints
     }
-    return { ...row, rank, isMe: row.id === HOST_ID }
+    return { ...row, rank, isMe: row.id === me() }
   })
 }
 
@@ -1493,7 +1600,7 @@ export async function getPlace(id, areaId) {
 
 // ── Sessions ───────────────────────────────────────────────────────────────
 
-// Locations as other people may see them: the area only. The exact label is kept for the viewer (Ian) alone.
+// Locations as other people may see them: the area only. The exact label is kept for the viewer (the signed-in person) alone.
 function publicLocations(session) {
   const place = (loc, own) => {
     if (!loc) return null
@@ -1501,7 +1608,7 @@ function publicLocations(session) {
     return { areaId: area.id, name: area.name, lat: area.lat, lng: area.lng, ...(own ? { label: loc.label } : {}) }
   }
   return Object.fromEntries(
-    Object.entries(session.locations).map(([id, loc]) => [id, { start: place(loc.start, id === HOST_ID), end: place(loc.end, id === HOST_ID) }]),
+    Object.entries(session.locations).map(([id, loc]) => [id, { start: place(loc.start, id === me()), end: place(loc.end, id === me()) }]),
   )
 }
 
@@ -1535,6 +1642,8 @@ function summary(session) {
   const slots = session.status === 'voting' && session.meeting ? planSlotsOf(session) : []
   const area = session.meeting ? areaById(session.meeting.areaId) : null
   const { photos, confirmedRanking, ...rest } = session
+  // A real person in the session is read from their profile; until then they show as "Someone".
+  warmPeople(session.members.map((m) => m.id))
   return {
     ...clone(rest),
     locations: publicLocations(session),
@@ -1576,9 +1685,10 @@ export async function getSession(id) {
 // hostId: the app always makes the signed-in person the host. A friend's id makes a session that friend hosts, with the
 // signed-in person already a guest in it (the demo's showcase uses it to show a session the person does not run).
 // How to call: await createSession({ title: 'Dinner', date: '2026-10-17', start: '18:00', end: '21:00', hostId: 'darius' })
-export async function createSession({ title, date, start, end, hostId = HOST_ID }) {
+export async function createSession({ title, date, start, end, hostId = me() }) {
   await wait(DELAY.write)
-  if (hostId !== HOST_ID && !personById(hostId)) throw new Error('This person does not exist.')
+  if (!me()) throw new Error('Log in to create a session.')
+  if (hostId !== me() && !personById(hostId)) throw new Error('This person does not exist.')
   const session = {
     id: `s${db.seq++}`,
     title: title.trim(),
@@ -1589,7 +1699,7 @@ export async function createSession({ title, date, start, end, hostId = HOST_ID 
     status: 'inviting',
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    members: [{ id: hostId, role: 'host', state: 'joined' }, ...(hostId === HOST_ID ? [] : [{ id: HOST_ID, role: 'guest', state: 'joined' }])],
+    members: [{ id: hostId, role: 'host', state: 'joined' }, ...(hostId === me() ? [] : [{ id: me(), role: 'guest', state: 'joined' }])],
     locations: {},
     meeting: null,
     spots: emptySpots(),
@@ -1633,7 +1743,7 @@ function checkSessionFields({ title, date, start, end }) {
 export async function updateSession(id, fields) {
   await wait(DELAY.write)
   const session = sessionById(id)
-  if (session.hostId !== HOST_ID) throw new Error('Only the host can change a session.')
+  if (session.hostId !== me()) throw new Error('Only the host can change a session.')
   if (session.status !== 'inviting') throw new Error('The date and times can only change before the session starts.')
   Object.assign(session, checkSessionFields(fields))
   return touch(session, 'session')
@@ -1725,7 +1835,7 @@ function assertSpotsOpen(session, personId) {
 
 // How to call: assertHost(session, 'confirm a spot') (throws unless the signed-in person is the host)
 function assertHost(session, what) {
-  if (session.hostId !== HOST_ID) throw new Error(`Only the host can ${what}.`)
+  if (session.hostId !== me()) throw new Error(`Only the host can ${what}.`)
 }
 
 // Settle on a spot: it becomes the meeting area and the session moves to Voting. The method says how it was chosen:
@@ -2099,7 +2209,7 @@ export async function getPlan(id) {
       topVotes: Math.max(0, ...optionIds.map((v) => counts[v] || 0)),
       tied: P.leader(optionIds, votes) ? [] : optionIds.filter((v) => counts[v] && counts[v] === Math.max(...optionIds.map((o) => counts[o] || 0))),
       totalVotes: Object.keys(votes).length,
-      myVote: votes[HOST_ID] || null,
+      myVote: votes[me()] || null,
     }
   })
   return {
@@ -2385,7 +2495,7 @@ export async function roamNearby(id, { point, categories } = {}) {
     }),
     empty: answer.empty,
     widened: answer.widened,
-    blocked: proposeBlock({ stops: stopIds.length, mine: proposals.filter((p) => p.by === HOST_ID).length, total: proposals.length }),
+    blocked: proposeBlock({ stops: stopIds.length, mine: proposals.filter((p) => p.by === me()).length, total: proposals.length }),
   }
 }
 
@@ -2406,7 +2516,7 @@ export async function proposeStop(id, personId, venueId) {
   if (stops.some((s) => s.venueId === venueId)) throw new Error('That place is already in the plan.')
   const proposals = proposalsOf(session)
   if (proposals.some((p) => p.venueId === venueId)) return summary(session)
-  const block = proposeBlock({ stops: stops.length, mine: proposals.filter((p) => p.by === personId).length, total: proposals.length, you: personId === HOST_ID, name: nameOf(personId) })
+  const block = proposeBlock({ stops: stops.length, mine: proposals.filter((p) => p.by === personId).length, total: proposals.length, you: personId === me(), name: nameOf(personId) })
   if (block) throw new Error(block)
   db.venues[venueId] ||= clone(venue)
   session.proposals = [...proposals, { id: `pp${db.seq++}`, venueId, by: personId, at: Date.now() }]
@@ -2425,9 +2535,9 @@ export async function resolveProposal(id, proposalId, accept) {
   const proposals = proposalsOf(session)
   const proposal = proposals.find((p) => p.id === proposalId)
   if (!proposal) return summary(session)
-  const isHost = session.hostId === HOST_ID
+  const isHost = session.hostId === me()
   if (accept && !isHost) throw new Error('Only the host can add a place to the plan.')
-  if (!accept && !isHost && proposal.by !== HOST_ID) throw new Error('Only the host, or the person who proposed it, can dismiss it.')
+  if (!accept && !isHost && proposal.by !== me()) throw new Error('Only the host, or the person who proposed it, can dismiss it.')
   if (accept) {
     const { stops } = planOf(session)
     const venue = venueById(proposal.venueId)
@@ -2502,9 +2612,10 @@ export async function endPlan(id) {
   session.replan = null
   clearProposals(session)
   for (const personId of activeIds(session)) {
-    db.stats[personId].meetups += 1
-    db.stats[personId].points += POINTS_PER_MEETUP
-    db.stats[personId].seasonPoints += POINTS_PER_MEETUP
+    const stats = statsOf(personId)
+    stats.meetups += 1
+    stats.points += POINTS_PER_MEETUP
+    stats.seasonPoints += POINTS_PER_MEETUP
   }
   emit({ type: 'stats' })
   return touch(session, 'session')
@@ -2554,7 +2665,7 @@ export async function listRedemptions() {
 export async function redeemReward(rewardId) {
   await wait(DELAY.write)
   const reward = REWARDS.find((r) => r.id === rewardId)
-  const stats = db.stats[HOST_ID]
+  const stats = statsOf(me())
   if (!reward) throw new Error('This voucher does not exist.')
   if (stats.points < reward.cost) throw new Error(`You need ${coins(reward.cost - stats.points)} more for this voucher.`)
   stats.points -= reward.cost

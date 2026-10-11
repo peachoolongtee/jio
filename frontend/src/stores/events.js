@@ -2,7 +2,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '@/lib/api.js'
-import { HOST_ID } from '@/lib/mock/people.js'
+import { currentUserId } from '@/lib/currentUser.js'
 import { moveItem } from '@/lib/planner/itinerary.js'
 
 // Who a session in Locating is waiting for: the people in it who have not set where they start. The meeting area
@@ -27,7 +27,7 @@ export const useEventsStore = defineStore('events', () => {
   // The Confirm dialog's suggested order by session: { key, loading, answer, failed } for the newest question asked.
   const orders = ref({})
 
-  // Ian's current session: the newest one that is still going, otherwise the newest one.
+  // The signed-in person's current session: the newest one that is still going, otherwise the newest one.
   const current = computed(() => {
     const live = sessions.value.find((s) => !['completed', 'cancelled'].includes(s.status))
     return live || sessions.value[0] || null
@@ -81,13 +81,13 @@ export const useEventsStore = defineStore('events', () => {
   // Invites from the app are pending until each friend accepts.
   const invite = act((id, personIds) => api.inviteFriends(id, personIds, { pending: true }))
   const start = act(api.startSession)
-  const setMyLocation = (id, which, place) => act(api.setLocation)(id, HOST_ID, which, place)
+  const setMyLocation = (id, which, place) => act(api.setLocation)(id, currentUserId(), which, place)
   const useArea = act(api.useMeetingArea)
   // Meeting spots. The first three act as the signed-in person; the host confirms a spot or sets a known place.
   // How to call: suggestMySpot('s1', 'bugis', { here: true }), approveMySpot('s1', 'bugis', true), withdrawMySpot('s1')
-  const suggestMySpot = (id, areaId, options) => act(api.suggestSpot)(id, HOST_ID, areaId, options)
-  const withdrawMySpot = (id) => act(api.withdrawSpot)(id, HOST_ID)
-  const approveMySpot = (id, areaId, on) => act(api.approveSpot)(id, HOST_ID, areaId, on)
+  const suggestMySpot = (id, areaId, options) => act(api.suggestSpot)(id, currentUserId(), areaId, options)
+  const withdrawMySpot = (id) => act(api.withdrawSpot)(id, currentUserId())
+  const approveMySpot = (id, areaId, on) => act(api.approveSpot)(id, currentUserId(), areaId, on)
   const confirmSpot = act(api.confirmSpot)
   const setKnownPlace = act(api.setKnownPlace)
   const cancel = act(api.cancelSession)
@@ -100,10 +100,10 @@ export const useEventsStore = defineStore('events', () => {
   const endPlan = act(api.endPlan)
   // Roam. The first acts as the signed-in person; the host adds a proposed place to the plan or leaves it out, and the
   // person who proposed it may take it back. How to call: proposeMyStop('s1', 'v25'), resolveProposal('s1', 'pp7', true)
-  const proposeMyStop = (id, venueId) => act(api.proposeStop)(id, HOST_ID, venueId)
+  const proposeMyStop = (id, venueId) => act(api.proposeStop)(id, currentUserId(), venueId)
   const resolveProposal = act(api.resolveProposal)
 
-  const addPhoto = (id, src) => act(api.addPhoto)(id, HOST_ID, src)
+  const addPhoto = (id, src) => act(api.addPhoto)(id, currentUserId(), src)
   const deletePhoto = act(api.deletePhoto)
 
   async function setTravelMode(id, legIndex, mode) {
@@ -175,7 +175,8 @@ export const useEventsStore = defineStore('events', () => {
       if (itineraries.value[event.sessionId] !== undefined) await loadItinerary(event.sessionId)
       if (event.type === 'photos' && photos.value[event.sessionId] !== undefined) await loadPhotos(event.sessionId)
     }
-    if (event.type === 'user' || event.type === 'conditions') await loadSessions()
+    // 'people': a real person's profile was read, so the names on every session may have changed.
+    if (event.type === 'user' || event.type === 'conditions' || event.type === 'people') await loadSessions()
   })
 
   return {

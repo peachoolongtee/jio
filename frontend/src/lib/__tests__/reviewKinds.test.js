@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { FOOD_KINDS, REVIEW_KINDS, reviewKind, reviewsFor } from '../mock/reviews.js'
 import { cardLine, orderReviews, pickReview, placeFromOption, reviewLabel, reviewRank, snippet } from '../reviewPick.js'
 import { VENUES } from '../mock/venues.js'
+import { bindCurrentUser } from '../currentUser.js'
 
 // The sets, read back out of the module the only way it is public: by asking for the reviews of a place of each kind.
 // A venue id is tried until every text of the set has been seen.
@@ -187,6 +188,8 @@ describe('the review a card shows', () => {
     expect(pickReview(REVIEWS, { outing: ['siti'], friends: [] }).personId).toBe('siti')
   })
   it('never chooses the signed-in person\'s own review', () => {
+    // The signed-in person is the sample person Ian here, as for the demo account.
+    bindCurrentUser(() => 'ian')
     const own = [review('own', 'ian', 'Ian'), review('r2', 'nicole', 'Nicole')]
     expect(pickReview(own, { outing: ['ian'], friends: ['ian', 'nicole'] }).personId).toBe('nicole')
     expect(pickReview(own, { outing: ['ian'], friends: ['ian'] })).toBeNull()
