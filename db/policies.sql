@@ -7,8 +7,9 @@
 -- before it starts, starts it and cancels it. A member writes only their own areas, exact place,
 -- picks and votes, and only while the session is open; they can delete their own exact place at
 -- any time. Everything else is written by the server, which uses the service key and is not bound by
--- these rules: opting out, meeting areas, the radius, slots, options, the itinerary, the ledger and
--- the route cache. Logged-out visitors can call two functions and nothing else.
+-- these rules: opting out, meeting areas, the list of meeting spots and its travel times, the radius,
+-- slots, options, the itinerary, Roam proposals, the ledger and the route cache. The one exception on
+-- the spot list is "Works for me": a member writes their own approvals while the session is locating. Logged-out visitors can call two functions and nothing else.
 
 -- ── Row-level security on every table ───────────────────────────────────
 
@@ -24,6 +25,10 @@ alter table public.votes enable row level security;
 alter table public.stops enable row level security;
 alter table public.commute_ledger enable row level security;
 alter table public.route_cache enable row level security;
+alter table public.session_spots enable row level security;
+alter table public.session_spot_times enable row level security;
+alter table public.spot_approvals enable row level security;
+alter table public.stop_proposals enable row level security;
 
 -- ── Accounts ────────────────────────────────────────────────────────────
 -- The rules that were already on the "jio" project, reproduced so the test project matches.
@@ -121,6 +126,21 @@ grant insert (slot_id, user_id, venue_id) on public.votes to authenticated;
 grant update (venue_id) on public.votes to authenticated;
 grant delete on public.votes to authenticated;
 
+-- Meeting spots. Signed-in users start from nothing, as above. Members read the list, its travel times,
+-- the approvals and the Roam proposals; the server writes all but approvals.
+revoke all on public.session_spots, public.session_spot_times, public.spot_approvals, public.stop_proposals
+  from anon;
+revoke all on public.session_spots, public.session_spot_times, public.spot_approvals, public.stop_proposals
+  from authenticated;
+grant select on public.session_spots, public.session_spot_times, public.spot_approvals, public.stop_proposals
+  to authenticated;
+grant all on public.session_spots, public.session_spot_times, public.spot_approvals, public.stop_proposals
+  to service_role;
+
+-- A member says "Works for me" on a spot, and takes it back. There is nothing to change in an approval.
+grant insert (session_id, area_id, user_id) on public.spot_approvals to authenticated;
+grant delete on public.spot_approvals to authenticated;
+
 -- ── Sessions: policies ──────────────────────────────────────────────────
 -- Each policy is dropped first so this file can be run again after a change.
 -- The first group of drops removes policies from an earlier version of this file.
@@ -203,6 +223,33 @@ drop policy if exists votes_delete_own on public.votes;
 create policy votes_delete_own on public.votes for delete to authenticated
   using (user_id = (select auth.uid()) and slot_id in (select public.my_votable_slot_ids()));
 
+-- Meeting spots, their travel times and Roam proposals: joined members read; only the server writes.
+-- Someone who opted out reads none of them, which is stricter than slots and stops above.
+-- A suggestion changes what the rest of the group is offered and needs travel times only the server can
+-- work out, so members suggest through the server. So do proposals: the server checks the venue exists,
+-- as it does for a place a member asks to add to a slot.
+drop policy if exists session_spots_select on public.session_spots;
+create policy session_spots_select on public.session_spots for select to authenticated
+  using (session_id in (select public.my_joined_session_ids()));
+drop policy if exists session_spot_times_select on public.session_spot_times;
+create policy session_spot_times_select on public.session_spot_times for select to authenticated
+  using (session_id in (select public.my_joined_session_ids()));
+drop policy if exists spot_approvals_select on public.spot_approvals;
+create policy spot_approvals_select on public.spot_approvals for select to authenticated
+  using (session_id in (select public.my_joined_session_ids()));
+drop policy if exists stop_proposals_select on public.stop_proposals;
+create policy stop_proposals_select on public.stop_proposals for select to authenticated
+  using (session_id in (select public.my_joined_session_ids()));
+
+-- Works for me: each person adds and removes only their own approval, only while they are joined and the
+-- session is locating. The key to session_spots stops an approval for a spot that is not listed.
+drop policy if exists spot_approvals_insert_own on public.spot_approvals;
+create policy spot_approvals_insert_own on public.spot_approvals for insert to authenticated
+  with check (user_id = (select auth.uid()) and session_id in (select public.my_locating_session_ids()));
+drop policy if exists spot_approvals_delete_own on public.spot_approvals;
+create policy spot_approvals_delete_own on public.spot_approvals for delete to authenticated
+  using (user_id = (select auth.uid()) and session_id in (select public.my_locating_session_ids()));
+
 -- The itinerary and the ledger: members read; only the server writes.
 drop policy if exists stops_select on public.stops;
 create policy stops_select on public.stops for select to authenticated
@@ -219,6 +266,7 @@ create policy commute_ledger_select on public.commute_ledger for select to authe
 
 revoke execute on function
   public.my_session_ids(), public.my_open_session_ids(), public.my_slot_ids(), public.my_votable_slot_ids(),
+  public.my_joined_session_ids(), public.my_locating_session_ids(),
   public.is_session_host(uuid), public.invite_preview(text), public.join_session(text),
   public.session_member_needs(uuid), public.set_updated_at(), public.touch_member_preferences(),
   public.add_host_membership(), public.guard_session_changes()
@@ -227,6 +275,7 @@ revoke execute on function
 -- The policies above call these as the signed-in user. Each answers only about the caller.
 grant execute on function
   public.my_session_ids(), public.my_open_session_ids(), public.my_slot_ids(), public.my_votable_slot_ids(),
+  public.my_joined_session_ids(), public.my_locating_session_ids(),
   public.is_session_host(uuid)
   to authenticated;
 
@@ -241,7 +290,7 @@ grant execute on function public.session_member_needs(uuid) to service_role;
 -- Clients subscribe to these tables, filtered by session. Row-level security applies to inserts
 -- and updates: a client only receives rows it is allowed to read. Delete events are NOT filtered.
 -- They carry only the deleted row's key, so any signed-in subscriber can learn that a
--- (session_id, user_id) or (slot_id, user_id) pair was removed, and nothing else about it. The ids
+-- (session_id, user_id), (slot_id, user_id) or (session_id, area_id, user_id) key was removed, and nothing else about it. The ids
 -- are random and open no access on their own. session_member_places is left out altogether.
 -- This block only adds tables: taking one out of live updates needs its own migration.
 
@@ -250,7 +299,10 @@ declare
   t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['sessions', 'session_members', 'slots', 'slot_options', 'votes', 'stops'] loop
+    foreach t in array array[
+      'sessions', 'session_members', 'slots', 'slot_options', 'votes', 'stops',
+      'session_spots', 'session_spot_times', 'spot_approvals', 'stop_proposals'
+    ] loop
       if not exists (
         select 1 from pg_publication_tables
         where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t

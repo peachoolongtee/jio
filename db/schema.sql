@@ -158,7 +158,9 @@ create table if not exists public.sessions (
   radius_meters integer check (radius_meters between 100 and 3000),
   -- The meeting area. Server only, written after the planner has run.
   meeting_area_id text,
-  meeting_method text check (meeting_method in ('same', 'fairest', 'centre')),
+  -- How the meeting area was settled: the planner's own pick ('same', 'fairest', 'centre'), the spot the
+  -- group approved most ('voted') or a spot the host chose regardless ('chosen').
+  meeting_method text check (meeting_method in ('same', 'fairest', 'centre', 'voted', 'chosen')),
   meeting_max_minutes integer,
   meeting_total_minutes integer,
   meeting_count integer,
@@ -174,6 +176,49 @@ create table if not exists public.sessions (
   check (end_time > start_time)
 );
 create index if not exists sessions_host_id_idx on public.sessions (host_id);
+
+-- Why the stops are in the order they are in, written when the host confirms the itinerary. Server only.
+-- reason is one short sentence; source says whether the AI or the planner's own rules chose the order.
+-- Both are set or both are null; the server clears them when someone moves a stop by hand.
+alter table public.sessions
+  add column if not exists order_reason text
+    constraint order_reason_length check (char_length(order_reason) <= 200),
+  add column if not exists order_source text
+    constraint order_source_values check (order_source in ('ai', 'rules'));
+
+-- Two changes to a sessions table that may already exist, so they are guarded constraints and not part
+-- of the table definition above:
+--   - meeting_method also accepts 'voted' and 'chosen'. The old check is dropped by what it checks, not
+--     by its name, and the new one is added under the name Postgres gave the old one.
+--   - order_reason and order_source come as a pair.
+do $sessions_checks$
+declare
+  old_check record;
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'sessions_meeting_method_check' and conrelid = 'public.sessions'::regclass
+      and pg_get_constraintdef(oid) like '%voted%'
+  ) then
+    for old_check in
+      select conname from pg_constraint
+      where conrelid = 'public.sessions'::regclass and contype = 'c'
+        and pg_get_constraintdef(oid) like '%meeting_method%'
+    loop
+      execute format('alter table public.sessions drop constraint %I', old_check.conname);
+    end loop;
+    alter table public.sessions add constraint sessions_meeting_method_check
+      check (meeting_method in ('same', 'fairest', 'centre', 'voted', 'chosen'));
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'order_note_pair' and conrelid = 'public.sessions'::regclass
+  ) then
+    alter table public.sessions add constraint order_note_pair
+      check ((order_reason is null) = (order_source is null));
+  end if;
+end;
+$sessions_checks$;
 
 -- Who is in a session and what they want to do. Every member can read every row here, so it holds
 -- only what the group may see: the area someone starts from, never the exact place.
@@ -347,6 +392,98 @@ create table if not exists public.stops (
 );
 create index if not exists stops_slot_id_idx on public.stops (slot_id);
 
+-- The earliest a stop can start, in minutes after midnight: a meal waits for its time, a shop for its
+-- opening. Written with the itinerary, by the server. Null means the stop has no earliest start.
+alter table public.stops
+  add column if not exists earliest_start_minute integer
+    constraint earliest_start_minute_range check (earliest_start_minute between 0 and 1439);
+
+-- ── Meeting spots ───────────────────────────────────────────────────────
+-- While a session is "locating" the group chooses where to meet from a short list of areas. The server
+-- writes the list and every travel figure on it; members read it and say which spots work for them.
+
+-- One area on a session's list: the app's own suggestions (at most three), then members' (one each).
+-- suggested_by is null for the app's own spot. A spot a member suggested leaves the list with them, and
+-- approvals follow their spot, so the server drops a spot by deleting its row. To re-price the list, update
+-- the rows that stay and delete only the ones that drop out: deleting and re-inserting all of them would
+-- also delete everyone's approvals.
+-- worst_minutes is the longest trip, mean_minutes the average, both whole minutes. approximate is true
+-- when the times are estimates and not routes. seq is the order the screens show, the app's first.
+create table if not exists public.session_spots (
+  session_id uuid not null references public.sessions (id) on delete cascade,
+  area_id text not null check (char_length(area_id) between 1 and 60),
+  suggested_by uuid,
+  -- "We are here already": a label on the spot, which any member may put on a suggestion.
+  here boolean not null default false,
+  seq integer not null check (seq between 0 and 49),
+  worst_minutes integer not null check (worst_minutes between 0 and 1440),
+  mean_minutes integer not null check (mean_minutes between 0 and 1440),
+  approximate boolean not null default false,
+  priced_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (session_id, area_id),
+  foreign key (session_id, suggested_by) references public.session_members (session_id, user_id)
+    on delete cascade,
+  check (mean_minutes <= worst_minutes),
+  -- Checked at the end of the transaction, so spots can swap places in one go.
+  unique (session_id, seq) deferrable initially deferred
+);
+-- A member has one suggestion at a time. This also indexes the key above.
+create unique index if not exists session_spots_one_suggestion_idx
+  on public.session_spots (session_id, suggested_by) where suggested_by is not null;
+
+-- Minutes from each person's start to a spot. A table and not a jsonb column, like
+-- session_members.travel_minutes and the ledger, so a person leaving the session takes their figures
+-- with them and a figure always belongs to a member of the session.
+create table if not exists public.session_spot_times (
+  session_id uuid not null,
+  area_id text not null,
+  user_id uuid not null,
+  minutes integer not null check (minutes between 0 and 1440),
+  primary key (session_id, area_id, user_id),
+  foreign key (session_id, area_id) references public.session_spots (session_id, area_id) on delete cascade,
+  foreign key (session_id, user_id) references public.session_members (session_id, user_id) on delete cascade
+);
+create index if not exists session_spot_times_member_idx on public.session_spot_times (session_id, user_id);
+
+-- "Works for me": one row per member and spot, any number of spots per member. This is the table a
+-- member writes: their own approval, while the session is "locating". The key to session_spots means
+-- only a listed spot can be approved, and an approval goes when its spot leaves the list.
+create table if not exists public.spot_approvals (
+  session_id uuid not null,
+  area_id text not null,
+  user_id uuid not null,
+  created_at timestamptz not null default now(),
+  primary key (session_id, area_id, user_id),
+  foreign key (session_id, area_id) references public.session_spots (session_id, area_id) on delete cascade,
+  foreign key (session_id, user_id) references public.session_members (session_id, user_id) on delete cascade
+);
+create index if not exists spot_approvals_member_idx on public.spot_approvals (session_id, user_id);
+
+-- A place a member proposes while the group is out (Roam). The host accepts it, which the server turns into a
+-- stop, or dismisses it. A proposal is pending until resolved_at is set. Written by the server only.
+create table if not exists public.stop_proposals (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references public.sessions (id) on delete cascade,
+  venue_id text not null check (char_length(venue_id) between 1 and 80),
+  proposed_by uuid not null,
+  created_at timestamptz not null default now(),
+  resolution text check (resolution in ('accepted', 'dismissed')),
+  resolved_at timestamptz,
+  resolved_by uuid references public.profiles (id) on delete set null,
+  foreign key (session_id, proposed_by) references public.session_members (session_id, user_id) on delete cascade,
+  -- A proposal is resolved or pending, never half of each.
+  check ((resolution is null) = (resolved_at is null)),
+  check (resolved_by is null or resolved_at is not null)
+);
+create index if not exists stop_proposals_session_id_idx on public.stop_proposals (session_id, created_at);
+create index if not exists stop_proposals_proposer_idx on public.stop_proposals (session_id, proposed_by);
+create index if not exists stop_proposals_resolved_by_idx on public.stop_proposals (resolved_by);
+-- The same place cannot wait for the host twice.
+create unique index if not exists stop_proposals_one_pending_idx
+  on public.stop_proposals (session_id, venue_id) where resolution is null;
+
 -- ── Fairness and routing ────────────────────────────────────────────────
 
 -- How far each person travelled for a session: in, between stops, and home. Written by the server
@@ -431,6 +568,31 @@ as $$
     and m.state = 'joined'
     and s.status = 'voting'
     and not sl.deleted;
+$$;
+
+-- The sessions the signed-in user has joined, in any stage. Used for reading meeting spots,
+-- approvals and proposals: someone who opted out reads none of them.
+--   select * from public.my_joined_session_ids();
+create or replace function public.my_joined_session_ids()
+returns setof uuid
+language sql stable security definer set search_path = ''
+as $$
+  select m.session_id from public.session_members m
+  where m.user_id = (select auth.uid()) and m.state = 'joined';
+$$;
+
+-- The sessions the signed-in user has joined that are choosing where to meet. Used for "Works for me".
+--   select * from public.my_locating_session_ids();
+create or replace function public.my_locating_session_ids()
+returns setof uuid
+language sql stable security definer set search_path = ''
+as $$
+  select m.session_id
+  from public.session_members m
+  join public.sessions s on s.id = m.session_id
+  where m.user_id = (select auth.uid())
+    and m.state = 'joined'
+    and s.status = 'locating';
 $$;
 
 -- True when the signed-in user hosts the session.
@@ -541,6 +703,8 @@ create or replace trigger session_member_places_set_updated_at before update on 
 create or replace trigger slots_set_updated_at before update on public.slots
   for each row execute function public.set_updated_at();
 create or replace trigger votes_set_updated_at before update on public.votes
+  for each row execute function public.set_updated_at();
+create or replace trigger session_spots_set_updated_at before update on public.session_spots
   for each row execute function public.set_updated_at();
 
 -- Records when a member last changed their picks, so the client cannot set that time itself.
