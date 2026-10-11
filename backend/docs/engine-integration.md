@@ -135,7 +135,7 @@ Added so the frontend loses nothing when it switches to the API. Each Converge a
 | Field | Where | Rule |
 |---|---|---|
 | `walkMinutes` | `geo.js` `walkMinutes()` | The frontend's formula: 5 km/h, streets 25% longer than a straight line, under 50 m is 0. Measured from the meeting point (Converge) or the current point (Roam). The estimated MRT walk uses the same function. |
-| `reasons` | `scoring.js` `reasonTags()` | The frontend's tags, in the same order, at most two: "Indoor" (in rain), "Easy trip home" (last stop, longest trip home 35 min or less), "Near MRT" (5 min or less), "Quiet at HH:MM", "Short walk" (5 min or less), "Hidden gem", "Budget friendly" (under $10). |
+| `reasons` | `scoring.js` `reasonTags()` | The frontend's tags, in the same order, at most two: "Indoor" (in rain), "Easy trip home" (last stop, longest trip home 35 min or less), "Near MRT" (5 min or less), "Quiet at HH:MM", "Short walk" (5 min or less), "Hidden gem", "Budget friendly" (under $10, and only when the price is known: never for a venue with `dataQuality.priceAssumed`, CDC sites included). |
 | `warnings` | `scoring.js` `rainWarning()` | `['rain']` when rain is likely (0.6 or more) at a venue that is not indoor and has exposure 2 or more. Same thresholds as `rainCheck()`. |
 | `swap` | `engine.js` `indoorSwap()` | For a rain warning, an indoor alternative not already shown and not in `currentOptionIds`. First the best-ranked indoor venue on the shortlist. If there is none, the nearest indoor venue that passed the filters, within 3 km. |
 

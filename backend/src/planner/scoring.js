@@ -148,15 +148,17 @@ const rainWarning = (venue, weatherByArea) =>
   rainLikelyAt(venue, weatherByArea) && venue.setting !== 'indoor' && venue.exposure >= RAIN_EXPOSED;
 
 // Can this venue's price back a claim such as "Budget friendly" or "within budget"? A typical price for a kind of
-// place (dataQuality.priceAssumed) is a guess: every OneMap attraction is given the same figure, ticketed or free.
-// CDC venues keep their claim, as before OneMap places were added: they are hawker stalls and heartland shops, and
-// whether a guessed price should speak for them too is the lead's decision.
+// place (dataQuality.priceAssumed) is a guess: every OneMap attraction is given the same figure, ticketed or free, and
+// every CDC food site is given $5 or $6 whatever its stalls charge. A guessed price makes no claim for any place,
+// whatever its source (the lead's decision of 11 October 2026). The price still counts in the score and in the
+// max_price_pp filter; only the words that call a place cheap or within budget need a price that is known.
 //
 // How to call:
 //   priceIsKnown({ avgPricePerPerson: 15, source: 'onemap', dataQuality: { priceAssumed: true } })   // false
+//   priceIsKnown({ avgPricePerPerson: 6, source: 'cdc', dataQuality: { priceAssumed: true } })       // false
 //   priceIsKnown({ avgPricePerPerson: 6 })                                                             // true
 export function priceIsKnown(venue) {
-  return !venue.dataQuality?.priceAssumed || venue.source === 'cdc';
+  return !venue.dataQuality?.priceAssumed;
 }
 
 /**
