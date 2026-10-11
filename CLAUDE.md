@@ -92,6 +92,8 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 
 **Round 14, 2026-10-11, decisions on meeting spots and Roam.** Nothing built; the handoff is `docs/handoffs/meeting-spots-and-roam.md`.
 
+**Round 17, 2026-10-11, real sign-up and login, the frontend half: built on `feat/login`.** Three frontend agents built the account layer over Supabase Auth, the login screen with its route and guard, and the planner client sending the token. The lead checked each and opened the screens. Nothing has run against the real Supabase project: that needs `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `frontend/.env` and the lead's own sign-up. The planner routes do not require a login yet. Rounds 15 and 16 (meeting spots) are on `feat/meeting-spots`.
+
 **Rounds 10 and 11, 2026-10-10, Home as a map of every meetup, and four problems the lead found by using the app: completed.** One frontend agent each. Both went to `main` from `feat/home-meetups-map`.
 
 **Round 9, 2026-10-10, OneMap made safe and everything reconciled: completed.** A backend agent capped OneMap calls per request and per process and fixed the token handling. The defect fixes, the external-APIs pull request and these changes went to `main` together from `feat/onemap-and-defect-fixes`.
@@ -166,6 +168,9 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-11 | `feat/google-places-integration` after round 12 | `pnpm --filter jio-frontend test`; `pnpm build` | 324 passed, 30 files; succeeded |
 | 2026-10-11 | `feat/demo-showcase` on top of round 12 | `pnpm test`; `pnpm --filter jio-frontend test`; `pnpm build` | 547 passed, 1 skipped; 353 passed, 33 files; succeeded |
 | 2026-10-11 | the pull request before the fixes, and `main` | OneMap route calls for one meeting-area request, 30 members, stubbed | 60 on both (round 9 recorded 59; the cap is 60) |
+| 2026-10-11 | `feat/login` at `aa64d15`, before round 17, on the Windows machine | frontend suite; build; backend suite | 353 passed, 33 files; succeeded; 544 passed, 3 failed, 1 skipped (Windows path and line-ending tests, fixed in part on `feat/meeting-spots`) |
+| 2026-10-11 | `feat/login`, working tree after round 17 | frontend suite; build | 457 passed, 40 files; succeeded |
+| 2026-10-11 | `feat/login`, working tree after round 17, made-up Supabase values | Browser check of `/login` and `/signup` at 320, 375, 744 and 1280 px | No horizontal overflow; the guard remembers the page and drops an outside address; a failed login keeps the email and empties the password |
 | 2026-10-10 | `fix/leaderboard-audit-defects`, working tree | `pnpm --filter jio-frontend test` | 229 passed, 25 files |
 | 2026-10-10 | `fix/leaderboard-audit-defects`, working tree | `pnpm test`, `pnpm build` | 317 passed, 1 skipped; succeeded |
 | 2026-10-10 | external-APIs pull request merged with `main`, throwaway worktree | `pnpm test`, also with outbound calls blocked | 334 passed, 1 skipped, both times |
