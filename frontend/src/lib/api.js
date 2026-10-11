@@ -15,6 +15,8 @@ import { reviewsFor } from './mock/reviews.js'
 import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
+import { ROAM, placeState, proposalsOf, proposeBlock } from './roam.js'
+import { itineraryAction } from './session.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
 import { localAccountsAllowed } from './supabase.js'
@@ -1547,6 +1549,13 @@ function summary(session) {
     findingMeeting: finding.has(session.id),
     findingSpots: findingSpots.has(session.id),
     spots: spotsView(session),
+    // Roam: places members proposed as the next stop and the host has not decided on yet, oldest first, each with who
+    // proposed it and the place. A session saved before Roam has none.
+    proposals: proposalsOf(session).flatMap((p) => {
+      const venue = venueById(p.venueId)
+      return venue ? [{ id: p.id, venueId: p.venueId, by: p.by, byName: nameOf(p.by), at: p.at, venue: clone(venue) }] : []
+    }),
+    hostName: nameOf(session.hostId),
     // The search radius the group chose, in metres, or null to let the planner widen on its own.
     radius: session.radius ?? null,
     slots: slots.map((s) => ({ ...s, optionCount: (session.options[s.id] || []).length })),
@@ -1864,6 +1873,8 @@ export async function optOut(id, personId) {
     // worked out again, and approvals for a spot that leaves with it are removed).
     delete session.spots.approvals[personId]
     if (session.status === 'locating') delete session.spots.suggestions[personId]
+    // The places they proposed as the next stop go with them.
+    if (proposalsOf(session).some((p) => p.by === personId)) session.proposals = proposalsOf(session).filter((p) => p.by !== personId)
     await applyTrigger(session, { kind: 'optout', personName: nameOf(personId) })
     await syncOptions(session)
     return touch(session, 'optout')
@@ -1882,6 +1893,7 @@ export async function cancelSession(id) {
   if (session.status === 'completed') throw new Error('A completed session cannot be cancelled.')
   session.status = 'cancelled'
   session.replan = null
+  clearProposals(session)
   return touch(session, 'session')
 }
 
@@ -2301,6 +2313,137 @@ export async function deleteStop(id, index) {
   return touch(session, 'plan')
 }
 
+// ── Roam: what next, and the places members propose ────────────────────────
+
+// Places the planner sent for a Roam list, by id, for this visit only (never saved). Proposing one saves its venue with the
+// proposal, so a list that was read never writes anything and a failed read leaves nothing half-written.
+const roamed = new Map()
+
+// A session without proposals (saved before Roam) has the key missing; one with proposals keeps an empty list.
+// How to call: clearProposals(session)
+function clearProposals(session) {
+  if (session.proposals !== undefined) session.proposals = []
+}
+
+// Is the plan under way, so places can be proposed? It is the moment the itinerary's footer says "Finish outing": a
+// confirmed plan on the session's day. Throws a sentence for each way it is not.
+// How to call: assertRoamOpen(session)
+function assertRoamOpen(session) {
+  if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
+  if (session.status !== 'confirmed' || !session.plan) throw new Error('Places can be proposed once the plan is confirmed.')
+  if (itineraryAction({ status: session.status, isToday: isSessionDay(session) }) !== 'finish') throw new Error('Places can be proposed on the day of the outing.')
+}
+
+// The stops of the plan with their times, as the itinerary lays them out.
+// How to call: timedStops(session) -> [{ slotId, venueId, venue, start, end, ... }]
+function timedStops(session) {
+  const { stops, modes = [] } = planOf(session)
+  const startAt = session.plan.startAt ?? Math.min(...stops.map((s) => s.plannedStart))
+  return P.buildItinerary(stops.map((s) => ({ ...s, venue: venueById(s.venueId) })), modes, startAt).stops
+}
+
+// "What next?": ranked places near where the group is, for a plan that is under way. The list is centred on the meeting
+// area unless `point` ({ lat, lng }, from "Use my location") says otherwise; the point goes to the planner for this one
+// request and is never stored, logged or returned, so nobody else can see it. `categories` narrows the list (any of eat,
+// drink, shop, activity); left out, the planner uses eat, drink and activity. The search is for the time the next stop
+// would start: when the last stop ends, or now if that has passed.
+// Each place is a voting-page card plus `id`, `travelMinutes`, `distanceM`, `state` ('stop' already in the plan, 'proposed',
+// or 'free') and, when proposed, `proposal: { id, by, byName }`. `blocked` is why the signed-in person cannot propose now,
+// or ''. `centre` names the area the list is about. Nothing is written.
+// How to call: await roamNearby('s1', { point: { lat: 1.3521, lng: 103.8198 }, categories: ['eat'] })
+export async function roamNearby(id, { point, categories } = {}) {
+  await wait(DELAY.read)
+  const session = sessionById(id)
+  assertRoamOpen(session)
+  if (!session.meeting) throw new Error('There is no meeting area yet.')
+  const own = point !== undefined && point !== null
+  if (own && !(Number.isFinite(point.lat) && Number.isFinite(point.lng) && P.inSingapore(point))) throw new Error('That place is outside Singapore. Pick an area instead.')
+  const meetingArea = areaById(session.meeting.areaId)
+  const here = own ? { lat: point.lat, lng: point.lng } : { lat: meetingArea.lat, lng: meetingArea.lng }
+  const now = new Date()
+  const lastEnd = timedStops(session).at(-1)?.end ?? 0
+  const startsAt = Math.min(1439, Math.max(lastEnd, now.getHours() * 60 + now.getMinutes()))
+  const answer = await planner.roamNearby({
+    members: activeIds(session).map((pid) => ({ id: pid, name: nameOf(pid) })),
+    current: here,
+    date: todayKey(),
+    time: P.fromMinutes(startsAt),
+    minutes: ROAM.minutes,
+    categories,
+    conditions: db.conditions,
+    topN: RANKED_MAX,
+  })
+  for (const place of answer.places) roamed.set(place.id, place.venue)
+  const stopIds = (session.plan?.stops || []).map((s) => s.venueId)
+  const proposals = proposalsOf(session)
+  const area = own ? areaForPoint(here) : meetingArea
+  return {
+    centre: { areaId: area.id, areaName: area.name },
+    places: answer.places.map((place) => {
+      const { state, proposal } = placeState(place.id, stopIds, proposals)
+      return { ...place, state, proposal: proposal ? { id: proposal.id, by: proposal.by, byName: nameOf(proposal.by) } : null }
+    }),
+    empty: answer.empty,
+    widened: answer.widened,
+    blocked: proposeBlock({ stops: stopIds.length, mine: proposals.filter((p) => p.by === HOST_ID).length, total: proposals.length }),
+  }
+}
+
+// A member puts a place from the Roam list forward as the next stop. Anyone in the session who has not opted out may,
+// only while the plan is under way. A place already in the plan cannot be proposed; one that is already proposed stays
+// the first person's proposal and this changes nothing. A member keeps at most 3 waiting, a session 10, and a full plan
+// (8 stops) takes no more. The place must be one the planner sent in this visit, or one already known.
+// How to call: await proposeStop('s1', 'faith', 'v25')
+export async function proposeStop(id, personId, venueId) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  assertRoamOpen(session)
+  if (!activeIds(session).includes(personId)) throw new Error('Only people in this session can do that.')
+  const venue = venueById(venueId) || roamed.get(venueId)
+  if (!venue) throw new Error('This place does not exist.')
+  if (!P.CATEGORIES.includes(venue.category)) throw new Error('This kind of place cannot be added to a plan.')
+  const { stops } = planOf(session)
+  if (stops.some((s) => s.venueId === venueId)) throw new Error('That place is already in the plan.')
+  const proposals = proposalsOf(session)
+  if (proposals.some((p) => p.venueId === venueId)) return summary(session)
+  const block = proposeBlock({ stops: stops.length, mine: proposals.filter((p) => p.by === personId).length, total: proposals.length, you: personId === HOST_ID, name: nameOf(personId) })
+  if (block) throw new Error(block)
+  db.venues[venueId] ||= clone(venue)
+  session.proposals = [...proposals, { id: `pp${db.seq++}`, venueId, by: personId, at: Date.now() }]
+  return touch(session, 'plan')
+}
+
+// The host adds a proposed place to the plan (accept) or leaves it out (dismiss); the person who proposed it may also
+// dismiss it, which is taking it back. Adding appends a stop at the end of the plan, starting when the last stop ends and
+// lasting 60 minutes, in the place's own category, and clears the note about the suggested order (the stops still
+// stand in the order they had). A proposal that is not there any more (already decided, or cleared by a re-plan, a finished
+// or a cancelled outing) changes nothing, so a second press is harmless.
+// How to call: await resolveProposal('s1', 'pp7', true)
+export async function resolveProposal(id, proposalId, accept) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  const proposals = proposalsOf(session)
+  const proposal = proposals.find((p) => p.id === proposalId)
+  if (!proposal) return summary(session)
+  const isHost = session.hostId === HOST_ID
+  if (accept && !isHost) throw new Error('Only the host can add a place to the plan.')
+  if (!accept && !isHost && proposal.by !== HOST_ID) throw new Error('Only the host, or the person who proposed it, can dismiss it.')
+  if (accept) {
+    const { stops } = planOf(session)
+    const venue = venueById(proposal.venueId)
+    if (!venue) throw new Error('This place does not exist.')
+    if (!stops.some((s) => s.venueId === proposal.venueId)) {
+      if (stops.length >= ROAM.stops) throw new Error(proposeBlock({ stops: stops.length, mine: 0, total: 0 }))
+      const last = timedStops(session).at(-1)
+      session.plan.stops = [...stops, { slotId: `roam-${proposal.id}`, category: venue.category, venueId: proposal.venueId, plannedStart: last.end, duration: ROAM.minutes }]
+      // The note was about the order the stops had; the plan is no longer exactly that.
+      session.plan.aiNote = null
+    }
+  }
+  session.proposals = proposals.filter((p) => p.id !== proposalId)
+  return touch(session, 'plan')
+}
+
 // After Confirmed, a change asks "Re-plan?". Accepting returns the session to Voting; declining keeps the plan.
 export async function respondReplan(id, accept) {
   await wait(DELAY.write)
@@ -2328,6 +2471,7 @@ async function reopenVoting(session, trigger) {
   const { meeting: next, pinnedSpot } = await computeMeeting(session)
   session.status = 'voting'
   session.plan = null
+  clearProposals(session)
   delete session.confirmedRanking
   session.meeting = next
   if (pinnedSpot) refreshSpot(session, pinnedSpot)
@@ -2356,6 +2500,7 @@ export async function endPlan(id) {
   session.status = 'completed'
   session.completedAt = Date.now()
   session.replan = null
+  clearProposals(session)
   for (const personId of activeIds(session)) {
     db.stats[personId].meetups += 1
     db.stats[personId].points += POINTS_PER_MEETUP

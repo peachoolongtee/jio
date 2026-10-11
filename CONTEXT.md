@@ -32,6 +32,10 @@ _Avoid_: Explore, discover
 A place from the Roam list that a member puts forward as the next stop. It becomes a stop only when the host accepts it.
 _Avoid_: Suggestion (that is a meeting spot), request
 
+**Proposed stop**:
+A proposal as the itinerary shows it, under the stops: a place with the name of whoever proposed it, no time and no number, waiting for the host to add it to the plan or leave it out. Once added it is a stop, last in the plan.
+_Avoid_: Pending stop, suggested stop
+
 **Stop**:
 A venue the group actually visits during an event. The venue the group converged on is the first stop.
 _Avoid_: Hop, leg, waypoint

@@ -83,3 +83,10 @@ export function startsIn(session, now = new Date()) {
   if (days === 1) return { text: `Tomorrow, ${session.start}`, tone: 'later' }
   return { text: `In ${days} days`, tone: 'later' }
 }
+
+// Is the plan under way, so that people can ask "What next?" and propose places? Yes for a confirmed plan on the session's
+// day, which is the same moment the itinerary's main button becomes "Finish outing".
+// How to call: roamOpen({ status: 'confirmed', isToday: true }) -> true
+export function roamOpen(session) {
+  return itineraryAction(session) === 'finish'
+}

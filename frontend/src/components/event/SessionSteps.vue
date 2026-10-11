@@ -4,7 +4,7 @@
 //   Invite    /invite: who is in, and for the host the way to add people while that is still open
 //   Locate    the session page (/sessions/:id, which is also the lobby while the session is inviting)
 //   Vote      /plan
-//   Itinerary /itinerary (and its photos and full map)
+//   Itinerary /itinerary (and its photos, full map and "What next?")
 const STEPS = [
   { key: 'create', label: 'Create', page: '/edit' },
   { key: 'invite', label: 'Invite', page: '/invite' },
@@ -13,6 +13,8 @@ const STEPS = [
   { key: 'itinerary', label: 'Itinerary', page: '/itinerary' },
 ]
 const ORDER = ['inviting', 'locating', 'voting', 'confirmed']
+// The pages that belong to the Itinerary step without being it: they go back to it.
+const ITINERARY_PAGES = ['/photos', '/map', '/roam']
 
 // The last step the session reached: 0 is Create, so a session that exists has always passed it. A cancelled one
 // stops where it was called off.
@@ -32,7 +34,7 @@ export function reachedStep(session) {
 // How to call: viewingStep({ status: 'voting' }, '/plan') -> 3
 export function viewingStep(session, tail) {
   if (!session) return 0
-  if (['/photos', '/map'].includes(tail)) return 4
+  if (ITINERARY_PAGES.includes(tail)) return 4
   if (tail === '/invite') return 1
   const index = STEPS.findIndex((step) => step.page && step.page === tail)
   if (index >= 0) return index
@@ -67,15 +69,15 @@ function tailOf(session, path) {
 
 // Where the back arrow goes from the page at `path`: the step before the one on screen, among those the session has
 // reached (a page opened by its address before its step was reached goes back to the last step that was). From the first
-// step the person can open, it is Home: Create for the host, Invite for a guest. The photos and the full map belong to the
-// Itinerary, so they go back to it. Create and Invite are one stop in the browser's history, so moving between them
+// step the person can open, it is Home: Create for the host, Invite for a guest. The photos, the full map and "What next?"
+// belong to the Itinerary, so they go back to it. Create and Invite are one stop in the browser's history, so moving between them
 // replaces. `label` says where it goes.
 // How to call: backFor({ id: 's1', status: 'voting' }, '/sessions/s1/plan', true) -> { label: 'Back to Locate', to: '/sessions/s1' }
 export function backFor(session, path, mine = true) {
   const home = { label: 'Back to Home', to: '/' }
   if (!session) return home
   const tail = tailOf(session, path)
-  if (['/photos', '/map'].includes(tail)) return { label: 'Back to Itinerary', to: `/sessions/${session.id}/itinerary` }
+  if (ITINERARY_PAGES.includes(tail)) return { label: 'Back to Itinerary', to: `/sessions/${session.id}/itinerary` }
   const viewing = viewingStep(session, tail)
   const target = Math.min(viewing - 1, reachedStep(session))
   if (target < 0 || (target === 0 && !mine)) return home

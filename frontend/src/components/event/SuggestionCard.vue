@@ -5,6 +5,9 @@
 // up to two reasons, a rain warning with an indoor swap, and who voted.
 // Colour coding: a stripe in the category colour. `leading` outlines the card in ink
 // and tags it "Leading"; `behind` (another place leads) mutes the vote count. `closed` makes the vote read-only.
+// Roam ("What next?") uses the same card without votes: `meta` replaces the walking line ("about 4 min away · 250 m") and
+// the `foot` slot replaces the vote row (a tag and a "Propose" button).
+//   <SuggestionCard :option="place" meta="about 4 min away · 250 m"><template #foot>...</template></SuggestionCard>
 import { computed } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
@@ -23,6 +26,7 @@ const props = defineProps({
   mine: { type: Boolean, default: false },
   closed: { type: Boolean, default: false },
   selected: { type: Boolean, default: false },
+  meta: { type: String, default: '' },
 })
 defineEmits(['vote', 'swap'])
 
@@ -40,7 +44,8 @@ const reasons = computed(() => props.option.reasons.filter((r) => !r.startsWith(
       <div class="sugg__title">
         <h4 class="title-md clamp-2">{{ option.venue.name }}</h4>
         <p class="sugg__meta caption-sm text-muted">
-          <span>about {{ option.walk }} min walk<template v-if="option.distanceM != null"> · {{ distanceText(option.distanceM) }}</template></span>
+          <span v-if="meta">{{ meta }}</span>
+          <span v-else>about {{ option.walk }} min walk<template v-if="option.distanceM != null"> · {{ distanceText(option.distanceM) }}</template></span>
           <PriceTier :price="option.venue.price" />
         </p>
       </div>
@@ -57,13 +62,15 @@ const reasons = computed(() => props.option.reasons.filter((r) => !r.startsWith(
     </AppButton>
 
     <div class="sugg__vote">
-      <span class="sugg__count">
-        <AvatarStack v-if="option.voters.length" :people="option.voters" :size="20" :max="4" />
-        <span class="caption" :class="{ 'sugg__lead': leading }">{{ option.votes }} {{ option.votes === 1 ? 'vote' : 'votes' }}</span>
-      </span>
-      <ChipButton v-if="!closed" radio check :selected="mine" :aria-label="`${mine ? 'Your vote' : 'Vote for'} ${option.venue.name}`" @click="$emit('vote', option)">
-        {{ mine ? 'Voted' : 'Vote' }}
-      </ChipButton>
+      <slot name="foot">
+        <span class="sugg__count">
+          <AvatarStack v-if="option.voters.length" :people="option.voters" :size="20" :max="4" />
+          <span class="caption" :class="{ 'sugg__lead': leading }">{{ option.votes }} {{ option.votes === 1 ? 'vote' : 'votes' }}</span>
+        </span>
+        <ChipButton v-if="!closed" radio check :selected="mine" :aria-label="`${mine ? 'Your vote' : 'Vote for'} ${option.venue.name}`" @click="$emit('vote', option)">
+          {{ mine ? 'Voted' : 'Vote' }}
+        </ChipButton>
+      </slot>
     </div>
   </article>
 </template>

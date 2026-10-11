@@ -19,6 +19,8 @@ import { FRIEND_PICKS, HOST_ID, PEOPLE } from '@/lib/mock/people.js'
 import { DEMO_ACCOUNT } from './demoAccount.js'
 import { makeDemoPhotos } from './demoPhotos.js'
 import { clearApprovals, friendSuggests, friendsApprove, hasSpots } from './spotDemo.js'
+import { friendProposes } from './roamDemo.js'
+import { roamOpen } from '@/lib/session.js'
 import { loadShowcase } from './showcase.js'
 import { placeKind } from '@/lib/placeImages.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -59,6 +61,13 @@ const friendsHint = computed(() => {
   if (status.value === 'inviting') return friendsIn.value.length ? 'Tap Start session on the session page first. Friends share their locations after that.' : 'Invite at least one friend and start the session first.'
   if (status.value === 'locating' && !hostLocated.value) return 'Spots open once two people have shared where they start, and the meeting point once everyone has. Set your From location on the session page.'
   return ''
+})
+
+// Roam: a friend can propose a place only while the plan is under way. Why the button may be off, so a click never seems to do nothing.
+const underway = computed(() => !!session.value && roamOpen(session.value))
+const roamHint = computed(() => {
+  if (!session.value || underway.value) return ''
+  return 'A friend can propose a place once the plan is confirmed and it is the session day. Turn on "It is the session day" under Conditions.'
 })
 
 // The meeting spots, while the group is choosing where to meet. Why the buttons may be off, so a click never seems to do nothing.
@@ -171,6 +180,9 @@ const simulatePhotos = () => act('photos', async () => {
 // A friend suggests a spot (here: they are there already), friends say which spots work for them, or every approval goes.
 // How to call: suggestSpot(true)
 const suggestSpot = (here) => act('spots', async () => { note.value = await friendSuggests(api, session.value, friendsIn.value, { here }) })
+// A friend proposes a place from "What next?" on the plan that is under way, so the host can add it or leave it out.
+// How to call: proposePlace()
+const proposePlace = () => act('roam', async () => { note.value = await friendProposes(api, session.value, friendsIn.value) })
 const approveSpots = () => act('spots', async () => { note.value = await friendsApprove(api, session.value, friendsIn.value) })
 const clearSpotApprovals = () => act('spots', async () => { note.value = await clearApprovals(api, session.value) })
 
@@ -273,6 +285,15 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       </AppButton>
       <AppButton block variant="secondary" :disabled="!session || !['confirmed', 'completed'].includes(status) || !!running" @click="simulatePhotos">
         {{ running === 'photos' ? 'Posting photos' : 'Fill the album with photos' }}
+      </AppButton>
+    </section>
+
+    <section class="demo-group">
+      <h3 class="title-md">What next?</h3>
+      <p v-if="roamHint" class="body-sm text-muted">{{ roamHint }}</p>
+      <p v-else class="body-sm text-muted">Needs the planner backend to list places near the meeting area.</p>
+      <AppButton block variant="secondary" :disabled="!underway || !!running" @click="proposePlace">
+        {{ running === 'roam' ? 'Proposing a place' : 'A friend proposes a place' }}
       </AppButton>
     </section>
 

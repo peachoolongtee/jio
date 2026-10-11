@@ -277,6 +277,54 @@ export async function rankSlot({ members, centre, date, slot, lastStop, currentO
   return { options: data.results.map(toOption), current: data.current.map(toOption), widened: !!data.notice, few, empty: null, weather }
 }
 
+// How long a Roam list is waited for. The planner routes each place from the current point, so a slow answer is given up
+// on sooner than a ranking: the person is standing somewhere, waiting.
+export const ROAM_TIMEOUT_MS = 10000
+
+// One Roam result as a card: the voting page's card (toOption) with the planner's time and distance from the current point.
+// `distanceM` is the straight-line distance in metres, since the cards say "250 m" and "1.2 km".
+function toRoamPlace(r) {
+  return {
+    ...toOption(r),
+    id: r.venueId,
+    travelMinutes: r.travelMinutes,
+    distanceKm: r.distanceKm,
+    distanceM: Number.isFinite(r.distanceKm) ? Math.round(r.distanceKm * 1000) : null,
+  }
+}
+
+// "What next?": the places near one point, best first. The point is used for this request only; nothing here keeps it,
+// and the answer does not repeat it.
+//   members:   [{ id, name }] the people in the meetup (the planner needs only an id)
+//   current:   { lat, lng } where the group is
+//   date, time: when the stop would start, "YYYY-MM-DD" and "HH:MM"; minutes: how long it would last
+//   categories: any of eat, drink, shop, activity. Left out, the planner uses eat, drink and activity.
+// Returns { places (best first, each as a voting-page card plus id, travelMinutes, distanceKm, distanceM), empty (the
+// planner's answer when nothing fits, else null), widened, weather }.
+// How to call: await roamNearby({ members: [{ id: 'ian' }], current: { lat: 1.35, lng: 103.85 }, date: '2026-10-11', time: '15:00', minutes: 60 })
+export async function roamNearby({ members, current, date, time, minutes, categories, conditions = {}, topN }) {
+  const { data } = await api.post(
+    '/api/roam',
+    {
+      members,
+      occasion: DEFAULT_OCCASION,
+      dateTime: `${date}T${time}`,
+      durationMinutes: minutes,
+      ...(categories?.length ? { categories } : {}),
+      current: point(current),
+      ...(conditions.rain ? { weatherCase: 'rain' } : {}),
+      unknownPolicy: UNKNOWN_POLICY,
+      topN,
+    },
+    { timeout: ROAM_TIMEOUT_MS },
+  )
+  const weather = data.weather ?? null
+  lastWeather.value = weather
+  if (data.status !== 'ok') return { places: [], empty: data, widened: false, weather }
+  if (!Array.isArray(data.results)) throw new Error(notJsonMessage())
+  return { places: data.results.map(toRoamPlace), empty: null, widened: !!data.notice, weather }
+}
+
 // How long the order is waited for: the host can confirm the voted order, so a slow answer is given up on.
 export const ARRANGE_TIMEOUT_MS = 10000
 
