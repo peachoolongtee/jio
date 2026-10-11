@@ -1005,3 +1005,17 @@ The lead asked what could carry on before the pitch and said "go" to five pieces
 | 21.6 | Lead | Verify each as it finishes; leave all unmerged | | Suites run by the lead on each branch | Pending |
 
 Held until after the pitch, because they edit the same screens: the signed-in account in place of the hard-coded one, the screen half of weather, and the walkthrough's later items.
+
+## Round 22: audit of the place-search pull request (2026-10-11, night)
+
+The lead asked whether the open pull requests overlap with work in flight, then for an audit of peachoolongtee/jio#132, "Search any place or location with Google and OneMap", by faithpho, from `feature/real-search` at `cf364da`: backend only, 10 files, 732 lines added. It is to be merged into `dev` after the pitch and before the weather branch, which edits six of the same files.
+
+- **Before any review, by the lead, on `dev` with the pull request merged in (no conflicts):** `pnpm test` 827 passed, 2 skipped, 30 files, and the same with outbound calls blocked, no call attempted; `pnpm --filter jio-frontend test` 807 passed, 56 files; `pnpm build` succeeded. The new Google fixture holds invented places.
+- **Read by the lead before delegating:** both new Google calls (a text search and a look-up by place id) go through the budget, timeout and pause that the Google Places audit added, with a 10-minute cache and the shape check.
+- **Known before the audit:** Google's terms, read on 11 October, forbid Places content on or beside a non-Google map; this pull request brings Google places to the Vote page and to the location sheet once a key is set. The decision is the lead's and is open on the map. With no key, the code does nothing.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 22.1 | Code reviewer, read-only | The new Google calls, cost per request, what reaches the browser, the search routes' rules, the engine change | Nothing | Every finding has a file, a line and a way to trigger it | Running |
+| 22.2 | Verifier | Run it with a fake Google and try to break it; count calls; check the frontend still works with Google results in its answers | Nothing in the repo | Each claim confirmed or refuted with output | Running |
+| 22.3 | Lead | Check findings, fix or record, merge into `dev` after the pitch | Fixes on `feat/real-search-integration` | Suites pass | Pending |
