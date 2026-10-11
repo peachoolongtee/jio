@@ -21,6 +21,8 @@ export const routes = [
   { path: '/rewards', name: 'rewards', component: () => import('@/views/RewardsView.vue'), meta: { tabs: true, tab: 'rewards', title: 'Rewards' } },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfileView.vue'), meta: { tabs: true, tab: 'profile', title: 'Profile' } },
   { path: '/people/:id', name: 'person', component: () => import('@/views/ProfileView.vue'), props: true, meta: { title: 'Profile' } },
+  // /demo exists only in a build that has the demo tour: development, or VITE_DEMO_TOUR=1 (lib/tourFlag.js; written out here so the bundler drops it).
+  ...(import.meta.env.DEV || import.meta.env.VITE_DEMO_TOUR === '1' ? [{ path: '/demo', name: 'demo', component: () => import('@/tour/DemoView.vue'), meta: { nav: false, public: true, title: 'Demo tour' } }] : []),
   { path: '/design-system', name: 'design-system', component: () => import('@/views/DesignSystemView.vue'), meta: { public: true, title: 'Design system' } },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue'), meta: { public: true, title: 'Not found' } },
 ]
