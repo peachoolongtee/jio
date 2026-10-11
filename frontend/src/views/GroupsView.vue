@@ -20,7 +20,7 @@ onMounted(() => Promise.all([events.loadSessions(), groups.loadPeople()]))
 
 const isPast = (s) => ['completed', 'cancelled'].includes(s.status)
 const list = computed(() => events.sessions.filter((s) => (tab.value === 'past' ? isPast(s) : !isPast(s))))
-const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
+const nameOf = (id) => (id === 'ian' ? auth.user?.name ?? '' : groups.nameOf(id))
 </script>
 
 <template>

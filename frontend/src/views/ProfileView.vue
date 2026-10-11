@@ -6,13 +6,18 @@
 //   Then the meetup graph, and Ian's sessions or the other person's recent activity.
 //   Ian's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
 //   the demo" note, because other people's profiles are hand-written.
-//   Signing out erases everything saved in this browser, so its dialog says so. A person with no season points has no
-//   rank: it reads "No rank yet".
+//   Signing out of a local account (one that lives only in this browser) erases everything saved here, so its dialog
+//   says so. Signing out of a real account keeps its meetups on this device and the dialog says that instead. A local
+//   account in a build with real accounts also gets a note saying it lives only in this browser. A person with no
+//   season points has no rank: it reads "No rank yet".
+//   Signing out empties the signed-in person while this screen is still drawn, so every read of the signed-in person
+//   is guarded.
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import BannerNote from '@/components/ui/BannerNote.vue'
 import CoinBadge from '@/components/ui/CoinBadge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import GridPulse from '@/components/ui/GridPulse.vue'
@@ -37,6 +42,17 @@ const events = useEventsStore()
 const groups = useGroupsStore()
 const missing = ref(false)
 const signOutOpen = ref(false)
+// Which dialog was opened: 'real' (the account is kept, the meetups stay here) or 'local' (everything is erased). It is
+// fixed when the dialog opens, because signing out empties the signed-in person while the dialog is still on screen.
+const signOutKind = ref('local')
+// A local account in a build where real accounts are on: it works, but only in this browser.
+const localOnly = computed(() => auth.realAccounts && !!auth.user?.local)
+
+// How to call: openSignOut()
+function openSignOut() {
+  signOutKind.value = auth.user && !auth.user.local ? 'real' : 'local'
+  signOutOpen.value = true
+}
 
 const personId = computed(() => props.id || 'ian')
 const isMe = computed(() => personId.value === 'ian')
@@ -56,7 +72,7 @@ watch(personId, load)
 watch(() => props.id, (id) => id === 'ian' && router.replace('/profile'), { immediate: true })
 
 const person = computed(() => groups.profiles[personId.value])
-const nameOf = (id) => (id === 'ian' ? auth.user.name : groups.nameOf(id))
+const nameOf = (id) => (id === 'ian' ? auth.user?.name ?? '' : groups.nameOf(id))
 const dateText = (d) => format(parseISO(d), 'd MMM yyyy')
 const colour = computed(() => personColour(personId.value))
 const rank = computed(() => groups.leaderboard.find((r) => r.id === personId.value)?.rank ?? null)
@@ -79,8 +95,10 @@ async function signOut() {
   signingOut.value = true
   signOutError.value = ''
   try {
+    // Never throws. Real accounts go to the login screen; with local accounts only, there is nothing to log in to.
+    const toLogin = auth.realAccounts
     await auth.signOut()
-    router.replace('/signup')
+    await router.replace(toLogin ? '/login' : '/signup')
   } catch (err) {
     signOutError.value = err?.message || 'Could not sign out. Try again.'
   } finally {
@@ -98,7 +116,7 @@ async function signOut() {
       <section class="hero" :style="{ '--pc': colour }" aria-label="About">
         <div class="hero__banner">
           <IconButton v-if="!isMe" label="Back" class="hero__btn hero__btn--left" @click="router.back()"><AppIcon name="back" /></IconButton>
-          <IconButton v-else label="Sign out" class="hero__btn hero__btn--right" @click="signOutOpen = true"><AppIcon name="logout" /></IconButton>
+          <IconButton v-else label="Sign out" class="hero__btn hero__btn--right" @click="openSignOut"><AppIcon name="logout" /></IconButton>
         </div>
         <div class="hero__body">
           <UserAvatar class="hero__avatar" :name="person.name" :src="person.photo" :person="person.id" :size="104" labelled />
@@ -133,6 +151,7 @@ async function signOut() {
       </section>
 
       <div class="screen__body">
+        <BannerNote v-if="isMe && localOnly" data-testid="local-account-note">This account lives only in this browser. Signing out erases it, and you cannot log in to it from another device.</BannerNote>
         <section class="card graph-card rise" style="--i: 1" aria-labelledby="graph-head">
           <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
           <MeetupGraph :history="person.history" :planned="person.planned" />
@@ -168,13 +187,14 @@ async function signOut() {
     </template>
     <div v-else class="screen__body profile__loading"><SkeletonRow v-for="n in 3" :key="n" avatar /></div>
 
-    <ModalDialog v-model:open="signOutOpen" title="Erase everything and sign out?">
+    <ModalDialog v-model:open="signOutOpen" :title="signOutKind === 'real' ? 'Sign out?' : 'Erase everything and sign out?'">
       <template #content>
-        <p class="body-md">Signing out erases everything saved in this browser: your account, meetups, votes and points. There is no way to sign back in to get it back.</p>
+        <p v-if="signOutKind === 'real'" class="body-md">Your meetups, votes and points stay in this browser. Log in here again to get them back. They are not saved to your account yet, so another device will not have them.</p>
+        <p v-else class="body-md">Signing out erases everything saved in this browser: your account, meetups, votes and points. There is no way to sign back in to get it back.</p>
         <p v-if="signOutError" class="body-sm text-error" role="alert">{{ signOutError }}</p>
       </template>
       <AppButton block variant="secondary" @click="signOutOpen = false">Stay signed in</AppButton>
-      <AppButton block variant="danger" :disabled="signingOut" @click="signOut">Erase and sign out</AppButton>
+      <AppButton block :variant="signOutKind === 'real' ? 'primary' : 'danger'" :disabled="signingOut" @click="signOut">{{ signOutKind === 'real' ? 'Sign out' : 'Erase and sign out' }}</AppButton>
     </ModalDialog>
   </main>
 </template>
