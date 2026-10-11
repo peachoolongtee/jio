@@ -264,12 +264,12 @@ What to show for each result:
 
 | Field | UI meaning |
 |---|---|
-| `explanation` | One sentence on why it ranked here. |
+| `explanation` | One sentence on why it ranked here. It says "within budget" only for a venue whose price is known (not `dataQuality.priceAssumed`). |
 | `verify` | Diet needs we only *guessed* from a stall name. Say "check the stall". |
 | `dietUnknown` | Diet needs we have *no* data on (lenient mode only). Say "halal status not known". |
 | `crowd` | `quiet`, `moderate`, `busy` or `unknown`. Always label it as an estimate ("Busy · est."). |
 | `walkMinutes` | Walk from the meeting point (Converge) or the current point (Roam). Same formula as the frontend's `walkMinutes`. |
-| `reasons` | Up to two tags, same ones and same order as the frontend: "Indoor" (when it rains), "Easy trip home" (last stop, everyone home within 35 min), "Near MRT", "Quiet at 12:30", "Short walk", "Hidden gem", "Budget friendly". |
+| `reasons` | Up to two tags, same ones and same order as the frontend: "Indoor" (when it rains), "Easy trip home" (last stop, everyone home within 35 min), "Near MRT", "Quiet at 12:30", "Short walk", "Hidden gem", "Budget friendly" (under $10, and only when the price is known: a venue with `dataQuality.priceAssumed` never gets it, whatever its source. That is every OneMap and CDC place, and a Google place with no price level). |
 | `warnings` | `["rain"]` when rain is likely (risk 0.6 or more) at an open-air or exposed venue. |
 | `swap` | With a rain warning: `{ "venueId", "name" }` of an indoor alternative that is not already shown or in `currentOptionIds`, or `null` if none is within 3 km. |
 | `approximate` | At least one travel time is an estimate: routing failed for it, or its venue did not fit the per-request cap on OneMap calls. |

@@ -18,6 +18,8 @@ import { filterByConstraints } from '../src/planner/filters.js';
 import { createOneMap } from '../src/services/onemap.js';
 import { dropKnownPlaces, loadPlanData } from '../src/db/venues.js';
 import { roam } from '../src/planner/engine.js';
+import * as A from '../src/planner/cdc-adapter.js';
+import { fromGooglePlace } from '../src/planner/google-adapter.js';
 
 // Rows as OneMap sends them (trimmed from real answers, 9 Oct 2026).
 const SPORT = { NAME: 'Bukit Canberra Sport Centre', DESCRIPTION: 'https://www.activesgcircle.gov.sg/facilities', ADDRESSBLOCKHOUSENUMBER: '21', ADDRESSPOSTALCODE: '756973', ADDRESSSTREETNAME: 'Canberra Link', LatLng: '1.44826336187663,103.822763637644' };
@@ -455,13 +457,51 @@ test('a typical price (priceAssumed) earns no "Budget friendly" tag and no "with
   assert.deepStrictEqual(tags({ avgPricePerPerson: 6 }), ['Budget friendly']);
   assert.deepStrictEqual(tags({ avgPricePerPerson: 6, dataQuality: { priceAssumed: false } }), ['Budget friendly']);
   assert.deepStrictEqual(tags({ avgPricePerPerson: 6, dataQuality: { priceAssumed: true } }), []);
-  // CDC venues keep the tag they had before OneMap places were added.
-  assert.deepStrictEqual(tags({ avgPricePerPerson: 6, source: 'cdc', dataQuality: { priceAssumed: true } }), ['Budget friendly']);
+  // CDC venues are no exception (the lead's decision of 11 October 2026): their $5 or $6 is a typical price too.
+  assert.deepStrictEqual(tags({ avgPricePerPerson: 6, source: 'cdc', dataQuality: { priceAssumed: true } }), []);
+  assert.deepStrictEqual(tags({ avgPricePerPerson: 6, source: 'cdc', dataQuality: { priceAssumed: false } }), ['Budget friendly']);
   const row = venue => ({ venue: { exposure: 1, ...venue }, factors: { price: 0, occasion: 90, preference: 90, weather: 20, antiRepeat: 20, rating: 90 }, weights: { price: 8 }, hasHistory: false });
   assert.match(explain(row({ avgPricePerPerson: 6 })), /within budget/i);
   assert.match(explain(row({ avgPricePerPerson: 6, dataQuality: { priceAssumed: false } })), /within budget/i);
   assert.doesNotMatch(explain(row(library)), /within budget/i);
   assert.strictEqual(explain(row({ avgPricePerPerson: 6, dataQuality: { priceAssumed: true } })), 'Best overall balance.');
+  // The same for a CDC place: no sentence while its price is typical, the sentence when its price is known.
+  assert.strictEqual(explain(row({ avgPricePerPerson: 6, source: 'cdc', dataQuality: { priceAssumed: true } })), 'Best overall balance.');
+  assert.match(explain(row({ avgPricePerPerson: 6, source: 'cdc', dataQuality: { priceAssumed: false } })), /within budget/i);
+});
+test('a typical price makes no claim for a CDC place, a OneMap place or a Google place; a known price still does', () => {
+  const tags = (venue) => reasonTags({ venue, walkMinutes: 20, crowd: 'busy', rainy: false, time: '12:00' });
+  const row = venue => ({ venue: { exposure: 1, ...venue }, factors: { price: 0, occasion: 90, preference: 90, weather: 20, antiRepeat: 20, rating: 90 }, weights: { price: 8 }, hasHistory: false });
+  const cdc = A.buildCdcVenues(A.cleanRecords({ lastUpdated: 'test', locations: [{ id: 'm_lone', name: 'LONE NOODLE', address: '1 Test Road, #01-01,  S555555;', postalCode: '555555', type: 'HAWKER_HEARTLAND_MERCHANT', LAT: 1.31, LON: 103.87, filters: { vouchers: { hawker_heartland_merchant: true }, secondary: { budgetmeal: true } }, lastResetDate: '2024-01-01' }] }), { profiles: {} })[0];
+  const oneMap = fromOneMapRow('libraries', { NAME: 'Test Library', LatLng: '1.3,103.8' });
+  const google = fromGooglePlace({ id: 'g1', displayName: { text: 'Test Cafe' }, location: { latitude: 1.3, longitude: 103.8 }, primaryType: 'cafe' }, '2026-10-13T12:00');
+  const googleWithLevel = fromGooglePlace({ id: 'g2', displayName: { text: 'Test Stall' }, location: { latitude: 1.3, longitude: 103.8 }, primaryType: 'cafe', priceLevel: 'PRICE_LEVEL_FREE' }, '2026-10-13T12:00');
+  assert.ok(cdc && cdc.avgPricePerPerson < 10 && cdc.dataQuality.priceAssumed);
+  assert.deepStrictEqual(tags(cdc), []);
+  assert.doesNotMatch(explain(row(cdc)), /within budget/i);
+  assert.deepStrictEqual(tags(oneMap), []);
+  assert.doesNotMatch(explain(row(oneMap)), /within budget/i);
+  // A Google place with no price level has a typical $20, which is not under $10 anyway; give it a low typical price to show the rule.
+  assert.strictEqual(google.dataQuality.priceAssumed, true);
+  assert.deepStrictEqual(tags({ ...google, avgPricePerPerson: 6 }), []);
+  assert.doesNotMatch(explain(row({ ...google, avgPricePerPerson: 6 })), /within budget/i);
+  // A Google place whose price comes from Google's price level is a known price.
+  assert.strictEqual(googleWithLevel.dataQuality.priceAssumed, false);
+  assert.strictEqual(googleWithLevel.avgPricePerPerson, 0);
+  assert.deepStrictEqual(tags(googleWithLevel), ['Budget friendly']);
+  assert.match(explain(row(googleWithLevel)), /within budget/i);
+  // A CDC place whose price is known (none exists in the data today) keeps both.
+  const known = { ...cdc, dataQuality: { ...cdc.dataQuality, priceAssumed: false } };
+  assert.deepStrictEqual(tags(known), ['Budget friendly']);
+  assert.match(explain(row(known)), /within budget/i);
+});
+test('every CDC venue the planner loads has its price labelled typical, so none can claim to be cheap', () => {
+  const data = loadPlanData();
+  const cdc = data.venues.filter(v => v.source === 'cdc');
+  assert.ok(cdc.length > 1000);
+  assert.deepStrictEqual(cdc.filter(v => v.dataQuality?.priceAssumed !== true).map(v => v.id), []);
+  const tags = (venue) => reasonTags({ venue, walkMinutes: 20, crowd: 'busy', rainy: false, time: '12:00' });
+  assert.deepStrictEqual(cdc.filter(v => tags(v).includes('Budget friendly')).map(v => v.id), []);
 });
 test('the price filter is untouched: a venue with a guessed price passes or fails max_price_pp exactly as before', () => {
   const ctx = (limit) => ({ members: [{ id: 'a' }], groupConstraints: [`max_price_pp:${limit}`], dateTime: '2026-10-13T13:00', categories: ['activity'], unknownPolicy: 'lenient' });
