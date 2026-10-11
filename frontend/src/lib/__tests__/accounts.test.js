@@ -5,6 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { STORAGE_KEY } from './planFixture.js'
 import { OTHER, PROFILE, SESSION, boot, fakeSupabase } from './authFixture.js'
 import { DEMO_ACCOUNT } from '../../components/dev/demoAccount.js'
+import { AUTH_STORAGE_KEY } from '../supabase.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn() }))
 vi.mock('../plannerApi.js', () => planner)
@@ -13,7 +14,10 @@ beforeAll(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-10-09T10:00:00'))
 })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+})
 
 const MESSAGE = (auth, code) => auth.MESSAGES[code]
 const everything = (storage) => JSON.stringify(storage.store)
@@ -44,18 +48,63 @@ describe('without Supabase set up (not configured)', () => {
 })
 
 describe('a save from before this change', () => {
-  it('still loads for a local account, with or without Supabase set up', async () => {
+  // A local save with an account in it, as an earlier visit or a hand-made save would leave.
+  async function localSave() {
     const first = await boot()
     await first.api.signUp({ ...PROFILE })
     await first.api.createSession(SESSION)
     const saved = first.storage.store[STORAGE_KEY]
     expect(JSON.parse(saved).version).toBe(8)
-    for (const fake of [null, fakeSupabase()]) {
-      const { api } = await boot(fake, { data: { [STORAGE_KEY]: saved } })
-      const user = await api.getUser()
-      expect(user).toMatchObject({ id: 'ian', name: 'Sam', local: true, authId: null })
-      expect(await api.listSessions()).toHaveLength(1)
-    }
+    return saved
+  }
+
+  it('still loads for a local account when Supabase is not set up', async () => {
+    const saved = await localSave()
+    const { api } = await boot(null, { data: { [STORAGE_KEY]: saved } })
+    expect(await api.getUser()).toMatchObject({ id: 'ian', name: 'Sam', local: true, authId: null })
+    expect(await api.listSessions()).toHaveLength(1)
+  })
+
+  it('still loads in a development build with Supabase set up, which keeps the demo account', async () => {
+    const saved = await localSave()
+    const { api } = await boot(fakeSupabase(), { data: { [STORAGE_KEY]: saved } })
+    expect(await api.getUser()).toMatchObject({ id: 'ian', name: 'Sam', local: true, authId: null })
+    expect(await api.listSessions()).toHaveLength(1)
+  })
+
+  it('is signed out in a production build with Supabase set up: a local account is not a login', async () => {
+    const saved = await localSave()
+    vi.stubEnv('DEV', false)
+    const { api, storage } = await boot(fakeSupabase(), { data: { [STORAGE_KEY]: saved } })
+    expect(await api.getUser()).toBeNull()
+    expect(await api.listSessions()).toEqual([])
+    // The save is left alone, not erased.
+    expect(storage.store[STORAGE_KEY]).toBe(saved)
+    // And it does not come back on a later check, nor when a real person signs up in the same browser.
+    expect(await api.getUser()).toBeNull()
+    await api.signUp({ ...OTHER })
+    expect(await api.getUser()).toMatchObject({ authId: 'uid-1', name: 'Kim' })
+    expect(storage.store[STORAGE_KEY]).toBe(saved)
+  })
+
+  it('loads again in a production build made with VITE_ALLOW_LOCAL_ACCOUNTS=1', async () => {
+    const saved = await localSave()
+    vi.stubEnv('DEV', false)
+    vi.stubEnv('VITE_ALLOW_LOCAL_ACCOUNTS', '1')
+    const { api } = await boot(fakeSupabase(), { data: { [STORAGE_KEY]: saved } })
+    expect(await api.getUser()).toMatchObject({ id: 'ian', name: 'Sam', local: true, authId: null })
+  })
+
+  it('is signed out from the very first load in a production build, before anyone asks', async () => {
+    const saved = await localSave()
+    vi.stubEnv('DEV', false)
+    // The client is set up before the data layer is loaded, as it is in a built app.
+    vi.resetModules()
+    vi.stubGlobal('localStorage', { getItem: (key) => (key === STORAGE_KEY ? saved : null), setItem() {}, removeItem() {} })
+    const auth = await import('../auth.js')
+    auth.useClient(fakeSupabase().client)
+    const api = await import('../api.js')
+    expect(await api.getUser()).toBeNull()
   })
 })
 
@@ -114,13 +163,33 @@ describe('signing up for a real account', () => {
     for (const text of Object.values(auth.MESSAGES)) expect(text).not.toMatch(/supabase|error|exception|!|undefined/i)
   })
 
-  it('still signs in when the display name and home area cannot be written, and says so', async () => {
+  it('signs in at once when the display name and home area cannot be written, and says so afterwards', async () => {
     const fake = fakeSupabase({ failWrites: true })
     const { api, auth } = await boot(fake)
+    const events = []
+    api.subscribe((e) => events.push(e))
     const user = await api.signUp({ ...PROFILE })
     expect(user.authId).toBe('uid-1')
-    expect(user.syncError).toBe(MESSAGE(auth, 'profile_not_saved'))
     expect(user.name).toBe('Sam')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(events).toContainEqual({ type: 'sync-failed', message: MESSAGE(auth, 'profile_not_saved') })
+  })
+
+  it('does not wait for the profile writes before the person is in, and writes both tables together', async () => {
+    const fake = fakeSupabase({ writesHang: true })
+    const { api } = await boot(fake)
+    const user = await Promise.race([api.signUp({ ...PROFILE }), new Promise((resolve) => setTimeout(() => resolve('waited'), 500))])
+    expect(user).toMatchObject({ authId: 'uid-1', name: 'Sam' })
+    // Both writes were sent without the first having answered.
+    expect(fake.state.writes.map((w) => w.table)).toEqual(['profiles', 'profile_private'])
+  })
+
+  it('checks the username once, on its own question, and not again when the account is created', async () => {
+    const fake = fakeSupabase()
+    const { api } = await boot(fake)
+    await api.checkUsername('sam')
+    await api.signUp({ ...PROFILE })
+    expect(fake.state.rpcCalls).toHaveLength(1)
   })
 })
 
@@ -171,7 +240,8 @@ describe('signing in', () => {
     await api.signOut()
     await api.signIn({ email: PROFILE.email, password: PROFILE.password })
     expect((await api.listSessions()).map((s) => s.title)).toEqual(['Saturday'])
-    expect(Object.keys(storage.store).sort()).toEqual([acctKey('uid-1'), acctKey('uid-2')])
+    // (The client's own session is stored beside the saves while someone is signed in.)
+    expect(Object.keys(storage.store).filter((key) => key !== AUTH_STORAGE_KEY).sort()).toEqual([acctKey('uid-1'), acctKey('uid-2')])
   })
 
   it('starts fresh from the profile in Supabase on a browser with no save for the account', async () => {
@@ -236,8 +306,81 @@ describe('after a reload', () => {
     const first = await boot(fake)
     await first.api.signUp({ ...PROFILE })
     fake.state.options.down = true
-    const { api } = await boot(fake, { data: {} })
+    // Only the client's stored session is kept: the account's own save is gone, so the profile tables are all there is.
+    const { api } = await boot(fake, { data: { [AUTH_STORAGE_KEY]: first.storage.store[AUTH_STORAGE_KEY] } })
     expect(await api.getUser()).toMatchObject({ authId: 'uid-1', username: 'sam', dob: '2001-05-06' })
+  })
+})
+
+describe('the date of birth of a real account', () => {
+  it('is kept in memory for the visit and never written to the local save, in any account\'s save', async () => {
+    const fake = fakeSupabase()
+    const { api, storage } = await boot(fake)
+    const user = await api.signUp({ ...PROFILE })
+    expect(user.dob).toBe('2001-05-06')
+    await api.createSession(SESSION)
+    expect(JSON.parse(storage.store[acctKey('uid-1')]).user).not.toHaveProperty('dob')
+    await api.updateUser({ dob: '2002-02-02', name: 'Sam T' })
+    expect((await api.getUser()).dob).toBe('2002-02-02')
+    await api.signOut()
+    // After sign-out nothing in the browser's storage holds a date of birth, in any key.
+    expect(everything(storage)).not.toMatch(/2001-05-06|2002-02-02/)
+    expect(JSON.parse(storage.store[acctKey('uid-1')]).user).not.toHaveProperty('dob')
+  })
+
+  it('is read back from the account when someone logs in again, and from the session after a reload', async () => {
+    const fake = fakeSupabase()
+    const first = await boot(fake)
+    await first.api.signUp({ ...PROFILE })
+    // After a reload the session's sign-up details have it.
+    const reloaded = await boot(fake, { data: first.storage.store })
+    expect((await reloaded.api.getUser()).dob).toBe('2001-05-06')
+    await reloaded.api.signOut()
+    const again = await boot(fake, { data: reloaded.storage.store })
+    const loggedIn = await again.api.signIn({ email: PROFILE.email, password: PROFILE.password })
+    expect(loggedIn.dob).toBe('2001-05-06')
+    // The client keeps its own session (which has the sign-up details) while someone is logged in; the app's saves do not.
+    const saves = Object.entries(again.storage.store).filter(([key]) => key !== AUTH_STORAGE_KEY)
+    expect(JSON.stringify(saves)).not.toContain('2001-05-06')
+    await again.api.signOut()
+    expect(everything(again.storage)).not.toContain('2001-05-06')
+  })
+
+  it('is dropped from a save an earlier version wrote, the next time it is saved', async () => {
+    const fake = fakeSupabase()
+    const first = await boot(fake)
+    await first.api.signUp({ ...PROFILE })
+    const key = acctKey('uid-1')
+    const old = JSON.parse(first.storage.store[key])
+    old.user.dob = '2001-05-06'
+    first.storage.store[key] = JSON.stringify(old)
+    const { api, storage } = await boot(fake, { data: first.storage.store })
+    await api.getUser()
+    await api.createSession(SESSION)
+    expect(storage.store[key]).not.toContain('2001-05-06')
+  })
+
+  it('is put back after a save that could not be written is rolled back', async () => {
+    const fake = fakeSupabase()
+    const { api, storage } = await boot(fake)
+    await api.signUp({ ...PROFILE })
+    // The browser's storage refuses this account's save, as a full one does.
+    const setItem = storage.setItem.bind(storage)
+    storage.setItem = (key, value) => {
+      if (key.startsWith(`${STORAGE_KEY}:acct:`)) throw Object.assign(new Error('The quota has been exceeded.'), { name: 'QuotaExceededError' })
+      return setItem(key, value)
+    }
+    await expect(api.updateUser({ name: 'Sam T' })).rejects.toThrow(/storage is full/)
+    storage.setItem = setItem
+    const user = await api.getUser()
+    expect(user.dob).toBe('2001-05-06')
+    expect(user.name).toBe('Sam')
+  })
+
+  it('is still kept in the save of a local account, as before', async () => {
+    const { api, storage } = await boot()
+    await api.signUp({ ...PROFILE })
+    expect(JSON.parse(storage.store[STORAGE_KEY]).user.dob).toBe('2001-05-06')
   })
 })
 

@@ -75,6 +75,8 @@ describe('the auth store with real accounts', () => {
     fill(store, PROFILE)
     await store.signUp()
     expect(store.signedIn).toBe(true)
+    // The write runs after the person is in, so its failure arrives a moment later.
+    await flush()
     expect(store.syncNotice).toMatch(/could not be saved to your account/)
   })
 
