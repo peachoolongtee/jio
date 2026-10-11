@@ -15,7 +15,7 @@ export default defineConfig({
   },
   // The tests run in Node, which compiles components for the server. A test that renders a component with its own tiny
   // stand-in for the page (src/lib/__tests__/miniDom.js) needs them compiled for the browser, so it is listed here.
-  test: { testTransformMode: { web: ['**/spotsScreen.test.js'] } },
+  test: { testTransformMode: { web: ['**/spotsScreen.test.js', '**/suggestionReview.test.js'] } },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
