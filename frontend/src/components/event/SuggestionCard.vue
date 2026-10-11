@@ -16,6 +16,7 @@ import CategoryIcon from '../ui/CategoryIcon.vue'
 import ChipButton from '../ui/ChipButton.vue'
 import InfoTag from '../ui/InfoTag.vue'
 import PriceTier from '../ui/PriceTier.vue'
+import RatingBadge from '../ui/RatingBadge.vue'
 import UserAvatar from '../ui/UserAvatar.vue'
 import { distanceText } from '@/lib/planner/format.js'
 import { placeImage } from '@/lib/placeImages.js'
@@ -50,7 +51,11 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
         <CategoryIcon class="sugg__cat" :category="option.venue.category" :size="28" />
       </span>
       <div class="sugg__title">
-        <h4 class="title-md clamp-2">{{ option.venue.name }}</h4>
+        <div class="sugg__name">
+          <h4 class="title-md clamp-2">{{ option.venue.name }}</h4>
+          <!-- The place's score, as on Home's cards and in the detail. Left out when the source gives none. -->
+          <RatingBadge v-if="option.venue.rating != null" :score="option.venue.rating" />
+        </div>
         <p class="sugg__meta caption-sm text-muted">
           <span>about {{ option.walk }} min walk<template v-if="option.distanceM != null"> · {{ distanceText(option.distanceM) }}</template></span>
           <PriceTier :price="option.venue.price" />
@@ -110,6 +115,10 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
 .sugg__cat { position: absolute; right: -6px; bottom: -6px; box-shadow: 0 0 0 2px var(--canvas); border-radius: var(--rounded-full); }
 .sugg__top { display: flex; align-items: flex-start; gap: var(--spacing-md); }
 .sugg__title { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-xxs); }
+/* The name on the left, the score at its top right. */
+.sugg__name { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-sm); }
+.sugg__name h4 { min-width: 0; margin: 0; }
+.sugg__name :deep(.rating) { padding-top: 3px; }
 .sugg__meta { display: flex; align-items: center; gap: var(--spacing-sm); }
 .sugg__tags { display: flex; flex-wrap: wrap; gap: var(--spacing-xs); }
 /* A long place name wraps inside the card instead of pushing the button past its edge. */

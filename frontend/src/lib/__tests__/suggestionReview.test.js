@@ -111,3 +111,26 @@ describe('the card\'s review line', () => {
     expect(review.text).not.toMatch(/food|stall|dish|portion|coffee|queue/i)
   })
 })
+
+describe('the card\'s score', () => {
+  it('shows the place\'s score with one decimal, named for a screen reader', () => {
+    const { page } = watch({ option: option({ venue: { ...VENUE, rating: 8.6 } }) })
+    expect(page.text()).toContain('8.6')
+    expect(page.all('span').some((el) => page.attr(el, 'aria-label') === 'Score 8.6 out of 10')).toBe(true)
+  })
+
+  it('shows no score, and no "null", when the place has none', () => {
+    for (const rating of [null, undefined]) {
+      const { page } = watch({ option: option({ venue: { ...VENUE, rating } }) })
+      expect(page.all('span').some((el) => /^Score /.test(page.attr(el, 'aria-label') || ''))).toBe(false)
+      expect(page.text()).not.toContain('null')
+    }
+  })
+
+  it('keeps the score on a closed card, and it is not a control', () => {
+    const { page, sent } = watch({ option: option({ venue: { ...VENUE, rating: 9 } }), closed: true })
+    expect(page.text()).toContain('9.0')
+    expect(page.all('button').filter((b) => !b.props['data-review-for'])).toHaveLength(0)
+    expect(sent.vote).toHaveLength(0)
+  })
+})
