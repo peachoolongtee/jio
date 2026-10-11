@@ -5,7 +5,7 @@
 //   One vote per person per category: voting for another place moves it, tapping your vote again takes it back.
 //   The plan is made from the categories people voted in, laid out in the session window.
 //   Step 7  "Confirm plan" once at least 2 people have voted.
-// The list and the map show the same places.
+// The list and the map show the same places, and the map has a key to the categories of the places on it.
 // Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
 // shows the message and the rest of the page stays usable.
 import { computed, onMounted, ref, watch } from 'vue'
@@ -29,6 +29,7 @@ import TextField from '@/components/ui/TextField.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
+import CategoryKey from '@/components/map/CategoryKey.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
 import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
@@ -240,7 +241,7 @@ async function confirm() {
 <template>
   <NotFoundView v-if="missing" />
   <main v-else-if="session" class="screen" data-testid="planner-view">
-    <SessionHeader :session="session" back="/" />
+    <SessionHeader :session="session" />
 
     <div class="screen__body">
       <SessionNotices :session="session" />
@@ -309,6 +310,7 @@ async function confirm() {
 
           <template #map>
             <PlannerMap :area="session.area" :places="mapPlaces" :selected="selected" label="Places map" @select="selected = $event" />
+            <CategoryKey :categories="mapPlaces.map((p) => p.category)" />
             <div v-if="selectedOption" class="pin-card" role="dialog" :aria-label="selectedOption.venue.name">
               <div class="row between gap-sm">
                 <img class="pin-card__photo" :src="placeImage(selectedOption.venue)" alt="" width="56" height="56" />
