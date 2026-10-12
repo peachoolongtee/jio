@@ -335,6 +335,23 @@ describe('the dietary question', () => {
   })
 })
 
+describe('the email question', () => {
+  it('does not move on from an address that is not one, and says why once the field is left', async () => {
+    const { view, store } = await setUp(fakeSupabase(), { step: 0, email: '' })
+    for (const bad of ['sam', 'sam@', 'sam@example', 'sam@example.c', 'sam@@example.com', 'sam..tan@example.com', 'sam @example.com']) {
+      view.type('input[type=email]', bad)
+      await view.click(mainButton(view))
+      expect(store.draft.step).toBe(0)
+    }
+    view.one('input[type=email]').dispatch('blur')
+    await view.tick()
+    expect(view.text()).toContain('Enter a valid email address, like name@example.com.')
+    view.type('input[type=email]', 'sam.tan@example.com.sg')
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 1)
+  })
+})
+
 describe('an email that already has an account', () => {
   // A sign-up screen on the first question, on a project where PROFILE's email is already registered.
   // How to call: const t = await registeredSetUp({ noEmailFunction: true })

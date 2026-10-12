@@ -47,6 +47,7 @@ import {
   todayIso,
   USERNAME_HINT,
   validateDob,
+  validateEmail,
   validateName,
   validateUsername,
 } from '@/lib/signupRules.js'
@@ -97,7 +98,10 @@ watch(
   },
 )
 
-const emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.value.email.trim()))
+const emailValid = computed(() => !validateEmail(draft.value.email))
+// The email's message shows once the person has left the field (or pressed Enter) with an address that is not one.
+const emailTouched = ref(false)
+const emailShown = computed(() => emailError.value || (emailTouched.value && draft.value.email ? validateEmail(draft.value.email) : ''))
 const checks = computed(() => passwordChecks(draft.value.password, auth.realAccounts))
 const today = todayIso()
 // A date input is empty until it holds a whole date, so only a full but impossible date shows a message.
@@ -206,6 +210,7 @@ async function emailFree() {
 // The Next / Finish button: check this question, then go on to the next one, or create the account on the last.
 // How to call: await next()
 async function next() {
+  if (step.value === 'email') emailTouched.value = true
   if (!canContinue.value || busy.value) return
   submitError.value = ''
   if (step.value === 'password' && reenter.value) {
@@ -373,7 +378,20 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
     <form class="screen__body signup__body" novalidate @submit.prevent="next">
       <template v-if="step === 'email'">
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Your email</h1>
-        <TextField v-model="draft.email" label="Email" type="email" autocomplete="email" inputmode="email" placeholder="name@example.com" :error="emailError" autofocus @input="emailError = ''" />
+        <TextField
+          v-model="draft.email"
+          label="Email"
+          type="email"
+          autocomplete="email"
+          inputmode="email"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder="name@example.com"
+          :error="emailShown"
+          autofocus
+          @input="emailError = ''"
+          @blur="emailTouched = true"
+        />
         <div v-if="auth.realAccounts" class="signup__have">
           <span class="body-md text-muted">Already have an account?</span>
           <AppButton variant="tertiary" underline to="/login">Log in</AppButton>
