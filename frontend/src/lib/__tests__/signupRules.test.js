@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { fieldForSignUpError, NAME_MAX, validateDob, validateName, validateUsername } from '../signupRules.js'
+import {
+  fieldForSignUpError,
+  NAME_MAX,
+  passwordRules,
+  validateDob,
+  validateEmail,
+  validateName,
+  validatePassword,
+  validateUsername,
+} from '../signupRules.js'
 
 const NOW = new Date(2026, 9, 9, 12, 0)
 
@@ -50,5 +59,33 @@ describe('fieldForSignUpError', () => {
     expect(fieldForSignUpError('Enter your name.')).toBe('name')
     expect(fieldForSignUpError('Your name can be up to 50 characters.')).toBe('name')
     expect(fieldForSignUpError('Something else')).toBe('')
+  })
+})
+
+
+describe('validateEmail', () => {
+  it('accepts ordinary addresses, with plus signs, dots and country domains', () => {
+    for (const ok of ['sam@example.com', 'sam.tan+jio@mail.co.sg', 'SAM@GMAIL.COM', ' sam@example.com ']) expect(validateEmail(ok)).toBe('')
+  })
+
+  it('refuses anything that is not an address, and asks for one when empty', () => {
+    expect(validateEmail('')).toBe('Enter your email address.')
+    for (const bad of ['sam', 'sam@', '@example.com', 'sam@example', 'sam@example.c', 'sam@@example.com', '.sam@example.com', 'sam.@example.com', 'sam..tan@example.com', 'sam tan@example.com', 'sam@-example.com', 'sam@example..com']) {
+      expect(validateEmail(bad)).toBe('Enter a valid email address, like name@example.com.')
+    }
+  })
+})
+
+describe('the password rule', () => {
+  it('needs 6 or more characters with a letter, a number and a symbol', () => {
+    expect(validatePassword('abc1!x')).toBe('')
+    expect(validatePassword('Sup3r-secret!')).toBe('')
+    for (const bad of ['', 'ab1!x', 'abcdef', '123456', '!!!!!!', 'abc123', 'abc!!!', '123!!!', 'abc 12 ']) {
+      expect(validatePassword(bad)).toBe('Use 6 or more characters, with a letter, a number and a symbol.')
+    }
+  })
+
+  it('lists each part for the checklist, a space not counting as a symbol', () => {
+    expect(passwordRules('a1 ').map((r) => r.ok)).toEqual([false, true, true, false])
   })
 })

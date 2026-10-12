@@ -59,6 +59,8 @@ export function fakeSupabase(options = {}) {
     signUpCalls: [],
     signInCalls: [],
     signOutCalls: [],
+    resetCalls: [],
+    passwordUpdates: [],
     refreshCalls: 0,
     rpcCalls: [],
     writes: [],
@@ -178,6 +180,27 @@ export function fakeSupabase(options = {}) {
       },
       async refreshSession() {
         return refresh()
+      },
+      // Answers the same for a registered and an unknown email, as Supabase does. 'limited@example.com' is rate limited.
+      async resetPasswordForEmail(email, opts) {
+        state.resetCalls.push({ email, options: opts })
+        if (state.options.down) return { data: null, error: retryable(0, 'Failed to fetch') }
+        if (email === 'limited@example.com') return { data: null, error: apiError(429, 'over_email_send_rate_limit', 'Email rate limit exceeded') }
+        return { data: {}, error: null }
+      },
+      // Changes the signed-in user's password. The password is not recorded in `passwordUpdates`, only that it changed.
+      async updateUser({ password }) {
+        if (state.options.down) return { data: { user: null }, error: retryable(0, 'Failed to fetch') }
+        const stored = read()
+        if (!stored) return { data: { user: null }, error: sessionMissing() }
+        const user = state.users.find((u) => u.id === stored.user.id)
+        if (password === user.password) {
+          return { data: { user: null }, error: apiError(422, 'same_password', 'New password should be different from the old password.') }
+        }
+        user.password = password
+        state.passwordUpdates.push(user.id)
+        fire('USER_UPDATED')
+        return { data: { user: publicUser(user) }, error: null }
       },
       onAuthStateChange(fn) {
         state.listeners.add(fn)

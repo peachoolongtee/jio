@@ -6,6 +6,39 @@ export const USERNAME_HINT = '3 to 20 characters: lowercase letters, numbers or 
 export const NAME_MAX = 50
 export const DOB_MIN = '1900-01-01'
 
+// An email address: something before the @, then a domain of dot-separated parts ending in 2 or more letters
+// (name@example.com, n.tan+jio@mail.co.sg). No spaces, no dot at either end of the name, no two dots in a row.
+const EMAIL_PATTERN = /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i
+
+// How to call: validateEmail('sam@example.com') -> ''
+export function validateEmail(value) {
+  const email = (value || '').trim()
+  if (!email) return 'Enter your email address.'
+  if (email.length > 254 || !EMAIL_PATTERN.test(email)) return 'Enter a valid email address, like name@example.com.'
+  return ''
+}
+
+// The password rule for real accounts: 6 or more characters, with at least one letter, one number and one symbol.
+export const PASSWORD_MIN = 6
+
+// Each part of the password rule, for a live checklist.
+// How to call: passwordRules('abc1!x') -> [{ label: '6 or more characters', ok: true }, ...]
+export function passwordRules(password) {
+  const text = password || ''
+  return [
+    { label: `${PASSWORD_MIN} or more characters`, ok: text.length >= PASSWORD_MIN },
+    { label: 'A letter', ok: /[a-z]/i.test(text) },
+    { label: 'A number', ok: /\d/.test(text) },
+    { label: 'A symbol', ok: /[^a-z0-9\s]/i.test(text) },
+  ]
+}
+
+// How to call: validatePassword('abc1!x') -> ''
+export function validatePassword(password) {
+  if (passwordRules(password).every((rule) => rule.ok)) return ''
+  return `Use ${PASSWORD_MIN} or more characters, with a letter, a number and a symbol.`
+}
+
 // How to call: validateUsername('ian_99') -> ''
 export function validateUsername(value) {
   if (!USERNAME_PATTERN.test(value || '')) return 'Use 3 to 20 lowercase letters, numbers or underscores.'

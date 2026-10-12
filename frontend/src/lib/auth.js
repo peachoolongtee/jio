@@ -37,6 +37,8 @@ export const MESSAGES = {
   unreachable: 'Jio could not be reached. You are seeing what was saved on this device.',
   try_again: 'Jio cannot check your login right now. Try again in a moment.',
   sign_out_failed: 'Could not log you out of this browser. Check your connection and try again.',
+  reset_link_invalid: 'This reset link has expired or has already been used. Ask for a new one.',
+  same_password: 'Choose a password different from your old one.',
   unknown: 'Something went wrong. Try again.',
 }
 
@@ -82,7 +84,8 @@ function isRetryable(error) {
   return error?.name === 'AuthRetryableFetchError' || isOffline(error) || serverFailed(error)
 }
 
-// Turn whatever Supabase threw or returned into one of our errors. `where` is 'signUp' or 'signIn'.
+// Turn whatever Supabase threw or returned into one of our errors. `where` is 'signUp', 'signIn', 'reset' (asking
+// for the reset email) or 'newPassword' (setting the new password from that email's link).
 // How to call: throw explain(result.error, 'signIn')
 function explain(error, where) {
   const code = String(error?.code || '')
@@ -93,7 +96,16 @@ function explain(error, where) {
   if (error?.name === 'AuthWeakPasswordError' || code === 'weak_password') return problem('weak_password', weakMessage(error?.reasons))
   // A malformed email is the one thing a person can fix here. At sign-in nothing else is validated, but a validation
   // failure is still never reported as a wrong password.
-  if (code === 'email_address_invalid' || (code === 'validation_failed' && where === 'signUp')) return problem('email_invalid')
+  if (code === 'email_address_invalid' || (code === 'validation_failed' && ['signUp', 'reset'].includes(where))) return problem('email_invalid')
+  if (where === 'newPassword') {
+    if (code === 'same_password') return problem('same_password')
+    // No session, or one the server no longer accepts: the link was used, expired or never opened here.
+    if (code === 'session_missing' || code === 'session_not_found' || error?.name === 'AuthSessionMissingError' || status === 401 || status === 403) {
+      return problem('reset_link_invalid')
+    }
+    return problem('unknown')
+  }
+  if (where === 'reset') return problem('unknown')
   if (where === 'signIn') {
     if (code === 'email_not_confirmed') return problem('email_not_confirmed')
     // A wrong password and an unknown email get the same answer, so sign-in cannot be used to find out who is registered.
@@ -273,6 +285,39 @@ export async function signIn({ email, password }) {
   if (result.error) throw explain(result.error, 'signIn')
   if (!result.data?.user) throw problem('unknown')
   return { user: summary(result.data.user) }
+}
+
+// Ask Supabase to email a link for choosing a new password. The link opens `redirectTo` (the reset page), signed in
+// for that one purpose. It resolves the same way whether or not the email is registered, so the screen cannot be used
+// to find out who has an account. The address must be listed under Authentication > URL Configuration > Redirect URLs
+// in the Supabase dashboard, or Supabase sends the person to the project's Site URL instead.
+// Rejects with: MESSAGES.email_invalid, rate_limited, offline or unknown.
+// How to call: await requestPasswordReset('sam@example.com', 'https://jio.app/reset-password')
+export async function requestPasswordReset(email, redirectTo) {
+  const c = need()
+  let result
+  try {
+    result = await c.auth.resetPasswordForEmail(String(email || '').trim(), { redirectTo })
+  } catch (err) {
+    throw explain(err, 'reset')
+  }
+  if (result?.error) throw explain(result.error, 'reset')
+}
+
+// Set a new password for the signed-in person: the one the reset link signed in. The password is sent to Supabase
+// and kept nowhere else.
+// Rejects with: MESSAGES.reset_link_invalid (no session, or it has ended), same_password, a weak-password message,
+// rate_limited, offline or unknown.
+// How to call: await updatePassword('N3w-secret!')
+export async function updatePassword(password) {
+  const c = need()
+  let result
+  try {
+    result = await c.auth.updateUser({ password })
+  } catch (err) {
+    throw explain(err, 'newPassword')
+  }
+  if (result?.error) throw explain(result.error, 'newPassword')
 }
 
 // The session this browser holds, read straight from local storage, or null. It answers without the auth client, which

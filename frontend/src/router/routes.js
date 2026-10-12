@@ -6,6 +6,8 @@
 export const routes = [
   { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { nav: false, public: true, title: 'Log in' } },
   { path: '/signup', name: 'signup', component: () => import('@/views/AuthView.vue'), meta: { nav: false, public: true, title: 'Sign up' } },
+  { path: '/forgot-password', name: 'forgot-password', component: () => import('@/views/ForgotPasswordView.vue'), meta: { nav: false, public: true, title: 'Forgot password' } },
+  { path: '/reset-password', name: 'reset-password', component: () => import('@/views/ResetPasswordView.vue'), meta: { nav: false, public: true, title: 'New password' } },
   { path: '/', name: 'home', component: () => import('@/views/LandingView.vue'), meta: { tabs: true, tab: 'home', title: 'Home' } },
   { path: '/sessions', name: 'sessions', component: () => import('@/views/GroupsView.vue'), meta: { tabs: true, tab: 'home', title: 'Sessions' } },
   { path: '/sessions/new', name: 'session-create', component: () => import('@/views/CreateEventView.vue'), meta: { title: 'Create session' } },

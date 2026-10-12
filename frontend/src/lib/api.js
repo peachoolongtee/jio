@@ -1169,6 +1169,23 @@ export async function signIn({ email, password }) {
   }
 }
 
+// Email a link for choosing a new password. Only for real accounts; the link opens /reset-password on this site.
+// Resolves the same way whether or not the email is registered. Rejects with the messages in lib/auth.js.
+// How to call: await requestPasswordReset('sam@example.com')
+export async function requestPasswordReset(email) {
+  await wait(DELAY.write)
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  await auth.requestPasswordReset(email, `${origin}/reset-password`)
+}
+
+// Set a new password for the signed-in real account (the reset link signs the person in). Rejects with the messages
+// in lib/auth.js, including MESSAGES.reset_link_invalid when there is no session to change.
+// How to call: await changePassword('N3w-secret!')
+export async function changePassword(password) {
+  await wait(DELAY.write)
+  await auth.updatePassword(password)
+}
+
 // What a signed-in person may change on a real account: the name, photo, home area and date of birth. The username
 // and email are not editable.
 const REAL_EDITABLE = ['name', 'photo', 'homeAreaId', 'dob']

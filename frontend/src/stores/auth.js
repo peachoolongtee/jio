@@ -92,6 +92,18 @@ export const useAuthStore = defineStore('auth', () => {
     return user.value
   }
 
+  // Email a link for choosing a new password. Rejects with a message fit to show (see lib/auth.js).
+  // How to call: await auth.requestPasswordReset('sam@example.com')
+  async function requestPasswordReset(email) {
+    await api.requestPasswordReset(email)
+  }
+
+  // Set a new password, from the page the reset link opens. Rejects with a message fit to show (see lib/auth.js).
+  // How to call: await auth.changePassword('N3w-secret!')
+  async function changePassword(password) {
+    await api.changePassword(password)
+  }
+
   // Leave the "check your email" state, for the sign-up screen's way back to the first question.
   // How to call: auth.dismissConfirmation()
   function dismissConfirmation() {
@@ -187,6 +199,8 @@ export const useAuthStore = defineStore('auth', () => {
     init,
     signUp,
     signIn,
+    requestPasswordReset,
+    changePassword,
     dismissConfirmation,
     signUpAs,
     startOver,
