@@ -173,7 +173,7 @@ describe('signing up for a real account', () => {
     const fake = fakeSupabase()
     const { api, auth } = await boot(fake)
     await expect(api.signUp({ ...PROFILE, password: 'weak' })).rejects.toThrow('Choose a stronger password: it is too short.')
-    await expect(api.signUp({ ...PROFILE, password: 'limited' })).rejects.toThrow(MESSAGE(auth, 'rate_limited'))
+    await expect(api.signUp({ ...PROFILE, password: 'limited' })).rejects.toThrow('Sign-ups are paused for a few minutes. Try again later.')
     fake.state.options.down = true
     await expect(api.signUp({ ...PROFILE })).rejects.toThrow(MESSAGE(auth, 'offline'))
     await expect(api.signIn({ email: PROFILE.email, password: 'x' })).rejects.toThrow(MESSAGE(auth, 'offline'))

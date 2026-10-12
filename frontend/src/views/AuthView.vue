@@ -280,8 +280,11 @@ async function finish() {
         submitError.value = ''
         emailError.value = message
         draft.value.step = STEPS.indexOf('email')
+      } else if (err?.code === 'signup_paused') {
+        // Supabase is over a limit, which no answer can fix: stay on the last question with the message above the button.
+        // The password was emptied, so pressing Finish again asks for it once and comes straight back here.
       } else if (!field) {
-        // Nothing to fix in an answer (a weak password, too many attempts, no connection): the password is the thing to retype.
+        // Nothing to fix in an answer (a weak password, no connection): the password is the thing to retype.
         askForPassword()
       }
     }

@@ -372,3 +372,28 @@ describe('an email that already has an account', () => {
     expect(view.text()).not.toContain('already exists')
   })
 })
+
+describe('a sign-up refused for being over a limit', () => {
+  it('stays on the last question with "Sign-ups are paused" above the button, not on the password', async () => {
+    const { view, store } = await setUp(fakeSupabase(), { password: 'limited' })
+    await view.click(mainButton(view))
+    await until(() => view.has('[data-testid="signup-error"]'))
+    expect(view.text('[data-testid="signup-error"]')).toBe('Sign-ups are paused for a few minutes. Try again later.')
+    expect(store.draft.step).toBe(8)
+    expect(view.text()).not.toContain('Enter your password again.')
+  })
+
+  it('asks for the password once on the next try, then comes straight back to the last question', async () => {
+    const { view, store, fake } = await setUp(fakeSupabase(), { password: 'limited' })
+    await view.click(mainButton(view))
+    await until(() => view.has('[data-testid="signup-error"]'))
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 1)
+    view.type('input[autocomplete=new-password]', 'Sup3r-secret!')
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 8)
+    await view.click(mainButton(view))
+    await until(() => store.signedIn)
+    expect(fake.state.signUpCalls).toHaveLength(2)
+  })
+})

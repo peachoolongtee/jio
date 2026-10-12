@@ -31,6 +31,9 @@ export const MESSAGES = {
   username_taken: 'That username is taken. Choose another one.',
   weak_password: 'Choose a stronger password.',
   rate_limited: 'Too many attempts. Wait a few minutes and try again.',
+  // Supabase refused a sign-up for being over a limit: usually the project's email limit (each sign-up sends a
+  // confirmation email), which nothing the person typed can change.
+  signup_paused: 'Sign-ups are paused for a few minutes. Try again later.',
   offline: 'Could not reach Jio. Check your connection and try again.',
   email_not_confirmed: 'Confirm your email first. Open the link we sent you, then log in.',
   profile_not_saved: 'Your details are saved on this device, but could not be saved to your account. Try again later.',
@@ -93,7 +96,7 @@ function explain(error, where) {
   const status = error?.status
   const text = String(error?.message || '')
   if (isOffline(error)) return problem('offline')
-  if (status === 429 || /rate_limit/.test(code) || /rate limit/i.test(text)) return problem('rate_limited')
+  if (status === 429 || /rate_limit/.test(code) || /rate limit/i.test(text)) return problem(where === 'signUp' ? 'signup_paused' : 'rate_limited')
   if (error?.name === 'AuthWeakPasswordError' || code === 'weak_password') return problem('weak_password', weakMessage(error?.reasons))
   // A malformed email is the one thing a person can fix here. At sign-in nothing else is validated, but a validation
   // failure is still never reported as a wrong password.
@@ -264,7 +267,7 @@ async function explainSignUp(error, username) {
 // confirmation off), the display name, home area and dietary needs are then written to the profile; if that write fails the account
 // still exists and `syncError` says so. With no session back (confirmation on) `needsConfirmation` is true and the
 // person is not signed in.
-// Rejects with: MESSAGES.username_taken, email_taken, email_invalid, a weak-password message, rate_limited, offline or unknown.
+// Rejects with: MESSAGES.username_taken, email_taken, email_invalid, a weak-password message, signup_paused, offline or unknown.
 // How to call: await signUp({ email: 'sam@example.com', password: 'Sup3r-secret', username: 'sam', dob: '2001-05-06', name: 'Sam', homeAreaId: 'tampines', dietary: ['halal'] })
 //   -> { user: { id, email, username, dob }, needsConfirmation: false, syncError: '' }
 export async function signUp({ email, password, username, dob, name, homeAreaId, dietary = [] }) {
