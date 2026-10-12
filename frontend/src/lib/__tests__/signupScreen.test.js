@@ -46,13 +46,14 @@ const mainButton = (view) => view.all('button').find((b) => (b.attrs.class || ''
 describe('the password rule on screen', () => {
   it('asks real accounts for 6 or more characters with an uppercase and a lowercase letter, a number and a symbol, and keeps the older checklist otherwise', async () => {
     const { passwordChecks } = await import('@/views/AuthView.vue')
-    const labels = ['6 or more characters', 'An uppercase letter', 'A lowercase letter', 'A number', 'A special character']
+    const labels = ['6 or more characters', 'An uppercase letter', 'A lowercase letter', 'A number', 'A special character', 'No spaces or other symbols']
     expect(passwordChecks('abc1!', true)).toEqual([
       { label: labels[0], ok: false },
       { label: labels[1], ok: false },
       { label: labels[2], ok: true },
       { label: labels[3], ok: true },
       { label: labels[4], hint: 'e.g. ! @ # $ % *', ok: true },
+      { label: labels[5], ok: true },
     ])
     expect(passwordChecks('Abc1!x', true).every((c) => c.ok)).toBe(true)
     expect(passwordChecks('abcdef', false).map((c) => c.label)).toEqual(['8 or more characters', 'A letter', 'A number', 'A symbol'])
@@ -60,7 +61,7 @@ describe('the password rule on screen', () => {
 
   it('draws that rule on the password question and lets a password through only when every part is met', async () => {
     const { view, store } = await setUp(fakeSupabase(), { step: 1, password: 'abc1!x' })
-    expect(view.all('.checklist__item')).toHaveLength(5)
+    expect(view.all('.checklist__item')).toHaveLength(6)
     expect(view.text('.checklist__hint')).toBe('e.g. ! @ # $ % *')
     expect(view.one('input[autocomplete=new-password]')).toBeTruthy()
     await view.click(mainButton(view))
@@ -105,14 +106,14 @@ describe('a failed sign-up', () => {
     const { view, store, fake } = await setUp(fakeSupabase(), { password: 'weak' })
     await view.click(mainButton(view))
     await until(() => store.draft.step === 1)
-    view.type('input[autocomplete=new-password]', 'Sup3r-secret!')
+    view.type('input[autocomplete=new-password]', 'Sup3rSecret!')
     await view.click(mainButton(view))
     await until(() => store.draft.step === 8)
     expect(fake.state.signUpCalls).toHaveLength(1)
     await view.click(mainButton(view))
     await until(() => store.signedIn)
     expect(fake.state.signUpCalls).toHaveLength(2)
-    expect(fake.state.signUpCalls[1].password).toBe('Sup3r-secret!')
+    expect(fake.state.signUpCalls[1].password).toBe('Sup3rSecret!')
   })
 
   it('does not send an empty password: pressing Finish with none goes to the password question', async () => {
@@ -482,7 +483,7 @@ describe('a sign-up refused for being over a limit', () => {
     await until(() => view.has('[data-testid="signup-error"]'))
     await view.click(mainButton(view))
     await until(() => store.draft.step === 1)
-    view.type('input[autocomplete=new-password]', 'Sup3r-secret!')
+    view.type('input[autocomplete=new-password]', 'Sup3rSecret!')
     await view.click(mainButton(view))
     await until(() => store.draft.step === 8)
     await view.click(mainButton(view))

@@ -2,7 +2,8 @@
 import { passwordRules } from '@/lib/signupRules.js'
 
 // What the password step asks for. With a Supabase project behind sign-up: 6 or more characters with an uppercase
-// letter, a lowercase letter, a number and one of ! @ # $ % * (lib/signupRules.js). Anything
+// letter, a lowercase letter, a number and one of ! @ # $ % *, and nothing but letters, numbers and those six
+// (lib/signupRules.js). Anything
 // else the server refuses comes back as a sentence (lib/auth.js) and is shown as it is. With local accounts the
 // password is not used, so the older checklist stays as it was.
 // How to call: passwordChecks('Abc1!x', true) -> [{ label: '6 or more characters', ok: true }, ...]

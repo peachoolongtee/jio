@@ -32,12 +32,14 @@ export function validateEmail(value) {
   return ''
 }
 
-// The password rule for real accounts: 6 or more characters, with at least one uppercase letter, one lowercase letter,
-// one number and one special character, which is one of ! @ # $ % *. Other characters may be in the password too; they
-// just do not count as the special one. Every password this lets through also meets the Supabase project's "Lowercase,
-// uppercase letters, digits and symbols" setting (Authentication > Policies), whose symbols include these six.
+// The password rule for real accounts: 6 or more characters, made only of letters (A to Z, a to z), numbers and the
+// special characters ! @ # $ % *, with at least one uppercase letter, one lowercase letter, one number and one special
+// character. Anything else (a space, -, ?, an accented letter) is refused. Every password this lets through also meets
+// the Supabase project's "Lowercase, uppercase letters, digits and symbols" setting (Authentication > Policies), whose
+// symbols include these six.
 export const PASSWORD_MIN = 6
 export const PASSWORD_SPECIALS = '!@#$%*'
+const PASSWORD_ALLOWED = /^[A-Za-z0-9!@#$%*]+$/
 
 // Each part of the password rule, for a live checklist.
 // `hint` is a line to show under the label. How to call: passwordRules('Abc1!x') -> [{ label: '6 or more characters', ok: true }, ...]
@@ -49,13 +51,14 @@ export function passwordRules(password) {
     { label: 'A lowercase letter', ok: /[a-z]/.test(text) },
     { label: 'A number', ok: /[0-9]/.test(text) },
     { label: 'A special character', hint: 'e.g. ! @ # $ % *', ok: [...text].some((ch) => PASSWORD_SPECIALS.includes(ch)) },
+    { label: 'No spaces or other symbols', ok: PASSWORD_ALLOWED.test(text) },
   ]
 }
 
 // How to call: validatePassword('Abc1!x') -> ''
 export function validatePassword(password) {
   if (passwordRules(password).every((rule) => rule.ok)) return ''
-  return `Use ${PASSWORD_MIN} or more characters, with an uppercase letter, a lowercase letter, a number and one of ! @ # $ % *.`
+  return `Use ${PASSWORD_MIN} or more letters, numbers and ! @ # $ % *, with an uppercase letter, a lowercase letter, a number and one of ! @ # $ % *.`
 }
 
 // A date of birth as the person types it, DD/MM/YYYY: only digits are kept, and the slashes are put in as the digits
