@@ -261,12 +261,15 @@ async function explainSignUp(error, username) {
   return explained
 }
 
-// Create an account. The call carries the email, the password and, as metadata for the sign-up trigger, the username
-// and date of birth, and nothing else. The username is not checked here: the sign-up screen checks it on its own
-// question, and a name taken since then is caught by the trigger (see explainSignUp). With a session back (email
-// confirmation off), the display name, home area and dietary needs are then written to the profile; if that write fails the account
-// still exists and `syncError` says so. With no session back (confirmation on) `needsConfirmation` is true and the
-// person is not signed in.
+// Create an account. The call carries the email, the password and, as metadata for the sign-up trigger, the username,
+// date of birth, name, home area and dietary needs, and nothing else (no photo, no friends). The trigger saves them all
+// to the profile rows (db/schema.sql), so they are kept even when email confirmation is on and nobody is signed in
+// afterwards. The metadata stays on the Supabase account, which only its owner and the server can read. The username
+// is not checked here: the sign-up screen checks it on its own question, and a name taken since then is caught by the
+// trigger (see explainSignUp). With a session back (email confirmation off), the name, home area and dietary needs are
+// also written to the profile, for a project whose trigger predates them; if that write fails the account still exists
+// and `syncError` says so. With no session back (confirmation on) `needsConfirmation` is true and the person is not
+// signed in.
 // Rejects with: MESSAGES.username_taken, email_taken, email_invalid, a weak-password message, signup_paused, offline or unknown.
 // How to call: await signUp({ email: 'sam@example.com', password: 'Sup3r-secret', username: 'sam', dob: '2001-05-06', name: 'Sam', homeAreaId: 'tampines', dietary: ['halal'] })
 //   -> { user: { id, email, username, dob }, needsConfirmation: false, syncError: '' }
@@ -274,7 +277,8 @@ export async function signUp({ email, password, username, dob, name, homeAreaId,
   const c = need()
   let result
   try {
-    result = await c.auth.signUp({ email: String(email || '').trim(), password, options: { data: { username, dob } } })
+    const data = { username, dob, name: String(name || '').trim(), home_area_id: homeAreaId || '', dietary: cleanDietary(dietary) }
+    result = await c.auth.signUp({ email: String(email || '').trim(), password, options: { data } })
   } catch (err) {
     throw await explainSignUp(err, username)
   }

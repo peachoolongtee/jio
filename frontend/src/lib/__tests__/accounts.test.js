@@ -109,13 +109,28 @@ describe('a save from before this change', () => {
 })
 
 describe('signing up for a real account', () => {
-  it('sends the email, the password and only the username and date of birth in options.data', async () => {
+  it('sends the username, date of birth, name, home area and dietary needs in options.data, and not the photo or friends', async () => {
     const fake = fakeSupabase()
     const { api } = await boot(fake)
-    await api.signUp({ ...PROFILE, photo: 'data:image/png;base64,AAAA' })
+    await api.signUp({ ...PROFILE, name: ' Sam Tan ', dietary: ['vegan', 'paleo'], photo: 'data:image/png;base64,AAAA' })
     expect(fake.state.signUpCalls).toEqual([
-      { email: 'sam@example.com', password: PROFILE.password, options: { data: { username: 'sam', dob: '2001-05-06' } } },
+      {
+        email: 'sam@example.com',
+        password: PROFILE.password,
+        options: { data: { username: 'sam', dob: '2001-05-06', name: 'Sam Tan', home_area_id: 'tampines', dietary: ['vegan'] } },
+      },
     ])
+  })
+
+  it('keeps the name, home area and dietary needs when the email must be confirmed first, and shows them at login', async () => {
+    const fake = fakeSupabase({ confirmEmail: true })
+    const { api } = await boot(fake)
+    const result = await api.signUp({ ...PROFILE, name: 'Sam Tan', dietary: ['halal'] })
+    expect(result).toEqual({ needsConfirmation: true, email: 'sam@example.com' })
+    expect(fake.state.profiles['uid-1'].display_name).toBe('Sam Tan')
+    expect(fake.state.priv['uid-1']).toMatchObject({ home_area_id: 'tampines', dietary: ['halal'] })
+    const user = await api.signIn({ email: PROFILE.email, password: PROFILE.password })
+    expect(user).toMatchObject({ authId: 'uid-1', name: 'Sam Tan', homeAreaId: 'tampines', homeAreaName: 'Tampines', dietary: ['halal'] })
   })
 
   it('signs the person in and writes the display name and home area when a session comes back', async () => {

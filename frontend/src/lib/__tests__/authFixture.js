@@ -141,8 +141,13 @@ export function fakeSupabase(options = {}) {
         }
         const user = { id: `uid-${state.users.length + 1}`, email, password, meta }
         state.users.push(user)
-        state.profiles[user.id] = { username: meta.username, display_name: meta.username, avatar_url: null }
-        state.priv[user.id] = { dob: meta.dob, home_area_id: null, dietary: [] }
+        // As the sign-up trigger does (db/schema.sql): the optional name, home area and dietary needs are saved when
+        // they keep the rules, and left out otherwise.
+        const name = typeof meta.name === 'string' && meta.name.trim() && meta.name.trim().length <= 50 ? meta.name.trim() : null
+        const area = typeof meta.home_area_id === 'string' && meta.home_area_id.trim() ? meta.home_area_id.trim() : null
+        const diet = Array.isArray(meta.dietary) ? [...new Set(meta.dietary.filter((d) => ['halal', 'vegetarian', 'vegan'].includes(d)))].sort() : []
+        state.profiles[user.id] = { username: meta.username, display_name: name || meta.username, avatar_url: null }
+        state.priv[user.id] = { dob: meta.dob, home_area_id: area, dietary: diet }
         if (state.options.confirmEmail) return { data: { user: { ...publicUser(user) }, session: null }, error: null }
         start(user)
         return { data: { user: publicUser(user), session: state.session }, error: null }
