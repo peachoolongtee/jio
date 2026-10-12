@@ -166,6 +166,22 @@ export async function usernameAvailable(username) {
   return result.data === true
 }
 
+// Is this email already used by an account? Uses the database function email_registered, which works before signing up.
+// Rejects with the "could not reach Jio" message when the call fails, including when the function has not been added to
+// the project yet (db/schema.sql); the sign-up itself still catches a registered email then.
+// How to call: await emailRegistered('sam@example.com') -> true
+export async function emailRegistered(email) {
+  const c = need()
+  let result
+  try {
+    result = await c.rpc('email_registered', { p_email: String(email || '').trim() })
+  } catch {
+    throw problem('offline')
+  }
+  if (result.error) throw problem(isOffline(result.error) || result.status === 0 ? 'offline' : 'unknown')
+  return result.data === true
+}
+
 // Write the columns a signed-in person may change, for their own rows only: profiles.display_name and avatar_url,
 // profile_private.dob and home_area_id. Anything else in the patch is ignored, never sent. Rejects with
 // MESSAGES.profile_not_saved when a write fails or changes no row (for example the session has ended).

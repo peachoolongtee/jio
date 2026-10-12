@@ -67,6 +67,9 @@ $accounts$;
 
 revoke execute on function public.handle_new_user() from public, anon, authenticated;
 grant execute on function public.username_available(text) to anon, authenticated;
+-- The sign-up screen asks whether an email is taken before the account exists, so logged-out visitors may call it.
+revoke execute on function public.email_registered(text) from public;
+grant execute on function public.email_registered(text) to anon, authenticated;
 
 -- New with the planner columns: a person sets their own home area and planner needs.
 grant update (home_area_id, dietary, budget_max_per_person, needs_step_free) on public.profile_private to authenticated;

@@ -296,3 +296,50 @@ describe('creating the account', () => {
     expect(view.text(peek)).toBe('Hide')
   })
 })
+
+
+describe('an email that already has an account', () => {
+  // A sign-up screen on the first question, on a project where PROFILE's email is already registered.
+  // How to call: const t = await registeredSetUp({ noEmailFunction: true })
+  async function registeredSetUp(options = {}) {
+    const fake = fakeSupabase(options)
+    fake.state.users.push({ id: 'uid-9', email: PROFILE.email, password: 'x', meta: {} })
+    return setUp(fake, { step: 0 })
+  }
+
+  it('is told on the email question, when Enter is pressed, with the Log in link beside it', async () => {
+    const { view, store, fake } = await registeredSetUp()
+    view.type('input[type=email]', 'SAM@example.com ')
+    await view.enter('input[type=email]')
+    await until(() => view.text().includes('An account with that email already exists. Log in instead.'))
+    expect(store.draft.step).toBe(0)
+    expect(view.one('a[href="/login"]')).toBeTruthy()
+    expect(fake.state.rpcCalls.filter((c) => c.name === 'email_registered').map((c) => c.args)).toEqual([{ p_email: 'SAM@example.com' }])
+    expect(fake.state.signUpCalls).toEqual([])
+  })
+
+  it('lets a new email through to the password question', async () => {
+    const { view, store } = await registeredSetUp()
+    view.type('input[type=email]', 'new@example.com')
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 1)
+  })
+
+  it('goes on when the check cannot be made, leaving the sign-up to catch it at the end', async () => {
+    const { view, store } = await registeredSetUp({ noEmailFunction: true })
+    view.type('input[type=email]', PROFILE.email)
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 1)
+    expect(view.text()).not.toContain('already exists')
+  })
+
+  it('clears the message once the email is changed', async () => {
+    const { view } = await registeredSetUp()
+    view.type('input[type=email]', PROFILE.email)
+    await view.click(mainButton(view))
+    await until(() => view.text().includes('already exists'))
+    view.type('input[type=email]', 'other@example.com')
+    await view.tick()
+    expect(view.text()).not.toContain('already exists')
+  })
+})

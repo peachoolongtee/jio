@@ -1243,6 +1243,16 @@ export async function checkUsername(username) {
   return { available: !taken }
 }
 
+// Is this email already used by an account? With Supabase set up this asks the database; with local accounts nothing
+// is registered anywhere else, so the answer is always no. Rejects with the "could not reach Jio" message (code
+// 'offline' or 'unknown') when the check cannot be made.
+// How to call: const { registered } = await checkEmail('sam@example.com')
+export async function checkEmail(email) {
+  await wait(DELAY.read)
+  if (auth.configured()) return { registered: await auth.emailRegistered(email) }
+  return { registered: false }
+}
+
 // ── People, friends and the leaderboard ────────────────────────────────────
 
 function publicPerson(id) {

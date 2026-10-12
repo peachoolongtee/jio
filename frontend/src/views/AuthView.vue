@@ -38,6 +38,7 @@ import SelectField from '@/components/ui/SelectField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import * as api from '@/lib/api.js'
+import { MESSAGES } from '@/lib/auth.js'
 import { DOB_MIN, fieldForSignUpError, NAME_MAX, todayIso, USERNAME_HINT, validateDob, validateName, validateUsername } from '@/lib/signupRules.js'
 import { useAuthStore } from '@/stores/auth.js'
 
@@ -67,7 +68,8 @@ const confirmTitle = ref(null)
 const demoError = ref('')
 const photoError = ref('')
 const busy = ref(false)
-// What the busy state is for, so the main button can say so: 'checking' (the username) or 'creating' (the account).
+// What the busy state is for, so the main button can say so: 'checking-email', 'checking' (the username) or 'creating'
+// (the account).
 const phase = ref('')
 const showPassword = ref(false)
 const stepTitle = ref(null)
@@ -140,6 +142,9 @@ function askForPassword() {
 
 // What the username question says when the check could not be made. It is not a refusal: the next press of Next goes on,
 // and the name is checked again when the account is created.
+// Said under the email when an account already uses it; the "Log in" link sits just below.
+const EMAIL_TAKEN = MESSAGES.email_taken
+
 const UNCHECKED = 'Could not check that username right now. Press Next to carry on; it is checked again when you sign up.'
 
 // Is this username free? True when it is, false (with the reason under the field) when it is taken, and false too, with a
@@ -169,6 +174,25 @@ async function usernameFree() {
   }
 }
 
+// Is this email free to sign up with? False (with "already exists" under the field, beside the Log in link) when an
+// account already uses it. When the check itself cannot be made (no connection, or the database function is not on the
+// project yet) the person goes on: the sign-up checks the email again at the end.
+// How to call: if (await emailFree()) draft.value.step += 1
+async function emailFree() {
+  busy.value = true
+  phase.value = 'checking-email'
+  try {
+    const { registered } = await api.checkEmail(draft.value.email.trim())
+    if (registered) emailError.value = EMAIL_TAKEN
+    return !registered
+  } catch {
+    return true
+  } finally {
+    busy.value = false
+    phase.value = ''
+  }
+}
+
 // The Next / Finish button: check this question, then go on to the next one, or create the account on the last.
 // How to call: await next()
 async function next() {
@@ -179,6 +203,7 @@ async function next() {
     draft.value.step = STEPS.length - 1
     return
   }
+  if (step.value === 'email' && !(await emailFree())) return
   if (step.value === 'username' && !(await usernameFree())) return
   if (draft.value.step < STEPS.length - 1) draft.value.step += 1
   else finish()
@@ -187,6 +212,7 @@ async function next() {
 // What the main button says: its usual word, or what is happening while it waits.
 const buttonLabel = computed(() => {
   if (phase.value === 'checking') return 'Checking username'
+  if (phase.value === 'checking-email') return 'Checking email'
   if (phase.value === 'creating') return 'Creating your account'
   return step.value === 'friends' ? 'Finish' : 'Next'
 })

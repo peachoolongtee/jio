@@ -32,6 +32,7 @@ const OWN_PRIVATE_COLUMNS = ['dob', 'home_area_id', 'dietary', 'budget_max_per_p
 //                       token and the client removes the session)
 //   getSessionMode      'ok' or 'hang' (the client is waiting on the network and never answers)
 //   signUpError         an error to answer sign-up with
+//   noEmailFunction     email_registered is not on the project (a 404, as before db/schema.sql adds it)
 // How to call: const fake = fakeSupabase({ confirmEmail: true })
 export function fakeSupabase(options = {}) {
   const state = {
@@ -210,6 +211,11 @@ export function fakeSupabase(options = {}) {
     async rpc(name, args) {
       state.rpcCalls.push({ name, args })
       if (state.options.down) return lostData()
+      if (name === 'email_registered') {
+        // A project that has not had db/schema.sql applied since the function was added answers 404.
+        if (state.options.noEmailFunction) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function' }, status: 404 }
+        return { data: state.users.some((u) => u.email.toLowerCase() === String(args.p_email).trim().toLowerCase()), error: null }
+      }
       if (state.options.rpcError) return { data: null, error: state.options.rpcError, status: 500 }
       const taken = Object.values(state.profiles).some((p) => p.username === args.p_username)
       const stale = state.options.staleUsernameCheck && state.signUpCalls.length === 0

@@ -128,6 +128,20 @@ alter table public.profile_private
     constraint budget_positive check (budget_max_per_person > 0),
   add column if not exists needs_step_free boolean not null default false;
 
+-- Is this email already used by an account? Asked by the sign-up screen on its email question, before anything else, so
+-- a registered email is told straight away instead of after every question. Like username_available() it works before
+-- signing up, so anyone can ask it about an address; it answers only true or false. The address is compared ignoring
+-- case and spaces at either end, the way Supabase Auth stores it.
+--   select public.email_registered('sam@example.com');  -- true or false
+create or replace function public.email_registered(p_email text)
+returns boolean
+language sql stable security definer set search_path = ''
+as $$
+  select exists (
+    select 1 from auth.users where lower(email) = lower(trim(p_email))
+  );
+$$;
+
 -- True when a list has no repeated entry. Used by the check on session_members.categories, so one
 -- person cannot count three times by sending the same category three times.
 --   select public.array_is_unique(array['eat', 'drink']);  -- true
