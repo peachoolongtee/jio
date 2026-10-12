@@ -128,6 +128,23 @@ describe('signing up for a real account', () => {
     expect(await api.getUser()).toMatchObject({ authId: 'uid-1' })
   })
 
+  it('writes the dietary needs picked at sign-up, dropping any the database would refuse', async () => {
+    const fake = fakeSupabase()
+    const { api } = await boot(fake)
+    const user = await api.signUp({ ...PROFILE, dietary: ['vegan', 'paleo', 'halal', 'vegan'] })
+    expect(user.dietary).toEqual(['halal', 'vegan'])
+    await vi.waitFor(() => expect(fake.state.priv['uid-1'].dietary).toEqual(['halal', 'vegan']))
+  })
+
+  it('writes no dietary needs when none were picked', async () => {
+    const fake = fakeSupabase()
+    const { api } = await boot(fake)
+    const user = await api.signUp({ ...PROFILE })
+    expect(user.dietary).toEqual([])
+    await vi.waitFor(() => expect(fake.state.priv['uid-1'].home_area_id).toBe('tampines'))
+    expect(fake.state.priv['uid-1'].dietary).toEqual([])
+  })
+
   it('reports needsConfirmation and leaves the person signed out when no session comes back', async () => {
     const fake = fakeSupabase({ confirmEmail: true })
     const { api } = await boot(fake)
@@ -453,6 +470,16 @@ describe('updating a real account', () => {
     expect(fake.state.profiles['uid-1'].display_name).toBe('Sam T')
   })
 
+  it('writes a change to the dietary needs to Supabase', async () => {
+    const fake = fakeSupabase()
+    const { api } = await boot(fake)
+    await api.signUp({ ...PROFILE })
+    fake.state.writes.length = 0
+    const user = await api.updateUser({ dietary: ['vegetarian'] })
+    expect(user).toMatchObject({ dietary: ['vegetarian'], syncError: '' })
+    expect(fake.state.writes.map((w) => [w.table, w.row])).toEqual([['profile_private', { dietary: ['vegetarian'] }]])
+  })
+
   it('still succeeds here when the write to Supabase fails, and tells the caller', async () => {
     const fake = fakeSupabase()
     const { api, auth } = await boot(fake)
@@ -494,8 +521,19 @@ describe('profile reads', () => {
     const fake = fakeSupabase()
     const { api, auth } = await boot(fake)
     await api.signUp({ ...PROFILE })
-    expect(await auth.loadProfile('uid-1')).toEqual({ username: 'sam', name: 'Sam', dob: '2001-05-06', homeAreaId: 'tampines', avatarUrl: '' })
+    expect(await auth.loadProfile('uid-1')).toEqual({ username: 'sam', name: 'Sam', dob: '2001-05-06', homeAreaId: 'tampines', dietary: [], avatarUrl: '' })
     expect(await auth.loadProfile('uid-404')).toBeNull()
+  })
+
+  it('brings back the dietary needs on a browser with no save for the account', async () => {
+    const fake = fakeSupabase()
+    const first = await boot(fake)
+    await first.api.signUp({ ...PROFILE, dietary: ['halal'] })
+    await vi.waitFor(() => expect(fake.state.priv['uid-1'].dietary).toEqual(['halal']))
+    await first.api.signOut()
+    const { api } = await boot(fake)
+    const user = await api.signIn({ email: PROFILE.email, password: PROFILE.password })
+    expect(user.dietary).toEqual(['halal'])
   })
 })
 

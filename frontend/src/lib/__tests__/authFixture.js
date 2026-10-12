@@ -142,7 +142,7 @@ export function fakeSupabase(options = {}) {
         const user = { id: `uid-${state.users.length + 1}`, email, password, meta }
         state.users.push(user)
         state.profiles[user.id] = { username: meta.username, display_name: meta.username, avatar_url: null }
-        state.priv[user.id] = { dob: meta.dob, home_area_id: null }
+        state.priv[user.id] = { dob: meta.dob, home_area_id: null, dietary: [] }
         if (state.options.confirmEmail) return { data: { user: { ...publicUser(user) }, session: null }, error: null }
         start(user)
         return { data: { user: publicUser(user), session: state.session }, error: null }

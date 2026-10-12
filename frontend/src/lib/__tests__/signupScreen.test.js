@@ -29,14 +29,14 @@ async function setUp(fake, draft = {}) {
   setActivePinia(pinia)
   const { useAuthStore } = await import('@/stores/auth.js')
   const store = useAuthStore()
-  Object.assign(store.draft, { ...PROFILE, step: 7, ...draft })
+  Object.assign(store.draft, { ...PROFILE, step: 8, ...draft })
   const { routes } = await import('@/router/routes.js')
   const stub = { render: () => null }
   const router = createRouter({ history: createMemoryHistory(), routes: routes.map((r) => ({ ...r, component: stub })) })
   await router.push('/signup')
   const { default: AuthView } = await import('@/views/AuthView.vue')
   const view = await mountScreen(AuthView, { plugins: [pinia, router] })
-  await until(() => store.draft.step === (draft.step ?? 7))
+  await until(() => store.draft.step === (draft.step ?? 8))
   return { fake, store, router, view }
 }
 
@@ -97,7 +97,7 @@ describe('a failed sign-up', () => {
     await until(() => store.draft.step === 1)
     view.type('input[autocomplete=new-password]', 'Sup3r-secret!')
     await view.click(mainButton(view))
-    await until(() => store.draft.step === 7)
+    await until(() => store.draft.step === 8)
     expect(fake.state.signUpCalls).toHaveLength(1)
     await view.click(mainButton(view))
     await until(() => store.signedIn)
@@ -297,6 +297,35 @@ describe('creating the account', () => {
   })
 })
 
+describe('the dietary question', () => {
+  it('comes after the home area, offers halal, vegetarian and vegan, and can be skipped', async () => {
+    const { view, store } = await setUp(fakeSupabase(), { step: 7, dietary: [] })
+    expect(view.text('h1')).toBe('Dietary needs')
+    const chips = view.all('button').filter((b) => ['Halal', 'Vegetarian', 'Vegan'].includes(view.text(b)))
+    expect(chips.map((b) => view.text(b))).toEqual(['Halal', 'Vegetarian', 'Vegan'])
+    expect(view.text(mainButton(view))).toContain('None, skip')
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 8)
+    expect(store.draft.dietary).toEqual([])
+  })
+
+  it('picks and unpicks any number of needs, and sends them with the sign-up', async () => {
+    const { view, store, fake } = await setUp(fakeSupabase(), { step: 7, dietary: [] })
+    const chip = (label) => view.all('button').find((b) => view.text(b) === label)
+    await view.click(chip('Halal'))
+    await view.click(chip('Vegan'))
+    await view.click(chip('Vegan'))
+    await view.click(chip('Vegetarian'))
+    expect(store.draft.dietary).toEqual(['halal', 'vegetarian'])
+    expect(view.text(mainButton(view))).not.toContain('skip')
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 8)
+    await view.click(mainButton(view))
+    await until(() => store.signedIn)
+    expect(store.user.dietary).toEqual(['halal', 'vegetarian'])
+    await until(() => fake.state.priv['uid-1'].dietary.length === 2)
+  })
+})
 
 describe('an email that already has an account', () => {
   // A sign-up screen on the first question, on a project where PROFILE's email is already registered.

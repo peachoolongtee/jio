@@ -29,7 +29,7 @@ async function setUp(fake) {
   const { useAuthStore } = await import('@/stores/auth.js')
   const store = useAuthStore()
   if (fake) {
-    Object.assign(store.draft, { ...PROFILE, step: 7 })
+    Object.assign(store.draft, { ...PROFILE, step: 8 })
     await store.signUp()
   } else {
     const { DEMO_ACCOUNT } = await import('../../components/dev/demoAccount.js')

@@ -7,6 +7,7 @@
 // anywhere, and nothing here logs.
 //
 // A test stands in for Supabase with useClient(fake): see lib/__tests__/authFixture.js.
+import { cleanDietary } from './signupRules.js'
 import { AUTH_STORAGE_KEY, supabase } from './supabase.js'
 
 let client = supabase
@@ -183,9 +184,10 @@ export async function emailRegistered(email) {
 }
 
 // Write the columns a signed-in person may change, for their own rows only: profiles.display_name and avatar_url,
-// profile_private.dob and home_area_id. Anything else in the patch is ignored, never sent. Rejects with
+// profile_private.dob, home_area_id and dietary. Anything else in the patch is ignored, never sent; an unknown dietary
+// need is dropped. Rejects with
 // MESSAGES.profile_not_saved when a write fails or changes no row (for example the session has ended).
-// patch: { name?, avatarUrl?, dob?, homeAreaId? }
+// patch: { name?, avatarUrl?, dob?, homeAreaId?, dietary? }
 // How to call: await saveProfile(user.id, { name: 'Sam', homeAreaId: 'tampines' })
 export async function saveProfile(userId, patch = {}) {
   const c = need()
@@ -195,6 +197,7 @@ export async function saveProfile(userId, patch = {}) {
   if (typeof patch.avatarUrl === 'string') publicRow.avatar_url = patch.avatarUrl || null
   if (typeof patch.dob === 'string') privateRow.dob = patch.dob
   if (typeof patch.homeAreaId === 'string') privateRow.home_area_id = patch.homeAreaId || null
+  if (Array.isArray(patch.dietary)) privateRow.dietary = cleanDietary(patch.dietary)
   const writes = [
     ['profiles', publicRow],
     ['profile_private', privateRow],
@@ -214,7 +217,7 @@ export async function saveProfile(userId, patch = {}) {
 
 // The person's profile, public and private halves. Null when no profile row exists.
 // Rejects with MESSAGES.profile_not_loaded when the tables cannot be read.
-// How to call: await loadProfile(user.id) -> { username: 'sam', name: 'Sam', dob: '2001-05-06', homeAreaId: 'tampines', avatarUrl: '' }
+// How to call: await loadProfile(user.id) -> { username: 'sam', name: 'Sam', dob: '2001-05-06', homeAreaId: 'tampines', dietary: ['halal'], avatarUrl: '' }
 export async function loadProfile(userId) {
   const c = need()
   let pub
@@ -222,7 +225,7 @@ export async function loadProfile(userId) {
   try {
     ;[pub, priv] = await Promise.all([
       c.from('profiles').select('username, display_name, avatar_url').eq('id', userId).maybeSingle(),
-      c.from('profile_private').select('dob, home_area_id').eq('id', userId).maybeSingle(),
+      c.from('profile_private').select('dob, home_area_id, dietary').eq('id', userId).maybeSingle(),
     ])
   } catch {
     throw problem('profile_not_loaded')
@@ -234,6 +237,7 @@ export async function loadProfile(userId) {
     name: pub.data.display_name || pub.data.username,
     dob: priv.data?.dob || '',
     homeAreaId: priv.data?.home_area_id || '',
+    dietary: cleanDietary(priv.data?.dietary),
     avatarUrl: pub.data.avatar_url || '',
   }
 }
@@ -257,13 +261,13 @@ async function explainSignUp(error, username) {
 // Create an account. The call carries the email, the password and, as metadata for the sign-up trigger, the username
 // and date of birth, and nothing else. The username is not checked here: the sign-up screen checks it on its own
 // question, and a name taken since then is caught by the trigger (see explainSignUp). With a session back (email
-// confirmation off), the display name and home area are then written to the profile; if that write fails the account
+// confirmation off), the display name, home area and dietary needs are then written to the profile; if that write fails the account
 // still exists and `syncError` says so. With no session back (confirmation on) `needsConfirmation` is true and the
 // person is not signed in.
 // Rejects with: MESSAGES.username_taken, email_taken, email_invalid, a weak-password message, rate_limited, offline or unknown.
-// How to call: await signUp({ email: 'sam@example.com', password: 'Sup3r-secret', username: 'sam', dob: '2001-05-06', name: 'Sam', homeAreaId: 'tampines' })
+// How to call: await signUp({ email: 'sam@example.com', password: 'Sup3r-secret', username: 'sam', dob: '2001-05-06', name: 'Sam', homeAreaId: 'tampines', dietary: ['halal'] })
 //   -> { user: { id, email, username, dob }, needsConfirmation: false, syncError: '' }
-export async function signUp({ email, password, username, dob, name, homeAreaId }) {
+export async function signUp({ email, password, username, dob, name, homeAreaId, dietary = [] }) {
   const c = need()
   let result
   try {
@@ -279,7 +283,7 @@ export async function signUp({ email, password, username, dob, name, homeAreaId 
   if (!session) return { user: summary(user), needsConfirmation: true, syncError: '' }
   // The account exists and the person is signed in; the profile write must not hold them up. `syncError` is filled in
   // by the caller once the write has finished (see `profileWrite`).
-  const profileWrite = saveProfile(user.id, { name, homeAreaId }).then(
+  const profileWrite = saveProfile(user.id, { name, homeAreaId, dietary }).then(
     () => '',
     (err) => err.message,
   )

@@ -20,7 +20,7 @@ export function passwordChecks(password, realAccounts) {
 <script setup>
 // Sign-up: one question per screen, with a back arrow and a progress bar.
 // Email, password with a live checklist, name, date of birth, username, profile photo (can be skipped), home area,
-// suggested friends. It ends on Home.
+// dietary needs (can be skipped), suggested friends. It ends on Home.
 // The answers live in the auth store's draft, so nothing is lost if the window is resized.
 // With real accounts the password goes to Supabase and is emptied afterwards, whatever happens: after a failed attempt
 // the screen goes back to the question the problem belongs to, keeps every other answer, and asks for the password again
@@ -39,10 +39,20 @@ import TextField from '@/components/ui/TextField.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import * as api from '@/lib/api.js'
 import { MESSAGES } from '@/lib/auth.js'
-import { DOB_MIN, fieldForSignUpError, NAME_MAX, todayIso, USERNAME_HINT, validateDob, validateName, validateUsername } from '@/lib/signupRules.js'
+import {
+  DIETARY_OPTIONS,
+  DOB_MIN,
+  fieldForSignUpError,
+  NAME_MAX,
+  todayIso,
+  USERNAME_HINT,
+  validateDob,
+  validateName,
+  validateUsername,
+} from '@/lib/signupRules.js'
 import { useAuthStore } from '@/stores/auth.js'
 
-const STEPS = ['email', 'password', 'name', 'dob', 'username', 'photo', 'home', 'friends']
+const STEPS = ['email', 'password', 'name', 'dob', 'username', 'photo', 'home', 'diet', 'friends']
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -311,6 +321,13 @@ function onPhoto(event) {
   reader.readAsDataURL(file)
 }
 
+// Pick a dietary need, or take it off. Any number can be picked, or none.
+// How to call: toggleDiet('halal')
+function toggleDiet(value) {
+  const list = draft.value.dietary
+  draft.value.dietary = list.includes(value) ? list.filter((d) => d !== value) : [...list, value]
+}
+
 // Add a suggested friend, or take them off the list.
 // How to call: toggleFriend('darius')
 function toggleFriend(id) {
@@ -429,6 +446,22 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
         <SelectField v-model="draft.homeAreaId" label="Area" placeholder="Choose an area" :options="areaOptions" />
       </template>
 
+      <template v-else-if="step === 'diet'">
+        <h1 ref="stepTitle" tabindex="-1" class="display-xl">Dietary needs</h1>
+        <p id="diet-hint" class="body-md text-muted">Pick any that apply, or skip if none do.</p>
+        <div class="signup__diet" role="group" aria-labelledby="diet-hint">
+          <ChipButton
+            v-for="option in DIETARY_OPTIONS"
+            :key="option.value"
+            check
+            :selected="draft.dietary.includes(option.value)"
+            @click="toggleDiet(option.value)"
+          >
+            {{ option.label }}
+          </ChipButton>
+        </div>
+      </template>
+
       <template v-else-if="step === 'friends'">
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Suggested friends</h1>
         <ul>
@@ -450,6 +483,9 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
       <p v-if="phase" class="sr-only" role="status">{{ buttonLabel }}</p>
       <template v-if="step === 'photo'">
         <AppButton next block @click="next">{{ draft.photo ? 'Next' : 'Skip' }}</AppButton>
+      </template>
+      <template v-else-if="step === 'diet'">
+        <AppButton next block @click="next">{{ draft.dietary.length ? 'Next' : 'None, skip' }}</AppButton>
       </template>
       <template v-else>
         <AppButton next block :disabled="!canContinue || busy" @click="next">{{ buttonLabel }}</AppButton>
@@ -475,6 +511,7 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
 .checklist__item.is-ok { color: var(--ink); }
 .checklist__mark { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1.5px solid var(--border-strong); border-radius: var(--rounded-full); color: var(--on-primary); }
 .checklist__item.is-ok .checklist__mark { border-color: var(--selected); background: var(--selected); }
+.signup__diet { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
 .signup__photo { display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-base); }
 .signup__upload { display: inline-flex; align-items: center; gap: var(--spacing-sm); min-height: 48px; padding: 0 var(--spacing-lg); border: 1px solid var(--ink); border-radius: var(--rounded-sm); font: var(--text-button-md); cursor: pointer; }
 .signup__upload:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }

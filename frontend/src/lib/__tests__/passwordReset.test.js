@@ -28,7 +28,7 @@ async function setUp({ fake = fakeSupabase(), signedIn = false, register = true 
   const { useAuthStore } = await import('@/stores/auth.js')
   const store = useAuthStore()
   if (fake && register) {
-    Object.assign(store.draft, { ...PROFILE, step: 7 })
+    Object.assign(store.draft, { ...PROFILE, step: 8 })
     await store.signUp()
     if (!signedIn) await store.signOut()
   }

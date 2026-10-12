@@ -6,6 +6,20 @@ export const USERNAME_HINT = '3 to 20 characters: lowercase letters, numbers or 
 export const NAME_MAX = 50
 export const DOB_MIN = '1900-01-01'
 
+// The dietary needs a person can pick, the same three the database's check and the planner's filters accept.
+export const DIETARY_OPTIONS = [
+  { value: 'halal', label: 'Halal' },
+  { value: 'vegetarian', label: 'Vegetarian' },
+  { value: 'vegan', label: 'Vegan' },
+]
+
+// Only the known needs, each once, in the order above. Anything else is dropped, so the database's check never refuses it.
+// How to call: cleanDietary(['vegan', 'paleo', 'vegan']) -> ['vegan']
+export function cleanDietary(list) {
+  const picked = Array.isArray(list) ? list : []
+  return DIETARY_OPTIONS.map((o) => o.value).filter((value) => picked.includes(value))
+}
+
 // An email address: something before the @, then a domain of dot-separated parts ending in 2 or more letters
 // (name@example.com, n.tan+jio@mail.co.sg). No spaces, no dot at either end of the name, no two dots in a row.
 const EMAIL_PATTERN = /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i

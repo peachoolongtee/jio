@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  cleanDietary,
   fieldForSignUpError,
   NAME_MAX,
   passwordRules,
@@ -62,6 +63,18 @@ describe('fieldForSignUpError', () => {
   })
 })
 
+describe('cleanDietary', () => {
+  it('keeps only halal, vegetarian and vegan, each once, in a fixed order', () => {
+    expect(cleanDietary(['vegan', 'paleo', 'halal', 'vegan'])).toEqual(['halal', 'vegan'])
+    expect(cleanDietary(['Vegan'])).toEqual([])
+  })
+
+  it('answers an empty list for anything that is not a list', () => {
+    expect(cleanDietary(undefined)).toEqual([])
+    expect(cleanDietary(null)).toEqual([])
+    expect(cleanDietary('halal')).toEqual([])
+  })
+})
 
 describe('validateEmail', () => {
   it('accepts ordinary addresses, with plus signs, dots and country domains', () => {

@@ -15,6 +15,8 @@ const emptyDraft = () => ({
   username: '',
   photo: '',
   homeAreaId: '',
+  // 'halal', 'vegetarian' and 'vegan' (lib/signupRules.js DIETARY_OPTIONS). Empty: no needs.
+  dietary: [],
   friends: ['darius', 'jonathan', 'nicole', 'faith', 'darryl'],
 })
 
