@@ -54,7 +54,7 @@ function problem(code, message = MESSAGES[code]) {
 // Why a weak password was refused, in words (Supabase sends reasons such as 'length', 'characters' and 'pwned').
 const WEAK_REASONS = {
   length: 'it is too short',
-  characters: 'it needs a mix of letters, numbers and symbols',
+  characters: 'it needs an uppercase letter, a lowercase letter, a number and one of ! @ # $ % *',
   pwned: 'it has appeared in a known data leak',
 }
 

@@ -44,26 +44,28 @@ async function setUp(fake, draft = {}) {
 const mainButton = (view) => view.all('button').find((b) => (b.attrs.class || '').includes('btn--next'))
 
 describe('the password rule on screen', () => {
-  it('asks real accounts for 6 or more characters with a letter, a number and a symbol, and keeps the older checklist otherwise', async () => {
+  it('asks real accounts for 6 or more characters with an uppercase and a lowercase letter, a number and a symbol, and keeps the older checklist otherwise', async () => {
     const { passwordChecks } = await import('@/views/AuthView.vue')
-    const labels = ['6 or more characters', 'A letter', 'A number', 'A symbol']
+    const labels = ['6 or more characters', 'An uppercase letter', 'A lowercase letter', 'A number', 'A special character']
     expect(passwordChecks('abc1!', true)).toEqual([
       { label: labels[0], ok: false },
-      { label: labels[1], ok: true },
+      { label: labels[1], ok: false },
       { label: labels[2], ok: true },
       { label: labels[3], ok: true },
+      { label: labels[4], hint: 'e.g. ! @ # $ % *', ok: true },
     ])
-    expect(passwordChecks('abc1!x', true).every((c) => c.ok)).toBe(true)
+    expect(passwordChecks('Abc1!x', true).every((c) => c.ok)).toBe(true)
     expect(passwordChecks('abcdef', false).map((c) => c.label)).toEqual(['8 or more characters', 'A letter', 'A number', 'A symbol'])
   })
 
   it('draws that rule on the password question and lets a password through only when every part is met', async () => {
-    const { view, store } = await setUp(fakeSupabase(), { step: 1, password: 'abcdef' })
-    expect(view.all('.checklist__item')).toHaveLength(4)
+    const { view, store } = await setUp(fakeSupabase(), { step: 1, password: 'abc1!x' })
+    expect(view.all('.checklist__item')).toHaveLength(5)
+    expect(view.text('.checklist__hint')).toBe('e.g. ! @ # $ % *')
     expect(view.one('input[autocomplete=new-password]')).toBeTruthy()
     await view.click(mainButton(view))
     expect(store.draft.step).toBe(1)
-    view.type('input[autocomplete=new-password]', 'abc1!x')
+    view.type('input[autocomplete=new-password]', 'Abc1!x')
     await view.click(mainButton(view))
     await until(() => store.draft.step === 2)
   })

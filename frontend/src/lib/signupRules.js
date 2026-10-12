@@ -32,25 +32,30 @@ export function validateEmail(value) {
   return ''
 }
 
-// The password rule for real accounts: 6 or more characters, with at least one letter, one number and one symbol.
+// The password rule for real accounts: 6 or more characters, with at least one uppercase letter, one lowercase letter,
+// one number and one special character, which is one of ! @ # $ % *. Other characters may be in the password too; they
+// just do not count as the special one. Every password this lets through also meets the Supabase project's "Lowercase,
+// uppercase letters, digits and symbols" setting (Authentication > Policies), whose symbols include these six.
 export const PASSWORD_MIN = 6
+export const PASSWORD_SPECIALS = '!@#$%*'
 
 // Each part of the password rule, for a live checklist.
-// How to call: passwordRules('abc1!x') -> [{ label: '6 or more characters', ok: true }, ...]
+// `hint` is a line to show under the label. How to call: passwordRules('Abc1!x') -> [{ label: '6 or more characters', ok: true }, ...]
 export function passwordRules(password) {
   const text = password || ''
   return [
     { label: `${PASSWORD_MIN} or more characters`, ok: text.length >= PASSWORD_MIN },
-    { label: 'A letter', ok: /[a-z]/i.test(text) },
-    { label: 'A number', ok: /\d/.test(text) },
-    { label: 'A symbol', ok: /[^a-z0-9\s]/i.test(text) },
+    { label: 'An uppercase letter', ok: /[A-Z]/.test(text) },
+    { label: 'A lowercase letter', ok: /[a-z]/.test(text) },
+    { label: 'A number', ok: /[0-9]/.test(text) },
+    { label: 'A special character', hint: 'e.g. ! @ # $ % *', ok: [...text].some((ch) => PASSWORD_SPECIALS.includes(ch)) },
   ]
 }
 
-// How to call: validatePassword('abc1!x') -> ''
+// How to call: validatePassword('Abc1!x') -> ''
 export function validatePassword(password) {
   if (passwordRules(password).every((rule) => rule.ok)) return ''
-  return `Use ${PASSWORD_MIN} or more characters, with a letter, a number and a symbol.`
+  return `Use ${PASSWORD_MIN} or more characters, with an uppercase letter, a lowercase letter, a number and one of ! @ # $ % *.`
 }
 
 // A date of birth as the person types it, DD/MM/YYYY: only digits are kept, and the slashes are put in as the digits

@@ -174,9 +174,9 @@ describe('the new-password screen', () => {
   it('holds the button until the password meets the rule, and asks for the same password twice', async () => {
     const t = await setUp({ signedIn: true })
     const view = await draw(t, '/reset-password', 'ResetPasswordView')
-    expect(view.all('.checklist__item')).toHaveLength(4)
-    view.type('#reset-password', 'abcdef')
-    view.type('#reset-confirm', 'abcdef')
+    expect(view.all('.checklist__item')).toHaveLength(5)
+    view.type('#reset-password', 'n3w-secret!')
+    view.type('#reset-confirm', 'n3w-secret!')
     await view.tick()
     expect(mainButton(view).disabled).toBe(true)
     view.type('#reset-password', 'N3w-secret!')

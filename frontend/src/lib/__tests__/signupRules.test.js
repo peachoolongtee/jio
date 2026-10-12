@@ -94,16 +94,25 @@ describe('validateEmail', () => {
 })
 
 describe('the password rule', () => {
-  it('needs 6 or more characters with a letter, a number and a symbol', () => {
-    expect(validatePassword('abc1!x')).toBe('')
+  it('needs 6 or more characters with an uppercase letter, a lowercase letter, a number and one of ! @ # $ % *', () => {
+    expect(validatePassword('Abc1!x')).toBe('')
     expect(validatePassword('Sup3r-secret!')).toBe('')
-    for (const bad of ['', 'ab1!x', 'abcdef', '123456', '!!!!!!', 'abc123', 'abc!!!', '123!!!', 'abc 12 ']) {
-      expect(validatePassword(bad)).toBe('Use 6 or more characters, with a letter, a number and a symbol.')
+    expect(validatePassword('Abc1-x*')).toBe('')
+    for (const bad of ['', 'Ab1!x', 'abc1!x', 'ABC1!X', 'Abcdef', 'Abc!!!', 'Abc123', 'Abc 12 ', 'Abc1-x', 'Abc1?x', 'Abc1\u00a3x']) {
+      expect(validatePassword(bad)).toBe('Use 6 or more characters, with an uppercase letter, a lowercase letter, a number and one of ! @ # $ % *.')
     }
   })
 
-  it('lists each part for the checklist, a space not counting as a symbol', () => {
-    expect(passwordRules('a1 ').map((r) => r.ok)).toEqual([false, true, true, false])
+  it('counts only ! @ # $ % * as the special character, and shows them as an example', () => {
+    expect(passwordRules('a1 ').map((r) => r.ok)).toEqual([false, false, true, true, false])
+    expect(passwordRules('').at(-1)).toMatchObject({ label: 'A special character', hint: 'e.g. ! @ # $ % *' })
+    for (const ch of '!@#$%*') expect(passwordRules(ch).at(-1).ok).toBe(true)
+    for (const ch of '^&()_+-=[]{};:"|<>?,./`~ \u00e9') expect(passwordRules(ch).at(-1).ok).toBe(false)
+  })
+
+  it('lets through only passwords Supabase also accepts: its symbols include all six', () => {
+    const supabaseSymbols = '!@#$%^&*()_+-=[]{};\'\\:"|<>?,./`~'
+    for (const ch of '!@#$%*') expect(supabaseSymbols).toContain(ch)
   })
 })
 

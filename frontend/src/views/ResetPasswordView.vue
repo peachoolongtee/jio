@@ -98,7 +98,10 @@ async function submit() {
       <ul class="checklist" aria-label="Password checklist" aria-live="polite">
         <li v-for="check in checks" :key="check.label" class="checklist__item" :class="{ 'is-ok': check.ok }">
           <span class="checklist__mark"><AppIcon v-if="check.ok" name="check" :size="10" /></span>
-          <span class="body-sm">{{ check.label }}</span>
+          <span class="checklist__text">
+            <span class="body-sm">{{ check.label }}</span>
+            <span v-if="check.hint" class="checklist__hint">{{ check.hint }}</span>
+          </span>
           <span class="sr-only">{{ check.ok ? 'done' : 'not yet' }}</span>
         </li>
       </ul>
@@ -126,7 +129,9 @@ async function submit() {
 .reset__body h1:focus, .reset__body h1:focus-visible { outline: none; }
 .reset__peek { position: absolute; top: 6px; right: 6px; min-width: var(--tap-min); height: var(--tap-min); padding: 0 var(--spacing-md); border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--ink); font: var(--text-button-sm); text-decoration: underline; }
 .checklist { display: flex; flex-direction: column; gap: var(--spacing-sm); }
-.checklist__item { display: flex; align-items: center; gap: var(--spacing-sm); color: var(--muted); }
+.checklist__item { display: flex; align-items: flex-start; gap: var(--spacing-sm); color: var(--muted); }
+.checklist__text { display: flex; flex-direction: column; }
+.checklist__hint { font: var(--text-caption); color: var(--muted); }
 .checklist__item.is-ok { color: var(--ink); }
 .checklist__mark { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1.5px solid var(--border-strong); border-radius: var(--rounded-full); color: var(--on-primary); }
 .checklist__item.is-ok .checklist__mark { border-color: var(--selected); background: var(--selected); }
