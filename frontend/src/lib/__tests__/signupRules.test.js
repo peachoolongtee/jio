@@ -7,6 +7,7 @@ import {
   isoToDob,
   NAME_MAX,
   passwordRules,
+  usernameCandidates,
   validateDob,
   validateEmail,
   validateName,
@@ -121,5 +122,29 @@ describe('the date of birth as DD/MM/YYYY', () => {
     expect(dobToIso('18/03/200')).toBe('')
     expect(isoToDob('2004-03-18')).toBe('18/03/2004')
     expect(isoToDob('')).toBe('')
+  })
+})
+
+describe('usernameCandidates', () => {
+  // Random numbers in order, so a test knows which come out.
+  const fixed = (...values) => {
+    let i = 0
+    return () => values[i++ % values.length]
+  }
+
+  it('counts up from a name that ends in _<number>, then adds random numbers from 100 to 999', () => {
+    const list = usernameCandidates('testuser_887', { random: fixed(0.1, 0.5, 0.9, 0.0) })
+    expect(list).toEqual(['testuser_888', 'testuser_889', 'testuser_190', 'testuser_550', 'testuser_910', 'testuser_100'])
+  })
+
+  it('starts at _1 for any other name', () => {
+    expect(usernameCandidates('sam', { random: fixed(0.2) }).slice(0, 3)).toEqual(['sam_1', 'sam_2', 'sam_280'])
+  })
+
+  it('shortens the start of a long name so every suggestion fits the 20-character rule', () => {
+    const list = usernameCandidates('abcdefghijklmnopqrst')
+    expect(list.length).toBeGreaterThan(0)
+    for (const name of list) expect(validateUsername(name)).toBe('')
+    expect(list[0]).toBe('abcdefghijklmnopqr_1')
   })
 })

@@ -47,6 +47,7 @@ import {
   isoToDob,
   NAME_MAX,
   USERNAME_HINT,
+  usernameCandidates,
   validateDob,
   validateEmail,
   validateName,
@@ -67,6 +68,8 @@ const people = ref([])
 const usernameError = ref('')
 // The username that could not be checked (Supabase did not answer): the person was told and may go on with it.
 const usernameUnchecked = ref('')
+// Free usernames like the one that was taken, offered under the field to tap.
+const usernameSuggestions = ref([])
 const nameError = ref('')
 const dobError = ref('')
 const submitError = ref('')
@@ -180,7 +183,10 @@ async function usernameFree() {
   phase.value = 'checking'
   try {
     const { available } = await api.checkUsername(name)
-    if (!available) usernameError.value = 'That username is taken. Try another one.'
+    if (!available) {
+      usernameError.value = 'That username is taken. Try another one.'
+      suggestUsernames(name)
+    }
     return available
   } catch (err) {
     if (err?.code) {
@@ -195,6 +201,24 @@ async function usernameFree() {
     busy.value = false
     phase.value = ''
   }
+}
+
+// Find up to 3 free usernames like a taken one (the same name with _<number>, see usernameCandidates) and offer them
+// under the field. They are all checked at once. Quiet when the checks fail: the person types another name instead.
+// Dropped when the name was changed in the meantime.
+// How to call: suggestUsernames('testuser_887')
+async function suggestUsernames(taken) {
+  usernameSuggestions.value = []
+  const candidates = usernameCandidates(taken)
+  const answers = await Promise.allSettled(candidates.map((candidate) => api.checkUsername(candidate)))
+  if (draft.value.username !== taken) return
+  usernameSuggestions.value = candidates.filter((_, i) => answers[i].status === 'fulfilled' && answers[i].value.available).slice(0, 3)
+}
+
+// Use a suggested username. The field changes, so the "taken" message and the suggestions go away.
+// How to call: pickUsername('testuser_888')
+function pickUsername(name) {
+  draft.value.username = name
 }
 
 // Is this email free to sign up with? False (with "already exists" under the field, beside the Log in link) when an
@@ -282,7 +306,10 @@ async function finish() {
     // Show the data layer's message under the question it is about; otherwise above the button.
     const message = err?.message || 'Could not create your account. Try again.'
     const field = fieldForSignUpError(message)
-    if (field === 'username') usernameError.value = message
+    if (field === 'username') {
+      usernameError.value = message
+      if (err?.code === 'username_taken') suggestUsernames(draft.value.username)
+    }
     else if (field === 'name') nameError.value = message
     else if (field === 'dob') dobError.value = message
     else submitError.value = message
@@ -355,6 +382,7 @@ function toggleFriend(id) {
 watch(() => draft.value.username, () => {
   usernameError.value = ''
   usernameUnchecked.value = ''
+  usernameSuggestions.value = []
 })
 watch(() => draft.value.name, () => (nameError.value = ''))
 watch(() => draft.value.dob, () => (dobError.value = ''))
@@ -456,6 +484,12 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
           :error="usernameError"
           @input="draft.username = draft.username.toLowerCase()"
         />
+        <div v-if="usernameSuggestions.length" class="signup__suggest" data-testid="username-suggestions">
+          <p id="username-suggest-label" class="body-sm text-muted">These are free:</p>
+          <div class="signup__chips" role="group" aria-labelledby="username-suggest-label">
+            <ChipButton v-for="suggestion in usernameSuggestions" :key="suggestion" class="signup__suggestion" @click="pickUsername(suggestion)">{{ suggestion }}</ChipButton>
+          </div>
+        </div>
       </template>
 
       <template v-else-if="step === 'photo'">
@@ -542,7 +576,8 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
 .checklist__item.is-ok { color: var(--ink); }
 .checklist__mark { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1.5px solid var(--border-strong); border-radius: var(--rounded-full); color: var(--on-primary); }
 .checklist__item.is-ok .checklist__mark { border-color: var(--selected); background: var(--selected); }
-.signup__diet { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
+.signup__diet, .signup__chips { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
+.signup__suggest { display: flex; flex-direction: column; gap: var(--spacing-sm); }
 .signup__photo { display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-base); }
 .signup__upload { display: inline-flex; align-items: center; gap: var(--spacing-sm); min-height: 48px; padding: 0 var(--spacing-lg); border: 1px solid var(--ink); border-radius: var(--rounded-sm); font: var(--text-button-md); cursor: pointer; }
 .signup__upload:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }

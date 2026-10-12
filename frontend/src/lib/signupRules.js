@@ -76,6 +76,25 @@ export function isoToDob(iso) {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : ''
 }
 
+// Usernames to offer in place of a taken one, before checking which are free: the name with an underscore and a
+// number. A name that already ends in _<number> counts up from that number; any other name starts at _1. Then a few
+// random numbers from 100 to 999. Each follows the username rule: the start of the name is shortened so the whole
+// thing fits in 20 characters.
+// How to call: usernameCandidates('testuser_887') -> ['testuser_888', 'testuser_889', 'testuser_200', ...]
+export function usernameCandidates(username, { random = Math.random, count = 6 } = {}) {
+  const name = (username || '').toLowerCase().replace(/[^a-z0-9_]/g, '')
+  const counted = /^(.+)_(\d+)$/.exec(name)
+  const base = (counted ? counted[1] : name) || 'user'
+  const start = counted ? Number(counted[2]) + 1 : 1
+  const numbers = [start, start + 1]
+  for (let tries = 0; numbers.length < count && tries < 50; tries += 1) {
+    const n = 100 + Math.floor(random() * 900)
+    if (!numbers.includes(n)) numbers.push(n)
+  }
+  const made = numbers.map((n) => `${base.slice(0, 20 - String(n).length - 1)}_${n}`)
+  return [...new Set(made)].filter((candidate) => candidate !== name && USERNAME_PATTERN.test(candidate))
+}
+
 // How to call: validateUsername('ian_99') -> ''
 export function validateUsername(value) {
   if (!USERNAME_PATTERN.test(value || '')) return 'Use 3 to 20 lowercase letters, numbers or underscores.'

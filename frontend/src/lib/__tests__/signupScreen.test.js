@@ -424,6 +424,46 @@ describe('an email that already has an account', () => {
   })
 })
 
+describe('suggestions for a taken username', () => {
+  it('offers up to 3 free names counting up from the taken one, and leaves out names that are also taken', async () => {
+    const fake = fakeSupabase()
+    fake.state.profiles.a = { username: 'testuser_887' }
+    fake.state.profiles.b = { username: 'testuser_889' }
+    const { view, store } = await setUp(fake, { step: 4, username: 'testuser_887' })
+    await view.click(mainButton(view))
+    await until(() => view.has('[data-testid="username-suggestions"]'))
+    const chips = view.all('button.signup__suggestion').map((b) => view.text(b))
+    expect(chips).toHaveLength(3)
+    expect(chips[0]).toBe('testuser_888')
+    expect(chips).not.toContain('testuser_889')
+    expect(chips.every((c) => /^testuser_\d+$/.test(c))).toBe(true)
+    expect(store.draft.step).toBe(4)
+  })
+
+  it('fills the field with the one tapped, clears the message, and goes on with it', async () => {
+    const fake = fakeSupabase()
+    fake.state.profiles.other = { username: PROFILE.username }
+    const { view, store } = await setUp(fake, { step: 4 })
+    await view.click(mainButton(view))
+    await until(() => view.has('[data-testid="username-suggestions"]'))
+    const first = view.all('button.signup__suggestion')[0]
+    expect(view.text(first)).toBe('sam_1')
+    await view.click(first)
+    expect(store.draft.username).toBe('sam_1')
+    expect(view.text()).not.toContain('That username is taken')
+    expect(view.has('[data-testid="username-suggestions"]')).toBe(false)
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 5)
+  })
+
+  it('offers nothing when a free name is checked', async () => {
+    const { view, store } = await setUp(fakeSupabase(), { step: 4 })
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 5)
+    expect(view.has('[data-testid="username-suggestions"]')).toBe(false)
+  })
+})
+
 describe('a sign-up refused for being over a limit', () => {
   it('stays on the last question with "Sign-ups are paused" above the button, not on the password', async () => {
     const { view, store } = await setUp(fakeSupabase(), { password: 'limited' })
