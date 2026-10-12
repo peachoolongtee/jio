@@ -5,6 +5,9 @@ import { DEFAULT_CALLS_PER_MINUTE } from './services/budget.js'
 import { assertStubAllowed, createHttp } from './services/http.js'
 import { createGooglePlaces, readGoogleSettings } from './services/google-places.js'
 import { createItineraryAi, readItinerarySettings } from './services/itinerary-ai.js'
+import { createLinkReader, readLinkReaderSettings } from './services/link-reader.js'
+import { createBrowserReader } from './services/link-browser.js'
+import { createYtDlp } from './services/link-tools.js'
 import { createOneMap, readOneMapSettings } from './services/onemap.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -97,6 +100,28 @@ const itineraryAi = createItineraryAi({
   stub,
 })
 
+// Reading places out of a pasted link (YouTube, TikTok, Instagram, Xiaohongshu) with Gemini. Needs GEMINI_API_KEY. A YouTube
+// post's description, date and comments need YOUTUBE_API_KEY (the YouTube Data API v3). Downloading TikTok and Instagram
+// videos (LINK_READER_YTDLP=1) and opening their pages in Chrome for slides, Instagram and Xiaohongshu (LINK_READER_BROWSER=1) are
+// OFF unless set, because they go against those sites' terms: for a laptop, never the deployed server.
+//
+// How to turn it on:
+//   GEMINI_API_KEY=... and optionally YOUTUBE_API_KEY=... in backend/.env
+// How to change the budget:
+//   LINK_READER_CALLS_PER_MINUTE=10
+const linkSettings = readLinkReaderSettings(process.env)
+for (const warning of linkSettings.warnings) console.warn(warning)
+const linkReader = createLinkReader({
+  http,
+  places,
+  geminiKey: linkSettings.geminiKey,
+  geminiModel: linkSettings.geminiModel,
+  youtubeKey: linkSettings.youtubeKey,
+  tools: linkSettings.ytdlp && !isProduction ? createYtDlp() : null,
+  browser: linkSettings.browser && !isProduction ? createBrowserReader() : null,
+  callsPerMinute: linkSettings.callsPerMinute,
+})
+
 // The simulated forecast: lets a planner request send `weatherCase` to pretend it is raining. Off unless
 // switched on, because the planner uses the live data.gov.sg forecast otherwise. Stub mode always allows it.
 //
@@ -145,7 +170,7 @@ const supabase =
       })
     : null
 
-createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, supabase, allowSimulatedWeather, planRateLimit }).listen(port, () => {
+createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader, supabase, allowSimulatedWeather, planRateLimit }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
   if (stub) console.log('Stub mode is ON: external API calls are answered from fixtures.')
   else if (!onemap.routingEnabled) {
@@ -169,6 +194,15 @@ createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, supabase, a
         ? `Itinerary AI is ON: ${itineraryAi.provider === 'gemini' ? 'Gemini' : 'Claude'} suggests the order of each plan when it is confirmed, at most ${itinerarySettings.callsPerMinute} AI calls a minute.`
         : 'Itinerary AI is OFF: plans get the order the rules score best (travel and waiting). Set GEMINI_API_KEY in backend/.env.',
     )
+  }
+  if (!stub) {
+    const caps = linkReader.capabilities()
+    console.log(
+      linkReader.enabled
+        ? `Link reader is ON: YouTube ${caps.youtube.comments ? 'with comments' : 'without comments (no YOUTUBE_API_KEY)'}, TikTok ${caps.tiktok.slides ? 'with slides and video (Chrome)' : caps.tiktok.video ? 'with video (yt-dlp)' : 'by caption only'}, at most ${linkSettings.callsPerMinute} reads a minute.`
+        : 'Link reader is OFF: pasted links cannot be read. Set GEMINI_API_KEY in backend/.env.',
+    )
+    if ((linkSettings.ytdlp || linkSettings.browser) && isProduction) console.warn('LINK_READER_YTDLP and LINK_READER_BROWSER are ignored in production: they are for development machines only.')
   }
   if (allowSimulatedWeather) console.log('Simulated weather is ON: planner requests may send weatherCase to fake the forecast.')
   if (!supabase) {

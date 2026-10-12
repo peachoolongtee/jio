@@ -1,0 +1,13 @@
+{
+  "items": [
+    {
+      "id": "stubVideo01",
+      "snippet": {
+        "publishedAt": "2026-09-20T08:30:00Z",
+        "channelTitle": "Stub Food Channel",
+        "title": "Three places to eat near Orchard",
+        "description": "Starlight Noodle House, 9 Example Road. Starlight Karaoke Box upstairs."
+      }
+    }
+  ]
+}

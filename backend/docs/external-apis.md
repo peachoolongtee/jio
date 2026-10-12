@@ -208,6 +208,12 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
 - **Not verified:** the model names (`claude-haiku-5-5`, `gemini-3.8-flash`) and whether Haiku accepts `output_config.effort` and `fallbacks` were not checked against the live APIs (the installed SDK's types list `claude-haiku-5-5` as a model but do not say which options each model takes). If a name or an option is rejected, the answer is the rules order and one log line a minute, so the feature stays safe but the AI never answers: check the server log after setting a key.
 - **Without a key**, out of free quota, over budget, paused, too slow, or when the AI fails: confirming still works. The plan gets the order the rules score best (travel, plus half the waiting, plus a penalty for a last stop far from an MRT station), and the itinerary says the AI is off. Stub mode and the tests never call an AI.
 
+### YouTube Data API and Gemini video (link reader)
+
+- **What:** reading the places in a pasted post link. Gemini watches a public YouTube video (`file_data`); the YouTube Data API supplies its description, publish date and top comments; Google Places matches each place. Full behaviour: [link-reader-api.md](link-reader-api.md).
+- **Where:** `backend/src/services/link-reader.js`. Every call goes through `services/http.js` (stubbed in stub mode), the YouTube key travels in a header, and calls are budgeted, cached and circuit-broken like the others.
+- **Not allowed to rely on:** downloading TikTok or Instagram videos (their terms forbid it), so that path is off unless `LINK_READER_YTDLP=1` and never in production.
+
 ## To set up (manual steps)
 
 1. **OneMap account:** register at https://www.onemap.gov.sg/apidocs/register, then put the email and password in your own `backend/.env` as `ONEMAP_EMAIL` and `ONEMAP_PASSWORD`. On Render, set them under the service's Environment tab. **Never commit them or paste them in chat.** Set both or neither. Optionally set `ONEMAP_CALLS_PER_MINUTE` (default 240) to lower the server's share of the account's 300 calls a minute.
