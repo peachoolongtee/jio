@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   cleanDietary,
+  dobToIso,
   fieldForSignUpError,
+  formatDobInput,
+  isoToDob,
   NAME_MAX,
   passwordRules,
   validateDob,
@@ -100,5 +103,23 @@ describe('the password rule', () => {
 
   it('lists each part for the checklist, a space not counting as a symbol', () => {
     expect(passwordRules('a1 ').map((r) => r.ok)).toEqual([false, true, true, false])
+  })
+})
+
+describe('the date of birth as DD/MM/YYYY', () => {
+  it('puts the slashes in as the digits arrive, never one at the end', () => {
+    expect(formatDobInput('1')).toBe('1')
+    expect(formatDobInput('18')).toBe('18')
+    expect(formatDobInput('180')).toBe('18/0')
+    expect(formatDobInput('18032004')).toBe('18/03/2004')
+    expect(formatDobInput('18/03/2004999')).toBe('18/03/2004')
+    expect(formatDobInput('18-03-20ab04')).toBe('18/03/2004')
+  })
+
+  it('turns a whole date into YYYY-MM-DD and back, and nothing else', () => {
+    expect(dobToIso('18/03/2004')).toBe('2004-03-18')
+    expect(dobToIso('18/03/200')).toBe('')
+    expect(isoToDob('2004-03-18')).toBe('18/03/2004')
+    expect(isoToDob('')).toBe('')
   })
 })

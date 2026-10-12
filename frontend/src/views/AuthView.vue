@@ -41,10 +41,11 @@ import * as api from '@/lib/api.js'
 import { MESSAGES } from '@/lib/auth.js'
 import {
   DIETARY_OPTIONS,
-  DOB_MIN,
+  dobToIso,
   fieldForSignUpError,
+  formatDobInput,
+  isoToDob,
   NAME_MAX,
-  todayIso,
   USERNAME_HINT,
   validateDob,
   validateEmail,
@@ -103,9 +104,17 @@ const emailValid = computed(() => !validateEmail(draft.value.email))
 const emailTouched = ref(false)
 const emailShown = computed(() => emailError.value || (emailTouched.value && draft.value.email ? validateEmail(draft.value.email) : ''))
 const checks = computed(() => passwordChecks(draft.value.password, auth.realAccounts))
-const today = todayIso()
-// A date input is empty until it holds a whole date, so only a full but impossible date shows a message.
+// The date of birth as typed, DD/MM/YYYY. The draft keeps YYYY-MM-DD, and only once all 8 digits are there, so only a
+// full but impossible date shows a message.
+const dobText = ref(isoToDob(draft.value.dob))
 const dobInvalid = computed(() => (draft.value.dob ? validateDob(draft.value.dob) : ''))
+
+// Keep the typed date in DD/MM/YYYY form and the draft in step with it.
+// How to call: onDobInput('18032004')
+function onDobInput(value) {
+  dobText.value = formatDobInput(value)
+  draft.value.dob = dobToIso(dobText.value)
+}
 
 const canContinue = computed(() => {
   const d = draft.value
@@ -423,14 +432,15 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
       <template v-else-if="step === 'dob'">
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Date of birth</h1>
         <TextField
-          v-model="draft.dob"
+          :model-value="dobText"
           label="Date of birth"
-          type="date"
+          inputmode="numeric"
           autocomplete="bday"
-          :min="DOB_MIN"
-          :max="today"
-          hint="We need this to create your account."
+          placeholder="DD/MM/YYYY"
+          maxlength="10"
+          hint="DD/MM/YYYY, for example 18/03/2004. We need this to create your account."
           :error="dobError || dobInvalid"
+          @update:model-value="onDobInput"
         />
       </template>
 

@@ -53,6 +53,29 @@ export function validatePassword(password) {
   return `Use ${PASSWORD_MIN} or more characters, with a letter, a number and a symbol.`
 }
 
+// A date of birth as the person types it, DD/MM/YYYY: only digits are kept, and the slashes are put in as the digits
+// arrive. A slash is never added at the end, so deleting one with Backspace works.
+// How to call: formatDobInput('18032004') -> '18/03/2004';  formatDobInput('180') -> '18/0'
+export function formatDobInput(value) {
+  const digits = String(value || '').replace(/\D/g, '').slice(0, 8)
+  return [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4)].filter(Boolean).join('/')
+}
+
+// DD/MM/YYYY to the YYYY-MM-DD the database keeps, or '' until all 8 digits are there. Whether the date is real is
+// for validateDob to say.
+// How to call: dobToIso('18/03/2004') -> '2004-03-18'
+export function dobToIso(text) {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(text || '')
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : ''
+}
+
+// YYYY-MM-DD back to DD/MM/YYYY, for a date already answered. '' for anything else.
+// How to call: isoToDob('2004-03-18') -> '18/03/2004'
+export function isoToDob(iso) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '')
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : ''
+}
+
 // How to call: validateUsername('ian_99') -> ''
 export function validateUsername(value) {
   if (!USERNAME_PATTERN.test(value || '')) return 'Use 3 to 20 lowercase letters, numbers or underscores.'

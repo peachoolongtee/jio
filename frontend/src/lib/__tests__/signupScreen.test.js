@@ -352,6 +352,32 @@ describe('the email question', () => {
   })
 })
 
+describe('the date of birth question', () => {
+  it('takes the date as DD/MM/YYYY, puts the slashes in, and keeps YYYY-MM-DD in the draft', async () => {
+    const { view, store } = await setUp(fakeSupabase(), { step: 3, dob: '' })
+    expect(view.one('input[inputmode=numeric]').attrs.placeholder).toBe('DD/MM/YYYY')
+    view.type('input[inputmode=numeric]', '1803')
+    await view.tick()
+    expect(view.one('input[inputmode=numeric]').value).toBe('18/03')
+    expect(store.draft.dob).toBe('')
+    view.type('input[inputmode=numeric]', '18/03/2004')
+    await view.tick()
+    expect(store.draft.dob).toBe('2004-03-18')
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 4)
+  })
+
+  it('shows an answered date as DD/MM/YYYY, and refuses a date that does not exist', async () => {
+    const { view, store } = await setUp(fakeSupabase(), { step: 3, dob: '2001-05-06' })
+    expect(view.one('input[inputmode=numeric]').value).toBe('06/05/2001')
+    view.type('input[inputmode=numeric]', '31022004')
+    await view.tick()
+    expect(view.text()).toContain('That date does not exist.')
+    await view.click(mainButton(view))
+    expect(store.draft.step).toBe(3)
+  })
+})
+
 describe('an email that already has an account', () => {
   // A sign-up screen on the first question, on a project where PROFILE's email is already registered.
   // How to call: const t = await registeredSetUp({ noEmailFunction: true })
