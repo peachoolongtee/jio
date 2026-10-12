@@ -39,6 +39,7 @@ import SelectField from '@/components/ui/SelectField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import * as api from '@/lib/api.js'
+import { shrinkPhoto } from '@/lib/photo.js'
 import { MESSAGES } from '@/lib/auth.js'
 import {
   DIETARY_OPTIONS,
@@ -336,34 +337,17 @@ async function finish() {
   }
 }
 
-// Read the chosen picture, shrink it, and keep it in the draft.
-// How to call: onPhoto(event) (the file input's change)
-function onPhoto(event) {
+// Read the chosen picture, shrink it (lib/photo.js), and keep it in the draft.
+// How to call: await onPhoto(event) (the file input's change)
+async function onPhoto(event) {
   const file = event.target.files?.[0]
   photoError.value = ''
   if (!file) return
-  if (!file.type.startsWith('image/')) {
-    photoError.value = 'Choose an image file.'
-    return
+  try {
+    draft.value.photo = await shrinkPhoto(file)
+  } catch (err) {
+    photoError.value = err.message
   }
-  const reader = new FileReader()
-  reader.onload = () => {
-    // Shrink the photo so it fits in local storage.
-    const img = new Image()
-    img.onload = () => {
-      const size = 160
-      const canvas = document.createElement('canvas')
-      canvas.width = size
-      canvas.height = size
-      const scale = Math.max(size / img.width, size / img.height)
-      const w = img.width * scale
-      const h = img.height * scale
-      canvas.getContext('2d').drawImage(img, (size - w) / 2, (size - h) / 2, w, h)
-      draft.value.photo = canvas.toDataURL('image/jpeg', 0.8)
-    }
-    img.src = reader.result
-  }
-  reader.readAsDataURL(file)
 }
 
 // Pick a dietary need, or take it off. Any number can be picked, or none.

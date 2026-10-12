@@ -1,13 +1,20 @@
 <script setup>
-// Edit profile, opened from "Edit profile" on the signed-in person's own Profile page. Two parts, each saved on its own:
-//   Your details: name, home area and dietary needs, starting from the signed-in person. Saved only when something
-//   changed and the name keeps the sign-up rule. A real account's details also go to Supabase; when that write fails the
-//   app's sync notice says so (stores/auth.js syncNotice), and "Saved" is not shown.
-//   Change password: real accounts only. The current password, then a new one with the same live checklist as sign-up
+// Edit profile, opened from "Edit profile" on the signed-in person's own Profile page. Two tabs, each with its own address
+// and its own save button, in the manner of Instagram's settings:
+//   Edit profile (/profile/edit): a card with the photo, @username and name, and Change photo; then name, home area and
+//   dietary needs, starting from the signed-in person. Saved only when
+//   something changed and the name keeps the sign-up rule. The photo is shrunk the way sign-up shrinks it (lib/photo.js)
+//   and, as at sign-up, stays in this browser: it is not uploaded. A real account's details also go to Supabase; when
+//   that write fails the app's sync notice says so (stores/auth.js syncNotice), and "Saved" is not shown.
+//   Password (/profile/edit/password): real accounts only. The current password, then a new one with the same live checklist as sign-up
 //   (lib/signupRules.js), typed twice. The current one is checked with Supabase before the new one is set. All three
 //   fields are emptied after every attempt. A local account lives only in this browser and has no password, so it gets
 //   a note instead.
+// On a phone the two tabs sit across the top and the page takes the full width. From tablet up they are a menu down
+// the left, and the open tab is on the right. Switching tabs replaces the address, so Back still goes to the Profile
+// page, and what was typed in the other tab is kept until the page is left.
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
@@ -15,14 +22,27 @@ import ChipButton from '@/components/ui/ChipButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 import TextField from '@/components/ui/TextField.vue'
+import UserAvatar from '@/components/ui/UserAvatar.vue'
 import * as api from '@/lib/api.js'
 import { MESSAGES } from '@/lib/auth.js'
+import { HOST_ID } from '@/lib/mock/people.js'
+import { shrinkPhoto } from '@/lib/photo.js'
 import { DIETARY_OPTIONS, NAME_MAX, cleanDietary, passwordRules, validateName } from '@/lib/signupRules.js'
 import { useAuthStore } from '@/stores/auth.js'
 
 const auth = useAuthStore()
+const route = useRoute()
+// Which tab is open, from the address.
+const tab = computed(() => (route.name === 'profile-password' ? 'password' : 'details'))
+const TABS = [
+  { id: 'details', label: 'Edit profile', icon: 'tab-profile', to: '/profile/edit' },
+  { id: 'password', label: 'Password', icon: 'lock', to: '/profile/edit/password' },
+]
 
 // ── Your details ──
+// A data URL, or '' for no photo (the avatar shows the first letter of the name).
+const photo = ref(auth.user?.photo ?? '')
+const photoError = ref('')
 const name = ref(auth.user?.name ?? '')
 const homeAreaId = ref(auth.user?.homeAreaId ?? '')
 const dietary = ref(cleanDietary(auth.user?.dietary))
@@ -42,7 +62,7 @@ const detailsChanged = computed(() => {
   const user = auth.user
   if (!user) return false
   const sameDiet = cleanDietary(dietary.value).join() === cleanDietary(user.dietary).join()
-  return name.value.trim() !== (user.name ?? '') || homeAreaId.value !== (user.homeAreaId ?? '') || !sameDiet
+  return photo.value !== (user.photo ?? '') || name.value.trim() !== (user.name ?? '') || homeAreaId.value !== (user.homeAreaId ?? '') || !sameDiet
 })
 
 // The signed-in person can change under the page: the profile read from Supabase after start-up arrives, or another
@@ -52,18 +72,36 @@ watch(
   (user, before) => {
     if (!user || !before) return
     const diet = (list) => cleanDietary(list).join()
+    if (photo.value === (before.photo ?? '') && photo.value !== (user.photo ?? '')) photo.value = user.photo ?? ''
     if (name.value.trim() === (before.name ?? '') && name.value.trim() !== (user.name ?? '')) name.value = user.name ?? ''
     if (homeAreaId.value === (before.homeAreaId ?? '') && homeAreaId.value !== (user.homeAreaId ?? '')) homeAreaId.value = user.homeAreaId ?? ''
     if (diet(dietary.value) === diet(before.dietary) && diet(dietary.value) !== diet(user.dietary)) dietary.value = cleanDietary(user.dietary)
   },
 )
 
-watch([name, homeAreaId, dietary], () => (detailsError.value = ''))
+watch([photo, name, homeAreaId, dietary], () => (detailsError.value = ''))
 // "Saved" stays until the form differs from what is saved, not on every write to a field.
 watch(detailsChanged, (changed) => {
   if (changed) detailsSaved.value = false
 })
 watch(name, () => (nameError.value = ''))
+
+// Read the chosen picture and shrink it. It is saved with the other details. The input is emptied afterwards, so the
+// same file can be chosen again after Remove photo.
+// How to call: await onPhoto(event)   (the file input's change)
+async function onPhoto(event) {
+  const input = event.target
+  const file = input.files?.[0]
+  photoError.value = ''
+  if (!file) return
+  try {
+    photo.value = await shrinkPhoto(file)
+  } catch (err) {
+    photoError.value = err.message
+  } finally {
+    input.value = ''
+  }
+}
 
 // Pick a dietary need, or take it off. Any number can be picked, or none.
 // How to call: toggleDiet('halal')
@@ -81,7 +119,7 @@ async function saveDetails() {
   savingDetails.value = true
   detailsError.value = ''
   try {
-    await auth.update({ name: name.value.trim(), homeAreaId: homeAreaId.value, dietary: cleanDietary(dietary.value) })
+    await auth.update({ photo: photo.value, name: name.value.trim(), homeAreaId: homeAreaId.value, dietary: cleanDietary(dietary.value) })
     // A failed Supabase write is shown by the app's sync notice; "Saved" would say otherwise.
     detailsSaved.value = !auth.syncNotice
   } catch (err) {
@@ -154,17 +192,47 @@ async function savePassword() {
 </script>
 
 <template>
-  <main class="screen screen--form edit" data-testid="edit-profile-view">
+  <main class="screen edit" data-testid="edit-profile-view">
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton label="Back" to="/profile"><AppIcon name="back" /></IconButton>
       </div>
-      <h1 class="display-xl">Edit profile</h1>
     </header>
 
-    <div class="screen__body edit__body">
-      <form id="details-form" class="section edit__section" aria-labelledby="details-head" novalidate @submit.prevent="saveDetails">
-        <h2 id="details-head" class="display-sm">Your details</h2>
+    <div class="screen__body edit__layout">
+      <nav class="edit__nav" aria-label="Profile settings">
+        <RouterLink
+          v-for="item in TABS"
+          :key="item.id"
+          :to="item.to"
+          replace
+          class="edit__tab"
+          :class="{ 'is-active': tab === item.id }"
+          :aria-current="tab === item.id ? 'page' : undefined"
+          :data-testid="`tab-${item.id}`"
+        >
+          <AppIcon :name="item.icon" :size="20" />
+          <span>{{ item.label }}</span>
+        </RouterLink>
+      </nav>
+
+      <form v-if="tab === 'details'" id="details-form" class="edit__panel" aria-labelledby="details-head" novalidate @submit.prevent="saveDetails">
+        <h1 id="details-head" class="display-lg">Edit profile</h1>
+        <div class="edit__card" role="group" aria-label="Profile photo">
+          <UserAvatar :name="name.trim() || auth.user?.name || '?'" :src="photo" :person="HOST_ID" :size="64" />
+          <span class="edit__who">
+            <span class="title-md truncate" data-testid="card-username">{{ auth.user?.username ? `@${auth.user.username}` : '' }}</span>
+            <span class="body-sm text-muted truncate" data-testid="card-name">{{ name.trim() || auth.user?.name }}</span>
+          </span>
+          <span class="edit__card-actions">
+            <label class="edit__upload">
+              <span>{{ photo ? 'Change photo' : 'Add photo' }}</span>
+              <input id="edit-photo" class="sr-only" type="file" accept="image/*" @change="onPhoto" />
+            </label>
+            <AppButton v-if="photo" variant="tertiary" underline data-testid="remove-photo" @click="photo = ''">Remove</AppButton>
+          </span>
+        </div>
+        <p v-if="photoError" class="body-sm text-error" role="alert" data-testid="photo-error">{{ photoError }}</p>
         <TextField id="edit-name" v-model="name" label="Name" autocomplete="given-name" :maxlength="NAME_MAX" :hint="`Up to ${NAME_MAX} characters`" :error="nameError" />
         <SelectField id="edit-area" v-model="homeAreaId" label="Home area" placeholder="Choose an area" :options="areaOptions" />
         <div class="edit__group">
@@ -180,8 +248,9 @@ async function savePassword() {
         <AppButton block type="submit" :disabled="savingDetails || !detailsChanged" data-testid="save-details">{{ savingDetails ? 'Saving' : 'Save details' }}</AppButton>
       </form>
 
-      <section class="section edit__section" aria-labelledby="password-head">
-        <h2 id="password-head" class="display-sm">Change password</h2>
+      <section v-else class="edit__panel" aria-labelledby="password-head">
+        <h1 id="password-head" class="display-lg">Password</h1>
+        <p class="body-md text-muted">Type your current password, then the new one twice.</p>
         <BannerNote v-if="noPassword" data-testid="no-password-note">This account lives only in this browser and has no password to change.</BannerNote>
         <form v-else-if="hasPassword" id="password-form" class="edit__form" novalidate @submit.prevent="savePassword">
           <TextField
@@ -244,10 +313,41 @@ async function savePassword() {
 
 <style scoped>
 .edit { min-height: 100dvh; }
-.edit__body { gap: var(--spacing-xl); }
-.edit__section + .edit__section { padding-top: var(--spacing-xl); border-top: 1px solid var(--hairline); }
+.edit__layout { gap: var(--spacing-lg); }
+
+/* The two tabs. On a phone: across the top, muted labels, the open one in ink with a 2px rule under it. */
+.edit__nav { display: flex; gap: var(--spacing-lg); border-bottom: 1px solid var(--hairline); }
+.edit__tab { display: inline-flex; align-items: center; gap: var(--spacing-sm); min-height: var(--tap-min); margin-bottom: -1px; padding: var(--spacing-md) 0; border-bottom: 2px solid transparent; color: var(--muted); font: var(--text-button-sm); text-decoration: none; white-space: nowrap; }
+.edit__tab.is-active { border-bottom-color: var(--ink); color: var(--ink); font-weight: 600; }
+@media (hover: hover) { .edit__tab:not(.is-active):hover { color: var(--ink); } }
+
+/* The open tab: one column of fields, no wider than a form. */
+.edit__panel { display: flex; flex-direction: column; gap: var(--spacing-lg); width: 100%; max-width: var(--form-max-width); }
+.edit__panel h1, .edit__panel > p { margin: 0; }
+
+/* Tablet and up: the tabs become a menu down the left, and the open tab sits beside it. */
+@media (min-width: 744px) {
+  .edit__layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); align-items: start; column-gap: var(--spacing-xl); }
+  .edit__nav { position: sticky; top: calc(var(--topbar-height) + var(--spacing-base)); flex-direction: column; gap: var(--spacing-xs); border-bottom: 0; }
+  .edit__tab { min-height: 48px; margin: 0; padding: 0 var(--spacing-base); border-bottom: 0; border-radius: var(--rounded-sm); color: var(--ink); font: var(--text-body-md); }
+  .edit__tab.is-active { background: var(--surface-strong); font-weight: 600; }
+  @media (hover: hover) { .edit__tab:not(.is-active):hover { background: var(--surface-soft); } }
+  .edit__panel { justify-self: center; }
+}
+@media (min-width: 1128px) {
+  .edit__layout { grid-template-columns: 260px minmax(0, 1fr); column-gap: var(--spacing-xxl); }
+}
+
 .edit__form, .edit__group { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .edit__group .field-label { margin: 0; color: var(--muted); }
+/* The photo card: the avatar, @username and name, and Change photo on the right. On a narrow phone the button wraps
+   under the name. */
+.edit__card { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-md) var(--spacing-base); padding: var(--spacing-base); border-radius: var(--rounded-md); background: var(--surface-soft); }
+.edit__who { display: flex; flex: 1 1 120px; flex-direction: column; min-width: 0; }
+.edit__card-actions { display: flex; align-items: center; gap: var(--spacing-base); }
+.edit__upload { display: inline-flex; align-items: center; min-height: var(--tap-min); padding: 0 var(--spacing-base); border-radius: var(--rounded-sm); background: var(--primary); color: var(--on-primary); font: var(--text-button-sm); font-weight: 600; white-space: nowrap; cursor: pointer; }
+.edit__upload:active { background: var(--primary-active); }
+.edit__upload:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
 .edit__diet { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
 .edit__done { display: inline-flex; align-items: center; gap: var(--spacing-xs); margin: 0; color: var(--ink); }
 .edit__done :deep(svg) { color: var(--selected); }

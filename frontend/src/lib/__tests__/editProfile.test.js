@@ -1,5 +1,6 @@
 // Edit profile: the data layer's password check and change, the "Edit profile" button on the Profile page, the route's
-// guard, and the edit page drawn for real (domless.js) on the stand-in Supabase, for a real and a local account.
+// guard, and the edit page drawn for real (domless.js) on the stand-in Supabase, for a real and a local account, with
+// its profile photo.
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { PROFILE, boot, fakeSupabase } from './authFixture.js'
@@ -10,6 +11,9 @@ vi.mock('../plannerApi.js', () => planner)
 // Canvas drawings that need a browser; the screen's own logic is what is under test.
 vi.mock('@/components/ui/GridPulse.vue', () => ({ default: { render: () => null } }))
 vi.mock('@/components/ui/MeetupGraph.vue', () => ({ default: { render: () => null } }))
+// Shrinking a picture needs a browser's image decoder and canvas; photo.test.js tests it. Here it answers at once.
+const photoLib = vi.hoisted(() => ({ PHOTO_SIZE: 160, shrinkPhoto: vi.fn() }))
+vi.mock('@/lib/photo.js', () => photoLib)
 
 // Drawing a screen compiles its templates the first time, which is slow on a busy machine.
 vi.setConfig({ testTimeout: 20000 })
@@ -64,6 +68,14 @@ async function draw(t, path, name) {
   const view = await mountScreen(screen, { plugins: [t.pinia, t.router] })
   drawn.push(view)
   return view
+}
+
+// Open a tab by clicking it in the menu, as a person does, and wait for it.
+// How to call: await openTab(t, view, 'password')
+async function openTab(t, view, id) {
+  await view.click(`[data-testid="tab-${id}"]`)
+  const name = id === 'password' ? 'profile-password' : 'profile-edit'
+  await until(() => t.router.currentRoute.value.name === name && view.has(id === 'password' ? '#password-head' : '#details-head'))
 }
 
 // Fill in the three password fields.
@@ -149,6 +161,60 @@ describe('the route', () => {
   })
 })
 
+describe('the two tabs', () => {
+  it('opens Edit profile at /profile/edit and Password at /profile/edit/password, each marked as the current tab', async () => {
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    expect(view.text('h1')).toBe('Edit profile')
+    expect(view.one('[data-testid="tab-details"]').attrs['aria-current']).toBe('page')
+    expect(view.one('[data-testid="tab-password"]').attrs['aria-current']).toBeUndefined()
+    expect(view.one('[data-testid="tab-password"]').attrs.href).toBe('/profile/edit/password')
+    expect(view.has('#edit-current')).toBe(false)
+    await openTab(t, view, 'password')
+    expect(view.text('h1')).toBe('Password')
+    expect(view.one('[data-testid="tab-password"]').attrs['aria-current']).toBe('page')
+    expect(view.has('#edit-name')).toBe(false)
+    expect(view.has('#edit-current')).toBe(true)
+  })
+
+  it('switches tabs without adding to the history, so Back goes to the Profile page', async () => {
+    const t = await setUp()
+    await t.router.push('/profile')
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    await openTab(t, view, 'password')
+    await openTab(t, view, 'details')
+    t.router.back()
+    await until(() => t.router.currentRoute.value.path === '/profile')
+  })
+
+  it('keeps what was typed in Edit profile while the Password tab is open', async () => {
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    view.type('#edit-name', 'Samantha')
+    await openTab(t, view, 'password')
+    await openTab(t, view, 'details')
+    expect(view.one('#edit-name').value).toBe('Samantha')
+    expect(view.one('[data-testid="save-details"]').disabled).toBe(false)
+  })
+
+  it('shows a card with the photo, @username and name, the name following what is typed', async () => {
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    expect(view.text('[data-testid="card-username"]')).toBe(`@${PROFILE.username}`)
+    expect(view.text('[data-testid="card-name"]')).toBe(PROFILE.name)
+    view.type('#edit-name', 'Samantha')
+    await view.tick()
+    expect(view.text('[data-testid="card-name"]')).toBe('Samantha')
+  })
+
+  it('sends a signed-out visitor to the login from the Password tab too', async () => {
+    const out = await setUp({ signedIn: false })
+    await out.router.push('/profile/edit/password')
+    expect(out.router.currentRoute.value.name).toBe('login')
+    expect(out.router.currentRoute.value.query.next).toBe('/profile/edit/password')
+  })
+})
+
 describe('editing the details', () => {
   it('starts from the signed-in person and saves the changes to Supabase', async () => {
     const t = await setUp()
@@ -194,7 +260,7 @@ describe('editing the details', () => {
 describe('changing the password', () => {
   it('has the sign-up checklist, with its hint, and holds the button until the rule is kept', async () => {
     const t = await setUp()
-    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     expect(view.all('.checklist__item')).toHaveLength(6)
     expect(view.text('.checklist')).toContain('e.g. ! @ # $ % *')
     typePasswords(view, RIGHT, 'n3wsecret!', 'n3wsecret!')
@@ -204,7 +270,7 @@ describe('changing the password', () => {
 
   it('has a Show button on each field that shows that field only', async () => {
     const t = await setUp()
-    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     const types = () => ['#edit-current', '#edit-new', '#edit-confirm'].map((s) => view.one(s).attrs.type)
     expect(types()).toEqual(['password', 'password', 'password'])
     await view.click('[data-testid="peek-next"]')
@@ -220,7 +286,7 @@ describe('changing the password', () => {
 
   it('refuses two new passwords that do not match, without asking Supabase, and empties the fields', async () => {
     const t = await setUp()
-    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     typePasswords(view, RIGHT, NEW, 'N3wSecret*')
     await view.click('[data-testid="save-password"]')
     expect(view.text()).toContain('The two new passwords do not match.')
@@ -230,7 +296,7 @@ describe('changing the password', () => {
 
   it('refuses a new password that is the current one, and empties the fields', async () => {
     const t = await setUp()
-    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     const signIns = t.fake.state.signInCalls.length
     typePasswords(view, RIGHT, RIGHT, RIGHT)
     await view.click('[data-testid="save-password"]')
@@ -242,7 +308,7 @@ describe('changing the password', () => {
 
   it('shows "not right" under the current password when it is wrong, changes nothing, and empties the fields', async () => {
     const t = await setUp()
-    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     typePasswords(view, 'Wr0ngSecret!', NEW, NEW)
     await view.click('[data-testid="save-password"]')
     await until(() => view.text().includes(t.auth.MESSAGES.wrong_password))
@@ -253,7 +319,7 @@ describe('changing the password', () => {
 
   it('changes it when the current password is right, says so, and empties the fields', async () => {
     const t = await setUp()
-    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     typePasswords(view, RIGHT, NEW, NEW)
     await view.click('[data-testid="save-password"]')
     await until(() => view.has('[data-testid="password-changed"]'))
@@ -266,10 +332,11 @@ describe('changing the password', () => {
 describe('a local account', () => {
   it('shows a note instead of the password form, and still saves its details', async () => {
     const t = await setUp({ fake: null })
-    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     expect(view.has('[data-testid="no-password-note"]')).toBe(true)
     expect(view.text('[data-testid="no-password-note"]')).toContain('no password')
     expect(view.has('#edit-current')).toBe(false)
+    await openTab(t, view, 'details')
     view.type('#edit-name', 'Ian T')
     await view.click('[data-testid="save-details"]')
     await until(() => view.has('[data-testid="details-saved"]'))
@@ -284,7 +351,7 @@ describe('under stress', () => {
 
   it('checks and changes the password once when the form is sent three times at once', async () => {
     const t = await setUp()
-    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     const signIns = t.fake.state.signInCalls.length
     typePasswords(view, RIGHT, NEW, NEW)
     await view.tick()
@@ -313,7 +380,7 @@ describe('under stress', () => {
 
   it('keeps the person signed in after wrong passwords, and the right one still works afterwards', async () => {
     const t = await setUp()
-    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     for (const wrong of ['Wr0ngSecret!', 'Sup3rSecret*', 'sup3rSecret!']) {
       typePasswords(view, wrong, NEW, NEW)
       await view.click('[data-testid="save-password"]')
@@ -334,7 +401,7 @@ describe('under stress', () => {
 
   it('can change the password twice in a row, the second time from the new one', async () => {
     const t = await setUp()
-    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     typePasswords(view, RIGHT, NEW, NEW)
     await view.click('[data-testid="save-password"]')
     await until(() => view.has('[data-testid="password-changed"]'))
@@ -350,7 +417,7 @@ describe('under stress', () => {
 
   it('says there is no connection, changes nothing, empties the fields and keeps the person signed in', async () => {
     const t = await setUp()
-    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     t.fake.state.options.down = true
     typePasswords(view, RIGHT, NEW, NEW)
     await view.click('[data-testid="save-password"]')
@@ -371,14 +438,13 @@ describe('under stress', () => {
 
   it('shows neither the form nor the local-account note when the login ends while the page is open', async () => {
     const t = await setUp()
-    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     expect(view.has('#edit-current')).toBe(true)
     t.fake.state.endSession()
     await until(() => !t.store.signedIn)
     await view.tick()
     expect(view.has('#edit-current')).toBe(false)
     expect(view.has('[data-testid="no-password-note"]')).toBe(false)
-    expect(view.one('[data-testid="save-details"]').disabled).toBe(true)
   })
 
   it('takes in a profile read from Supabase after the page opened, but keeps what the person has typed', async () => {
@@ -449,11 +515,123 @@ describe('under stress', () => {
     const t = await setUp()
     const view = await draw(t, '/profile/edit', 'EditProfileView')
     view.type('#edit-name', 'Samantha')
-    typePasswords(view, RIGHT, NEW, NEW)
     await view.click('[data-testid="save-details"]')
+    await openTab(t, view, 'password')
+    typePasswords(view, RIGHT, NEW, NEW)
     await view.click('[data-testid="save-password"]')
     view.unmount()
     await until(() => t.fake.state.passwordUpdates.length === 1 && t.store.user?.name === 'Samantha')
     expect(t.store.signedIn).toBe(true)
+  })
+})
+
+describe('the profile photo', () => {
+  const PHOTO = 'data:image/jpeg;base64,c21hbGw='
+  const OTHER = 'data:image/jpeg;base64,b3RoZXI='
+  // Choose a file in the photo input, as the browser does: the change event, with the file on the input.
+  // How to call: await choosePhoto(view, { type: 'image/png', name: 'me.png' })
+  async function choosePhoto(view, file) {
+    const input = view.one('#edit-photo')
+    input.files = [file]
+    input.dispatch('change')
+    await view.tick()
+  }
+  const avatarSrc = (view) => view.all('img').map((img) => img.attrs.src).find(Boolean) || ''
+
+  it('starts with the letter of the name, then shows, saves and keeps a chosen photo', async () => {
+    photoLib.shrinkPhoto.mockReset().mockResolvedValue(PHOTO)
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    expect(avatarSrc(view)).toBe('')
+    expect(view.text('.edit__upload')).toBe('Add photo')
+    expect(view.has('[data-testid="remove-photo"]')).toBe(false)
+    const file = { type: 'image/png', name: 'me.png' }
+    await choosePhoto(view, file)
+    await until(() => avatarSrc(view) === PHOTO)
+    expect(photoLib.shrinkPhoto).toHaveBeenCalledWith(file)
+    expect(view.text('.edit__upload')).toBe('Change photo')
+    // The input is emptied, so the same file can be chosen again.
+    expect(view.one('#edit-photo').value).toBe('')
+    await view.click('[data-testid="save-details"]')
+    await until(() => view.has('[data-testid="details-saved"]'))
+    expect(t.store.user.photo).toBe(PHOTO)
+    // Kept over a page reload, in this browser.
+    const again = await boot(t.fake, { data: t.storage.store })
+    expect((await again.api.startUser()).user.photo).toBe(PHOTO)
+  })
+
+  it('never sends the photo to Supabase', async () => {
+    photoLib.shrinkPhoto.mockReset().mockResolvedValue(PHOTO)
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const writes = t.fake.state.writes.length
+    await choosePhoto(view, { type: 'image/png' })
+    await until(() => avatarSrc(view) === PHOTO)
+    await view.click('[data-testid="save-details"]')
+    await until(() => view.has('[data-testid="details-saved"]'))
+    const sent = t.fake.state.writes.slice(writes).map((w) => JSON.stringify(w.row)).join(' ')
+    expect(sent).not.toContain('base64')
+    expect(t.fake.state.profiles['uid-1'].avatar_url).toBeNull()
+  })
+
+  it('removes a photo, and changes it for another one', async () => {
+    photoLib.shrinkPhoto.mockReset().mockResolvedValue(PHOTO)
+    const t = await setUp()
+    await t.store.update({ photo: PHOTO })
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    expect(avatarSrc(view)).toBe(PHOTO)
+    expect(view.one('[data-testid="save-details"]').disabled).toBe(true)
+    await view.click('[data-testid="remove-photo"]')
+    expect(avatarSrc(view)).toBe('')
+    expect(view.text('.edit__upload')).toBe('Add photo')
+    await view.click('[data-testid="save-details"]')
+    await until(() => view.has('[data-testid="details-saved"]'))
+    expect(t.store.user.photo).toBe('')
+    photoLib.shrinkPhoto.mockResolvedValue(OTHER)
+    await choosePhoto(view, { type: 'image/jpeg' })
+    await until(() => avatarSrc(view) === OTHER)
+    await view.click('[data-testid="save-details"]')
+    await until(() => view.has('[data-testid="details-saved"]'))
+    expect(t.store.user.photo).toBe(OTHER)
+  })
+
+  it('says why a picture could not be used, and keeps the photo there was', async () => {
+    photoLib.shrinkPhoto.mockReset().mockRejectedValue(new Error('Choose an image file.'))
+    const t = await setUp()
+    await t.store.update({ photo: PHOTO })
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    await choosePhoto(view, { type: 'application/pdf', name: 'cv.pdf' })
+    await until(() => view.has('[data-testid="photo-error"]'))
+    expect(view.text('[data-testid="photo-error"]')).toBe('Choose an image file.')
+    expect(avatarSrc(view)).toBe(PHOTO)
+    expect(view.one('[data-testid="save-details"]').disabled).toBe(true)
+    // A picture that works takes the message away.
+    photoLib.shrinkPhoto.mockResolvedValue(OTHER)
+    await choosePhoto(view, { type: 'image/png' })
+    await until(() => avatarSrc(view) === OTHER)
+    expect(view.has('[data-testid="photo-error"]')).toBe(false)
+  })
+
+  it('does nothing when the file picker is closed without a choice', async () => {
+    photoLib.shrinkPhoto.mockReset()
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const input = view.one('#edit-photo')
+    input.files = []
+    input.dispatch('change')
+    await view.tick()
+    expect(photoLib.shrinkPhoto).not.toHaveBeenCalled()
+    expect(view.one('[data-testid="save-details"]').disabled).toBe(true)
+  })
+
+  it('works for a local account too', async () => {
+    photoLib.shrinkPhoto.mockReset().mockResolvedValue(PHOTO)
+    const t = await setUp({ fake: null })
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    await choosePhoto(view, { type: 'image/png' })
+    await until(() => avatarSrc(view) === PHOTO)
+    await view.click('[data-testid="save-details"]')
+    await until(() => view.has('[data-testid="details-saved"]'))
+    expect(t.store.user.photo).toBe(PHOTO)
   })
 })
