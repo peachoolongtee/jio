@@ -1,13 +1,13 @@
 <script>
-// What the password step promises. With a Supabase project behind sign-up the only rule this screen can state is the one
-// Supabase enforces by default (6 characters); anything weaker or stronger that the project asks for comes back from the
-// server as a sentence (lib/auth.js) and is shown as it is. With local accounts the password is not used, so the older
-// four-part checklist stays as it was.
-export const REAL_PASSWORD_MIN = 6
+import { passwordRules } from '@/lib/signupRules.js'
 
-// How to call: passwordChecks('abc123', true) -> [{ label: '6 or more characters', ok: true }]
+// What the password step asks for. With a Supabase project behind sign-up: 6 or more characters with a letter, a number
+// and a symbol (lib/signupRules.js). A stricter rule set in the Supabase dashboard comes back from the server as a
+// sentence (lib/auth.js) and is shown as it is. With local accounts the password is not used, so the older checklist
+// stays as it was.
+// How to call: passwordChecks('abc1!x', true) -> [{ label: '6 or more characters', ok: true }, ...]
 export function passwordChecks(password, realAccounts) {
-  if (realAccounts) return [{ label: `${REAL_PASSWORD_MIN} or more characters`, ok: password.length >= REAL_PASSWORD_MIN }]
+  if (realAccounts) return passwordRules(password)
   return [
     { label: '8 or more characters', ok: password.length >= 8 },
     { label: 'A letter', ok: /[a-z]/i.test(password) },
