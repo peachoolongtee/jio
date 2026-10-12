@@ -43,6 +43,7 @@ export const MESSAGES = {
   sign_out_failed: 'Could not log you out of this browser. Check your connection and try again.',
   reset_link_invalid: 'This reset link has expired or has already been used. Ask for a new one.',
   same_password: 'Choose a password different from your old one.',
+  wrong_password: 'Your current password is not right.',
   unknown: 'Something went wrong. Try again.',
 }
 
@@ -329,6 +330,22 @@ export async function requestPasswordReset(email, redirectTo) {
     throw explain(err, 'reset')
   }
   if (result?.error) throw explain(result.error, 'reset')
+}
+
+// Is this the signed-in person's password? Asked before a password is changed from the edit-profile page, by signing in
+// again with it: Supabase's own check, so the password is compared nowhere but on the server. A right password starts a
+// fresh session for the same person, which the app keeps. Resolves true; a wrong one rejects with
+// MESSAGES.wrong_password.
+// Rejects with: MESSAGES.wrong_password, rate_limited, offline or unknown.
+// How to call: await checkPassword('sam@example.com', 'Sup3rSecret!')
+export async function checkPassword(email, password) {
+  try {
+    await signIn({ email, password })
+  } catch (err) {
+    if (err?.code === 'invalid_credentials') throw problem('wrong_password')
+    throw err
+  }
+  return true
 }
 
 // Set a new password for the signed-in person: the one the reset link signed in. The password is sent to Supabase

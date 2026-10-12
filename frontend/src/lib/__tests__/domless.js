@@ -79,6 +79,13 @@ class Node_ {
   get id() {
     return this.attrs.id
   }
+  // A <select>'s <option> elements, which Vue's v-model reads to mark the chosen one.
+  get options() {
+    if (this.tag !== 'select') return undefined
+    const found = []
+    walk(this, (n) => n !== this && n.kind === 'el' && n.tag === 'option' && found.push(n))
+    return found
+  }
   addEventListener(name, fn) {
     ;(this.listeners[name] ||= []).push(fn)
   }
