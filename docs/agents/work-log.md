@@ -1210,3 +1210,27 @@ The lead asked for every new pull request to be checked, audited and merged into
 - **#132** (place search): its fixes are on staging; it shows Google places beside the map when a key is set, which is still the lead's decision.
 - **#103** (the first AI order pull request, into `main`): replaced by #106 on 11 October; a teammate's, so not closed.
 - **Staging is now behind `dev`** by the sign-up work. Bringing it level will conflict in the account files, where stage 1 also worked.
+
+## Round 27: the staging branch landed, the email lookup closed, and weather on the screens (2026-10-13)
+
+The lead said: "apply and land staging since the pitch is over", "off the email confirmation and continue on the weather implementation".
+
+| # | Role | Scope | Status |
+|---|---|---|---|
+| 27.1 | Lead | Apply `jio_email_check` to the live project | **Completed** |
+| 27.2 | Frontend | Merge `dev` into the staging branch (nine conflicts in four account files); make Roam open a place from its card | **Completed** |
+| 27.3 | Code reviewer, read-only | Roam inside a meetup, never reviewed before | **Completed** |
+| 27.4 | Frontend | Fix the Roam review's findings (the same agent as 27.2) | **Completed** |
+| 27.5 | Lead | Merge place search and the link reader into staging, verify, land staging into `dev` | **Completed**, peachoolongtee/jio#143 |
+| 27.6 | Frontend | Weather on the screens | **Completed**, peachoolongtee/jio#144 |
+| 27.7 | Lead | Turn off email confirmation | **Not done**: the browser extension was not connected and the setting is not in the database. Back with the lead. |
+
+- **27.1:** applied as one statement that refuses to run unless its text has the file's checksum, then checks as real roles: a logged-out visitor and a signed-in user are refused, the server gets "false" for an unknown address and "true" for a known one in upper case with spaces. After: six migrations listed; `email_registered` executable by the server only; 1 account, 1 profile, no sessions.
+- **27.2:** both sides kept. A real account's sign-up is eight questions ending on dietary needs with no "Suggested friends"; a local account's is nine. The Supabase stand-in lives in one place, `components/dev/fakeSupabase.js`, with everything both sides added. The open-and-close logic for a place's detail moved to `lib/usePlaceDetail.js`, used by Vote and Roam.
+- **27.3:** no blockers. One significant: an accepted stop was timed from the old plan's end, not from now, so a place accepted at 20:00 could appear at 16:10, in the past and marked closed. Smaller: nothing said when a stop ran past the session's end or past midnight; a false "was added"; button names speech control could not use; Propose shown to people who cannot propose; dismissed places kept in the save for ever; an opt-out's undo taking back a proposal made meanwhile (confirmed real by the fixing agent).
+- **27.4:** all eleven fixed, each with a test; the agent undid four of the fixes to see their tests fail. New words on screen include "Ends after the session's end, 21:30", "01:30 tomorrow", "That proposal is no longer there." and "Add to plan: <place>". The same late-plan line now shows for any confirmed plan that runs over.
+- **Run by the lead on staging before landing, exit codes read:** frontend 1280, backend 1163 and 2 skipped, build, the backend with outbound calls blocked, and none of the development-only account tools in the built files. One frontend run with outbound calls blocked timed out in a hook under load (load average 19) and passed twice after.
+- **27.5:** landed as #143 (`33ba01d`). The place-search pull request shows as merged with it; the link reader's stays open because its base is a teammate's branch, though its commits are in `dev`.
+- **27.6:** built on `feat/weather-on-screen` by a frontend-engineer subagent, merged with `dev` (two conflicts, both sides kept). Run by the lead on that state: frontend 1449, backend 1163 and 2 skipped, build. Seen by the lead: its screenshot of the itinerary on its day with rain simulated (the simulated banner, the host's Swap and Keep, "Indoor" and "Outdoor, showers"). Different from the ticket: 24-hour times; Home's rain around the outings' meeting areas, not every forecast area; with a simulated forecast every stop counts as still to come. Merged as #144 (`d0e66c2`).
+- **Not verified by anyone:** a real sign-up, login or reset link; the real forecast in a browser; the link reader against any real service; two devices.
+- **Arrived during the round, not looked at:** two pull requests from darryl5942 into `main` (an itinerary change and an edit-profile page), each showing about 25,000 added lines because `main` is far behind `dev`.

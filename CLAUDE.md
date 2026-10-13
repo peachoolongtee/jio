@@ -92,6 +92,8 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 
 **Round 2, 2026-10-09, fixes: completed.** A backend agent hardened the login check; the lead revised the schema on the live project. An independent tester confirmed the results. A second review asked for more changes.
 
+**Rounds 26 and 27, 2026-10-13, teammates' pull requests audited and merged, the staging branch landed, weather on the screens.** `dev` now holds everything built so far; `main` is still at its state before the audits. The email lookup on the live project is server-only.
+
 **Rounds 24 and 25, 2026-10-11 and 12, the lead's changes to the pitch build, and stage 1 of sessions on the server.** The settled Locate page, the back button, reviews and scores on the vote cards went to `dev`; more card changes wait in a pull request; the CDC price rule and stage 1 (the signed-in account's id everywhere, reviewed and fixed) are on `integration/after-pitch`. Implementation was paused at the lead's word after stage 1 merged.
 
 **Round 23, 2026-10-11, the tracker cleared, the demo tour checked, and each real service run once.** Open tickets went from 66 to 36 under one map. With the lead's keys: OneMap routing, the live forecast and Gemini answered; with the Google key set every converge result was a Google place.
