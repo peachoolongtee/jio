@@ -1,6 +1,6 @@
 <script setup>
 // Forgot password: one email field and one button. Supabase emails a link that opens /reset-password. The page says the
-// same thing whether or not the email has an account, so it cannot be used to find out who is registered. The email
+// same thing whether or not the email has an account, so this page gives nothing away about who is registered. The email
 // typed on the login page arrives in the page's history state (never in the address) and fills the field.
 // Only reached when accounts are real (the router sends this page to /signup otherwise).
 import { nextTick, ref } from 'vue'

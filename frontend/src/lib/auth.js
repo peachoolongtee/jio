@@ -3,10 +3,12 @@
 // Without VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY there is no client and configured() is false: the data layer
 // keeps its local accounts and calls nothing here except configured(). Every failure a person can act on is thrown
 // as an Error whose message is fit to show as it is and whose `code` says which one it was. Supabase's own text is
-// never shown, and a sign-in failure never says whether the email is registered. Nothing here writes a password
-// anywhere, and nothing here logs.
+// never shown, and a sign-in failure never says whether the email is registered. (Sign-up does say, on purpose: the
+// email question tells a person early that the email has an account, through the backend's rate-limited email check,
+// and the sign-up itself says it again at the end.) Nothing here writes a password anywhere, and nothing here logs.
 //
 // A test stands in for Supabase with useClient(fake): see lib/__tests__/authFixture.js.
+import { dropRecoveryHint, recoveryHint } from './authLink.js'
 import { cleanDietary } from './signupRules.js'
 import { AUTH_STORAGE_KEY, supabase } from './supabase.js'
 
@@ -54,7 +56,7 @@ function problem(code, message = MESSAGES[code]) {
 // Why a weak password was refused, in words (Supabase sends reasons such as 'length', 'characters' and 'pwned').
 const WEAK_REASONS = {
   length: 'it is too short',
-  characters: 'it needs an uppercase letter, a lowercase letter, a number and one of ! @ # $ % *',
+  characters: 'it needs an uppercase letter, a lowercase letter, a number and a symbol',
   pwned: 'it has appeared in a known data leak',
 }
 
@@ -112,7 +114,7 @@ function explain(error, where) {
   if (where === 'reset') return problem('unknown')
   if (where === 'signIn') {
     if (code === 'email_not_confirmed') return problem('email_not_confirmed')
-    // A wrong password and an unknown email get the same answer, so sign-in cannot be used to find out who is registered.
+    // A wrong password and an unknown email get the same answer, so signing in does not say whether an email has an account.
     if (code === 'invalid_credentials' || /invalid login credentials/i.test(text) || (!code && [400, 401, 422].includes(status))) {
       return problem('invalid_credentials')
     }
@@ -163,22 +165,6 @@ export async function usernameAvailable(username) {
   let result
   try {
     result = await c.rpc('username_available', { p_username: username })
-  } catch {
-    throw problem('offline')
-  }
-  if (result.error) throw problem(isOffline(result.error) || result.status === 0 ? 'offline' : 'unknown')
-  return result.data === true
-}
-
-// Is this email already used by an account? Uses the database function email_registered, which works before signing up.
-// Rejects with the "could not reach Jio" message when the call fails, including when the function has not been added to
-// the project yet (db/schema.sql); the sign-up itself still catches a registered email then.
-// How to call: await emailRegistered('sam@example.com') -> true
-export async function emailRegistered(email) {
-  const c = need()
-  let result
-  try {
-    result = await c.rpc('email_registered', { p_email: String(email || '').trim() })
   } catch {
     throw problem('offline')
   }
@@ -315,9 +301,10 @@ export async function signIn({ email, password }) {
 }
 
 // Ask Supabase to email a link for choosing a new password. The link opens `redirectTo` (the reset page), signed in
-// for that one purpose. It resolves the same way whether or not the email is registered, so the screen cannot be used
-// to find out who has an account. The address must be listed under Authentication > URL Configuration > Redirect URLs
-// in the Supabase dashboard, or Supabase sends the person to the project's Site URL instead.
+// for that one purpose. It resolves the same way whether or not the email is registered, so this screen gives nothing
+// away about who has an account (the sign-up screen's email check is the one place that says, and it is limited). The
+// address must be listed under Authentication > URL Configuration > Redirect URLs in the Supabase dashboard, or Supabase
+// sends the person to the project's Site URL instead.
 // Rejects with: MESSAGES.email_invalid, rate_limited, offline or unknown.
 // How to call: await requestPasswordReset('sam@example.com', 'https://jio.app/reset-password')
 export async function requestPasswordReset(email, redirectTo) {
@@ -331,8 +318,10 @@ export async function requestPasswordReset(email, redirectTo) {
   if (result?.error) throw explain(result.error, 'reset')
 }
 
-// Set a new password for the signed-in person: the one the reset link signed in. The password is sent to Supabase
-// and kept nowhere else.
+// Set a new password for the signed-in person: the one the reset link signed in. The password is sent to Supabase and
+// kept nowhere else. Once it is changed, the reset is over (recoveryPending() is false), and every other session of the
+// account is signed out, so a session someone else held before the change cannot go on. That second step is best effort:
+// if it fails or is slow, the password has still changed and this still resolves.
 // Rejects with: MESSAGES.reset_link_invalid (no session, or it has ended), same_password, a weak-password message,
 // rate_limited, offline or unknown.
 // How to call: await updatePassword('N3w-secret!')
@@ -345,6 +334,13 @@ export async function updatePassword(password) {
     throw explain(err, 'newPassword')
   }
   if (result?.error) throw explain(result.error, 'newPassword')
+  recovering = false
+  dropRecoveryHint()
+  try {
+    await Promise.race([Promise.resolve(c.auth.signOut({ scope: 'others' })), pause(timing.signOutMs)])
+  } catch {
+    // The password is changed either way.
+  }
 }
 
 // The session this browser holds, read straight from local storage, or null. It answers without the auth client, which
@@ -393,6 +389,8 @@ async function nobodyIsSignedIn(c) {
 export async function signOut() {
   if (!configured()) return
   const c = client
+  recovering = false
+  dropRecoveryHint()
   const before = signedOutEvents
   const request = Promise.resolve()
     .then(() => c.auth.signOut({ scope: 'local' }))
@@ -419,6 +417,7 @@ export async function checkSession() {
   if (!configured()) return { user: null, unreachable: false }
   try {
     const { data, error } = await client.auth.getSession()
+    confirmRecovery(data?.session)
     if (data?.session?.user) return { user: summary(data.session.user), unreachable: false }
     return { user: null, unreachable: !!error && isRetryable(error) }
   } catch {
@@ -461,11 +460,36 @@ export async function refreshedToken() {
   return data?.session?.access_token || null
 }
 
+// ── Password reset ─────────────────────────────────────────────────────────
+
+// True while the session in this tab was started by a password reset link. Memory only: a reload without the link starts
+// false, and a copy of the page left open elsewhere never inherits it. Set by the client's PASSWORD_RECOVERY event, or by
+// the link in the address when the session found is the one that link carried (confirmRecovery); cleared by a sign-out
+// and by choosing the new password. A signed-in session that no link started is never "recovering".
+let recovering = false
+
+// Was this tab's session started by a password reset link? The reset page shows its form only when this is true.
+// How to call: if (recoveryPending() && signedIn) showTheForm()
+export function recoveryPending() {
+  return recovering
+}
+
+// The address held a reset link when the page loaded (lib/authLink.js). It counts only if the session the client now has
+// carries the very access token that link held: a link that was expired, used or for someone else leaves another session
+// (or none), and then nothing is recovering. Looked at once; the link is forgotten either way.
+// How to call: confirmRecovery(data.session)
+function confirmRecovery(session) {
+  const link = recoveryHint()
+  if (!link) return
+  dropRecoveryHint()
+  if (session?.access_token && session.access_token === link.accessToken) recovering = true
+}
+
 // ── Session changes ────────────────────────────────────────────────────────
 
 const listeners = new Set()
 let watching = null
-const EVENTS = { SIGNED_IN: 'signedIn', SIGNED_OUT: 'signedOut', TOKEN_REFRESHED: 'refreshed', USER_UPDATED: 'updated' }
+const EVENTS = { SIGNED_IN: 'signedIn', SIGNED_OUT: 'signedOut', TOKEN_REFRESHED: 'refreshed', USER_UPDATED: 'updated', PASSWORD_RECOVERY: 'recovery' }
 // How many sign-outs the client has announced, so signOut() can tell whether it must announce one itself.
 let signedOutEvents = 0
 
@@ -491,16 +515,27 @@ function watch() {
   }
   if (!configured() || listeners.size === 0) return
   const { data } = client.auth.onAuthStateChange((event, session) => {
+    // The first thing the client says to a new listener is the session it has; if a reset link started it, that is the one.
+    if (event === 'INITIAL_SESSION') confirmRecovery(session)
     const mapped = EVENTS[event]
     if (!mapped) return
-    if (mapped === EVENTS.SIGNED_OUT) signedOutEvents += 1
+    if (mapped === EVENTS.SIGNED_OUT) {
+      signedOutEvents += 1
+      recovering = false
+      dropRecoveryHint()
+    }
+    // The client says this only when it has accepted a reset link's session (it reads `type=recovery` in the address).
+    if (mapped === EVENTS.PASSWORD_RECOVERY) {
+      recovering = true
+      dropRecoveryHint()
+    }
     tell({ event: mapped, user: session?.user ? summary(session.user) : null })
   })
   watching = { client, subscription: data.subscription }
 }
 
-// Call fn({ event, user }) when the session starts ('signedIn'), ends ('signedOut'), is refreshed ('refreshed') or the
-// account is updated ('updated'); `user` is null after sign-out. Keep fn short and do not await Supabase inside it.
+// Call fn({ event, user }) when the session starts ('signedIn'), ends ('signedOut'), is refreshed ('refreshed'), the
+// account is updated ('updated') or a password reset link is accepted ('recovery'); `user` is null after sign-out. Keep fn short and do not await Supabase inside it.
 // Returns a function that stops listening.
 // How to call: const stop = onChange(({ event }) => { if (event === 'signedOut') show('You were signed out.') })
 export function onChange(fn) {
