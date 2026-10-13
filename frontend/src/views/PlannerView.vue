@@ -6,6 +6,8 @@
 //   The plan is made from the categories people voted in, laid out in the session window.
 //   Step 7  "Confirm plan" once at least 2 people have voted.
 // The list and the map show the same places, and the map has a key to the categories of the places on it.
+// Weather: a card keeps its small rain mark (SuggestionCard), and one muted line under the list says where the forecast came
+// from (WeatherSource); a simulated forecast also shows a banner at the top.
 // Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
 // shows the message and the rest of the page stays usable.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -30,6 +32,7 @@ import SessionHeader from '@/components/event/SessionHeader.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
+import WeatherSource from '@/components/weather/WeatherSource.vue'
 import CategoryKey from '@/components/map/CategoryKey.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
@@ -289,6 +292,8 @@ async function confirm() {
         </template>
       </BannerNote>
 
+      <WeatherSource v-if="plan?.weather && session.meeting" :block="plan.weather" banner />
+
       <div v-if="!session.meeting || ['inviting', 'locating'].includes(session.status)" class="empty-wrap">
         <EmptyState title="No meeting area yet">
           <AppButton variant="secondary" :to="`/sessions/${id}`">People</AppButton>
@@ -350,6 +355,7 @@ async function confirm() {
               </template>
             </section>
             <p v-if="!loading && slots.length && emptyLabels.length" class="body-sm text-muted">No {{ listJoin(emptyLabels) }} places within 3 km of {{ session.area.name }} yet.</p>
+            <WeatherSource v-if="!loading && slots.length && plan?.weather" :block="plan.weather" />
           </template>
 
           <template #map>

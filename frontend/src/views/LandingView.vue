@@ -37,6 +37,7 @@ import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import PlaceCard from '@/components/event/PlaceCard.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
+import WeatherSource from '@/components/weather/WeatherSource.vue'
 import SessionCard from '@/components/event/SessionCard.vue'
 import MeetupDetail from '@/components/home/MeetupDetail.vue'
 import MeetupList from '@/components/home/MeetupList.vue'
@@ -46,11 +47,13 @@ import { enterGame } from '@/lib/enterGame.js'
 import { activeMeetups, dayLabel, pinName, pinsFor, routesFor, selectMeetup } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { AREAS } from '@/lib/mock/places.js'
+import { useHomeRain } from '@/lib/useHomeRain.js'
 import { useNow } from '@/lib/useNow.js'
 import { canViewTransition, withViewTransition } from '@/lib/viewTransition.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
+import { usePlannerStore } from '@/stores/planner.js'
 
 const BUDGET = { min: 5, max: 60, step: 5 }
 const DISTANCE = { min: 1, max: 20, step: 1 }
@@ -66,6 +69,7 @@ const TOGGLES = [
 const auth = useAuthStore()
 const events = useEventsStore()
 const groups = useGroupsStore()
+const planner = usePlannerStore()
 
 const places = ref([])
 const loadingPlaces = ref(false)
@@ -91,7 +95,11 @@ async function loadHome() {
     loadError.value = true
   }
 }
-onMounted(loadHome)
+onMounted(() => {
+  loadHome()
+  // The demo's "Simulate rain" switch, which decides what the rain below asks for.
+  planner.loadConditions().catch(() => {})
+})
 
 // ── The meetups ──
 const route = useRoute()
@@ -152,6 +160,10 @@ const pins = computed(() => {
   const byId = Object.fromEntries(meetups.value.map((m) => [m.id, m]))
   return pinsFor(meetups.value).map((pin) => ({ ...pin, label: dayLabel(byId[pin.id], now.value), name: pinName(byId[pin.id], now.value) }))
 })
+
+// Rain on the map: only when an outing is within two hours. With none, nothing is asked and nothing is drawn. The layer is on
+// the map (SingaporeMap `rain`); its words, and where the forecast came from, are under the greeting.
+const rain = useHomeRain({ meetups, now, simulated: computed(() => !!planner.conditions?.rain), ask: api.weatherAt })
 
 // One line under the greeting, about where things stand.
 const blurb = computed(() => {
@@ -359,11 +371,16 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <p class="caption text-muted">{{ today }}</p>
         <h1 id="home-hello" class="hello"><span class="hello__hi">Hi,</span> <span class="hello__name">{{ auth.user?.name }}</span></h1>
         <p class="body-md home__blurb">{{ blurb }}</p>
+        <!-- Rain within two hours: the map's layer in words, so it does not depend on seeing the map. -->
+        <div v-if="rain.view.value" class="home__rain" data-testid="home-rain">
+          <p class="home__rain-line caption" role="status"><AppIcon name="rain" :size="16" />{{ rain.view.value.text }}</p>
+          <WeatherSource :block="rain.view.value.block" />
+        </div>
       </div>
 
       <!-- The map, with the button where the routes meet, or a pin for each meetup. -->
       <div class="hero__stage">
-        <SingaporeMap :key="mapKey" class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" :quick="quickMap" hide-meet />
+        <SingaporeMap :key="mapKey" class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" :quick="quickMap" :rain="rain.view.value?.places || []" hide-meet />
         <template v-if="hasMeetups">
           <MeetupPins class="hero__pins" :pins="pins" :meetups="meetups" :my-id="auth.myId" :names="nameOf" :selected-id="selected.id" :center="MEET" :span="mapSpan" @select="select" />
         </template>
@@ -467,6 +484,10 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 .hero::before { content: ""; position: absolute; inset: 0 auto 0 50%; width: 100vw; transform: translateX(-50%); background: linear-gradient(to bottom, var(--surface-soft) 75%, var(--canvas)); }
 .hero__hello { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xs); padding: 0 var(--gutter); }
 .home__blurb { max-width: 460px; margin: 0; color: var(--body); }
+/* Rain within two hours, in words: a line with its icon, and the forecast's source under it. */
+.home__rain { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xxs); max-width: 460px; }
+.home__rain-line { display: inline-flex; align-items: center; justify-content: center; gap: var(--spacing-xs); margin: 0; color: var(--ink); font-weight: 600; }
+.home__rain :deep(.wx__line) { justify-content: center; }
 /* The greeting: big and tight, the name in a sweep of brand pink to red that shines once as the page opens. */
 .hello { margin: var(--spacing-xs) 0; color: var(--ink); font: 800 clamp(44px, 9vw, 80px)/0.95 var(--font-sans); letter-spacing: -0.045em; text-wrap: balance; }
 .hello__name {

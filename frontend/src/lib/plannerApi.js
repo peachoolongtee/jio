@@ -7,6 +7,7 @@
 import axios from 'axios'
 import { ref } from 'vue'
 import * as auth from './auth.js'
+import { weatherFrom } from './weatherText.js'
 
 // Calls to the Jio backend (planner, geocode and weather proxy).
 // Each request carries the Supabase session token when there is one (see the interceptors below). The backend
@@ -210,7 +211,10 @@ export function toCardVenue(v) {
 }
 
 // One ranked backend result as an option. `score` is a penalty: lower is better, and `rank` 1 is the best.
-function toOption(r) {
+// `block` is the answer's `weather` block; with the result's own `weather` it becomes the option's `weather` (lib/weatherText.js),
+// which is left out when the planner sent none.
+function toOption(r, block = null) {
+  const weather = weatherFrom(r.weather, block)
   return {
     venue: toCardVenue(r.venue),
     rank: r.rank,
@@ -223,6 +227,7 @@ function toOption(r) {
     verify: r.verify,
     dietUnknown: r.dietUnknown,
     approximate: r.approximate,
+    ...(weather ? { weather } : {}),
   }
 }
 
@@ -274,7 +279,8 @@ export async function rankSlot({ members, centre, date, slot, lastStop, currentO
   lastWeather.value = weather
   if (data.status !== 'ok') return { options: [], current: [], widened: false, few: null, empty: data, weather }
   const few = data.notice?.type === 'few_options' ? { found: data.notice.found, widenToKm: data.notice.widenToKm } : null
-  return { options: data.results.map(toOption), current: data.current.map(toOption), widened: !!data.notice, few, empty: null, weather }
+  const option = (r) => toOption(r, weather)
+  return { options: data.results.map(option), current: data.current.map(option), widened: !!data.notice, few, empty: null, weather }
 }
 
 // How long a Roam list is waited for. The planner routes each place from the current point, so a slow answer is given up
@@ -283,9 +289,9 @@ export const ROAM_TIMEOUT_MS = 10000
 
 // One Roam result as a card: the voting page's card (toOption) with the planner's time and distance from the current point.
 // `distanceM` is the straight-line distance in metres, since the cards say "250 m" and "1.2 km".
-function toRoamPlace(r) {
+function toRoamPlace(r, block = null) {
   return {
-    ...toOption(r),
+    ...toOption(r, block),
     id: r.venueId,
     travelMinutes: r.travelMinutes,
     distanceKm: r.distanceKm,
@@ -322,7 +328,24 @@ export async function roamNearby({ members, current, date, time, minutes, catego
   lastWeather.value = weather
   if (data.status !== 'ok') return { places: [], empty: data, widened: false, weather }
   if (!Array.isArray(data.results)) throw new Error(notJsonMessage())
-  return { places: data.results.map(toRoamPlace), empty: null, widened: !!data.notice, weather }
+  return { places: data.results.map((r) => toRoamPlace(r, weather)), empty: null, widened: !!data.notice, weather }
+}
+
+// The weather at each stop of a plan, from the planner (POST /api/weather/stops): the itinerary asks when it opens on its day and
+// every 30 minutes after. It ranks nothing and suggests no swap.
+//   stops: [{ id, point: { lat, lng }, start: 'YYYY-MM-DDTHH:MM' (Singapore time), setting?, exposure? }], at most 8
+//   conditions: the demo switches; with `rain` on the planner is asked for a simulated rain (it may ignore that: see `weather`)
+// Resolves { stops: { [id]: weather object (lib/weatherText.js) }, weather: the answer's block } and records the block in
+// `lastWeather`. Rejects in the client's usual way when the planner cannot answer.
+// How to call: await stopsWeather({ stops: [{ id: 'eat', point: { lat: 1.35, lng: 103.85 }, start: '2026-10-11T15:00' }] })
+export async function stopsWeather({ stops, conditions = {} }) {
+  const { data } = await api.post('/api/weather/stops', { stops, ...(conditions.rain ? { weatherCase: 'rain' } : {}) })
+  if (!Array.isArray(data.stops)) throw new Error(notJsonMessage())
+  const block = data.weather ?? null
+  lastWeather.value = block
+  const found = {}
+  for (const s of data.stops) if (typeof s?.id === 'string') found[s.id] = weatherFrom(s, block)
+  return { stops: found, weather: block }
 }
 
 // How long the order is waited for: the host can confirm the voted order, so a slow answer is given up on.

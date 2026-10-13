@@ -13,7 +13,7 @@ const FINISHED = ['completed', 'cancelled']
 
 // The day a meetup falls on. The demo's session-day switch (isToday) moves it to today, as it does for the countdown.
 // How to call: dayOf({ date: '2026-10-10' }, new Date()) -> '2026-10-10'
-function dayOf(session, now) {
+export function dayOf(session, now) {
   return session.isToday ? format(now, 'yyyy-MM-dd') : session.date || ''
 }
 

@@ -9,9 +9,12 @@
 // The name can take focus from code (tabindex -1), for example to land on the next stop after one is deleted.
 // `warning` shows a short error-red line, for example "Closed at 15:00" after the stops were rearranged.
 // `banner` shows the photo as a wide strip above the details instead of a thumbnail beside them.
+// `mark` is the weather mark under the place's line ("Dry", "Outdoor, showers", "Indoor", "Not known"), from stopMark in
+// lib/weatherText.js; without it the card shows no weather.
 import AppIcon from '../ui/AppIcon.vue'
 import CategoryIcon from '../ui/CategoryIcon.vue'
 import PriceTier from '../ui/PriceTier.vue'
+import WeatherMark from '../weather/WeatherMark.vue'
 import { timeAndDuration } from '@/lib/planner/format.js'
 
 defineProps({
@@ -27,6 +30,7 @@ defineProps({
   lifted: { type: Boolean, default: false },
   image: { type: String, default: '' },
   banner: { type: Boolean, default: false },
+  mark: { type: Object, default: null },
 })
 </script>
 
@@ -42,6 +46,7 @@ defineProps({
         <span v-if="area" class="caption-sm text-muted truncate">{{ area }}</span>
         <PriceTier :price="price" />
       </p>
+      <p v-if="mark" class="stop__weather"><WeatherMark :mark="mark" /></p>
       <p v-if="warning" class="stop__warning caption-sm"><AppIcon name="warning" :size="12" /> {{ warning }}</p>
     </div>
     <img v-if="image && !banner" class="stop__photo" :src="image" alt="" loading="lazy" width="64" height="64" />
@@ -62,6 +67,7 @@ defineProps({
 .stop__dot--activity { background: var(--cat-activity-fg); }
 .stop__body { display: flex; flex-direction: column; gap: var(--spacing-xxs); min-width: 0; }
 .stop__meta { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; margin-top: var(--spacing-xxs); }
+.stop__weather { display: flex; margin-top: var(--spacing-xxs); }
 .stop__warning { display: inline-flex; align-items: center; gap: var(--spacing-xs); margin-top: var(--spacing-xxs); color: var(--primary-error-text); }
 .stop__banner { display: block; width: 100%; height: 120px; margin-bottom: var(--spacing-sm); object-fit: cover; border-radius: var(--rounded-sm); background: var(--surface-strong); }
 .stop__photo { width: 64px; height: 64px; object-fit: cover; border-radius: var(--rounded-sm); background: var(--surface-strong); }

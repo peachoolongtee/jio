@@ -58,7 +58,7 @@ const TYPE = [
   ['body-sm', 'Small body text'], ['caption', 'Label or chip'], ['caption-sm', 'Meta line'], ['badge', 'Status pill'],
 ]
 const STATUSES = ['inviting', 'locating', 'voting', 'confirmed', 'completed', 'cancelled']
-const ICONS = ['back', 'close', 'plus', 'check', 'search', 'filter', 'calendar', 'clock', 'pin', 'map', 'locate', 'flag', 'route', 'layers', 'expand', 'people', 'user-plus', 'trophy', 'gift', 'sparkle', 'edit', 'trash', 'more', 'swap', 'rain', 'warning', 'info', 'lock', 'camera', 'home', 'logout', 'eat', 'drink', 'activity', 'shop', 'walk', 'mrt', 'car', 'star', 'grip']
+const ICONS = ['back', 'close', 'plus', 'check', 'search', 'filter', 'calendar', 'clock', 'pin', 'map', 'locate', 'flag', 'route', 'layers', 'expand', 'people', 'user-plus', 'trophy', 'gift', 'sparkle', 'edit', 'trash', 'more', 'swap', 'rain', 'sun', 'cloud', 'thunder', 'warning', 'info', 'lock', 'camera', 'home', 'logout', 'eat', 'drink', 'activity', 'shop', 'walk', 'mrt', 'car', 'star', 'grip']
 const FRIENDS = ['Darius', 'Jonathan', 'Nicole', 'Faith']
 const PLACE = { id: 'p', name: 'Tiong Bahru Bakery', category: 'drink', area: 'Tiong Bahru', distanceKm: 0.4, price: 14, rating: 8.4, tags: ['touristy'] }
 const OPTION = {

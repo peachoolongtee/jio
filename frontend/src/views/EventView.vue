@@ -23,6 +23,12 @@
 //     stops opens the Roam page, and the places members proposed there appear under the stops as proposed stops
 //     (ProposedStops). It is a secondary button: the footer's "Finish outing" stays the page's one main action.
 //   - Travel and trip-home times are estimates from distance, so they read "about" or "est.".
+//   - Weather (a confirmed plan): a mark on each stop (Dry, Cloudy, Showers, Thundery showers, Not known; "Indoor" for an indoor
+//     stop when rain is likely; "Outdoor, showers" for an exposed stop, in the warning tone) and one muted line under the stops
+//     for the source and time. The marks are what the plan kept when it was confirmed. On the plan's day the screen asks the
+//     planner for the stops' weather when it opens and every 30 minutes while it stays open (lib/weatherCheck.js; stopped when
+//     the page is left, paused while hidden, one at a time, a failure keeps the last answer), and shows a rain banner for
+//     everyone, with "Swap to <indoor place>?" for the host (RainBanners). A simulated forecast adds a banner at the top.
 import { coins } from '@/lib/currency.js'
 import { itineraryAction, roamOpen } from '@/lib/session.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -36,6 +42,8 @@ import IconButton from '@/components/ui/IconButton.vue'
 import { RouterLink } from 'vue-router'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
+import RainBanners from '@/components/weather/RainBanners.vue'
+import WeatherSource from '@/components/weather/WeatherSource.vue'
 import SortableList from '@/components/ui/SortableList.vue'
 import SplitView from '@/components/ui/SplitView.vue'
 import ToastMessage from '@/components/ui/ToastMessage.vue'
@@ -51,14 +59,18 @@ import NotFoundView from './NotFoundView.vue'
 import { fromMinutes } from '@/lib/planner/format.js'
 import { sourceIcon, sourceText } from '@/lib/confirmOrder.js'
 import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
+import { createWeatherCheck } from '@/lib/weatherCheck.js'
+import { stopMark, venueSetting } from '@/lib/weatherText.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
+import { usePlannerStore } from '@/stores/planner.js'
 
 const props = defineProps({ id: { type: String, required: true } })
 
 const router = useRouter()
 const events = useEventsStore()
 const auth = useAuthStore()
+const planner = usePlannerStore()
 
 const missing = ref(false)
 const editing = ref(false)
@@ -103,6 +115,8 @@ async function load() {
 onMounted(() => {
   clearConfirmedFlag()
   load()
+  // The demo's "Simulate rain" switch, which decides what the weather check asks for.
+  planner.loadConditions().catch(() => {})
 })
 watch(() => props.id, load)
 
@@ -121,6 +135,52 @@ const lastStop = computed(() => itinerary.value?.stops[itinerary.value.stops.len
 // A confirmed plan with two or more stops can be rearranged, and a stop deleted, while editing.
 const canMove = computed(() => confirmed.value && (itinerary.value?.stops.length || 0) > 1)
 const canEdit = computed(() => canMove.value && editing.value)
+
+// ── Weather ──
+// The marks and the line come from the plan (kept when it was confirmed) until the check on the day has an answer; the check's
+// answer, when there is one, is newer and wins.
+const showWeather = computed(() => confirmed.value && !!itinerary.value)
+const check = computed(() => events.weatherChecks[props.id])
+// A stop's weather: the check's if there is one, else the plan's. How to call: weatherOf(itinerary.stops[0]) -> { state: 'dry', ... } or null
+const weatherOf = (stop) => check.value?.stops?.[stop.slotId] ?? stop.weather
+// The mark under a stop, or null when the plan is not confirmed. How to call: markOf(itinerary.stops[0]) -> { label: 'Dry', tone: 'neutral', ... }
+const markOf = (stop) => (showWeather.value ? stopMark(weatherOf(stop), venueSetting(stop.venue)) : null)
+// The block the line reads: the latest check; else what the plan kept; else "not available" when the check failed and the plan
+// kept nothing.
+const weatherBlock = computed(() => {
+  if (check.value?.weather) return check.value.weather
+  if (itinerary.value?.weather) return itinerary.value.weather
+  if (check.value?.failed) return { source: 'unavailable', reason: 'unavailable' }
+  return null
+})
+// The last check did not work, and there is a forecast from before to show next to that.
+const refreshFailed = computed(() => !!check.value?.failed && !!(check.value?.weather || itinerary.value?.weather))
+
+// The check on the day: when the itinerary of a confirmed plan opens on its day, and every 30 minutes while it stays open.
+// It asks again at once when the stops change (a swap, a move, a delete) or the demo's rain switch is flipped, and not on
+// anything else. It stops when the page is left.
+const checker = createWeatherCheck({ run: () => events.checkWeather(props.id) })
+const stopsKey = computed(() => (itinerary.value?.stops || []).map((s) => `${s.slotId}:${s.venue.id}:${s.start}`).join('|'))
+const simulatedRain = computed(() => !!planner.conditions?.rain)
+const checking = computed(() => today.value && !!itinerary.value)
+// What the check was last asked for, so opening the screen asks once and not twice.
+let askedFor = ''
+watch(
+  [checking, () => props.id],
+  ([on]) => {
+    checker.stop()
+    if (!on) return
+    askedFor = stopsKey.value
+    checker.start()
+  },
+  { immediate: true },
+)
+watch([stopsKey, simulatedRain], ([key, rain], [, was]) => {
+  if (!checker.active() || (key === askedFor && rain === was)) return
+  askedFor = key
+  checker.poke()
+})
+onBeforeUnmount(() => checker.stop())
 
 // Put the "Plan confirmed" words into the live region once the card is on screen.
 watch(
@@ -230,6 +290,8 @@ async function endPlan() {
 
     <div class="screen__body">
       <SessionNotices :session="session" />
+      <WeatherSource v-if="showWeather" :block="weatherBlock" banner />
+      <RainBanners v-if="today && itinerary" :session="session" :itinerary="itinerary" :my-id="myId" />
 
       <EmptyState v-if="!session.plan" title="No itinerary yet">
         <AppButton variant="secondary" :to="`/sessions/${id}/plan`">Vote on places</AppButton>
@@ -314,6 +376,7 @@ async function endPlan() {
                       :image="placeImage(stop.venue)"
                       banner
                       :warning="stop.open === false ? 'Closed at this time' : ''"
+                      :mark="markOf(stop)"
                       :lifted="lifted || selected === stop.venue.id"
                     >
                       <template v-if="canEdit" #actions>
@@ -334,6 +397,8 @@ async function endPlan() {
                   </div>
                 </div>
               </div>
+
+              <WeatherSource v-if="showWeather" :block="weatherBlock" :refresh-failed="refreshFailed" />
 
               <ProposedStops v-if="confirmed" :session="session" :my-id="myId" @emptied="timeline?.focus()" />
 
