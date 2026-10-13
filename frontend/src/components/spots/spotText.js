@@ -149,6 +149,16 @@ export function settledView(session, names) {
   return { area: session.area, people }
 }
 
+// Your own trip to the confirmed spot, as the line under its name: how long, and from where. Empty when you have not
+// shared a start or the meeting has no time for you.
+// How to call: myTripLine(settledView(session, nameOf), 'ian') -> 'About 13 min from Bugis'
+export function myTripLine(view, myId) {
+  const me = view?.people.find((p) => p.id === myId)
+  if (!me || me.minutes == null || !Number.isFinite(me.minutes)) return ''
+  if (me.minutes === 0) return 'You are already there'
+  return `About ${me.minutes} min from ${me.areaName || 'your start'}`
+}
+
 // The line under "Where to meet" once a spot is confirmed.
 // How to call: confirmedLine('Bugis') -> 'Bugis is confirmed as the meeting spot.'
 export const confirmedLine = (areaName) => `${areaName} is confirmed as the meeting spot.`
