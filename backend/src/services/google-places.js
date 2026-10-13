@@ -16,6 +16,9 @@ import { currentScenario } from './scenario.js'
 //   - One budget for every Google call, searches, look-ups and photos together: GOOGLE_CALLS_PER_MINUTE a minute (60 by
 //     default) and at most 4 in flight. A call over the budget fails at once; the planner answers without Google.
 //   - Three failures in a row pause Google for a minute (a circuit breaker), and a call waits at most 3 seconds.
+//   - The link reader (services/link-reader.js) does not draw on the whole budget: it uses lane(), a view that may spend at most
+//     a third of GOOGLE_CALLS_PER_MINUTE a minute (a count of its paid calls over the last minute, so cache hits are free), so
+//     it can never starve the planner.
 //   - Set a daily quota on the key in Google Cloud as well, so a busy day can never run up a bill.
 //   - Only the fields below are asked for (the field mask). The mask includes rating, review count, opening hours
 //     and price level, which Google is likely to bill at a dearer tier than basic fields (to confirm on Google's
@@ -37,6 +40,8 @@ export const GOOGLE_FAILURES_TO_OPEN = 3 // Failed calls in a row that open the 
 export const GOOGLE_CIRCUIT_OPEN_MS = 60 * 1000 // How long Google is skipped once the circuit opens.
 export const PHOTO_MISS_MS = 5 * 60 * 1000 // A photo Google says does not exist is not asked for again for this long.
 export const PLACE_MISS_MS = 5 * 60 * 1000 // A place Google says does not exist (404) is not asked for again for this long.
+export const PLACE_CACHE_MS = 10 * 60 * 1000 // How long a search or a place look-up is kept. Other parts of the server keep Google content no longer than this.
+export const LANE_WINDOW_MS = 60 * 1000 // The window a lane's allowance is counted over.
 const WARN_EVERY_MS = 60 * 1000 // The same reason is logged at most once in this time.
 const STUB_CALLS_PER_MINUTE = 1_000_000 // Stub mode runs the same code, with a budget no test will empty.
 const MAX_PLACES = 20 // Google's limit for one search, and the most that is read from an answer.
@@ -237,9 +242,9 @@ export function createGooglePlaces({
 }) {
   const key = typeof apiKey === 'string' ? apiKey.trim() : ''
   const enabled = key !== '' || stub
-  const nearbyCache = createCache({ ttlMs: 10 * 60 * 1000, maxItems: 500, now })
-  const textCache = createCache({ ttlMs: 10 * 60 * 1000, maxItems: 500, now })
-  const detailsCache = createCache({ ttlMs: 10 * 60 * 1000, maxItems: 1000, now })
+  const nearbyCache = createCache({ ttlMs: PLACE_CACHE_MS, maxItems: 500, now })
+  const textCache = createCache({ ttlMs: PLACE_CACHE_MS, maxItems: 500, now })
+  const detailsCache = createCache({ ttlMs: PLACE_CACHE_MS, maxItems: 1000, now })
   const photoCache = createCache({ ttlMs: 30 * 60 * 1000, maxItems: 2000, now })
   const photoMisses = createCache({ ttlMs: PHOTO_MISS_MS, maxItems: 2000, now })
   const placeMisses = createCache({ ttlMs: PLACE_MISS_MS, maxItems: 2000, now })
@@ -277,9 +282,12 @@ export function createGooglePlaces({
   // `benign(err)` marks a failure that is about the thing asked for, not about Google being unwell (a photo that
   // does not exist). It neither counts toward the circuit nor is logged.
   //
+  // `lane` (see lane() below) is a part of the budget that one kind of caller is held to. It is charged only here, where a
+  // paid call is about to be made, so an answer from a cache costs it nothing.
+  //
   // How to call (inside this file):
   //   const body = await guarded(() => http.getJson(url, { headers: headers(), timeoutMs }))
-  async function guarded(fn, { benign = () => false } = {}) {
+  async function guarded(fn, { benign = () => false, lane = null } = {}) {
     let probe = false
     // Refuses while the circuit is open. Once the pause is over, lets exactly one call through as a probe.
     const claim = () => {
@@ -292,6 +300,7 @@ export function createGooglePlaces({
     }
     try {
       claim()
+      lane?.spend()
       return await budget.run(
         async () => {
           try {
@@ -424,7 +433,7 @@ export function createGooglePlaces({
   //
   // Throws ExternalApiError when Google fails (GoogleUnavailableError when the budget is empty, the circuit is open
   // or the answer cannot be read), and Error when the service is off.
-  async function searchText(query, point, { fieldMask = NEARBY_FIELDS, biasMeters = TEXT_SEARCH_BIAS_METERS } = {}) {
+  async function searchText(query, point, { fieldMask = NEARBY_FIELDS, biasMeters = TEXT_SEARCH_BIAS_METERS, lane = null } = {}) {
     if (!enabled) throw new Error('Google Places is off: set GOOGLE_MAPS_API_KEY')
     const textQuery = String(query).trim().slice(0, 100)
     if (!textQuery) return []
@@ -447,7 +456,7 @@ export function createGooglePlaces({
         const { places, dropped } = readPlaces(body)
         partial = dropped > 0
         return places.slice(0, TEXT_SEARCH_MAX)
-      }),
+      }, { lane }),
     )
     if (partial) textCache.set(cacheKey, list, { ttlMs: 0 })
     return list
@@ -479,7 +488,7 @@ export function createGooglePlaces({
   //   const raw = await places.details('ChIJ...')
   //
   // Throws ExternalApiError when Google fails, and Error for an id that is not a Google place id.
-  async function details(placeId) {
+  async function details(placeId, { lane = null } = {}) {
     if (!enabled) throw new Error('Google Places is off: set GOOGLE_MAPS_API_KEY')
     if (!PLACE_ID.test(placeId)) throw new Error('not a Google place id')
     const cacheKey = `details:${currentScenario()}:${placeId}`
@@ -492,7 +501,7 @@ export function createGooglePlaces({
             if (!isPlaceObject(body)) throw new GoogleUnavailableError('bad_response', 'Google sent a place that cannot be read')
             return body
           },
-          { benign: isMissingPlace },
+          { benign: isMissingPlace, lane },
         ),
       )
     } catch (err) {
@@ -502,5 +511,44 @@ export function createGooglePlaces({
     }
   }
 
-  return { enabled, timeoutMs, nearby, photoUrl, searchText, details, peekDetails }
+  // A view of searchText() and details() that may spend only `share` of the budget (a third by default) in any minute, for a
+  // part of the app that must never take the budget from the planner: the link reader. It draws on the same budget and
+  // circuit, so the planner's calls and the lane's together can never go over GOOGLE_CALLS_PER_MINUTE; and the lane's own
+  // allowance (a count of the paid calls in the last minute, not a bucket, so it cannot be spent twice over at a minute's
+  // edge) stops it taking more than its share. An answer from a cache costs the allowance nothing. A call over the allowance
+  // throws GoogleUnavailableError('budget_empty') and makes no request.
+  //
+  // How to call:
+  //   const links = places.lane({ share: 1 / 3 })
+  //   const raw = await links.searchText('Teo Heng', { lat: 1.3, lng: 103.8 })
+  //   const place = await links.details('ChIJ...')
+  //   links.allowance // { max: 20, used: () => 3 }
+  function lane({ share = 1 / 3 } = {}) {
+    const max = Math.max(1, Math.floor(callsPerMinute * share))
+    const spent = [] // The times of the paid calls in the last minute, oldest first.
+    const used = () => {
+      const t = now()
+      while (spent.length > 0 && t - spent[0] >= LANE_WINDOW_MS) spent.shift()
+      return spent.length
+    }
+    const own = {
+      spend() {
+        if (used() >= max) {
+          throw new GoogleUnavailableError('budget_empty', 'the Google calls set aside for this part of the app are used up for this minute', {
+            retryAfterSeconds: Math.max(1, Math.ceil((spent[0] + LANE_WINDOW_MS - now()) / 1000)),
+          })
+        }
+        spent.push(now())
+      },
+    }
+    return {
+      enabled,
+      timeoutMs,
+      allowance: { max, used },
+      searchText: (query, point, options = {}) => searchText(query, point, { ...options, lane: own }),
+      details: (placeId) => details(placeId, { lane: own }),
+    }
+  }
+
+  return { enabled, timeoutMs, nearby, photoUrl, searchText, details, peekDetails, lane }
 }

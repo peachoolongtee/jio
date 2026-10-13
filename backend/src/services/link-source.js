@@ -1,5 +1,6 @@
 // Pure helpers for reading a place post from a link: which site and which post a link is, how old a post is, whether the
 // place in it is open now, and how to compare names. No network, no keys. services/link-reader.js uses them.
+import { BlockList, isIP } from 'node:net'
 
 // The sites a link may point to, and nothing else. Only these addresses are ever passed to a download tool or to an AI, so
 // a link cannot make the server fetch an address inside our network.
@@ -10,49 +11,106 @@ const SITES = {
   xiaohongshu: ['xiaohongshu.com', 'xhslink.com'],
 }
 
+// The servers the browser tool may also load things from while it opens a post: the pictures, videos and scripts of those
+// same sites. Anything else is refused, so a page cannot make the tool fetch from anywhere it likes. The list is short on
+// purpose: a page that needs a server not named here loads less, and the read falls back to the caption.
+export const MEDIA_HOSTS = [
+  'tiktokcdn.com', 'tiktokcdn-us.com', 'tiktokv.com', 'tiktokv.us', 'ibytedtos.com', 'byteoversea.com', 'muscdn.com', 'ttwstatic.com', // TikTok
+  'cdninstagram.com', 'fbcdn.net', // Instagram
+  'xhscdn.com', // Xiaohongshu
+]
+
 const hostIs = (host, domain) => host === domain || host.endsWith(`.${domain}`)
+const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/
+
+// A fixed sentence for each way a download or browser tool can fail, so what the tool says (a path, an address, a message from
+// a program) never reaches the person who pasted the link. `detail` is for the server's log only.
+//
+// How to call:
+//   throw new LinkToolError('not_installed', 'yt-dlp is not installed')
+//   throw new LinkToolError('failed', 'The video could not be downloaded.', err.message)
+export class LinkToolError extends Error {
+  constructor(code, message, detail = '') {
+    super(message)
+    this.name = 'LinkToolError'
+    this.code = code // 'not_installed', 'refused', 'blocked_site', 'login_required', 'too_big', 'timed_out' or 'failed'
+    this.detail = String(detail ?? '')
+  }
+}
+
+// The environment a download or browser tool is started with: enough to run, and none of the server's secrets (its keys, its
+// service key). Only these names are copied from `env`.
+//
+// How to call:
+//   execFile('yt-dlp', args, { env: toolEnvironment(process.env) })
+export function toolEnvironment(env = process.env) {
+  const out = { LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' }
+  for (const name of ['PATH', 'HOME', 'TMPDIR', 'TEMP', 'TMP', 'SystemRoot', 'USERPROFILE']) {
+    if (typeof env[name] === 'string' && env[name] !== '') out[name] = env[name]
+  }
+  return out
+}
 
 // Which site and which post a link is. `key` names the post itself, the same for every spelling of its link, so a post
-// read once is never read again. It is null when the link is a short link that has to be followed first (vt.tiktok.com,
-// xhslink.com): the post is then identified by the address.
+// read once is never read again. It is null only for a short link that has to be followed first (vt.tiktok.com,
+// xhslink.com): `short` is then true and the post is identified by the address. A link on a supported site that names no
+// post (a home page, a profile, a feed, a post id too long to be real) is `not_a_link`.
+//
+// Only https on the default port is accepted: the link is rebuilt from its host and path, so nothing else is kept.
 //
 // How to call:
 //   parseLink('https://www.tiktok.com/@a/video/7690756962551680276?q=x&t=1')
-//   // { ok: true, platform: 'tiktok', key: 'tiktok:7690756962551680276', kind: 'video', url: 'https://www.tiktok.com/@a/video/7690756962551680276' }
+//   // { ok: true, platform: 'tiktok', key: 'tiktok:7690756962551680276', kind: 'video', short: false, url: 'https://www.tiktok.com/@a/video/7690756962551680276', original: '...' }
 //   parseLink('https://example.com/x') // { ok: false, reason: 'unsupported_site' }
+//   parseLink('https://www.youtube.com/') // { ok: false, reason: 'not_a_link' }
 export function parseLink(raw) {
   if (typeof raw !== 'string') return { ok: false, reason: 'not_a_link' }
   const text = raw.trim()
   if (text === '' || text.length > 600) return { ok: false, reason: 'not_a_link' }
   let url
   try { url = new URL(text) } catch { return { ok: false, reason: 'not_a_link' } }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') return { ok: false, reason: 'not_a_link' }
-  if (url.username || url.password || (url.port && url.port !== '80' && url.port !== '443')) return { ok: false, reason: 'not_a_link' }
+  if (url.protocol !== 'https:') return { ok: false, reason: 'not_a_link' }
+  if (url.username || url.password || url.port) return { ok: false, reason: 'not_a_link' } // a default port is not kept by URL
   const host = url.hostname.toLowerCase()
   const platform = Object.keys(SITES).find((p) => SITES[p].some((d) => hostIs(host, d)))
   if (!platform) return { ok: false, reason: 'unsupported_site' }
 
   const path = url.pathname
+  const unusable = { ok: false, reason: 'not_a_link' }
   let key = null
   let kind = 'unknown'
+  let short = false
+  let youtubeId = null
   if (platform === 'youtube') {
-    const id = host === 'youtu.be' ? path.split('/')[1] : url.searchParams.get('v') ?? path.match(/^\/(?:shorts|live|embed)\/([^/?]+)/)?.[1]
-    if (id && /^[A-Za-z0-9_-]{11}$/.test(id)) { key = `youtube:${id}`; kind = 'video' }
+    const candidates = host === 'youtu.be' ? [path.split('/')[1]] : [url.searchParams.get('v'), path.match(/^\/(?:shorts|live|embed)\/([^/?]+)/)?.[1]]
+    youtubeId = candidates.find((c) => typeof c === 'string' && YOUTUBE_ID.test(c)) ?? null
+    if (!youtubeId) return unusable
+    key = `youtube:${youtubeId}`
+    kind = 'video'
   } else if (platform === 'tiktok') {
-    const m = path.match(/\/(video|photo)\/(\d{8,25})/)
+    // A TikTok post id is a 64-bit number, so at most 19 digits: a longer run is not an id.
+    const m = path.match(/\/(video|photo)\/(\d{8,19})(?!\d)/)
     if (m) { key = `tiktok:${m[2]}`; kind = m[1] }
+    else if (/^\/(?:t\/)?[A-Za-z0-9]{6,20}\/?$/.test(path) && (/^(?:vm|vt)\./.test(host) || path.startsWith('/t/'))) short = true
+    else return unusable
   } else if (platform === 'instagram') {
-    const m = path.match(/^\/(?:[^/]+\/)?(p|reel|reels|tv)\/([A-Za-z0-9_-]+)/)
-    if (m) { key = `instagram:${m[2]}`; kind = m[1] === 'p' ? 'photo' : 'video' }
-  } else if (platform === 'xiaohongshu' && !hostIs(host, 'xhslink.com')) {
-    const m = path.match(/\/(?:discovery\/item|explore|note)\/([0-9a-f]{12,32})/i)
-    if (m) key = `xiaohongshu:${m[1].toLowerCase()}`
+    const m = path.match(/^\/(?:[^/]+\/)?(p|reel|reels|tv)\/([A-Za-z0-9_-]{8,40})(?:\/|$)/)
+    if (!m) return unusable
+    key = `instagram:${m[2]}`
+    kind = m[1] === 'p' ? 'photo' : 'video'
+  } else if (hostIs(host, 'xhslink.com')) {
+    if (!/^\/(?:[A-Za-z]\/)?[A-Za-z0-9]{4,40}\/?$/.test(path)) return unusable
+    short = true
+  } else {
+    const m = path.match(/\/(?:discovery\/item|explore|note)\/([0-9a-f]{12,32})(?![0-9a-f])/i) ?? path.match(/\/user\/profile\/[0-9a-f]{8,32}\/([0-9a-f]{12,32})(?![0-9a-f])/i)
+    if (!m) return unusable
+    key = `xiaohongshu:${m[1].toLowerCase()}`
   }
 
   // The link without tracking parts (?q=, &t=, share ids): what is kept and handed on. YouTube's own address needs ?v=.
   const clean = new URL(url.origin + url.pathname)
-  if (platform === 'youtube' && url.searchParams.get('v')) clean.searchParams.set('v', url.searchParams.get('v'))
-  return { ok: true, platform, key, kind, url: clean.href, original: url.href }
+  if (platform === 'youtube' && youtubeId && url.searchParams.get('v') === youtubeId) clean.searchParams.set('v', youtubeId)
+  return { ok: true, platform, key, kind, short, url: clean.href, original: url.href }
 }
 
 // Do two names refer to the same place, allowing one or two misread letters ("Nbbies Cafe" for "Nibbies Cafe")? sameName(),
@@ -76,16 +134,63 @@ export function closeName(a, b) {
 }
 
 // Is this address on one of the supported sites? The host only, for a page the browser tool ended up on after a redirect
-// (those addresses can be longer than a pasted link may be).
+// (those addresses can be longer than a pasted link may be). https on the default port, no login in it.
 //
 // How to call:
 //   onSupportedSite('https://www.xiaohongshu.com/explore/675061a600000000070315b4') // true
+//   onSupportedSite('http://www.tiktok.com/@a/video/1')                              // false: not https
 export function onSupportedSite(raw) {
   try {
     const url = new URL(raw)
+    if (url.protocol !== 'https:' || url.username || url.password || url.port) return false
     const host = url.hostname.toLowerCase()
-    return (url.protocol === 'https:' || url.protocol === 'http:') && Object.values(SITES).some((ds) => ds.some((d) => hostIs(host, d)))
+    return Object.values(SITES).some((ds) => ds.some((d) => hostIs(host, d)))
   } catch { return false }
+}
+
+// May the browser tool load this address? A supported site, or one of the servers that carry the same sites' pictures and
+// videos (MEDIA_HOSTS), over https on the default port. Anything else (another site, an IP address, localhost, a scheme that
+// is not https) is refused. A host given as an IP address never matches a name, so it is always refused.
+//
+// How to call:
+//   allowedBrowserUrl('https://p16-sign.tiktokcdn.com/obj/x.jpeg') // true
+//   allowedBrowserUrl('https://169.254.169.254/latest')            // false
+export function allowedBrowserUrl(raw) {
+  try {
+    const url = new URL(raw)
+    if (url.protocol !== 'https:' || url.username || url.password || url.port) return false
+    const host = url.hostname.toLowerCase()
+    return [...Object.values(SITES).flat(), ...MEDIA_HOSTS].some((d) => hostIs(host, d))
+  } catch { return false }
+}
+
+// IPv4 ranges that are not the public internet: this network, private, shared (carrier) space, loopback, link-local (cloud
+// metadata), protocol and documentation ranges, benchmarking, multicast and reserved.
+const NOT_PUBLIC_V4 = new BlockList()
+for (const [start, bits] of [
+  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24],
+  ['192.0.2.0', 24], ['192.88.99.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24], ['224.0.0.0', 4], ['240.0.0.0', 4],
+]) NOT_PUBLIC_V4.addSubnet(start, bits, 'ipv4')
+
+// IPv6 is allowed only inside global unicast (2000::/3), minus the ranges inside it that are not for the public internet
+// (Teredo, documentation, 6to4). Everything else, including loopback, unique-local, link-local and mapped IPv4, is refused.
+const GLOBAL_V6 = new BlockList()
+GLOBAL_V6.addSubnet('2000::', 3, 'ipv6')
+const NOT_PUBLIC_V6 = new BlockList()
+for (const [start, bits] of [['2001::', 32], ['2001:db8::', 32], ['2002::', 16]]) NOT_PUBLIC_V6.addSubnet(start, bits, 'ipv6')
+
+// Is this a public internet address (not private, loopback, link-local, unique-local, multicast or reserved)? A name, or an
+// address with a zone (fe80::1%eth0), is false.
+//
+// How to call:
+//   isPublicAddress('93.184.216.34') // true
+//   isPublicAddress('169.254.169.254') // false
+//   isPublicAddress('::ffff:127.0.0.1') // false
+export function isPublicAddress(address) {
+  const version = isIP(String(address))
+  if (version === 4) return !NOT_PUBLIC_V4.check(address, 'ipv4')
+  if (version === 6) return GLOBAL_V6.check(address, 'ipv6') && !NOT_PUBLIC_V6.check(address, 'ipv6')
+  return false
 }
 
 // ---------------------------------------------------------------- text
@@ -102,6 +207,23 @@ const SPACE_RUN = /[\s\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu
 export function cleanText(value, max = 300) {
   const text = String(value ?? '').replace(BIDI_CONTROL, '').replace(SPACE_RUN, ' ').replace(/[<>]/g, '').trim()
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text
+}
+
+// Text with web addresses taken out (https://..., www....). The AI's sentences are shown to people and its answer may carry
+// a link that a stranger's caption told it to repeat, so none is kept.
+//
+// How to call:
+//   withoutLinks('Best laksa, order at https://evil.example/x now') // 'Best laksa, order at now'
+export function withoutLinks(value) {
+  return String(value ?? '').replace(/\b(?:https?:\/\/|www\.)\S+/gi, ' ')
+}
+
+// A comment with the @handles taken out, so what is passed on says nothing about who wrote it or who it was written to.
+//
+// How to call:
+//   withoutHandles('@someone_sg the queue is long') // ' the queue is long'
+export function withoutHandles(value) {
+  return String(value ?? '').replace(/@[\p{L}\p{N}_.]{2,}/gu, ' ')
 }
 
 // A name boiled down so two spellings of one place compare equal: lower case, no brackets or punctuation.

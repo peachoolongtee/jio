@@ -240,7 +240,9 @@ Where Google content could show beside the OneMap map. No screen shows Google's 
 
 - **What:** reading the places in a pasted post link. Gemini watches a public YouTube video (`file_data`); the YouTube Data API supplies its description, publish date and top comments; Google Places matches each place. Full behaviour: [link-reader-api.md](link-reader-api.md).
 - **Where:** `backend/src/services/link-reader.js`. Every call goes through `services/http.js` (stubbed in stub mode), the YouTube key travels in a header, and calls are budgeted, cached and circuit-broken like the others.
-- **Not allowed to rely on:** downloading TikTok or Instagram videos (their terms forbid it), so that path is off unless `LINK_READER_YTDLP=1` and never in production.
+- **Off by default:** the three routes exist only with `LINK_READER=1`; without it they answer 404 and nothing runs at start-up. It also needs `GEMINI_API_KEY`, **the same key as the itinerary AI** (one provider quota, two separate budgets in the server).
+- **Budgets:** `LINK_READER_CALLS_PER_MINUTE` (default 6) counts model calls, one token each; the YouTube Data API has its own count (twice that); the Google matches go through a lane of at most a third of `GOOGLE_CALLS_PER_MINUTE` inside the shared Google budget; one caller gets 3 reads and 3 refreshes a minute (`LINK_READER_PER_CALLER_PER_MINUTE`). Details and the worst case: [link-reader-api.md](link-reader-api.md).
+- **Not allowed to rely on:** downloading TikTok or Instagram videos (their terms forbid it), so that path is off unless `LINK_READER_YTDLP=1` **and `NODE_ENV=development`**, and never in production or stub mode.
 
 ## To set up (manual steps)
 

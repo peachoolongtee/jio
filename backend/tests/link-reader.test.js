@@ -4,10 +4,12 @@ import { once } from 'node:events'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../src/app.js'
 import { ExternalApiError } from '../src/services/errors.js'
+import { createGooglePlaces } from '../src/services/google-places.js'
+import { createHttp } from '../src/services/http.js'
 import { createLinkReader, inSingapore, LinkReaderError, questionText, readLinkReaderSettings, readPlaces, systemText } from '../src/services/link-reader.js'
 import { createBrowserReader } from '../src/services/link-browser.js'
 import { createYtDlp } from '../src/services/link-tools.js'
-import { agoText, availabilityOf, cleanText, closeName, freshnessOf, parseLink, sameName, todayInSingapore } from '../src/services/link-source.js'
+import { agoText, availabilityOf, cleanText, closeName, freshnessOf, LinkToolError, parseLink, sameName, todayInSingapore } from '../src/services/link-source.js'
 import { assessReports } from '../src/services/post-reports.js'
 
 const NOW = Date.parse('2026-10-12T04:00:00Z') // 12 October 2026, noon in Singapore
@@ -39,12 +41,12 @@ describe('parseLink', () => {
     expect(parseLink('https://www.instagram.com/p/DYXCSftEgWR/?img_index=2')).toMatchObject({ key: 'instagram:DYXCSftEgWR', kind: 'photo' })
     expect(parseLink('https://www.instagram.com/reel/Abc_123-x/')).toMatchObject({ key: 'instagram:Abc_123-x', kind: 'video' })
     expect(parseLink('https://www.xiaohongshu.com/discovery/item/675061a600000000070315b4?xsec_token=x').key).toBe('xiaohongshu:675061a600000000070315b4')
-    expect(parseLink('http://xhslink.com/o/5WK1iVLdN9k')).toMatchObject({ ok: true, platform: 'xiaohongshu', key: null })
-    expect(parseLink('https://vt.tiktok.com/ZSabc123/')).toMatchObject({ ok: true, platform: 'tiktok', key: null })
+    expect(parseLink('https://xhslink.com/o/5WK1iVLdN9k')).toMatchObject({ ok: true, platform: 'xiaohongshu', key: null, short: true })
+    expect(parseLink('https://vt.tiktok.com/ZSabc123/')).toMatchObject({ ok: true, platform: 'tiktok', key: null, short: true })
   })
 
   it('refuses any other address, and anything that is not a plain link', () => {
-    for (const bad of ['https://example.com/video/12345678', 'https://tiktok.com.evil.example/@a/video/12345678', 'http://localhost:3000/x', 'http://169.254.169.254/latest', 'javascript:alert(1)', 'ftp://www.tiktok.com/@a/video/12345678', 'https://user:pw@www.tiktok.com/@a/video/12345678', 'https://www.tiktok.com:8443/@a/video/12345678', 'not a link', '', null, 42]) {
+    for (const bad of ['https://example.com/video/12345678', 'https://tiktok.com.evil.example/@a/video/12345678', 'http://localhost:3000/x', 'http://169.254.169.254/latest', 'javascript:alert(1)', 'ftp://www.tiktok.com/@a/video/12345678', 'http://www.tiktok.com/@a/video/12345678', 'https://user:pw@www.tiktok.com/@a/video/12345678', 'https://www.tiktok.com:8443/@a/video/12345678', 'not a link', '', null, 42]) {
       expect(parseLink(bad).ok).toBe(false)
     }
     expect(parseLink('https://example.com/x').reason).toBe('unsupported_site')
@@ -196,7 +198,7 @@ const YT = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
 describe('reading a YouTube post', () => {
   it('has Gemini open the video, and reads the description, the date and the comments with a YouTube key', async () => {
     const f = fakes()
-    const r = await reader(f, { youtubeKey: 'test-youtube-key', places: google({ 'soft order': soft() }) }).read(YT)
+    const r = await reader(f, { youtubeKey: 'test-youtube-key', sendComments: true, places: google({ 'soft order': soft() }) }).read(YT)
     expect(r.status).toBe('ok')
     const body = f.geminiBodies()[0]
     expect(body.contents[0].parts[0]).toEqual({ file_data: { file_uri: YT } })
@@ -224,7 +226,7 @@ describe('reading a YouTube post', () => {
       if (url.includes('commentThreads')) throw new ExternalApiError('google answered 403', { service: 'google', status: 403, url: 'u' })
       return { items: [{ snippet: { title: 'T', description: 'D', publishedAt: '2026-09-20T00:00:00Z' } }] }
     })
-    const r = await reader(f, { youtubeKey: 'k' }).read(YT)
+    const r = await reader(f, { youtubeKey: 'k', sendComments: true }).read(YT)
     expect(r.status).toBe('ok')
     expect(r.notes.join(' ')).toContain('comments')
   })
@@ -322,12 +324,12 @@ describe('reading a place and matching it on Google', () => {
     expect(failing.searchText).toHaveBeenCalledTimes(1)
   })
 
-  it('looks up at most 15 places, and 24 searches, on Google', async () => {
+  it('looks up at most 15 places, and 15 searches, on Google', async () => {
     const many = Array.from({ length: 20 }, (_, i) => ({ name: `Place ${i}`, name_english: `Place ${i}`, location_hint: '', has_address: false, tip: '', status: 'open', opens_on: '', closes_on: '', availability_note: '', comment_note: '', source: 'caption', confidence: 0.5 }))
     const places = google()
     const r = await reader(fakes({ places: many }), { places }).read(YT)
     expect(r.places).toHaveLength(20)
-    expect(places.searchText.mock.calls.length).toBeLessThanOrEqual(24)
+    expect(places.searchText.mock.calls.length).toBeLessThanOrEqual(15)
     expect(places.searchText.mock.calls.length).toBeGreaterThanOrEqual(15)
   })
 })
@@ -372,7 +374,7 @@ describe('TikTok, Instagram and Xiaohongshu', () => {
     expect(photo.notes.join(' ')).toContain('photo post')
     const ig = await reader(fakes()).read('https://www.instagram.com/p/DYXCSftEgWR/')
     expect(ig).toMatchObject({ status: 'unreadable', reason: 'instagram_needs_video_tool', retryable: false, places: [] })
-    const xhs = await reader(fakes()).read('http://xhslink.com/o/5WK1iVLdN9k')
+    const xhs = await reader(fakes()).read('https://xhslink.com/o/5WK1iVLdN9k')
     expect(xhs).toMatchObject({ status: 'unreadable', reason: 'site_not_supported' })
   })
 
@@ -398,7 +400,7 @@ describe('when the AI is slow, busy or switched off', () => {
 
   it('answers "try again" when every model fails, and pauses after three failed reads in a row', async () => {
     const f = fakes({ geminiFails: 99 })
-    const rd = reader(f)
+    const rd = reader(f, { callsPerMinute: 30 }) // each failed read takes three model calls, so the budget must hold nine
     for (let i = 0; i < 3; i++) {
       const r = await rd.read(`https://www.youtube.com/watch?v=aaaaaaaaaa${i}`)
       expect(r).toMatchObject({ status: 'unreadable', reason: 'ai_unavailable', retryable: true })
@@ -447,7 +449,7 @@ describe('slides and carousels', () => {
     const browser = { read: vi.fn(async () => ({ caption: 'places for you to try!!', images: slides(3), video: null, total: 7 })) }
     const r = await reader(f, { browser }).read(PHOTO)
     expect(r.status).toBe('ok')
-    expect(browser.read).toHaveBeenCalledWith(expect.stringContaining('/photo/7547966708431080724'))
+    expect(browser.read).toHaveBeenCalledWith(expect.stringContaining('/photo/7547966708431080724'), { signal: expect.any(AbortSignal) })
     const parts = f.geminiBodies()[0].contents[0].parts
     expect(parts).toHaveLength(4) // three slides and the question
     expect(parts[0]).toEqual({ inline_data: { mime_type: 'image/jpeg', data: 'U0xJREU0' } })
@@ -459,18 +461,18 @@ describe('slides and carousels', () => {
     const browser = { read: vi.fn(async () => ({ caption: '', images: slides(2), video: null, total: null })) }
     const ig = await reader(fakes(), { browser }).read('https://www.instagram.com/p/DYXCSftEgWR/?img_index=2')
     expect(ig).toMatchObject({ status: 'ok', source: { how: 'slides' } })
-    const xhs = await reader(fakes(), { browser }).read('http://xhslink.com/o/5WK1iVLdN9k')
+    const xhs = await reader(fakes(), { browser }).read('https://xhslink.com/o/5WK1iVLdN9k')
     expect(xhs.status).toBe('ok')
-    expect(browser.read).toHaveBeenLastCalledWith('http://xhslink.com/o/5WK1iVLdN9k')
-    expect((await reader(fakes()).read('http://xhslink.com/o/5WK1iVLdN9k')).reason).toBe('site_not_supported')
+    expect(browser.read).toHaveBeenLastCalledWith('https://xhslink.com/o/5WK1iVLdN9k', { signal: expect.any(AbortSignal) })
+    expect((await reader(fakes()).read('https://xhslink.com/o/5WK1iVLdN9k')).reason).toBe('site_not_supported')
   })
 
   it('dates an Instagram post from its description, and says when a site wants a login', async () => {
     const browser = { read: vi.fn(async () => ({ caption: '118 likes - evadotworld on May 15, 2026: "7 new cafes"', images: slides(2), video: null, total: null })) }
     const r = await reader(fakes(), { browser }).read('https://www.instagram.com/p/DYXCSftEgWR/')
     expect(r.source.postDate).toBe('2026-05-15')
-    const blocked = { read: vi.fn(async () => { throw new Error('the site asked for a login or a captcha, which cannot be completed') }) }
-    expect(await reader(fakes(), { browser: blocked }).read('http://xhslink.com/o/5WK1iVLdN9k')).toMatchObject({ status: 'unreadable', reason: 'login_required' })
+    const blocked = { read: vi.fn(async () => { throw new LinkToolError('login_required', 'The site asked for a login or a captcha, which cannot be completed.') }) }
+    expect(await reader(fakes(), { browser: blocked }).read('https://xhslink.com/o/5WK1iVLdN9k')).toMatchObject({ status: 'unreadable', reason: 'login_required' })
   })
 
   it('falls back to the caption when Chrome cannot open the post', async () => {
@@ -536,7 +538,10 @@ describe('/api/links', () => {
   let server
   let base
   beforeAll(async () => {
-    server = createApp({ frontendOrigin: 'http://localhost:5173', stub: true }).listen(0)
+    const http = createHttp({ stub: true })
+    const places = createGooglePlaces({ http, stub: true })
+    const linkReader = createLinkReader({ http, places, geminiKey: 'stub-key', youtubeKey: 'stub-key', sendComments: true })
+    server = createApp({ frontendOrigin: 'http://localhost:5173', stub: true, http, places, linkReader }).listen(0)
     await once(server, 'listening')
     base = `http://127.0.0.1:${server.address().port}/api`
   })
@@ -592,5 +597,6 @@ describe('/api/links', () => {
     expect((await post('/links/refresh', { placeIds: [] })).status).toBe(400)
     expect((await post('/links/refresh', { placeIds: ['../x'] })).status).toBe(400)
     expect((await post('/links/refresh', { placeIds: Array.from({ length: 11 }, (_, i) => `p${i}`) })).status).toBe(400)
+    expect((await post('/links/refresh', { placeIds: ['a', 'b', 'c', 'd'] })).status).toBe(400) // three at most
   })
 })

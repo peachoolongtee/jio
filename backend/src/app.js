@@ -10,7 +10,6 @@ import { createWeatherResolver } from './planner/weather-window.js'
 import { createHttp } from './services/http.js'
 import { createGooglePlaces } from './services/google-places.js'
 import { createItineraryAi } from './services/itinerary-ai.js'
-import { createLinkReader } from './services/link-reader.js'
 import { createOneMap } from './services/onemap.js'
 import { scenarioMiddleware } from './services/scenario.js'
 import { createWeather } from './services/weather.js'
@@ -36,9 +35,12 @@ import { createWeather } from './services/weather.js'
 //                    passes the real one.
 //   places         - Google Places, from createGooglePlaces(). Same default as `onemap`.
 //   itineraryAi    - An AI (Gemini or Claude) for rearranging itineraries, from createItineraryAi(). Defaults to one with no key, which
-//   linkReader     - Reads the places out of a pasted post link, from createLinkReader(). Defaults to one in stub mode (answered from
-//                    fixtures) and to a switched-off one otherwise, so a test app never calls an AI. index.js passes the real one.
 //                    chooses by its rules, so a test app never calls an AI. index.js passes the real one.
+//   linkReader     - Reads the places out of a pasted post link, from createLinkReader(). Defaults to none: the three /api/links
+//                    routes are then not mounted and answer 404 like any unknown address. index.js passes one only when
+//                    LINK_READER=1 (setUpLinkReader); a test that needs it passes one built on the stub `http`.
+//   linkRateLimit  - { windowMs, read, refresh } to hold one caller to `read` reads and `refresh` refreshes in each window, or
+//                    leave it out for no limit. index.js sets it outside stub mode (3 each a minute).
 //   allowSimulatedWeather - true lets a planner request send `weatherCase` to fake the forecast. Stub mode
 //                    always allows it. Otherwise the field is ignored and the answer says so. index.js sets
 //                    it from ALLOW_SIMULATED_WEATHER=1.
@@ -61,7 +63,8 @@ export function createApp({
   onemap = stub ? createOneMap({ http, stub: true }) : null,
   places = stub ? createGooglePlaces({ http, stub: true }) : null,
   itineraryAi = createItineraryAi({ stub: true }),
-  linkReader = stub ? createLinkReader({ http, places, geminiKey: 'stub-key', youtubeKey: 'stub-key' }) : createLinkReader(),
+  linkReader = null,
+  linkRateLimit = null,
   allowSimulatedWeather = false,
   planRateLimit = null,
   routingDeadlineMs = undefined,
@@ -119,7 +122,19 @@ export function createApp({
   // The weather at the stops of a plan: /api/weather/stops.
   app.use('/api', createWeatherRouter({ data: planData, resolver: weatherResolver, allowSimulatedWeather: allowSimulatedWeather || stub, limiter }))
   // Reading places out of a pasted link, and refreshing saved places: /api/links/read, /api/links/refresh, /api/links/capabilities.
-  app.use('/api', createLinksRouter({ reader: linkReader, limiter: planRateLimit ? rateLimit(planRateLimit) : null }))
+  // Not mounted at all unless a link reader is given (LINK_READER=1), so without it these are unknown addresses.
+  if (linkReader) {
+    const perCaller = (max) => (linkRateLimit ? rateLimit({ windowMs: linkRateLimit.windowMs, max }) : null)
+    app.use(
+      '/api',
+      createLinksRouter({
+        reader: linkReader,
+        limiter: planRateLimit ? rateLimit(planRateLimit) : null,
+        readLimit: perCaller(linkRateLimit?.read),
+        refreshLimit: perCaller(linkRateLimit?.refresh),
+      }),
+    )
+  }
 
   // Routes that need a login. The planner routes above do not check one yet: the frontend has to
   // start sending the session token first.
