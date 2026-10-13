@@ -446,6 +446,9 @@ async function confirm() {
                 :selected="selected === option.id"
                 :outing="outingIds"
                 :friends="friendIds"
+                :stop="stop ? { start: stop.start, duration: stop.duration } : null"
+                :group-size="active.length"
+                :me="HOST_ID"
                 @open="openReviews"
               >
                 <template #action>

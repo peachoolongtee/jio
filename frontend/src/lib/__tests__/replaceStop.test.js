@@ -230,6 +230,20 @@ describe('the voting page, replacing a stop', () => {
     expect(errorsOf(view)).toEqual([])
   })
 
+  it('says on each card whether the place is open at the stop’s time, as the voting page does', async () => {
+    const t = await setUp()
+    const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
+    const { stop, options } = await t.api.replaceChoices(t.id, eat.slotId)
+    const { hoursNote } = await import('../cardText.js')
+    const notes = options.map((o) => hoursNote(o.venue.hours, stop.start, stop.duration)).filter(Boolean)
+    // The stand-in places list their hours, so at least one card has a note to show.
+    expect(notes.length).toBeGreaterThan(0)
+    const view = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
+    await until(() => view.has('[data-testid="replace-options"]'))
+    for (const note of notes) expect(view.text('[data-testid="replace-options"]')).toContain(note.text)
+    expect(errorsOf(view)).toEqual([])
+  })
+
   it('goes back with Keep and changes nothing', async () => {
     const t = await setUp()
     const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
