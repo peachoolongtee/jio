@@ -130,7 +130,8 @@ describe('the card\'s score', () => {
   it('keeps the score on a closed card, and it is not a control', () => {
     const { page, sent } = watch({ option: option({ venue: { ...VENUE, rating: 9 } }), closed: true })
     expect(page.text()).toContain('9.0')
-    expect(page.all('button').filter((b) => !b.props['data-review-for'])).toHaveLength(0)
+    // The only buttons are the name and the review line: no vote chip, no swap.
+    expect(page.all('button').filter((b) => !b.props['data-review-for'] && !b.props['data-open-for'])).toHaveLength(0)
     expect(sent.vote).toHaveLength(0)
   })
 })

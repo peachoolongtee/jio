@@ -32,33 +32,48 @@ export function validateEmail(value) {
   return ''
 }
 
-// The password rule for real accounts: 6 or more characters, made only of letters (A to Z, a to z), numbers and the
-// special characters ! @ # $ % *, with at least one uppercase letter, one lowercase letter, one number and one special
-// character. Anything else (a space, -, ?, an accented letter) is refused. Every password this lets through also meets
-// the Supabase project's "Lowercase, uppercase letters, digits and symbols" setting (Authentication > Policies), whose
-// symbols include these six.
-export const PASSWORD_MIN = 6
-export const PASSWORD_SPECIALS = '!@#$%*'
-const PASSWORD_ALLOWED = /^[A-Za-z0-9!@#$%*]+$/
+// The password rule for real accounts, the same on the sign-up and reset pages: 8 to 72 characters, with at least one
+// uppercase letter, one lowercase letter, one number and one symbol. A symbol is any printable character that is not a
+// letter, a number or a space (- _ ? & ^ and the rest, so a password manager's output is accepted). Any printable
+// character is allowed, a space only inside the password: no control characters, and no space at either end. The most
+// is 72 because the hash Supabase uses (bcrypt) reads no more than 72 bytes, so it is counted in bytes: an accented
+// letter or an emoji counts as more than one. This is Jio's rule, not a copy of the Supabase project's own password
+// setting (Authentication > Policies), which has not been compared with it: if that setting asks for more, the server's
+// refusal comes back as a sentence (lib/auth.js) and is shown as it is.
+export const PASSWORD_MIN = 8
+export const PASSWORD_MAX = 72
+const CONTROL = /\p{Cc}/u
+// A symbol: not a letter, a number, a mark that goes on a letter (an accent), a space or a control character.
+const SYMBOL = /[^\p{L}\p{N}\p{M}\s\p{Cc}]/u
+
+// How many bytes the password takes when it is sent (UTF-8).
+// How to call: passwordBytes('Abc1!\u00e9') -> 7
+function passwordBytes(text) {
+  return new TextEncoder().encode(text).length
+}
 
 // Each part of the password rule, for a live checklist.
-// `hint` is a line to show under the label. How to call: passwordRules('Abc1!x') -> [{ label: '6 or more characters', ok: true }, ...]
+// `hint` is a line to show under the label. How to call: passwordRules('Abc1!xyz') -> [{ label: '8 or more characters', ok: true }, ...]
 export function passwordRules(password) {
   const text = password || ''
   return [
-    { label: `${PASSWORD_MIN} or more characters`, ok: text.length >= PASSWORD_MIN },
-    { label: 'An uppercase letter', ok: /[A-Z]/.test(text) },
-    { label: 'A lowercase letter', ok: /[a-z]/.test(text) },
-    { label: 'A number', ok: /[0-9]/.test(text) },
-    { label: 'A special character', hint: 'e.g. ! @ # $ % *', ok: [...text].some((ch) => PASSWORD_SPECIALS.includes(ch)) },
-    { label: 'No spaces or other symbols', ok: PASSWORD_ALLOWED.test(text) },
+    { label: `${PASSWORD_MIN} or more characters`, ok: [...text].length >= PASSWORD_MIN },
+    { label: 'An uppercase letter', ok: /\p{Lu}/u.test(text) },
+    { label: 'A lowercase letter', ok: /\p{Ll}/u.test(text) },
+    { label: 'A number', ok: /\p{Nd}/u.test(text) },
+    { label: 'A symbol', hint: 'Any character that is not a letter, number or space, like - _ ? ! @ #', ok: SYMBOL.test(text) },
+    {
+      label: `No more than ${PASSWORD_MAX} characters, and no space at the start or end`,
+      hint: 'Accented letters and emoji take more room. Control characters are not allowed.',
+      ok: text.length > 0 && passwordBytes(text) <= PASSWORD_MAX && !/^\s|\s$/.test(text) && !CONTROL.test(text),
+    },
   ]
 }
 
-// How to call: validatePassword('Abc1!x') -> ''
+// How to call: validatePassword('Abc1!xyz') -> ''
 export function validatePassword(password) {
   if (passwordRules(password).every((rule) => rule.ok)) return ''
-  return `Use ${PASSWORD_MIN} or more letters, numbers and ! @ # $ % *, with an uppercase letter, a lowercase letter, a number and one of ! @ # $ % *.`
+  return `Use ${PASSWORD_MIN} to ${PASSWORD_MAX} characters with an uppercase letter, a lowercase letter, a number and a symbol (any character that is not a letter, number or space), and no space at the start or end.`
 }
 
 // A date of birth as the person types it, DD/MM/YYYY: only digits are kept, and the slashes are put in as the digits

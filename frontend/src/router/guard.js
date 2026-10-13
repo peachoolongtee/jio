@@ -4,8 +4,8 @@
 //   - A signed-in visitor to /login or /signup goes Home.
 //   - /login with no real accounts behind it goes to /signup: there is nothing to log in to.
 //   - /forgot-password and /reset-password are for real accounts only, and go to /signup otherwise. A signed-in visitor
-//     to /forgot-password goes Home. /reset-password is open to everyone: the link in the email signs the person in, and
-//     a link that did not (used or expired) says so on that page.
+//     to /forgot-password goes Home. /reset-password is open to everyone, but its page shows the new-password form only
+//     to a session that a reset link started (stores/auth.js `recovering`); anyone else is told to ask for a new link.
 import { useAuthStore } from '@/stores/auth.js'
 
 const BASE = 'http://jio.invalid'

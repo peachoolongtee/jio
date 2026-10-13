@@ -14,6 +14,7 @@ import {
   validatePassword,
   validateUsername,
 } from '../signupRules.js'
+import { OTHER, PROFILE } from './authFixture.js'
 
 const NOW = new Date(2026, 9, 9, 12, 0)
 
@@ -94,31 +95,62 @@ describe('validateEmail', () => {
 })
 
 describe('the password rule', () => {
-  it('needs 6 or more characters with an uppercase letter, a lowercase letter, a number and one of ! @ # $ % *', () => {
-    expect(validatePassword('Abc1!x')).toBe('')
+  const MESSAGE = 'Use 8 to 72 characters with an uppercase letter, a lowercase letter, a number and a symbol (any character that is not a letter, number or space), and no space at the start or end.'
+
+  it('needs 8 or more characters with an uppercase letter, a lowercase letter, a number and a symbol', () => {
+    expect(validatePassword('Abc1!xyz')).toBe('')
     expect(validatePassword('Sup3rSecret!')).toBe('')
     expect(validatePassword('Abc1*x@#$%')).toBe('')
-    for (const bad of ['', 'Ab1!x', 'abc1!x', 'ABC1!X', 'Abcdef', 'Abc!!!', 'Abc123', 'Abc 12 ', 'Abc1-x', 'Abc1?x', 'Abc1-x*', 'Abc1! x', 'Abc1!\u00e9', 'Abc1!\u00a3']) {
-      expect(validatePassword(bad)).toBe('Use 6 or more letters, numbers and ! @ # $ % *, with an uppercase letter, a lowercase letter, a number and one of ! @ # $ % *.')
+    for (const bad of ['', 'Ab1!xyz', 'abc1!xyz', 'ABC1!XYZ', 'Abcdefgh!', 'Abcdefg1', 'Abc!!!!!']) {
+      expect(validatePassword(bad)).toBe(MESSAGE)
     }
   })
 
-  it('counts only ! @ # $ % * as the special character, and shows them as an example', () => {
+  it('accepts what a password manager makes: - _ ? & ^ and every other printable symbol', () => {
+    for (const ch of '!@#$%^&*()_+-=[]{};:\'"|<>?,./`~\\') expect(validatePassword(`Abc1${ch}xyz`)).toBe('')
+    expect(validatePassword('Zx9-qL_mW?4k&Vb^2')).toBe('')
+    // A space inside is allowed, and counts as no symbol by itself.
+    expect(validatePassword('Abc 1 xyz!')).toBe('')
+    expect(validatePassword('Abc 1 xyz')).toBe(MESSAGE)
+  })
+
+  it('counts accented letters as letters and emoji as symbols', () => {
+    expect(validatePassword('\u00c9cole2026\u00e9')).toBe(MESSAGE)
+    expect(validatePassword('\u00c9cole2026\u00e9\u2603')).toBe('')
+    expect(validatePassword('Abcdefg1\u{1f600}')).toBe('')
+  })
+
+  it('refuses a space at either end and any control character', () => {
+    for (const bad of [' Abc1!xyz', 'Abc1!xyz ', 'Abc1!xyz\u00a0', 'Abc1!\txyz', 'Abc1!xyz\n', 'Abc1!x\u0000yz', 'Abc1!x\u007fyz']) {
+      expect(validatePassword(bad)).toBe(MESSAGE)
+    }
+  })
+
+  it('allows 72 bytes and no more: the hash reads no further', () => {
+    expect(validatePassword(`Aa1!${'x'.repeat(68)}`)).toBe('')
+    expect(validatePassword(`Aa1!${'x'.repeat(69)}`)).toBe(MESSAGE)
+    // An accented letter is two bytes, so 35 of them and Aa1! come to 74.
+    expect(validatePassword(`Aa1!${'\u00e9'.repeat(34)}`)).toBe('')
+    expect(validatePassword(`Aa1!${'\u00e9'.repeat(35)}`)).toBe(MESSAGE)
+  })
+
+  it('ticks off each part as typed, and says what a symbol is', () => {
     expect(passwordRules('a1 ').map((r) => r.ok)).toEqual([false, false, true, true, false, false])
-    expect(passwordRules('')[4]).toMatchObject({ label: 'A special character', hint: 'e.g. ! @ # $ % *' })
-    for (const ch of '!@#$%*') expect(passwordRules(ch)[4].ok).toBe(true)
-    for (const ch of '^&()_+-=[]{};:"|<>?,./`~ \u00e9') expect(passwordRules(ch)[4].ok).toBe(false)
+    expect(passwordRules('Abcdefg1').map((r) => r.ok)).toEqual([true, true, true, true, false, true])
+    expect(passwordRules('Abc1!xyz').map((r) => r.ok)).toEqual([true, true, true, true, true, true])
+    expect(passwordRules('').map((r) => r.ok)).toEqual([false, false, false, false, false, false])
+    expect(passwordRules('')).toMatchObject([
+      { label: '8 or more characters' },
+      { label: 'An uppercase letter' },
+      { label: 'A lowercase letter' },
+      { label: 'A number' },
+      { label: 'A symbol', hint: 'Any character that is not a letter, number or space, like - _ ? ! @ #' },
+      { label: 'No more than 72 characters, and no space at the start or end', hint: 'Accented letters and emoji take more room. Control characters are not allowed.' },
+    ])
   })
 
-  it('allows nothing but letters, numbers and ! @ # $ % *', () => {
-    expect(passwordRules('Abc1!x').at(-1)).toEqual({ label: 'No spaces or other symbols', ok: true })
-    expect(passwordRules('').at(-1).ok).toBe(false)
-    for (const ch of '^&()_+-=[]{};:"|<>?,./`~ \u00e9') expect(passwordRules(`Abc1!${ch}`).at(-1).ok).toBe(false)
-  })
-
-  it('lets through only passwords Supabase also accepts: its symbols include all six', () => {
-    const supabaseSymbols = '!@#$%^&*()_+-=[]{};\'\\:"|<>?,./`~'
-    for (const ch of '!@#$%*') expect(supabaseSymbols).toContain(ch)
+  it('is met by the passwords the test accounts use, so a test cannot sign up with one the product would refuse', () => {
+    for (const { password } of [PROFILE, OTHER]) expect(validatePassword(password)).toBe('')
   })
 })
 
@@ -150,6 +182,10 @@ describe('usernameCandidates', () => {
   it('counts up from a name that ends in _<number>, then adds random numbers from 100 to 999', () => {
     const list = usernameCandidates('testuser_887', { random: fixed(0.1, 0.5, 0.9, 0.0) })
     expect(list).toEqual(['testuser_888', 'testuser_889', 'testuser_190', 'testuser_550', 'testuser_910', 'testuser_100'])
+  })
+
+  it('gives only as many as are asked for, so four names can be tried and no more', () => {
+    expect(usernameCandidates('testuser_887', { random: fixed(0.1, 0.5), count: 4 })).toEqual(['testuser_888', 'testuser_889', 'testuser_190', 'testuser_550'])
   })
 
   it('starts at _1 for any other name', () => {

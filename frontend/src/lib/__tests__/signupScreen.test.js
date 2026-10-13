@@ -1,12 +1,12 @@
 // The sign-up screen (views/AuthView.vue) with real accounts: the password goes to the store, is empty after a failed
 // attempt while the other answers stay, "Check your email" replaces the questions when the project wants the email
 // confirmed, and the rule on screen is the one Supabase enforces. Drawn on the in-memory page (domless.js).
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { PROFILE, boot, fakeSupabase } from './authFixture.js'
 import { mountScreen, until } from './domless.js'
 
-const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn() }))
+const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), emailRegistered: vi.fn() }))
 vi.mock('../plannerApi.js', () => planner)
 // The development-only demo buttons are not under test, and they load the showcase.
 vi.mock('@/components/dev/DemoSignIn.vue', () => ({ default: { render: () => null } }))
@@ -19,6 +19,10 @@ beforeAll(() => {
   vi.setSystemTime(new Date('2026-10-09T10:00:00'))
 })
 afterEach(() => vi.unstubAllGlobals())
+// The backend's email check says nobody has an account unless a test makes it say otherwise.
+beforeEach(() => {
+  planner.emailRegistered.mockReset().mockResolvedValue(false)
+})
 
 // The sign-up screen with the draft filled in and on the last question. `fake` null means local accounts only.
 // How to call: const t = await setUp(fakeSupabase(), { password: 'weak' })
@@ -44,29 +48,34 @@ async function setUp(fake, draft = {}) {
 const mainButton = (view) => view.all('button').find((b) => (b.attrs.class || '').includes('btn--next'))
 
 describe('the password rule on screen', () => {
-  it('asks real accounts for 6 or more characters with an uppercase and a lowercase letter, a number and a symbol, and keeps the older checklist otherwise', async () => {
+  it('asks real accounts for 8 to 72 characters with an uppercase and a lowercase letter, a number and a symbol, and keeps the older checklist otherwise', async () => {
     const { passwordChecks } = await import('@/views/AuthView.vue')
-    const labels = ['6 or more characters', 'An uppercase letter', 'A lowercase letter', 'A number', 'A special character', 'No spaces or other symbols']
-    expect(passwordChecks('abc1!', true)).toEqual([
-      { label: labels[0], ok: false },
-      { label: labels[1], ok: false },
-      { label: labels[2], ok: true },
-      { label: labels[3], ok: true },
-      { label: labels[4], hint: 'e.g. ! @ # $ % *', ok: true },
-      { label: labels[5], ok: true },
+    const labels = ['8 or more characters', 'An uppercase letter', 'A lowercase letter', 'A number', 'A symbol', 'No more than 72 characters, and no space at the start or end']
+    expect(passwordChecks('abc1!', true).map((c) => [c.label, c.ok])).toEqual([
+      [labels[0], false],
+      [labels[1], false],
+      [labels[2], true],
+      [labels[3], true],
+      [labels[4], true],
+      [labels[5], true],
     ])
-    expect(passwordChecks('Abc1!x', true).every((c) => c.ok)).toBe(true)
+    expect(passwordChecks('Abc1!xyz', true).every((c) => c.ok)).toBe(true)
+    // What a password manager makes: a dash, an underscore and a question mark are symbols.
+    expect(passwordChecks('Zx9-qL_mW?4k', true).every((c) => c.ok)).toBe(true)
     expect(passwordChecks('abcdef', false).map((c) => c.label)).toEqual(['8 or more characters', 'A letter', 'A number', 'A symbol'])
   })
 
   it('draws that rule on the password question and lets a password through only when every part is met', async () => {
     const { view, store } = await setUp(fakeSupabase(), { step: 1, password: 'abc1!x' })
     expect(view.all('.checklist__item')).toHaveLength(6)
-    expect(view.text('.checklist__hint')).toBe('e.g. ! @ # $ % *')
+    expect(view.all('.checklist__hint').map((h) => view.text(h))).toEqual([
+      'Any character that is not a letter, number or space, like - _ ? ! @ #',
+      'Accented letters and emoji take more room. Control characters are not allowed.',
+    ])
     expect(view.one('input[autocomplete=new-password]')).toBeTruthy()
     await view.click(mainButton(view))
     expect(store.draft.step).toBe(1)
-    view.type('input[autocomplete=new-password]', 'Abc1!x')
+    view.type('input[autocomplete=new-password]', 'Abc1!xyz')
     await view.click(mainButton(view))
     await until(() => store.draft.step === 2)
   })
@@ -383,10 +392,11 @@ describe('the date of birth question', () => {
 
 describe('an email that already has an account', () => {
   // A sign-up screen on the first question, on a project where PROFILE's email is already registered.
-  // How to call: const t = await registeredSetUp({ noEmailFunction: true })
+  // How to call: const t = await registeredSetUp()
   async function registeredSetUp(options = {}) {
     const fake = fakeSupabase(options)
     fake.state.users.push({ id: 'uid-9', email: PROFILE.email, password: 'x', meta: {} })
+    planner.emailRegistered.mockImplementation(async (email) => fake.state.emailRegistered(email))
     return setUp(fake, { step: 0 })
   }
 
@@ -397,7 +407,9 @@ describe('an email that already has an account', () => {
     await until(() => view.text().includes('An account with that email already exists. Log in instead.'))
     expect(store.draft.step).toBe(0)
     expect(view.one('a[href="/login"]')).toBeTruthy()
-    expect(fake.state.rpcCalls.filter((c) => c.name === 'email_registered').map((c) => c.args)).toEqual([{ p_email: 'SAM@example.com' }])
+    // It asked the backend (once, with the address trimmed), and never the database itself: the browser's key may not call it.
+    expect(planner.emailRegistered.mock.calls).toEqual([['SAM@example.com']])
+    expect(fake.state.rpcCalls.filter((c) => c.name === 'email_registered')).toEqual([])
     expect(fake.state.signUpCalls).toEqual([])
   })
 
@@ -408,12 +420,21 @@ describe('an email that already has an account', () => {
     await until(() => store.draft.step === 1)
   })
 
-  it('goes on when the check cannot be made, leaving the sign-up to catch it at the end', async () => {
-    const { view, store } = await registeredSetUp({ noEmailFunction: true })
+  it.each([
+    ['the backend says too many requests (429)', 'Too many requests. Wait a few seconds and try again.'],
+    ['the backend or database is down (503)', 'Accounts cannot be checked right now. Try again shortly.'],
+    ['there is no connection', 'Cannot reach the Jio planner right now. Check your connection and try again.'],
+    ['the backend sends something unreadable', 'The planner sent an answer Jio could not read. Try again later.'],
+  ])('goes on when the check cannot be made because %s, leaving the sign-up to catch it at the end', async (_name, message) => {
+    const { view, store } = await registeredSetUp()
+    planner.emailRegistered.mockImplementation(async () => {
+      throw new Error(message)
+    })
     view.type('input[type=email]', PROFILE.email)
     await view.click(mainButton(view))
     await until(() => store.draft.step === 1)
     expect(view.text()).not.toContain('already exists')
+    expect(view.has('p[role=alert]')).toBe(false)
   })
 
   it('clears the message once the email is changed', async () => {
@@ -441,6 +462,32 @@ describe('suggestions for a taken username', () => {
     expect(chips).not.toContain('testuser_889')
     expect(chips.every((c) => /^testuser_\d+$/.test(c))).toBe(true)
     expect(store.draft.step).toBe(4)
+  })
+
+  it('checks no more than 4 names, and stops asking once 3 are free', async () => {
+    // Everything free: the first three are enough, so only three are asked (and the taken name was asked once before).
+    const fake = fakeSupabase()
+    fake.state.profiles.other = { username: PROFILE.username }
+    const first = await setUp(fake, { step: 4 })
+    await first.view.click(mainButton(first.view))
+    await until(() => first.view.has('[data-testid="username-suggestions"]'))
+    expect(fake.state.rpcCalls.map((c) => c.args.p_username)).toHaveLength(1 + 3)
+    expect(first.view.all('button.signup__suggestion')).toHaveLength(3)
+  })
+
+  it('asks for a fourth name only when one of the first three is taken, and never for a fifth', async () => {
+    const fake = fakeSupabase()
+    // The taken name, and every name the screen could suggest except the last one tried: nearly all taken.
+    for (const n of [1, 2]) fake.state.profiles[`t${n}`] = { username: `sam_${n}` }
+    fake.state.profiles.me = { username: 'sam' }
+    const { view } = await setUp(fake, { step: 4 })
+    await view.click(mainButton(view))
+    await until(() => view.has('[data-testid="username-suggestions"]'))
+    const asked = fake.state.rpcCalls.map((c) => c.args.p_username)
+    // The taken name itself, then three names, then the one name still needed: five calls in all, four of them suggestions.
+    expect(asked).toHaveLength(1 + 4)
+    expect(asked.slice(1, 3)).toEqual(['sam_1', 'sam_2'])
+    expect(view.all('button.signup__suggestion')).toHaveLength(2)
   })
 
   it('fills the field with the one tapped, clears the message, and goes on with it', async () => {

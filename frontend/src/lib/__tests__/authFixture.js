@@ -32,7 +32,6 @@ const OWN_PRIVATE_COLUMNS = ['dob', 'home_area_id', 'dietary', 'budget_max_per_p
 //                       token and the client removes the session)
 //   getSessionMode      'ok' or 'hang' (the client is waiting on the network and never answers)
 //   signUpError         an error to answer sign-up with
-//   noEmailFunction     email_registered is not on the project (a 404, as before db/schema.sql adds it)
 // How to call: const fake = fakeSupabase({ confirmEmail: true })
 export function fakeSupabase(options = {}) {
   const state = {
@@ -63,6 +62,7 @@ export function fakeSupabase(options = {}) {
     resetCalls: [],
     passwordUpdates: [],
     refreshCalls: 0,
+    otherSessionsEnded: 0,
     rpcCalls: [],
     writes: [],
     listeners: new Set(),
@@ -163,6 +163,15 @@ export function fakeSupabase(options = {}) {
       signOut(args) {
         state.signOutCalls.push(args)
         const mode = state.options.signOutMode
+        // Signing out the other sessions leaves this one where it is, as the real client does (scope 'others').
+        if (args?.scope === 'others') {
+          if (mode === 'throw') throw new Error('boom')
+          if (mode === 'reject') return Promise.reject(new Error('Failed to fetch'))
+          if (mode === 'error') return Promise.resolve({ error: retryable(0, 'Failed to fetch') })
+          if (mode === 'hang') return new Promise(() => {})
+          state.otherSessionsEnded += 1
+          return Promise.resolve({ error: null })
+        }
         if (mode === 'throw') throw new Error('boom')
         if (mode === 'reject') return Promise.reject(new Error('Failed to fetch'))
         if (mode === 'error') return Promise.resolve({ error: retryable(0, 'Failed to fetch') })
@@ -216,11 +225,8 @@ export function fakeSupabase(options = {}) {
     async rpc(name, args) {
       state.rpcCalls.push({ name, args })
       if (state.options.down) return lostData()
-      if (name === 'email_registered') {
-        // A project that has not had db/schema.sql applied since the function was added answers 404.
-        if (state.options.noEmailFunction) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function' }, status: 404 }
-        return { data: state.users.some((u) => u.email.toLowerCase() === String(args.p_email).trim().toLowerCase()), error: null }
-      }
+      // The database refuses this to the browser's key (db/policies.sql): the browser asks the backend instead.
+      if (name === 'email_registered') throw new Error('The browser must not call email_registered; it asks the backend.')
       if (state.options.rpcError) return { data: null, error: state.options.rpcError, status: 500 }
       const taken = Object.values(state.profiles).some((p) => p.username === args.p_username)
       const stale = state.options.staleUsernameCheck && state.signUpCalls.length === 0
@@ -262,6 +268,10 @@ export function fakeSupabase(options = {}) {
       }
     },
   }
+  // The client tells its listeners something, as when a reset link is accepted: fake.state.emit('PASSWORD_RECOVERY').
+  state.emit = (event) => fire(event)
+  // The backend's email check, answered from the users here (a stand-in for POST /api/accounts/email-check).
+  state.emailRegistered = (email) => state.users.some((u) => u.email.toLowerCase() === String(email).trim().toLowerCase())
   // The session ends without the app asking, as when a refresh token expires or another tab signs out.
   state.endSession = () => {
     write(null)

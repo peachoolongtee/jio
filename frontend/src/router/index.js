@@ -1,4 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
+// First, on purpose: this module creates the Supabase client and then takes a reset link's tokens out of the address, and
+// that must happen before createWebHistory below copies the address (lib/authLink.js says why).
+import '@/lib/supabase.js'
 import { installGuard } from './guard.js'
 import { routes } from './routes.js'
 import { rememberEntry } from '@/lib/stepNav.js'

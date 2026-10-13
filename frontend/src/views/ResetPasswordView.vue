@@ -1,7 +1,9 @@
 <script setup>
 // Choose a new password: the page the reset email's link opens. Supabase reads the token in the link and signs the
-// person in for this, so a signed-in person here means the link worked. Without one (the link was used, has expired, or
-// this page was opened by hand) it says so and offers a new link.
+// person in for this. The form shows only when the session here was started by such a link (auth.recovering: the client
+// reported a password recovery, or the session is the one the link's token made), and the person is still signed in. Being
+// signed in is not enough: a person who typed this address by hand, or opened an expired, used or someone else's link,
+// is asked to get a new link, so a signed-in browser left unlocked cannot be used to change the password.
 // The new password follows the sign-up rule (lib/signupRules.js) and is typed twice. It goes to Supabase and is kept
 // nowhere else; both fields are emptied after every attempt that fails.
 import { computed, nextTick, ref } from 'vue'
@@ -27,7 +29,7 @@ const doneTitle = ref(null)
 
 const checks = computed(() => passwordRules(password.value))
 const strong = computed(() => checks.value.every((c) => c.ok))
-const linkWorks = computed(() => auth.signedIn && !expired.value)
+const linkWorks = computed(() => auth.recovering && auth.signedIn && !expired.value)
 
 // How to call: await submit()   (the form's submit, which Enter in either field also triggers)
 async function submit() {
