@@ -1168,3 +1168,45 @@ The lead took the suggestions for the cards except the stock photos ("it gives s
 - **Merged into `integration/after-pitch`** (`94d24ac`), no conflicts. There: 1112 frontend, 899 backend, build, the same search clean.
 - **Not verified by anyone:** a real sign-up, login, token or `profiles` read (nothing has contacted the real project); a browser walk after the fixes; a slow leaderboard or people load for the old account landing just after a switch (the agent left that window).
 - **Paused at the lead's word** after this merge: "after this is merged to the branch pause implementation for now". Not started: stage 2, the Locate redesign in the mock-up, the navigation bar on session pages. Open and unmerged: peachoolongtee/jio#137 into `dev`.
+
+## Round 26: three pull requests audited; two merged into `dev`, one held on staging (2026-10-13)
+
+The lead asked for every new pull request to be checked, audited and merged into `dev`. Open then: the lead's own card changes (peachoolongtee/jio#137), darryl5942's sign-up and login (#138), and faithpho's link reader (#139), which is stacked on her place search (#132).
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 26.1 | Lead | Merge #137 (audited in round 25, CI green) | `dev` | CI green | **Completed** |
+| 26.2 | Code reviewer, read-only | #138: the reset flow, account enumeration, the sign-up trigger, the password rule, dietary privacy, tests | Nothing | Each finding with a file, a scenario and a fix | **Completed** |
+| 26.3 | Code reviewer, read-only | #139: request forgery, the downloader and browser, budgets, what goes to the AI, Google's rules, secrets | Nothing | The same | **Completed** |
+| 26.4 | Lead | Run both pull requests' suites, also with outbound calls blocked; compare the live database with #138's files | Nothing on the live project | Real output, exit codes read | **Completed** |
+| 26.5 | Implementer | Fix #138's findings on `feat/signup-login-2-integration` (`dev` plus #138) | That branch | Every finding fixed with a test; a migration file for the live change, not applied | **Completed**, merged as #140 |
+| 26.6 | Implementer | Fix #139's findings on `feat/link-reader-integration` (staging, plus place search with its fixes, plus #139) | `backend/` on that branch | The same; off unless switched on | **Completed**, pushed, not in `dev` |
+
+### 26.2, 26.4 and 26.5 Sign-up and login
+
+- **Before any change, run by the lead on #138 merged with `dev`:** frontend 904 passed, backend 815 passed and 2 skipped, build, and the frontend again with outbound calls blocked, nothing attempted.
+- **The live database:** the author had applied both of his changes by hand before review; no migration is recorded for them (five are listed, as before). The live bodies of `handle_new_user` and `email_registered` read the same as his file. `email_registered` was executable by `anon`. Row counts: 1 account, 1 profile, no sessions.
+- **Review, no blockers, three significant:** `email_registered` is an unlimited lookup of whether an address has an account, for anyone with the public key; `/reset-password` treated any signed-in session as a valid link; the recovery token could be written back into the address bar by the router's first navigation (suspected by the reviewer, then confirmed by the fixing agent from vue-router's source and a test that reproduces it). Smaller: a password rule that allowed only six symbols; six availability calls for three username suggestions; other sessions left signed in after a reset; a fixture password the product's own rule refused.
+- **Fixes, by an implementer subagent:** the email check moved to `POST /api/accounts/email-check` behind its own limit of 10 a minute, with the function made server-only by a migration file; the reset page opens its form only after a recovery (the event, or a `type=recovery` link whose token matches the session); the Supabase parts of the hash are stripped before the router is created; other sessions are ended after a change; the password rule is 8 or more characters, the four kinds, any symbol, at most 72 bytes; at most four username checks.
+- **Run by the lead after the fixes, exit codes read:** frontend 952, backend 838 and 2 skipped, build, both suites with outbound calls blocked. With `dev` merged in again (the card changes): frontend 992, build; the backend failed two tests once (`accounts.test.js`'s 429 test and an `auth.test.js` test, one of them answered by something that was not this server) and passed three times in a row after. That is the port collision already on the tests ticket.
+- **Checked by the lead on the live project, read only:** `auth.users` has `deleted_at`, an index on `email`, and no address that is not lower case, so the migration's function will work.
+- **Merged into `dev`** as #140 (`adee7e8`); #138 shows as merged with it.
+- **Not verified by anyone:** a real recovery email and link in a browser; anything against the real project.
+- **Waiting on the lead:** applying `db/migrations/20261013000000_jio_email_check.sql` (until then the lookup is still open on the live project); the dashboard settings the pull request lists; "trust proxy" before a deploy.
+- **Changed from the teammate's design by the lead agent's choice, and told to the lead:** the password rule.
+
+### 26.3 and 26.6 The link reader
+
+- **Before any change, run by the lead:** backend 882 passed and 2 skipped on the pull request's head, and with outbound calls blocked. Its CI fails on one frontend test it does not touch. Merged with staging and the place-search fixes (one conflict, both routes kept): backend 1043, frontend 1112.
+- **Review, no blockers, five significant:** no switch of its own (on wherever the Gemini key is); it could drain the Google budget the planner shares; input-caused failures paused it for everyone; work was done before any budget was checked; two malformed links answered 500. Smaller: media kept in the cache; the browser's checks ran after the page loaded and it started without its sandbox with the whole environment; the development tools were refused only when `NODE_ENV` was exactly `production`.
+- **Clean, by the reviewer's reading:** link parsing; the server's own fetches reach only fixed hosts; the downloader runs through an argument list; keys in headers; the model's answer is checked and nothing it returns is fetched; only the place id is kept; fixtures invented.
+- **Fixes, by an implementer subagent, 97 new tests of which 89 fail on the original code:** `LINK_READER=1` or all three routes answer 404; a third of the Google budget at most, 3 ids a refresh, matching once per reading, 15 searches a read; only provider failures count toward the pause; 3 reads and 3 refreshes a minute per caller; budgets checked before gathering, two gathers at once; the unusable links answer 400; no media in the cache; request interception, the sandbox and a minimal environment for the tools; comments to the AI behind `LINK_READER_COMMENTS=1`, off, for the lead to decide.
+- **Run by the lead after the fixes, exit codes read:** backend 1140 passed and 2 skipped, and with outbound calls blocked; frontend 1112; build.
+- **Not verified by anyone:** any real service, Chrome or `yt-dlp` (not installed; its flags are from memory); the list of media hosts.
+- **Not in `dev`:** it depends on the place search, whose fixes depend on the weather work on staging. It reaches `dev` with the staging branch.
+
+### Left as they are
+
+- **#132** (place search): its fixes are on staging; it shows Google places beside the map when a key is set, which is still the lead's decision.
+- **#103** (the first AI order pull request, into `main`): replaced by #106 on 11 October; a teammate's, so not closed.
+- **Staging is now behind `dev`** by the sign-up work. Bringing it level will conflict in the account files, where stage 1 also worked.
