@@ -253,6 +253,31 @@ const rules = [
     respond: ({ url }) => ({ name: url.pathname.slice(4, -6), photoUri: 'https://lh3.googleusercontent.com/stub-photo' }),
   },
   {
+    // Gemini reading a post (services/link-reader.js): two invented places and an invented pop-up, whatever is asked.
+    method: 'POST',
+    host: 'generativelanguage.googleapis.com',
+    pathPattern: /^\/v1beta\/models\/[^/]+:generateContent$/,
+    respond: () => loadFixture('link-reader/gemini-places.json'),
+  },
+  {
+    method: 'GET',
+    host: 'www.googleapis.com',
+    path: '/youtube/v3/videos',
+    respond: () => loadFixture('link-reader/youtube-video.json'),
+  },
+  {
+    method: 'GET',
+    host: 'www.googleapis.com',
+    path: '/youtube/v3/commentThreads',
+    respond: () => loadFixture('link-reader/youtube-comments.json'),
+  },
+  {
+    method: 'GET',
+    host: 'www.tiktok.com',
+    path: '/oembed',
+    respond: () => loadFixture('link-reader/tiktok-oembed.json'),
+  },
+  {
     method: 'GET',
     host: 'api-open.data.gov.sg',
     path: '/v2/real-time/api/two-hr-forecast',

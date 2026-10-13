@@ -16,6 +16,9 @@ Canned API responses. In stub mode the backend answers from these files instead 
 | `onemap/route.pt.sample.json` | Copied from OneMap's documentation and trimmed. Not a real recording. | Unit-testing the route parser only |
 | `google/places-nearby.json` | Invented, in the shape of Google Places (New) answers: six made-up places near Bishan MRT with ids like `stub_place_01`, made-up names, addresses, ratings and hours, and one photo with a made-up name. Google's terms allow storing only a place id, so no real place's details are kept. No key is in the file. | Every stubbed Google nearby search, wherever it is |
 | `google/places-text-search.json` | Invented, in the same shape: two made-up places near Orchard with ids `stub_text_01` (a karaoke with 12 reviews) and `stub_text_02` (a noodle house). No real place's details, no key. | Every stubbed Google text search, whatever the words, and the stubbed Place Details look-ups (with the nearby fixture) |
+| `link-reader/gemini-places.json` | Invented, in the shape of a Gemini answer: a noodle house, a karaoke (both matching the invented Google places in `google/places-text-search.json`) and a pop-up with no dates. | Every stubbed Gemini call from the link reader, whatever it is asked |
+| `link-reader/youtube-video.json`, `link-reader/youtube-comments.json` | Invented YouTube Data API answers: a video's title, description and date, and two comments. | The stubbed YouTube calls |
+| `link-reader/tiktok-oembed.json` | An invented TikTok oEmbed answer (a caption and a creator). | The stubbed TikTok caption call |
 
 Stubbed routes are not read from a file. They are generated from the straight-line distance between the two points, in OneMap's response shape. See `syntheticRoute` in `backend/src/services/stubs.js`.
 
