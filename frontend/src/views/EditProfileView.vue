@@ -3,17 +3,20 @@
 // and its own save button, in the manner of Instagram's settings:
 //   Edit profile (/profile/edit): a card with the photo, @username and name, and Change photo; then name, home area and
 //   dietary needs, starting from the signed-in person. Saved only when
-//   something changed and the name keeps the sign-up rule. The photo is shrunk the way sign-up shrinks it (lib/photo.js)
-//   and, as at sign-up, stays in this browser: it is not uploaded. A real account's details also go to Supabase; when
-//   that write fails the app's sync notice says so (stores/auth.js syncNotice), and "Saved" is not shown.
+//   something changed and the name keeps the sign-up rule, and only the fields that changed are sent, so a copy of the
+//   page that is out of date never writes over what another device saved. The photo is shrunk the way sign-up shrinks it
+//   (lib/photo.js) and, as at sign-up, stays in this browser: it is not uploaded. A real account's details also go to
+//   Supabase; when that write fails the change is kept in this browser, the page says it did not reach the account, "Saved"
+//   is not shown, and Save details stays usable: pressing it again sends the fields that did not arrive.
 //   Password (/profile/edit/password): real accounts only. The current password, then a new one with the same live checklist as sign-up
-//   (lib/signupRules.js), typed twice. The current one is checked with Supabase before the new one is set. All three
-//   fields are emptied after every attempt. A local account lives only in this browser and has no password, so it gets
-//   a note instead.
+//   (lib/signupRules.js), typed twice. Two new passwords that differ, or a new one equal to the old, are refused before
+//   anything is sent and nothing typed is cleared. Otherwise the current one is checked with Supabase before the new one
+//   is set, and all three fields are emptied after that attempt. A local account lives only in this browser and has no
+//   password, so it gets a note instead.
 // On a phone the two tabs sit across the top and the page takes the full width. From tablet up they are a menu down
 // the left, and the open tab is on the right. Switching tabs replaces the address, so Back still goes to the Profile
 // page, and what was typed in the other tab is kept until the page is left.
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -25,7 +28,6 @@ import TextField from '@/components/ui/TextField.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import * as api from '@/lib/api.js'
 import { MESSAGES } from '@/lib/auth.js'
-import { HOST_ID } from '@/lib/mock/people.js'
 import { shrinkPhoto } from '@/lib/photo.js'
 import { DIETARY_OPTIONS, NAME_MAX, cleanDietary, hiddenProblem, passwordRules, shownRules, validateName } from '@/lib/signupRules.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -57,13 +59,30 @@ onMounted(async () => {
 })
 const areaOptions = computed(() => [...areas.value].sort((a, b) => a.name.localeCompare(b.name)).map((a) => ({ value: a.id, label: a.name })))
 
-// Has anything changed from what the signed-in person has now?
-const detailsChanged = computed(() => {
+// The fields that also go to the Supabase account. The photo does not: it stays in this browser.
+const REMOTE_KEYS = ['name', 'homeAreaId', 'dietary']
+// The account fields whose last write did not reach the account, if the last save failed. A real account whose sign-up
+// write failed starts with all of them, since the same notice is showing.
+const unsent = ref(auth.user?.authId && auth.syncNotice === MESSAGES.profile_not_saved ? [...REMOTE_KEYS] : [])
+const notSaved = computed(() => unsent.value.length > 0)
+
+// The fields of the form that differ from the signed-in person as the store holds them, and only those.
+// How to call: changedFields() -> { name: 'Samantha' }
+function changedFields() {
   const user = auth.user
-  if (!user) return false
-  const sameDiet = cleanDietary(dietary.value).join() === cleanDietary(user.dietary).join()
-  return photo.value !== (user.photo ?? '') || name.value.trim() !== (user.name ?? '') || homeAreaId.value !== (user.homeAreaId ?? '') || !sameDiet
-})
+  const patch = {}
+  if (!user) return patch
+  if (photo.value !== (user.photo ?? '')) patch.photo = photo.value
+  if (name.value.trim() !== (user.name ?? '')) patch.name = name.value.trim()
+  if (homeAreaId.value !== (user.homeAreaId ?? '')) patch.homeAreaId = homeAreaId.value
+  if (cleanDietary(dietary.value).join() !== cleanDietary(user.dietary).join()) patch.dietary = cleanDietary(dietary.value)
+  return patch
+}
+
+// Has anything changed from what the signed-in person has now?
+const detailsChanged = computed(() => Object.keys(changedFields()).length > 0)
+// Save stays usable while the last save did not reach the account, even with nothing new to send.
+const canSave = computed(() => detailsChanged.value || notSaved.value)
 
 // The signed-in person can change under the page: the profile read from Supabase after start-up arrives, or another
 // tab saves. A field still showing the old value takes the new one; a field the person has edited is left alone.
@@ -110,17 +129,28 @@ function toggleDiet(value) {
   dietary.value = list.includes(value) ? list.filter((d) => d !== value) : [...list, value]
 }
 
-// Save the details, when they changed and the name keeps the rule.
+// Save the details, when they changed (or the last save did not reach the account) and the name keeps the rule. Only the
+// fields that changed are sent, with the ones that did not arrive last time.
 // How to call: await saveDetails()   (the details form's submit)
 async function saveDetails() {
-  if (savingDetails.value || !detailsChanged.value) return
-  nameError.value = validateName(name.value)
-  if (nameError.value) return
+  if (savingDetails.value || !canSave.value) return
+  const patch = changedFields()
+  // A field that did not reach the account is sent again with the value the browser kept for it.
+  for (const key of unsent.value) {
+    if (!(key in patch)) patch[key] = key === 'dietary' ? cleanDietary(auth.user?.[key]) : (auth.user?.[key] ?? '')
+  }
+  if (Object.keys(patch).length === 0) return
+  if ('name' in patch) {
+    nameError.value = validateName(patch.name)
+    if (nameError.value) return
+  }
   savingDetails.value = true
   detailsError.value = ''
   try {
-    await auth.update({ photo: photo.value, name: name.value.trim(), homeAreaId: homeAreaId.value, dietary: cleanDietary(dietary.value) })
-    // A failed Supabase write is shown by the app's sync notice; "Saved" would say otherwise.
+    await auth.update(patch)
+    // A failed Supabase write is shown by the app's sync notice and by the line beside the button; "Saved" would say otherwise.
+    const sent = REMOTE_KEYS.filter((key) => key in patch)
+    unsent.value = auth.syncNotice && auth.user?.authId && sent.length > 0 ? sent : []
     detailsSaved.value = !auth.syncNotice
   } catch (err) {
     detailsError.value = err?.message || MESSAGES.unknown
@@ -162,34 +192,47 @@ function clearPasswordMessages() {
   passwordChanged.value = false
 }
 
-// Check the current password and set the new one. The message goes under the field it is about. All three fields are
-// emptied after every attempt, whether it worked or not, including one refused here before Supabase is asked.
+// What the tab says when the login ended before the new password was set. The reset flow's "This reset link has expired"
+// would be wrong here: nobody used a link.
+const LOGIN_ENDED = 'Your login has ended. Log in again to change your password.'
+
+// Check the current password and set the new one. The message goes under the field it is about. Two new passwords that
+// differ, or a new one equal to the old, are refused first, before anything is sent, and nothing typed is cleared. After
+// Supabase has been asked, all three fields are emptied, whether it worked or not, and a failed attempt puts the focus back
+// in the current-password field, since the button has just become disabled.
 // How to call: await savePassword()   (the password form's submit, which Enter in any of its fields also triggers)
 async function savePassword() {
   if (changingPassword.value || !current.value || !strong.value || !confirm.value) return
   clearPasswordMessages()
+  if (confirm.value !== next.value) {
+    confirmError.value = 'The two passwords do not match.'
+    return
+  }
+  if (next.value === current.value) {
+    nextError.value = MESSAGES.same_password
+    return
+  }
   changingPassword.value = true
+  let failed = false
   try {
-    if (confirm.value !== next.value) {
-      confirmError.value = 'The two new passwords do not match.'
-      return
-    }
-    if (next.value === current.value) {
-      nextError.value = MESSAGES.same_password
-      return
-    }
     await auth.changeOwnPassword({ current: current.value, next: next.value })
     passwordChanged.value = true
   } catch (err) {
+    failed = true
     const message = err?.message || MESSAGES.unknown
     if (err?.code === 'wrong_password') currentError.value = message
     else if (err?.code === 'same_password' || err?.code === 'weak_password') nextError.value = message
+    else if (err?.code === 'reset_link_invalid') passwordError.value = LOGIN_ENDED
     else passwordError.value = message
   } finally {
     current.value = ''
     next.value = ''
     confirm.value = ''
     changingPassword.value = false
+  }
+  if (failed) {
+    await nextTick()
+    document.getElementById('edit-current')?.focus()
   }
 }
 </script>
@@ -222,7 +265,7 @@ async function savePassword() {
       <form v-if="tab === 'details'" id="details-form" class="edit__panel" aria-labelledby="details-head" novalidate @submit.prevent="saveDetails">
         <h1 id="details-head" class="display-lg">Edit profile</h1>
         <div class="edit__card" role="group" aria-label="Profile photo">
-          <UserAvatar :name="name.trim() || auth.user?.name || '?'" :src="photo" :person="HOST_ID" :size="64" />
+          <UserAvatar :name="name.trim() || auth.user?.name || '?'" :src="photo" :person="auth.myId" :size="64" />
           <span class="edit__who">
             <span class="title-md truncate" data-testid="card-username">{{ auth.user?.username ? `@${auth.user.username}` : '' }}</span>
             <span class="body-sm text-muted truncate" data-testid="card-name">{{ name.trim() || auth.user?.name }}</span>
@@ -247,15 +290,18 @@ async function savePassword() {
           </div>
         </div>
         <p v-if="detailsError" class="body-sm text-error" role="alert" data-testid="details-error">{{ detailsError }}</p>
+        <p v-if="notSaved" class="body-sm text-error" role="alert" data-testid="details-not-saved">Saved on this device, but not to your account. Press Save details to try again.</p>
         <p v-if="detailsSaved" class="body-sm edit__done" role="status" data-testid="details-saved"><AppIcon name="check" :size="16" />Saved</p>
-        <AppButton block type="submit" :disabled="savingDetails || !detailsChanged" data-testid="save-details">{{ savingDetails ? 'Saving' : 'Save details' }}</AppButton>
+        <AppButton block type="submit" :disabled="savingDetails || !canSave" data-testid="save-details">{{ savingDetails ? 'Saving' : 'Save details' }}</AppButton>
       </form>
 
       <section v-else class="edit__panel" aria-labelledby="password-head">
         <h1 id="password-head" class="display-lg">Password</h1>
-        <p class="body-md text-muted">Type your current password, then the new one twice.</p>
         <BannerNote v-if="noPassword" data-testid="no-password-note">This account lives only in this browser and has no password to change.</BannerNote>
         <form v-else-if="hasPassword" id="password-form" class="edit__form" novalidate @submit.prevent="savePassword">
+          <p class="body-md text-muted">Type your current password, then the new one twice.</p>
+          <!-- Not seen or reached by Tab: it tells a password manager which login the password belongs to. -->
+          <input class="sr-only" type="text" name="username" autocomplete="username" readonly tabindex="-1" aria-hidden="true" :value="auth.user?.email ?? ''" data-testid="password-username" />
           <TextField
             id="edit-current"
             v-model="current"
@@ -266,7 +312,7 @@ async function savePassword() {
             @input="clearPasswordMessages"
           >
             <template #trailing>
-              <button type="button" class="edit__peek" :aria-label="`${shown.current ? 'Hide' : 'Show'} current password`" :aria-pressed="String(shown.current)" data-testid="peek-current" @click="shown.current = !shown.current">{{ shown.current ? 'Hide' : 'Show' }}</button>
+              <button type="button" class="edit__peek" :aria-label="`${shown.current ? 'Hide' : 'Show'} current password`" data-testid="peek-current" @click="shown.current = !shown.current">{{ shown.current ? 'Hide' : 'Show' }}</button>
             </template>
           </TextField>
           <TextField
@@ -279,7 +325,7 @@ async function savePassword() {
             @input="clearPasswordMessages"
           >
             <template #trailing>
-              <button type="button" class="edit__peek" :aria-label="`${shown.next ? 'Hide' : 'Show'} new password`" :aria-pressed="String(shown.next)" data-testid="peek-next" @click="shown.next = !shown.next">{{ shown.next ? 'Hide' : 'Show' }}</button>
+              <button type="button" class="edit__peek" :aria-label="`${shown.next ? 'Hide' : 'Show'} new password`" data-testid="peek-next" @click="shown.next = !shown.next">{{ shown.next ? 'Hide' : 'Show' }}</button>
             </template>
           </TextField>
           <ul class="checklist" aria-label="Password checklist" aria-live="polite">
@@ -295,14 +341,14 @@ async function savePassword() {
           <TextField
             id="edit-confirm"
             v-model="confirm"
-            label="Confirm password"
+            label="Type it again"
             :type="shown.confirm ? 'text' : 'password'"
             autocomplete="new-password"
             :error="confirmError"
             @input="clearPasswordMessages"
           >
             <template #trailing>
-              <button type="button" class="edit__peek" :aria-label="`${shown.confirm ? 'Hide' : 'Show'} confirm password`" :aria-pressed="String(shown.confirm)" data-testid="peek-confirm" @click="shown.confirm = !shown.confirm">{{ shown.confirm ? 'Hide' : 'Show' }}</button>
+              <button type="button" class="edit__peek" :aria-label="`${shown.confirm ? 'Hide' : 'Show'} the second new password`" data-testid="peek-confirm" @click="shown.confirm = !shown.confirm">{{ shown.confirm ? 'Hide' : 'Show' }}</button>
             </template>
           </TextField>
           <p v-if="passwordError" class="body-sm text-error" role="alert" data-testid="password-error">{{ passwordError }}</p>
@@ -342,15 +388,17 @@ async function savePassword() {
 }
 
 .edit__form, .edit__group { display: flex; flex-direction: column; gap: var(--spacing-md); }
+.edit__form > p { margin: 0; }
 .edit__group .field-label { margin: 0; color: var(--muted); }
 /* The photo card: the avatar, @username and name, and Change photo on the right. On a narrow phone the button wraps
    under the name. */
 .edit__card { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-md) var(--spacing-base); padding: var(--spacing-base); border-radius: var(--rounded-md); background: var(--surface-soft); }
 .edit__who { display: flex; flex: 1 1 120px; flex-direction: column; min-width: 0; }
 .edit__card-actions { display: flex; align-items: center; gap: var(--spacing-base); }
-.edit__upload { display: inline-flex; align-items: center; min-height: var(--tap-min); padding: 0 var(--spacing-base); border-radius: var(--rounded-sm); background: var(--primary); color: var(--on-primary); font: var(--text-button-sm); font-weight: 600; white-space: nowrap; cursor: pointer; }
-.edit__upload:active { background: var(--primary-active); }
+/* Outlined, as the upload label at sign-up is, so "Save details" is the one red action on the page. */
+.edit__upload { display: inline-flex; align-items: center; min-height: var(--tap-min); padding: 0 var(--spacing-base); border: 1px solid var(--ink); border-radius: var(--rounded-sm); color: var(--ink); font: var(--text-button-sm); white-space: nowrap; cursor: pointer; }
 .edit__upload:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
+@media (hover: hover) { .edit__upload:hover { background: var(--surface-soft); } }
 .edit__diet { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
 .edit__done { display: inline-flex; align-items: center; gap: var(--spacing-xs); margin: 0; color: var(--ink); }
 .edit__done :deep(svg) { color: var(--selected); }

@@ -3,6 +3,7 @@
 // its profile photo.
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { AUTH_STORAGE_KEY } from '@/lib/supabase.js'
 import { PROFILE, boot, fakeSupabase } from './authFixture.js'
 import { mountScreen, until } from './domless.js'
 
@@ -30,7 +31,8 @@ afterEach(() => {
   expect(problems).toEqual([])
 })
 
-// A password that keeps the checklist's rule; PROFILE.password has a '-', which the checklist refuses.
+// Passwords that keep the checklist's rule. RIGHT is the password the real account in these tests is signed up with (set
+// by setUp, in place of PROFILE.password); NEW is the one it changes to.
 const RIGHT = 'Sup3rSecret!'
 const NEW = 'N3wSecret!'
 
@@ -101,8 +103,31 @@ const passwordValues = (view) => ['#edit-current', '#edit-new', '#edit-confirm']
 describe('checking and changing the password (data layer)', () => {
   it('says whether a password is the signed-in person’s, by asking Supabase', async () => {
     const { auth } = await setUp()
-    await expect(auth.checkPassword(PROFILE.email, RIGHT)).resolves.toBe(true)
-    await expect(auth.checkPassword(PROFILE.email, 'Wr0ngSecret!')).rejects.toMatchObject({ code: 'wrong_password', message: auth.MESSAGES.wrong_password })
+    await expect(auth.checkPassword(PROFILE.email, RIGHT, 'uid-1')).resolves.toBe(true)
+    await expect(auth.checkPassword(PROFILE.email, 'Wr0ngSecret!', 'uid-1')).rejects.toMatchObject({ code: 'wrong_password', message: auth.MESSAGES.wrong_password })
+  })
+
+  it('refuses a password that signs in as another account, changes nothing, and puts the session it held back', async () => {
+    const { auth, fake } = await setUp()
+    // The email on file now belongs to somebody else's account, whose password this is.
+    fake.state.users.push({ id: 'uid-2', email: 'kim@example.com', password: 'An0ther-secret!', meta: {} })
+    const original = structuredClone(fake.state.session)
+    const stored = localStorage.getItem(AUTH_STORAGE_KEY)
+    await expect(auth.checkPassword('kim@example.com', 'An0ther-secret!', 'uid-1')).rejects.toMatchObject({ code: 'wrong_password' })
+    expect(fake.state.passwordUpdates).toEqual([])
+    expect(fake.state.setSessionCalls).toBe(1)
+    expect(fake.state.session).toEqual(original)
+    expect(fake.state.session.user.id).toBe('uid-1')
+    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toBe(stored)
+  })
+
+  it('signs this browser out, instead of leaving it in another account, when the session it held cannot be put back', async () => {
+    const { auth, fake } = await setUp()
+    fake.state.users.push({ id: 'uid-2', email: 'kim@example.com', password: 'An0ther-secret!', meta: {} })
+    fake.state.issued = {}
+    await expect(auth.checkPassword('kim@example.com', 'An0ther-secret!', 'uid-1')).rejects.toMatchObject({ code: 'wrong_password' })
+    expect(fake.state.session).toBeNull()
+    expect(fake.state.passwordUpdates).toEqual([])
   })
 
   it('changes nothing when the current password is wrong, and sets the new one when it is right', async () => {
@@ -130,22 +155,45 @@ describe('checking and changing the password (data layer)', () => {
 })
 
 describe('the Profile page', () => {
-  it('has "Edit profile" under the numbers on my own profile, going to /profile/edit, and not on someone else’s', async () => {
+  // Draw the Profile page for `id` (the signed-in person's own when empty) and wait until it has settled, with the person's
+  // numbers or with nothing to show for them. Errors only are checked: the Profile page had one warning from Vue on the
+  // stand-in page before this button, mine or not.
+  // How to call: const view = await profileOf(t, 'darius')
+  async function profileOf(t, id) {
+    const { default: ProfileView } = await import('@/views/ProfileView.vue')
+    await t.router.push(id ? `/people/${id}` : '/profile')
+    const view = await mountScreen(ProfileView, { plugins: [t.pinia, t.router], props: id ? { id } : {} })
+    await until(() => view.has('.stats') || (!view.has('.profile__loading') && !view.has('[data-testid="profile-view"]')))
+    return view
+  }
+
+  it('has "Edit profile" under the numbers on my own profile, going to /profile/edit', async () => {
     const t = await setUp()
-    const mine = await draw(t, '/profile', 'ProfileView')
-    drawn.pop()
-    await until(() => mine.has('.stats'))
+    const mine = await profileOf(t)
+    expect(mine.errors).toEqual([])
     expect(mine.one('[data-testid="edit-profile"]').attrs.href).toBe('/profile/edit')
     expect(mine.text('[data-testid="edit-profile"]')).toBe('Edit profile')
-    mine.unmount()
-    const { default: ProfileView } = await import('@/views/ProfileView.vue')
-    await t.router.push('/people/darius')
-    const theirs = await mountScreen(ProfileView, { plugins: [t.pinia, t.router], props: { id: 'darius' } })
-    await until(() => theirs.has('.stats'))
-    // Errors only: the Profile page had one warning from Vue on the stand-in page before this button, mine or not.
-    expect([...mine.errors, ...theirs.errors]).toEqual([])
+    const local = await setUp({ fake: null })
+    const own = await profileOf(local)
+    expect(own.errors).toEqual([])
+    expect(own.one('[data-testid="edit-profile"]').attrs.href).toBe('/profile/edit')
+  })
+
+  it('does not have "Edit profile" on someone else’s profile, for a real account or a local one', async () => {
+    const t = await setUp()
+    const theirs = await profileOf(t, 'darius')
+    expect(theirs.errors).toEqual([])
+    // Whatever the page shows for a person a real account has no relation to (the profile, or "not found"), it is not mine.
     expect(theirs.has('[data-testid="edit-profile"]')).toBe(false)
-    expect(theirs.has('button[aria-pressed]')).toBe(true)
+    expect(theirs.text()).not.toContain('Edit profile')
+    // A real account has no friend button on a sample person; with a local account the friend button is there instead.
+    expect(theirs.has('button[aria-pressed]')).toBe(false)
+    const local = await setUp({ fake: null })
+    const theirsLocal = await profileOf(local, 'darius')
+    expect(theirsLocal.errors).toEqual([])
+    expect(theirsLocal.has('.stats')).toBe(true)
+    expect(theirsLocal.has('[data-testid="edit-profile"]')).toBe(false)
+    expect(theirsLocal.has('button[aria-pressed]')).toBe(true)
   })
 })
 
@@ -255,6 +303,101 @@ describe('editing the details', () => {
     expect(t.store.syncNotice).toBe(t.auth.MESSAGES.profile_not_saved)
     expect(view.has('[data-testid="details-saved"]')).toBe(false)
   })
+
+  it('sends only the name when only the name is edited, so a copy of the page that is out of date erases nothing', async () => {
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    await until(() => view.all('option').length > 1)
+    const before = t.fake.state.writes.length
+    // Another device set "halal" after this page opened; this copy has not heard of it.
+    t.fake.state.priv['uid-1'].dietary = ['halal']
+    view.type('#edit-name', 'Samantha')
+    await view.click('[data-testid="save-details"]')
+    await until(() => view.has('[data-testid="details-saved"]'))
+    expect(t.fake.state.writes.slice(before)).toEqual([{ table: 'profiles', row: { display_name: 'Samantha' }, id: 'uid-1' }])
+    expect(t.fake.state.priv['uid-1'].dietary).toEqual(['halal'])
+    expect(t.fake.state.priv['uid-1'].home_area_id).toBe('tampines')
+  })
+
+  it('writes nothing to Supabase when only a photo is added', async () => {
+    photoLib.shrinkPhoto.mockReset().mockResolvedValue('data:image/jpeg;base64,c21hbGw=')
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const before = t.fake.state.writes.length
+    const input = view.one('#edit-photo')
+    input.files = [{ type: 'image/png', name: 'me.png' }]
+    input.dispatch('change')
+    await until(() => !view.one('[data-testid="save-details"]').disabled)
+    await view.click('[data-testid="save-details"]')
+    await until(() => view.has('[data-testid="details-saved"]'))
+    expect(t.fake.state.writes).toHaveLength(before)
+    expect(t.fake.state.profiles['uid-1'].display_name).toBe(PROFILE.name)
+    expect(t.store.user.photo).toBe('data:image/jpeg;base64,c21hbGw=')
+  })
+
+  it('keeps Save usable after a write that did not reach the account, says so, and sends the unsent fields on the next press', async () => {
+    const t = await setUp()
+    t.fake.state.options.failWrites = true
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    await until(() => view.all('option').length > 1)
+    view.type('#edit-name', 'Samantha')
+    choose(view, '#edit-area', 'bishan')
+    await view.click('[data-testid="save-details"]')
+    await until(() => view.has('[data-testid="details-not-saved"]'))
+    expect(view.text('[data-testid="details-not-saved"]')).toBe('Saved on this device, but not to your account. Press Save details to try again.')
+    expect(view.has('[data-testid="details-saved"]')).toBe(false)
+    expect(view.one('[data-testid="save-details"]').disabled).toBe(false)
+    expect(t.fake.state.profiles['uid-1'].display_name).toBe(PROFILE.name)
+    // Pressing it while the account still cannot be written to changes nothing on the page.
+    await view.click('[data-testid="save-details"]')
+    await until(() => view.text('[data-testid="save-details"]') === 'Save details')
+    expect(view.has('[data-testid="details-saved"]')).toBe(false)
+    expect(view.has('[data-testid="details-not-saved"]')).toBe(true)
+    expect(view.one('[data-testid="save-details"]').disabled).toBe(false)
+    // The connection comes back: the same press sends the name and the home area again, and the message goes.
+    t.fake.state.options.failWrites = false
+    const before = t.fake.state.writes.length
+    await view.click('[data-testid="save-details"]')
+    await until(() => view.has('[data-testid="details-saved"]'))
+    expect(view.has('[data-testid="details-not-saved"]')).toBe(false)
+    expect(t.fake.state.profiles['uid-1'].display_name).toBe('Samantha')
+    expect(t.fake.state.priv['uid-1'].home_area_id).toBe('bishan')
+    expect(t.fake.state.writes.slice(before).map((w) => w.table).sort()).toEqual(['profile_private', 'profiles'])
+    expect(t.store.syncNotice).toBe('')
+    expect(view.one('[data-testid="save-details"]').disabled).toBe(true)
+  })
+
+  it('offers the unsent details again when the page is opened after a sign-up write that failed', async () => {
+    const t = await setUp()
+    t.store.syncNotice = t.auth.MESSAGES.profile_not_saved
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    expect(view.has('[data-testid="details-not-saved"]')).toBe(true)
+    expect(view.one('[data-testid="save-details"]').disabled).toBe(false)
+    await view.click('[data-testid="save-details"]')
+    await until(() => view.has('[data-testid="details-saved"]'))
+    expect(view.has('[data-testid="details-not-saved"]')).toBe(false)
+    expect(t.store.syncNotice).toBe('')
+  })
+
+  it('shows the data layer sentence when the browser cannot store the save, and sends nothing to Supabase', async () => {
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit', 'EditProfileView')
+    const before = t.fake.state.writes.length
+    // A real account's save is under its own key, which the stand-in's size limit does not reach: refuse that key instead.
+    const accept = t.storage.setItem.bind(t.storage)
+    t.storage.setItem = (key, value) => {
+      if (key.includes(':acct:')) throw Object.assign(new Error('The quota has been exceeded.'), { name: 'QuotaExceededError' })
+      accept(key, value)
+    }
+    view.type('#edit-name', 'Samantha')
+    await view.click('[data-testid="save-details"]')
+    await until(() => view.has('[data-testid="details-error"]'))
+    expect(view.text('[data-testid="details-error"]')).toBe("Could not save: this browser's storage is full. Remove some photos and try again.")
+    expect(view.has('[data-testid="details-saved"]')).toBe(false)
+    expect(view.has('[data-testid="details-not-saved"]')).toBe(false)
+    expect(t.fake.state.writes).toHaveLength(before)
+    expect(t.store.user.name).toBe(PROFILE.name)
+  })
 })
 
 describe('changing the password', () => {
@@ -299,17 +442,33 @@ describe('changing the password', () => {
     expect(types()).toEqual(['text', 'password', 'text'])
   })
 
-  it('refuses two new passwords that do not match, without asking Supabase, and empties the fields', async () => {
+  it('refuses two new passwords that do not match, without asking Supabase, and keeps what was typed', async () => {
     const t = await setUp()
     const view = await draw(t, '/profile/edit/password', 'EditProfileView')
+    const signIns = t.fake.state.signInCalls.length
     typePasswords(view, RIGHT, NEW, 'N3wSecret*')
     await view.click('[data-testid="save-password"]')
-    expect(view.text()).toContain('The two new passwords do not match.')
+    expect(view.text()).toContain('The two passwords do not match.')
+    expect(view.one('#edit-confirm').attrs['aria-invalid']).toBe('true')
+    expect(t.fake.state.signInCalls).toHaveLength(signIns)
     expect(t.fake.state.passwordUpdates).toEqual([])
-    expect(passwordValues(view)).toEqual(['', '', ''])
+    expect(passwordValues(view)).toEqual([RIGHT, NEW, 'N3wSecret*'])
+    // Typing again takes the message away, and the corrected pair goes through with the current password as it was typed.
+    view.type('#edit-confirm', NEW)
+    await view.tick()
+    expect(view.text()).not.toContain('The two passwords do not match.')
+    await view.click('[data-testid="save-password"]')
+    await until(() => view.has('[data-testid="password-changed"]'))
+    expect(t.fake.state.passwordUpdates).toEqual(['uid-1'])
   })
 
-  it('refuses a new password that is the current one, and empties the fields', async () => {
+  it('asks "Type it again" for the second password, as the reset page does', async () => {
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
+    expect(view.text('label[for="edit-confirm"]')).toBe('Type it again')
+  })
+
+  it('refuses a new password that is the current one, and keeps what was typed', async () => {
     const t = await setUp()
     const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     const signIns = t.fake.state.signInCalls.length
@@ -318,7 +477,7 @@ describe('changing the password', () => {
     expect(view.text()).toContain(t.auth.MESSAGES.same_password)
     expect(t.fake.state.signInCalls).toHaveLength(signIns)
     expect(t.fake.state.passwordUpdates).toEqual([])
-    expect(passwordValues(view)).toEqual(['', '', ''])
+    expect(passwordValues(view)).toEqual([RIGHT, RIGHT, RIGHT])
   })
 
   it('shows "not right" under the current password when it is wrong, changes nothing, and empties the fields', async () => {
@@ -341,6 +500,89 @@ describe('changing the password', () => {
     expect(t.fake.state.passwordUpdates).toEqual(['uid-1'])
     expect(passwordValues(view)).toEqual(['', '', ''])
     expect(t.store.signedIn).toBe(true)
+  })
+
+  it('has a Show button on each field that changes its words and does not also claim to be pressed', async () => {
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
+    for (const id of ['current', 'next', 'confirm']) {
+      expect(view.one(`[data-testid="peek-${id}"]`).attrs['aria-pressed']).toBeUndefined()
+      await view.click(`[data-testid="peek-${id}"]`)
+      expect(view.text(`[data-testid="peek-${id}"]`)).toBe('Hide')
+      expect(view.one(`[data-testid="peek-${id}"]`).attrs['aria-label']).toMatch(/^Hide /)
+      expect(view.one(`[data-testid="peek-${id}"]`).attrs['aria-pressed']).toBeUndefined()
+    }
+  })
+
+  it('puts the focus in the current-password field after a failed attempt, since the button has just become disabled', async () => {
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
+    typePasswords(view, 'Wr0ngSecret!', NEW, NEW)
+    await view.click('[data-testid="save-password"]')
+    await until(() => view.text().includes(t.auth.MESSAGES.wrong_password))
+    await view.tick()
+    expect(view.one('[data-testid="save-password"]').disabled).toBe(true)
+    expect(view.focused()).toBe(view.one('#edit-current'))
+  })
+
+  it('has a hidden, read-only field holding the account email, for a password manager', async () => {
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
+    const field = view.one('[data-testid="password-username"]')
+    expect(field.attrs.autocomplete).toBe('username')
+    expect(field.value).toBe(PROFILE.email)
+    expect(field.attrs.readonly).not.toBeUndefined()
+    expect(field.attrs['aria-hidden']).toBeTruthy()
+    expect(String(field.attrs.tabindex)).toBe('-1')
+  })
+
+  it('says to type the passwords only with the form, and not above the note a local account gets', async () => {
+    const real = await setUp()
+    const form = await draw(real, '/profile/edit/password', 'EditProfileView')
+    expect(form.text()).toContain('Type your current password, then the new one twice.')
+    expect(form.has('[data-testid="password-username"]')).toBe(true)
+    const local = await setUp({ fake: null })
+    const note = await draw(local, '/profile/edit/password', 'EditProfileView')
+    expect(note.has('[data-testid="no-password-note"]')).toBe(true)
+    expect(note.text()).not.toContain('Type your current password')
+    expect(note.has('[data-testid="password-username"]')).toBe(false)
+  })
+
+  it('tells the person to log in again, not about a reset link, when the login ends before the new password is set', async () => {
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
+    // The current password is right; then the session is gone when the change is asked for.
+    t.fake.client.auth.updateUser = async () => ({
+      data: { user: null },
+      error: Object.assign(new Error('Auth session missing!'), { name: 'AuthSessionMissingError', status: 400, code: 'session_missing' }),
+    })
+    typePasswords(view, RIGHT, NEW, NEW)
+    await view.click('[data-testid="save-password"]')
+    await until(() => view.has('[data-testid="password-error"]'))
+    expect(view.text('[data-testid="password-error"]')).toBe('Your login has ended. Log in again to change your password.')
+    expect(view.text()).not.toContain('reset link')
+    expect(view.has('[data-testid="password-changed"]')).toBe(false)
+  })
+
+  it('ends the account other sessions once the password is changed', async () => {
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
+    expect(t.fake.state.otherSessionsEnded).toBe(0)
+    typePasswords(view, RIGHT, NEW, NEW)
+    await view.click('[data-testid="save-password"]')
+    await until(() => view.has('[data-testid="password-changed"]'))
+    expect(t.fake.state.otherSessionsEnded).toBe(1)
+    expect(t.fake.state.signOutCalls).toEqual([{ scope: 'others' }])
+    expect(t.store.signedIn).toBe(true)
+  })
+
+  it('ends no other session when the current password is wrong', async () => {
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
+    typePasswords(view, 'Wr0ngSecret!', NEW, NEW)
+    await view.click('[data-testid="save-password"]')
+    await until(() => view.text().includes(t.auth.MESSAGES.wrong_password))
+    expect(t.fake.state.otherSessionsEnded).toBe(0)
   })
 })
 
@@ -389,8 +631,9 @@ describe('under stress', () => {
     form.dispatch('submit')
     form.dispatch('submit')
     await until(() => view.has('[data-testid="details-saved"]'))
-    // One write to each of the two tables.
-    expect(t.fake.state.writes).toHaveLength(writes + 2)
+    // Only the name changed, so one write, to the table that holds the name.
+    expect(t.fake.state.writes).toHaveLength(writes + 1)
+    expect(t.fake.state.writes.at(-1)).toMatchObject({ table: 'profiles', row: { display_name: 'Samantha' } })
   })
 
   it('keeps the person signed in after wrong passwords, and the right one still works afterwards', async () => {

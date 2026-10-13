@@ -1357,7 +1357,7 @@ export async function changeOwnPassword({ current, next }) {
   if (!db.user?.authId) throw new Error('This account lives only in this browser and has no password to change.')
   acting += 1
   try {
-    await auth.checkPassword(db.user.email, current)
+    await auth.checkPassword(db.user.email, current, db.user.authId)
     await auth.updatePassword(next)
   } finally {
     acting -= 1

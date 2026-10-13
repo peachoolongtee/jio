@@ -1,15 +1,17 @@
 // Shrinking a profile photo (lib/photo.js). The test runner has no browser, so the file reader, the image and the canvas
 // are small stand-ins that record what the code asks of them.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PHOTO_SIZE, shrinkPhoto } from '../photo.js'
+import { PHOTO_MAX_BYTES, PHOTO_SIZE, shrinkPhoto } from '../photo.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
 // Stand-ins for FileReader, Image and the canvas. `image` is the size of the picture in the file, or 'broken' for one
-// that cannot be decoded; `reader: 'broken'` makes the file unreadable. Returns what was drawn.
+// that cannot be decoded; `reader: 'broken'` makes the file unreadable; `canvas: 'no-context'` is a canvas with no 2D
+// context, and `canvas: 'no-export'` one that refuses to export. Returns what was drawn, in order: `calls` lists the
+// canvas calls, and `fill` is the colour the square was filled with.
 // How to call: const drawn = browser({ image: { width: 400, height: 200 } })
-function browser({ image = { width: 400, height: 200 }, reader = 'ok' } = {}) {
-  const drawn = {}
+function browser({ image = { width: 400, height: 200 }, reader = 'ok', canvas: canvasMode = 'ok' } = {}) {
+  const drawn = { calls: [] }
   vi.stubGlobal(
     'FileReader',
     class {
@@ -41,8 +43,17 @@ function browser({ image = { width: 400, height: 200 }, reader = 'ok' } = {}) {
   vi.stubGlobal('document', {
     createElement: () => {
       const canvas = {
-        getContext: () => ({ drawImage: (_img, x, y, w, h) => Object.assign(drawn, { x, y, w, h }) }),
+        getContext: () => {
+          if (canvasMode === 'no-context') return null
+          const context = {
+            fillStyle: '',
+            fillRect: () => drawn.calls.push('fillRect') && Object.assign(drawn, { fill: context.fillStyle }),
+            drawImage: (_img, x, y, w, h) => drawn.calls.push('drawImage') && Object.assign(drawn, { x, y, w, h }),
+          }
+          return context
+        },
         toDataURL: (type, quality) => {
+          if (canvasMode === 'no-export') throw new Error('The canvas is tainted.')
           Object.assign(drawn, { width: canvas.width, height: canvas.height, type, quality })
           return 'data:image/jpeg;base64,c21hbGw='
         },
@@ -76,5 +87,35 @@ describe('shrinkPhoto', () => {
     await expect(shrinkPhoto({ type: 'image/heic' })).rejects.toThrow('That picture could not be opened. Try another one.')
     browser({ reader: 'broken' })
     await expect(shrinkPhoto({ type: 'image/png' })).rejects.toThrow('That picture could not be opened. Try another one.')
+  })
+
+  it('says so when drawing throws (no 2D context, a canvas that refuses to export), instead of never answering', async () => {
+    browser({ canvas: 'no-context' })
+    await expect(shrinkPhoto({ type: 'image/png' })).rejects.toThrow('That picture could not be opened. Try another one.')
+    browser({ canvas: 'no-export' })
+    await expect(shrinkPhoto({ type: 'image/png' })).rejects.toThrow('That picture could not be opened. Try another one.')
+  })
+
+  it('fills the square with white before drawing, so a transparent picture does not come out black', async () => {
+    const drawn = browser()
+    await shrinkPhoto({ type: 'image/png' })
+    expect(drawn.fill).toBe('#ffffff')
+    expect(drawn.calls).toEqual(['fillRect', 'drawImage'])
+  })
+
+  it('refuses a picture with no width or no height', async () => {
+    for (const image of [{ width: 0, height: 200 }, { width: 400, height: 0 }, { width: 0, height: 0 }]) {
+      browser({ image })
+      await expect(shrinkPhoto({ type: 'image/png' })).rejects.toThrow('That picture could not be opened. Try another one.')
+    }
+  })
+
+  it('refuses a file over 15 MB before reading it, and takes one of exactly 15 MB', async () => {
+    const reader = vi.fn()
+    vi.stubGlobal('FileReader', reader)
+    await expect(shrinkPhoto({ type: 'image/png', size: PHOTO_MAX_BYTES + 1 })).rejects.toThrow('That picture is too large. Choose one under 15 MB.')
+    expect(reader).not.toHaveBeenCalled()
+    browser()
+    await expect(shrinkPhoto({ type: 'image/png', size: PHOTO_MAX_BYTES })).resolves.toBe('data:image/jpeg;base64,c21hbGw=')
   })
 })

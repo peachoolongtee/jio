@@ -69,6 +69,9 @@ export function fakeSupabase(options = {}) {
     resetCalls: [],
     passwordUpdates: [],
     refreshCalls: 0,
+    // Every session this stand-in has handed out, by refresh token, so setSession can find the one it is given.
+    issued: {},
+    setSessionCalls: 0,
     otherSessionsEnded: 0,
     rpcCalls: [],
     writes: [],
@@ -110,6 +113,7 @@ export function fakeSupabase(options = {}) {
   const start = (u) => {
     state.count += 1
     write({ access_token: `token-${state.count}`, refresh_token: `refresh-${state.count}`, user: publicUser(u) })
+    state.issued[state.session.refresh_token] = state.session
     fire('SIGNED_IN')
   }
   const refresh = async () => {
@@ -207,6 +211,16 @@ export function fakeSupabase(options = {}) {
       },
       async refreshSession() {
         return refresh()
+      },
+      // Makes the session with these tokens the current one, as the client does. An unknown refresh token is refused.
+      async setSession({ refresh_token: token }) {
+        state.setSessionCalls += 1
+        if (state.options.down) return { data: { user: null, session: null }, error: retryable(0, 'Failed to fetch') }
+        const found = state.issued[token]
+        if (!found) return { data: { user: null, session: null }, error: apiError(400, 'refresh_token_not_found', 'Invalid Refresh Token: Refresh Token Not Found') }
+        write(found)
+        fire('SIGNED_IN')
+        return { data: { user: found.user, session: found }, error: null }
       },
       // Answers the same for a registered and an unknown email, as Supabase does. 'limited@example.com' is rate limited.
       async resetPasswordForEmail(email, opts) {

@@ -54,7 +54,7 @@ function passwordBytes(text) {
 
 // Each part of the password rule, for a live checklist.
 // `hint` is a line to show under the label. A rule with `hidden` is still part of the rule but is not drawn on the
-// checklist (see shownRules): almost nobody meets it, so instead its `problem` is shown under the field when it is broken
+// checklist (see shownRules): almost nobody breaks it, so instead its `problem` is shown under the field when it is broken
 // (see hiddenProblem). How to call: passwordRules('Abc1!xyz') -> [{ label: '8 or more characters', ok: true }, ...]
 export function passwordRules(password) {
   const text = password || ''
@@ -79,7 +79,8 @@ export function passwordRules(password) {
 export const shownRules = (rules) => rules.filter((rule) => !rule.hidden)
 
 // What to say under the password field when a hidden rule is broken, or ''. Nothing is said for an empty password.
-// How to call: hiddenProblem(passwordRules(' Abc1!xyz')) -> 'Use 72 characters or fewer, with no space at the start or end ...'
+// The password is passed as well as its rules, because the rules alone cannot tell an empty password from a broken one.
+// How to call: hiddenProblem(passwordRules(' Abc1!xyz'), ' Abc1!xyz') -> 'Use 72 characters or fewer, with no space at the start or end ...'
 export const hiddenProblem = (rules, password) => (password ? rules.find((rule) => rule.hidden && !rule.ok)?.problem || '' : '')
 
 // How to call: validatePassword('Abc1!xyz') -> ''
