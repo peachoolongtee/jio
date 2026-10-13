@@ -3,12 +3,14 @@
 // /login to /signup otherwise). On success it goes to the page the person was heading for (?next=, checked to be a path
 // inside this app) or to Home. The email and password are never put in the address.
 // A wrong password and an unknown email give the same sentence (lib/auth.js), shown as it is under the fields. A field
-// left empty is told so under that field.
+// left empty is told so under that field. "Forgot password?" opens /forgot-password with the email typed so far handed
+// over in the page's history state, never in the address.
 import { nextTick, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import JioLogo from '@/components/ui/JioLogo.vue'
 import TextField from '@/components/ui/TextField.vue'
+import { validateEmail } from '@/lib/signupRules.js'
 import { safeNext } from '@/router/guard.js'
 import { useAuthStore } from '@/stores/auth.js'
 
@@ -25,9 +27,11 @@ const passwordError = ref('')
 const busy = ref(false)
 const showPassword = ref(false)
 
-// Does this look like an email address?
-// How to call: emailValid('sam@example.com') -> true
-const emailValid = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+// Open the forgot-password page, carrying the email typed so far (in history state, not the address).
+// How to call: forgotPassword()
+function forgotPassword() {
+  router.push({ name: 'forgot-password', state: { email: email.value.trim() } })
+}
 
 // Where to go once signed in: the remembered page when it is a real screen of this app, otherwise Home.
 // How to call: afterLogin() -> '/sessions/s1'
@@ -50,7 +54,7 @@ async function submit() {
   error.value = ''
   emailError.value = ''
   passwordError.value = ''
-  if (!emailValid(email.value)) {
+  if (validateEmail(email.value)) {
     emailError.value = 'Enter the email address you signed up with.'
     await refocus('login-email')
     return
@@ -103,6 +107,7 @@ async function submit() {
           <button type="button" class="login__peek" @click="showPassword = !showPassword">{{ showPassword ? 'Hide' : 'Show' }}</button>
         </template>
       </TextField>
+      <AppButton variant="tertiary" underline small class="login__forgot" data-testid="forgot-password" @click="forgotPassword">Forgot password?</AppButton>
       <p v-if="error" class="body-sm text-error" role="alert" data-testid="login-error">{{ error }}</p>
     </form>
 
@@ -117,6 +122,7 @@ async function submit() {
 .login { min-height: 100dvh; }
 .login__body { padding-top: var(--spacing-lg); }
 .login__alt { align-self: center; }
+.login__forgot { align-self: flex-start; min-width: var(--tap-min); }
 .login__peek { position: absolute; top: 6px; right: 6px; min-width: var(--tap-min); height: var(--tap-min); padding: 0 var(--spacing-md); border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--ink); font: var(--text-button-sm); text-decoration: underline; }
 /* On desktop the footer buttons stay in the form column. */
 @media (min-width: 1128px) {

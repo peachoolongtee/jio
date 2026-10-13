@@ -28,7 +28,7 @@ async function reload(fake, { startMs = 60, kept = true, router: withRouter = fa
   const { createPinia, setActivePinia } = await import('pinia')
   setActivePinia(createPinia())
   let { useAuthStore } = await import('@/stores/auth.js')
-  Object.assign(useAuthStore().draft, { ...OTHER, step: 7 })
+  Object.assign(useAuthStore().draft, { ...OTHER, step: 8 })
   await useAuthStore().signUp()
   const data = kept ? first.storage.store : {}
   const booted = await boot(fake, { data })

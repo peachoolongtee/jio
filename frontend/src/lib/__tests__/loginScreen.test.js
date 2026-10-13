@@ -28,7 +28,7 @@ async function setUp(path = '/login') {
   setActivePinia(pinia)
   const { useAuthStore } = await import('@/stores/auth.js')
   const store = useAuthStore()
-  Object.assign(store.draft, { ...PROFILE, step: 7 })
+  Object.assign(store.draft, { ...PROFILE, step: 8 })
   await store.signUp()
   await store.signOut()
   const { routes } = await import('@/router/routes.js')
@@ -197,7 +197,7 @@ describe('the login screen', () => {
     setActivePinia(pinia)
     const { useAuthStore } = await import('@/stores/auth.js')
     const store = useAuthStore()
-    Object.assign(store.draft, { ...PROFILE, step: 7 })
+    Object.assign(store.draft, { ...PROFILE, step: 8 })
     expect(await store.signUp()).toBeNull()
     const { routes } = await import('@/router/routes.js')
     const stub = { render: () => null }

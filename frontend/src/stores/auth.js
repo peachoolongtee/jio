@@ -15,6 +15,8 @@ const emptyDraft = () => ({
   username: '',
   photo: '',
   homeAreaId: '',
+  // 'halal', 'vegetarian' and 'vegan' (lib/signupRules.js DIETARY_OPTIONS). Empty: no needs.
+  dietary: [],
   friends: ['darius', 'jonathan', 'nicole', 'faith', 'darryl'],
 })
 
@@ -34,6 +36,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   const signedIn = computed(() => !!user.value)
 
+  // Was the session in this tab started by a password reset link, and not yet finished with? The reset page shows its form
+  // only when this is true and someone is signed in. Memory only (lib/auth.js): a reload without the link makes it false.
+  const recovering = ref(api.passwordRecovery())
+
   // Learn who is signed in, once. The first screen waits for this, so it is quick and bounded: the saved copy of the
   // account, within about four seconds (lib/auth.js timing), with the profile read afterwards. When Supabase could not
   // be asked, a person with a saved session is shown from the saved copy with a note; one without goes to the login.
@@ -46,6 +52,7 @@ export const useAuthStore = defineStore('auth', () => {
       try {
         const { user: found, unreachable } = await api.startUser()
         user.value = found
+        recovering.value = api.passwordRecovery()
         if (found && unreachable) syncNotice.value = MESSAGES.unreachable
         ready.value = true
         // After the first screen is up, bring the saved copy up to date. Never waited for, and quiet when it fails.
@@ -90,6 +97,24 @@ export const useAuthStore = defineStore('auth', () => {
     syncNotice.value = ''
     user.value = await api.signIn({ email, password })
     return user.value
+  }
+
+  // Email a link for choosing a new password. Rejects with a message fit to show (see lib/auth.js).
+  // How to call: await auth.requestPasswordReset('sam@example.com')
+  async function requestPasswordReset(email) {
+    await api.requestPasswordReset(email)
+  }
+
+  // Set a new password, from the page the reset link opens. Once it is changed the reset is over, so the page cannot be
+  // used again with the same session, and the account's other sessions are signed out (lib/auth.js).
+  // Rejects with a message fit to show (see lib/auth.js).
+  // How to call: await auth.changePassword('N3w-secret!')
+  async function changePassword(password) {
+    try {
+      await api.changePassword(password)
+    } finally {
+      recovering.value = api.passwordRecovery()
+    }
   }
 
   // Leave the "check your email" state, for the sign-up screen's way back to the first question.
@@ -143,6 +168,7 @@ export const useAuthStore = defineStore('auth', () => {
       // Anything else: they asked to be signed out.
     }
     user.value = null
+    recovering.value = false
     pendingConfirmation.value = null
     syncNotice.value = ''
     draft.value = emptyDraft()
@@ -157,8 +183,14 @@ export const useAuthStore = defineStore('auth', () => {
     // The Supabase session ended on its own (another tab, or it expired): signed out at once.
     if (event.type === 'reset' && event.reason === 'session-ended') {
       user.value = null
+      recovering.value = false
       sessionEnds.value += 1
       draft.value = emptyDraft()
+      return
+    }
+    // A password reset link was accepted.
+    if (event.type === 'recovery') {
+      recovering.value = api.passwordRecovery()
       return
     }
     // The name and home area could not be written to the account after sign-up.
@@ -171,13 +203,17 @@ export const useAuthStore = defineStore('auth', () => {
       if (syncNotice.value === MESSAGES.unreachable) syncNotice.value = ''
       return
     }
-    if (event.type === 'reset' || event.type === 'user') user.value = await api.getUser()
+    if (event.type === 'reset' || event.type === 'user') {
+      user.value = await api.getUser()
+      recovering.value = api.passwordRecovery()
+    }
   })
 
   return {
     sessionEnds,
     user,
     ready,
+    recovering,
     startOverError,
     draft,
     pendingConfirmation,
@@ -187,6 +223,8 @@ export const useAuthStore = defineStore('auth', () => {
     init,
     signUp,
     signIn,
+    requestPasswordReset,
+    changePassword,
     dismissConfirmation,
     signUpAs,
     startOver,

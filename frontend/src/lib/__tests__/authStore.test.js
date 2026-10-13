@@ -22,7 +22,7 @@ async function bootStore(fake, storageOptions = {}) {
   return { ...booted, store: useAuthStore() }
 }
 
-const fill = (store, profile) => Object.assign(store.draft, { ...profile, step: 7 })
+const fill = (store, profile) => Object.assign(store.draft, { ...profile, step: 8 })
 // Does the data layer's own sign-out reject now? (It must, for the test that uses this to mean anything.)
 async function dataLayerSignOutRejects() {
   const api = await import('@/lib/api.js')

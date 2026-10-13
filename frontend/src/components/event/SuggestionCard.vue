@@ -1,9 +1,12 @@
 <script setup>
 // One suggested place in a slot, with its vote.
-//   <SuggestionCard :option="option" leading mine :outing="['faith']" :friends="['nicole']" @vote="vote" @swap="swap" @open="showReviews" />
+//   <SuggestionCard :option="option" :stop="{ start: 900, duration: 60 }" :group-size="3" me="ian" leading mine :outing="['faith']" :friends="['nicole']" @vote="vote" @swap="swap" @open="showReviews" />
 // A photo of the kind of place with its category icon, the name, walking time, price tier,
-// up to two reasons, one sample review, a rain warning with an indoor swap, and who voted.
-// The review line is its own button, apart from the vote and the swap, and opens the place's reviews (`open`). It quotes
+// up to three tags (the planner's reasons, and when the place is open at `stop`), one sample review, a rain warning with an
+// indoor swap, and who voted. The walking time is not labelled here: the page says once where walks are measured from.
+// The name is a button inside its heading and its press area covers the photo too, so the photo and the name both open the
+// place (`open`, with the option and 'name'); one control, so a screen reader meets the place once.
+// The review line is its own button, apart from the vote and the swap, and opens the place's reviews (`open`, with 'review'). It quotes
 // the start of a review by someone in the outing (`outing`, ids), else by a friend (`friends`, ids), with a "Sample" tag;
 // with neither it says how many sample reviews there are. It stays on the card whatever the card's state.
 // Colour coding: a stripe in the category colour. `leading` outlines the card in ink
@@ -23,6 +26,7 @@ import UserAvatar from '../ui/UserAvatar.vue'
 import { distanceText } from '@/lib/planner/format.js'
 import { placeImage } from '@/lib/placeImages.js'
 import { cardLine, reviewLabel } from '@/lib/reviewPick.js'
+import { cardTags, hoursNote, votersText } from '@/lib/cardText.js'
 
 const props = defineProps({
   option: { type: Object, required: true },
@@ -34,11 +38,20 @@ const props = defineProps({
   // Ids of the other people in the outing, and of the signed-in person's friends: who the review line may quote.
   outing: { type: Array, default: () => [] },
   friends: { type: Array, default: () => [] },
+  // When this stop would happen, { start (minutes after midnight), duration (minutes) }, for the opening-hours tag. Without it, no hours tag.
+  stop: { type: Object, default: null },
+  // How many people are active in the session, and the signed-in person's id. Up to four people get names under the card
+  // ("You and Darius voted"); without a group size, or with more people, the card shows the count.
+  groupSize: { type: Number, default: 0 },
+  me: { type: String, default: '' },
 })
 defineEmits(['vote', 'swap', 'open'])
 
-// Nothing measures how busy a place is, so a "Quiet at 15:00" reason from the planner is not shown.
-const reasons = computed(() => props.option.reasons.filter((r) => !r.startsWith('Quiet at')))
+// The tags: the planner's reasons (not "Short walk", which the line above says, and not "Quiet at 15:00", which nothing
+// measures) and, when the place lists hours, whether it is open at the stop.
+const tags = computed(() => cardTags(props.option.reasons, hoursNote(props.option.venue.hours, props.stop?.start, props.stop?.duration)))
+const votedText = computed(() => votersText({ voters: props.option.voters, votes: props.option.votes, groupSize: props.groupSize, me: props.me }))
+const openName = computed(() => `Open ${props.option.venue.name}`)
 
 // The review line: how many sample reviews the place has and the one to quote, if there is one.
 const line = computed(() => cardLine(props.option.venue, { outing: props.outing, friends: props.friends }))
@@ -54,7 +67,9 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
       </span>
       <div class="sugg__title">
         <div class="sugg__name">
-          <h4 class="title-md clamp-2">{{ option.venue.name }}</h4>
+          <h4 class="title-md">
+            <button type="button" class="sugg__open clamp-2" :data-open-for="option.id" :aria-label="openName" @click="$emit('open', option, 'name')">{{ option.venue.name }}</button>
+          </h4>
           <!-- The place's score, as on Home's cards and in the detail. Left out when the source gives none. -->
           <RatingBadge v-if="option.venue.rating != null" :score="option.venue.rating" />
         </div>
@@ -67,10 +82,10 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
 
     <div class="sugg__tags">
       <InfoTag v-if="leading" tone="strong" icon="trophy">Leading</InfoTag>
-      <InfoTag v-for="reason in reasons" :key="reason">{{ reason }}</InfoTag>
+      <InfoTag v-for="tag in tags" :key="tag.key" :tone="tag.tone" :icon="tag.icon">{{ tag.text }}</InfoTag>
       <InfoTag v-if="option.warnings.includes('rain')" tone="warning" icon="rain">Outdoor, rain expected</InfoTag>
     </div>
-    <button type="button" class="sugg__review" :data-review-for="option.id" :aria-label="reviewName" @click="$emit('open', option)">
+    <button type="button" class="sugg__review" :data-review-for="option.id" :aria-label="reviewName" @click="$emit('open', option, 'review')">
       <template v-if="line.review">
         <UserAvatar :name="line.review.name" :person="line.review.personId" :size="24" />
         <span class="sugg__who caption-sm">{{ line.review.name }}</span>
@@ -90,7 +105,7 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
     <div class="sugg__vote">
       <span class="sugg__count">
         <AvatarStack v-if="option.voters.length" :people="option.voters" :size="20" :max="4" />
-        <span class="caption" :class="{ 'sugg__lead': leading }">{{ option.votes }} {{ option.votes === 1 ? 'vote' : 'votes' }}</span>
+        <span class="caption" :class="{ 'sugg__lead': leading }">{{ votedText }}</span>
       </span>
       <ChipButton v-if="!closed" radio check :selected="mine" :aria-label="`${mine ? 'Your vote' : 'Vote for'} ${option.venue.name}`" @click="$emit('vote', option)">
         {{ mine ? 'Voted' : 'Vote' }}
@@ -116,11 +131,18 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
 .sugg__photo { position: relative; flex-shrink: 0; width: 72px; height: 72px; }
 .sugg__photo img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: var(--rounded-sm); background: var(--surface-strong); }
 .sugg__cat { position: absolute; right: -6px; bottom: -6px; box-shadow: 0 0 0 2px var(--canvas); border-radius: var(--rounded-full); }
-.sugg__top { display: flex; align-items: flex-start; gap: var(--spacing-md); }
+.sugg__top { position: relative; display: flex; align-items: flex-start; gap: var(--spacing-md); }
 .sugg__title { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-xxs); }
 /* The name on the left, the score at its top right. */
 .sugg__name { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-sm); }
 .sugg__name h4 { min-width: 0; margin: 0; }
+/* The name is a button that looks like text. Its ::after spreads over the photo and the name, so pressing either opens the place. */
+.sugg__open { display: -webkit-box; max-width: 100%; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.sugg__open::after { content: ''; position: absolute; inset: 0; border-radius: var(--rounded-sm); }
+@media (hover: hover) { .sugg__open:hover { text-decoration: underline; } }
+/* The ring goes round everything the press covers, not just the words. */
+.sugg__open:focus-visible { outline: none; }
+.sugg__open:focus-visible::after { outline: 2px solid var(--ink); outline-offset: 2px; }
 .sugg__name :deep(.rating) { padding-top: 3px; }
 .sugg__meta { display: flex; align-items: center; gap: var(--spacing-sm); }
 .sugg__tags { display: flex; flex-wrap: wrap; gap: var(--spacing-xs); }

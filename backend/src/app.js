@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import { loadPlanData } from './db/venues.js'
+import { createAccountsRouter } from './routes/accounts.js'
 import { createMeRouter } from './routes/me.js'
 import { rateLimit } from './middleware/rate-limit.js'
 import { createPlanRouter } from './routes/plan.js'
@@ -38,6 +39,9 @@ import { createWeather } from './services/weather.js'
 //                    seconds. Tests shorten it.
 //   planRateLimit  - { windowMs, max } to limit how often one caller may use the planner routes, or leave
 //                    it out for no limit. index.js sets it outside stub mode.
+//   accountCheckRateLimit - { windowMs, max } for POST /api/accounts/email-check, which tells whether an email has an
+//                    account. Strict on purpose, and on by default: 10 a minute for each caller. Pass null for no
+//                    limit (only a test should).
 //   supabase       - The server's Supabase clients, from createSupabase(). Without it the routes that
 //                    need a login (GET /api/me) are not mounted.
 //   mount          - A function that adds extra routes. They must go in before the "not found" handler,
@@ -54,6 +58,7 @@ export function createApp({
   itineraryAi = createItineraryAi({ stub: true }),
   allowSimulatedWeather = false,
   planRateLimit = null,
+  accountCheckRateLimit = { windowMs: 60_000, max: 10 },
   routingDeadlineMs = undefined,
   supabase = null,
   mount = () => {},
@@ -103,6 +108,12 @@ export function createApp({
   // Routes that need a login. The planner routes above do not check one yet: the frontend has to
   // start sending the session token first.
   if (supabase) app.use('/api', createMeRouter({ supabase }))
+
+  // The email check for the sign-up screen. Always mounted: without Supabase it answers 503, never a guess.
+  app.use(
+    '/api',
+    createAccountsRouter({ supabase, limiter: accountCheckRateLimit ? rateLimit(accountCheckRateLimit) : null }),
+  )
 
   mount(app)
 
