@@ -156,6 +156,19 @@ export const useEventsStore = defineStore('events', () => {
     await loadItinerary(id)
   }
 
+  // The places of `category` (the stop's own when left out) that could take a confirmed stop's place:
+  // { stop, category, options }. Asks the planner; nothing is saved.
+  // How to call: const { stop, options } = await events.replaceChoices('s1', 'drink', 'activity')
+  const replaceChoices = (id, slotId, category) => api.replaceChoices(id, slotId, category)
+
+  // Put another place in a confirmed stop's place, as a place of `category` (the stop's own when left out), then reload
+  // the itinerary.
+  // How to call: await events.replaceStop('s1', 'drink', 'cdc_560160', 'activity')
+  async function replaceStop(id, slotId, venueId, category) {
+    put(await api.replaceStop(id, slotId, venueId, category))
+    await loadItinerary(id)
+  }
+
   api.subscribe(async (event) => {
     if (event.type === 'reset') {
       // A suggestion asked for before the reset belongs to data that is gone.
@@ -177,6 +190,6 @@ export const useEventsStore = defineStore('events', () => {
   return {
     sessions, byId, itineraries, photos, loaded, current,
     loadSessions, loadSession, loadItinerary, loadPhotos,
-    create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
+    create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
   }
 })

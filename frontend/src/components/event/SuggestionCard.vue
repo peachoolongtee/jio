@@ -8,6 +8,8 @@
 // with neither it says how many sample reviews there are. It stays on the card whatever the card's state.
 // Colour coding: a stripe in the category colour. `leading` outlines the card in ink
 // and tags it "Leading"; `behind` (another place leads) mutes the vote count. `closed` makes the vote read-only.
+// The `action` slot puts a button of the page's own beside the vote count, such as "Use this place" when a stop of the
+// itinerary is replaced.
 import { computed } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
@@ -93,6 +95,7 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
       <ChipButton v-if="!closed" radio check :selected="mine" :aria-label="`${mine ? 'Your vote' : 'Vote for'} ${option.venue.name}`" @click="$emit('vote', option)">
         {{ mine ? 'Voted' : 'Vote' }}
       </ChipButton>
+      <slot name="action" />
     </div>
   </article>
 </template>
