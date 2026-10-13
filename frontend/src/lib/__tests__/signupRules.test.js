@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { fieldForSignUpError, NAME_MAX, validateDob, validateName, validateUsername } from '../signupRules.js'
+import {
+  cleanDietary,
+  dobToIso,
+  fieldForSignUpError,
+  formatDobInput,
+  isoToDob,
+  NAME_MAX,
+  passwordRules,
+  usernameCandidates,
+  validateDob,
+  validateEmail,
+  validateName,
+  validatePassword,
+  validateUsername,
+} from '../signupRules.js'
 
 const NOW = new Date(2026, 9, 9, 12, 0)
 
@@ -50,5 +64,102 @@ describe('fieldForSignUpError', () => {
     expect(fieldForSignUpError('Enter your name.')).toBe('name')
     expect(fieldForSignUpError('Your name can be up to 50 characters.')).toBe('name')
     expect(fieldForSignUpError('Something else')).toBe('')
+  })
+})
+
+describe('cleanDietary', () => {
+  it('keeps only halal, vegetarian and vegan, each once, in a fixed order', () => {
+    expect(cleanDietary(['vegan', 'paleo', 'halal', 'vegan'])).toEqual(['halal', 'vegan'])
+    expect(cleanDietary(['Vegan'])).toEqual([])
+  })
+
+  it('answers an empty list for anything that is not a list', () => {
+    expect(cleanDietary(undefined)).toEqual([])
+    expect(cleanDietary(null)).toEqual([])
+    expect(cleanDietary('halal')).toEqual([])
+  })
+})
+
+describe('validateEmail', () => {
+  it('accepts ordinary addresses, with plus signs, dots and country domains', () => {
+    for (const ok of ['sam@example.com', 'sam.tan+jio@mail.co.sg', 'SAM@GMAIL.COM', ' sam@example.com ']) expect(validateEmail(ok)).toBe('')
+  })
+
+  it('refuses anything that is not an address, and asks for one when empty', () => {
+    expect(validateEmail('')).toBe('Enter your email address.')
+    for (const bad of ['sam', 'sam@', '@example.com', 'sam@example', 'sam@example.c', 'sam@@example.com', '.sam@example.com', 'sam.@example.com', 'sam..tan@example.com', 'sam tan@example.com', 'sam@-example.com', 'sam@example..com']) {
+      expect(validateEmail(bad)).toBe('Enter a valid email address, like name@example.com.')
+    }
+  })
+})
+
+describe('the password rule', () => {
+  it('needs 6 or more characters with an uppercase letter, a lowercase letter, a number and one of ! @ # $ % *', () => {
+    expect(validatePassword('Abc1!x')).toBe('')
+    expect(validatePassword('Sup3rSecret!')).toBe('')
+    expect(validatePassword('Abc1*x@#$%')).toBe('')
+    for (const bad of ['', 'Ab1!x', 'abc1!x', 'ABC1!X', 'Abcdef', 'Abc!!!', 'Abc123', 'Abc 12 ', 'Abc1-x', 'Abc1?x', 'Abc1-x*', 'Abc1! x', 'Abc1!\u00e9', 'Abc1!\u00a3']) {
+      expect(validatePassword(bad)).toBe('Use 6 or more letters, numbers and ! @ # $ % *, with an uppercase letter, a lowercase letter, a number and one of ! @ # $ % *.')
+    }
+  })
+
+  it('counts only ! @ # $ % * as the special character, and shows them as an example', () => {
+    expect(passwordRules('a1 ').map((r) => r.ok)).toEqual([false, false, true, true, false, false])
+    expect(passwordRules('')[4]).toMatchObject({ label: 'A special character', hint: 'e.g. ! @ # $ % *' })
+    for (const ch of '!@#$%*') expect(passwordRules(ch)[4].ok).toBe(true)
+    for (const ch of '^&()_+-=[]{};:"|<>?,./`~ \u00e9') expect(passwordRules(ch)[4].ok).toBe(false)
+  })
+
+  it('allows nothing but letters, numbers and ! @ # $ % *', () => {
+    expect(passwordRules('Abc1!x').at(-1)).toEqual({ label: 'No spaces or other symbols', ok: true })
+    expect(passwordRules('').at(-1).ok).toBe(false)
+    for (const ch of '^&()_+-=[]{};:"|<>?,./`~ \u00e9') expect(passwordRules(`Abc1!${ch}`).at(-1).ok).toBe(false)
+  })
+
+  it('lets through only passwords Supabase also accepts: its symbols include all six', () => {
+    const supabaseSymbols = '!@#$%^&*()_+-=[]{};\'\\:"|<>?,./`~'
+    for (const ch of '!@#$%*') expect(supabaseSymbols).toContain(ch)
+  })
+})
+
+describe('the date of birth as DD/MM/YYYY', () => {
+  it('puts the slashes in as the digits arrive, never one at the end', () => {
+    expect(formatDobInput('1')).toBe('1')
+    expect(formatDobInput('18')).toBe('18')
+    expect(formatDobInput('180')).toBe('18/0')
+    expect(formatDobInput('18032004')).toBe('18/03/2004')
+    expect(formatDobInput('18/03/2004999')).toBe('18/03/2004')
+    expect(formatDobInput('18-03-20ab04')).toBe('18/03/2004')
+  })
+
+  it('turns a whole date into YYYY-MM-DD and back, and nothing else', () => {
+    expect(dobToIso('18/03/2004')).toBe('2004-03-18')
+    expect(dobToIso('18/03/200')).toBe('')
+    expect(isoToDob('2004-03-18')).toBe('18/03/2004')
+    expect(isoToDob('')).toBe('')
+  })
+})
+
+describe('usernameCandidates', () => {
+  // Random numbers in order, so a test knows which come out.
+  const fixed = (...values) => {
+    let i = 0
+    return () => values[i++ % values.length]
+  }
+
+  it('counts up from a name that ends in _<number>, then adds random numbers from 100 to 999', () => {
+    const list = usernameCandidates('testuser_887', { random: fixed(0.1, 0.5, 0.9, 0.0) })
+    expect(list).toEqual(['testuser_888', 'testuser_889', 'testuser_190', 'testuser_550', 'testuser_910', 'testuser_100'])
+  })
+
+  it('starts at _1 for any other name', () => {
+    expect(usernameCandidates('sam', { random: fixed(0.2) }).slice(0, 3)).toEqual(['sam_1', 'sam_2', 'sam_280'])
+  })
+
+  it('shortens the start of a long name so every suggestion fits the 20-character rule', () => {
+    const list = usernameCandidates('abcdefghijklmnopqrst')
+    expect(list.length).toBeGreaterThan(0)
+    for (const name of list) expect(validateUsername(name)).toBe('')
+    expect(list[0]).toBe('abcdefghijklmnopqr_1')
   })
 })

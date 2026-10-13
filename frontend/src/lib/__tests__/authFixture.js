@@ -32,6 +32,7 @@ const OWN_PRIVATE_COLUMNS = ['dob', 'home_area_id', 'dietary', 'budget_max_per_p
 //                       token and the client removes the session)
 //   getSessionMode      'ok' or 'hang' (the client is waiting on the network and never answers)
 //   signUpError         an error to answer sign-up with
+//   noEmailFunction     email_registered is not on the project (a 404, as before db/schema.sql adds it)
 // How to call: const fake = fakeSupabase({ confirmEmail: true })
 export function fakeSupabase(options = {}) {
   const state = {
@@ -59,6 +60,8 @@ export function fakeSupabase(options = {}) {
     signUpCalls: [],
     signInCalls: [],
     signOutCalls: [],
+    resetCalls: [],
+    passwordUpdates: [],
     refreshCalls: 0,
     rpcCalls: [],
     writes: [],
@@ -138,8 +141,13 @@ export function fakeSupabase(options = {}) {
         }
         const user = { id: `uid-${state.users.length + 1}`, email, password, meta }
         state.users.push(user)
-        state.profiles[user.id] = { username: meta.username, display_name: meta.username, avatar_url: null }
-        state.priv[user.id] = { dob: meta.dob, home_area_id: null }
+        // As the sign-up trigger does (db/schema.sql): the optional name, home area and dietary needs are saved when
+        // they keep the rules, and left out otherwise.
+        const name = typeof meta.name === 'string' && meta.name.trim() && meta.name.trim().length <= 50 ? meta.name.trim() : null
+        const area = typeof meta.home_area_id === 'string' && meta.home_area_id.trim() ? meta.home_area_id.trim() : null
+        const diet = Array.isArray(meta.dietary) ? [...new Set(meta.dietary.filter((d) => ['halal', 'vegetarian', 'vegan'].includes(d)))].sort() : []
+        state.profiles[user.id] = { username: meta.username, display_name: name || meta.username, avatar_url: null }
+        state.priv[user.id] = { dob: meta.dob, home_area_id: area, dietary: diet }
         if (state.options.confirmEmail) return { data: { user: { ...publicUser(user) }, session: null }, error: null }
         start(user)
         return { data: { user: publicUser(user), session: state.session }, error: null }
@@ -179,6 +187,27 @@ export function fakeSupabase(options = {}) {
       async refreshSession() {
         return refresh()
       },
+      // Answers the same for a registered and an unknown email, as Supabase does. 'limited@example.com' is rate limited.
+      async resetPasswordForEmail(email, opts) {
+        state.resetCalls.push({ email, options: opts })
+        if (state.options.down) return { data: null, error: retryable(0, 'Failed to fetch') }
+        if (email === 'limited@example.com') return { data: null, error: apiError(429, 'over_email_send_rate_limit', 'Email rate limit exceeded') }
+        return { data: {}, error: null }
+      },
+      // Changes the signed-in user's password. The password is not recorded in `passwordUpdates`, only that it changed.
+      async updateUser({ password }) {
+        if (state.options.down) return { data: { user: null }, error: retryable(0, 'Failed to fetch') }
+        const stored = read()
+        if (!stored) return { data: { user: null }, error: sessionMissing() }
+        const user = state.users.find((u) => u.id === stored.user.id)
+        if (password === user.password) {
+          return { data: { user: null }, error: apiError(422, 'same_password', 'New password should be different from the old password.') }
+        }
+        user.password = password
+        state.passwordUpdates.push(user.id)
+        fire('USER_UPDATED')
+        return { data: { user: publicUser(user) }, error: null }
+      },
       onAuthStateChange(fn) {
         state.listeners.add(fn)
         return { data: { subscription: { unsubscribe: () => state.listeners.delete(fn) } } }
@@ -187,6 +216,11 @@ export function fakeSupabase(options = {}) {
     async rpc(name, args) {
       state.rpcCalls.push({ name, args })
       if (state.options.down) return lostData()
+      if (name === 'email_registered') {
+        // A project that has not had db/schema.sql applied since the function was added answers 404.
+        if (state.options.noEmailFunction) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function' }, status: 404 }
+        return { data: state.users.some((u) => u.email.toLowerCase() === String(args.p_email).trim().toLowerCase()), error: null }
+      }
       if (state.options.rpcError) return { data: null, error: state.options.rpcError, status: 500 }
       const taken = Object.values(state.profiles).some((p) => p.username === args.p_username)
       const stale = state.options.staleUsernameCheck && state.signUpCalls.length === 0

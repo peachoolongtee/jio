@@ -17,6 +17,7 @@ import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
+import { cleanDietary } from './signupRules.js'
 import { localAccountsAllowed } from './supabase.js'
 import { addDays, format, isValid, parseISO } from 'date-fns'
 
@@ -886,7 +887,7 @@ const adopting = new Map()
 let acting = 0
 
 // Make a real account the signed-in one: load its own save (or start a fresh one) and write to its own key.
-// `known`: the details just typed at sign-up ({ name, username, dob, homeAreaId, photo, friends }); without it the
+// `known`: the details just typed at sign-up ({ name, username, dob, homeAreaId, dietary, photo, friends }); without it the
 // profile comes from Supabase (when `fetchProfile` is true), then from the save, then from the sign-up metadata, so a
 // failed read still signs in. At start-up `fetchProfile` is false: the person is shown from the save at once and the
 // profile is read afterwards (see refreshProfile).
@@ -916,6 +917,7 @@ async function adoptAccount(sessionUser, known = null, fetchProfile = true) {
     // A photo stays in this browser: it is a data URL in the save, never uploaded.
     photo: known ? known.photo || '' : was?.photo || '',
     homeAreaId: pick.homeAreaId || was?.homeAreaId || '',
+    dietary: cleanDietary(pick.dietary ?? was?.dietary),
   }
   const { conditions } = db
   if (mine) {
@@ -943,7 +945,7 @@ function adopt(sessionUser, known = null, fetchProfile = true) {
 }
 
 // Read the signed-in person's profile from their account and bring the account up to date with it: the name, username,
-// date of birth and home area. A field changed here while the read was running is left as it is. Quiet when the read
+// date of birth, home area and dietary needs. A field changed here while the read was running is left as it is. Quiet when the read
 // fails or the person has changed. Called after the first screen is up, never waited for.
 // How to call: await refreshProfile()
 export async function refreshProfile() {
@@ -959,6 +961,9 @@ export async function refreshProfile() {
   if (!remote || db.user?.authId !== authId) return
   const fresh = { name: remote.name, username: remote.username, dob: remote.dob, homeAreaId: remote.homeAreaId }
   const changes = Object.fromEntries(Object.entries(fresh).filter(([key, value]) => value && db.user[key] === before[key] && db.user[key] !== value))
+  // An empty list is a real answer ("no needs"), and two lists are compared by what they hold.
+  const dietary = cleanDietary(remote.dietary)
+  if (db.user.dietary === before.dietary && dietary.join() !== cleanDietary(db.user.dietary).join()) changes.dietary = dietary
   if (Object.keys(changes).length === 0) return
   db.user = { ...db.user, ...changes }
   // A save that cannot be written does not matter here: the change is in memory.
@@ -1084,7 +1089,7 @@ function assertDob(dob) {
   if (dob < DOB_MIN) throw new Error('Your date of birth cannot be before 1900.')
 }
 
-// profile: { email, name, username, dob ('YYYY-MM-DD'), photo?, homeAreaId, friends?, demo? }. Rejects with a message fit
+// profile: { email, name, username, dob ('YYYY-MM-DD'), photo?, homeAreaId, dietary?, friends?, demo? }. Rejects with a message fit
 // to show under the field when the name, username or date of birth breaks a rule.
 // `demo: true` is for the demo tools' account only: it starts with the sample history in mock/people.js (10 meetups
 // and 1,000 JioCoins). Anyone else starts with no meetups, no JioCoins and no rank.
@@ -1112,6 +1117,7 @@ export async function signUp(profile) {
     dob: profile.dob,
     photo: profile.photo || '',
     homeAreaId: profile.homeAreaId,
+    dietary: cleanDietary(profile.dietary),
     ...(profile.demo ? { demo: true } : {}),
   }
   // Ian's starting numbers (stats, season standings) depend on the kind of account, so they are made again for it.
@@ -1128,7 +1134,7 @@ export async function signUp(profile) {
 }
 
 // A real sign-up. The profile's other fields (photo, friends) stay in this browser, in the account's own save.
-// How to call: await signUpReal({ email, password, name, username, dob, homeAreaId })
+// How to call: await signUpReal({ email, password, name, username, dob, homeAreaId, dietary })
 async function signUpReal(profile) {
   const name = profile.name.trim()
   acting += 1
@@ -1140,11 +1146,12 @@ async function signUpReal(profile) {
       dob: profile.dob,
       name,
       homeAreaId: profile.homeAreaId,
+      dietary: cleanDietary(profile.dietary),
     })
     if (result.needsConfirmation) return { needsConfirmation: true, email: result.user.email }
-    const known = { name, username: profile.username, dob: profile.dob, homeAreaId: profile.homeAreaId, photo: profile.photo, friends: profile.friends }
+    const known = { name, username: profile.username, dob: profile.dob, homeAreaId: profile.homeAreaId, dietary: cleanDietary(profile.dietary), photo: profile.photo, friends: profile.friends }
     const mine = await adopt(result.user, known)
-    // The name and home area are written to the account in the background; a failure is announced when it happens.
+    // The name, home area and dietary needs are written to the account in the background; a failure is announced when it happens.
     result.profileWrite?.then((message) => {
       if (message) broadcast({ type: 'sync-failed', message })
     })
@@ -1169,12 +1176,29 @@ export async function signIn({ email, password }) {
   }
 }
 
-// What a signed-in person may change on a real account: the name, photo, home area and date of birth. The username
-// and email are not editable.
-const REAL_EDITABLE = ['name', 'photo', 'homeAreaId', 'dob']
+// Email a link for choosing a new password. Only for real accounts; the link opens /reset-password on this site.
+// Resolves the same way whether or not the email is registered. Rejects with the messages in lib/auth.js.
+// How to call: await requestPasswordReset('sam@example.com')
+export async function requestPasswordReset(email) {
+  await wait(DELAY.write)
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  await auth.requestPasswordReset(email, `${origin}/reset-password`)
+}
 
-// patch: { name?, photo?, homeAreaId?, dob?, ... }. A local account takes any field, as before. A real account takes
-// the four it may edit, and the name, home area and date of birth are also written to Supabase. The change is kept
+// Set a new password for the signed-in real account (the reset link signs the person in). Rejects with the messages
+// in lib/auth.js, including MESSAGES.reset_link_invalid when there is no session to change.
+// How to call: await changePassword('N3w-secret!')
+export async function changePassword(password) {
+  await wait(DELAY.write)
+  await auth.updatePassword(password)
+}
+
+// What a signed-in person may change on a real account: the name, photo, home area, date of birth and dietary needs. The username
+// and email are not editable.
+const REAL_EDITABLE = ['name', 'photo', 'homeAreaId', 'dob', 'dietary']
+
+// patch: { name?, photo?, homeAreaId?, dob?, dietary?, ... }. A local account takes any field, as before. A real account
+// takes the five it may edit, and all but the photo are also written to Supabase. The change is kept
 // here even when that write fails: the answer then carries `syncError` with a message to show.
 // How to call: const user = await updateUser({ name: 'Sam T.' })
 export async function updateUser(patch) {
@@ -1224,6 +1248,16 @@ export async function checkUsername(username) {
   if (auth.configured()) return { available: await auth.usernameAvailable(username) }
   const taken = PEOPLE.some((p) => p.id !== HOST_ID && p.username === username)
   return { available: !taken }
+}
+
+// Is this email already used by an account? With Supabase set up this asks the database; with local accounts nothing
+// is registered anywhere else, so the answer is always no. Rejects with the "could not reach Jio" message (code
+// 'offline' or 'unknown') when the check cannot be made.
+// How to call: const { registered } = await checkEmail('sam@example.com')
+export async function checkEmail(email) {
+  await wait(DELAY.read)
+  if (auth.configured()) return { registered: await auth.emailRegistered(email) }
+  return { registered: false }
 }
 
 // ── People, friends and the leaderboard ────────────────────────────────────

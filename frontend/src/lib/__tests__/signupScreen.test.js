@@ -29,14 +29,14 @@ async function setUp(fake, draft = {}) {
   setActivePinia(pinia)
   const { useAuthStore } = await import('@/stores/auth.js')
   const store = useAuthStore()
-  Object.assign(store.draft, { ...PROFILE, step: 7, ...draft })
+  Object.assign(store.draft, { ...PROFILE, step: 8, ...draft })
   const { routes } = await import('@/router/routes.js')
   const stub = { render: () => null }
   const router = createRouter({ history: createMemoryHistory(), routes: routes.map((r) => ({ ...r, component: stub })) })
   await router.push('/signup')
   const { default: AuthView } = await import('@/views/AuthView.vue')
   const view = await mountScreen(AuthView, { plugins: [pinia, router] })
-  await until(() => store.draft.step === (draft.step ?? 7))
+  await until(() => store.draft.step === (draft.step ?? 8))
   return { fake, store, router, view }
 }
 
@@ -44,18 +44,29 @@ async function setUp(fake, draft = {}) {
 const mainButton = (view) => view.all('button').find((b) => (b.attrs.class || '').includes('btn--next'))
 
 describe('the password rule on screen', () => {
-  it('states only what Supabase enforces by default when accounts are real, and the older checklist otherwise', async () => {
+  it('asks real accounts for 6 or more characters with an uppercase and a lowercase letter, a number and a symbol, and keeps the older checklist otherwise', async () => {
     const { passwordChecks } = await import('@/views/AuthView.vue')
-    expect(passwordChecks('abcde', true)).toEqual([{ label: '6 or more characters', ok: false }])
-    expect(passwordChecks('abcdef', true)).toEqual([{ label: '6 or more characters', ok: true }])
+    const labels = ['6 or more characters', 'An uppercase letter', 'A lowercase letter', 'A number', 'A special character', 'No spaces or other symbols']
+    expect(passwordChecks('abc1!', true)).toEqual([
+      { label: labels[0], ok: false },
+      { label: labels[1], ok: false },
+      { label: labels[2], ok: true },
+      { label: labels[3], ok: true },
+      { label: labels[4], hint: 'e.g. ! @ # $ % *', ok: true },
+      { label: labels[5], ok: true },
+    ])
+    expect(passwordChecks('Abc1!x', true).every((c) => c.ok)).toBe(true)
     expect(passwordChecks('abcdef', false).map((c) => c.label)).toEqual(['8 or more characters', 'A letter', 'A number', 'A symbol'])
   })
 
-  it('draws that rule on the password question, and lets 6 characters through', async () => {
-    const { view, store } = await setUp(fakeSupabase(), { step: 1, password: 'abcdef' })
-    expect(view.all('.checklist__item')).toHaveLength(1)
-    expect(view.text('.checklist__item')).toContain('6 or more characters')
+  it('draws that rule on the password question and lets a password through only when every part is met', async () => {
+    const { view, store } = await setUp(fakeSupabase(), { step: 1, password: 'abc1!x' })
+    expect(view.all('.checklist__item')).toHaveLength(6)
+    expect(view.text('.checklist__hint')).toBe('e.g. ! @ # $ % *')
     expect(view.one('input[autocomplete=new-password]')).toBeTruthy()
+    await view.click(mainButton(view))
+    expect(store.draft.step).toBe(1)
+    view.type('input[autocomplete=new-password]', 'Abc1!x')
     await view.click(mainButton(view))
     await until(() => store.draft.step === 2)
   })
@@ -95,14 +106,14 @@ describe('a failed sign-up', () => {
     const { view, store, fake } = await setUp(fakeSupabase(), { password: 'weak' })
     await view.click(mainButton(view))
     await until(() => store.draft.step === 1)
-    view.type('input[autocomplete=new-password]', 'Sup3r-secret!')
+    view.type('input[autocomplete=new-password]', 'Sup3rSecret!')
     await view.click(mainButton(view))
-    await until(() => store.draft.step === 7)
+    await until(() => store.draft.step === 8)
     expect(fake.state.signUpCalls).toHaveLength(1)
     await view.click(mainButton(view))
     await until(() => store.signedIn)
     expect(fake.state.signUpCalls).toHaveLength(2)
-    expect(fake.state.signUpCalls[1].password).toBe('Sup3r-secret!')
+    expect(fake.state.signUpCalls[1].password).toBe('Sup3rSecret!')
   })
 
   it('does not send an empty password: pressing Finish with none goes to the password question', async () => {
@@ -294,5 +305,189 @@ describe('creating the account', () => {
     expect(peek.attrs['aria-pressed']).toBeUndefined()
     await view.click(peek)
     expect(view.text(peek)).toBe('Hide')
+  })
+})
+
+describe('the dietary question', () => {
+  it('comes after the home area, offers halal, vegetarian and vegan, and can be skipped', async () => {
+    const { view, store } = await setUp(fakeSupabase(), { step: 7, dietary: [] })
+    expect(view.text('h1')).toBe('Dietary needs')
+    const chips = view.all('button').filter((b) => ['Halal', 'Vegetarian', 'Vegan'].includes(view.text(b)))
+    expect(chips.map((b) => view.text(b))).toEqual(['Halal', 'Vegetarian', 'Vegan'])
+    expect(view.text(mainButton(view))).toContain('None, skip')
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 8)
+    expect(store.draft.dietary).toEqual([])
+  })
+
+  it('picks and unpicks any number of needs, and sends them with the sign-up', async () => {
+    const { view, store, fake } = await setUp(fakeSupabase(), { step: 7, dietary: [] })
+    const chip = (label) => view.all('button').find((b) => view.text(b) === label)
+    await view.click(chip('Halal'))
+    await view.click(chip('Vegan'))
+    await view.click(chip('Vegan'))
+    await view.click(chip('Vegetarian'))
+    expect(store.draft.dietary).toEqual(['halal', 'vegetarian'])
+    expect(view.text(mainButton(view))).not.toContain('skip')
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 8)
+    await view.click(mainButton(view))
+    await until(() => store.signedIn)
+    expect(store.user.dietary).toEqual(['halal', 'vegetarian'])
+    await until(() => fake.state.priv['uid-1'].dietary.length === 2)
+  })
+})
+
+describe('the email question', () => {
+  it('does not move on from an address that is not one, and says why once the field is left', async () => {
+    const { view, store } = await setUp(fakeSupabase(), { step: 0, email: '' })
+    for (const bad of ['sam', 'sam@', 'sam@example', 'sam@example.c', 'sam@@example.com', 'sam..tan@example.com', 'sam @example.com']) {
+      view.type('input[type=email]', bad)
+      await view.click(mainButton(view))
+      expect(store.draft.step).toBe(0)
+    }
+    view.one('input[type=email]').dispatch('blur')
+    await view.tick()
+    expect(view.text()).toContain('Enter a valid email address, like name@example.com.')
+    view.type('input[type=email]', 'sam.tan@example.com.sg')
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 1)
+  })
+})
+
+describe('the date of birth question', () => {
+  it('takes the date as DD/MM/YYYY, puts the slashes in, and keeps YYYY-MM-DD in the draft', async () => {
+    const { view, store } = await setUp(fakeSupabase(), { step: 3, dob: '' })
+    expect(view.one('input[inputmode=numeric]').attrs.placeholder).toBe('DD/MM/YYYY')
+    view.type('input[inputmode=numeric]', '1803')
+    await view.tick()
+    expect(view.one('input[inputmode=numeric]').value).toBe('18/03')
+    expect(store.draft.dob).toBe('')
+    view.type('input[inputmode=numeric]', '18/03/2004')
+    await view.tick()
+    expect(store.draft.dob).toBe('2004-03-18')
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 4)
+  })
+
+  it('shows an answered date as DD/MM/YYYY, and refuses a date that does not exist', async () => {
+    const { view, store } = await setUp(fakeSupabase(), { step: 3, dob: '2001-05-06' })
+    expect(view.one('input[inputmode=numeric]').value).toBe('06/05/2001')
+    view.type('input[inputmode=numeric]', '31022004')
+    await view.tick()
+    expect(view.text()).toContain('That date does not exist.')
+    await view.click(mainButton(view))
+    expect(store.draft.step).toBe(3)
+  })
+})
+
+describe('an email that already has an account', () => {
+  // A sign-up screen on the first question, on a project where PROFILE's email is already registered.
+  // How to call: const t = await registeredSetUp({ noEmailFunction: true })
+  async function registeredSetUp(options = {}) {
+    const fake = fakeSupabase(options)
+    fake.state.users.push({ id: 'uid-9', email: PROFILE.email, password: 'x', meta: {} })
+    return setUp(fake, { step: 0 })
+  }
+
+  it('is told on the email question, when Enter is pressed, with the Log in link beside it', async () => {
+    const { view, store, fake } = await registeredSetUp()
+    view.type('input[type=email]', 'SAM@example.com ')
+    await view.enter('input[type=email]')
+    await until(() => view.text().includes('An account with that email already exists. Log in instead.'))
+    expect(store.draft.step).toBe(0)
+    expect(view.one('a[href="/login"]')).toBeTruthy()
+    expect(fake.state.rpcCalls.filter((c) => c.name === 'email_registered').map((c) => c.args)).toEqual([{ p_email: 'SAM@example.com' }])
+    expect(fake.state.signUpCalls).toEqual([])
+  })
+
+  it('lets a new email through to the password question', async () => {
+    const { view, store } = await registeredSetUp()
+    view.type('input[type=email]', 'new@example.com')
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 1)
+  })
+
+  it('goes on when the check cannot be made, leaving the sign-up to catch it at the end', async () => {
+    const { view, store } = await registeredSetUp({ noEmailFunction: true })
+    view.type('input[type=email]', PROFILE.email)
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 1)
+    expect(view.text()).not.toContain('already exists')
+  })
+
+  it('clears the message once the email is changed', async () => {
+    const { view } = await registeredSetUp()
+    view.type('input[type=email]', PROFILE.email)
+    await view.click(mainButton(view))
+    await until(() => view.text().includes('already exists'))
+    view.type('input[type=email]', 'other@example.com')
+    await view.tick()
+    expect(view.text()).not.toContain('already exists')
+  })
+})
+
+describe('suggestions for a taken username', () => {
+  it('offers up to 3 free names counting up from the taken one, and leaves out names that are also taken', async () => {
+    const fake = fakeSupabase()
+    fake.state.profiles.a = { username: 'testuser_887' }
+    fake.state.profiles.b = { username: 'testuser_889' }
+    const { view, store } = await setUp(fake, { step: 4, username: 'testuser_887' })
+    await view.click(mainButton(view))
+    await until(() => view.has('[data-testid="username-suggestions"]'))
+    const chips = view.all('button.signup__suggestion').map((b) => view.text(b))
+    expect(chips).toHaveLength(3)
+    expect(chips[0]).toBe('testuser_888')
+    expect(chips).not.toContain('testuser_889')
+    expect(chips.every((c) => /^testuser_\d+$/.test(c))).toBe(true)
+    expect(store.draft.step).toBe(4)
+  })
+
+  it('fills the field with the one tapped, clears the message, and goes on with it', async () => {
+    const fake = fakeSupabase()
+    fake.state.profiles.other = { username: PROFILE.username }
+    const { view, store } = await setUp(fake, { step: 4 })
+    await view.click(mainButton(view))
+    await until(() => view.has('[data-testid="username-suggestions"]'))
+    const first = view.all('button.signup__suggestion')[0]
+    expect(view.text(first)).toBe('sam_1')
+    await view.click(first)
+    expect(store.draft.username).toBe('sam_1')
+    expect(view.text()).not.toContain('That username is taken')
+    expect(view.has('[data-testid="username-suggestions"]')).toBe(false)
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 5)
+  })
+
+  it('offers nothing when a free name is checked', async () => {
+    const { view, store } = await setUp(fakeSupabase(), { step: 4 })
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 5)
+    expect(view.has('[data-testid="username-suggestions"]')).toBe(false)
+  })
+})
+
+describe('a sign-up refused for being over a limit', () => {
+  it('stays on the last question with "Sign-ups are paused" above the button, not on the password', async () => {
+    const { view, store } = await setUp(fakeSupabase(), { password: 'limited' })
+    await view.click(mainButton(view))
+    await until(() => view.has('[data-testid="signup-error"]'))
+    expect(view.text('[data-testid="signup-error"]')).toBe('Sign-ups are paused for a few minutes. Try again later.')
+    expect(store.draft.step).toBe(8)
+    expect(view.text()).not.toContain('Enter your password again.')
+  })
+
+  it('asks for the password once on the next try, then comes straight back to the last question', async () => {
+    const { view, store, fake } = await setUp(fakeSupabase(), { password: 'limited' })
+    await view.click(mainButton(view))
+    await until(() => view.has('[data-testid="signup-error"]'))
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 1)
+    view.type('input[autocomplete=new-password]', 'Sup3rSecret!')
+    await view.click(mainButton(view))
+    await until(() => store.draft.step === 8)
+    await view.click(mainButton(view))
+    await until(() => store.signedIn)
+    expect(fake.state.signUpCalls).toHaveLength(2)
   })
 })

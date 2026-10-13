@@ -7,6 +7,7 @@
 // anywhere, and nothing here logs.
 //
 // A test stands in for Supabase with useClient(fake): see lib/__tests__/authFixture.js.
+import { cleanDietary } from './signupRules.js'
 import { AUTH_STORAGE_KEY, supabase } from './supabase.js'
 
 let client = supabase
@@ -30,6 +31,9 @@ export const MESSAGES = {
   username_taken: 'That username is taken. Choose another one.',
   weak_password: 'Choose a stronger password.',
   rate_limited: 'Too many attempts. Wait a few minutes and try again.',
+  // Supabase refused a sign-up for being over a limit: usually the project's email limit (each sign-up sends a
+  // confirmation email), which nothing the person typed can change.
+  signup_paused: 'Sign-ups are paused for a few minutes. Try again later.',
   offline: 'Could not reach Jio. Check your connection and try again.',
   email_not_confirmed: 'Confirm your email first. Open the link we sent you, then log in.',
   profile_not_saved: 'Your details are saved on this device, but could not be saved to your account. Try again later.',
@@ -37,6 +41,8 @@ export const MESSAGES = {
   unreachable: 'Jio could not be reached. You are seeing what was saved on this device.',
   try_again: 'Jio cannot check your login right now. Try again in a moment.',
   sign_out_failed: 'Could not log you out of this browser. Check your connection and try again.',
+  reset_link_invalid: 'This reset link has expired or has already been used. Ask for a new one.',
+  same_password: 'Choose a password different from your old one.',
   unknown: 'Something went wrong. Try again.',
 }
 
@@ -48,7 +54,7 @@ function problem(code, message = MESSAGES[code]) {
 // Why a weak password was refused, in words (Supabase sends reasons such as 'length', 'characters' and 'pwned').
 const WEAK_REASONS = {
   length: 'it is too short',
-  characters: 'it needs a mix of letters, numbers and symbols',
+  characters: 'it needs an uppercase letter, a lowercase letter, a number and one of ! @ # $ % *',
   pwned: 'it has appeared in a known data leak',
 }
 
@@ -82,18 +88,28 @@ function isRetryable(error) {
   return error?.name === 'AuthRetryableFetchError' || isOffline(error) || serverFailed(error)
 }
 
-// Turn whatever Supabase threw or returned into one of our errors. `where` is 'signUp' or 'signIn'.
+// Turn whatever Supabase threw or returned into one of our errors. `where` is 'signUp', 'signIn', 'reset' (asking
+// for the reset email) or 'newPassword' (setting the new password from that email's link).
 // How to call: throw explain(result.error, 'signIn')
 function explain(error, where) {
   const code = String(error?.code || '')
   const status = error?.status
   const text = String(error?.message || '')
   if (isOffline(error)) return problem('offline')
-  if (status === 429 || /rate_limit/.test(code) || /rate limit/i.test(text)) return problem('rate_limited')
+  if (status === 429 || /rate_limit/.test(code) || /rate limit/i.test(text)) return problem(where === 'signUp' ? 'signup_paused' : 'rate_limited')
   if (error?.name === 'AuthWeakPasswordError' || code === 'weak_password') return problem('weak_password', weakMessage(error?.reasons))
   // A malformed email is the one thing a person can fix here. At sign-in nothing else is validated, but a validation
   // failure is still never reported as a wrong password.
-  if (code === 'email_address_invalid' || (code === 'validation_failed' && where === 'signUp')) return problem('email_invalid')
+  if (code === 'email_address_invalid' || (code === 'validation_failed' && ['signUp', 'reset'].includes(where))) return problem('email_invalid')
+  if (where === 'newPassword') {
+    if (code === 'same_password') return problem('same_password')
+    // No session, or one the server no longer accepts: the link was used, expired or never opened here.
+    if (code === 'session_missing' || code === 'session_not_found' || error?.name === 'AuthSessionMissingError' || status === 401 || status === 403) {
+      return problem('reset_link_invalid')
+    }
+    return problem('unknown')
+  }
+  if (where === 'reset') return problem('unknown')
   if (where === 'signIn') {
     if (code === 'email_not_confirmed') return problem('email_not_confirmed')
     // A wrong password and an unknown email get the same answer, so sign-in cannot be used to find out who is registered.
@@ -154,10 +170,27 @@ export async function usernameAvailable(username) {
   return result.data === true
 }
 
+// Is this email already used by an account? Uses the database function email_registered, which works before signing up.
+// Rejects with the "could not reach Jio" message when the call fails, including when the function has not been added to
+// the project yet (db/schema.sql); the sign-up itself still catches a registered email then.
+// How to call: await emailRegistered('sam@example.com') -> true
+export async function emailRegistered(email) {
+  const c = need()
+  let result
+  try {
+    result = await c.rpc('email_registered', { p_email: String(email || '').trim() })
+  } catch {
+    throw problem('offline')
+  }
+  if (result.error) throw problem(isOffline(result.error) || result.status === 0 ? 'offline' : 'unknown')
+  return result.data === true
+}
+
 // Write the columns a signed-in person may change, for their own rows only: profiles.display_name and avatar_url,
-// profile_private.dob and home_area_id. Anything else in the patch is ignored, never sent. Rejects with
+// profile_private.dob, home_area_id and dietary. Anything else in the patch is ignored, never sent; an unknown dietary
+// need is dropped. Rejects with
 // MESSAGES.profile_not_saved when a write fails or changes no row (for example the session has ended).
-// patch: { name?, avatarUrl?, dob?, homeAreaId? }
+// patch: { name?, avatarUrl?, dob?, homeAreaId?, dietary? }
 // How to call: await saveProfile(user.id, { name: 'Sam', homeAreaId: 'tampines' })
 export async function saveProfile(userId, patch = {}) {
   const c = need()
@@ -167,6 +200,7 @@ export async function saveProfile(userId, patch = {}) {
   if (typeof patch.avatarUrl === 'string') publicRow.avatar_url = patch.avatarUrl || null
   if (typeof patch.dob === 'string') privateRow.dob = patch.dob
   if (typeof patch.homeAreaId === 'string') privateRow.home_area_id = patch.homeAreaId || null
+  if (Array.isArray(patch.dietary)) privateRow.dietary = cleanDietary(patch.dietary)
   const writes = [
     ['profiles', publicRow],
     ['profile_private', privateRow],
@@ -186,7 +220,7 @@ export async function saveProfile(userId, patch = {}) {
 
 // The person's profile, public and private halves. Null when no profile row exists.
 // Rejects with MESSAGES.profile_not_loaded when the tables cannot be read.
-// How to call: await loadProfile(user.id) -> { username: 'sam', name: 'Sam', dob: '2001-05-06', homeAreaId: 'tampines', avatarUrl: '' }
+// How to call: await loadProfile(user.id) -> { username: 'sam', name: 'Sam', dob: '2001-05-06', homeAreaId: 'tampines', dietary: ['halal'], avatarUrl: '' }
 export async function loadProfile(userId) {
   const c = need()
   let pub
@@ -194,7 +228,7 @@ export async function loadProfile(userId) {
   try {
     ;[pub, priv] = await Promise.all([
       c.from('profiles').select('username, display_name, avatar_url').eq('id', userId).maybeSingle(),
-      c.from('profile_private').select('dob, home_area_id').eq('id', userId).maybeSingle(),
+      c.from('profile_private').select('dob, home_area_id, dietary').eq('id', userId).maybeSingle(),
     ])
   } catch {
     throw problem('profile_not_loaded')
@@ -206,6 +240,7 @@ export async function loadProfile(userId) {
     name: pub.data.display_name || pub.data.username,
     dob: priv.data?.dob || '',
     homeAreaId: priv.data?.home_area_id || '',
+    dietary: cleanDietary(priv.data?.dietary),
     avatarUrl: pub.data.avatar_url || '',
   }
 }
@@ -226,20 +261,24 @@ async function explainSignUp(error, username) {
   return explained
 }
 
-// Create an account. The call carries the email, the password and, as metadata for the sign-up trigger, the username
-// and date of birth, and nothing else. The username is not checked here: the sign-up screen checks it on its own
-// question, and a name taken since then is caught by the trigger (see explainSignUp). With a session back (email
-// confirmation off), the display name and home area are then written to the profile; if that write fails the account
-// still exists and `syncError` says so. With no session back (confirmation on) `needsConfirmation` is true and the
-// person is not signed in.
-// Rejects with: MESSAGES.username_taken, email_taken, email_invalid, a weak-password message, rate_limited, offline or unknown.
-// How to call: await signUp({ email: 'sam@example.com', password: 'Sup3r-secret', username: 'sam', dob: '2001-05-06', name: 'Sam', homeAreaId: 'tampines' })
+// Create an account. The call carries the email, the password and, as metadata for the sign-up trigger, the username,
+// date of birth, name, home area and dietary needs, and nothing else (no photo, no friends). The trigger saves them all
+// to the profile rows (db/schema.sql), so they are kept even when email confirmation is on and nobody is signed in
+// afterwards. The metadata stays on the Supabase account, which only its owner and the server can read. The username
+// is not checked here: the sign-up screen checks it on its own question, and a name taken since then is caught by the
+// trigger (see explainSignUp). With a session back (email confirmation off), the name, home area and dietary needs are
+// also written to the profile, for a project whose trigger predates them; if that write fails the account still exists
+// and `syncError` says so. With no session back (confirmation on) `needsConfirmation` is true and the person is not
+// signed in.
+// Rejects with: MESSAGES.username_taken, email_taken, email_invalid, a weak-password message, signup_paused, offline or unknown.
+// How to call: await signUp({ email: 'sam@example.com', password: 'Sup3r-secret', username: 'sam', dob: '2001-05-06', name: 'Sam', homeAreaId: 'tampines', dietary: ['halal'] })
 //   -> { user: { id, email, username, dob }, needsConfirmation: false, syncError: '' }
-export async function signUp({ email, password, username, dob, name, homeAreaId }) {
+export async function signUp({ email, password, username, dob, name, homeAreaId, dietary = [] }) {
   const c = need()
   let result
   try {
-    result = await c.auth.signUp({ email: String(email || '').trim(), password, options: { data: { username, dob } } })
+    const data = { username, dob, name: String(name || '').trim(), home_area_id: homeAreaId || '', dietary: cleanDietary(dietary) }
+    result = await c.auth.signUp({ email: String(email || '').trim(), password, options: { data } })
   } catch (err) {
     throw await explainSignUp(err, username)
   }
@@ -251,7 +290,7 @@ export async function signUp({ email, password, username, dob, name, homeAreaId 
   if (!session) return { user: summary(user), needsConfirmation: true, syncError: '' }
   // The account exists and the person is signed in; the profile write must not hold them up. `syncError` is filled in
   // by the caller once the write has finished (see `profileWrite`).
-  const profileWrite = saveProfile(user.id, { name, homeAreaId }).then(
+  const profileWrite = saveProfile(user.id, { name, homeAreaId, dietary }).then(
     () => '',
     (err) => err.message,
   )
@@ -273,6 +312,39 @@ export async function signIn({ email, password }) {
   if (result.error) throw explain(result.error, 'signIn')
   if (!result.data?.user) throw problem('unknown')
   return { user: summary(result.data.user) }
+}
+
+// Ask Supabase to email a link for choosing a new password. The link opens `redirectTo` (the reset page), signed in
+// for that one purpose. It resolves the same way whether or not the email is registered, so the screen cannot be used
+// to find out who has an account. The address must be listed under Authentication > URL Configuration > Redirect URLs
+// in the Supabase dashboard, or Supabase sends the person to the project's Site URL instead.
+// Rejects with: MESSAGES.email_invalid, rate_limited, offline or unknown.
+// How to call: await requestPasswordReset('sam@example.com', 'https://jio.app/reset-password')
+export async function requestPasswordReset(email, redirectTo) {
+  const c = need()
+  let result
+  try {
+    result = await c.auth.resetPasswordForEmail(String(email || '').trim(), { redirectTo })
+  } catch (err) {
+    throw explain(err, 'reset')
+  }
+  if (result?.error) throw explain(result.error, 'reset')
+}
+
+// Set a new password for the signed-in person: the one the reset link signed in. The password is sent to Supabase
+// and kept nowhere else.
+// Rejects with: MESSAGES.reset_link_invalid (no session, or it has ended), same_password, a weak-password message,
+// rate_limited, offline or unknown.
+// How to call: await updatePassword('N3w-secret!')
+export async function updatePassword(password) {
+  const c = need()
+  let result
+  try {
+    result = await c.auth.updateUser({ password })
+  } catch (err) {
+    throw explain(err, 'newPassword')
+  }
+  if (result?.error) throw explain(result.error, 'newPassword')
 }
 
 // The session this browser holds, read straight from local storage, or null. It answers without the auth client, which

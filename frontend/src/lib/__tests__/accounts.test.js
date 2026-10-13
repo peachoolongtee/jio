@@ -109,13 +109,28 @@ describe('a save from before this change', () => {
 })
 
 describe('signing up for a real account', () => {
-  it('sends the email, the password and only the username and date of birth in options.data', async () => {
+  it('sends the username, date of birth, name, home area and dietary needs in options.data, and not the photo or friends', async () => {
     const fake = fakeSupabase()
     const { api } = await boot(fake)
-    await api.signUp({ ...PROFILE, photo: 'data:image/png;base64,AAAA' })
+    await api.signUp({ ...PROFILE, name: ' Sam Tan ', dietary: ['vegan', 'paleo'], photo: 'data:image/png;base64,AAAA' })
     expect(fake.state.signUpCalls).toEqual([
-      { email: 'sam@example.com', password: PROFILE.password, options: { data: { username: 'sam', dob: '2001-05-06' } } },
+      {
+        email: 'sam@example.com',
+        password: PROFILE.password,
+        options: { data: { username: 'sam', dob: '2001-05-06', name: 'Sam Tan', home_area_id: 'tampines', dietary: ['vegan'] } },
+      },
     ])
+  })
+
+  it('keeps the name, home area and dietary needs when the email must be confirmed first, and shows them at login', async () => {
+    const fake = fakeSupabase({ confirmEmail: true })
+    const { api } = await boot(fake)
+    const result = await api.signUp({ ...PROFILE, name: 'Sam Tan', dietary: ['halal'] })
+    expect(result).toEqual({ needsConfirmation: true, email: 'sam@example.com' })
+    expect(fake.state.profiles['uid-1'].display_name).toBe('Sam Tan')
+    expect(fake.state.priv['uid-1']).toMatchObject({ home_area_id: 'tampines', dietary: ['halal'] })
+    const user = await api.signIn({ email: PROFILE.email, password: PROFILE.password })
+    expect(user).toMatchObject({ authId: 'uid-1', name: 'Sam Tan', homeAreaId: 'tampines', homeAreaName: 'Tampines', dietary: ['halal'] })
   })
 
   it('signs the person in and writes the display name and home area when a session comes back', async () => {
@@ -126,6 +141,23 @@ describe('signing up for a real account', () => {
     expect(fake.state.profiles['uid-1'].display_name).toBe('Sam')
     expect(fake.state.priv['uid-1'].home_area_id).toBe('tampines')
     expect(await api.getUser()).toMatchObject({ authId: 'uid-1' })
+  })
+
+  it('writes the dietary needs picked at sign-up, dropping any the database would refuse', async () => {
+    const fake = fakeSupabase()
+    const { api } = await boot(fake)
+    const user = await api.signUp({ ...PROFILE, dietary: ['vegan', 'paleo', 'halal', 'vegan'] })
+    expect(user.dietary).toEqual(['halal', 'vegan'])
+    await vi.waitFor(() => expect(fake.state.priv['uid-1'].dietary).toEqual(['halal', 'vegan']))
+  })
+
+  it('writes no dietary needs when none were picked', async () => {
+    const fake = fakeSupabase()
+    const { api } = await boot(fake)
+    const user = await api.signUp({ ...PROFILE })
+    expect(user.dietary).toEqual([])
+    await vi.waitFor(() => expect(fake.state.priv['uid-1'].home_area_id).toBe('tampines'))
+    expect(fake.state.priv['uid-1'].dietary).toEqual([])
   })
 
   it('reports needsConfirmation and leaves the person signed out when no session comes back', async () => {
@@ -156,7 +188,7 @@ describe('signing up for a real account', () => {
     const fake = fakeSupabase()
     const { api, auth } = await boot(fake)
     await expect(api.signUp({ ...PROFILE, password: 'weak' })).rejects.toThrow('Choose a stronger password: it is too short.')
-    await expect(api.signUp({ ...PROFILE, password: 'limited' })).rejects.toThrow(MESSAGE(auth, 'rate_limited'))
+    await expect(api.signUp({ ...PROFILE, password: 'limited' })).rejects.toThrow('Sign-ups are paused for a few minutes. Try again later.')
     fake.state.options.down = true
     await expect(api.signUp({ ...PROFILE })).rejects.toThrow(MESSAGE(auth, 'offline'))
     await expect(api.signIn({ email: PROFILE.email, password: 'x' })).rejects.toThrow(MESSAGE(auth, 'offline'))
@@ -453,6 +485,16 @@ describe('updating a real account', () => {
     expect(fake.state.profiles['uid-1'].display_name).toBe('Sam T')
   })
 
+  it('writes a change to the dietary needs to Supabase', async () => {
+    const fake = fakeSupabase()
+    const { api } = await boot(fake)
+    await api.signUp({ ...PROFILE })
+    fake.state.writes.length = 0
+    const user = await api.updateUser({ dietary: ['vegetarian'] })
+    expect(user).toMatchObject({ dietary: ['vegetarian'], syncError: '' })
+    expect(fake.state.writes.map((w) => [w.table, w.row])).toEqual([['profile_private', { dietary: ['vegetarian'] }]])
+  })
+
   it('still succeeds here when the write to Supabase fails, and tells the caller', async () => {
     const fake = fakeSupabase()
     const { api, auth } = await boot(fake)
@@ -494,8 +536,19 @@ describe('profile reads', () => {
     const fake = fakeSupabase()
     const { api, auth } = await boot(fake)
     await api.signUp({ ...PROFILE })
-    expect(await auth.loadProfile('uid-1')).toEqual({ username: 'sam', name: 'Sam', dob: '2001-05-06', homeAreaId: 'tampines', avatarUrl: '' })
+    expect(await auth.loadProfile('uid-1')).toEqual({ username: 'sam', name: 'Sam', dob: '2001-05-06', homeAreaId: 'tampines', dietary: [], avatarUrl: '' })
     expect(await auth.loadProfile('uid-404')).toBeNull()
+  })
+
+  it('brings back the dietary needs on a browser with no save for the account', async () => {
+    const fake = fakeSupabase()
+    const first = await boot(fake)
+    await first.api.signUp({ ...PROFILE, dietary: ['halal'] })
+    await vi.waitFor(() => expect(fake.state.priv['uid-1'].dietary).toEqual(['halal']))
+    await first.api.signOut()
+    const { api } = await boot(fake)
+    const user = await api.signIn({ email: PROFILE.email, password: PROFILE.password })
+    expect(user.dietary).toEqual(['halal'])
   })
 })
 
