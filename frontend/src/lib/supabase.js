@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { openWithAuthHash } from './authLink.js'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -33,13 +34,16 @@ export function limitLogout(inner, ms = LOGOUT_LIMIT_MS) {
 // start (see mustRefuse). Under the test runner it is always null, so a developer's own .env can never make the suite
 // reach a real project; a test hands lib/auth.js a stand-in client.
 // How to call: import { supabase, supabaseConfigured } from './supabase.js'; if (supabaseConfigured) await supabase.auth.getSession()
-export const supabase =
+// The client is created through openWithAuthHash (lib/authLink.js): the client reads a reset link in the address as it
+// starts, and the tokens are taken out of the address straight after, before the router copies the address.
+export const supabase = openWithAuthHash(() =>
   url && anonKey && !import.meta.env.VITEST
     ? createClient(url, anonKey, {
         auth: { storageKey: AUTH_STORAGE_KEY },
         global: { fetch: limitLogout((...args) => globalThis.fetch(...args)) },
       })
-    : null
+    : null,
+)
 
 export const supabaseConfigured = supabase !== null
 

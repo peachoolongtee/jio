@@ -112,7 +112,7 @@ describe('signing out when the server does not do its part', () => {
     setActivePinia(createPinia())
     const { useAuthStore } = await import('@/stores/auth.js')
     const store = useAuthStore()
-    Object.assign(store.draft, { ...PROFILE, step: 7 })
+    Object.assign(store.draft, { ...PROFILE, step: 8 })
     await store.signUp()
     const removeItem = booted.storage.removeItem
     booted.storage.removeItem = () => {

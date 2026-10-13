@@ -1,13 +1,14 @@
 <script>
-// What the password step promises. With a Supabase project behind sign-up the only rule this screen can state is the one
-// Supabase enforces by default (6 characters); anything weaker or stronger that the project asks for comes back from the
-// server as a sentence (lib/auth.js) and is shown as it is. With local accounts the password is not used, so the older
-// four-part checklist stays as it was.
-export const REAL_PASSWORD_MIN = 6
+import { passwordRules } from '@/lib/signupRules.js'
 
-// How to call: passwordChecks('abc123', true) -> [{ label: '6 or more characters', ok: true }]
+// What the password step asks for. With a Supabase project behind sign-up: 8 to 72 characters with an uppercase letter,
+// a lowercase letter, a number and a symbol (any printable character that is not a letter, number or space), and no
+// space at either end (lib/signupRules.js, the same rule as the reset page). Anything else the server refuses comes back
+// as a sentence (lib/auth.js) and is shown as it is. With local accounts the password is not used, so the older
+// checklist stays as it was.
+// How to call: passwordChecks('Abc1!xyz', true) -> [{ label: '8 or more characters', ok: true }, ...]
 export function passwordChecks(password, realAccounts) {
-  if (realAccounts) return [{ label: `${REAL_PASSWORD_MIN} or more characters`, ok: password.length >= REAL_PASSWORD_MIN }]
+  if (realAccounts) return passwordRules(password)
   return [
     { label: '8 or more characters', ok: password.length >= 8 },
     { label: 'A letter', ok: /[a-z]/i.test(password) },
@@ -20,7 +21,8 @@ export function passwordChecks(password, realAccounts) {
 <script setup>
 // Sign-up: one question per screen, with a back arrow and a progress bar.
 // Email, password with a live checklist, name, date of birth, username, profile photo (can be skipped), home area,
-// suggested friends (local accounts only: a real account has no sample friends). It ends on Home.
+// dietary needs (can be skipped), suggested friends (local accounts only: a real account has no sample friends, so its
+// last question is the dietary needs). It ends on Home.
 // The answers live in the auth store's draft, so nothing is lost if the window is resized.
 // With real accounts the password goes to Supabase and is emptied afterwards, whatever happens: after a failed attempt
 // the screen goes back to the question the problem belongs to, keeps every other answer, and asks for the password again
@@ -38,15 +40,30 @@ import SelectField from '@/components/ui/SelectField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import * as api from '@/lib/api.js'
-import { DOB_MIN, fieldForSignUpError, NAME_MAX, todayIso, USERNAME_HINT, validateDob, validateName, validateUsername } from '@/lib/signupRules.js'
+import { MESSAGES } from '@/lib/auth.js'
+import {
+  DIETARY_OPTIONS,
+  dobToIso,
+  fieldForSignUpError,
+  formatDobInput,
+  isoToDob,
+  NAME_MAX,
+  USERNAME_HINT,
+  usernameCandidates,
+  validateDob,
+  validateEmail,
+  validateName,
+  validateUsername,
+} from '@/lib/signupRules.js'
 import { useAuthStore } from '@/stores/auth.js'
 
-const ALL_STEPS = ['email', 'password', 'name', 'dob', 'username', 'photo', 'home', 'friends']
+const ALL_STEPS = ['email', 'password', 'name', 'dob', 'username', 'photo', 'home', 'diet', 'friends']
 
 const router = useRouter()
 const auth = useAuthStore()
 // A real account starts with nobody but itself, so it is not offered the sample people to add as friends: its friends are
-// the people it shares a session with. Local accounts keep the step.
+// the people it shares a session with, and its last question is the dietary needs (step 7). Local accounts keep the step
+// (the friends are step 8).
 const STEPS = auth.realAccounts ? ALL_STEPS.filter((name) => name !== 'friends') : ALL_STEPS
 const draft = computed(() => auth.draft)
 const step = computed(() => STEPS[draft.value.step])
@@ -57,6 +74,8 @@ const people = ref([])
 const usernameError = ref('')
 // The username that could not be checked (Supabase did not answer): the person was told and may go on with it.
 const usernameUnchecked = ref('')
+// Free usernames like the one that was taken, offered under the field to tap.
+const usernameSuggestions = ref([])
 const nameError = ref('')
 const dobError = ref('')
 const submitError = ref('')
@@ -70,7 +89,8 @@ const confirmTitle = ref(null)
 const demoError = ref('')
 const photoError = ref('')
 const busy = ref(false)
-// What the busy state is for, so the main button can say so: 'checking' (the username) or 'creating' (the account).
+// What the busy state is for, so the main button can say so: 'checking-email', 'checking' (the username) or 'creating'
+// (the account).
 const phase = ref('')
 const showPassword = ref(false)
 const stepTitle = ref(null)
@@ -88,11 +108,22 @@ watch(
   },
 )
 
-const emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.value.email.trim()))
+const emailValid = computed(() => !validateEmail(draft.value.email))
+// The email's message shows once the person has left the field (or pressed Enter) with an address that is not one.
+const emailTouched = ref(false)
+const emailShown = computed(() => emailError.value || (emailTouched.value && draft.value.email ? validateEmail(draft.value.email) : ''))
 const checks = computed(() => passwordChecks(draft.value.password, auth.realAccounts))
-const today = todayIso()
-// A date input is empty until it holds a whole date, so only a full but impossible date shows a message.
+// The date of birth as typed, DD/MM/YYYY. The draft keeps YYYY-MM-DD, and only once all 8 digits are there, so only a
+// full but impossible date shows a message.
+const dobText = ref(isoToDob(draft.value.dob))
 const dobInvalid = computed(() => (draft.value.dob ? validateDob(draft.value.dob) : ''))
+
+// Keep the typed date in DD/MM/YYYY form and the draft in step with it.
+// How to call: onDobInput('18032004')
+function onDobInput(value) {
+  dobText.value = formatDobInput(value)
+  draft.value.dob = dobToIso(dobText.value)
+}
 
 const canContinue = computed(() => {
   const d = draft.value
@@ -143,6 +174,9 @@ function askForPassword() {
 
 // What the username question says when the check could not be made. It is not a refusal: the next press of Next goes on,
 // and the name is checked again when the account is created.
+// Said under the email when an account already uses it; the "Log in" link sits just below.
+const EMAIL_TAKEN = MESSAGES.email_taken
+
 const UNCHECKED = 'Could not check that username right now. Press Next to carry on; it is checked again when you sign up.'
 
 // Is this username free? True when it is, false (with the reason under the field) when it is taken, and false too, with a
@@ -155,7 +189,10 @@ async function usernameFree() {
   phase.value = 'checking'
   try {
     const { available } = await api.checkUsername(name)
-    if (!available) usernameError.value = 'That username is taken. Try another one.'
+    if (!available) {
+      usernameError.value = 'That username is taken. Try another one.'
+      suggestUsernames(name)
+    }
     return available
   } catch (err) {
     if (err?.code) {
@@ -172,9 +209,64 @@ async function usernameFree() {
   }
 }
 
+// How many names to try, and how many free ones to offer. Four tried is the most that is ever asked of the database, and
+// asking stops as soon as three are free.
+const SUGGESTIONS_TRIED = 4
+const SUGGESTIONS_OFFERED = 3
+
+// Find up to 3 free usernames like a taken one (the same name with _<number>, see usernameCandidates) and offer them
+// under the field. At most 4 names are tried: the first 3 together, and the fourth only if one of those was taken. Quiet
+// when the checks fail: the person types another name instead. Dropped when the name was changed in the meantime.
+// How to call: suggestUsernames('testuser_887')
+async function suggestUsernames(taken) {
+  usernameSuggestions.value = []
+  const candidates = usernameCandidates(taken, { count: SUGGESTIONS_TRIED }).slice(0, SUGGESTIONS_TRIED)
+  const free = []
+  let next = 0
+  while (next < candidates.length && free.length < SUGGESTIONS_OFFERED) {
+    // Ask only for as many as are still needed, so a name is never checked once three are free.
+    const wave = candidates.slice(next, next + SUGGESTIONS_OFFERED - free.length)
+    next += wave.length
+    const answers = await Promise.allSettled(wave.map((candidate) => api.checkUsername(candidate)))
+    if (draft.value.username !== taken) return
+    wave.forEach((candidate, i) => {
+      if (answers[i].status === 'fulfilled' && answers[i].value.available) free.push(candidate)
+    })
+  }
+  usernameSuggestions.value = free.slice(0, SUGGESTIONS_OFFERED)
+}
+
+// Use a suggested username. The field changes, so the "taken" message and the suggestions go away.
+// How to call: pickUsername('testuser_888')
+function pickUsername(name) {
+  draft.value.username = name
+}
+
+// Is this email free to sign up with? False (with "already exists" under the field, beside the Log in link) when an
+// account already uses it. The answer comes from the Jio backend, which allows only a few asks a minute for each caller,
+// so this screen does say whether an email has an account; that is the one place it does. When the check cannot be made
+// (no connection, over that limit, the backend or database not answering) the person goes on: the sign-up checks the
+// email again at the end.
+// How to call: if (await emailFree()) draft.value.step += 1
+async function emailFree() {
+  busy.value = true
+  phase.value = 'checking-email'
+  try {
+    const { registered } = await api.checkEmail(draft.value.email.trim())
+    if (registered) emailError.value = EMAIL_TAKEN
+    return !registered
+  } catch {
+    return true
+  } finally {
+    busy.value = false
+    phase.value = ''
+  }
+}
+
 // The Next / Finish button: check this question, then go on to the next one, or create the account on the last.
 // How to call: await next()
 async function next() {
+  if (step.value === 'email') emailTouched.value = true
   if (!canContinue.value || busy.value) return
   submitError.value = ''
   if (step.value === 'password' && reenter.value) {
@@ -182,6 +274,7 @@ async function next() {
     draft.value.step = STEPS.length - 1
     return
   }
+  if (step.value === 'email' && !(await emailFree())) return
   if (step.value === 'username' && !(await usernameFree())) return
   if (draft.value.step < STEPS.length - 1) draft.value.step += 1
   else finish()
@@ -190,8 +283,17 @@ async function next() {
 // What the main button says: its usual word, or what is happening while it waits.
 const buttonLabel = computed(() => {
   if (phase.value === 'checking') return 'Checking username'
+  if (phase.value === 'checking-email') return 'Checking email'
   if (phase.value === 'creating') return 'Creating your account'
   return step.value === STEPS.at(-1) ? 'Finish' : 'Next'
+})
+
+// What the dietary needs question's button says. It can be skipped; on a real account it is also the last question, so it
+// then says "Finish" (and what is happening while the account is made), as the other last questions do.
+// How to call: dietLabel.value -> 'None, skip'
+const dietLabel = computed(() => {
+  if (step.value === STEPS.at(-1)) return buttonLabel.value
+  return draft.value.dietary.length ? 'Next' : 'None, skip'
 })
 
 // Development builds only: the first question also offers the demo account, with or without showcase data
@@ -235,7 +337,10 @@ async function finish() {
     // Show the data layer's message under the question it is about; otherwise above the button.
     const message = err?.message || 'Could not create your account. Try again.'
     const field = fieldForSignUpError(message)
-    if (field === 'username') usernameError.value = message
+    if (field === 'username') {
+      usernameError.value = message
+      if (err?.code === 'username_taken') suggestUsernames(draft.value.username)
+    }
     else if (field === 'name') nameError.value = message
     else if (field === 'dob') dobError.value = message
     else submitError.value = message
@@ -247,8 +352,11 @@ async function finish() {
         submitError.value = ''
         emailError.value = message
         draft.value.step = STEPS.indexOf('email')
+      } else if (err?.code === 'signup_paused') {
+        // Supabase is over a limit, which no answer can fix: stay on the last question with the message above the button.
+        // The password was emptied, so pressing Finish again asks for it once and comes straight back here.
       } else if (!field) {
-        // Nothing to fix in an answer (a weak password, too many attempts, no connection): the password is the thing to retype.
+        // Nothing to fix in an answer (a weak password, no connection): the password is the thing to retype.
         askForPassword()
       }
     }
@@ -288,6 +396,13 @@ function onPhoto(event) {
   reader.readAsDataURL(file)
 }
 
+// Pick a dietary need, or take it off. Any number can be picked, or none.
+// How to call: toggleDiet('halal')
+function toggleDiet(value) {
+  const list = draft.value.dietary
+  draft.value.dietary = list.includes(value) ? list.filter((d) => d !== value) : [...list, value]
+}
+
 // Add a suggested friend, or take them off the list.
 // How to call: toggleFriend('darius')
 function toggleFriend(id) {
@@ -298,6 +413,7 @@ function toggleFriend(id) {
 watch(() => draft.value.username, () => {
   usernameError.value = ''
   usernameUnchecked.value = ''
+  usernameSuggestions.value = []
 })
 watch(() => draft.value.name, () => (nameError.value = ''))
 watch(() => draft.value.dob, () => (dobError.value = ''))
@@ -330,7 +446,20 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
     <form class="screen__body signup__body" novalidate @submit.prevent="next">
       <template v-if="step === 'email'">
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Your email</h1>
-        <TextField v-model="draft.email" label="Email" type="email" autocomplete="email" inputmode="email" placeholder="name@example.com" :error="emailError" autofocus @input="emailError = ''" />
+        <TextField
+          v-model="draft.email"
+          label="Email"
+          type="email"
+          autocomplete="email"
+          inputmode="email"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder="name@example.com"
+          :error="emailShown"
+          autofocus
+          @input="emailError = ''"
+          @blur="emailTouched = true"
+        />
         <div v-if="auth.realAccounts" class="signup__have">
           <span class="body-md text-muted">Already have an account?</span>
           <AppButton variant="tertiary" underline to="/login">Log in</AppButton>
@@ -348,7 +477,10 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
         <ul class="checklist" aria-label="Password checklist" aria-live="polite">
           <li v-for="check in checks" :key="check.label" class="checklist__item" :class="{ 'is-ok': check.ok }">
             <span class="checklist__mark"><AppIcon v-if="check.ok" name="check" :size="10" /></span>
-            <span class="body-sm">{{ check.label }}</span>
+            <span class="checklist__text">
+              <span class="body-sm">{{ check.label }}</span>
+              <span v-if="check.hint" class="checklist__hint">{{ check.hint }}</span>
+            </span>
             <span class="sr-only">{{ check.ok ? 'done' : 'not yet' }}</span>
           </li>
         </ul>
@@ -362,14 +494,15 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
       <template v-else-if="step === 'dob'">
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Date of birth</h1>
         <TextField
-          v-model="draft.dob"
+          :model-value="dobText"
           label="Date of birth"
-          type="date"
+          inputmode="numeric"
           autocomplete="bday"
-          :min="DOB_MIN"
-          :max="today"
-          hint="We need this to create your account."
+          placeholder="DD/MM/YYYY"
+          maxlength="10"
+          hint="DD/MM/YYYY, for example 18/03/2004. We need this to create your account."
           :error="dobError || dobInvalid"
+          @update:model-value="onDobInput"
         />
       </template>
 
@@ -385,6 +518,12 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
           :error="usernameError"
           @input="draft.username = draft.username.toLowerCase()"
         />
+        <div v-if="usernameSuggestions.length" class="signup__suggest" data-testid="username-suggestions">
+          <p id="username-suggest-label" class="body-sm text-muted">These are free:</p>
+          <div class="signup__chips" role="group" aria-labelledby="username-suggest-label">
+            <ChipButton v-for="suggestion in usernameSuggestions" :key="suggestion" class="signup__suggestion" @click="pickUsername(suggestion)">{{ suggestion }}</ChipButton>
+          </div>
+        </div>
       </template>
 
       <template v-else-if="step === 'photo'">
@@ -404,6 +543,22 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
       <template v-else-if="step === 'home'">
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Home area</h1>
         <SelectField v-model="draft.homeAreaId" label="Area" placeholder="Choose an area" :options="areaOptions" />
+      </template>
+
+      <template v-else-if="step === 'diet'">
+        <h1 ref="stepTitle" tabindex="-1" class="display-xl">Dietary needs</h1>
+        <p id="diet-hint" class="body-md text-muted">Pick any that apply, or skip if none do.</p>
+        <div class="signup__diet" role="group" aria-labelledby="diet-hint">
+          <ChipButton
+            v-for="option in DIETARY_OPTIONS"
+            :key="option.value"
+            check
+            :selected="draft.dietary.includes(option.value)"
+            @click="toggleDiet(option.value)"
+          >
+            {{ option.label }}
+          </ChipButton>
+        </div>
       </template>
 
       <template v-else-if="step === 'friends'">
@@ -428,6 +583,9 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
       <template v-if="step === 'photo'">
         <AppButton next block @click="next">{{ draft.photo ? 'Next' : 'Skip' }}</AppButton>
       </template>
+      <template v-else-if="step === 'diet'">
+        <AppButton next block :disabled="busy" @click="next">{{ dietLabel }}</AppButton>
+      </template>
       <template v-else>
         <AppButton next block :disabled="!canContinue || busy" @click="next">{{ buttonLabel }}</AppButton>
       </template>
@@ -448,10 +606,14 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
 .signup__body h1:focus, .signup__body h1:focus-visible { outline: none; }
 .signup__peek { position: absolute; top: 6px; right: 6px; min-width: var(--tap-min); height: var(--tap-min); padding: 0 var(--spacing-md); border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--ink); font: var(--text-button-sm); text-decoration: underline; }
 .checklist { display: flex; flex-direction: column; gap: var(--spacing-sm); }
-.checklist__item { display: flex; align-items: center; gap: var(--spacing-sm); color: var(--muted); }
+.checklist__item { display: flex; align-items: flex-start; gap: var(--spacing-sm); color: var(--muted); }
+.checklist__text { display: flex; flex-direction: column; }
+.checklist__hint { font: var(--text-caption); color: var(--muted); }
 .checklist__item.is-ok { color: var(--ink); }
 .checklist__mark { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1.5px solid var(--border-strong); border-radius: var(--rounded-full); color: var(--on-primary); }
 .checklist__item.is-ok .checklist__mark { border-color: var(--selected); background: var(--selected); }
+.signup__diet, .signup__chips { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
+.signup__suggest { display: flex; flex-direction: column; gap: var(--spacing-sm); }
 .signup__photo { display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-base); }
 .signup__upload { display: inline-flex; align-items: center; gap: var(--spacing-sm); min-height: 48px; padding: 0 var(--spacing-lg); border: 1px solid var(--ink); border-radius: var(--rounded-sm); font: var(--text-button-md); cursor: pointer; }
 .signup__upload:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
