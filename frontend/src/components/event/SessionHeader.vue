@@ -39,7 +39,7 @@ const inviteOpen = ref(false)
 const busy = ref(false)
 
 const status = computed(() => props.session.status)
-const back = computed(() => (props.back ? { label: 'Back', to: props.back } : backFor(props.session, route.path, props.session.hostId === auth.myId, exitFor())))
+const back = computed(() => (props.back ? { label: 'Back', to: props.back } : backFor(props.session, route.fullPath, props.session.hostId === auth.myId, exitFor())))
 // While inviting, the page has its own Invite button, so the header does not repeat it.
 const canInvite = computed(() => ['locating', 'voting'].includes(status.value))
 const canCancel = computed(() => !['completed', 'cancelled'].includes(status.value))

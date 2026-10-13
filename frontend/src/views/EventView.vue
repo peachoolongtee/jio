@@ -8,8 +8,8 @@
 //   - On desktop the timeline is as tall as the map beside it, with the stops spread out.
 //   - In edit mode (the pencil toggle in the header; confirmed plans only) each stop has a Replace button, a delete
 //     button (two stops or more) and a drag handle, with a confirm dialog for delete. Focus lands on the next stop after
-//     a delete. Replace opens the voting page for that one stop (/sessions/:id/plan?replace=<slot>), with the other
-//     places that fit it; choosing one swaps it in and comes back here.
+//     a delete. Replace is the host's, like the rain swap: it opens the plan page for that one stop (/sessions/:id/plan?replace=<slot>),
+//     with the other places that fit it; choosing one puts it in and comes back here.
 //     Outside edit mode the stops carry no controls.
 //   - The end point, and each person's trip home (folded away; anyone over 60 minutes is flagged above).
 //   - In edit mode, drag a stop by its handle (or focus the handle and use the arrow keys) to rearrange the day. Times follow;
@@ -141,10 +141,10 @@ const lateText = computed(() => (lastStop.value ? lateLine(lastStop.value.end, s
 // A confirmed plan with two or more stops can be rearranged, and a stop deleted, while editing.
 const canMove = computed(() => confirmed.value && (itinerary.value?.stops.length || 0) > 1)
 const canEdit = computed(() => canMove.value && editing.value)
-// Any stop of a confirmed plan can be replaced while editing, even when it is the only one.
-const canReplace = computed(() => confirmed.value && editing.value)
+// Any stop of a confirmed plan can be replaced by the host while editing, even when it is the only one. Anyone else proposes a stop instead.
+const canReplace = computed(() => confirmed.value && editing.value && session.value?.hostId === auth.myId)
 
-// Open the voting page for one stop, to choose another place for it.
+// Open the plan page for one stop, to choose another place for it.
 // How to call: replaceStop(stop)
 const replaceStop = (stop) => router.push({ path: `/sessions/${props.id}/plan`, query: { replace: stop.slotId } })
 
@@ -391,8 +391,8 @@ async function endPlan() {
                       :mark="markOf(stop)"
                       :lifted="lifted || selected === stop.venue.id"
                     >
-                      <template v-if="canReplace" #actions>
-                        <IconButton outline :label="`Replace stop: ${stop.venue.name}`" :data-testid="`replace-${stop.slotId}`" @click="replaceStop(stop)"><AppIcon name="swap" /></IconButton>
+                      <template v-if="canReplace || canEdit" #actions>
+                        <IconButton v-if="canReplace" outline :label="`Replace stop: ${stop.venue.name}`" :data-testid="`replace-${stop.slotId}`" @click="replaceStop(stop)"><AppIcon name="search" /></IconButton>
                         <IconButton v-if="canEdit" outline :label="`Delete stop: ${stop.venue.name}`" @click="removing = i"><AppIcon name="trash" /></IconButton>
                       </template>
                       <template v-if="canEdit" #handle>

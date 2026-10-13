@@ -89,6 +89,59 @@ export async function confirmedSave() {
   return built
 }
 
+// The backend's answer to a request for an order: the stops in the reverse order, one after the other, a meal never before
+// its time. `hold` is minutes the Eat stop waits after the stop before it (its table is booked for later), so it starts
+// later than the travel alone would have it.
+// How to call: planner.arrangeItinerary.mockImplementation(async (request) => reversedOrder(request, 60))
+export function reversedOrder(request, hold = 0) {
+  const order = request.stops.map((s) => s.id).reverse()
+  let freeFrom = request.startAt
+  const stops = order.map((id) => {
+    const s = request.stops.find((x) => x.id === id)
+    const start = Math.max(freeFrom + (s.category === 'eat' ? hold : 0), s.category === 'eat' ? s.start : 0)
+    freeFrom = start + s.duration + 10
+    return { id, start, end: start + s.duration }
+  })
+  return { status: 'ok', order, stops, reason: 'Shops first while you are fresh.', source: 'ai', restarted: false, others: 3 }
+}
+
+// A save in which three people voted for Eat, Activity and Shop, the Eat vote split (Ian for the third Eat place, the other two
+// for the first), and the plan was confirmed with the suggested order (reversedOrder: Shop, Activity, then Eat held at its
+// time, after a wait of an hour). The planner must be stubbed. Built once per test file. Returns { text, id }.
+let builtOrdered = null
+export async function orderedSave(planner) {
+  if (builtOrdered) return builtOrdered
+  planner.arrangeItinerary.mockReset().mockImplementation(async (request) => reversedOrder(request, 60))
+  const api = await loadApi()
+  await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2000-01-31', homeAreaId: 'tampines' })
+  const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' })
+  await api.inviteFriends(id, ['jonathan', 'darius'])
+  await api.startSession(id)
+  await api.setLocation(id, 'ian', 'start', { areaId: 'tampines' })
+  await api.setLocation(id, 'jonathan', 'start', { areaId: 'jurong-east' })
+  await api.setLocation(id, 'darius', 'start', { areaId: 'bugis' })
+  await api.useMeetingArea(id)
+  for (const person of ['ian', 'jonathan', 'darius']) await api.setPreferences(id, person, { categories: ['eat', 'activity', 'shop'], until: null })
+  const { slots } = await api.getPlan(id)
+  for (const slot of slots.filter((s) => ['eat', 'activity', 'shop'].includes(s.category))) {
+    for (const person of ['ian', 'jonathan', 'darius']) {
+      const pick = slot.category === 'eat' && person === 'ian' ? slot.options[2] : slot.options[0]
+      await api.vote(id, slot.id, person, pick.id)
+    }
+  }
+  await api.confirmPlan(id, await api.suggestOrder(id))
+  builtOrdered = { text: api.storage.store[STORAGE_KEY], id }
+  return builtOrdered
+}
+
+// api.js loaded on top of orderedSave.
+// How to call: const { api, id } = await loadOrdered(planner)
+export async function loadOrdered(planner, options = {}) {
+  const { text, id } = await orderedSave(planner)
+  const api = await loadApi({ ...options, data: { [STORAGE_KEY]: options.text ?? text } })
+  return { api, id }
+}
+
 // api.js loaded on top of the confirmed save.
 // How to call: const { api, id } = await loadConfirmed({ limit: 200_000 })
 export async function loadConfirmed(options = {}) {

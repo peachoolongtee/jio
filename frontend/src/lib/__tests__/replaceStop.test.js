@@ -2,9 +2,10 @@
 // swap itself), then the itinerary's Replace button and the voting page's replace mode drawn for real (domless.js) on a
 // stand-in planner (planFixture.js).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { format } from 'date-fns'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { VENUES } from '../mock/venues.js'
-import { STORAGE_KEY, loadApi, loadConfirmed, stubPlanner } from './planFixture.js'
+import { STORAGE_KEY, loadApi, loadConfirmed, loadOrdered, orderedSave, stubPlanner } from './planFixture.js'
 import { mountScreen, until } from './domless.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), arrangeItinerary: vi.fn(), lastWeather: { value: null } }))
@@ -33,7 +34,8 @@ const stopOf = (itinerary, category) => itinerary.stops.find((s) => s.category =
 
 describe('the places that could replace a stop (data layer)', () => {
   it('lists the other places that fit the stop, voted ones first with their votes, never the stop itself', async () => {
-    const { api, id } = await loadConfirmed()
+    // Ian alone voted for the third Eat place; the other two voted for the stop's own place, so the stop itself is not offered.
+    const { api, id } = await loadOrdered(planner)
     const eat = stopOf(await api.getItinerary(id), 'eat')
     const { stop, options } = await api.replaceChoices(id, eat.slotId)
     expect(stop).toMatchObject({ slotId: eat.slotId, category: 'eat', duration: eat.duration })
@@ -41,9 +43,15 @@ describe('the places that could replace a stop (data layer)', () => {
     expect(options.map((o) => o.id)).not.toContain(eat.venue.id)
     expect(options.length).toBeGreaterThan(0)
     expect(options.every((o) => o.venue.category === 'eat')).toBe(true)
-    // Nobody voted for the others, so each has 0 votes and the planner's order.
-    expect(options.every((o) => o.votes === 0 && o.swap === null)).toBe(true)
-    expect(options.map((o) => o.score)).toEqual([...options.map((o) => o.score)].sort((a, b) => a - b))
+    // The place Ian voted for has its vote and its voter, and comes first although the planner ranks it behind the other.
+    expect(options.length).toBeGreaterThan(1)
+    expect(options[0]).toMatchObject({ votes: 1, voters: [{ id: 'ian', name: 'Ian' }] })
+    expect(options[0].score).toBeGreaterThan(options[1].score)
+    // Nobody voted for the others: 0 votes, in the planner's order.
+    const rest = options.slice(1)
+    expect(rest.every((o) => o.votes === 0 && o.voters.length === 0)).toBe(true)
+    expect(options.every((o) => o.swap === null)).toBe(true)
+    expect(rest.map((o) => o.score)).toEqual([...rest.map((o) => o.score)].sort((a, b) => a - b))
   })
 
   it('asks the planner about the stop at the time it has in the itinerary now, after a move', async () => {
@@ -69,9 +77,11 @@ describe('the places that could replace a stop (data layer)', () => {
 
 describe('replacing a stop (data layer)', () => {
   it('puts the new place in the stop, at the same time, and leaves the other stop and the votes alone', async () => {
-    const { api, id } = await loadConfirmed()
+    // The suggested order holds Eat at its time, an hour after the stop before it ends, so "the same time" can fail.
+    const { api, id } = await loadOrdered(planner)
     const before = await api.getItinerary(id)
     const eat = stopOf(before, 'eat')
+    expect(eat.start).toBeGreaterThan(before.stops[1].end + before.legs[1].minutes + 30)
     const other = before.stops.find((s) => s.category !== 'eat')
     const votesBefore = (await api.getSession(id)).votes
     const { options } = await api.replaceChoices(id, eat.slotId)
@@ -104,8 +114,10 @@ describe('replacing a stop (data layer)', () => {
   })
 
   it('puts the travel to and from the stop back to its default, and drops the note about the order', async () => {
-    const { api, id } = await loadConfirmed()
+    // Confirmed with a suggested order, so there is a note to drop.
+    const { api, id } = await loadOrdered(planner)
     const before = await api.getItinerary(id)
+    expect(before.aiNote).toMatchObject({ source: 'ai' })
     const leg = before.legs[0]
     // The leg's options are its minutes by mode ({ walk: 12, mrt: 9, car: 6 }).
     const other = Object.keys(leg.options).find((mode) => mode !== leg.mode)
@@ -140,10 +152,11 @@ describe('replacing a stop (data layer)', () => {
 
 // ── The screens ──
 
-// The app's stores and router (stand-in screens) on top of the confirmed save, signed in as its local account.
-// How to call: const t = await setUp()
-async function setUp() {
-  const { api, id } = await loadConfirmed()
+// The app's stores and router (stand-in screens) on top of the confirmed save, signed in as its local account. `load` is
+// another way to load a save: loadOrdered, or a guest's.
+// How to call: const t = await setUp()  or  const t = await setUp(() => loadOrdered(planner))
+async function setUp(load = loadConfirmed) {
+  const { api, id } = await load()
   const { createPinia, setActivePinia } = await import('pinia')
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -213,7 +226,7 @@ describe('the voting page, replacing a stop', () => {
     expect(uses.map((b) => b.attrs['aria-label'])).not.toContain(`Use ${eat.venue.name} instead`)
     expect(view.all('button').some((b) => /^(Vote|Voted)$/.test(view.text(b)))).toBe(false)
     expect(view.text()).not.toContain('Confirm plan')
-    expect(view.text('[data-testid="keep-stop"]')).toBe(`Keep ${eat.venue.name}`)
+    expect(view.text('[data-testid="keep-stop"]')).toBe('Keep this stop')
     expect(errorsOf(view)).toEqual([])
   })
 
@@ -470,7 +483,7 @@ describe('replacing a stop, under stress', () => {
     await view.click('[data-testid="replace-cat-drink"]')
     await until(() => view.has('[data-testid="replace-error"]'))
     expect(view.text('#replace-head')).toBe(activity.venue.name)
-    expect(view.text('[data-testid="keep-stop"]')).toBe(`Keep ${activity.venue.name}`)
+    expect(view.text('[data-testid="keep-stop"]')).toBe('Keep this stop')
     expect(view.has('[data-testid="replace-options"]')).toBe(false)
     await view.click('[data-testid="replace-cat-eat"]')
     await until(() => view.has('[data-testid="replace-options"]'))
@@ -558,5 +571,355 @@ describe('a plan changed again after a stop was replaced (data layer)', () => {
     await again.api.replan(again.id)
     expect((await again.api.getSession(again.id)).status).toBe('voting')
     expect(await again.api.getItinerary(again.id)).toBeNull()
+  })
+})
+// ── What the review of the pull request found ──
+
+// The ordered save, with someone else as its host: the signed-in account (Ian) is a member.
+// How to call: const t = await setUp(guestOrdered)
+async function guestOrdered() {
+  const { text, id } = await orderedSave(planner)
+  const data = JSON.parse(text)
+  data.sessions.find((s) => s.id === id).hostId = 'jonathan'
+  return loadOrdered(planner, { text: JSON.stringify(data) })
+}
+// The plan's stops as they are saved (the earliest start of each is `notBefore`).
+// How to call: savedStops(api, id) -> [{ slotId, venueId, notBefore, ... }]
+const savedStops = (api, id) => JSON.parse(api.storage.store[STORAGE_KEY]).sessions.find((s) => s.id === id).plan.stops
+
+describe('a replaced stop keeps its start (data layer)', () => {
+  it('starts a meal held for later at that time, not at the end of the travel to it', async () => {
+    const { api, id } = await loadOrdered(planner)
+    const before = await api.getItinerary(id)
+    const eat = stopOf(before, 'eat')
+    // The table is held: the stop starts well after the stop before it ends and the travel is over.
+    expect(eat.start).toBeGreaterThan(before.stops[1].end + before.legs[1].minutes + 30)
+    const { options } = await api.replaceChoices(id, eat.slotId)
+    planner.rankSlot.mockClear()
+    await api.replaceStop(id, eat.slotId, options[0].id)
+    // The planner checked the new place for that time, and the itinerary starts it then.
+    expect(planner.rankSlot.mock.calls[0][0].slot.start).toBe(eat.start)
+    expect(stopOf(await api.getItinerary(id), 'eat').start).toBe(eat.start)
+    expect(savedStops(api, id).find((s) => s.slotId === eat.slotId).notBefore).toBe(eat.start)
+  })
+
+  it('keeps a stop added from Roam from starting before the moment it was added', async () => {
+    const { api, id } = await loadConfirmed()
+    const before = await api.getItinerary(id)
+    const last = before.stops.at(-1)
+    const inPlan = new Set(before.stops.map((s) => s.venue.id))
+    const [roamed, other] = VENUES.filter((v) => v.category === 'drink' && !inPlan.has(v.id))
+    // A proposed stop added at some time after the plan ended: it may not start before that.
+    const addedAt = last.end + 180
+    const data = JSON.parse(api.storage.store[STORAGE_KEY])
+    data.sessions.find((s) => s.id === id).plan.stops.push({ slotId: 'roam-pp1', category: 'drink', venueId: roamed.id, plannedStart: last.end, duration: 60, notBefore: addedAt })
+    const again = await loadApi({ data: { [STORAGE_KEY]: JSON.stringify(data) } })
+    expect(stopOf(await again.getItinerary(id), 'drink').start).toBe(addedAt)
+    await again.replaceStop(id, 'roam-pp1', other.id)
+    const after = stopOf(await again.getItinerary(id), 'drink')
+    expect(after.venue.id).toBe(other.id)
+    expect(after.start).toBe(addedAt)
+    expect(savedStops(again, id).find((s) => s.slotId === 'roam-pp1').notBefore).toBeGreaterThanOrEqual(addedAt)
+  })
+})
+
+describe('who may replace a stop, and what a replace keeps in step (data layer)', () => {
+  it('refuses a member who is not the host, for the places and for the change', async () => {
+    const { api, id } = await guestOrdered()
+    const eat = stopOf(await api.getItinerary(id), 'eat')
+    await expect(api.replaceChoices(id, eat.slotId)).rejects.toThrow('Only the host can replace a stop.')
+    await expect(api.replaceStop(id, eat.slotId, 'loos-curry-rice')).rejects.toThrow('Only the host can replace a stop.')
+    expect(stopOf(await api.getItinerary(id), 'eat').venue.id).toBe(eat.venue.id)
+  })
+
+  it('does not keep a rain warning the host dismissed for the place that was replaced', async () => {
+    const { api, id } = await loadOrdered(planner)
+    const eat = stopOf(await api.getItinerary(id), 'eat')
+    await api.dismissRainWarning(id, eat.slotId, 'showers')
+    expect((await api.getSession(id)).weatherDismissed).toHaveProperty(eat.slotId)
+    const { options } = await api.replaceChoices(id, eat.slotId)
+    await api.replaceStop(id, eat.slotId, options[0].id)
+    expect((await api.getSession(id)).weatherDismissed?.[eat.slotId]).toBeUndefined()
+  })
+
+  it('moves the group’s options and the kept details with the stop, so the Vote page no longer shows the old place leading', async () => {
+    const { api, id } = await loadOrdered(planner)
+    const eat = stopOf(await api.getItinerary(id), 'eat')
+    const slotOf = async () => (await api.getPlan(id)).slots.find((s) => s.id === eat.slotId)
+    expect((await slotOf()).leader).toBe(eat.venue.id)
+    const { options } = await api.replaceChoices(id, eat.slotId)
+    await api.replaceStop(id, eat.slotId, options[0].id)
+    const session = await api.getSession(id)
+    expect(session.options[eat.slotId]).toContain(options[0].id)
+    expect(session.options[eat.slotId]).not.toContain(eat.venue.id)
+    const slot = await slotOf()
+    expect(slot.leader).not.toBe(eat.venue.id)
+    expect(slot.options.map((o) => o.id)).not.toContain(eat.venue.id)
+    expect((await api.getItinerary(id)).aiNote).toBeNull()
+  })
+
+  it('takes the old place out of the slot’s options when the stop becomes another category', async () => {
+    const { api, id } = await loadOrdered(planner)
+    const eat = stopOf(await api.getItinerary(id), 'eat')
+    const { options } = await api.replaceChoices(id, eat.slotId, 'drink')
+    await api.replaceStop(id, eat.slotId, options[0].id, 'drink')
+    const session = await api.getSession(id)
+    expect(session.options[eat.slotId]).not.toContain(eat.venue.id)
+    expect(session.options[eat.slotId]).not.toContain(options[0].id)
+  })
+
+  it('refuses a stop that holds another place than the one the caller saw', async () => {
+    const { api, id } = await loadOrdered(planner)
+    const eat = stopOf(await api.getItinerary(id), 'eat')
+    const { options } = await api.replaceChoices(id, eat.slotId)
+    await expect(api.replaceStop(id, eat.slotId, options[0].id, undefined, options[1].id)).rejects.toThrow('That stop has changed')
+    expect(stopOf(await api.getItinerary(id), 'eat').venue.id).toBe(eat.venue.id)
+  })
+
+  it('refuses a stop that moved while the planner answered', async () => {
+    const { api, id } = await loadOrdered(planner)
+    const eat = stopOf(await api.getItinerary(id), 'eat')
+    const { options } = await api.replaceChoices(id, eat.slotId)
+    let release
+    const gate = new Promise((resolve) => { release = resolve })
+    const answer = planner.rankSlot.getMockImplementation()
+    planner.rankSlot.mockImplementation(async (args) => {
+      await gate
+      return answer(args)
+    })
+    planner.rankSlot.mockClear()
+    const pending = api.replaceStop(id, eat.slotId, options[0].id)
+    await until(() => planner.rankSlot.mock.calls.length > 0)
+    // Meanwhile the stop is moved to the front: it has another time now.
+    await api.reorderStops(id, 2, 0)
+    release()
+    await expect(pending).rejects.toThrow('That stop has changed')
+    expect(stopOf(await api.getItinerary(id), 'eat').venue.id).toBe(eat.venue.id)
+  })
+
+  it('ends with the replace asked last when an earlier one was still being checked', async () => {
+    const { api, id } = await loadOrdered(planner)
+    const eat = stopOf(await api.getItinerary(id), 'eat')
+    const [first, second] = (await api.replaceChoices(id, eat.slotId)).options
+    let release
+    const gate = new Promise((resolve) => { release = resolve })
+    const answer = planner.rankSlot.getMockImplementation()
+    planner.rankSlot.mockImplementation(async (args) => {
+      if (args.currentOptionIds.includes(first.id)) await gate
+      return answer(args)
+    })
+    const early = api.replaceStop(id, eat.slotId, first.id)
+    const late = api.replaceStop(id, eat.slotId, second.id)
+    await late
+    release()
+    await expect(early).rejects.toThrow('That stop has changed')
+    expect(stopOf(await api.getItinerary(id), 'eat').venue.id).toBe(second.id)
+  })
+
+  it('never lets both of two replaces checked at once through: the second is refused', async () => {
+    const { api, id } = await loadOrdered(planner)
+    const eat = stopOf(await api.getItinerary(id), 'eat')
+    const [first, second] = (await api.replaceChoices(id, eat.slotId)).options
+    let release
+    const gate = new Promise((resolve) => { release = resolve })
+    const answer = planner.rankSlot.getMockImplementation()
+    planner.rankSlot.mockImplementation(async (args) => {
+      await gate
+      return answer(args)
+    })
+    planner.rankSlot.mockClear()
+    const both = Promise.allSettled([api.replaceStop(id, eat.slotId, first.id), api.replaceStop(id, eat.slotId, second.id)])
+    await until(() => planner.rankSlot.mock.calls.length >= 2)
+    release()
+    const done = await both
+    expect(done.filter((d) => d.status === 'fulfilled')).toHaveLength(1)
+    const refused = done.find((d) => d.status === 'rejected')
+    expect(refused.reason.message).toContain('That stop has changed')
+    const kept = done[0].status === 'fulfilled' ? first : second
+    expect(stopOf(await api.getItinerary(id), 'eat').venue.id).toBe(kept.id)
+  })
+})
+
+describe('the weather of the places that could replace a stop (data layer)', () => {
+  it('ranks for the day the itinerary uses for the stop, and hands on the weather the planner gave', async () => {
+    const { api, id } = await loadOrdered(planner)
+    const eat = stopOf(await api.getItinerary(id), 'eat')
+    const answer = planner.rankSlot.getMockImplementation()
+    planner.rankSlot.mockImplementation(async (args) => {
+      const ranked = await answer(args)
+      const weather = { state: 'showers', rainLikely: true, source: 'live' }
+      return { ...ranked, options: ranked.options.map((o) => ({ ...o, warnings: ['rain'], weather })), current: ranked.current.map((o) => ({ ...o, warnings: ['rain'], weather })) }
+    })
+    planner.rankSlot.mockClear()
+    const { options } = await api.replaceChoices(id, eat.slotId)
+    expect(planner.rankSlot.mock.calls[0][0].date).toBe('2026-10-10')
+    expect(options.length).toBeGreaterThan(0)
+    expect(options.every((o) => o.weather?.state === 'showers')).toBe(true)
+    // With the demo's session-day switch on, the stops are shown today, and so are the places ranked for it.
+    await api.setConditions({ sessionDay: true })
+    planner.rankSlot.mockClear()
+    await api.replaceChoices(id, eat.slotId)
+    expect(planner.rankSlot.mock.calls[0][0].date).toBe(format(new Date(), 'yyyy-MM-dd'))
+    await api.replaceStop(id, eat.slotId, options[0].id)
+    expect(planner.rankSlot.mock.calls.at(-1)[0].date).toBe(format(new Date(), 'yyyy-MM-dd'))
+  })
+})
+
+describe('the itinerary and the plan page, for the host and for a member', () => {
+  it('shows Replace to the host only', async () => {
+    const t = await setUp(guestOrdered)
+    const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
+    const view = await draw(t, `/sessions/${t.id}/itinerary`, 'EventView')
+    await until(() => view.has('button[aria-label="Edit itinerary"]'))
+    await view.click('button[aria-label="Edit itinerary"]')
+    await until(() => view.all('button').some((b) => (b.attrs['aria-label'] || '').startsWith('Delete stop')))
+    // The member can edit the day (Delete is there) but not replace a stop.
+    expect(view.has(`[data-testid="replace-${eat.slotId}"]`)).toBe(false)
+    expect(errorsOf(view)).toEqual([])
+  })
+
+  it('tells a member who opens the replace page that only the host can, offers the way back, and asks the planner nothing', async () => {
+    const t = await setUp(guestOrdered)
+    const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
+    planner.rankSlot.mockClear()
+    const view = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
+    await until(() => view.has('[data-testid="replace-host-only"]'))
+    expect(view.text('[data-testid="replace-host-only"]')).toContain('Only the host can replace a stop')
+    expect(useButtonsOf(view)).toEqual([])
+    expect(view.has('[data-testid="replace-options"]')).toBe(false)
+    expect(planner.rankSlot).not.toHaveBeenCalled()
+    expect(view.text('[data-testid="keep-stop"]')).toBe('Back to the itinerary')
+    await view.click('[data-testid="keep-stop"]')
+    await until(() => t.router.currentRoute.value.path === `/sessions/${t.id}/itinerary`)
+    expect(errorsOf(view)).toEqual([])
+  })
+})
+
+// The buttons that choose a place, by their labels.
+// How to call: useButtonsOf(view) -> [button, ...]
+const useButtonsOf = (view) => view.all('button').filter((b) => (b.attrs['aria-label'] || '').endsWith(' instead'))
+
+describe('the replace page', () => {
+  it('names the people who voted for a place, with "You" for the signed-in person, and offers Use this place as a quiet button', async () => {
+    const t = await setUp(() => loadOrdered(planner))
+    const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
+    const view = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
+    await until(() => view.has('[data-testid="replace-options"]'))
+    expect(view.text('[data-testid="replace-options"]')).toContain('You voted')
+    const uses = useButtonsOf(view)
+    expect(uses.length).toBeGreaterThan(1)
+    for (const button of uses) expect((button.attrs.class || '').split(/\s+/)).toContain('btn--secondary')
+    expect(errorsOf(view)).toEqual([])
+  })
+
+  it('keeps its footer button short whatever the place is called', async () => {
+    const t = await setUp()
+    const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
+    const view = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
+    await until(() => view.has('[data-testid="replace-options"]'))
+    expect(view.text('[data-testid="keep-stop"]')).toBe('Keep this stop')
+    expect(view.text('[data-testid="keep-stop"]')).not.toContain(eat.venue.name)
+  })
+
+  it('says what is true about the stop’s time', async () => {
+    const t = await setUp()
+    const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
+    const view = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
+    await until(() => view.has('[data-testid="replace-options"]'))
+    expect(view.text('[data-testid="replace-view"]')).toContain('This stop keeps its start')
+    expect(view.text('[data-testid="replace-view"]')).toContain('Later stops may move with the travel time')
+    expect(view.text('[data-testid="replace-view"]')).not.toContain('It keeps its time')
+  })
+
+  it('lights Itinerary and goes back to it, as the photos and the map do', async () => {
+    const t = await setUp()
+    const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
+    const view = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
+    await until(() => view.has('[data-testid="replace-options"]'))
+    // The steps bar itself is not drawn by this stand-in page; the steps are tested below (stepsFor) and the back link here.
+    expect(view.has('[aria-label="Back to Itinerary"]')).toBe(true)
+    expect(view.has('[aria-label="Back to Home"]')).toBe(false)
+  })
+
+  it('offers Try again beside the error when the planner cannot be reached on opening, and lists the places once it can', async () => {
+    const t = await setUp()
+    const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
+    const answer = planner.rankSlot.getMockImplementation()
+    planner.rankSlot.mockRejectedValue(new Error('The planner could not be reached.'))
+    const view = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
+    await until(() => view.has('[data-testid="replace-error"]'))
+    await until(() => view.has('[data-testid="replace-retry"]') && !view.one('[data-testid="replace-retry"]').attrs.disabled)
+    expect(view.text('[data-testid="replace-retry"]')).toBe('Try again')
+    planner.rankSlot.mockReset().mockImplementation(answer)
+    await view.click('[data-testid="replace-retry"]')
+    await until(() => view.has('[data-testid="replace-options"]'))
+    expect(view.has('[data-testid="replace-error"]')).toBe(false)
+    expect(errorsOf(view)).toEqual([])
+  })
+
+  it('asks again when the category whose places could not be loaded is pressed again', async () => {
+    const t = await setUp()
+    const activity = stopOf(await t.api.getItinerary(t.id), 'activity')
+    const view = await draw(t, `/sessions/${t.id}/plan?replace=${activity.slotId}`, 'PlannerView')
+    await until(() => view.has('[data-testid="replace-options"]'))
+    const answer = planner.rankSlot.getMockImplementation()
+    planner.rankSlot.mockImplementation(async (args) => {
+      if (args.slot.category === 'drink') throw new Error('The planner could not be reached.')
+      return answer(args)
+    })
+    await view.click('[data-testid="replace-cat-drink"]')
+    await until(() => view.has('[data-testid="replace-error"]'))
+    planner.rankSlot.mockImplementation(answer)
+    await view.click('[data-testid="replace-cat-drink"]')
+    await until(() => view.has('[data-testid="replace-options"]'))
+    expect(view.has('[data-testid="replace-error"]')).toBe(false)
+  })
+
+  it('offers to delete the stop when the plan has another stop', async () => {
+    const t = await setUp()
+    const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
+    planner.rankSlot.mockImplementation(async () => ({ options: [], current: [], widened: false, few: null, empty: null }))
+    const two = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
+    await until(() => two.text().includes('Nothing else fits'))
+    expect(two.text()).toContain('delete it from the itinerary')
+  })
+
+  it('does not offer to delete the only stop', async () => {
+    const t = await setUp()
+    planner.rankSlot.mockImplementation(async () => ({ options: [], current: [], widened: false, few: null, empty: null }))
+    await t.api.deleteStop(t.id, 1)
+    const only = (await t.api.getItinerary(t.id)).stops[0]
+    const one = await draw(t, `/sessions/${t.id}/plan?replace=${only.slotId}`, 'PlannerView')
+    await until(() => one.text().includes('Nothing else fits'))
+    expect(one.text()).toContain('keep this stop.')
+    expect(one.text()).not.toContain('delete')
+  })
+
+  it('marks an indoor place by the weather the planner gave, not as outdoor in rain by default', async () => {
+    const t = await setUp()
+    const eat = stopOf(await t.api.getItinerary(t.id), 'eat')
+    const answer = planner.rankSlot.getMockImplementation()
+    planner.rankSlot.mockImplementation(async (args) => {
+      const ranked = await answer(args)
+      const weather = { state: 'showers', rainLikely: true, source: 'live' }
+      return { ...ranked, options: ranked.options.map((o) => ({ ...o, warnings: ['rain'], weather })), current: ranked.current.map((o) => ({ ...o, warnings: ['rain'], weather })) }
+    })
+    const view = await draw(t, `/sessions/${t.id}/plan?replace=${eat.slotId}`, 'PlannerView')
+    await until(() => view.has('[data-testid="replace-options"]'))
+    expect(view.text('[data-testid="replace-options"]')).toContain('Outdoor, showers')
+    expect(view.text('[data-testid="replace-options"]')).not.toContain('rain expected')
+  })
+})
+
+describe('the steps bar on the replace page', () => {
+  it('lights Itinerary and goes back to it for a confirmed plan, and stays on Vote for a plan still being voted on', async () => {
+    const { backFor, stepsFor } = await import('@/components/event/SessionSteps.vue')
+    const confirmed = { id: 's1', status: 'confirmed', plan: {}, meeting: {}, activeIds: ['a', 'b'] }
+    const path = '/sessions/s1/plan?replace=eat'
+    expect(stepsFor(confirmed, path).find((s) => s.here).key).toBe('itinerary')
+    expect(stepsFor(confirmed, path).find((s) => s.key === 'itinerary').exact).toBe(false)
+    expect(backFor(confirmed, path)).toEqual({ label: 'Back to Itinerary', to: '/sessions/s1/itinerary' })
+    expect(stepsFor(confirmed, '/sessions/s1/plan').find((s) => s.here).key).toBe('vote')
+    expect(stepsFor({ ...confirmed, status: 'voting' }, path).find((s) => s.here).key).toBe('vote')
   })
 })
