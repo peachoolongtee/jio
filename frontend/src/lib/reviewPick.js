@@ -3,7 +3,7 @@
 // Pure functions of the reviews and of who is who; no screen is involved.
 //   const ctx = { outing: ['faith', 'darius'], friends: ['faith', 'nicole'], self: 'ian' }
 //   cardLine(venue, ctx)  ->  { count: 4, review: { name: 'Faith', text: '...', ... } }
-import { HOST_ID } from './mock/people.js'
+import { currentUserId } from './currentUser.js'
 import { reviewsFor } from './mock/reviews.js'
 
 // How far to the front a review sits: 0 for someone in this outing, 1 for a friend, 2 for anyone else.
@@ -28,7 +28,7 @@ export function orderReviews(reviews, ctx = {}) {
 // is never chosen, and a stranger's never is (the card says how many there are instead).
 // How to call: pickReview(reviews, { outing: ['faith'], friends: ['nicole'], self: 'ian' })
 export function pickReview(reviews, ctx = {}) {
-  const self = ctx.self ?? HOST_ID
+  const self = ctx.self ?? currentUserId()
   const first = orderReviews(reviews.filter((r) => r.personId !== self), ctx)[0]
   return first && reviewRank(first, ctx) < 2 ? first : null
 }

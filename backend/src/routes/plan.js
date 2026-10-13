@@ -2,15 +2,22 @@ import { Router } from 'express'
 import { ZodError } from 'zod'
 import { converge, meetingArea, meetingAreaPlan, resolveMembers, roam, searchVenues } from '../planner/engine.js'
 import { fromGooglePlaces } from '../planner/google-adapter.js'
-import { centroid, fairnessWeights, minimaxCenter } from '../planner/geo.js'
+import { centroid, fairnessWeights, haversineKm, minimaxCenter } from '../planner/geo.js'
 import { dropKnownPlaces, withEstimatedMrtWalk } from '../db/venues.js'
-import { GoogleUnavailableError, PHOTO_NAME, snapPhotoWidth } from '../services/google-places.js'
-import { LIVE_WEATHER_CASE, withLiveWeather } from '../planner/live-weather.js'
+import {
+  GOOGLE_TIMEOUT_MS,
+  GoogleUnavailableError,
+  PHOTO_NAME,
+  PLACE_ID,
+  PLACE_SEARCH_FIELDS,
+  snapPhotoWidth,
+} from '../services/google-places.js'
+import { createWeatherResolver, placeVenues } from '../planner/weather-window.js'
 import { OneMapUnavailableError } from '../services/budget.js'
 import { ExternalApiError } from '../services/errors.js'
 import { currentScenario } from '../services/scenario.js'
 import { estimateTravel, ROUTING_DEADLINE_MS, runWithRealTravel } from '../services/travel-times.js'
-import { makePlanSchemas } from './plan-schemas.js'
+import { MAX, makePlanSchemas, SINGAPORE_BOUNDS } from './plan-schemas.js'
 import { arrangeCandidates, freshCandidates } from '../planner/arrange.js'
 import { createItineraryAi } from '../services/itinerary-ai.js'
 
@@ -19,8 +26,10 @@ import { createItineraryAi } from '../services/itinerary-ai.js'
 //   POST /api/meeting-area  where the group should meet (a named MRT station or neighbourhood)
 //   POST /api/converge      rank venues for the group around a point (one call per itinerary slot)
 //   POST /api/roam          rank venues near one person's current point ("What next?")
-//   POST /api/search        find a venue by name to add as an option, and say whether it fits the slot
-//   GET  /api/places/search find an address, postal code or building with OneMap, for start and end points
+//   POST /api/search        find a venue by name, address or postal code to add as an option (our places, OneMap for a
+//                           postal code, and Google), and say whether it fits the slot
+//   GET  /api/places/search find an address, postal code or building with OneMap (and a place by name with Google, when
+//                           OneMap finds nothing), for start and end points and meeting spots
 //   GET  /api/places/photo  a Google place photo, by its name (redirects to the image; the key stays on the server)
 //   POST /api/itinerary/arrange  a new order for a confirmed itinerary, chosen by an AI, Gemini or Claude (food stays at meal times)
 //
@@ -31,11 +40,15 @@ import { createItineraryAi } from '../services/itinerary-ai.js'
 //   createPlanRouter({ data, weather, onemap, routingDeadlineMs: 50 })
 //
 // Weather. /converge and /roam score each venue against the weather, and say where it came from in a top-level
-// `weather: { source, validUntil?, simulationIgnored? }`:
-//   live         the two-hour forecast from data.gov.sg (cached for five minutes). Each venue is scored from the
-//                forecast of its nearest forecast area. `validUntil` is when that forecast ends.
+// `weather: { source, basis, issuedAt?, validUntil?, phrase?, reason?, simulationIgnored? }`. Which forecast is used
+// depends on how far away the stop's `dateTime` is (planner/weather-window.js):
+//   live         the area forecast (two-hour) when the stop is within two hours, or the regional forecast (24-hour)
+//                when a period of it covers the stop. Each venue is scored from the forecast of its nearest forecast
+//                area, or of the region that area falls in. `validUntil` is when that forecast ends.
 //   simulated    the request sent `weatherCase` and the server allows it (ALLOW_SIMULATED_WEATHER=1, or stub mode).
+//                It applies at any date.
 //   unavailable  the forecast could not be fetched. The planner falls back to the `clear` case and still answers.
+//   none         the stop is further ahead than the regional forecast reaches: weather has no effect on the ranking.
 // A request that sends `weatherCase` to a server that does not allow it is still answered: the field is ignored,
 // the real forecast is used, and the answer carries `weather.simulationIgnored: true`. The frontend sends
 // `weatherCase` on every ranking, so refusing it would break every slot.
@@ -62,19 +75,79 @@ const MEETING_CANDIDATES_WITH_ROUTING = 16
 // Of those, only the 5 whose estimated result is best get real routes. The others keep the estimate.
 const MEETING_AREAS_ROUTED = 5
 
+// What one ranking may spend on Google besides its nearby search, for the places in `currentOptionIds` that Google
+// has to be asked about (MAX.googleOptions of them are read from the request). Of those not already cached or
+// remembered as missing, at most this many are looked up, and at most this many at once, so one request cannot hold
+// every one of the 4 Google slots, and an invented id costs one paid call, once, not one per request.
+const GOOGLE_LOOKUPS_PER_REQUEST = 3
+const GOOGLE_LOOKUPS_AT_ONCE = 2
+
+// All that Google may add to one ranking (the nearby search and the look-ups together) waits at most one Google call
+// timeout plus this grace, so a hung Google costs a ranking about 3 seconds, not the 9 the two steps took in turn.
+const GOOGLE_GRACE_MS = 250
+
+// Where a place search with no meeting point leans: the middle of Singapore, and a circle around it (in metres) wide
+// enough to take in the whole island (about 50 km across; Google allows up to 50,000 m).
+const SINGAPORE_CENTRE = { lat: 1.3521, lng: 103.8198 }
+const SINGAPORE_BIAS_METERS = 25_000
+
+// The location search asks Google only for a name that could be a place: at least this many characters, with a letter in
+// it. A postal code and each prefix of what a person is typing are OneMap's to answer.
+const MIN_PLACE_QUERY = 4
+
+// POST /api/search does not ask Google for fewer characters than this, nor match an address with fewer.
+const MIN_SEARCH_QUERY = 3
+
 // Google places. /converge and /roam add restaurants, cafés, bars, dessert shops, malls and private activities (bowling,
-// cinemas, karaoke, arcades, galleries...) from Google near the point they
-// rank around, for that request only (Google's terms do not allow saving them), and say so in
-// `google: { source, added }`:
-//   google        `added` places came from Google (places the venue list already has are skipped)
+// cinemas, karaoke, arcades, galleries...) from Google near the point they rank around, and the Google places the group
+// already has as options (looked up by id), for that request only (Google's terms do not allow saving them), and say so in
+// `google: { source, added, missing? }`:
+//   google        `added` places came from Google near the point (places the venue list already has are skipped)
 //   off           this server has no GOOGLE_MAPS_API_KEY
 //   not_needed    the request asked for no category Google is used for
 //   unavailable   Google could not be used (it failed, its budget of calls for the minute is used up, or it is paused after
 //                 repeated failures); the planner answers with its other venues
+// `missing` is there only when Google is on and some option ids "google_..." in `currentOptionIds` could not be looked
+// up this time (Google no longer has the place, a look-up failed or was over this request's limit, or it is not an outing).
+
+// Runs `fn` on each item, at most `limit` at a time and in order, and starts no new one once `stop()` says so. The
+// slot of an item that was never started stays undefined.
+//
+// How to call:
+//   await inPool(ids, 2, async (id) => lookUp(id), () => deadline.passed())
+async function inPool(items, limit, fn, stop = () => false) {
+  let next = 0
+  const worker = async () => {
+    while (next < items.length && !stop()) await fn(items[next++])
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+}
+
+// A timer for one request. `race(promise)` resolves to DEADLINE_PASSED when the time is up before the promise settles; the
+// promise itself keeps running (the Google service ends it with its own timeout) and a late failure is not reported.
+// `stop()` clears the timer and must always be called.
+//
+// How to call:
+//   const deadline = startDeadline(3250)
+//   try { const out = await deadline.race(work()) } finally { deadline.stop() }
+const DEADLINE_PASSED = Symbol('deadline passed')
+function startDeadline(ms) {
+  let timer
+  let passed = false
+  const expired = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      passed = true
+      resolve(DEADLINE_PASSED)
+    }, ms)
+  })
+  return { passed: () => passed, race: (promise) => Promise.race([promise, expired]), stop: () => clearTimeout(timer) }
+}
 
 export function createPlanRouter({
   data,
   weather,
+  now = Date.now,
+  weatherResolver = createWeatherResolver({ data, weather, now }),
   onemap = null,
   places = null,
   ai = createItineraryAi(),
@@ -93,25 +166,12 @@ export function createPlanRouter({
   // Works out which weather one request is scored against. Never throws because data.gov.sg is down.
   //
   // How to call:
-  //   const { source, validUntil, weatherCase, planData } = await resolveWeather(input)
-  async function resolveWeather(input) {
-    if (input.weatherCase !== undefined) return { source: 'simulated', weatherCase: input.weatherCase, planData: data }
-    try {
-      const forecast = await weather.twoHourForecast()
-      return {
-        source: 'live',
-        validUntil: forecast.validPeriod.end ?? undefined,
-        weatherCase: LIVE_WEATHER_CASE,
-        planData: withLiveWeather(data, forecast),
-        forecast,
-      }
-    } catch (err) {
-      // Only an API failure falls back. A bug must still reach the error handler.
-      if (!(err instanceof ExternalApiError)) throw err
-      console.warn(`Weather unavailable, planning as if clear: ${err.message}`)
-      return { source: 'unavailable', weatherCase: 'clear', planData: data }
-    }
-  }
+  //   const resolved = await resolveWeather(input) // { weatherCase, planData, forecast, weather, ... }
+  //
+  // `resolved` is also what placeVenues(resolved, venues) needs to put a venue added later in the request under the
+  // same weather (see readyGoogleVenues). Its `forecast` is the same shape for the area and the regional forecast, and
+  // undefined for a simulated forecast and for "no effect".
+  const resolveWeather = (input) => weatherResolver.resolve({ start: input.dateTime, weatherCase: input.weatherCase })
 
   // The point a request ranks around: Roam's current point, Converge's given centre, or else the group's seed point,
   // worked out from the same functions and the same rule as the engine's converge() (its `seed` and
@@ -130,18 +190,77 @@ export function createPlanRouter({
     return centroid(starts, fairnessWeights(members, input.fairnessScaleMinutes ?? 60))
   }
 
-  // Adds Google's restaurants and cafés near the ranking point to this request's plan data. Places the venue list
-  // already has are skipped. With a live forecast, each is placed in its forecast area the way every other venue is.
-  // Never throws because Google is down.
+  // Venues from Google places, ready for the engine: each placed under the weather the ranking is scored on (all four
+  // bases, see placeVenues in planner/weather-window.js) and given an estimated walk to the MRT, like the nearby ones.
+  // `resolved` is what resolveWeather() answered; without it (POST /api/search, which does not score weather) venues
+  // keep their own region label.
   //
   // How to call:
-  //   const { planData: withGoogle, google } = await addGooglePlaces(input, planData, forecast)
-  async function addGooglePlaces(input, planData, forecast) {
+  //   const venues = readyGoogleVenues(fromGooglePlaces(raw, dateTime), resolved)
+  function readyGoogleVenues(venues, resolved = null) {
+    const placed = resolved ? placeVenues(resolved, venues) : venues
+    return placed.map((v) => withEstimatedMrtWalk(v, data.areas))
+  }
+
+  // The Google place ids "google_..." in the request's options that the plan data does not have (a place someone found
+  // by searching is usually not among the 20 nearest), in order and once each.
+  //
+  // How to call:
+  //   const ids = googleOptionIds(input, planData) // ['google_ChIJ...']
+  const googleOptionIds = (input, planData) => {
+    const known = new Set(planData.venues.map((v) => v.id))
+    return [...new Set(input.currentOptionIds ?? [])].filter((id) => id.startsWith('google_') && !known.has(id))
+  }
+
+  // Looks up the Google places the group already has as options, by id, so the ranking knows them. Cheap by design:
+  // a place cached or remembered as missing costs nothing, at most GOOGLE_LOOKUPS_PER_REQUEST of the others are asked
+  // for, at most GOOGLE_LOOKUPS_AT_ONCE at once, and none starts after the deadline. Whatever is not found this time
+  // is simply left out; the caller lists it. Never throws because Google is down.
+  //
+  // How to call:
+  //   const venues = await lookUpGoogleOptions(input, planData, resolved, deadline) // ready venues
+  async function lookUpGoogleOptions(input, planData, resolved, deadline) {
+    const wanted = googleOptionIds(input, planData)
+      .filter((id) => PLACE_ID.test(id.slice(7)))
+      .slice(0, MAX.googleOptions)
+    const found = [] // Filled as look-ups finish, so those done before the deadline still count.
+    const toAsk = []
+    for (const id of wanted) {
+      const plan = places.peekDetails?.(id.slice(7)) ?? { state: 'call' }
+      if (plan.state === 'cached') found.push(plan.place)
+      else if (plan.state === 'call' && toAsk.length < GOOGLE_LOOKUPS_PER_REQUEST) toAsk.push(id)
+    }
+    await deadline.race(
+      inPool(
+        toAsk,
+        GOOGLE_LOOKUPS_AT_ONCE,
+        async (id) => {
+          try {
+            const raw = await places.details(id.slice(7))
+            if (raw) found.push(raw)
+          } catch (err) {
+            // Only an API failure is "not found this time". A bug must still reach the error handler.
+            if (!(err instanceof ExternalApiError)) throw err
+          }
+        },
+        deadline.passed,
+      ),
+    )
+    // A searched place that is not an outing (a bank typed in by hand) is not rankable.
+    const venues = fromGooglePlaces([...found], input.dateTime ?? nowInSingapore(), { searched: true }).filter((v) => !v.notAnOuting)
+    return readyGoogleVenues(venues, resolved)
+  }
+
+  // Google's restaurants, cafés and so on near the ranking point, ready for the engine; places the plan data already
+  // has are skipped. Never throws because Google is down.
+  //
+  // How to call:
+  //   const { venues, google } = await nearbyGoogleVenues(input, planData, resolved)
+  async function nearbyGoogleVenues(input, planData, resolved) {
     const wanted = (input.categories ?? (input.current ? ['eat', 'drink', 'activity'] : ['eat', 'drink'])).filter((c) => ['eat', 'drink', 'shop', 'activity'].includes(c))
-    if (!places?.enabled) return { planData, google: { source: 'off', added: 0 } }
-    if (wanted.length === 0) return { planData, google: { source: 'not_needed', added: 0 } }
+    if (wanted.length === 0) return { venues: [], google: { source: 'not_needed', added: 0 } }
     const point = rankingPoint(input)
-    if (!point) return { planData, google: { source: 'not_needed', added: 0 } }
+    if (!point) return { venues: [], google: { source: 'not_needed', added: 0 } }
     let raw
     try {
       raw = await places.nearby(point, { categories: wanted, radiusMeters: input.radiusMeters ?? 1000 })
@@ -149,17 +268,161 @@ export function createPlanRouter({
       // Only an API failure falls back. A bug must still reach the error handler. The Google service logs the
       // failure itself, at most once a minute per reason, so it is not logged again here.
       if (!(err instanceof ExternalApiError)) throw err
-      return { planData, google: { source: 'unavailable', added: 0 } }
+      return { venues: [], google: { source: 'unavailable', added: 0 } }
     }
     // Only places of the categories this request is for: a dessert shop Google sends for a café search is food.
     // A place Google sent in a shape the adapter cannot read is skipped, never fatal.
-    let fresh = dropKnownPlaces(
+    const fresh = dropKnownPlaces(
       fromGooglePlaces(raw, input.dateTime).filter((v) => wanted.includes(v.category)),
       planData.venues,
     )
-    if (forecast) fresh = withLiveWeather({ ...planData, venues: fresh }, forecast).venues
-    fresh = fresh.map((v) => withEstimatedMrtWalk(v, data.areas))
-    return { planData: { ...planData, venues: [...planData.venues, ...fresh] }, google: { source: 'google', added: fresh.length } }
+    const venues = readyGoogleVenues(fresh, resolved)
+    return { venues, google: { source: 'google', added: venues.length } }
+  }
+
+  // Adds Google's places to this request's plan data: the nearby search and the look-ups of the options already chosen,
+  // run together under one deadline (one Google call timeout plus a short grace). Never throws because Google is down.
+  // Says what happened in `google` (see the top of this file), with `missing`: the ids "google_..." among the options
+  // that could not be looked up this time.
+  //
+  // How to call:
+  //   const { planData: withGoogle, google } = await addGoogle(input, planData, resolved)
+  async function addGoogle(input, planData, resolved) {
+    if (!places?.enabled) return { planData, google: { source: 'off', added: 0 } }
+    const deadline = startDeadline((places.timeoutMs ?? GOOGLE_TIMEOUT_MS) + GOOGLE_GRACE_MS)
+    let nearby
+    let options
+    try {
+      // The options are looked up without waiting for the nearby search, so a place that is also one of the 20 nearest
+      // may be asked for once more than needed; it is dropped below, and cached for the next request.
+      ;[nearby, options] = await Promise.all([
+        deadline.race(nearbyGoogleVenues(input, planData, resolved)),
+        lookUpGoogleOptions(input, planData, resolved, deadline),
+      ])
+    } finally {
+      deadline.stop()
+    }
+    if (nearby === DEADLINE_PASSED) nearby = { venues: [], google: { source: 'unavailable', added: 0 } }
+    const have = new Set([...planData.venues, ...nearby.venues].map((v) => v.id))
+    const looked = options.filter((v) => !have.has(v.id))
+    const venues = [...planData.venues, ...nearby.venues, ...looked]
+    const present = new Set(venues.map((v) => v.id))
+    const missing = googleOptionIds(input, planData).filter((id) => !present.has(id))
+    return {
+      planData: nearby.venues.length || looked.length ? { ...planData, venues } : planData,
+      google: { ...nearby.google, ...(missing.length > 0 && { missing }) },
+    }
+  }
+
+  // A Google place as a row of the location search, or null when it is not one to show: no name (Google sometimes sends
+  // a place without one), a name that is only digits (a bare address), no point, or a point outside Singapore (the bias
+  // prefers places on the island but does not exclude others).
+  //
+  // How to call:
+  //   const row = googleRow(rawPlace) // { name, address, postal, lat, lng, source: 'google' } or null
+  function googleRow(p) {
+    const lat = p?.location?.latitude
+    const lng = p?.location?.longitude
+    const name = typeof p?.displayName?.text === 'string' ? p.displayName.text.trim() : ''
+    if (name === '' || /^\d+$/.test(name)) return null
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    const { lat: la, lng: lo } = SINGAPORE_BOUNDS
+    if (lat < la.min || lat > la.max || lng < lo.min || lng > lo.max) return null
+    const address = typeof p.formattedAddress === 'string' ? p.formattedAddress : ''
+    return { name, address, postal: address.match(/Singapore (\d{6})/)?.[1] ?? null, lat, lng, source: 'google' }
+  }
+
+  // Addresses, postal codes and buildings for GET /api/places/search: OneMap first (free, and it knows every address
+  // and postal code). Only when OneMap finds nothing, and the words look like a place's name (a letter in them, at least
+  // MIN_PLACE_QUERY characters), Google's text search adds places by name (a shop, a karaoke, a landmark OneMap does not
+  // list), asking for no more than a name, an address and a point. Each is { name, address, postal, lat, lng, source },
+  // at most 10: source says 'onemap' or 'google', and postal is a string or null. Throws ExternalApiError only when
+  // neither could answer.
+  //
+  // How to call:
+  //   const results = await searchAddresses('Teo Heng')
+  async function searchAddresses(q) {
+    let found = []
+    let failure = null
+    if (onemap) {
+      try {
+        // A copy: OneMap's answer is the array in its 24-hour cache, and nothing here may change that.
+        found = (await onemap.search(q)).map((r) => ({ ...r, source: 'onemap' }))
+      } catch (err) {
+        if (!(err instanceof ExternalApiError)) throw err
+        failure = err
+      }
+    }
+    if (found.length === 0 && places?.enabled && q.length >= MIN_PLACE_QUERY && /\p{L}/u.test(q)) {
+      try {
+        const raw = await places.searchText(q, SINGAPORE_CENTRE, { fieldMask: PLACE_SEARCH_FIELDS, biasMeters: SINGAPORE_BIAS_METERS })
+        const seen = new Set()
+        for (const p of raw) {
+          const row = googleRow(p)
+          const key = row && `${row.name.toLowerCase()}|${row.address.toLowerCase()}`
+          if (!row || seen.has(key)) continue
+          seen.add(key)
+          found.push(row)
+        }
+        // OneMap's failure is forgotten only when Google had something to show in its place.
+        if (found.length > 0) failure = null
+      } catch (err) {
+        if (!(err instanceof ExternalApiError)) throw err
+      }
+    }
+    if (failure && found.length === 0) throw failure
+    // A home address comes back from OneMap named only by its postal code ("760201"): name it by its street address.
+    return found.slice(0, 10).map((r) => (/^\d+$/.test(r.name ?? '') && r.address ? { ...r, name: r.address } : r))
+  }
+
+  // POST /api/search: our saved places by name, area or address; for a postal code, also the saved places at that
+  // building (found with OneMap); and Google's places matching the words (text search near the meeting point), so a
+  // place like "Teo Heng" or "Have Fun Karaoke" can be found even though it is not saved and not among the 20 nearest.
+  // Google's places come back with an id starting "google_"; adding one as an option works because the ranking looks
+  // it up by id (lookUpGoogleOptions). Says where Google stood in `google: { source, added }` as /converge does ('not_needed'
+  // for words shorter than MIN_SEARCH_QUERY characters, which Google is not asked). OneMap or Google being down never
+  // fails the search: it answers with what it has.
+  //
+  // How to call (the route does this):
+  //   const { results, google } = await searchEverywhere(input, data)
+  async function searchEverywhere(input, planData) {
+    const query = input.query.trim()
+    const postal = /^\d{6}$/.test(query)
+    const alsoMatch = []
+    let venues = planData.venues
+
+    // A postal code: the saved places within 150 m of the building OneMap finds for it.
+    if (postal && onemap) {
+      try {
+        const [hit] = await onemap.search(query)
+        if (hit) for (const v of venues) if (haversineKm(hit, v) <= 0.15) alsoMatch.push(v.id)
+      } catch (err) {
+        if (!(err instanceof ExternalApiError)) throw err
+      }
+    }
+
+    // Google: places matching whatever was typed, near the meeting point. Every kind is kept: a place of another kind
+    // than the slot comes back marked 'category', so the screen can say "Eat, not Activity" instead of hiding it.
+    let google = { source: 'off', added: 0 }
+    if (places?.enabled && query.length < MIN_SEARCH_QUERY) {
+      google = { source: 'not_needed', added: 0 }
+    } else if (places?.enabled) {
+      try {
+        const raw = await places.searchText(postal ? `Singapore ${query}` : query, input.centre)
+        // Google sometimes answers a postal code with the bare address, named only by its number: not a place to go.
+        const named = raw.filter((p) => !/^\d+$/.test(p?.displayName?.text ?? ''))
+        // Saved places are matched by name only: an unrelated saved place of the same kind close by must not hide it.
+        const fresh = readyGoogleVenues(dropKnownPlaces(fromGooglePlaces(named, input.dateTime, { searched: true }), venues, { sameKindMeters: 0 }))
+        for (const v of fresh) alsoMatch.push(v.id)
+        venues = [...venues, ...fresh]
+        google = { source: 'google', added: fresh.length }
+      } catch (err) {
+        if (!(err instanceof ExternalApiError)) throw err
+        google = { source: 'unavailable', added: 0 }
+      }
+    }
+
+    return { results: searchVenues({ ...input, alsoMatch }, { ...planData, venues }), google }
   }
 
   // Runs the engine with real OneMap travel times when routing is on, and with the estimate otherwise.
@@ -221,10 +484,9 @@ export function createPlanRouter({
       }
       // A simulated forecast the server does not allow is dropped, and the answer says so.
       const simulationIgnored = input.weatherCase !== undefined && !allowSimulatedWeather
-      const { source, validUntil, weatherCase, planData: weatherData, forecast } = await resolveWeather(
-        simulationIgnored ? { ...input, weatherCase: undefined } : input,
-      )
-      const { planData, google } = await addGooglePlaces(input, weatherData, forecast)
+      const resolved = await resolveWeather(simulationIgnored ? { ...input, weatherCase: undefined } : input)
+      const { weatherCase, planData: weatherData, weather: weatherBlock } = resolved
+      const { planData, google } = await addGoogle(input, weatherData, resolved)
       const { result, travel } = usesTravel
         ? await runWithTravel(withOptionCounts({ ...input, weatherCase }), planData, run, travelOptions)
         : { result: await run(withOptionCounts({ ...input, weatherCase }), planData, depsFor()) }
@@ -232,11 +494,7 @@ export function createPlanRouter({
         ...result,
         ...(travel && { travel }),
         google,
-        weather: {
-          source,
-          ...(validUntil !== undefined && { validUntil }),
-          ...(simulationIgnored && { simulationIgnored: true }),
-        },
+        weather: { ...weatherBlock, ...(simulationIgnored && { simulationIgnored: true }) },
       })
     } catch (err) {
       if (err instanceof ZodError) {
@@ -279,7 +537,7 @@ export function createPlanRouter({
   )
   router.post('/converge', ...guard, handle(schemas.converge, converge, { usesWeather: true, usesTravel: true }))
   router.post('/roam', ...guard, handle(schemas.roam, roam, { usesWeather: true, usesTravel: true }))
-  router.post('/search', ...guard, handle(schemas.search, (input, planData) => ({ results: searchVenues(input, planData) })))
+  router.post('/search', ...guard, handle(schemas.search, searchEverywhere))
 
   // A new order for a confirmed itinerary. Food stops keep their place, so meals stay at meal times; the other
   // stops are put in the order the AI (Gemini or Claude) finds nicest among the orders that keep every place open
@@ -323,17 +581,18 @@ export function createPlanRouter({
     }
   })
 
-  // GET /api/places/search?q=520201 -> { results: [{ name, address, postal, lat, lng }] }, at most 10.
-  // For start and end points. Answers 503 when OneMap cannot be reached or this server has no OneMap service.
+  // GET /api/places/search?q=520201 -> { results: [{ name, address, postal, lat, lng, source }] }, at most 10.
+  // For start and end points and meeting spots: OneMap, and Google by name when OneMap finds nothing and the words
+  // look like a name (searchAddresses). Answers 503 when neither can answer or this server has neither.
   // When the server's shared OneMap call budget is used up it also sends Retry-After, in whole seconds.
   router.get('/places/search', ...guard, async (req, res, next) => {
     try {
       const { q } = schemas.placeSearch.parse(req.query)
-      if (!onemap) {
+      if (!onemap && !places?.enabled) {
         res.status(503).json({ error: 'search_unavailable', message: 'Address search is not set up on this server.' })
         return
       }
-      res.json({ results: (await onemap.search(q)).slice(0, 10) })
+      res.json({ results: await searchAddresses(q) })
     } catch (err) {
       if (err instanceof ZodError) {
         invalid(res, err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })))

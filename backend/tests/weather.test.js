@@ -399,10 +399,10 @@ describe('the planner routes and the weather', () => {
     const converge = await post('/converge', slot)
     expect(converge.status).toBe(200)
     expect(converge.body.status).toBe('ok')
-    expect(converge.body.weather).toEqual({ source: 'unavailable' })
+    expect(converge.body.weather).toEqual({ source: 'unavailable', basis: 'none', reason: 'unavailable' })
     const roam = await post('/roam', roamBody)
     expect(roam.status).toBe(200)
-    expect(roam.body.weather).toEqual({ source: 'unavailable' })
+    expect(roam.body.weather).toEqual({ source: 'unavailable', basis: 'none', reason: 'unavailable' })
     expect(warn).toHaveBeenCalled()
   })
 
@@ -453,7 +453,7 @@ describe('the planner routes and the weather', () => {
     const post = await start({ http: { getJson }, allowSimulatedWeather: true })
     const res = await post('/converge', { ...slot, weatherCase: 'rain' })
     expect(res.status).toBe(200)
-    expect(res.body.weather).toEqual({ source: 'simulated' })
+    expect(res.body.weather).toEqual({ source: 'simulated', basis: 'simulated' })
     expect(getJson).not.toHaveBeenCalled()
     // The venues carry the old five-region labels in a simulated forecast.
     res.body.results.forEach((r) => expect(['central', 'east', 'west', 'north', 'northeast']).toContain(r.venue.forecastArea))

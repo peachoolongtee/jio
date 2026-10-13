@@ -1,4 +1,4 @@
-// The signed-in person (Ian, the host) and the sign-up draft.
+// The signed-in person and the sign-up draft.
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '@/lib/api.js'
@@ -35,6 +35,14 @@ export const useAuthStore = defineStore('auth', () => {
   const realAccounts = api.realAccountsOn()
 
   const signedIn = computed(() => !!user.value)
+  // The signed-in person's id, as components compare it: the sample person's id for the demo account and local accounts,
+  // the Supabase user id for a real one, '' for nobody. The same id lib/currentUser.js gives the stores and the data layer.
+  // How to call: <span v-if="session.hostId === auth.myId">You</span>
+  const myId = computed(() => user.value?.id ?? '')
+  // Does this person's world hold the sample friends and sample leaderboard? True for the demo account and local accounts,
+  // false for a real account, which starts with nobody but itself.
+  // How to call: <button v-if="auth.sampleWorld">Add friend</button>
+  const sampleWorld = computed(() => !!user.value && !user.value.authId)
 
   // Was the session in this tab started by a password reset link, and not yet finished with? The reset page shows its form
   // only when this is true and someone is signed in. Memory only (lib/auth.js): a reload without the link makes it false.
@@ -220,6 +228,8 @@ export const useAuthStore = defineStore('auth', () => {
     syncNotice,
     realAccounts,
     signedIn,
+    myId,
+    sampleWorld,
     init,
     signUp,
     signIn,

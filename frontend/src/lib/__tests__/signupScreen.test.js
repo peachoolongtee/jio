@@ -24,6 +24,12 @@ beforeEach(() => {
   planner.emailRegistered.mockReset().mockResolvedValue(false)
 })
 
+// The questions, in order, are: 0 email, 1 password, 2 name, 3 date of birth, 4 username, 5 photo, 6 home area, 7 dietary
+// needs, 8 suggested friends. A real account is not offered the sample people as friends, so its last question is the
+// dietary needs (step 7); local accounts also get "Suggested friends" (step 8).
+// How to call: lastStep(fakeSupabase()) -> 7
+const lastStep = (fake) => (fake ? 7 : 8)
+
 // The sign-up screen with the draft filled in and on the last question. `fake` null means local accounts only.
 // How to call: const t = await setUp(fakeSupabase(), { password: 'weak' })
 async function setUp(fake, draft = {}) {
@@ -33,14 +39,14 @@ async function setUp(fake, draft = {}) {
   setActivePinia(pinia)
   const { useAuthStore } = await import('@/stores/auth.js')
   const store = useAuthStore()
-  Object.assign(store.draft, { ...PROFILE, step: 8, ...draft })
+  Object.assign(store.draft, { ...PROFILE, step: lastStep(fake), ...draft })
   const { routes } = await import('@/router/routes.js')
   const stub = { render: () => null }
   const router = createRouter({ history: createMemoryHistory(), routes: routes.map((r) => ({ ...r, component: stub })) })
   await router.push('/signup')
   const { default: AuthView } = await import('@/views/AuthView.vue')
   const view = await mountScreen(AuthView, { plugins: [pinia, router] })
-  await until(() => store.draft.step === (draft.step ?? 8))
+  await until(() => store.draft.step === (draft.step ?? lastStep(fake)))
   return { fake, store, router, view }
 }
 
@@ -86,6 +92,54 @@ describe('the password rule on screen', () => {
   })
 })
 
+describe('the order of the questions', () => {
+  // Each question's heading, in order, by walking the draft's step from the first to the last.
+  // How to call: const titles = await walk(fakeSupabase())
+  async function walk(fake) {
+    const { view, store } = await setUp(fake, { step: 0 })
+    const titles = []
+    for (let step = 0; step <= lastStep(fake); step += 1) {
+      store.draft.step = step
+      await view.tick()
+      titles.push(view.text('h1'))
+    }
+    return { titles, last: store.draft.step }
+  }
+  const FIRST_SEVEN = ['Your email', 'Create a password', 'Your name', 'Date of birth', 'Pick a username', 'Profile photo', 'Home area']
+
+  it('is email, password, name, date of birth, username, photo, home area, then dietary needs, and ends there for a real account', async () => {
+    const { titles, last } = await walk(fakeSupabase())
+    expect(titles).toEqual([...FIRST_SEVEN, 'Dietary needs'])
+    expect(last).toBe(7)
+  })
+
+  it('has the suggested friends after the dietary needs for a local account, and ends there', async () => {
+    const { titles, last } = await walk(null)
+    expect(titles).toEqual([...FIRST_SEVEN, 'Dietary needs', 'Suggested friends'])
+    expect(last).toBe(8)
+  })
+})
+
+describe('suggested friends', () => {
+  it('are not offered to a real account, which starts with nobody but itself, and are kept for local accounts', async () => {
+    // A real account: the home area (step 6) is followed by the dietary needs (step 7), which is the last question.
+    const real = await setUp(fakeSupabase(), { step: 6 })
+    expect(real.view.text('h1')).toBe('Home area')
+    expect(real.view.text(mainButton(real.view))).toContain('Next')
+    real.store.draft.step = 7
+    await until(() => real.view.text('h1') === 'Dietary needs')
+    expect(real.view.text()).not.toContain('Suggested friends')
+    expect(real.view.text(mainButton(real.view))).toContain('Finish')
+    // A local account: the dietary needs (step 7) are followed by the friends (step 8), the last question.
+    const local = await setUp(null, { step: 7 })
+    expect(local.view.text('h1')).toBe('Dietary needs')
+    expect(local.view.text(mainButton(local.view))).toContain('None, skip')
+    local.store.draft.step = 8
+    await until(() => local.view.text('h1') === 'Suggested friends')
+    expect(local.view.text(mainButton(local.view))).toContain('Finish')
+  })
+})
+
 describe('the first question', () => {
   it('offers a way to log in when accounts are real, and not otherwise', async () => {
     const real = await setUp(fakeSupabase(), { step: 0 })
@@ -117,7 +171,7 @@ describe('a failed sign-up', () => {
     await until(() => store.draft.step === 1)
     view.type('input[autocomplete=new-password]', 'Sup3rSecret!')
     await view.click(mainButton(view))
-    await until(() => store.draft.step === 8)
+    await until(() => store.draft.step === lastStep(fake))
     expect(fake.state.signUpCalls).toHaveLength(1)
     await view.click(mainButton(view))
     await until(() => store.signedIn)
@@ -318,8 +372,8 @@ describe('creating the account', () => {
 })
 
 describe('the dietary question', () => {
-  it('comes after the home area, offers halal, vegetarian and vegan, and can be skipped', async () => {
-    const { view, store } = await setUp(fakeSupabase(), { step: 7, dietary: [] })
+  it('comes after the home area, offers halal, vegetarian and vegan, and can be skipped (a local account, which goes on to the friends)', async () => {
+    const { view, store } = await setUp(null, { step: 7, dietary: [] })
     expect(view.text('h1')).toBe('Dietary needs')
     const chips = view.all('button').filter((b) => ['Halal', 'Vegetarian', 'Vegan'].includes(view.text(b)))
     expect(chips.map((b) => view.text(b))).toEqual(['Halal', 'Vegetarian', 'Vegan'])
@@ -329,7 +383,19 @@ describe('the dietary question', () => {
     expect(store.draft.dietary).toEqual([])
   })
 
-  it('picks and unpicks any number of needs, and sends them with the sign-up', async () => {
+  it('is the last question of a real account: it can be finished with none picked, and then says so', async () => {
+    const { view, store, fake } = await setUp(fakeSupabase(), { step: 7, dietary: [] })
+    expect(view.text('h1')).toBe('Dietary needs')
+    expect(view.text(mainButton(view))).toContain('Finish')
+    await view.click(mainButton(view))
+    await until(() => store.signedIn)
+    expect(fake.state.signUpCalls[0].options.data.dietary).toEqual([])
+    expect(store.user.dietary).toEqual([])
+    await until(() => fake.state.priv['uid-1'].dietary !== undefined)
+    expect(fake.state.priv['uid-1'].dietary).toEqual([])
+  })
+
+  it('picks and unpicks any number of needs, and sends them with the sign-up (a real account finishes on this question)', async () => {
     const { view, store, fake } = await setUp(fakeSupabase(), { step: 7, dietary: [] })
     const chip = (label) => view.all('button').find((b) => view.text(b) === label)
     await view.click(chip('Halal'))
@@ -337,13 +403,24 @@ describe('the dietary question', () => {
     await view.click(chip('Vegan'))
     await view.click(chip('Vegetarian'))
     expect(store.draft.dietary).toEqual(['halal', 'vegetarian'])
-    expect(view.text(mainButton(view))).not.toContain('skip')
+    expect(view.text(mainButton(view))).toContain('Finish')
+    await view.click(mainButton(view))
+    await until(() => store.signedIn)
+    expect(fake.state.signUpCalls[0].options.data.dietary).toEqual(['halal', 'vegetarian'])
+    expect(store.user.dietary).toEqual(['halal', 'vegetarian'])
+    await until(() => fake.state.priv['uid-1'].dietary.length === 2)
+  })
+
+  it('goes on to the friends, then finishes, for a local account that picks some', async () => {
+    const { view, store } = await setUp(null, { step: 7, dietary: [] })
+    const chip = (label) => view.all('button').find((b) => view.text(b) === label)
+    await view.click(chip('Halal'))
+    expect(view.text(mainButton(view))).toContain('Next')
     await view.click(mainButton(view))
     await until(() => store.draft.step === 8)
     await view.click(mainButton(view))
     await until(() => store.signedIn)
-    expect(store.user.dietary).toEqual(['halal', 'vegetarian'])
-    await until(() => fake.state.priv['uid-1'].dietary.length === 2)
+    expect(store.user.dietary).toEqual(['halal'])
   })
 })
 
@@ -516,11 +593,11 @@ describe('suggestions for a taken username', () => {
 
 describe('a sign-up refused for being over a limit', () => {
   it('stays on the last question with "Sign-ups are paused" above the button, not on the password', async () => {
-    const { view, store } = await setUp(fakeSupabase(), { password: 'limited' })
+    const { view, store, fake } = await setUp(fakeSupabase(), { password: 'limited' })
     await view.click(mainButton(view))
     await until(() => view.has('[data-testid="signup-error"]'))
     expect(view.text('[data-testid="signup-error"]')).toBe('Sign-ups are paused for a few minutes. Try again later.')
-    expect(store.draft.step).toBe(8)
+    expect(store.draft.step).toBe(lastStep(fake))
     expect(view.text()).not.toContain('Enter your password again.')
   })
 
@@ -532,7 +609,7 @@ describe('a sign-up refused for being over a limit', () => {
     await until(() => store.draft.step === 1)
     view.type('input[autocomplete=new-password]', 'Sup3rSecret!')
     await view.click(mainButton(view))
-    await until(() => store.draft.step === 8)
+    await until(() => store.draft.step === lastStep(fake))
     await view.click(mainButton(view))
     await until(() => store.signedIn)
     expect(fake.state.signUpCalls).toHaveLength(2)

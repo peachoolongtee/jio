@@ -173,11 +173,15 @@ describe('the Vote page\'s use of them', () => {
   it('gives each card its stop, the group size and the signed-in person', () => {
     expect(source).toContain(':stop="{ start: slot.start, duration: slot.duration }"')
     expect(source).toContain(':group-size="active.length"')
-    expect(source).toContain(':me="HOST_ID"')
+    expect(source).toContain(':me="auth.myId"')
   })
 
-  it('returns focus to the name when it opened the detail, and to the review line otherwise', () => {
-    expect(source).toContain("reviewing.value?.from === 'name' ? 'data-open-for' : 'data-review-for'")
+  it('returns focus to the name when it opened the detail, and to the review line otherwise (through the helper the Roam page shares)', () => {
+    // The open-and-close logic moved to lib/usePlaceDetail.js, which both pages use; its behaviour is tested in usePlaceDetail.test.js.
+    const helper = readFileSync(new URL('../usePlaceDetail.js', import.meta.url), 'utf8')
+    expect(helper).toContain("const CONTROL = { name: 'data-open-for', review: 'data-review-for' }")
+    expect(source).toContain("from '@/lib/usePlaceDetail.js'")
+    expect(source).toContain('usePlaceDetail(() => session.value)')
     expect(source).toContain('@open="openReviews"')
   })
 })

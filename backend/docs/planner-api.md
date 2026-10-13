@@ -264,12 +264,12 @@ What to show for each result:
 
 | Field | UI meaning |
 |---|---|
-| `explanation` | One sentence on why it ranked here. |
+| `explanation` | One sentence on why it ranked here. It says "within budget" only for a venue whose price is known (not `dataQuality.priceAssumed`). |
 | `verify` | Diet needs we only *guessed* from a stall name. Say "check the stall". |
 | `dietUnknown` | Diet needs we have *no* data on (lenient mode only). Say "halal status not known". |
 | `crowd` | `quiet`, `moderate`, `busy` or `unknown`. Always label it as an estimate ("Busy · est."). |
 | `walkMinutes` | Walk from the meeting point (Converge) or the current point (Roam). Same formula as the frontend's `walkMinutes`. |
-| `reasons` | Up to two tags, same ones and same order as the frontend: "Indoor" (when it rains), "Easy trip home" (last stop, everyone home within 35 min), "Near MRT", "Quiet at 12:30", "Short walk", "Hidden gem", "Budget friendly". |
+| `reasons` | Up to two tags, same ones and same order as the frontend: "Indoor" (when it rains), "Easy trip home" (last stop, everyone home within 35 min), "Near MRT", "Quiet at 12:30", "Short walk", "Hidden gem", "Budget friendly" (under $10, and only when the price is known: a venue with `dataQuality.priceAssumed` never gets it, whatever its source. That is every OneMap and CDC place, and a Google place with no price level). |
 | `warnings` | `["rain"]` when rain is likely (risk 0.6 or more) at an open-air or exposed venue. |
 | `swap` | With a rain warning: `{ "venueId", "name" }` of an indoor alternative that is not already shown or in `currentOptionIds`, or `null` if none is within 3 km. |
 | `approximate` | At least one travel time is an estimate: routing failed for it, or its venue did not fit the per-request cap on OneMap calls. |
@@ -297,7 +297,15 @@ Same as `/api/converge`, with these differences:
 
 ## POST /api/search
 
-Find a place by name to add as an option (the frontend's `searchVenuesForSlot`). It matches the venue name, its area, or the name of a stall at a CDC site ("Ming Kee Chicken Rice" finds the hawker centre it is in).
+Find a place to add as an option (the frontend's `searchVenuesForSlot`), by name, address or postal code. It looks in three places:
+
+- **Our saved places:** the venue name, its area, its address (only for words of 3 or more characters), or the name of a stall at a CDC site ("Ming Kee Chicken Rice" finds the hawker centre it is in).
+- **A postal code (6 digits):** OneMap finds the building, and our saved places within 150 m of it match.
+- **Google** (with `GOOGLE_MAPS_API_KEY`): a text search for the words near `centre` ("Teo Heng", "Havefun Karaoke", or "Singapore 238843" for a postal code). Places of every kind are kept (one of another kind than the slot comes back with `unfit: ["category"]`, so the screen says "Eat, not Activity"), places we already have are skipped (compared by name only: a saved place of the same kind close by does not hide it), words shorter than 3 characters are not sent to Google (`google.source` is `not_needed`), and Google's review minimum is not applied: the group asked for that place by name. These results have ids starting `google_` and `source: "google"`. The answer says where Google stood in `google: { source, added }`, as `/converge` does.
+
+A Google place added as an option is not saved anywhere but its id. Every ranking that has it in `currentOptionIds` looks it up again by id (Place Details; see "Venues from Google" for the limits), so it is scored like any other option. OneMap or Google being down never fails the search: it answers with what it has. In the answer, matches that hold the words in their name come before those matched by area, address or Google, among places that fit equally.
+
+**A searched Google place that is not an outing.** A place found by name that Google does not type as food, drink, a shop or an outing (a bank, a clinic, a school, an ATM, a petrol station, a temple that is not also a tourist attraction, a place with no types) comes back with `fits: false` and `unfit: ["not_an_outing", ...]`, the reason first, so the screen can say "not somewhere to go" instead of showing nothing. A tuition centre, a school or an advert for a name is marked the same way. It cannot be taken as an option: a ranking that gets its id in `currentOptionIds` leaves it out and lists it in `google.missing`. The list of types that count as outings (`OUTING_TYPES`) is in `planner/google-adapter.js`.
 
 Request: the slot's fields, so the answer says whether the place fits.
 
@@ -340,6 +348,7 @@ Places that fit come first, then by walking time. `distanceKm` is rounded here. 
 | `capacity` | Too small for the group. |
 | `far` | More than `maxKm` from the meeting point. |
 | `closed_for_cleaning` | A hawker centre's NEA cleaning or repair day. |
+| `not_an_outing` | A Google place found by name that is not something to do (a bank, a clinic, a school). Always first in the list. |
 
 ## Errors
 
@@ -381,6 +390,131 @@ Every error has the same flat body: `{ "error": "<code>", "message": "<text>" }`
 
 `/api/meeting-area` and `/api/search` do not use weather and have no `weather` field.
 
+### Which forecast, by how far away the stop is
+
+Added 11 Oct 2026 (ticket #108). Before this, every ranking used the two-hour forecast as of now, whatever the date of the outing. Now the stop's `dateTime` (Singapore local time) decides. "Now" comes from the server clock, compared as Singapore local time; the server's own time zone plays no part.
+
+| The stop starts | `weather.basis` | What scores the venues |
+|---|---|---|
+| within 2 hours of now, or already in the past, or no `dateTime` | `area` | The area forecast (two-hour), as before. Each venue takes the forecast of its nearest two-hour area. |
+| later than that, when a period of the regional forecast covers the start | `regional` | The regional forecast (24-hour). Each venue takes the forecast of the region its two-hour area falls in (a fixed table in `backend/src/services/weather-regions.js`). |
+| later than that, and no period covers it (or it is more than 25 hours away) | `none` | **Weather has no effect**: no weather penalty beyond the `clear` case, no rain warning, no indoor swap, no "Indoor" reason tag. |
+| any date, when the request sends `weatherCase` and the server allows it | `simulated` | The simulated case, as before. The forecast window does not apply, so "Simulate rain" shows the new marks for an outing next week. |
+
+The regional forecast reaches 18 to 24 hours (and up to 25 minutes) ahead, depending on when NEA last issued it: a stop up to 18 hours away is always covered, one 18 to 24 hours away only part of the time. The number of periods (three or four) is not assumed. The server checks that the forecast's last period has not ended; an answer that has run out of periods covers nothing and counts as unavailable.
+
+**The `weather` block of a ranking.** Every field the answer had keeps its meaning. New fields are additive:
+
+| Field | Meaning |
+|---|---|
+| `source` | `live` (area or regional forecast used), `simulated`, `unavailable` (the forecast could not be fetched or used), or **`none`** (new: the stop is outside the forecast window, so no weather applies; nothing is wrong). A client that only knows `live`, `simulated` and `unavailable` treats `none` as "no weather information". |
+| `basis` | `area`, `regional`, `simulated` or `none`. |
+| `issuedAt` | When NEA issued the forecast used. Not for `simulated` or `none`. |
+| `validUntil` | When the forecast used ends: the area forecast's end, or the end of the regional period that covers the stop. |
+| `phrase` | NEA's own phrase, only when the whole forecast used has just one (for example every area says "Fair (Day)"). Left out otherwise: each result carries its own. |
+| `reason` | Only with `basis: 'none'`: `outside_window` (a screen can say "Weather is checked from the day before") or `unavailable` (the forecast failed; `source` is `unavailable` too). |
+| `simulationIgnored` | As before. |
+
+Real examples. A stop this evening, scored from the regional forecast; a stop next week; a simulated one; and one whose forecast failed:
+
+```json
+{ "source": "live", "basis": "regional", "issuedAt": "2026-10-11T14:42:00+08:00", "validUntil": "2026-10-11T18:00:00+08:00" }
+{ "source": "none", "basis": "none", "reason": "outside_window" }
+{ "source": "simulated", "basis": "simulated" }
+{ "source": "unavailable", "basis": "none", "reason": "unavailable" }
+```
+
+**Each result carries `weather`,** and so does the `swap` venue:
+
+```json
+"weather": { "state": "thundery", "phrase": "Thundery Showers", "rainLikely": true }
+```
+
+| Field | Meaning |
+|---|---|
+| `state` | One of `dry`, `cloudy`, `showers`, `thundery`, and `unknown` ("Not known"). Every sentence in `RAIN_RISK` has a state in the table beside it (`FORECAST_STATE` in `services/weather.js`); a sentence not in the table is `unknown` and logged once. A simulated case has no sentence: `showers` when rain is likely, `dry` otherwise. With `basis: 'none'` it is `unknown`. |
+| `phrase` | NEA's own phrase for the venue's area or region, or `null` (simulated, or none). |
+| `rainLikely` | The planner's threshold (risk 0.6 or more). It is true over an indoor venue too: only an exposed one earns the rain warning (`warnings: ["rain"]`, with a `swap`). |
+
+A real exposed result and its swap, from a simulated rain for a stop next week:
+
+```json
+{
+  "name": "Food stalls at 40 Beo Crescent Dbs Havelock Road",
+  "warnings": ["rain"],
+  "weather": { "state": "showers", "phrase": null, "rainLikely": true },
+  "swap": {
+    "venueId": "loos-curry-rice",
+    "name": "Loo's Hainanese Curry Rice",
+    "weather": { "state": "showers", "phrase": null, "rainLikely": true }
+  }
+}
+```
+
+Weather does not change which meeting spots `/api/meeting-area` suggests. Roam's list does use it.
+
+**A forecast that cannot be used never fails a request.** If the regional forecast fails, times out, is malformed, has no period, or has only periods that have ended, the answer is 200 with `basis: 'none'` and `reason: 'unavailable'`. It never falls back to the area forecast for a stop the regional one should cover. The failure is logged once a minute at most, for each forecast.
+
+**Bounds on the weather service.** data.gov.sg allows 6 calls per 10 seconds without a key, possibly shared between the two forecasts.
+
+| Forecast | Cached | Failure remembered | Timeout | Shared in-flight |
+|---|---|---|---|---|
+| Area (two-hour) | 5 minutes | 30 seconds | the HTTP helper's 10 seconds | yes |
+| Regional (24-hour) | 10 minutes (NEA issues it four times a day) | 30 seconds | the same | yes |
+
+A request makes at most one call per forecast kind, through the cache. A stop more than 25 hours away fetches nothing.
+
+## POST /api/weather/stops
+
+The weather at the stops of a plan. The itinerary asks when it opens and every 30 minutes on the day. It does not rank anything and suggests no swap. It sits under the same rate limit as the planner routes (the same counter), and `weatherCase` follows the same rule as there.
+
+Request:
+
+```json
+{
+  "stops": [
+    { "id": "park", "point": { "lat": 1.3333, "lng": 103.7424 }, "start": "2026-10-11T15:30", "setting": "outdoor", "exposure": 5 },
+    { "id": "cafe", "point": { "lat": 1.3333, "lng": 103.7424 }, "start": "2026-10-11T15:30", "setting": "indoor", "exposure": 0 },
+    { "id": "late", "point": { "lat": 1.3333, "lng": 103.7424 }, "start": "2026-10-12T22:00" }
+  ]
+}
+```
+
+| Field | Rule |
+|---|---|
+| `stops` | 1 to 8, with different `id`s. |
+| `id` | 1 to 80 characters. |
+| `point` | `lat` 1.1 to 1.5 and `lng` 103.5 to 104.1 (as everywhere in the planner). |
+| `start` | `"YYYY-MM-DDTHH:MM"`, Singapore local time, like `dateTime`. |
+| `exposure` | Optional, 0 to 5. Missing counts as 0, so a stop that does not say how exposed it is earns no warning. |
+| `setting` | Optional: `indoor`, `outdoor` or `mixed`. |
+| `weatherCase` | Optional, as in `/converge`: used when the server allows it, otherwise ignored and flagged. |
+
+Response (real output, with the clock at 12:30 on 11 Oct 2026 and the recorded regional forecast, where the west and centre were thundery in the afternoon and the east and south were not; a fourth stop in the east, which was dry, is left out here):
+
+```json
+{
+  "stops": [
+    { "id": "park", "basis": "regional", "issuedAt": "2026-10-11T14:42:00+08:00", "validUntil": "2026-10-11T18:00:00+08:00",
+      "state": "thundery", "phrase": "Thundery Showers", "rainLikely": true, "rainWarning": true },
+    { "id": "cafe", "basis": "regional", "issuedAt": "2026-10-11T14:42:00+08:00", "validUntil": "2026-10-11T18:00:00+08:00",
+      "state": "thundery", "phrase": "Thundery Showers", "rainLikely": true, "rainWarning": false },
+    { "id": "late", "basis": "none", "reason": "outside_window",
+      "state": "unknown", "phrase": null, "rainLikely": false, "rainWarning": false }
+  ],
+  "weather": { "source": "live", "basis": "mixed", "issuedAt": "2026-10-11T14:42:00+08:00", "validUntil": "2026-10-11T18:00:00+08:00" }
+}
+```
+
+Per stop: `basis`, `state`, `phrase`, `rainLikely`, and `rainWarning` (the planner's rule: rain likely, not `indoor`, exposure 2 or more). With a forecast it also has `issuedAt` and `validUntil`; with `basis: 'none'` it has `reason`.
+
+The top-level `weather` block has the same fields as a ranking's, summarising the stops: `basis` is the stops' shared basis, or **`mixed`** when they differ (this route only); `issuedAt` and `validUntil` are the earliest among the forecasts used; `phrase` is there only when every stop with a forecast has the same one; `source` is `simulated`, else `live` if any stop has a forecast, else `unavailable` if any failed, else `none`; `reason` appears when no stop has a forecast.
+
+Errors are the flat shape: 400 `invalid_input` with `issues` (for example `stops.0.point.lat`, `stops.0.start`, `stops.0.exposure`, or `stops` for 9 stops), 429 `rate_limited`.
+
+What the screen half still needs: the on-the-day check (call this route when the itinerary opens and every 30 minutes, show a banner when `rainWarning` turns true for a stop still to come, and ask the host to accept or dismiss the swap with `POST /api/converge` or `/roam` for the indoor alternative); and the data.gov.sg attribution, see [external-apis.md](external-apis.md#nea-24-hour-regional-forecast).
+
+
 ## Getting more options per slot
 
 By default a slot gets few options, because of two limits:
@@ -420,7 +554,7 @@ The **screen's** limit is separate, and it's the frontend's: `OPTIONS_START` (3)
 With `GOOGLE_MAPS_API_KEY` set, `/api/converge` and `/api/roam` add up to 20 of the nearest places from Google Places: restaurants, cafés, bars and dessert shops for food and drink slots, shopping malls for shop slots, and bowling, cinemas, karaoke, arcades, amusement centres, galleries, the zoo and aquarium for activity slots (OneMap already supplies parks, sport centres, museums, libraries and theatres). Only places of the slot's category are added. A mall needs at least 50 Google reviews and an activity 30; an activity whose name is an advert or a school is left out; and a place whose name says it has closed is left out. They're added for that request only, never saved, because Google's terms don't allow it. Every answer says:
 
 ```json
-"google": { "source": "google", "added": 16 }
+"google": { "source": "google", "added": 16, "missing": ["google_ChIJabc"] }
 ```
 
 | `source` | Meaning |
@@ -430,7 +564,9 @@ With `GOOGLE_MAPS_API_KEY` set, `/api/converge` and `/api/roam` add up to 20 of 
 | `not_needed` | The request asked for no category Google is used for |
 | `unavailable` | Google couldn't be used: it failed or timed out, the server's Google call budget for the minute is used up, or Google is paused after repeated failures. The answer uses the other venues |
 
-**How many Google calls this makes.** Every Google call, searches and photos together, is counted against one budget for the whole server: `GOOGLE_CALLS_PER_MINUTE` (default 60), with at most 4 calls running at once. A call over the budget is not made, and the answer says `unavailable`. A search is cached for 10 minutes, and its radius is rounded up to 500, 1000, 2000 or 3000 m before it is asked or cached (so `radiusMeters: 1001` and `2000` share one search; the circle always covers what was asked). A Google call waits at most 3 seconds. After 3 failures in a row (a timeout, a network error, a 4xx or 5xx, or an answer that cannot be read) Google is skipped for 60 seconds, and one success closes the pause again. A failure is logged at most once a minute per reason. An answer where `places` is not a list is a failure and is never cached; a single unreadable place in a list is skipped.
+`missing` is there only when the server has a Google key and it is not empty. It lists the option ids `google_...` in `currentOptionIds` that could not be looked up this time, so the screen can show those options as "can't be checked right now" instead of dropping them without a word. A place is missing when Google answered 404 for it (remembered for 5 minutes), the look-up failed, was too slow, or was over this request's limit, the id is not a Google place id, or the place is not an outing (`not_an_outing`). It is "this time" only: the same id may be found by the next request.
+
+**How many Google calls this makes.** A ranking makes at most one nearby search, and looks up at most 3 of the Google places in `currentOptionIds` (at most 2 at a time; only the first 6 Google ids are read). A place looked up in the last 10 minutes, or answered 404 for in the last 5, costs no call. The nearby search and the look-ups run together, and everything Google adds waits at most 3.25 seconds (one call timeout of 3 s plus 250 ms); past that the ranking goes on without it. Every Google call, searches, look-ups and photos together, is counted against one budget for the whole server: `GOOGLE_CALLS_PER_MINUTE` (default 60), with at most 4 calls running at once. A call over the budget is not made, and the answer says `unavailable`. A search is cached for 10 minutes, and its radius is rounded up to 500, 1000, 2000 or 3000 m before it is asked or cached (so `radiusMeters: 1001` and `2000` share one search; the circle always covers what was asked). A Google call waits at most 3 seconds. After 3 failures in a row (a timeout, a network error, a 4xx or 5xx, or an answer that cannot be read) Google is skipped for 60 seconds, and one success closes the pause again. A failure is logged at most once a minute per reason. An answer where `places` is not a list is a failure and is never cached; a single unreadable place in a list is skipped.
 
 A Google venue has `source: 'google'`, `googlePlaceId`, a real `rating` and `ratingCount`, `address`, and that **day of the week's** `openingHours`. It may also have `photo: { name, credit, credits }`:
 
@@ -497,9 +633,11 @@ How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 
 ## GET /api/places/search
 
-`GET /api/places/search?q=520201` → `{ "results": [{ "name", "address", "postal", "lat", "lng" }] }`, at most 10.
+`GET /api/places/search?q=520201` → `{ "results": [{ "name", "address", "postal", "lat", "lng", "source" }] }`, at most 10. `source` is `"onemap"` or `"google"`. `postal` is a string, or `null` when the place has none, whichever the source.
 
-For start and end points: an address, postal code or building name, searched with OneMap. It needs no OneMap account. Results are cached for a day. The rate limit applies, and so does the server's shared OneMap call budget (the same one routing draws from).
+For start and end points, and meeting spots: an address, postal code or building name, searched with OneMap. It needs no OneMap account. Results are cached for a day. The rate limit applies, and so does the server's shared OneMap call budget (the same one routing draws from).
+
+When OneMap finds nothing, and the words have a letter in them and are at least 4 characters, Google's text search adds places by name (a karaoke, a shop, a landmark OneMap does not list), in the same shape; `postal` is read from Google's address when it has one. A postal code, and the first letters of a word still being typed, are not sent to Google. Only a name, an address and a point are asked for, with a bias that covers the island. A Google place with no name, a name of only digits, or a point outside Singapore is left out. The answer is 503 only when neither OneMap nor Google could answer (or OneMap failed and Google had nothing to show).
 
 | Status | When |
 |---|---|
@@ -600,6 +738,7 @@ Every list and number has an upper limit, so one request cannot keep the server 
 | `cuisineLikes`, `cuisineDislikes` | 20 each per member |
 | any id, name or label | 80 characters |
 | `stops` of `/api/itinerary/arrange` | 8, of which at most 6 are not food (see that route's table) |
+| `stops` of `/api/weather/stops` | 8, with different ids; `exposure` 0 to 5 |
 | any weight | 1000 |
 | `budgetMaxPerPerson` | 10000 |
 | `max_price_pp:N` | 5 digits |
@@ -612,3 +751,4 @@ Start the backend with `STUB_EXTERNALS=1 pnpm dev:backend`. Then send the `x-jio
 - `rain`: the forecast fixture says heavy thundery showers everywhere, unless the body sends `weatherCase`.
 - `routing-fail`: every OneMap route fails, so travel falls back to the estimate (`travel.source: 'estimate'`) and results come back with `approximate: true`.
 - No header (`dry`): routes are generated from distance in OneMap's format, so `travel.source` is `onemap`.
+- The regional forecast is stubbed too (`rain`: heavy thundery showers everywhere; otherwise partly cloudy), moved in time on each call so it always covers the next 18 to 24 hours. A stop within 2 hours uses the area fixture, a stop up to 25 hours away the regional one, anything later has no weather.

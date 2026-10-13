@@ -18,10 +18,13 @@ export const routes = [
   { path: '/sessions/:id/itinerary', name: 'session-itinerary', component: () => import('@/views/EventView.vue'), props: true, meta: { title: 'Itinerary' } },
   { path: '/sessions/:id/photos', name: 'session-photos', component: () => import('@/views/PhotosView.vue'), props: true, meta: { title: 'Photos' } },
   { path: '/sessions/:id/map', name: 'session-map', component: () => import('@/views/SessionMapView.vue'), props: true, meta: { nav: false, title: 'Map' } },
+  { path: '/sessions/:id/roam', name: 'session-roam', component: () => import('@/views/RoamView.vue'), props: true, meta: { title: 'What next?' } },
   { path: '/leaderboard', name: 'leaderboard', component: () => import('@/views/LeaderboardView.vue'), meta: { tabs: true, tab: 'leaderboard', title: 'Leaderboard' } },
   { path: '/rewards', name: 'rewards', component: () => import('@/views/RewardsView.vue'), meta: { tabs: true, tab: 'rewards', title: 'Rewards' } },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfileView.vue'), meta: { tabs: true, tab: 'profile', title: 'Profile' } },
   { path: '/people/:id', name: 'person', component: () => import('@/views/ProfileView.vue'), props: true, meta: { title: 'Profile' } },
+  // /demo exists only in a build that has the demo tour: development, or VITE_DEMO_TOUR=1 (lib/tourFlag.js; written out here so the bundler drops it).
+  ...(import.meta.env.DEV || import.meta.env.VITE_DEMO_TOUR === '1' ? [{ path: '/demo', name: 'demo', component: () => import('@/tour/DemoView.vue'), meta: { nav: false, public: true, title: 'Demo tour' } }] : []),
   { path: '/design-system', name: 'design-system', component: () => import('@/views/DesignSystemView.vue'), meta: { public: true, title: 'Design system' } },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue'), meta: { public: true, title: 'Not found' } },
 ]

@@ -4,7 +4,7 @@
 //   Invite    /invite: who is in, and for the host the way to add people while that is still open
 //   Locate    the session page (/sessions/:id, which is also the lobby while the session is inviting)
 //   Vote      /plan
-//   Itinerary /itinerary (and its photos and full map)
+//   Itinerary /itinerary (and its photos, full map and "What next?")
 const STEPS = [
   { key: 'create', label: 'Create', page: '/edit' },
   { key: 'invite', label: 'Invite', page: '/invite' },
@@ -13,6 +13,8 @@ const STEPS = [
   { key: 'itinerary', label: 'Itinerary', page: '/itinerary' },
 ]
 const ORDER = ['inviting', 'locating', 'voting', 'confirmed']
+// The pages that belong to the Itinerary step without being it: they go back to it.
+const ITINERARY_PAGES = ['/photos', '/map', '/roam']
 
 // The last step the session reached: 0 is Create, so a session that exists has always passed it. A cancelled one
 // stops where it was called off.
@@ -32,7 +34,7 @@ export function reachedStep(session) {
 // How to call: viewingStep({ status: 'voting' }, '/plan') -> 3
 export function viewingStep(session, tail) {
   if (!session) return 0
-  if (['/photos', '/map'].includes(tail)) return 4
+  if (ITINERARY_PAGES.includes(tail)) return 4
   if (tail === '/invite') return 1
   const index = STEPS.findIndex((step) => step.page && step.page === tail)
   if (index >= 0) return index
@@ -68,7 +70,7 @@ function tailOf(session, path) {
 // Where the button at the top left goes from the page at `path`. From a session's own pages (the session page, Vote and
 // the Itinerary) it leaves the session: the steps bar is how a person moves between steps, so the button does not
 // repeat it. It leaves to `exit`, the screen the person opened the session from (exitFor in lib/stepNav.js), which is
-// Home unless told otherwise. The photos and the full map belong to the Itinerary, so they go back to it. The two forms
+// Home unless told otherwise. The photos, the full map and "What next?" belong to the Itinerary, so they go back to it. The two forms
 // keep their order: Invite goes back to Create for the host (one stop in the browser's history, so it replaces), and
 // Create, or Invite for a guest, leaves the session. `label` says where it goes.
 // How to call: backFor({ id: 's1', status: 'voting' }, '/sessions/s1/plan', true) -> { label: 'Back to Home', to: '/' }
@@ -77,7 +79,7 @@ export function backFor(session, path, mine = true, exit = { label: 'Back to Hom
   const home = exit
   if (!session) return home
   const tail = tailOf(session, path)
-  if (['/photos', '/map'].includes(tail)) return { label: 'Back to Itinerary', to: `/sessions/${session.id}/itinerary` }
+  if (ITINERARY_PAGES.includes(tail)) return { label: 'Back to Itinerary', to: `/sessions/${session.id}/itinerary` }
   if (['', '/plan', '/itinerary'].includes(tail)) return home
   const viewing = viewingStep(session, tail)
   const target = Math.min(viewing - 1, reachedStep(session))
@@ -110,15 +112,16 @@ let carried = null
 //   <SessionSteps />                        on the create page
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { HOST_ID } from '@/lib/mock/people.js'
 import { goBackIfBehind } from '@/lib/stepNav.js'
+import { useAuthStore } from '@/stores/auth.js'
 
 const props = defineProps({ session: { type: Object, default: null } })
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const root = ref(null)
 
-const steps = computed(() => stepsFor(props.session, route.path, props.session?.hostId === HOST_ID))
+const steps = computed(() => stepsFor(props.session, route.path, props.session?.hostId === auth.myId))
 // The Create and Invite screens are one stop in the browser's history (leaving either for the other replaces it), so
 // Back from either goes to where the person came from, never to an empty create form.
 const swapsHistory = computed(() => route.path.endsWith('/invite') || route.path.endsWith('/edit'))

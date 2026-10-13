@@ -15,10 +15,15 @@ import { reviewsFor } from './mock/reviews.js'
 import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
+import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
+import { itineraryAction } from './session.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
+import { bindCurrentUser, currentUserId } from './currentUser.js'
+import { createPeopleSource, isUuid } from './peopleSource.js'
+import { isLegacyRealSave, remapLegacySave } from './legacySave.js'
 import { cleanDietary } from './signupRules.js'
-import { localAccountsAllowed } from './supabase.js'
+import { localAccountsAllowed, projectOrigin } from './supabase.js'
 import { addDays, format, isValid, parseISO } from 'date-fns'
 
 export { api } from './plannerApi.js'
@@ -41,9 +46,10 @@ const STORAGE_FULL = "Could not save: this browser's storage is full. Remove som
 
 // ── Storage ────────────────────────────────────────────────────────────────
 
-// A starting number from mock/people.js. Ian is the signed-in person: only the demo account starts with the sample
-// history, a person who signed up through the form starts with none. How to call: seeded(STARTING_MEETUPS, 'ian', false) -> 0
-const seeded = (table, id, demo) => (id === HOST_ID && !demo ? 0 : table[id])
+// A starting number from mock/people.js. The sample person HOST_ID is the demo account: only the demo account starts
+// with the sample history, a person who signed up through the form starts with none, and so does anyone who is not in
+// the sample list (a real account's own id). How to call: seeded(STARTING_MEETUPS, HOST_ID, false) -> 0
+const seeded = (table, id, demo) => (id === HOST_ID && !demo ? 0 : table[id] ?? 0)
 
 // Past meetup dates for a person, as the profile graph and the season standings both read them.
 // How to call: historyOf('darius', false) -> ['2026-08-02', ...]
@@ -74,21 +80,30 @@ function freshSeason(now = new Date(), demo = false) {
 }
 
 const defaultConditions = () => ({ rain: false, routing: true, sessionDay: false })
+// A person who has earned nothing. How to call: noStats() -> { meetups: 0, points: 0, seasonPoints: 0 }
+const noStats = () => ({ meetups: 0, points: 0, seasonPoints: 0 })
 
+// A real account (one with a Supabase user id) has no sample friends, no sample past season and no sample people's
+// numbers: nobody else is in its world yet, so its leaderboard is itself, in a first season with nothing before it. Its
+// own id gets a stats row of zeros, and a real person who joins a session gets one when first needed (statsOf).
+// How to call: freshDb({ user: { id: '7f3c...', authId: '7f3c...' }, friends: [] }) -> a save for that account
 function freshDb(keep = {}) {
   const { season, earned, pastSeason } = freshSeason(new Date(), !!keep.user?.demo)
+  const real = !!keep.user?.authId
   const meetups = (id) => seeded(STARTING_MEETUPS, id, !!keep.user?.demo)
   const prize = (id) => (pastSeason.winners.some((w) => w.id === id) ? pastSeason.prize : 0)
+  const stats = real ? {} : Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: meetups(p.id), points: meetups(p.id) * POINTS_PER_MEETUP + prize(p.id), seasonPoints: earned(p.id) }]))
+  if (keep.user?.id && !stats[keep.user.id]) stats[keep.user.id] = noStats()
   return {
     version: VERSION,
     user: keep.user || null,
-    friends: keep.friends || [],
+    friends: real ? [] : keep.friends || [],
     sessions: [],
     // points: what each person can spend. seasonPoints: what they earned this season, for the leaderboard.
-    stats: Object.fromEntries(PEOPLE.map((p) => [p.id, { meetups: meetups(p.id), points: meetups(p.id) * POINTS_PER_MEETUP + prize(p.id), seasonPoints: earned(p.id) }])),
-    season,
+    stats,
+    season: real ? { ...season, number: 1 } : season,
     // Past seasons, latest first: { number, startsAt, endsAt, winners: [{ id, seasonPoints }], prize, standings }.
-    pastSeasons: [pastSeason],
+    pastSeasons: real ? [] : [pastSeason],
     redemptions: [],
     conditions: defaultConditions(),
     // Every venue the planner has sent, by id. Suggestions can be any of the backend's venues, not only VENUES.
@@ -133,7 +148,8 @@ function hasShape(saved) {
     isList(saved.friends, (f) => typeof f === 'string') &&
     isList(saved.sessions, validSession) &&
     isObject(saved.stats) &&
-    PEOPLE.every((p) => isObject(saved.stats[p.id]) && ['meetups', 'points', 'seasonPoints'].every((key) => isCount(saved.stats[p.id][key]))) &&
+    // The sample people's numbers are in every save but a real account's, which holds only the numbers of real people.
+    (saved.user?.authId ? Object.values(saved.stats).every((row) => isObject(row) && ['meetups', 'points', 'seasonPoints'].every((key) => isCount(row[key]))) : PEOPLE.every((p) => isObject(saved.stats[p.id]) && ['meetups', 'points', 'seasonPoints'].every((key) => isCount(saved.stats[p.id][key])))) &&
     isObject(saved.season) &&
     ['number', 'startsAt', 'endsAt'].every((key) => isCount(saved.season[key])) &&
     isList(saved.pastSeasons, (x) => isObject(x) && isCount(x.endsAt) && Array.isArray(x.winners)) &&
@@ -158,6 +174,36 @@ let storageKey = STORAGE_KEY
 // How to call: accountKey('7f3c...') -> 'jio-demo-v1:acct:7f3c...'
 const accountKey = (authId) => `${STORAGE_KEY}:acct:${authId}`
 
+// The text stored under a key, or null. How to call: readRaw(accountKey('7f3c...')) -> '{"version":9,...}'
+function readRaw(key) {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+// How to call: parseOrNull('{"a":1}') -> { a: 1 }, parseOrNull('nope') -> null
+function parseOrNull(text) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+// Copy a save to a key beside its own (`<key>:legacy`, or `<key>:legacy:<time>` when one is already there, so a copy is never
+// overwritten). True when the copy is stored.
+// How to call: backUp(accountKey('7f3c...'), text) -> true
+function backUp(key, text) {
+  try {
+    const legacy = `${key}:legacy`
+    if (localStorage.getItem(legacy) === text) return true
+    localStorage.setItem(localStorage.getItem(legacy) === null ? legacy : `${legacy}:${Date.now()}`, text)
+    return true
+  } catch {
+    return false
+  }
+}
+
 // How to call: load() for the local save, or load(accountKey(user.id)) for a real account's
 function load(key = STORAGE_KEY) {
   try {
@@ -178,6 +224,27 @@ function load(key = STORAGE_KEY) {
 }
 
 let db = load()
+
+// Who is signed in is read from the save by everything that needs it (see lib/currentUser.js): the sample person's id for
+// the demo account and local accounts, a real account's own Supabase user id otherwise, and '' for nobody. This file asks
+// through `me()`; the stores and helpers ask through currentUserId().
+bindCurrentUser(() => db.user?.id ?? '')
+// How to call: if (session.hostId === me()) ...
+const me = () => currentUserId()
+// Is a real account (one with a Supabase user id) signed in? Its world holds no sample friends.
+// How to call: if (isReal()) return []
+const isReal = () => !!db.user?.authId
+// The signed-in person's id, for a write that acts as them, or a plain sentence when nobody is signed in or the write names no
+// one. Never lets a row be written under ''. `personId` is who the write is for (the demo tools act for friends too).
+// How to call: const mine = requireMe() ; requireMe(personId) before a write for someone ; requireMe(undefined, 'Log in to create a session.')
+function requireMe(personId = me(), message = 'Log in to do that.') {
+  if (!me() || !personId) throw new Error(message)
+  return me()
+}
+// The people in a real account's sessions that it last announced, as text. A session write that changes who is in them
+// announces it ('people'), so the lists built from those people (who can be invited, who is "Someone") are made again.
+// Declared here, before anything can sign an account out at load.
+let coMembersSeen = ''
 
 // The state as text, for the save. A real account's date of birth stays out of it: it is a private field in the account
 // (profile_private), so it is kept in memory for this visit and read back from the account or the session, never left
@@ -267,14 +334,43 @@ export function subscribe(fn) {
 // ── Lookups ────────────────────────────────────────────────────────────────
 
 const personById = (id) => PEOPLE.find((p) => p.id === id)
-// Who is on Ian's leaderboard: his circle, and anyone else on Jio once he has added them as a friend.
-const leaderboardPeople = () => PEOPLE.filter((p) => !isCommunity(p.id) || db.friends.includes(p.id))
+// Who is on the leaderboard, as ids. The demo and local accounts: the sample circle, and anyone else on Jio once added
+// as a friend. A real account: only itself, because nobody else is in its world yet.
+// How to call: leaderboardIds() -> ['ian', 'darius', ...]
+const leaderboardIds = () => (isReal() ? (db.user ? [db.user.id] : []) : PEOPLE.filter((p) => !isCommunity(p.id) || db.friends.includes(p.id)).map((p) => p.id))
 const areaById = (id) => AREAS.find((a) => a.id === id)
 const venueById = (id) => db.venues[id] || VENUES.find((v) => v.id === id)
 
-function nameOf(id) {
-  if (id === HOST_ID && db.user) return db.user.name
-  return personById(id)?.name || ''
+// What a person has earned, made when it is first needed (a real person who joined a session of this account).
+// How to call: statsOf('7f3c...') -> { meetups: 0, points: 0, seasonPoints: 0 }
+const statsOf = (id) => (db.stats[id] ??= noStats())
+
+// The people source: the signed-in account's own profile, the sample people, and (for real people) the `profiles` table
+// (lib/peopleSource.js). It is emptied whenever the signed-in person changes, so no account sees another's cache.
+// How to call: people.nameOf('7f3c...') -> 'Sam', or 'Someone' until the profile has been read
+const people = createPeopleSource({
+  client: () => auth.dataClient(),
+  own: (id) => (db.user && id === db.user.id ? { id, name: db.user.name, username: db.user.username, avatarUrl: db.user.photo || '' } : null),
+  sample: personById,
+  avatarOrigin: projectOrigin(),
+  timeoutMs: () => auth.timing.peopleMs,
+})
+
+// A person's name for the screens: the signed-in person's own, a sample person's, a real person's once read, otherwise
+// the neutral "Someone". How to call: nameOf(session.hostId)
+const nameOf = (id) => people.nameOf(id)
+
+// Read the real people some sessions name, in one request for all of them (the caller collects the ids of every session it
+// is about to show, so ten sessions are one request, not ten), then tell the screens when something new arrived. Quiet: a
+// failed or offline read leaves them as "Someone". Not waited for.
+// How to call: warmPeople(session.members.map((m) => m.id))
+function warmPeople(ids) {
+  const missing = [...new Set(ids)].filter((id) => isUuid(id) && !people.get(id))
+  if (!missing.length) return
+  const before = people.version()
+  people.load(missing).then(() => {
+    if (people.version() !== before) broadcast({ type: 'people' })
+  })
 }
 
 function sessionById(id) {
@@ -322,14 +418,16 @@ function isSessionDay(session) {
 
 // ── Planner, run on the backend ────────────────────────────────────────────
 
-// Each person with a start location, as the backend expects them: start and end as points.
+// Each person with a start location, as the backend expects them: start and end as points. A name is not sent: the planner
+// uses only the id (a name it would only echo back, and a long one made of emoji can be over its limit while within the
+// database's, which would refuse every request of a session).
 function membersFor(session) {
   return activeIds(session)
     .filter((id) => session.locations[id]?.start)
     .map((id) => {
       const start = areaById(session.locations[id].start.areaId)
       const end = endPlaceOf(session, id)
-      return { id, name: nameOf(id), start: { lat: start.lat, lng: start.lng }, end: { lat: end.lat, lng: end.lng } }
+      return { id, start: { lat: start.lat, lng: start.lng }, end: { lat: end.lat, lng: end.lng } }
     })
 }
 
@@ -341,7 +439,7 @@ function rankingMembers(session) {
   const members = membersFor(session)
   if (members.length || !session.meeting) return members
   const centre = areaById(session.meeting.areaId)
-  return activeIds(session).map((id) => ({ id, name: nameOf(id), start: { lat: centre.lat, lng: centre.lng }, end: { lat: centre.lat, lng: centre.lng } }))
+  return activeIds(session).map((id) => ({ id, start: { lat: centre.lat, lng: centre.lng }, end: { lat: centre.lat, lng: centre.lng } }))
 }
 
 // Sessions whose meeting area the planner is working out right now. getSession shows it as `findingMeeting`.
@@ -776,6 +874,17 @@ const commitsOf = (session) => commits[session.id] || 0
 // The writes now waiting on the planner, per session, with what each changed straight away.
 const waiting = {}
 
+// Forget everything kept per session id in this file. Every account's first session is `s1`, so when the signed-in account
+// changes (or the save is replaced) what was kept for the last one's `s1` must not be taken for the next one's. Answers still
+// on their way for the old account find their ticket gone and are dropped. (The venues the planner sent for "What next?" are
+// public places keyed by venue id, not by session, and are not account data.)
+// How to call: resetSessionState() (when db is replaced by another account's)
+function resetSessionState() {
+  for (const kept of [tickets, newestRun, commits, waiting]) for (const key of Object.keys(kept)) delete kept[key]
+  finding.clear()
+  findingSpots.clear()
+}
+
 // An object that is not an array or null. How to call: isPlain({}) -> true
 const isPlain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 // Equal as stored data (the session is plain JSON). How to call: sameValue({ a: 1 }, { a: 1 }) -> true
@@ -855,14 +964,15 @@ function touch(session, type) {
   session.updatedAt = Date.now()
   emit({ type, sessionId: session.id })
   commits[session.id] = commitsOf(session) + 1
+  announceCoMembers()
   return summary(session)
 }
 
 // ── Account ────────────────────────────────────────────────────────────────
 
-// The account, with its home area's name. It is always `id: HOST_ID` (the local id of "me"). `authId` is the Supabase
-// user id of a real account and null for a local one; `local` is true for a local account (the demo account, and every
-// account when Supabase is not set up). `email` is '' when none is known.
+// The account, with its home area's name. `id` is the id the account's data carries: the sample person's id for a local
+// account (the demo account, and every account when Supabase is not set up), and the Supabase user id for a real one, which
+// is then the same as `authId`. `authId` is null for a local account; `local` is true for it. `email` is '' when none is known.
 // How to call: account() -> { id: 'ian', authId: null, local: true, email: 'ian@jio.demo', name: 'Ian', ... }
 function account() {
   if (!db.user) return null
@@ -887,7 +997,7 @@ const adopting = new Map()
 let acting = 0
 
 // Make a real account the signed-in one: load its own save (or start a fresh one) and write to its own key.
-// `known`: the details just typed at sign-up ({ name, username, dob, homeAreaId, dietary, photo, friends }); without it the
+// `known`: the details just typed at sign-up ({ name, username, dob, homeAreaId, dietary, photo }); without it the
 // profile comes from Supabase (when `fetchProfile` is true), then from the save, then from the sign-up metadata, so a
 // failed read still signs in. At start-up `fetchProfile` is false: the person is shown from the save at once and the
 // profile is read afterwards (see refreshProfile).
@@ -903,11 +1013,30 @@ async function adoptAccount(sessionUser, known = null, fetchProfile = true) {
   }
   const key = accountKey(sessionUser.id)
   const found = load(key)
-  const mine = found.user?.authId === sessionUser.id ? found : null
-  const was = mine?.user
+  const sameAccount = found.user?.authId === sessionUser.id
+  let mine = sameAccount && found.user.id === sessionUser.id ? found : null
+  const was = sameAccount ? found.user : null
+  // Whatever is stored under this account's key and is not taken up as it is (a save from the build when every real account
+  // was the sample person, an older version, something unreadable) is copied to a key of its own before anything is written
+  // over it. A save of the old real-account kind is then moved to this account's id, table by table (lib/legacySave.js), so
+  // the person keeps their sessions; if that cannot be done, they start fresh and the copy is what is left.
+  const raw = readRaw(key)
+  let backedUp = true
+  if (raw && !mine) {
+    backedUp = backUp(key, raw)
+    const old = parseOrNull(raw)
+    if (old && old.version === VERSION && isLegacyRealSave(old, HOST_ID, sessionUser.id) && hasShape(old)) {
+      try {
+        const moved = remapLegacySave(old, HOST_ID, sessionUser.id, { isSample: personById })
+        if (hasShape(moved)) mine = moved
+      } catch {
+        mine = null
+      }
+    }
+  }
   const pick = known || remote || {}
   const user = {
-    id: HOST_ID,
+    id: sessionUser.id,
     authId: sessionUser.id,
     email: sessionUser.email || was?.email || '',
     name: pick.name || was?.name || sessionUser.username || '',
@@ -923,10 +1052,15 @@ async function adoptAccount(sessionUser, known = null, fetchProfile = true) {
   if (mine) {
     db = { ...mine, user }
   } else {
-    db = freshDb({ user, friends: [...(known?.friends || [])] })
+    // A real account has no sample friends, whatever the sign-up draft held.
+    db = freshDb({ user, friends: [] })
     db.conditions = conditions
   }
-  storageKey = key
+  people.reset()
+  coMembersSeen = ''
+  resetSessionState()
+  // With no copy of the old save kept, nothing is written this visit: the account works in memory and the old save stays.
+  storageKey = backedUp ? key : null
   stored = asText()
   // A save that cannot be written (storage full or missing) does not stop sign-in: the account works in memory.
   save()
@@ -989,6 +1123,9 @@ function detachAccount() {
   const { conditions } = db
   db = freshDb()
   db.conditions = conditions
+  people.reset()
+  coMembersSeen = ''
+  resetSessionState()
   storageKey = null
   stored = asText()
 }
@@ -1113,7 +1250,7 @@ export async function signUp(profile) {
   if (auth.configured() && !profile.demo) return signUpReal(profile)
   // The demo account is always local, even with Supabase set up, and ends any real session first.
   await endSession()
-  // The demo account is always the host, Ian's id.
+  // The demo account, and a local account, are the sample person Ian: that is the id their data carries.
   const user = {
     id: HOST_ID,
     email: profile.email,
@@ -1129,6 +1266,8 @@ export async function signUp(profile) {
   const { conditions } = db
   db = freshDb({ user, friends: [...(profile.friends || [])] })
   db.conditions = conditions
+  people.reset()
+  resetSessionState()
   if (storageKey !== STORAGE_KEY) {
     // Coming from a real account (or from nobody): a local account writes to the local save again.
     storageKey = STORAGE_KEY
@@ -1138,7 +1277,9 @@ export async function signUp(profile) {
   return account()
 }
 
-// A real sign-up. The profile's other fields (photo, friends) stay in this browser, in the account's own save.
+// A real sign-up. The photo stays in this browser, in the account's own save; the dietary needs are kept there too, under
+// the account's own id, and are also written to the account (profile_private.dietary). The friends the sign-up draft may
+// hold are not kept: a real account starts with none (see freshDb).
 // How to call: await signUpReal({ email, password, name, username, dob, homeAreaId, dietary })
 async function signUpReal(profile) {
   const name = profile.name.trim()
@@ -1154,7 +1295,7 @@ async function signUpReal(profile) {
       dietary: cleanDietary(profile.dietary),
     })
     if (result.needsConfirmation) return { needsConfirmation: true, email: result.user.email }
-    const known = { name, username: profile.username, dob: profile.dob, homeAreaId: profile.homeAreaId, dietary: cleanDietary(profile.dietary), photo: profile.photo, friends: profile.friends }
+    const known = { name, username: profile.username, dob: profile.dob, homeAreaId: profile.homeAreaId, dietary: cleanDietary(profile.dietary), photo: profile.photo }
     const mine = await adopt(result.user, known)
     // The name, home area and dietary needs are written to the account in the background; a failure is announced when it happens.
     result.profileWrite?.then((message) => {
@@ -1244,6 +1385,8 @@ export async function signOut() {
   if (!local) await endSession()
   const wasLocalSave = storageKey === STORAGE_KEY
   db = freshDb()
+  people.reset()
+  resetSessionState()
   if (!wasLocalSave) {
     storageKey = null
     stored = asText()
@@ -1276,30 +1419,69 @@ export async function checkEmail(email) {
 
 // ── People, friends and the leaderboard ────────────────────────────────────
 
+// The ids of the other people in this account's sessions, in whatever state (someone who opted out shared a session too),
+// in the order they first appear. For a real
+// account these are its friends: a person's friends are whoever they have shared a session with (decided on ticket #125).
+// How to call: coMemberIds() -> ['7f3c...']
+function coMemberIds() {
+  const ids = new Set()
+  for (const session of db.sessions) for (const m of session.members) if (m.id !== me()) ids.add(m.id)
+  return [...ids]
+}
+
+// How to call: announceCoMembers() (after a session changed; nothing happens unless the people in the sessions changed)
+function announceCoMembers() {
+  if (!isReal()) return
+  const now = coMemberIds().join(',')
+  if (now === coMembersSeen) return
+  coMembersSeen = now
+  broadcast({ type: 'people' })
+}
+
+// A person as a screen shows them. A real account's friends are the people it shares a session with; everyone else's are
+// the ones it added. `sample` is true for a made-up person, so a screen can say so and offer no friend button for it to
+// a real account.
+// How to call: publicPerson('darius') -> { id, name, username, photo, homeAreaId, homeArea, meetups, points, isFriend, sample }
 function publicPerson(id) {
+  const isMe = id === me() && !!db.user
   const base = personById(id)
-  const isMe = id === HOST_ID && db.user
+  const known = people.get(id)
+  const stats = db.stats[id] || noStats()
+  const homeAreaId = isMe ? db.user.homeAreaId : base?.homeAreaId || ''
   return {
     id,
-    name: isMe ? db.user.name : base.name,
-    username: isMe ? db.user.username : base.username,
-    photo: isMe ? db.user.photo : '',
-    homeAreaId: isMe ? db.user.homeAreaId : base.homeAreaId,
-    homeArea: areaById(isMe ? db.user.homeAreaId : base.homeAreaId)?.name || '',
-    meetups: db.stats[id].meetups,
-    points: db.stats[id].points,
-    isFriend: db.friends.includes(id),
+    name: people.nameOf(id),
+    username: known?.username || '',
+    photo: isMe ? db.user.photo : known?.avatarUrl || '',
+    homeAreaId,
+    homeArea: areaById(homeAreaId)?.name || '',
+    meetups: stats.meetups,
+    points: stats.points,
+    isFriend: isReal() ? coMemberIds().includes(id) : db.friends.includes(id),
+    sample: !isMe && !!base,
   }
 }
 
+// The people other than the signed-in one that this account knows. The demo and local accounts: the sample people. A real
+// account: the people in its sessions (none until a session is shared), read from their profiles in one request.
+// How to call: const people = await listPeople()
 export async function listPeople() {
   await wait(DELAY.read)
-  return PEOPLE.filter((p) => p.id !== HOST_ID).map((p) => publicPerson(p.id))
+  // With nobody signed in (the sign-up screen's friends step) the sample person is the one signing up, so is left out too.
+  if (!isReal()) return PEOPLE.filter((p) => p.id !== (me() || HOST_ID)).map((p) => publicPerson(p.id))
+  const ids = coMemberIds()
+  await people.load(ids)
+  return ids.map(publicPerson)
 }
 
+// One person's profile. The demo and local accounts: any sample person. A real account: itself, a person in one of its
+// sessions, or a sample person met as the writer of a sample review. Anyone else does not exist as far as it can tell.
+// How to call: const profile = await getPerson('darius')
 export async function getPerson(id) {
   await wait(DELAY.read)
-  if (!personById(id)) throw new Error('This person does not exist.')
+  const known = id === me() || !!personById(id) || (isReal() && coMemberIds().includes(id))
+  if (!known) throw new Error('This person does not exist.')
+  if (!people.get(id)) await people.load([id])
   const sessions = db.sessions
     .filter((s) => s.members.some((m) => m.id === id))
     .map((s) => ({ id: s.id, title: s.title, date: s.date, status: s.status, areaName: s.meeting ? areaById(s.meeting.areaId).name : '' }))
@@ -1319,8 +1501,12 @@ export async function getPerson(id) {
   return { ...publicPerson(id), sessions, activity, history, planned }
 }
 
+// Add or remove a friend. Only the demo and local accounts keep a list of their own; a real account's friends are the people
+// it shares sessions with, so there is nothing to add yet.
+// How to call: await setFriend('nicole', true)
 export async function setFriend(id, isFriend) {
   await wait(DELAY.write)
+  if (isReal()) throw new Error('Friends are the people you share a session with.')
   db.friends = isFriend ? [...new Set([...db.friends, id])] : db.friends.filter((f) => f !== id)
   emit({ type: 'friends' })
   return [...db.friends]
@@ -1330,17 +1516,17 @@ export async function setFriend(id, isFriend) {
 
 // What decides a season: points earned this season, then all-time points from meetups, then the name.
 // How to call: standingOf('ian') -> { id, name, seasonPoints, allTime }
-const standingOf = (id) => ({ id, name: nameOf(id), seasonPoints: db.stats[id].seasonPoints, allTime: db.stats[id].meetups * POINTS_PER_MEETUP })
+const standingOf = (id) => ({ id, name: nameOf(id), seasonPoints: statsOf(id).seasonPoints, allTime: statsOf(id).meetups * POINTS_PER_MEETUP })
 
 // End the current season at `at`: the winner get the prize to spend, then season points start again.
 function closeSeason(at) {
   const ended = { ...db.season, endsAt: at }
-  const winners = Season.seasonWinners(leaderboardPeople().map((p) => standingOf(p.id)))
-  for (const id of winners) db.stats[id].points += Season.SEASON_PRIZE
+  const winners = Season.seasonWinners(leaderboardIds().map(standingOf))
+  for (const id of winners) statsOf(id).points += Season.SEASON_PRIZE
   // standings: everyone's season total, so the leaderboard can show a past season in full.
-  const standings = leaderboardPeople().map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints }))
-  db.pastSeasons.unshift({ ...ended, prize: Season.SEASON_PRIZE, winners: winners.map((id) => ({ id, seasonPoints: db.stats[id].seasonPoints })), standings })
-  for (const p of PEOPLE) db.stats[p.id].seasonPoints = 0
+  const standings = leaderboardIds().map((id) => ({ id, seasonPoints: statsOf(id).seasonPoints }))
+  db.pastSeasons.unshift({ ...ended, prize: Season.SEASON_PRIZE, winners: winners.map((id) => ({ id, seasonPoints: statsOf(id).seasonPoints })), standings })
+  for (const id of Object.keys(db.stats)) db.stats[id].seasonPoints = 0
   db.season = Season.nextSeason(db.season, at)
 }
 
@@ -1358,7 +1544,7 @@ function catchUpSeasons(now = Date.now()) {
 function publicSeason(season) {
   return {
     ...clone(season),
-    winners: (season.winners || []).map((w) => ({ ...w, name: nameOf(w.id), isMe: w.id === HOST_ID })),
+    winners: (season.winners || []).map((w) => ({ ...w, name: nameOf(w.id), isMe: w.id === me() })),
   }
 }
 
@@ -1384,7 +1570,7 @@ export async function endSeason() {
 export async function getLeaderboard() {
   await wait(DELAY.read)
   if (catchUpSeasons()) emit({ type: 'stats' })
-  return ranked(leaderboardPeople().map((p) => ({ id: p.id, seasonPoints: db.stats[p.id].seasonPoints })))
+  return ranked(leaderboardIds().map((id) => ({ id, seasonPoints: statsOf(id).seasonPoints })))
 }
 
 // A past season's final ranking, the same shape as getLeaderboard. [] for a season with no standings kept.
@@ -1406,12 +1592,12 @@ function ranked(rows) {
   let rank = 0
   let last = null
   return sorted.map((row, i) => {
-    if (!row.seasonPoints) return { ...row, rank: null, isMe: row.id === HOST_ID }
+    if (!row.seasonPoints) return { ...row, rank: null, isMe: row.id === me() }
     if (row.seasonPoints !== last) {
       rank = i + 1
       last = row.seasonPoints
     }
-    return { ...row, rank, isMe: row.id === HOST_ID }
+    return { ...row, rank, isMe: row.id === me() }
   })
 }
 
@@ -1539,7 +1725,7 @@ export async function getPlace(id, areaId) {
 
 // ── Sessions ───────────────────────────────────────────────────────────────
 
-// Locations as other people may see them: the area only. The exact label is kept for the viewer (Ian) alone.
+// Locations as other people may see them: the area only. The exact label is kept for the viewer (the signed-in person) alone.
 function publicLocations(session) {
   const place = (loc, own) => {
     if (!loc) return null
@@ -1547,7 +1733,7 @@ function publicLocations(session) {
     return { areaId: area.id, name: area.name, lat: area.lat, lng: area.lng, ...(own ? { label: loc.label } : {}) }
   }
   return Object.fromEntries(
-    Object.entries(session.locations).map(([id, loc]) => [id, { start: place(loc.start, id === HOST_ID), end: place(loc.end, id === HOST_ID) }]),
+    Object.entries(session.locations).map(([id, loc]) => [id, { start: place(loc.start, id === me()), end: place(loc.end, id === me()) }]),
   )
 }
 
@@ -1576,11 +1762,13 @@ function spotsView(session) {
 
 // A session as the screens read it. Photos are big (data URLs), so a session carries only their count:
 // getPhotos has the pictures.
-function summary(session) {
+function summary(session, { warm = true } = {}) {
   // The plan forming so far: the categories with votes, at their times.
   const slots = session.status === 'voting' && session.meeting ? planSlotsOf(session) : []
   const area = session.meeting ? areaById(session.meeting.areaId) : null
   const { photos, confirmedRanking, ...rest } = session
+  // A real person in the session is read from their profile; until then they show as "Someone".
+  if (warm) warmPeople(session.members.map((m) => m.id))
   return {
     ...clone(rest),
     locations: publicLocations(session),
@@ -1595,6 +1783,13 @@ function summary(session) {
     findingMeeting: finding.has(session.id),
     findingSpots: findingSpots.has(session.id),
     spots: spotsView(session),
+    // Roam: places members proposed as the next stop and the host has not decided on yet, oldest first, each with who
+    // proposed it and the place. A session saved before Roam has none.
+    proposals: proposalsOf(session).flatMap((p) => {
+      const venue = venueById(p.venueId)
+      return venue ? [{ id: p.id, venueId: p.venueId, by: p.by, byName: nameOf(p.by), at: p.at, venue: clone(venue) }] : []
+    }),
+    hostName: nameOf(session.hostId),
     // The search radius the group chose, in metres, or null to let the planner widen on its own.
     radius: session.radius ?? null,
     slots: slots.map((s) => ({ ...s, optionCount: (session.options[s.id] || []).length })),
@@ -1604,7 +1799,9 @@ function summary(session) {
 export async function listSessions() {
   await wait(DELAY.read)
   db.sessions.forEach((s) => settleInvites(s))
-  return db.sessions.map(summary).sort((a, b) => b.createdAt - a.createdAt)
+  // One read for every real person in every session, not one per session.
+  warmPeople(db.sessions.flatMap((s) => s.members.map((m) => m.id)))
+  return db.sessions.map((s) => summary(s, { warm: false })).sort((a, b) => b.createdAt - a.createdAt)
 }
 
 export async function getSession(id) {
@@ -1615,9 +1812,10 @@ export async function getSession(id) {
 // hostId: the app always makes the signed-in person the host. A friend's id makes a session that friend hosts, with the
 // signed-in person already a guest in it (the demo's showcase uses it to show a session the person does not run).
 // How to call: await createSession({ title: 'Dinner', date: '2026-10-17', start: '18:00', end: '21:00', hostId: 'darius' })
-export async function createSession({ title, date, start, end, hostId = HOST_ID }) {
+export async function createSession({ title, date, start, end, hostId = me() }) {
   await wait(DELAY.write)
-  if (hostId !== HOST_ID && !personById(hostId)) throw new Error('This person does not exist.')
+  requireMe(undefined, 'Log in to create a session.')
+  if (hostId !== me() && !personById(hostId)) throw new Error('This person does not exist.')
   const session = {
     id: `s${db.seq++}`,
     title: title.trim(),
@@ -1628,7 +1826,7 @@ export async function createSession({ title, date, start, end, hostId = HOST_ID 
     status: 'inviting',
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    members: [{ id: hostId, role: 'host', state: 'joined' }, ...(hostId === HOST_ID ? [] : [{ id: HOST_ID, role: 'guest', state: 'joined' }])],
+    members: [{ id: hostId, role: 'host', state: 'joined' }, ...(hostId === me() ? [] : [{ id: me(), role: 'guest', state: 'joined' }])],
     locations: {},
     meeting: null,
     spots: emptySpots(),
@@ -1671,8 +1869,9 @@ function checkSessionFields({ title, date, start, end }) {
 // How to call: await updateSession('s1', { title: 'Dinner', date: '2026-10-17', start: '18:00', end: '21:00' })
 export async function updateSession(id, fields) {
   await wait(DELAY.write)
+  requireMe()
   const session = sessionById(id)
-  if (session.hostId !== HOST_ID) throw new Error('Only the host can change a session.')
+  if (session.hostId !== me()) throw new Error('Only the host can change a session.')
   if (session.status !== 'inviting') throw new Error('The date and times can only change before the session starts.')
   Object.assign(session, checkSessionFields(fields))
   return touch(session, 'session')
@@ -1721,6 +1920,7 @@ export async function startSession(id) {
 // which: 'start' | 'end'. place: { areaId, label }. Only the area is ever shown to other people.
 export async function setLocation(id, personId, which, place) {
   await wait(DELAY.write)
+  requireMe(personId)
   const session = sessionById(id)
   if (['completed', 'cancelled'].includes(session.status)) throw new Error('This session has ended.')
   return orUndo(session, async () => {
@@ -1764,7 +1964,8 @@ function assertSpotsOpen(session, personId) {
 
 // How to call: assertHost(session, 'confirm a spot') (throws unless the signed-in person is the host)
 function assertHost(session, what) {
-  if (session.hostId !== HOST_ID) throw new Error(`Only the host can ${what}.`)
+  requireMe()
+  if (session.hostId !== me()) throw new Error(`Only the host can ${what}.`)
 }
 
 // Settle on a spot: it becomes the meeting area and the session moves to Voting. The method says how it was chosen:
@@ -1791,6 +1992,7 @@ async function settleOnSpot(session, spot) {
 // How to call: await suggestSpot('s1', 'jonathan', 'bugis', { here: true })
 export async function suggestSpot(id, personId, areaId, { here = false } = {}) {
   await wait(DELAY.write)
+  requireMe(personId)
   const session = sessionById(id)
   assertSpotsOpen(session, personId)
   const area = areaById(areaId)
@@ -1831,6 +2033,7 @@ export async function suggestSpot(id, personId, areaId, { here = false } = {}) {
 // How to call: await withdrawSpot('s1', 'jonathan')
 export async function withdrawSpot(id, personId) {
   await wait(DELAY.write)
+  requireMe(personId)
   const session = sessionById(id)
   assertSpotsOpen(session, personId)
   if (!session.spots.suggestions[personId]) return summary(session)
@@ -1847,6 +2050,7 @@ export async function withdrawSpot(id, personId) {
 // How to call: await approveSpot('s1', 'faith', 'bugis', true)
 export async function approveSpot(id, personId, areaId, on = true) {
   await wait(DELAY.write)
+  requireMe(personId)
   const session = sessionById(id)
   assertSpotsOpen(session, personId)
   if (!session.spots.list.some((s) => s.areaId === areaId)) throw new Error('That spot is not on the list.')
@@ -1863,6 +2067,7 @@ export async function approveSpot(id, personId, areaId, on = true) {
 // How to call: await confirmSpot('s1', 'bugis')
 export async function confirmSpot(id, areaId) {
   await wait(DELAY.write)
+  requireMe()
   const session = sessionById(id)
   if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
   assertHost(session, 'confirm a spot')
@@ -1880,6 +2085,7 @@ export async function confirmSpot(id, areaId) {
 // How to call: await setKnownPlace('s1', 'bugis')
 export async function setKnownPlace(id, areaId) {
   await wait(DELAY.write)
+  requireMe()
   const session = sessionById(id)
   if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
   assertHost(session, 'set a known place')
@@ -1902,18 +2108,34 @@ export async function setKnownPlace(id, areaId) {
 
 export async function optOut(id, personId) {
   await wait(DELAY.write)
+  requireMe(personId)
   const session = sessionById(id)
   if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
   const member = session.members.find((m) => m.id === personId)
   if (!member || member.role === 'host') throw new Error('The host cannot opt out.')
+  // The proposals this write removes, kept so a failure puts back exactly these (see below).
+  const theirProposals = proposalsOf(session).filter((p) => p.by === personId)
   return orUndo(session, async () => {
     member.state = 'opted_out'
     // Their approvals go, and while the group is choosing where to meet so does their suggestion (the list below is
     // worked out again, and approvals for a spot that leaves with it are removed).
     delete session.spots.approvals[personId]
     if (session.status === 'locating') delete session.spots.suggestions[personId]
-    await applyTrigger(session, { kind: 'optout', personName: nameOf(personId) })
-    await syncOptions(session)
+    // The places they proposed as the next stop go with them.
+    if (theirProposals.length) session.proposals = proposalsOf(session).filter((p) => p.by !== personId)
+    try {
+      await applyTrigger(session, { kind: 'optout', personName: nameOf(personId) })
+      await syncOptions(session)
+    } catch (err) {
+      // If the write fails, their proposals come back, whatever others proposed while it waited on the planner. (orUndo puts
+      // a list back only when no one changed it since, so it cannot do this: a place proposed meanwhile would keep theirs out.)
+      // Not when the plan has since ended or gone back to voting: those clear the proposals on purpose.
+      const now = proposalsOf(session)
+      const back = session.status === 'confirmed' ? theirProposals.filter((p) => !now.some((n) => n.id === p.id)) : []
+      if (back.length) session.proposals = [...back, ...now].sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
+      throw err
+    }
+    forgetUnusedVenues(theirProposals.map((p) => p.venueId))
     return touch(session, 'optout')
   })
 }
@@ -1930,6 +2152,7 @@ export async function cancelSession(id) {
   if (session.status === 'completed') throw new Error('A completed session cannot be cancelled.')
   session.status = 'cancelled'
   session.replan = null
+  clearProposals(session)
   return touch(session, 'session')
 }
 
@@ -1937,6 +2160,7 @@ export async function cancelSession(id) {
 
 export async function setPreferences(id, personId, prefs) {
   await wait(DELAY.write)
+  requireMe(personId)
   const session = sessionById(id)
   if (session.status !== 'voting') throw new Error('Categories can only change while voting.')
   return orUndo(session, async () => {
@@ -2039,6 +2263,7 @@ export async function swapOption(id, slotId, fromId, toId) {
 // again takes it back (a category nobody votes in stays out of the plan).
 export async function vote(id, slotId, personId, venueId) {
   await wait(DELAY.write)
+  requireMe(personId)
   const session = sessionById(id)
   if (session.status !== 'voting') throw new Error('Votes are read-only once the plan is confirmed.')
   if (!(session.options[slotId] || []).includes(venueId)) throw new Error('That place is no longer an option.')
@@ -2135,7 +2360,7 @@ export async function getPlan(id) {
       topVotes: Math.max(0, ...optionIds.map((v) => counts[v] || 0)),
       tied: P.leader(optionIds, votes) ? [] : optionIds.filter((v) => counts[v] && counts[v] === Math.max(...optionIds.map((o) => counts[o] || 0))),
       totalVotes: Object.keys(votes).length,
-      myVote: votes[HOST_ID] || null,
+      myVote: votes[me()] || null,
     }
   })
   return {
@@ -2324,10 +2549,19 @@ export async function reorderStops(id, from, to) {
   const { stops } = session.plan
   if (from === to || from < 0 || to < 0 || from >= stops.length || to >= stops.length) return summary(session)
   if (session.plan.startAt == null) session.plan.startAt = Math.min(...stops.map((s) => s.plannedStart))
-  session.plan.stops = P.moveItem(stops, from, to).map(({ notBefore, ...s }) => s)
+  session.plan.stops = P.moveItem(stops, from, to).map(withoutAiTime)
   session.plan.modes = []
   session.plan.aiNote = null
   return touch(session, 'plan')
+}
+
+// A stop without the earliest start the AI order gave it: moving or deleting a stop by hand clears that. A stop added from a
+// proposal keeps its own, because it says the stop cannot start before the moment it was added (see resolveProposal).
+// How to call: stops.map(withoutAiTime)
+function withoutAiTime(stop) {
+  if (isRoamStop(stop)) return stop
+  const { notBefore, ...rest } = stop
+  return rest
 }
 
 export async function deleteStop(id, index) {
@@ -2336,17 +2570,195 @@ export async function deleteStop(id, index) {
   const { stops, modes = [] } = planOf(session)
   if (!Number.isInteger(index) || index < 0 || index >= stops.length) throw new Error('This stop does not exist.')
   if (stops.length <= 1) throw new Error('A plan needs at least one stop.')
-  session.plan.stops = stops.filter((_, i) => i !== index).map(({ notBefore, ...s }) => s)
+  session.plan.stops = stops.filter((_, i) => i !== index).map(withoutAiTime)
   session.plan.aiNote = null
   // The plan starts when its first stop does: if the first stop goes, the next one starts at its own planned time
-  // instead of being pulled forward to the old start.
-  if (index === 0) session.plan.startAt = session.plan.stops[0].plannedStart
+  // instead of being pulled forward to the old start. A stop added from a proposal has no planned time of its own (its
+  // `plannedStart` is when the plan ended then); what it carries is the earliest it may start, so the plan starts there.
+  if (index === 0) {
+    const first = session.plan.stops[0]
+    session.plan.startAt = isRoamStop(first) && first.notBefore != null ? first.notBefore : first.plannedStart
+  }
   // The legs on either side of the removed stop merge into one, which starts with its default mode.
   const nextModes = [...modes]
   if (index === 0) nextModes.splice(0, 1)
   else nextModes.splice(index - 1, 2, undefined)
   session.plan.modes = nextModes.slice(0, session.plan.stops.length - 1)
   return touch(session, 'plan')
+}
+
+// ── Roam: what next, and the places members propose ────────────────────────
+
+// Places the planner sent for a Roam list, by id, for this visit only (never saved). Proposing one saves its venue with the
+// proposal, so a list that was read never writes anything and a failed read leaves nothing half-written.
+const roamed = new Map()
+// The most places kept in `roamed`: the oldest are forgotten first, so a long visit does not grow without end. A list holds
+// RANKED_MAX places at most, so this is several lists' worth.
+const ROAMED_MAX = 200
+
+// Remember a place the planner sent for a Roam list, forgetting the oldest beyond ROAMED_MAX.
+// How to call: rememberRoamed(place.id, place.venue)
+function rememberRoamed(id, venue) {
+  roamed.delete(id)
+  roamed.set(id, venue)
+  while (roamed.size > ROAMED_MAX) roamed.delete(roamed.keys().next().value)
+}
+
+// Take the places no one uses any more out of the save. Proposing a place saves its venue with the proposal (`db.venues`),
+// so when the proposal is dismissed, taken back or cleared, the venue goes too unless a stop, an option or another
+// proposal in any session still needs it (or the place is one of the built-in ones, which are never saved).
+// How to call: forgetUnusedVenues(['google-xyz'])
+function forgetUnusedVenues(venueIds) {
+  for (const venueId of new Set(venueIds)) {
+    if (!(venueId in db.venues)) continue
+    const used = db.sessions.some(
+      (s) =>
+        (s.plan?.stops || []).some((stop) => stop.venueId === venueId) ||
+        Object.values(s.options || {}).some((list) => (list || []).includes(venueId)) ||
+        Object.values(s.confirmedRanking || {}).some((byVenue) => venueId in (byVenue || {})) ||
+        proposalsOf(s).some((p) => p.venueId === venueId),
+    )
+    if (!used) delete db.venues[venueId]
+  }
+}
+
+// A session without proposals (saved before Roam) has the key missing; one with proposals keeps an empty list.
+// How to call: clearProposals(session)
+function clearProposals(session) {
+  if (session.proposals === undefined) return
+  const dropped = proposalsOf(session).map((p) => p.venueId)
+  session.proposals = []
+  forgetUnusedVenues(dropped)
+}
+
+// Is the plan under way, so places can be proposed? It is the moment the itinerary's footer says "Finish outing": a
+// confirmed plan on the session's day. Throws a sentence for each way it is not.
+// How to call: assertRoamOpen(session)
+function assertRoamOpen(session) {
+  if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
+  if (session.status !== 'confirmed' || !session.plan) throw new Error('Places can be proposed once the plan is confirmed.')
+  if (itineraryAction({ status: session.status, isToday: isSessionDay(session) }) !== 'finish') throw new Error('Places can be proposed on the day of the outing.')
+}
+
+// The stops of the plan with their times, as the itinerary lays them out.
+// How to call: timedStops(session) -> [{ slotId, venueId, venue, start, end, ... }]
+function timedStops(session) {
+  const { stops, modes = [] } = planOf(session)
+  const startAt = session.plan.startAt ?? Math.min(...stops.map((s) => s.plannedStart))
+  return P.buildItinerary(stops.map((s) => ({ ...s, venue: venueById(s.venueId) })), modes, startAt).stops
+}
+
+// "What next?": ranked places near where the group is, for a plan that is under way. The list is centred on the meeting
+// area unless `point` ({ lat, lng }, from "Use my location") says otherwise; the point goes to the planner for this one
+// request and is never stored, logged or returned, so nobody else can see it. `categories` narrows the list (any of eat,
+// drink, shop, activity); left out, the planner uses eat, drink and activity. The search is for the time the next stop
+// would start: when the last stop ends, or now if that has passed.
+// Each place is a voting-page card plus `id`, `travelMinutes`, `distanceM`, `state` ('stop' already in the plan, 'proposed',
+// or 'free') and, when proposed, `proposal: { id, by, byName }`. `blocked` is why the signed-in person cannot propose now,
+// or ''. `centre` names the area the list is about. Nothing is written.
+// How to call: await roamNearby('s1', { point: { lat: 1.3521, lng: 103.8198 }, categories: ['eat'] })
+export async function roamNearby(id, { point, categories } = {}) {
+  await wait(DELAY.read)
+  const session = sessionById(id)
+  assertRoamOpen(session)
+  if (!session.meeting) throw new Error('There is no meeting area yet.')
+  const own = point !== undefined && point !== null
+  if (own && !(Number.isFinite(point.lat) && Number.isFinite(point.lng) && P.inSingapore(point))) throw new Error('That place is outside Singapore. Pick an area instead.')
+  const meetingArea = areaById(session.meeting.areaId)
+  const here = own ? { lat: point.lat, lng: point.lng } : { lat: meetingArea.lat, lng: meetingArea.lng }
+  const now = new Date()
+  const lastEnd = timedStops(session).at(-1)?.end ?? 0
+  const startsAt = Math.min(1439, nextStopStart(lastEnd, now.getHours() * 60 + now.getMinutes()))
+  const answer = await planner.roamNearby({
+    members: activeIds(session).map((pid) => ({ id: pid })),
+    current: here,
+    date: todayKey(),
+    time: P.fromMinutes(startsAt),
+    minutes: ROAM.minutes,
+    categories,
+    conditions: db.conditions,
+    topN: RANKED_MAX,
+  })
+  for (const place of answer.places) rememberRoamed(place.id, place.venue)
+  const stopIds = (session.plan?.stops || []).map((s) => s.venueId)
+  const proposals = proposalsOf(session)
+  const area = own ? areaForPoint(here) : meetingArea
+  return {
+    centre: { areaId: area.id, areaName: area.name },
+    places: answer.places.map((place) => {
+      const { state, proposal } = placeState(place.id, stopIds, proposals)
+      return { ...place, state, proposal: proposal ? { id: proposal.id, by: proposal.by, byName: nameOf(proposal.by) } : null }
+    }),
+    empty: answer.empty,
+    widened: answer.widened,
+    blocked: proposeBlock({ stops: stopIds.length, mine: proposals.filter((p) => p.by === me()).length, total: proposals.length }),
+  }
+}
+
+// A member puts a place from the Roam list forward as the next stop. Anyone in the session who has not opted out may,
+// only while the plan is under way. A place already in the plan cannot be proposed; one that is already proposed stays
+// the first person's proposal and this changes nothing (the answer says `applied: false`, otherwise `applied: true`). A member keeps at most 3 waiting, a session 10, and a full plan
+// (8 stops) takes no more. The place must be one the planner sent in this visit, or one already known.
+// How to call: await proposeStop('s1', 'faith', 'v25')
+export async function proposeStop(id, personId, venueId) {
+  await wait(DELAY.write)
+  requireMe(personId)
+  const session = sessionById(id)
+  assertRoamOpen(session)
+  if (!activeIds(session).includes(personId)) throw new Error('Only people in this session can do that.')
+  const venue = venueById(venueId) || roamed.get(venueId)
+  if (!venue) throw new Error('This place does not exist.')
+  if (!P.CATEGORIES.includes(venue.category)) throw new Error('This kind of place cannot be added to a plan.')
+  const { stops } = planOf(session)
+  if (stops.some((s) => s.venueId === venueId)) throw new Error('That place is already in the plan.')
+  const proposals = proposalsOf(session)
+  if (proposals.some((p) => p.venueId === venueId)) return { ...summary(session), applied: false }
+  const block = proposeBlock({ stops: stops.length, mine: proposals.filter((p) => p.by === personId).length, total: proposals.length, you: personId === me(), name: nameOf(personId) })
+  if (block) throw new Error(block)
+  db.venues[venueId] ||= clone(venue)
+  session.proposals = [...proposals, { id: `pp${db.seq++}`, venueId, by: personId, at: Date.now() }]
+  return { ...touch(session, 'plan'), applied: true }
+}
+
+// The host adds a proposed place to the plan (accept) or leaves it out (dismiss); the person who proposed it may also
+// dismiss it, which is taking it back. Adding appends a stop at the end of the plan, in the place's own category, lasting 60
+// minutes. The stop may not start before `notBefore`: when the last stop ends, or now if that has passed, the same time the
+// list of places was ranked for (roamNearby), so what the list showed as open then is what the itinerary shows; without it a
+// plan that ended hours ago would put the stop in the past. Adding clears the note about the suggested order (the stops
+// still stand in the order they had).
+// The answer is the session as getSession answers it, plus `applied`: true when there was a proposal and it was decided,
+// false when there was none any more (already decided, or cleared by an opt-out, a re-plan, a finished or a cancelled
+// outing), which changes nothing, so a second press is harmless and the screen can say that nothing happened.
+// A waiting proposal can always be decided while the plan is confirmed, even after the session's day has passed: the day
+// only decides whether new places can be proposed (assertRoamOpen), not whether the host may answer those already waiting.
+// How to call: await resolveProposal('s1', 'pp7', true) -> { ...session, applied: true }
+export async function resolveProposal(id, proposalId, accept) {
+  await wait(DELAY.write)
+  requireMe()
+  const session = sessionById(id)
+  const proposals = proposalsOf(session)
+  const proposal = proposals.find((p) => p.id === proposalId)
+  if (!proposal) return { ...summary(session), applied: false }
+  const isHost = session.hostId === me()
+  if (accept && !isHost) throw new Error('Only the host can add a place to the plan.')
+  if (!accept && !isHost && proposal.by !== me()) throw new Error('Only the host, or the person who proposed it, can dismiss it.')
+  if (accept) {
+    const { stops } = planOf(session)
+    const venue = venueById(proposal.venueId)
+    if (!venue) throw new Error('This place does not exist.')
+    if (!stops.some((s) => s.venueId === proposal.venueId)) {
+      if (stops.length >= ROAM.stops) throw new Error(proposeBlock({ stops: stops.length, mine: 0, total: 0 }))
+      const last = timedStops(session).at(-1)
+      const now = new Date()
+      const notBefore = nextStopStart(last.end, now.getHours() * 60 + now.getMinutes())
+      session.plan.stops = [...stops, { slotId: `roam-${proposal.id}`, category: venue.category, venueId: proposal.venueId, plannedStart: last.end, duration: ROAM.minutes, notBefore }]
+      // The note was about the order the stops had; the plan is no longer exactly that.
+      session.plan.aiNote = null
+    }
+  }
+  session.proposals = proposals.filter((p) => p.id !== proposalId)
+  forgetUnusedVenues([proposal.venueId])
+  return { ...touch(session, 'plan'), applied: true }
 }
 
 // After Confirmed, a change asks "Re-plan?". Accepting returns the session to Voting; declining keeps the plan.
@@ -2376,6 +2788,7 @@ async function reopenVoting(session, trigger) {
   const { meeting: next, pinnedSpot } = await computeMeeting(session)
   session.status = 'voting'
   session.plan = null
+  clearProposals(session)
   delete session.confirmedRanking
   session.meeting = next
   if (pinnedSpot) refreshSpot(session, pinnedSpot)
@@ -2404,10 +2817,12 @@ export async function endPlan(id) {
   session.status = 'completed'
   session.completedAt = Date.now()
   session.replan = null
+  clearProposals(session)
   for (const personId of activeIds(session)) {
-    db.stats[personId].meetups += 1
-    db.stats[personId].points += POINTS_PER_MEETUP
-    db.stats[personId].seasonPoints += POINTS_PER_MEETUP
+    const stats = statsOf(personId)
+    stats.meetups += 1
+    stats.points += POINTS_PER_MEETUP
+    stats.seasonPoints += POINTS_PER_MEETUP
   }
   emit({ type: 'stats' })
   return touch(session, 'session')
@@ -2418,6 +2833,7 @@ export async function endPlan(id) {
 // Everyone in a session can post up to PHOTOS_MAX pictures. src is a data URL (see image.js).
 export async function addPhoto(id, personId, src) {
   await wait(DELAY.write)
+  requireMe(personId)
   const session = sessionById(id)
   if (!['confirmed', 'completed'].includes(session.status)) throw new Error('Photos open once the plan is confirmed.')
   if ((session.photos || []).length >= PHOTOS_MAX) throw new Error(`A session holds up to ${PHOTOS_MAX} photos. Delete one to add another.`)
@@ -2457,7 +2873,7 @@ export async function listRedemptions() {
 export async function redeemReward(rewardId) {
   await wait(DELAY.write)
   const reward = REWARDS.find((r) => r.id === rewardId)
-  const stats = db.stats[HOST_ID]
+  const stats = statsOf(requireMe())
   if (!reward) throw new Error('This voucher does not exist.')
   if (stats.points < reward.cost) throw new Error(`You need ${coins(reward.cost - stats.points)} more for this voucher.`)
   stats.points -= reward.cost

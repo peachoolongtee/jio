@@ -12,8 +12,8 @@ import { MAX_MOVABLE_STOPS } from '../planner/arrange.js'
 // for minutes: the planner re-runs every filter once per group constraint, and it routes every venue
 // listed in currentOptionIds. Each limit is well above what the app sends.
 //
-// How to use: MAX.constraints, MAX.text and so on, in the schemas below.
-const MAX = {
+// How to use: MAX.constraints, MAX.text and so on, in the schemas below. routes/plan.js reads the ones it enforces.
+export const MAX = {
   text: 80, // ids, names and labels
   members: 30,
   alternatives: 3, // runners-up a /meeting-area request may ask for
@@ -21,6 +21,8 @@ const MAX = {
   listPerMember: 20, // cuisine likes and dislikes
   constraints: 10, // group constraints
   currentOptions: 30, // the app shows at most 6 options per slot
+  googleOptions: 6, // the Google places in currentOptionIds one ranking looks up by id (a slot holds at most 6 options)
+  searchQuery: 60, // characters in a POST /api/search query
   excludedVenues: 200,
   categories: 4, // there are only 4 kinds of place
   weight: 1000,
@@ -37,13 +39,18 @@ const MAX = {
   stopHours: 4, // opening-hour ranges per stop
   mrtWalkMinutes: 120,
   shownOrders: 50,
+  // POST /api/weather/stops: the stops of one plan (an itinerary holds at most this many), and the exposure scale.
+  weatherStops: 8,
+  exposure: 5,
 }
 const text = (max = MAX.text) => z.string().min(1).max(max)
 
-// Singapore, with a little margin. Catches swapped lat/lng and (0, 0) from a failed geocode.
+// Singapore, with a little margin. Catches swapped lat/lng and (0, 0) from a failed geocode. The location search also
+// drops a Google place outside it.
+export const SINGAPORE_BOUNDS = { lat: { min: 1.1, max: 1.5 }, lng: { min: 103.5, max: 104.1 } }
 const point = z.object({
-  lat: z.number().min(1.1).max(1.5),
-  lng: z.number().min(103.5).max(104.1),
+  lat: z.number().min(SINGAPORE_BOUNDS.lat.min).max(SINGAPORE_BOUNDS.lat.max),
+  lng: z.number().min(SINGAPORE_BOUNDS.lng.min).max(SINGAPORE_BOUNDS.lng.max),
   label: z.string().max(MAX.text).optional(),
 })
 
@@ -200,7 +207,7 @@ export function makePlanSchemas(data) {
 
   // Search by name to add an option. Members are optional: send them to see diet and group-size reasons.
   const search = z.object({
-    query: z.string().trim().min(1).max(60),
+    query: z.string().trim().min(1).max(MAX.searchQuery),
     centre: point,
     dateTime,
     durationMinutes: z.number().int().min(0).max(720).optional(),
@@ -255,5 +262,22 @@ export function makePlanSchemas(data) {
       path: ['stops'],
     })
 
-  return { converge, roam, meetingArea, search, placeSearch, arrange }
+  // POST /api/weather/stops: where and when each stop of a plan is, to ask what the weather will be there.
+  const weatherStop = z.object({
+    id: text(),
+    point: point.pick({ lat: true, lng: true }),
+    start: dateTime,
+    exposure: z.number().min(0).max(MAX.exposure).optional(),
+    setting: z.enum(['indoor', 'outdoor', 'mixed']).optional(),
+  })
+  const weatherStops = z.object({
+    stops: z
+      .array(weatherStop)
+      .min(1)
+      .max(MAX.weatherStops)
+      .refine((stops) => new Set(stops.map((s) => s.id)).size === stops.length, 'stop ids must be different'),
+    weatherCase,
+  })
+
+  return { converge, roam, meetingArea, search, placeSearch, arrange, weatherStops }
 }

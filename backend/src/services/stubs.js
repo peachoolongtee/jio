@@ -174,6 +174,32 @@ export function syntheticRoute(url) {
   }
 }
 
+// A recorded 24-hour forecast moved in time, so a stubbed server always has one that covers the next 18 to 24 hours,
+// as NEA's does: its window starts at the latest 6-hour mark (midnight, 6 am, midday, 6 pm, Singapore time) within
+// 30 minutes of `nowMs`, and lasts 24 hours. Every time in it is moved by the same whole number of 6-hour steps, so
+// the periods keep their lengths and only the day and night wording can be off. Used by the stub rule below.
+//
+// How to call. You normally never do: http.getJson calls it in stub mode.
+//   const payload = shiftTwentyFourHourForecast(loadFixture('datagov/twenty-four-hr-forecast.dry.json'), Date.now())
+export function shiftTwentyFourHourForecast(payload, nowMs) {
+  const STEP = 6 * 3600 * 1000
+  const record = payload.data.records[0]
+  const windowStart = Date.parse(record.general.validPeriod.start)
+  const SG = 8 * 3600 * 1000 // Singapore is UTC+8, so its 6-hour marks sit 8 hours off the epoch's.
+  const wanted = Math.floor((nowMs + 30 * 60 * 1000 + SG) / STEP) * STEP - SG
+  const by = wanted - windowStart
+  const sgTime = (ms) => new Date(ms + 8 * 3600 * 1000).toISOString().slice(0, 19) + '+08:00'
+  for (const t of [record.general.validPeriod, ...record.periods.map((p) => p.timePeriod)]) {
+    t.start = sgTime(Date.parse(t.start) + by)
+    t.end = sgTime(Date.parse(t.end) + by)
+  }
+  // Issued 30 minutes before the window opens, like NEA's scheduled issues (05:30, 11:30, 17:30, 23:30).
+  record.timestamp = sgTime(wanted - 30 * 60 * 1000)
+  record.updatedTimestamp = record.timestamp
+  record.date = record.timestamp.slice(0, 10)
+  return payload
+}
+
 // One rule per external endpoint the stubs can answer. The first rule whose
 // method, host and path all match the request wins.
 //
@@ -199,11 +225,57 @@ const rules = [
     respond: () => loadFixture('google/places-nearby.json'),
   },
   {
+    method: 'POST',
+    host: 'places.googleapis.com',
+    path: '/v1/places:searchText',
+    // Two invented places near Orchard: a karaoke with few reviews and a noodle house. Same answer whatever the words.
+    respond: () => loadFixture('google/places-text-search.json'),
+  },
+  {
+    method: 'GET',
+    host: 'places.googleapis.com',
+    // One place by id: /v1/places/<place id>. Answered from the invented places in the two fixtures above; any other
+    // id is a 404, as Google answers for a place that does not exist.
+    pathPattern: /^\/v1\/places\/[^/]+$/,
+    respond: ({ url }) => {
+      const id = decodeURIComponent(url.pathname.slice('/v1/places/'.length))
+      const all = [...loadFixture('google/places-nearby.json').places, ...loadFixture('google/places-text-search.json').places]
+      const place = all.find((p) => p.id === id)
+      if (!place) throw new ExternalApiError('google answered 404', { service: 'google', status: 404, url: url.href })
+      return place
+    },
+  },
+  {
     method: 'GET',
     host: 'places.googleapis.com',
     // A photo's address: /v1/places/<place id>/photos/<photo id>/media
     pathPattern: /^\/v1\/places\/[^/]+\/photos\/[^/]+\/media$/,
     respond: ({ url }) => ({ name: url.pathname.slice(4, -6), photoUri: 'https://lh3.googleusercontent.com/stub-photo' }),
+  },
+  {
+    // Gemini reading a post (services/link-reader.js): two invented places and an invented pop-up, whatever is asked.
+    method: 'POST',
+    host: 'generativelanguage.googleapis.com',
+    pathPattern: /^\/v1beta\/models\/[^/]+:generateContent$/,
+    respond: () => loadFixture('link-reader/gemini-places.json'),
+  },
+  {
+    method: 'GET',
+    host: 'www.googleapis.com',
+    path: '/youtube/v3/videos',
+    respond: () => loadFixture('link-reader/youtube-video.json'),
+  },
+  {
+    method: 'GET',
+    host: 'www.googleapis.com',
+    path: '/youtube/v3/commentThreads',
+    respond: () => loadFixture('link-reader/youtube-comments.json'),
+  },
+  {
+    method: 'GET',
+    host: 'www.tiktok.com',
+    path: '/oembed',
+    respond: () => loadFixture('link-reader/tiktok-oembed.json'),
   },
   {
     method: 'GET',
@@ -212,6 +284,18 @@ const rules = [
     // Rain only in the rain scenario. Every other scenario gets fair weather.
     respond: ({ scenario }) =>
       loadFixture(`datagov/two-hr-forecast.${scenario === 'rain' ? 'rain' : 'dry'}.json`),
+  },
+  {
+    method: 'GET',
+    host: 'api-open.data.gov.sg',
+    path: '/v2/real-time/api/twenty-four-hr-forecast',
+    // The regional forecast: heavy thundery showers everywhere in the rain scenario, partly cloudy in every other.
+    // Moved to cover the next 18 to 24 hours from the real clock (see shiftTwentyFourHourForecast).
+    respond: ({ scenario }) =>
+      shiftTwentyFourHourForecast(
+        loadFixture(`datagov/twenty-four-hr-forecast.${scenario === 'rain' ? 'rain' : 'dry'}.json`),
+        Date.now(),
+      ),
   },
   {
     method: 'POST',

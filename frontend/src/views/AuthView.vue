@@ -21,7 +21,8 @@ export function passwordChecks(password, realAccounts) {
 <script setup>
 // Sign-up: one question per screen, with a back arrow and a progress bar.
 // Email, password with a live checklist, name, date of birth, username, profile photo (can be skipped), home area,
-// dietary needs (can be skipped), suggested friends. It ends on Home.
+// dietary needs (can be skipped), suggested friends (local accounts only: a real account has no sample friends, so its
+// last question is the dietary needs). It ends on Home.
 // The answers live in the auth store's draft, so nothing is lost if the window is resized.
 // With real accounts the password goes to Supabase and is emptied afterwards, whatever happens: after a failed attempt
 // the screen goes back to the question the problem belongs to, keeps every other answer, and asks for the password again
@@ -56,10 +57,14 @@ import {
 } from '@/lib/signupRules.js'
 import { useAuthStore } from '@/stores/auth.js'
 
-const STEPS = ['email', 'password', 'name', 'dob', 'username', 'photo', 'home', 'diet', 'friends']
+const ALL_STEPS = ['email', 'password', 'name', 'dob', 'username', 'photo', 'home', 'diet', 'friends']
 
 const router = useRouter()
 const auth = useAuthStore()
+// A real account starts with nobody but itself, so it is not offered the sample people to add as friends: its friends are
+// the people it shares a session with, and its last question is the dietary needs (step 7). Local accounts keep the step
+// (the friends are step 8).
+const STEPS = auth.realAccounts ? ALL_STEPS.filter((name) => name !== 'friends') : ALL_STEPS
 const draft = computed(() => auth.draft)
 const step = computed(() => STEPS[draft.value.step])
 
@@ -280,7 +285,15 @@ const buttonLabel = computed(() => {
   if (phase.value === 'checking') return 'Checking username'
   if (phase.value === 'checking-email') return 'Checking email'
   if (phase.value === 'creating') return 'Creating your account'
-  return step.value === 'friends' ? 'Finish' : 'Next'
+  return step.value === STEPS.at(-1) ? 'Finish' : 'Next'
+})
+
+// What the dietary needs question's button says. It can be skipped; on a real account it is also the last question, so it
+// then says "Finish" (and what is happening while the account is made), as the other last questions do.
+// How to call: dietLabel.value -> 'None, skip'
+const dietLabel = computed(() => {
+  if (step.value === STEPS.at(-1)) return buttonLabel.value
+  return draft.value.dietary.length ? 'Next' : 'None, skip'
 })
 
 // Development builds only: the first question also offers the demo account, with or without showcase data
@@ -571,7 +584,7 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
         <AppButton next block @click="next">{{ draft.photo ? 'Next' : 'Skip' }}</AppButton>
       </template>
       <template v-else-if="step === 'diet'">
-        <AppButton next block @click="next">{{ draft.dietary.length ? 'Next' : 'None, skip' }}</AppButton>
+        <AppButton next block :disabled="busy" @click="next">{{ dietLabel }}</AppButton>
       </template>
       <template v-else>
         <AppButton next block :disabled="!canContinue || busy" @click="next">{{ buttonLabel }}</AppButton>

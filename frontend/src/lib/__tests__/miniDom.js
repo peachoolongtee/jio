@@ -5,7 +5,8 @@
 //   page.button('Works for me').click()   page.text()   page.attr(el, 'aria-pressed')
 import { createRenderer, nextTick } from 'vue'
 
-const node = (type, tag = '') => ({ type, tag, props: {}, listeners: {}, children: [], parent: null, text: '' })
+// `querySelector` finds nothing: a component that looks inside its own root (to move focus) gets no element, as on a page with none.
+const node = (type, tag = '') => ({ type, tag, props: {}, listeners: {}, children: [], parent: null, text: '', querySelector: () => null })
 
 // How to call: const { createApp } = createRenderer(options) — the operations Vue needs to build and change a tree.
 function operations(body) {

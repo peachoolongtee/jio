@@ -2,7 +2,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as api from '@/lib/api.js'
-import { HOST_ID } from '@/lib/mock/people.js'
+import { currentUserId } from '@/lib/currentUser.js'
 
 // Changes that cannot alter what the planner would rank: photos, and the itinerary (order, travel modes, deleted stops).
 const KEEPS_RANKING = new Set(['photos', 'plan'])
@@ -42,13 +42,13 @@ export const usePlannerStore = defineStore('planner', () => {
     conditions.value = await api.setConditions({ [key]: value })
   }
 
-  const setMyPreferences = (id, prefs) => api.setPreferences(id, HOST_ID, prefs)
+  const setMyPreferences = (id, prefs) => api.setPreferences(id, currentUserId(), prefs)
   const deleteSlot = (id, slotId) => api.deleteSlot(id, slotId)
   const restoreSlots = (id) => api.restoreSlots(id)
   const addMore = (id, slotId) => api.addMoreOptions(id, slotId)
   const addOption = (id, slotId, venueId) => api.addOption(id, slotId, venueId)
   const swapOption = (id, slotId, fromId, toId) => api.swapOption(id, slotId, fromId, toId)
-  const vote = (id, slotId, venueId) => api.vote(id, slotId, HOST_ID, venueId)
+  const vote = (id, slotId, venueId) => api.vote(id, slotId, currentUserId(), venueId)
   const searchVenues = (id, slotId, query) => api.searchVenuesForSlot(id, slotId, query)
   const setRadius = (id, metres) => api.setRadius(id, metres)
 
@@ -56,7 +56,22 @@ export const usePlannerStore = defineStore('planner', () => {
   const reload = (id) => loadPlan(id, { quiet: true }).catch(() => {})
 
   // Live updates: a change to a session that can alter its ranking refreshes its plan; weather refreshes every plan.
+  // Whose plans the store holds. A change of person, with or without a sign-out between, empties them: every account's first
+  // session is `s1`, so a kept plan of `s1` would be shown as the next account's. A load still running finds its ticket out
+  // of date and drops its answer.
+  let owner = currentUserId()
+  function forgetPlans() {
+    for (const id of Object.keys(seq)) seq[id] += 1
+    plans.value = {}
+    loading.value = {}
+    errors.value = {}
+  }
+
   api.subscribe((event) => {
+    if (currentUserId() !== owner) {
+      owner = currentUserId()
+      forgetPlans()
+    }
     // "pending" only shows work in progress (the meeting area being found); the plan has not changed yet.
     if (event.type === 'pending') return
     if (event.type === 'reset') {

@@ -29,6 +29,8 @@ describe('the step on screen', () => {
     expect(viewingStep(voting, '/itinerary')).toBe(4)
     expect(viewingStep(voting, '/photos')).toBe(4)
     expect(viewingStep(voting, '/map')).toBe(4)
+    // "What next?" is part of the Itinerary step too.
+    expect(viewingStep(voting, '/roam')).toBe(4)
   })
 
   it('reads the people page as Invite while inviting and as Locate after', () => {
@@ -131,6 +133,7 @@ describe('where the button at the top left goes', () => {
   it('takes the photos and the full map back to the Itinerary', () => {
     expect(back('completed', '/photos')).toEqual({ label: 'Back to Itinerary', to: '/sessions/s1/itinerary' })
     expect(back('confirmed', '/map')).toEqual({ label: 'Back to Itinerary', to: '/sessions/s1/itinerary' })
+    expect(back('confirmed', '/roam')).toEqual({ label: 'Back to Itinerary', to: '/sessions/s1/itinerary' })
   })
 
   it('leaves to the screen the session was opened from, when told one', () => {

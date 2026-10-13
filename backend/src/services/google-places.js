@@ -8,21 +8,29 @@ import { currentScenario } from './scenario.js'
 // Every call goes through the shared HTTP helper, so stub mode answers from tests/fixtures/google/.
 //
 // Cost and terms:
-//   - One "nearby" search per planner request at most, cached 10 minutes in memory for points about 110 m apart.
+//   - A planner ranking makes at most one "nearby" search, cached 10 minutes in memory for points about 110 m apart,
+//     and at most 3 place look-ups by id (cached 10 minutes; a place Google does not have is remembered 5 minutes).
+//     A search by name (POST /api/search, GET /api/places/search) makes one text search, cached 10 minutes.
 //     The search radius is rounded up to the planner's own steps (500, 1000, 2000, 3000 m), so a caller cannot make
 //     a new billed search by changing the radius by one metre.
-//   - One budget for every Google call, nearby searches and photos together: GOOGLE_CALLS_PER_MINUTE a minute (60 by
+//   - One budget for every Google call, searches, look-ups and photos together: GOOGLE_CALLS_PER_MINUTE a minute (60 by
 //     default) and at most 4 in flight. A call over the budget fails at once; the planner answers without Google.
 //   - Three failures in a row pause Google for a minute (a circuit breaker), and a call waits at most 3 seconds.
+//   - The link reader (services/link-reader.js) does not draw on the whole budget: it uses lane(), a view that may spend at most
+//     a third of GOOGLE_CALLS_PER_MINUTE a minute (a count of its paid calls over the last minute, so cache hits are free), so
+//     it can never starve the planner.
 //   - Set a daily quota on the key in Google Cloud as well, so a busy day can never run up a bill.
 //   - Only the fields below are asked for (the field mask). The mask includes rating, review count, opening hours
 //     and price level, which Google is likely to bill at a dearer tier than basic fields (to confirm on Google's
-//     pricing page). Every extra field can raise the price further.
+//     pricing page). Every extra field can raise the price further. The location search, which shows only a name,
+//     an address and a point, asks for a short mask (PLACE_SEARCH_FIELDS) so it does not pay for the rest.
 //   - Google's terms allow storing a place's id, not its details, so results are never written to a file.
 //
 // Docs: https://developers.google.com/maps/documentation/places/web-service/nearby-search
 
 export const NEARBY_URL = 'https://places.googleapis.com/v1/places:searchNearby'
+export const TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText'
+const DETAILS_URL = (placeId) => `https://places.googleapis.com/v1/places/${placeId}`
 const PHOTO_URL = (name, maxWidthPx) => `https://places.googleapis.com/v1/${name}/media?maxWidthPx=${maxWidthPx}&skipHttpRedirect=true`
 
 export const DEFAULT_GOOGLE_CALLS_PER_MINUTE = 60 // Nearby searches and photos together.
@@ -31,6 +39,9 @@ export const GOOGLE_TIMEOUT_MS = 3000 // Shorter than the HTTP helper's 10 secon
 export const GOOGLE_FAILURES_TO_OPEN = 3 // Failed calls in a row that open the circuit.
 export const GOOGLE_CIRCUIT_OPEN_MS = 60 * 1000 // How long Google is skipped once the circuit opens.
 export const PHOTO_MISS_MS = 5 * 60 * 1000 // A photo Google says does not exist is not asked for again for this long.
+export const PLACE_MISS_MS = 5 * 60 * 1000 // A place Google says does not exist (404) is not asked for again for this long.
+export const PLACE_CACHE_MS = 10 * 60 * 1000 // How long a search or a place look-up is kept. Other parts of the server keep Google content no longer than this.
+export const LANE_WINDOW_MS = 60 * 1000 // The window a lane's allowance is counted over.
 const WARN_EVERY_MS = 60 * 1000 // The same reason is logged at most once in this time.
 const STUB_CALLS_PER_MINUTE = 1_000_000 // Stub mode runs the same code, with a budget no test will empty.
 const MAX_PLACES = 20 // Google's limit for one search, and the most that is read from an answer.
@@ -57,6 +68,21 @@ export const NEARBY_FIELDS = [
   'places.photos',
   'places.businessStatus',
 ].join(',')
+
+// The few fields the location search shows: a name, an address and a point. Asking for no more is cheaper than the
+// full mask above, which adds rating, hours, price and photos.
+export const PLACE_SEARCH_FIELDS = ['places.id', 'places.displayName', 'places.location', 'places.formattedAddress'].join(',')
+
+// The same fields for one place (Place Details), which has no "places." in front.
+export const DETAILS_FIELDS = NEARBY_FIELDS.split(',').map((f) => f.replace(/^places\./, '')).join(',')
+
+// A Google place id, as Jio stores it after "google_". Anything else is never sent to Google.
+export const PLACE_ID = /^[A-Za-z0-9_-]{1,300}$/
+
+// The most places one text search returns, and how far around the point it prefers places by default (it can still
+// return places further away; the planner then marks them "far"). Google allows a bias circle of up to 50 km.
+const TEXT_SEARCH_MAX = 10
+export const TEXT_SEARCH_BIAS_METERS = 5000
 
 // Google's place types for each Jio category. For activities, OneMap's lists already have the government places
 // (parks, SportSG centres, museums, libraries, theatres), so Google adds the private ones OneMap does not list.
@@ -177,9 +203,13 @@ export function readGoogleSettings(env) {
 // A plain object that carries a place id: the least a Google place must have to be worth keeping.
 const isPlaceObject = (p) => p !== null && typeof p === 'object' && !Array.isArray(p) && typeof p.id === 'string' && p.id !== ''
 
-// A photo Google says does not exist (404) or does not accept (400). About that photo, not about Google being unwell.
+// A photo Google says does not exist (404) or does not accept (400). About that one photo, not about Google being unwell.
 const isMissingPhoto = (err) =>
   err instanceof ExternalApiError && !(err instanceof GoogleUnavailableError) && (err.status === 404 || err.status === 400)
+
+// A place Google says does not exist (404). Only 404: a 400 for a place look-up can mean a bad key or field mask, which
+// is Google (or this server) being unwell, so it counts as a failure and is logged like one.
+const isMissingPlace = (err) => err instanceof ExternalApiError && !(err instanceof GoogleUnavailableError) && err.status === 404
 
 // Builds the Google Places service.
 //
@@ -188,6 +218,9 @@ const isMissingPhoto = (err) =>
 //   places.enabled                                                        // false without a key
 //   const raw = await places.nearby({ lat: 1.35, lng: 103.85 }, { categories: ['eat'], radiusMeters: 1000 })
 //   const url = await places.photoUrl('places/ChIJ.../photos/AUc...')    // a short-lived image link with no key in it
+//   const found = await places.searchText('Teo Heng', { lat: 1.3, lng: 103.8 }) // up to 10 places matching the words
+//   const place = await places.details('ChIJ...')                         // one place by id, or null when Google has none
+//   places.timeoutMs                                                      // how long one call may take
 //
 // Options:
 //   http           - The shared HTTP helper (services/http.js).
@@ -209,9 +242,12 @@ export function createGooglePlaces({
 }) {
   const key = typeof apiKey === 'string' ? apiKey.trim() : ''
   const enabled = key !== '' || stub
-  const nearbyCache = createCache({ ttlMs: 10 * 60 * 1000, maxItems: 500, now })
+  const nearbyCache = createCache({ ttlMs: PLACE_CACHE_MS, maxItems: 500, now })
+  const textCache = createCache({ ttlMs: PLACE_CACHE_MS, maxItems: 500, now })
+  const detailsCache = createCache({ ttlMs: PLACE_CACHE_MS, maxItems: 1000, now })
   const photoCache = createCache({ ttlMs: 30 * 60 * 1000, maxItems: 2000, now })
   const photoMisses = createCache({ ttlMs: PHOTO_MISS_MS, maxItems: 2000, now })
+  const placeMisses = createCache({ ttlMs: PLACE_MISS_MS, maxItems: 2000, now })
   const budget = createCallBudget({
     callsPerMinute,
     maxInFlight: GOOGLE_MAX_IN_FLIGHT,
@@ -246,9 +282,12 @@ export function createGooglePlaces({
   // `benign(err)` marks a failure that is about the thing asked for, not about Google being unwell (a photo that
   // does not exist). It neither counts toward the circuit nor is logged.
   //
+  // `lane` (see lane() below) is a part of the budget that one kind of caller is held to. It is charged only here, where a
+  // paid call is about to be made, so an answer from a cache costs it nothing.
+  //
   // How to call (inside this file):
   //   const body = await guarded(() => http.getJson(url, { headers: headers(), timeoutMs }))
-  async function guarded(fn, { benign = () => false } = {}) {
+  async function guarded(fn, { benign = () => false, lane = null } = {}) {
     let probe = false
     // Refuses while the circuit is open. Once the pause is over, lets exactly one call through as a probe.
     const claim = () => {
@@ -261,6 +300,7 @@ export function createGooglePlaces({
     }
     try {
       claim()
+      lane?.spend()
       return await budget.run(
         async () => {
           try {
@@ -379,5 +419,136 @@ export function createGooglePlaces({
     }
   }
 
-  return { enabled, nearby, photoUrl }
+  // Google's raw places matching a name, an address or a postal code, preferring places near `point`. At most 10.
+  // For searching by name ("Teo Heng", "Have Fun Karaoke", "238859") where the nearby list only has the 20 nearest.
+  // Cached 10 minutes. Uses the same call budget and circuit as every other Google call.
+  //
+  // `fieldMask` is the fields asked for (each one raises the price): the default is the full list the planner scores
+  // on; the location search passes PLACE_SEARCH_FIELDS. `biasMeters` is the radius of the circle around `point` that
+  // Google prefers places in, at most 50,000. The mask and the radius are part of the cache key.
+  //
+  // How to call:
+  //   const raw = await places.searchText('Teo Heng', { lat: 1.3048, lng: 103.8318 })
+  //   const raw = await places.searchText('Teo Heng', { lat: 1.3521, lng: 103.8198 }, { fieldMask: PLACE_SEARCH_FIELDS, biasMeters: 25000 })
+  //
+  // Throws ExternalApiError when Google fails (GoogleUnavailableError when the budget is empty, the circuit is open
+  // or the answer cannot be read), and Error when the service is off.
+  async function searchText(query, point, { fieldMask = NEARBY_FIELDS, biasMeters = TEXT_SEARCH_BIAS_METERS, lane = null } = {}) {
+    if (!enabled) throw new Error('Google Places is off: set GOOGLE_MAPS_API_KEY')
+    const textQuery = String(query).trim().slice(0, 100)
+    if (!textQuery) return []
+    const radius = Math.min(50_000, Math.max(1, Math.round(biasMeters)))
+    const cacheKey = `text:${currentScenario()}:${fieldMask}:${round3(point.lat)},${round3(point.lng)}:${radius}:${textQuery.toLowerCase()}`
+    let partial = false
+    const list = await textCache.getOrSet(cacheKey, () =>
+      guarded(async () => {
+        const body = await http.postJson(
+          TEXT_SEARCH_URL,
+          {
+            textQuery,
+            pageSize: TEXT_SEARCH_MAX,
+            regionCode: 'sg',
+            languageCode: 'en',
+            locationBias: { circle: { center: { latitude: point.lat, longitude: point.lng }, radius } },
+          },
+          { headers: headers(fieldMask), timeoutMs },
+        )
+        const { places, dropped } = readPlaces(body)
+        partial = dropped > 0
+        return places.slice(0, TEXT_SEARCH_MAX)
+      }, { lane }),
+    )
+    if (partial) textCache.set(cacheKey, list, { ttlMs: 0 })
+    return list
+  }
+
+  // What details() would do for a place id, without doing it and without spending anything (like OneMap's peekRoute):
+  //   { state: 'cached', place }   looked up before, within 10 minutes
+  //   { state: 'missing' }         Google said 404 for it within the last 5 minutes
+  //   { state: 'call' }            needs a paid Google call
+  // The planner uses it to count the calls one request would make before making any.
+  //
+  // How to call:
+  //   const plan = places.peekDetails('ChIJ...')
+  function peekDetails(placeId) {
+    const cacheKey = `details:${currentScenario()}:${placeId}`
+    const place = detailsCache.get(cacheKey)
+    if (place !== undefined) return { state: 'cached', place }
+    if (placeMisses.get(cacheKey)) return { state: 'missing' }
+    return { state: 'call' }
+  }
+
+  // One Google place by its id, with the same fields as a nearby search, or null when Google has no such place.
+  // For a Google place the group added from a search: it is not among the 20 nearest, so the planner looks it up by
+  // id to rank it. Google's terms allow keeping a place id; the details are fetched again and cached 10 minutes.
+  // A 404 is remembered for 5 minutes, so an id that does not exist is not paid for again and again. Any other failure,
+  // including a 400, is a failure: it counts toward the circuit and is logged, and it is not remembered.
+  //
+  // How to call:
+  //   const raw = await places.details('ChIJ...')
+  //
+  // Throws ExternalApiError when Google fails, and Error for an id that is not a Google place id.
+  async function details(placeId, { lane = null } = {}) {
+    if (!enabled) throw new Error('Google Places is off: set GOOGLE_MAPS_API_KEY')
+    if (!PLACE_ID.test(placeId)) throw new Error('not a Google place id')
+    const cacheKey = `details:${currentScenario()}:${placeId}`
+    if (placeMisses.get(cacheKey)) return null
+    try {
+      return await detailsCache.getOrSet(cacheKey, () =>
+        guarded(
+          async () => {
+            const body = await http.getJson(DETAILS_URL(placeId), { headers: headers(DETAILS_FIELDS), timeoutMs })
+            if (!isPlaceObject(body)) throw new GoogleUnavailableError('bad_response', 'Google sent a place that cannot be read')
+            return body
+          },
+          { benign: isMissingPlace, lane },
+        ),
+      )
+    } catch (err) {
+      if (!isMissingPlace(err)) throw err
+      placeMisses.set(cacheKey, true)
+      return null
+    }
+  }
+
+  // A view of searchText() and details() that may spend only `share` of the budget (a third by default) in any minute, for a
+  // part of the app that must never take the budget from the planner: the link reader. It draws on the same budget and
+  // circuit, so the planner's calls and the lane's together can never go over GOOGLE_CALLS_PER_MINUTE; and the lane's own
+  // allowance (a count of the paid calls in the last minute, not a bucket, so it cannot be spent twice over at a minute's
+  // edge) stops it taking more than its share. An answer from a cache costs the allowance nothing. A call over the allowance
+  // throws GoogleUnavailableError('budget_empty') and makes no request.
+  //
+  // How to call:
+  //   const links = places.lane({ share: 1 / 3 })
+  //   const raw = await links.searchText('Teo Heng', { lat: 1.3, lng: 103.8 })
+  //   const place = await links.details('ChIJ...')
+  //   links.allowance // { max: 20, used: () => 3 }
+  function lane({ share = 1 / 3 } = {}) {
+    const max = Math.max(1, Math.floor(callsPerMinute * share))
+    const spent = [] // The times of the paid calls in the last minute, oldest first.
+    const used = () => {
+      const t = now()
+      while (spent.length > 0 && t - spent[0] >= LANE_WINDOW_MS) spent.shift()
+      return spent.length
+    }
+    const own = {
+      spend() {
+        if (used() >= max) {
+          throw new GoogleUnavailableError('budget_empty', 'the Google calls set aside for this part of the app are used up for this minute', {
+            retryAfterSeconds: Math.max(1, Math.ceil((spent[0] + LANE_WINDOW_MS - now()) / 1000)),
+          })
+        }
+        spent.push(now())
+      },
+    }
+    return {
+      enabled,
+      timeoutMs,
+      allowance: { max, used },
+      searchText: (query, point, options = {}) => searchText(query, point, { ...options, lane: own }),
+      details: (placeId) => details(placeId, { lane: own }),
+    }
+  }
+
+  return { enabled, timeoutMs, nearby, photoUrl, searchText, details, peekDetails, lane }
 }

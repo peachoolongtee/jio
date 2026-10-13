@@ -72,7 +72,7 @@ watch(() => props.id, () => { picked.value = ''; load() })
 
 const session = computed(() => events.byId[props.id])
 const status = computed(() => session.value?.status)
-const nameOf = (id) => (id === 'ian' ? auth.user?.name ?? '' : groups.nameOf(id))
+const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
 const voterIds = computed(() => (session.value ? votersOf(session.value.votes, active.value) : []))
 const locked = computed(() => ['confirmed', 'completed', 'cancelled'].includes(status.value))
@@ -82,14 +82,14 @@ const lobby = computed(() =>
   (session.value?.members || [])
     .filter((m) => ['joined', 'invited'].includes(m.state))
     .map((m) => {
-      const p = m.id === 'ian' ? { username: auth.user?.username, homeArea: auth.user?.homeAreaName } : groups.people.find((x) => x.id === m.id) || {}
+      const p = m.id === auth.myId ? { username: auth.user?.username, homeArea: auth.user?.homeAreaName } : groups.people.find((x) => x.id === m.id) || {}
       return { id: m.id, name: nameOf(m.id), host: m.role === 'host', joined: m.state === 'joined', username: p.username || '', homeArea: p.homeArea || '' }
     }),
 )
 const lobbyRing = computed(() => lobby.value.map((p) => ({ name: p.name, done: p.joined })))
 const inviteOpen = ref(false)
 
-const myLoc = computed(() => session.value?.locations?.ian || { start: null, end: null })
+const myLoc = computed(() => session.value?.locations?.[auth.myId] || { start: null, end: null })
 const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAreaId, name: auth.user.homeAreaName } : null))
 
 // The donut follows the step: locations while locating, votes after that.
@@ -102,7 +102,7 @@ const progress = computed(() => {
   return { title: 'Locations', label: 'Submitted', people: people.map((p) => ({ name: p.name, done: !!session.value.locations?.[p.id]?.start })) }
 })
 
-const myId = computed(() => auth.user?.id || 'ian')
+const myId = computed(() => auth.myId)
 // The group is choosing where to meet: the spots are listed, and the meeting area is what the host confirms.
 const choosing = computed(() => status.value === 'locating')
 // The spots as the list shows them: while choosing, as the data layer keeps them; after a spot is confirmed, the same
@@ -384,7 +384,7 @@ const startSession = () => run(() => events.start(props.id))
             <section class="section card" aria-label="People">
               <!-- Once the spot is confirmed this card is about the trips: no votes ring, no status icons. -->
               <ProgressDonut v-if="progress && !settled" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
-              <MemberList :session="peopleSession" :names="nameOf" :voters="voterIds" :statuses="!settled" />
+              <MemberList :session="peopleSession" :names="nameOf" :my-id="myId" :voters="voterIds" :statuses="!settled" />
               <p v-if="!choosing && hasMeetingTrips && !loading" class="travel-key" aria-label="Travel time colours">
                 <span v-for="t in TRAVEL_TONES" :key="t.id" class="travel-key__item"><span class="travel-key__dot" :class="`is-${t.id}`" />{{ t.label }}</span>
               </p>

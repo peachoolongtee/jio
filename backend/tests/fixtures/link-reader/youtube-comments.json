@@ -1,0 +1,24 @@
+{
+  "items": [
+    {
+      "snippet": {
+        "topLevelComment": {
+          "snippet": {
+            "textDisplay": "The karaoke is great but the queue is long on weekends.",
+            "likeCount": 12
+          }
+        }
+      }
+    },
+    {
+      "snippet": {
+        "topLevelComment": {
+          "snippet": {
+            "textDisplay": "Noodles were good, went last week.",
+            "likeCount": 3
+          }
+        }
+      }
+    }
+  ]
+}

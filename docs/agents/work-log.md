@@ -990,3 +990,223 @@ The lead pasted a recording of the team testing the app together and asked for t
 - **A second map was charted,** "Jio to the freeze: wayfinder map", issue 109, grouped by feature, carrying execution. Sessions on the server is its first feature, in five stages. Invites are by link, which joins at once, and by username, which sends an invite to accept.
 - **Research answered:** Google's nearby search bills at its dearest tier with the fields asked for, and its terms forbid Places content on or beside a non-Google map; the 24-hour forecast reaches 18 to 24 hours ahead and its phrases are already known to the planner.
 - **Running when this was written:** an architect extending the session endpoint design, and a backend agent drafting the schema for meeting spots. Nothing is applied to the live database.
+
+## Round 21: work that does not touch the pitch build (2026-10-11, night)
+
+The lead asked what could carry on before the pitch and said "go" to five pieces, each on its own branch from `dev`, none to be merged until the lead has presented. All are tickets on the map, issue 109.
+
+| # | Role | Scope | Branch | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 21.1 | Backend | Weather, the backend half: the area forecast within two hours, the regional forecast where a published period covers the stop, no effect otherwise; four states and "not known" on each result; a route that answers the state of each stop of a plan | `feat/weather-forecast-window` | Old requests answer as before apart from the documented new fields; suites pass, also with outbound calls blocked | Running |
+| 21.2 | Frontend | The demo tour: `/demo`, one outing as a story saved at each checkpoint, a strip to jump between them, available in a deployed build when a flag is set | `feat/demo-tour` | Works with the backend off; suites and build pass; a build without the flag has none of it | Running |
+| 21.3 | Frontend | Roam inside a meetup: "What next?" on the itinerary on the day, a list of places nearby, proposals, the host's confirm | `feat/roam-in-meetup` | The rules each have a test; suites and build pass | Running |
+| 21.4 | Tracker | Check the audit tracker's and the first map's open tickets against `dev`; close what is done with its evidence, note what remains | none | Every ticket touched has a comment naming a file, a test or a pull request | Running |
+| 21.5 | Backend | Reconcile the schema draft with the session endpoint design, split by build slice; nothing applied | `feat/session-schema-spots` | A fresh build equals the old files plus the migrations; the access tests pass on a throwaway database | Running |
+| 21.6 | Lead | Verify each as it finishes; leave all unmerged | | Suites run by the lead on each branch | Pending |
+
+Held until after the pitch, because they edit the same screens: the signed-in account in place of the hard-coded one, the screen half of weather, and the walkthrough's later items.
+
+## Round 22: audit of the place-search pull request (2026-10-11, night)
+
+The lead asked whether the open pull requests overlap with work in flight, then for an audit of peachoolongtee/jio#132, "Search any place or location with Google and OneMap", by faithpho, from `feature/real-search` at `cf364da`: backend only, 10 files, 732 lines added. It is to be merged into `dev` after the pitch and before the weather branch, which edits six of the same files.
+
+- **Before any review, by the lead, on `dev` with the pull request merged in (no conflicts):** `pnpm test` 827 passed, 2 skipped, 30 files, and the same with outbound calls blocked, no call attempted; `pnpm --filter jio-frontend test` 807 passed, 56 files; `pnpm build` succeeded. The new Google fixture holds invented places.
+- **Read by the lead before delegating:** both new Google calls (a text search and a look-up by place id) go through the budget, timeout and pause that the Google Places audit added, with a 10-minute cache and the shape check.
+- **Known before the audit:** Google's terms, read on 11 October, forbid Places content on or beside a non-Google map; this pull request brings Google places to the Vote page and to the location sheet once a key is set. The decision is the lead's and is open on the map. With no key, the code does nothing.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 22.1 | Code reviewer, read-only | The new Google calls, cost per request, what reaches the browser, the search routes' rules, the engine change | Nothing | Every finding has a file, a line and a way to trigger it | Running |
+| 22.2 | Verifier | Run it with a fake Google and try to break it; count calls; check the frontend still works with Google results in its answers | Nothing in the repo | Each claim confirmed or refuted with output | Running |
+| 22.3 | Lead | Check findings, fix or record, merge into `dev` after the pitch | Fixes on `feat/real-search-integration` | Suites pass | Pending |
+
+### 21.5 and after: the schema, reconciled, and two migrations applied (2026-10-11, night)
+
+- **Reconciled by a backend agent** with the session endpoint design, as four migrations (invites; meeting spots; the slot plan's details; the plan, the suggested order and proposals), each with an access test, 316 steps in all. On a stand-in database a fresh build matched the old files plus the migrations, and every test passed. None of that ran on the live project.
+- **Applied by the lead agent at the lead's word ("apply"): `jio_invites` and `jio_meeting_spots`.** Before: three migrations listed, the invites table empty and in its old shape. Each migration was sent as one statement that refuses to run unless its text has the file's checksum, runs it, and then runs the lead's own checks as real roles in a block that is always undone (ten for invites, six groups for meeting spots); the migration is kept only if they pass. Both passed first time.
+- **After:** five migrations listed; the new objects present; signed-out callers may run only the invite preview; row counts unchanged (1 account, 1 profile, every session table empty).
+- **Not run on the live project:** the agent's four long access tests. The lead read both migrations in full before applying them.
+- **Now true of the live schema, on the design's recommendations:** a pending invitation by username lives in `invites`, with no member row until it is accepted; the meeting columns stay empty while a session is locating; a spot's travel times are by area.
+
+## Round 23: the tracker cleared, the demo tour checked, each real service run once (2026-10-11, evening)
+
+The lead asked what is still outstanding on each map and for the maps to be cleared of what is done or replaced; then said the remaining API keys were in `backend/.env`.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 23.1 | Lead | Read every open ticket and its latest note; close what is done or replaced, saying where each remainder went; move what is still work under one map | The tracker | No ticket closed without a note naming its evidence or its carrier | **Completed** |
+| 23.2 | Lead | Check the demo tour (21.2), commit, push, merge into `integration/after-pitch` | `feat/demo-tour`, the staging branch | Suites and build by the lead; the checkpoints opened in a browser | **Completed** |
+| 23.3 | Lead | Check the place-search fixes (22.3), commit and push | `feat/real-search-integration` | Suites by the lead, also with outbound calls blocked | **Completed; not merged** |
+| 23.4 | Verifier | One call to each real service with the lead's keys, on its own server, under hard caps | Nothing | Each claim seen in a response; the caps kept | **Completed** |
+| 23.5 | General-purpose | Redraw the pitch's tech stack diagram from the code | `docs/pitch/` | Every claim on it traced to a file | **Completed** |
+
+### 23.1 The tracker
+
+- **Before:** 66 open tickets under three maps. **After:** 36, all under "Jio to the freeze"; the first map and the audit tracker are closed as records.
+- **Closed, 29:** 8 from the first map, 15 from the audit tracker (5 of them "Overhaul" tickets), 4 from the new map (CI, the unplanned-features decision, the leaderboard audit's findings, the review of meeting spots), and the two older maps themselves. Each has a note naming the commit or test that settles it, or the ticket that now carries what was left.
+- **Carriers updated, 17**, so no remainder was lost: dietary needs, weather, the real-service run, deploy, voting on the server, place photos, the signed-in account, dead ends, Bootstrap, the endpoint design, account setup, the Google decision, layout widths, login on the planner routes, Roam in a meetup, the demo tour, the invented venues.
+- **Moved under the live map, 11**, and one created: "Small calls for the lead, each with a recommendation", eight lines gathered from tickets that were otherwise finished.
+- **A mistake caught:** a note on the walkthrough ticket said two leaderboard defects were unfixed. Round 8's table shows both were fixed; the note was deleted.
+- **Not closed although folded:** the database password. Its ticket is closed into the account checklist, where it is the first line and is marked not done.
+
+### 23.2 The demo tour
+
+- **Agent:** a frontend-engineer subagent (21.2). Its report: `/demo`, one outing at eight checkpoints, a strip, three side cases, a stand-in planner for a backend that is off, the flag `VITE_DEMO_TOUR`, which needs `VITE_ALLOW_LOCAL_ACCOUNTS=1` and refuses to start without it.
+- **Run by the lead on the branch:** frontend suite 862 passed, 59 files; build succeeded.
+- **Opened by the lead** on a spare port with no backend, about 560 px wide: `/demo` landed on Home at checkpoint 1 in under 8 s; the strip's next button opened `/sessions/s2/invite`, `/sessions/s3`, `/sessions/s4`, `/sessions/s5/plan`, `/sessions/s6/itinerary`, `/sessions/s7/itinerary` and `/sessions/s8/photos`, with the footer buttons the report gives; no horizontal overflow; no page errors. The console showed 12 failed requests to the absent backend, not the one the report gives.
+- **Found by the lead:** opening another checkpoint's address by hand leaves the strip on the old checkpoint. On a phone the strip takes about a fifth of the screen.
+- **Merged into `integration/after-pitch`** (`14b1cd5`), one conflict in `DESIGN.md`, both sections kept. There: 897 backend passed, 2 skipped; 941 frontend passed, 62 files; build succeeded.
+- **Not verified by anyone:** reduced motion in a browser; a real cold start of a deployed backend.
+
+### 23.3 The place-search fixes
+
+- **Agent:** a backend implementer (22.3) on `feat/real-search-integration`, the staging branch with the pull request merged in. Its report: all eleven audit items fixed, with 77 new tests of which 51 fail on the unfixed code; the worst case for one ranking with a hung Google fell from about 9 s to 3.3 s.
+- **Run by the lead:** backend suite 986 passed, 2 skipped, 34 files, and the same with outbound calls blocked; frontend 886 passed; build succeeded.
+- **Not merged into the staging branch.** The frontend half of the pull request still keeps Google's place details in the browser and shows them beside the OneMap map; that waits on the lead's decision about Google places.
+- **Reported and not rechecked:** each item's behaviour; the no-key comparison (10 answers identical, 11 differ only in order and a `google` block).
+
+### 23.4 Each real service, once
+
+- **Agent:** a verifier, read-only, on its own server on a spare port, with caps on each kind of call. It did not read the env files.
+- **Worked:** OneMap login, search (0.16 s) and routing (meeting area for Tampines and Clementi: Lavender, 29.5 min worst, 3.2 s cold with 10 trips routed and 22 estimated, 2 ms warm); the live forecast; Gemini (an order and a sentence in 1.1 s, so the model name is accepted); Google (19 places added to a ranking).
+- **What it means for a demo:** with the Google key set, all ten converge results were Google places, the top five stalls at one address, the first on a single five-star review, one with a mixed English and Chinese address; no curated, CDC or OneMap place and no activity appeared.
+- **Not run:** a Google photo (no place had one); a real login token (both 401s were refused on shape, so fetching Supabase's signing keys is unproven); Anthropic.
+
+### 23.5 The tech stack diagram
+
+- **Agent:** general-purpose. Files in `docs/pitch/`, untracked. It corrected five beliefs in its brief from the code, among them that 36 of the 1,819 venues are invented samples.
+- **Seen by the lead:** the preview image. One line in the notes was out of date by the evening (meeting-spot tables went live) and was corrected.
+- **Not done:** placing it in Canva. The connected Canva account does not hold the deck.
+
+## Round 24: the staging branch walked for the pitch, and three changes the lead asked for (2026-10-11, night)
+
+The lead asked whether the staging branch was safe to demo, then, using the pitch build, asked for the settled Locate page back, the back button to leave the session, and reviews on the places to vote on. The three changes are on `fix/locate-settled-view`, cut from `dev`, as peachoolongtee/jio#135 into `dev`; they are not on this branch yet.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 24.1 | Verifier | Walk `integration/after-pitch` in a real browser with the real OneMap and Gemini keys and Google off: the tour, the showcase, a fresh outing for tomorrow evening, an outing today with Roam, and the tour with the backend stopped | Nothing | Every claim seen on a screen or in a response | **Completed** |
+| 24.2 | Lead | Locate once the spot is confirmed; the footer button's name; the top-left button | `GroupDetailView`, `MemberList`, `spotText.js`, `session.js`, `SessionSteps`, `SessionHeader`, `stepNav.js`, the router, tests | Suites pass; seen in a browser | **Completed** |
+| 24.3 | Frontend | A sample review on each suggestion card, chosen by who wrote it, opening the place detail; review words by kind of place | `SuggestionCard`, `PlaceDetail`, `PlannerView`, `mock/reviews.js`, a new `reviewPick.js`, tests | No food text on a place that is not food; no planner request on opening; suites pass | **Completed** |
+
+### 24.1 The staging branch, walked
+
+- **Result:** no crash, console error, page error or failed request with the backend on, at 1280 and 390 px. All eight tour checkpoints, the showcase, a full outing from create to itinerary, and Roam (propose, accept, dismiss, finish) worked.
+- **Found:** loading the tour makes about 55 planner requests, which drew HTTP 429 from OneMap ten times; rankings then took 3 to 8 s and the tour up to 16 s to load. A three-hour outing with four categories was confirmed with no Eat stop and ended at 21:51, past its 21:30 end, with no warning (`slots.js`, the same on `dev`). An outing tomorrow evening gets no weather at all on this branch (`outside_window`), where `dev` ranks it against the weather now. Roam listed one place, or none, when the plan ended late. With the backend off the tour runs on sample data and the showcase's Vote page says it cannot reach the planner.
+- **The real 24-hour forecast answered** when called directly: a stop at 02:00 the next day got the regional forecast, issued 17:34 and valid to 06:00.
+- **Seen by the lead:** one of its screenshots (the confirmed itinerary). The rest is the verifier's report.
+- **Not checked:** Gemini's order inside a browser flow (the rules answered), a phone, two devices, a real login, a comparison run on `dev`.
+- **The lead agent's advice to the lead:** present from `dev`; the staging branch holds up if the tour or Roam is to be shown.
+- **Environment:** the lead's backend on port 3000 was started at 17:42 with the Google key still set, so Google is on in it. The lead was told three times; the env file is the lead's to edit.
+
+### 24.2 Locate, the footer and the back button
+
+- **By the lead agent**, after reading the page. The settled view had been replaced by the list of spots when meeting spots were built; it is back for every status from Voting on, without the votes ring and status icons. The footer button is named by `locateNext`. The top-left button first went Home with a house icon, then, on the lead's "go with your recommendations", became a back arrow to the screen the session was opened from (`rememberEntry`, `exitFor`).
+- **Run:** frontend suite 853 passed, 58 files, also with outbound calls blocked; backend 815 passed, 2 skipped; build succeeded.
+- **Seen in a browser with the showcase:** the settled page at 1280 px and at the pane's narrow width, no overflow; confirming a spot on a session still choosing switched the page and put focus on the footer button; from Sessions the button read "Back to Sessions" on Locate, Vote and the Itinerary, and from Home "Back to Home"; the three footer labels on a voting, a confirmed-today and a completed session; a session still choosing unchanged.
+- **A slip:** a patch built with an unsplit shell variable was empty, and the command before it had already reset the main folder's copies; for under a minute the lead's running app showed plain `dev`. Rebuilt and applied. Nothing was lost.
+- **Suggested and not built:** the person's own trip and a Directions button on the meeting spot card; a bar per person on one scale; how the spot was chosen; the start and end card shrunk; the top navigation on session pages at desktop width.
+
+### 24.3 Reviews on the places to vote on
+
+- **Agent:** a frontend-engineer subagent, in the same worktree on different files. Its report: 34 new tests; `reviewKind` checked over all 2,067 venues in the frontend and backend files; the line adds 32 px to a card; opening the detail makes no `/api` request; keyboard open and close with focus returned; no overflow at 1280, 375 and 320 px.
+- **Changed from the brief by the agent, and kept:** the full display name, not a first name; the detail is local state, so the browser's Back does not close it; the search rows and the map's pin card have no line. It also found the brief wrong about which kinds lacked texts (theatre, bowling, games and places with no kind, not parks or museums).
+- **Seen by the lead:** two of its screenshots, the Vote page at 1280 px with the line on each card and the detail at 375 px.
+- **Not verified by anyone:** a screen reader; Safari or Firefox; the real backend.
+- **Known and left:** the first card in that screenshot is one of the 36 invented venues, rated 9.0; the ticket on invented venues stands.
+
+### 24.4 The score on the cards, and the merge (2026-10-11, night)
+
+- **Asked for by the lead:** the place's score on each suggestion card. Added by the lead agent as a `RatingBadge` beside the name, with three tests. Seen in a browser against a stub backend on a spare port: 8 of 10 cards carry a score (the two without have none in the data), no overflow.
+- **Merged at the lead's word ("merge to dev"):** peachoolongtee/jio#135, five commits, into `dev` at `d9a80b5`. CI had passed on the fourth commit and was still running on the fifth when it was merged; the lead agent had run the suites on the fifth. `main` is untouched at `aa64d15`.
+- **Run on the merged code in the lead's main folder:** frontend 855 passed and 1 failed; with `VITE_API_BASE_URL` blanked for the run, 856 of 856. The failing test, in `plannerAuth.test.js`, fails the same way on plain `dev` in that folder: it depends on the machine's `frontend/.env`. Recorded on the tests ticket. Backend 815 passed, 2 skipped; build succeeded.
+- **A mistake in the lead agent's own check:** the test run's result was piped through a filter, so the failing run did not stop the commit that followed it. The failure was then traced before merging.
+- **Not on this branch:** `integration/after-pitch` does not have these five commits. `dev` must be merged into it before it goes to `dev`.
+
+## Round 25: the vote cards, Directions, the CDC price rule, and the first Supabase stage begun (2026-10-11, late night)
+
+The lead took the suggestions for the cards except the stock photos ("it gives some visual clarity"), asked for the outstanding work to continue, and had earlier asked where the Directions button was.
+
+| # | Role | Scope | Branch | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 25.1 | Frontend | Vote cards: the photo and name open the place; "Short walk" out, an opening-hours tag in; where walks are from; voters named in a small group | `feat/vote-cards-and-directions`, from `dev` | Wording in pure functions with tests; no overflow at 320 px | **Completed**, peachoolongtee/jio#137 open, not merged |
+| 25.2 | Lead | The meeting spot card: your own trip and a Directions button | the same branch | Seen in a browser at phone and desktop width | **Completed** |
+| 25.3 | Backend | A guessed price makes no claim for CDC places either | `fix/guessed-price-cdc`, from staging | Before and after counts; suites pass | **Completed**, merged into staging |
+| 25.4 | Lead | Bring `dev` and the two branches into `integration/after-pitch` | staging | Suites and build on the result | **Completed** |
+| 25.5 | Frontend | Sessions on the server, stage 1: the signed-in account's id in place of the hard-coded one; a people source that can hold real people | `feat/sessions-stage-1-account`, from staging | The ticket's "Done when"; a scan test; the demo account and the tour unchanged | **Running** |
+
+### 25.1 and 25.2 The cards and the meeting spot
+
+- **Agent (25.1):** a frontend-engineer subagent. Its report: one control over the photo and name, named "Open <place>"; the hours tag uses the slot's own start and length, the same the planner ranked against; "Open until midnight" and "Open 24 hours" added beyond the brief; voters' names fall back to the count when names and count disagree; one existing assertion changed (a closed card now has two buttons, the name and the review line).
+- **Run by the lead on the branch, exit codes read directly:** frontend 896 passed, 60 files, exit 0, and the same with outbound calls blocked, nothing blocked; build exit 0.
+- **Seen by the lead:** two of its screenshots (the Vote page at 1280 px with the walk-from line, hours tags and "Everyone voted"; at 320 px with "You and Nicole voted" wrapping to two lines). The meeting spot card in a browser at 375 and 1280 px.
+- **A defect the lead found in its own change:** the Directions button beside the name cut "Raffles Place" to "Raffle…" at phone width. Moved under the name; the name then fitted at both widths with no overflow.
+- **Changed from what the lead was told:** "Near MRT" stays, because it is about the station and not the walk from the meeting spot.
+- **Not verified by anyone:** the warning hours tags rendered (no showcase place was closed); a phone; a screen reader.
+- **Not built, at the lead's word:** any change to the photos. Real photos for places that have one would load images from other sites, which is for after the pitch.
+
+### 25.3 The CDC price rule
+
+- **Agent:** an implementer subagent. All 1,303 CDC places in the pool already carried `priceAssumed`, so dropping the exception in `priceIsKnown` was the whole change; the score and the budget filter are untouched.
+- **Effect:** places that can earn "Budget friendly" fell from 1,345 of 1,819 to 42. Across three eat rankings (23 results) the tag fell from 9 to 1; "within budget" appeared in none before or after.
+- **Run by the lead:** backend 899 passed, 2 skipped, and the same with outbound calls blocked.
+
+### 25.4 Staging brought level
+
+- **`dev` merged in:** five conflicts (`SessionSteps`, `SuggestionCard`, `session.js`, `vite.config.js`, `DESIGN.md`), each resolved by keeping both sides; the back button's rule now uses the staging branch's list of Itinerary pages, so "What next?" goes back to the Itinerary. 990 frontend, 897 backend, build.
+- **The cards branch merged in:** two conflicts. One Roam test expected "Short walk" on its card; it was changed to expect its absence, which is the decision. 1030 frontend passed, exit 0; 899 backend; build.
+- **Found:** the Roam page reuses the place card, whose review line and name now open a place; Roam does not handle that, so there they are buttons that do nothing. On the Roam ticket.
+- **Two failures that were not defects, and one process mistake:** a frontend test that depends on the machine's `frontend/.env`, and a backend test that failed once under load and passed six times after. Both times the lead agent had piped the run through a filter in front of a commit, so the commit went ahead; from this round on, commits are gated on the run's exit code.
+
+### 25.5 Sessions on the server, stage 1: built, reviewed, fixed, merged into staging (2026-10-12, early hours)
+
+- **Agent:** a frontend-engineer subagent on `feat/sessions-stage-1-account`. One source for who is signed in (`lib/currentUser.js`, bound by `lib/api.js`; `auth.myId` for components); a real account's data under its own id; a people source (`lib/peopleSource.js`) that reads other real people from `profiles` in one batched, cached request. Its choices: a real account has no sample friends, an empty friends list, a leaderboard of itself, and no "Suggested friends" step in sign-up; a development-only made-up real account and "Bring in sample friends" for checking.
+- **Run by the lead, exit codes read:** frontend 1085 passed, 69 files; backend 899 passed, 2 skipped; build succeeded; no development-only string in the built files. Seen by the lead: two of its screenshots of the made-up account (Locate while choosing; the leaderboard after an outing). Its demo-account comparison (48 pages against the staging branch, text identical) and its real-account walk are its report.
+- **Independent review:** a code-reviewer subagent, read-only, which could not run anything. No blockers. Two significant: per-session caches in the events and planner stores survived an account switch with no sign-out between, so one account could be shown another's photos, itinerary and plan; and an old-build save for a real account was overwritten on first sign-in. Eleven smaller, among them: another person's `avatar_url` reached an image tag unchecked; a display name the database allows could be refused by the planner and roll back a session's locations; one non-uuid id failed a whole batch of names; people reads had no deadline; one request per session; a blank name for an opted-out member; three tests that proved less than they claimed; the client-swap hook had no guard.
+- **Fixed by the same agent, all thirteen:** stores now remember whose data they hold and empty on any change of account; an old save is copied to a `:legacy` key before anything is written and its sessions are carried over to the account's own id by walking the known tables (`lib/legacySave.js`); avatars only from `data:image/` or the project's own storage; the planner is sent ids only; non-uuid ids never go to the database and the stand-in client now refuses them as Postgres does; a 4-second deadline on people reads; one warm for a whole list; "Someone", never a blank; `requireMe` in front of every write that acts as the signed-in person; the swap hook does nothing outside development and tests.
+- **The lead agent had told the lead** that not carrying an old save over was a deliberate choice and nothing should be lost. The reviewer showed it destroyed the old save. Corrected to the lead before the fix.
+- **Run by the lead after the fixes, exit codes read:** frontend 1112 passed, 71 files, and the same with outbound calls blocked, nothing blocked; backend 899 passed, 2 skipped; build succeeded; the search of the built files found none of the development tools.
+- **Merged into `integration/after-pitch`** (`94d24ac`), no conflicts. There: 1112 frontend, 899 backend, build, the same search clean.
+- **Not verified by anyone:** a real sign-up, login, token or `profiles` read (nothing has contacted the real project); a browser walk after the fixes; a slow leaderboard or people load for the old account landing just after a switch (the agent left that window).
+- **Paused at the lead's word** after this merge: "after this is merged to the branch pause implementation for now". Not started: stage 2, the Locate redesign in the mock-up, the navigation bar on session pages. Open and unmerged: peachoolongtee/jio#137 into `dev`.
+
+## Round 26: three pull requests audited; two merged into `dev`, one held on staging (2026-10-13)
+
+The lead asked for every new pull request to be checked, audited and merged into `dev`. Open then: the lead's own card changes (peachoolongtee/jio#137), darryl5942's sign-up and login (#138), and faithpho's link reader (#139), which is stacked on her place search (#132).
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 26.1 | Lead | Merge #137 (audited in round 25, CI green) | `dev` | CI green | **Completed** |
+| 26.2 | Code reviewer, read-only | #138: the reset flow, account enumeration, the sign-up trigger, the password rule, dietary privacy, tests | Nothing | Each finding with a file, a scenario and a fix | **Completed** |
+| 26.3 | Code reviewer, read-only | #139: request forgery, the downloader and browser, budgets, what goes to the AI, Google's rules, secrets | Nothing | The same | **Completed** |
+| 26.4 | Lead | Run both pull requests' suites, also with outbound calls blocked; compare the live database with #138's files | Nothing on the live project | Real output, exit codes read | **Completed** |
+| 26.5 | Implementer | Fix #138's findings on `feat/signup-login-2-integration` (`dev` plus #138) | That branch | Every finding fixed with a test; a migration file for the live change, not applied | **Completed**, merged as #140 |
+| 26.6 | Implementer | Fix #139's findings on `feat/link-reader-integration` (staging, plus place search with its fixes, plus #139) | `backend/` on that branch | The same; off unless switched on | **Completed**, pushed, not in `dev` |
+
+### 26.2, 26.4 and 26.5 Sign-up and login
+
+- **Before any change, run by the lead on #138 merged with `dev`:** frontend 904 passed, backend 815 passed and 2 skipped, build, and the frontend again with outbound calls blocked, nothing attempted.
+- **The live database:** the author had applied both of his changes by hand before review; no migration is recorded for them (five are listed, as before). The live bodies of `handle_new_user` and `email_registered` read the same as his file. `email_registered` was executable by `anon`. Row counts: 1 account, 1 profile, no sessions.
+- **Review, no blockers, three significant:** `email_registered` is an unlimited lookup of whether an address has an account, for anyone with the public key; `/reset-password` treated any signed-in session as a valid link; the recovery token could be written back into the address bar by the router's first navigation (suspected by the reviewer, then confirmed by the fixing agent from vue-router's source and a test that reproduces it). Smaller: a password rule that allowed only six symbols; six availability calls for three username suggestions; other sessions left signed in after a reset; a fixture password the product's own rule refused.
+- **Fixes, by an implementer subagent:** the email check moved to `POST /api/accounts/email-check` behind its own limit of 10 a minute, with the function made server-only by a migration file; the reset page opens its form only after a recovery (the event, or a `type=recovery` link whose token matches the session); the Supabase parts of the hash are stripped before the router is created; other sessions are ended after a change; the password rule is 8 or more characters, the four kinds, any symbol, at most 72 bytes; at most four username checks.
+- **Run by the lead after the fixes, exit codes read:** frontend 952, backend 838 and 2 skipped, build, both suites with outbound calls blocked. With `dev` merged in again (the card changes): frontend 992, build; the backend failed two tests once (`accounts.test.js`'s 429 test and an `auth.test.js` test, one of them answered by something that was not this server) and passed three times in a row after. That is the port collision already on the tests ticket.
+- **Checked by the lead on the live project, read only:** `auth.users` has `deleted_at`, an index on `email`, and no address that is not lower case, so the migration's function will work.
+- **Merged into `dev`** as #140 (`adee7e8`); #138 shows as merged with it.
+- **Not verified by anyone:** a real recovery email and link in a browser; anything against the real project.
+- **Waiting on the lead:** applying `db/migrations/20261013000000_jio_email_check.sql` (until then the lookup is still open on the live project); the dashboard settings the pull request lists; "trust proxy" before a deploy.
+- **Changed from the teammate's design by the lead agent's choice, and told to the lead:** the password rule.
+
+### 26.3 and 26.6 The link reader
+
+- **Before any change, run by the lead:** backend 882 passed and 2 skipped on the pull request's head, and with outbound calls blocked. Its CI fails on one frontend test it does not touch. Merged with staging and the place-search fixes (one conflict, both routes kept): backend 1043, frontend 1112.
+- **Review, no blockers, five significant:** no switch of its own (on wherever the Gemini key is); it could drain the Google budget the planner shares; input-caused failures paused it for everyone; work was done before any budget was checked; two malformed links answered 500. Smaller: media kept in the cache; the browser's checks ran after the page loaded and it started without its sandbox with the whole environment; the development tools were refused only when `NODE_ENV` was exactly `production`.
+- **Clean, by the reviewer's reading:** link parsing; the server's own fetches reach only fixed hosts; the downloader runs through an argument list; keys in headers; the model's answer is checked and nothing it returns is fetched; only the place id is kept; fixtures invented.
+- **Fixes, by an implementer subagent, 97 new tests of which 89 fail on the original code:** `LINK_READER=1` or all three routes answer 404; a third of the Google budget at most, 3 ids a refresh, matching once per reading, 15 searches a read; only provider failures count toward the pause; 3 reads and 3 refreshes a minute per caller; budgets checked before gathering, two gathers at once; the unusable links answer 400; no media in the cache; request interception, the sandbox and a minimal environment for the tools; comments to the AI behind `LINK_READER_COMMENTS=1`, off, for the lead to decide.
+- **Run by the lead after the fixes, exit codes read:** backend 1140 passed and 2 skipped, and with outbound calls blocked; frontend 1112; build.
+- **Not verified by anyone:** any real service, Chrome or `yt-dlp` (not installed; its flags are from memory); the list of media hosts.
+- **Not in `dev`:** it depends on the place search, whose fixes depend on the weather work on staging. It reaches `dev` with the staging branch.
+
+### Left as they are
+
+- **#132** (place search): its fixes are on staging; it shows Google places beside the map when a key is set, which is still the lead's decision.
+- **#103** (the first AI order pull request, into `main`): replaced by #106 on 11 October; a teammate's, so not closed.
+- **Staging is now behind `dev`** by the sign-up work. Bringing it level will conflict in the account files, where stage 1 also worked.

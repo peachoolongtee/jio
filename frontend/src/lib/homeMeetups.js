@@ -2,6 +2,7 @@
 // what each one needs from the signed-in person, where it stands, where its pin goes, and which one is selected.
 // All of it takes plain session summaries (lib/api.js), so it is tested without a browser.
 import { differenceInCalendarDays, format, isValid, parseISO } from 'date-fns'
+import { proposalsOf } from './roam.js'
 import { isPaused, sessionPath } from './session.js'
 
 // How far apart, in px, pins that share a meeting area are drawn, so each one can still be tapped (a pin is 48px
@@ -145,6 +146,9 @@ export function nextStepFor(session, myId) {
   }
   if (session.status === 'confirmed') {
     if (session.replan) return step('Review the re-plan', 'action')
+    // Someone proposed a place from "What next?" and the host has not decided. Only the host has anything to do; everyone
+    // else sees what they saw before. The label is short on purpose: every chip on Home is a pill.
+    if (isHost && proposalsOf(session).length) return step('Review a proposal', 'action')
     return step(session.isToday ? "Today's plan" : 'See the plan', 'done')
   }
   return step('Open meetup', 'done')

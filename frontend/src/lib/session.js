@@ -84,6 +84,13 @@ export function startsIn(session, now = new Date()) {
   return { text: `In ${days} days`, tone: 'later' }
 }
 
+// Is the plan under way, so that people can ask "What next?" and propose places? Yes for a confirmed plan on the session's
+// day, which is the same moment the itinerary's main button becomes "Finish outing".
+// How to call: roamOpen({ status: 'confirmed', isToday: true }) -> true
+export function roamOpen(session) {
+  return itineraryAction(session) === 'finish'
+}
+
 // The Locate page's main button once the meeting spot is confirmed: named for where it goes, never a bare "Next".
 // While the group votes it opens the Vote page; once the plan is confirmed, the plan itself (titled for today on the day).
 // How to call: locateNext({ id: 's1', status: 'voting' }) -> { label: 'Choose places', to: '/sessions/s1/plan' }

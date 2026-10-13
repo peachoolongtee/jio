@@ -1,0 +1,130 @@
+{
+  "code": 0,
+  "data": {
+    "records": [
+      {
+        "date": "2026-10-11",
+        "timestamp": "2026-10-11T14:42:00+08:00",
+        "updatedTimestamp": "2026-10-11T14:51:15+08:00",
+        "general": {
+          "validPeriod": {
+            "start": "2026-10-11T12:00:00+08:00",
+            "end": "2026-10-12T12:00:00+08:00",
+            "text": "12 PM 11 Oct to 12 PM 12 Oct"
+          },
+          "temperature": {
+            "high": 34,
+            "low": 25,
+            "unit": "Degrees Celsius"
+          },
+          "relativeHumidity": {
+            "high": 95,
+            "low": 60,
+            "unit": "Percentage"
+          },
+          "wind": {
+            "direction": "S",
+            "speed": {
+              "low": 5,
+              "high": 15
+            }
+          },
+          "forecast": {
+            "code": "PC",
+            "text": "Partly Cloudy (Day)"
+          }
+        },
+        "periods": [
+          {
+            "regions": {
+              "east": {
+                "code": "PC",
+                "text": "Partly Cloudy (Day)"
+              },
+              "west": {
+                "code": "PC",
+                "text": "Partly Cloudy (Day)"
+              },
+              "north": {
+                "code": "PC",
+                "text": "Partly Cloudy (Day)"
+              },
+              "south": {
+                "code": "PC",
+                "text": "Partly Cloudy (Day)"
+              },
+              "central": {
+                "code": "PC",
+                "text": "Partly Cloudy (Day)"
+              }
+            },
+            "timePeriod": {
+              "text": "Midday to 6 pm 11 Oct",
+              "start": "2026-10-11T12:00:00+08:00",
+              "end": "2026-10-11T18:00:00+08:00"
+            }
+          },
+          {
+            "regions": {
+              "east": {
+                "code": "PN",
+                "text": "Partly Cloudy (Night)"
+              },
+              "west": {
+                "code": "PN",
+                "text": "Partly Cloudy (Night)"
+              },
+              "north": {
+                "code": "PN",
+                "text": "Partly Cloudy (Night)"
+              },
+              "south": {
+                "code": "PN",
+                "text": "Partly Cloudy (Night)"
+              },
+              "central": {
+                "code": "PN",
+                "text": "Partly Cloudy (Night)"
+              }
+            },
+            "timePeriod": {
+              "text": "6 pm 11 Oct to 6 am 12 Oct",
+              "start": "2026-10-11T18:00:00+08:00",
+              "end": "2026-10-12T06:00:00+08:00"
+            }
+          },
+          {
+            "regions": {
+              "east": {
+                "code": "PC",
+                "text": "Partly Cloudy (Day)"
+              },
+              "west": {
+                "code": "PC",
+                "text": "Partly Cloudy (Day)"
+              },
+              "north": {
+                "code": "PC",
+                "text": "Partly Cloudy (Day)"
+              },
+              "south": {
+                "code": "PC",
+                "text": "Partly Cloudy (Day)"
+              },
+              "central": {
+                "code": "PC",
+                "text": "Partly Cloudy (Day)"
+              }
+            },
+            "timePeriod": {
+              "text": "6 am to Midday 12 Oct",
+              "start": "2026-10-12T06:00:00+08:00",
+              "end": "2026-10-12T12:00:00+08:00"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "errorMsg": ""
+}

@@ -19,9 +19,12 @@
 //   - When the host confirmed a suggested order (see PlannerView), one line says where it came from (an AI suggestion,
 //     or chosen by travel and waiting time) and why, above the stops until a stop is moved or deleted by hand.
 //   - The photo strip shows the latest pictures (loaded with the events store) and links to Photos.
+//   - While the plan is under way (roamOpen in lib/session.js: a confirmed plan on its day) a "What next?" button under the
+//     stops opens the Roam page, and the places members proposed there appear under the stops as proposed stops
+//     (ProposedStops). It is a secondary button: the footer's "Finish outing" stays the page's one main action.
 //   - Travel and trip-home times are estimates from distance, so they read "about" or "est.".
 import { coins } from '@/lib/currency.js'
-import { itineraryAction } from '@/lib/session.js'
+import { itineraryAction, roamOpen } from '@/lib/session.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -38,21 +41,25 @@ import SplitView from '@/components/ui/SplitView.vue'
 import ToastMessage from '@/components/ui/ToastMessage.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
+import ProposedStops from '@/components/event/ProposedStops.vue'
 import StopCard from '@/components/event/StopCard.vue'
 import CategoryKey from '@/components/map/CategoryKey.vue'
 import { placeImage } from '@/lib/placeImages.js'
 import TravelConnector from '@/components/event/TravelConnector.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
-import { fromMinutes } from '@/lib/planner/format.js'
+import { dayTime } from '@/lib/planner/format.js'
+import { lateLine } from '@/lib/roam.js'
 import { sourceIcon, sourceText } from '@/lib/confirmOrder.js'
 import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({ id: { type: String, required: true } })
 
 const router = useRouter()
 const events = useEventsStore()
+const auth = useAuthStore()
 
 const missing = ref(false)
 const editing = ref(false)
@@ -76,7 +83,7 @@ function clearConfirmedFlag() {
 }
 const confirmedLine = computed(() => {
   const stops = itinerary.value?.stops || []
-  const summary = stops.length ? ` ${stops.length} ${stops.length === 1 ? 'stop' : 'stops'}, starting ${fromMinutes(stops[0].start)}.` : ''
+  const summary = stops.length ? ` ${stops.length} ${stops.length === 1 ? 'stop' : 'stops'}, starting ${dayTime(stops[0].start)}.` : ''
   return `Everyone in the group can see the itinerary now.${summary}`
 })
 function dismissConfirmed() {
@@ -107,8 +114,14 @@ const confirmed = computed(() => status.value === 'confirmed')
 const today = computed(() => confirmed.value && session.value?.isToday)
 // 'finish', 'save' or null: the footer's button.
 const footer = computed(() => (session.value ? itineraryAction(session.value) : null))
+// Under way: people can ask "What next?" and propose places.
+const underway = computed(() => !!session.value && roamOpen(session.value))
+const myId = computed(() => auth.myId)
 const longTrips = computed(() => (itinerary.value?.trips || []).filter((t) => t.long))
 const lastStop = computed(() => itinerary.value?.stops[itinerary.value.stops.length - 1])
+// "Ends after the session's end, 21:30" when the plan runs past the end time the host set (stops added from Roam, or a long
+// outing with many categories, can), else ''. Said under the plan's end; nothing is refused.
+const lateText = computed(() => (lastStop.value ? lateLine(lastStop.value.end, session.value?.end) : ''))
 // A confirmed plan with two or more stops can be rearranged, and a stop deleted, while editing.
 const canMove = computed(() => confirmed.value && (itinerary.value?.stops.length || 0) > 1)
 const canEdit = computed(() => canMove.value && editing.value)
@@ -319,12 +332,20 @@ async function endPlan() {
                 <div v-if="itinerary.end" class="timeline__end">
                   <span class="timeline__flag" aria-hidden="true"><AppIcon name="flag" :size="14" /></span>
                   <div class="stack">
-                    <span class="title-sm">Ends {{ fromMinutes(lastStop.end) }}</span>
+                    <span class="title-sm">Ends {{ dayTime(lastStop.end) }}</span>
+                    <span v-if="lateText" class="timeline__warning caption-sm" data-testid="plan-late"><AppIcon name="warning" :size="12" /> {{ lateText }}</span>
                     <span class="caption-sm text-muted">about {{ itinerary.end.mrtWalk }} min walk to {{ itinerary.end.mrt }} MRT</span>
                     <span v-if="itinerary.end.farFromMrt" class="timeline__warning caption-sm"><AppIcon name="warning" :size="12" /> Far from the MRT</span>
                   </div>
                 </div>
               </div>
+
+              <ProposedStops v-if="confirmed" :session="session" :itinerary="itinerary" :my-id="myId" @emptied="timeline?.focus()" />
+
+              <AppButton v-if="underway" variant="secondary" class="whatnext" :to="`/sessions/${id}/roam`">
+                <AppIcon name="sparkle" />
+                What next?
+              </AppButton>
 
               <details v-if="itinerary.trips.length" class="home">
                 <summary class="home__summary">
@@ -436,6 +457,7 @@ async function endPlan() {
 .home__row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 36px; }
 .home__row.is-long .home__min { color: var(--primary-error-text); }
 .replan { align-self: flex-start; }
+.whatnext { align-self: flex-start; }
 
 /* "Plan confirmed", right after confirming: a warm card that pops in under the confetti. */
 .celebrate { position: relative; display: flex; align-items: center; gap: var(--spacing-base); padding: var(--spacing-base) calc(var(--tap-min) + var(--spacing-md)) var(--spacing-base) var(--spacing-base); border-radius: var(--rounded-md); background: linear-gradient(120deg, color-mix(in srgb, var(--primary-bright) 14%, var(--canvas)), color-mix(in srgb, var(--cat-shop-fg) 12%, var(--canvas))); }

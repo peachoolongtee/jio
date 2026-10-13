@@ -15,26 +15,32 @@ import StatusPill from '../ui/StatusPill.vue'
 import ToggleSwitch from '../ui/ToggleSwitch.vue'
 import * as api from '@/lib/api.js'
 import { lastWeather } from '@/lib/plannerApi.js'
-import { FRIEND_PICKS, HOST_ID, PEOPLE } from '@/lib/mock/people.js'
+import { FRIEND_PICKS, PEOPLE } from '@/lib/mock/people.js'
 import { DEMO_ACCOUNT } from './demoAccount.js'
 import { makeDemoPhotos } from './demoPhotos.js'
 import { clearApprovals, friendSuggests, friendsApprove, hasSpots } from './spotDemo.js'
+import { friendProposes } from './roamDemo.js'
+import { roamOpen } from '@/lib/session.js'
 import { loadShowcase } from './showcase.js'
 import { placeKind } from '@/lib/placeImages.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useEventsStore } from '@/stores/events.js'
 import { usePlannerStore } from '@/stores/planner.js'
+import { useTourStore } from '@/tour/store.js'
 
 const SPAN = 3000
 // Which option each friend votes for, by rank, so one place usually leads.
 const PATTERN = [0, 1, 0, 2, 0]
+// The sample friends "Bring in sample friends" adds to a real account's session.
+const SAMPLE_STAND_INS = ['darius', 'faith']
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const events = useEventsStore()
 const planner = usePlannerStore()
+const tour = useTourStore()
 
 const open = ref(false)
 const running = ref('')
@@ -48,17 +54,25 @@ const session = computed(() => {
   const id = route.params.id
   return (id && events.byId[id]) || events.current
 })
-const friendsIn = computed(() => (session.value ? session.value.activeIds.filter((id) => id !== HOST_ID) : []))
-const friendOptions = computed(() => friendsIn.value.map((id) => ({ value: id, label: PEOPLE.find((p) => p.id === id).name })))
+const friendsIn = computed(() => (session.value ? session.value.activeIds.filter((id) => id !== auth.myId) : []))
+const friendOptions = computed(() => friendsIn.value.map((id) => ({ value: id, label: nameOf(id) })))
 const areaOptions = [...AREAS].sort((a, b) => a.name.localeCompare(b.name)).map((a) => ({ value: a.id, label: a.name }))
 const status = computed(() => session.value?.status)
 const live = computed(() => ['locating', 'voting', 'confirmed'].includes(status.value))
 // Why the friend buttons may be off, or what still has to happen, so a click never seems to do nothing.
-const hostLocated = computed(() => !!session.value?.locations?.[HOST_ID]?.start)
+const hostLocated = computed(() => !!session.value?.locations?.[auth.myId]?.start)
 const friendsHint = computed(() => {
+  if (status.value === 'inviting' && !friendsIn.value.length && !auth.sampleWorld) return 'A real account has no friends to invite. Bring in the sample friends below, then start the session on the session page.'
   if (status.value === 'inviting') return friendsIn.value.length ? 'Tap Start session on the session page first. Friends share their locations after that.' : 'Invite at least one friend and start the session first.'
   if (status.value === 'locating' && !hostLocated.value) return 'Spots open once two people have shared where they start, and the meeting point once everyone has. Set your From location on the session page.'
   return ''
+})
+
+// Roam: a friend can propose a place only while the plan is under way. Why the button may be off, so a click never seems to do nothing.
+const underway = computed(() => !!session.value && roamOpen(session.value))
+const roamHint = computed(() => {
+  if (!session.value || underway.value) return ''
+  return 'A friend can propose a place once the plan is confirmed and it is the session day. Turn on "It is the session day" under Conditions.'
 })
 
 // The meeting spots, while the group is choosing where to meet. Why the buttons may be off, so a click never seems to do nothing.
@@ -82,7 +96,7 @@ watch(friendsIn, (ids) => {
 })
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-const nameOf = (id) => PEOPLE.find((p) => p.id === id)?.name
+const nameOf = (id) => PEOPLE.find((p) => p.id === id)?.name || 'Someone'
 
 // Run the jobs evenly across `span` milliseconds, like friends acting one after another.
 function spread(jobs, span) {
@@ -103,6 +117,14 @@ async function act(kind, fn) {
     running.value = ''
   }
 }
+
+// A real account has no friends yet, so the steps that need two people cannot start. This puts two sample friends into the
+// session as stand-ins (they join at once), and the buttons below then act for them as for the demo account's friends.
+// How to call: bringSampleFriends()
+const bringSampleFriends = () => act('sample-friends', async () => {
+  await api.inviteFriends(session.value.id, SAMPLE_STAND_INS)
+  note.value = 'Darius and Faith joined as stand-ins.'
+})
 
 const simulateLocations = () => act('locations', async () => {
   const s = session.value
@@ -143,7 +165,7 @@ const simulatePhotos = () => act('photos', async () => {
     note.value = `The session already holds ${api.PHOTOS_MAX} photos. Delete one first.`
     return
   }
-  const friends = friendsIn.value.length ? friendsIn.value : [HOST_ID]
+  const friends = friendsIn.value.length ? friendsIn.value : [auth.myId]
   const itinerary = await api.getItinerary(s.id).catch(() => null)
   const kinds = (itinerary?.stops || []).map((stop) => placeKind(stop.venue))
   let srcs
@@ -171,6 +193,9 @@ const simulatePhotos = () => act('photos', async () => {
 // A friend suggests a spot (here: they are there already), friends say which spots work for them, or every approval goes.
 // How to call: suggestSpot(true)
 const suggestSpot = (here) => act('spots', async () => { note.value = await friendSuggests(api, session.value, friendsIn.value, { here }) })
+// A friend proposes a place from "What next?" on the plan that is under way, so the host can add it or leave it out.
+// How to call: proposePlace()
+const proposePlace = () => act('roam', async () => { note.value = await friendProposes(api, session.value, friendsIn.value) })
 const approveSpots = () => act('spots', async () => { note.value = await friendsApprove(api, session.value, friendsIn.value) })
 const clearSpotApprovals = () => act('spots', async () => { note.value = await clearApprovals(api, session.value) })
 
@@ -206,6 +231,24 @@ const loadShowcaseData = () => act('showcase', async () => {
   } finally {
     await events.loadSessions()
   }
+})
+
+// Replace the sessions with the demo tour (tour/): one outing in eight checkpoints, and a few side cases. The strip appears
+// on every screen and the lists show the selected checkpoint. This panel closes on the way, since Home is where it starts.
+// How to call: startTheTour()
+const startTheTour = () => act('tour', async () => {
+  note.value = 'Loading the tour'
+  open.value = false
+  try {
+    await tour.start({ onProgress: ({ done, total }) => (note.value = `Loading the tour: ${done} of ${total} sessions`) })
+  } catch (err) {
+    open.value = true
+    throw err
+  } finally {
+    await events.loadSessions()
+  }
+  note.value = ''
+  router.push({ path: '/', query: { meetup: tour.sessionId(0) } })
 })
 
 // A new demo account with the sample history (10 meetups and 1,000 JioCoins), then Home. This panel closes on the way,
@@ -254,17 +297,31 @@ const setCondition = (key, value) => planner.setCondition(key, value)
     <p v-if="note" class="body-sm demo-note" role="status">{{ note }}</p>
 
     <!-- First, since it is what a presenter starts with: the sessions every other group below acts on. -->
-    <section class="demo-group">
+    <section v-if="!auth.sampleWorld" class="demo-group">
+      <h3 class="title-md">Showcase and tour</h3>
+      <p class="body-sm text-muted">The showcase and the tour are made of the sample people and belong to the demo account. This is a real account, so they are off. Use "Start over with a new account" below to go back to the demo account.</p>
+    </section>
+    <section v-else class="demo-group">
       <h3 class="title-md">Showcase</h3>
       <p class="body-sm text-muted">Replaces your sessions with ten, one for each state a screen can show, including two in the vote for where to meet (you host one, a friend hosts the other) and one where the place was already decided.</p>
       <AppButton block variant="secondary" :disabled="!!running" @click="askShowcase = true">
         {{ running === 'showcase' ? 'Loading showcase data' : 'Load showcase data' }}
+      </AppButton>
+      <p class="body-sm text-muted">The demo tour is the same idea told as one outing: eight checkpoints in a strip at the top of every screen, and a few side cases. It also replaces your sessions. Outside development it is at /demo.</p>
+      <AppButton block variant="secondary" :disabled="!!running" @click="startTheTour">
+        {{ running === 'tour' ? 'Loading the tour' : 'Start the tour' }}
       </AppButton>
     </section>
 
     <section class="demo-group">
       <h3 class="title-md">Friends</h3>
       <p v-if="friendsHint" class="body-sm text-muted">{{ friendsHint }}</p>
+      <template v-if="!auth.sampleWorld">
+        <p class="body-sm text-muted">This is a real account, which starts with no friends. Add two sample friends to the session as stand-ins to walk the steps that need more than one person.</p>
+        <AppButton block variant="secondary" :disabled="!session || status !== 'inviting' || !!running" @click="bringSampleFriends">
+          {{ running === 'sample-friends' ? 'Adding' : 'Bring in sample friends' }}
+        </AppButton>
+      </template>
       <AppButton block variant="secondary" :disabled="!session || !live || !!running" @click="simulateLocations">
         {{ running === 'locations' ? 'Submitting locations' : 'Simulate friends submitting locations' }}
       </AppButton>
@@ -273,6 +330,15 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       </AppButton>
       <AppButton block variant="secondary" :disabled="!session || !['confirmed', 'completed'].includes(status) || !!running" @click="simulatePhotos">
         {{ running === 'photos' ? 'Posting photos' : 'Fill the album with photos' }}
+      </AppButton>
+    </section>
+
+    <section class="demo-group">
+      <h3 class="title-md">What next?</h3>
+      <p v-if="roamHint" class="body-sm text-muted">{{ roamHint }}</p>
+      <p v-else class="body-sm text-muted">Needs the planner backend to list places near the meeting area.</p>
+      <AppButton block variant="secondary" :disabled="!underway || !!running" @click="proposePlace">
+        {{ running === 'roam' ? 'Proposing a place' : 'A friend proposes a place' }}
       </AppButton>
     </section>
 

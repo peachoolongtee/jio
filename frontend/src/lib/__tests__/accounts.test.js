@@ -137,7 +137,7 @@ describe('signing up for a real account', () => {
     const fake = fakeSupabase()
     const { api } = await boot(fake)
     const user = await api.signUp({ ...PROFILE })
-    expect(user).toMatchObject({ id: 'ian', authId: 'uid-1', local: false, email: 'sam@example.com', name: 'Sam', username: 'sam', homeAreaId: 'tampines', homeAreaName: 'Tampines', syncError: '' })
+    expect(user).toMatchObject({ id: 'uid-1', authId: 'uid-1', local: false, email: 'sam@example.com', name: 'Sam', username: 'sam', homeAreaId: 'tampines', homeAreaName: 'Tampines', syncError: '' })
     expect(fake.state.profiles['uid-1'].display_name).toBe('Sam')
     expect(fake.state.priv['uid-1'].home_area_id).toBe('tampines')
     expect(await api.getUser()).toMatchObject({ authId: 'uid-1' })
@@ -320,7 +320,7 @@ describe('after a reload', () => {
     const { id } = await first.api.createSession(SESSION)
     const { api } = await boot(fake, { data: first.storage.store })
     const user = await api.getUser()
-    expect(user).toMatchObject({ id: 'ian', authId: 'uid-1', local: false, name: 'Sam' })
+    expect(user).toMatchObject({ id: 'uid-1', authId: 'uid-1', local: false, name: 'Sam' })
     expect((await api.listSessions()).map((s) => s.id)).toEqual([id])
   })
 
@@ -476,7 +476,7 @@ describe('updating a real account', () => {
     await api.signUp({ ...PROFILE })
     fake.state.writes.length = 0
     const user = await api.updateUser({ name: 'Sam T', photo: 'data:image/png;base64,AAAA', homeAreaId: 'bishan', username: 'hacker', email: 'x@example.com', id: 'someone', authId: 'uid-9', demo: true })
-    expect(user).toMatchObject({ id: 'ian', authId: 'uid-1', username: 'sam', email: 'sam@example.com', name: 'Sam T', photo: 'data:image/png;base64,AAAA', homeAreaId: 'bishan', syncError: '' })
+    expect(user).toMatchObject({ id: 'uid-1', authId: 'uid-1', username: 'sam', email: 'sam@example.com', name: 'Sam T', photo: 'data:image/png;base64,AAAA', homeAreaId: 'bishan', syncError: '' })
     expect(user.demo).toBeUndefined()
     expect(fake.state.writes.map((w) => [w.table, Object.keys(w.row)])).toEqual([
       ['profiles', ['display_name']],

@@ -190,7 +190,7 @@ describe('stub mode scenarios (for Playwright)', () => {
     }
     // Simulated: the old case table, looked up by the venue's region.
     const checkSimulated = (res, weatherCase) => {
-      expect(res.body.weather).toEqual({ source: 'simulated' })
+      expect(res.body.weather).toEqual({ source: 'simulated', basis: 'simulated' })
       res.body.results.forEach((r) => expect(r.breakdown.weather.value).toBeCloseTo(penalty(r, weatherCases[weatherCase][r.venue.forecastArea].rainRisk), 9))
     }
 

@@ -1,5 +1,5 @@
 <script setup>
-// Sessions: every session Ian is in, upcoming and past.
+// Sessions: every session the signed-in person is in, upcoming and past.
 import { computed, onMounted, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -10,6 +10,7 @@ import SessionCard from '@/components/event/SessionCard.vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
+import { visibleSessions } from '@/lib/sessionFilter.js'
 
 const auth = useAuthStore()
 const events = useEventsStore()
@@ -19,8 +20,8 @@ const tab = ref('upcoming')
 onMounted(() => Promise.all([events.loadSessions(), groups.loadPeople()]))
 
 const isPast = (s) => ['completed', 'cancelled'].includes(s.status)
-const list = computed(() => events.sessions.filter((s) => (tab.value === 'past' ? isPast(s) : !isPast(s))))
-const nameOf = (id) => (id === 'ian' ? auth.user?.name ?? '' : groups.nameOf(id))
+const list = computed(() => visibleSessions(events.sessions).filter((s) => (tab.value === 'past' ? isPast(s) : !isPast(s))))
+const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 </script>
 
 <template>

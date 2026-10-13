@@ -116,13 +116,14 @@ function context(input, data, members) {
  *   reasons      up to two short tags ("Near MRT", "Budget friendly"...)
  *   warnings     ['rain'] when rain is likely and the venue is exposed
  *   swap         for a rain warning, the indoor alternative from indoorSwap() below
+ *   weather      { state, phrase, rainLikely } where this venue is (scoring.js weatherOf)
  */
 function optionLabels(r, from, c, swap, homeMaxMinutes = null) {
   const walk = walkMinutes(from, r.venue);
   const crowd = S.crowdLevel(r.venue, c.hour);
   const warnings = S.rainWarning(r.venue, c.weatherByArea) ? ['rain'] : [];
   return {
-    walkMinutes: walk, crowd, warnings, swap: warnings.length ? swap : null,
+    walkMinutes: walk, crowd, warnings, swap: warnings.length ? swap : null, weather: S.weatherOf(r.venue, c.weatherByArea),
     reasons: S.reasonTags({ venue: r.venue, walkMinutes: walk, crowd, rainy: S.rainLikelyAt(r.venue, c.weatherByArea), homeMaxMinutes, time: c.time }),
   };
 }
@@ -135,17 +136,17 @@ function optionLabels(r, from, c, swap, homeMaxMinutes = null) {
  *      never scored), the nearest indoor venue that passed the hard filters, within the 3 km cap;
  *   3. otherwise null.
  */
-function indoorSwap(rows, shownRows, passed, from, input) {
+function indoorSwap(rows, shownRows, passed, from, input, weatherByArea) {
   const taken = new Set([...shownRows.map(r => r.venue.id), ...(input.currentOptionIds ?? [])]);
   const ranked = rows.find(x => x.venue.setting === 'indoor' && !taken.has(x.venue.id));
-  if (ranked) return { venueId: ranked.venue.id, name: ranked.venue.name };
+  if (ranked) return { venueId: ranked.venue.id, name: ranked.venue.name, weather: S.weatherOf(ranked.venue, weatherByArea) };
   let nearest = null, nearestKm = 3;
   for (const v of passed) {
     if (v.setting !== 'indoor' || taken.has(v.id)) continue;
     const km = haversineKm(from, v);
     if (km <= nearestKm) [nearest, nearestKm] = [v, km];
   }
-  return nearest ? { venueId: nearest.id, name: nearest.name } : null;
+  return nearest ? { venueId: nearest.id, name: nearest.name, weather: S.weatherOf(nearest, weatherByArea) } : null;
 }
 
 /**
@@ -271,7 +272,7 @@ function converge(input, data, deps = {}) {
   // 7. explain
   const names = Object.fromEntries(members.map(m => [m.id, m.name]));
   const label = c.profile?.label ?? 'meetup';
-  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, centre, input);
+  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, centre, input, c.weatherByArea);
   const toResult = (r, i) => ({
     rank: i + 1, venueId: r.venue.id, name: r.venue.name, venue: r.venue, score: r.score,
     worstMinutes: r.worstMinutes, worstMember: names[r.worstMemberId], meanMinutes: r.meanRaw,
@@ -331,7 +332,7 @@ function roam(input, data, deps = {}) {
   });
   rows.sort((a, b) => a.score - b.score);
   const label = c.profile?.label ?? 'meetup';
-  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, input.current, input);
+  const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, input.current, input, c.weatherByArea);
   const results = shown.map((r, i) => ({
     rank: i + 1, venueId: r.venue.id, name: r.venue.name, venue: r.venue, score: r.score,
     travelMinutes: r.travelMinutes, distanceKm: r.distanceKm, breakdown: r.breakdown, explanation: S.explain(r, label),
@@ -509,20 +510,32 @@ function meetingArea(input, data, deps = {}) {
   };
 }
 
+// An address is matched only by a query this long: "mrt" or "rd" would otherwise match the address of half the island.
+const MIN_ADDRESS_QUERY = 3;
+
 /**
  * Search by name, to add an option by hand (the frontend's searchVenuesForSlot). Matches the venue name, its
- * area, or the name of a stall at a CDC site. Every match says whether it fits the slot and, if not, why:
+ * area, its address (so a postal code finds it), the name of a stall at a CDC site, or any id in `alsoMatch` (places
+ * the route found another way: by Google, or at a postal code's building). Every match says whether it fits the slot and, if not, why:
  * the hard-filter reasons ('closed', 'diet:halal', 'category', 'near_mrt'...) plus 'far' when it is more than
- * maxKm (default 3, the engine's cap) from the meeting point. Fitting places first, then by walking time.
+ * maxKm (default 3, the engine's cap) from the meeting point, and 'not_an_outing' (first in the list) for a searched
+ * Google place that is not something to do (a bank, a clinic: venue.notAnOuting). Fitting places first; among those of
+ * the same fit, a place whose name (or a stall's name) holds the words before one matched by area, address or `alsoMatch`;
+ * then by walking time. An address is matched only by a query of 3 or more characters.
  * @param input { query, centre, dateTime, members?, durationMinutes?, categories?, lastStop?, groupConstraints?,
- *                unknownPolicy?, maxKm?, limit? (default 12) }
+ *                unknownPolicy?, maxKm?, limit? (default 12), alsoMatch? (venue ids) }
  */
 function searchVenues(input, data) {
   const q = input.query.trim().toLowerCase();
   if (!q) return [];
+  // A place matches by its name, area, address (so a postal code finds it) or a stall's name, or because the caller
+  // already knows it is a match (`alsoMatch`: ids found by Google or at a postal code's building).
+  const alsoMatch = new Set(input.alsoMatch ?? []);
+  const addressToo = q.length >= MIN_ADDRESS_QUERY;
   const matches = data.venues
     .map(v => ({ v, stall: v.stalls?.find(st => st.name.toLowerCase().includes(q))?.name ?? null }))
-    .filter(({ v, stall }) => v.name.toLowerCase().includes(q) || (v.area ?? '').toLowerCase().includes(q) || stall);
+    .map(m => ({ ...m, byName: m.v.name.toLowerCase().includes(q) || m.stall !== null }))
+    .filter(({ v, byName }) => byName || alsoMatch.has(v.id) || (v.area ?? '').toLowerCase().includes(q) || (addressToo && typeof v.address === 'string' && v.address.toLowerCase().includes(q)));
 
   const ctx = {
     members: input.members ?? [], groupConstraints: lastStopRules(input, {}).constraints, dateTime: input.dateTime,
@@ -533,16 +546,20 @@ function searchVenues(input, data) {
   const maxKm = input.maxKm ?? 3;
 
   return matches
-    .map(({ v, stall }) => {
+    .map(({ v, stall, byName }) => {
       const distanceKm = haversineKm(input.centre, v);
-      const unfit = [...(reasonsById.get(v.id) ?? []), ...(distanceKm > maxKm ? ['far'] : [])];
+      const unfit = [...(v.notAnOuting ? ['not_an_outing'] : []), ...(reasonsById.get(v.id) ?? []), ...(distanceKm > maxKm ? ['far'] : [])];
       return {
-        venueId: v.id, name: v.name, area: v.area, category: v.category, source: v.source, matchedStall: stall,
-        walkMinutes: walkMinutes(input.centre, v), distanceKm, fits: unfit.length === 0, unfit,
+        row: {
+          venueId: v.id, name: v.name, area: v.area, category: v.category, source: v.source, matchedStall: stall,
+          walkMinutes: walkMinutes(input.centre, v), distanceKm, fits: unfit.length === 0, unfit,
+        },
+        byName,
       };
     })
-    .sort((a, b) => Number(!a.fits) - Number(!b.fits) || a.walkMinutes - b.walkMinutes)
-    .slice(0, input.limit ?? 12);
+    .sort((a, b) => Number(!a.row.fits) - Number(!b.row.fits) || Number(!a.byName) - Number(!b.byName) || a.row.walkMinutes - b.row.walkMinutes)
+    .slice(0, input.limit ?? 12)
+    .map(({ row }) => row);
 }
 
 export { converge, roam, meetingArea, meetingAreaPlan, searchVenues, resolveMembers, occasionWeights };

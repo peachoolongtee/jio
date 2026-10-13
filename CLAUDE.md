@@ -29,7 +29,7 @@ Jio decides where a group should meet, fairly, and plans the outing around it. I
 
 ### Issue tracker
 
-Work is tracked in GitHub Issues on `peachoolongtee/jio`. The map to follow is issue #109, "Jio to the freeze", grouped by feature; issue #1 is the first map, kept as a record, and the audit tracker is issue #47. See `docs/agents/issue-tracker.md`.
+Work is tracked in GitHub Issues on `peachoolongtee/jio`. The one live map is issue #109, "Jio to the freeze", grouped by feature. The first map (issue #1) and the audit tracker (issue #47) were closed as records on 2026-10-11; every ticket of theirs that still describes work is under #109. See `docs/agents/issue-tracker.md`.
 
 ### Design language
 
@@ -76,7 +76,7 @@ Each is recorded in full on the ticket named. Read the ticket before changing th
 - **OneMap is a shared budget.** The account allows 300 calls a minute for everyone. One request routes at most 60 trips, whole candidates only; the whole server makes at most `ONEMAP_CALLS_PER_MINUTE` calls (240 by default) across routing, search and login; a trip over either limit uses the estimate and is flagged `approximate`. Do not add a OneMap call that bypasses `createOneMap`'s budget.
 - **Google is a paid budget.** Every Google call goes through the budget in `createGooglePlaces`: `GOOGLE_CALLS_PER_MINUTE` (60 by default) for nearby searches and photos together, three failures pause it for a minute, and each call times out after 3 seconds. Google failing never fails a planner request. Do not add a Google call that bypasses it, and never write Google content to a file: fixtures are invented.
 - **Saved places are repaired and filtered in code, not by hand.** `onemap-places.json` is written only by `pnpm build:onemap-places` (network, needs the OneMap account) or `pnpm repair:onemap-places` (no network). Duplicates, places that are not somewhere to go, and closed weekdays are worked out at load in `backend/src/db/venues.js`.
-- **A guessed price makes no claim** for OneMap and Google venues: no "Budget friendly" tag and no "within budget" sentence. CDC venues keep both, as before; changing that is the lead's decision.
+- **A guessed price makes no claim for any place** (the lead's decision of 2026-10-11): a venue with `dataQuality.priceAssumed`, whether from OneMap, Google or CDC, gets no "Budget friendly" tag and no "within budget" sentence, through `priceIsKnown` in `backend/src/planner/scoring.js`. The price still counts in the score and in the `max_price_pp` filter. Only the curated and mock venues with hand-entered prices can carry the claim.
 - **The AI is a paid budget too.** `POST /api/itinerary/arrange` asks an AI to choose among orders the rules allow. Every AI call goes through one budget (`ITINERARY_AI_CALLS_PER_MINUTE`, 20 by default, 2 at once), a 10-minute cache, a pause after three failures and an 8-second deadline; anything else answers by the rules. Only venue names, kinds, times and the weather go to the provider, never anything about a person.
 - **Local accounts in a production build are off** when Supabase is set up, and a production build with no Supabase settings refuses to run. `VITE_ALLOW_LOCAL_ACCOUNTS=1` turns them on, which a deployed demo needs.
 - **Meeting spots:** a planner answer computed before the host confirmed is never applied afterwards, and a failed write takes back only its own change (`latestAnswer` and `orUndo` in `frontend/src/lib/api.js`). Naming an area in `include` never changes the planner's own pick.
@@ -91,6 +91,12 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 **Round 1, 2026-10-09, project initialisation: completed.** Four read-only agents reviewed the unpushed branch, the schema, the open frontend pull request, and ran the checks. They found three significant defects in the login check and a blocker in the schema.
 
 **Round 2, 2026-10-09, fixes: completed.** A backend agent hardened the login check; the lead revised the schema on the live project. An independent tester confirmed the results. A second review asked for more changes.
+
+**Rounds 24 and 25, 2026-10-11 and 12, the lead's changes to the pitch build, and stage 1 of sessions on the server.** The settled Locate page, the back button, reviews and scores on the vote cards went to `dev`; more card changes wait in a pull request; the CDC price rule and stage 1 (the signed-in account's id everywhere, reviewed and fixed) are on `integration/after-pitch`. Implementation was paused at the lead's word after stage 1 merged.
+
+**Round 23, 2026-10-11, the tracker cleared, the demo tour checked, and each real service run once.** Open tickets went from 66 to 36 under one map. With the lead's keys: OneMap routing, the live forecast and Gemini answered; with the Google key set every converge result was a Google place.
+
+**Rounds 21 and 22, 2026-10-11, five pieces built in parallel and the place-search pull request audited.** Weather's backend half, Roam in a meetup, the demo tour and the session schema are on `integration/after-pitch`; the place-search fixes are on `feat/real-search-integration`, held for the Google decision.
 
 **Round 20, 2026-10-11, decisions and a new map.** Dietary needs, weather, the demo tour and invites were settled; the map is issue #109.
 
@@ -130,22 +136,23 @@ See the closed tickets on the tracker, and `docs/agents/work-log.md` for agent r
 
 ## Work In Progress
 
-A ticket's assignee is its owner. Query the tracker for open, assigned tickets. No agent work is running.
+A ticket's assignee is its owner. Query the tracker for open, assigned tickets. No agent work is running. Finished work that waits for the pitch to pass is on `integration/after-pitch` and goes to `dev` as one pull request.
 
 ## Outstanding Tasks
 
-The tracker is the source of truth. Start from the audit tracker, issue #47: three tickets to fix before any public deploy, the seven "Overhaul N of 7" tickets in order, and four decisions for the lead.
+The tracker is the source of truth: the open tickets under issue #109, in the order its Notes give. First the lead's account and key checklist, then sessions on the server in five stages.
 
 ## Known Issues
 
-Recorded as tickets under issue #47. The ones that change how you work today:
+Recorded as tickets under issue #109. The ones that change how you work today:
 
-- **Sign-up is still local.** The screens now collect a date of birth and a username the database accepts, but nothing is sent to Supabase and there is no login screen.
+- **Sign-up and login are built and have never met the real project.** Email confirmation is still on there, and no real token has been checked by `GET /api/me`.
+- **A Google key changes every ranking.** With `GOOGLE_MAPS_API_KEY` set, a real converge returned ten Google places out of ten, stalls in one food court, one of them first on a single review. Google's terms do not allow them beside the OneMap map. Leave the key empty until the lead decides.
 - **The planner routes accept anyone.** The login check exists but is not applied to them, because the frontend sends no token yet.
 - **Points, season prizes and voucher codes are computed in the browser** and can be edited there. They are labelled as a demo and must not be presented as real.
-- **The signed-in user's id is hard-coded** in several views, so nothing works for two real people yet.
+- **A real account works alone, and only in one browser.** The signed-in person now comes from the account (`currentUserId()` in `frontend/src/lib/currentUser.js`, `auth.myId` in components), and a real account's data is stored under its own id. Nothing is shared yet: a real account has no friends and cannot start a session, which needs two people, until sessions are on the server. No real sign-up has been run.
 - **An old database password is in git history.** The repo must stay private until the lead resets it.
-- **CI runs only on pull requests and `main`**, and runs only the backend tests.
+- **CI has no end-to-end step.** It runs both unit suites and the build on pull requests and on pushes to `main` and `dev`.
 - **A host's account cannot be deleted**, and nothing deletes sessions. Account erasure needs a server route.
 
 ## Testing and Verification
@@ -203,8 +210,14 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-09 | `feature/external-apis` merged with `main` (working tree) | `pnpm --filter jio-frontend test` | 186 passed, 20 files |
 | 2026-10-09 | `feature/external-apis` merged with `main` (working tree) | `pnpm build` | Succeeded |
 | 2026-10-09 | `feature/external-apis` merged with `main`, real OneMap account | Live server: roam, meeting area, address search | Roam: live weather, 9 of 9 trips routed by OneMap. Meeting area for Tampines + Clementi: Bugis, 28 min worst, 32 routes. Address search found Bishan MRT |
+| 2026-10-11 | `integration/after-pitch` with the demo tour merged in (`14b1cd5`) | `pnpm test`; `pnpm --filter jio-frontend test`; `pnpm build` | 897 passed, 2 skipped, 32 files; 941 passed, 62 files; succeeded |
+| 2026-10-11 | `feat/demo-tour`, development server, no backend | `/demo`, then each of the eight checkpoints by the strip's next button, about 560 px wide | Lands on Home at checkpoint 1; all eight open their screen; no horizontal overflow; no page errors |
+| 2026-10-11 | `feat/real-search-integration`, working tree | `pnpm test`, also with outbound calls blocked; frontend suite; build | 986 passed, 2 skipped, 34 files, both times; 886 passed, 59 files; succeeded |
+| 2026-10-11 | `dev` at `36a8bf0`, the lead's real keys, own server on a spare port | One call to each real service, by a verifier agent | OneMap: logged in, search 0.16 s, meeting area for Tampines and Clementi 3.2 s cold (10 trips routed, 22 estimated) and 2 ms warm. Forecast: live. Gemini: an order and a sentence in 1.1 s. Google: 19 places added; all 10 converge results were Google places. No server warnings. Not run: a Google photo, a real login token |
+| 2026-10-12 | `integration/after-pitch` with stage 1 merged in (`94d24ac`) | `pnpm --filter jio-frontend test`; `pnpm test`; `pnpm build`, exit codes read | 1112 passed, 71 files; 899 passed, 2 skipped; succeeded |
+| 2026-10-12 | `feat/sessions-stage-1-account` after the review's fixes | The same three, the frontend also with outbound calls blocked; a search of the built files for the development-only account tools | 1112 passed both times, nothing blocked; 899 passed, 2 skipped; succeeded; none found |
 
-Not yet verified: a real user's login token against `GET /api/me`, and anything end to end.
+Not yet verified: a real user's login token against `GET /api/me`, a Google photo, and anything end to end.
 
 ## Next Steps
 

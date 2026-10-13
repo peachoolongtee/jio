@@ -71,6 +71,21 @@ export function oneMapDateTime(dateTime) {
   return { date: `${m}-${d}-${y}`, time: `${dateTime.slice(11, 13)}:00:00` }
 }
 
+// Reads a search answer into plain places, or throws ExternalApiError when it cannot be read: not an object, a
+// `results` that is not a list, or a result that is not an object. `{}` and `{ results: [] }` are a good answer with
+// nothing in it. A result with no usable point is skipped, as it always was.
+//
+// How to call (inside this file):
+//   const places = readSearchAnswer(body)
+function readSearchAnswer(body) {
+  const bad = (why) => new ExternalApiError(`onemap sent a search answer that cannot be read (${why})`, { service: 'onemap', status: null, url: SEARCH_URL })
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) throw bad('not an object')
+  const results = body.results ?? []
+  if (!Array.isArray(results)) throw bad('results is not a list')
+  if (results.some((r) => r === null || typeof r !== 'object' || Array.isArray(r))) throw bad('a result is not an object')
+  return results.map(toPlace).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng))
+}
+
 // Reads one search result into a plain shape.
 function toPlace(r) {
   return {
@@ -342,15 +357,16 @@ export function createOneMap({
   //   const places = await onemap.search('Bishan MRT')
   //   places[0] // { name: 'BISHAN MRT STATION', address: '...', postal: '...', lat: 1.35, lng: 103.84 }
   //
-  // Throws ExternalApiError when OneMap fails, and OneMapUnavailableError (a kind of ExternalApiError) with
-  // reason 'budget_empty' and retryAfterSeconds when the shared call budget is used up.
+  // Throws ExternalApiError when OneMap fails or answers with something that cannot be read (never cached), and
+  // OneMapUnavailableError (a kind of ExternalApiError) with reason 'budget_empty' and retryAfterSeconds when the
+  // shared call budget is used up. The array returned is the cache's own: copy it before changing it.
   async function search(query) {
     const q = query.trim()
     const key = `search:${currentScenario()}:${q.toLowerCase()}`
     return searches.getOrSet(key, async () => {
       const url = `${SEARCH_URL}?searchVal=${encodeURIComponent(q)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`
       const body = await budget.run(() => http.getJson(url))
-      return (body?.results ?? []).map(toPlace).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng))
+      return readSearchAnswer(body)
     })
   }
 
