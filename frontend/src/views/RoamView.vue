@@ -13,6 +13,8 @@
 //     itinerary.
 //   - Loading, empty ("Nothing nearby fits"), the planner being unreachable (with Retry) and "not open yet" each have their
 //     own state. The page keeps the Itinerary step lit and its back arrow goes to the itinerary.
+//   - Weather: the rain mark on a card follows the planner's weather state ("Outdoor, showers"), one muted line under the list
+//     says where the forecast came from, and a simulated forecast adds a banner at the top (WeatherSource).
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -26,6 +28,7 @@ import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
+import WeatherSource from '@/components/weather/WeatherSource.vue'
 import NotFoundView from './NotFoundView.vue'
 import * as api from '@/lib/api.js'
 import { CATEGORY_LABELS } from '@/lib/planner/slots.js'
@@ -237,6 +240,7 @@ const actionFor = (place) => placeAction(place, { myId: myId.value, blocked: blo
 
     <div class="screen__body">
       <SessionNotices :session="session" />
+      <WeatherSource v-if="!closed && answer?.weather" :block="answer.weather" banner />
 
       <EmptyState v-if="closed" :title="closed" data-testid="roam-closed">
         <AppButton variant="secondary" :to="sessionPath(session)">Back to the session</AppButton>
@@ -300,6 +304,7 @@ const actionFor = (place) => placeAction(place, { myId: myId.value, blocked: blo
             </SuggestionCard>
           </li>
         </ul>
+        <WeatherSource v-if="!loading && !loadError && answer?.weather" :block="answer.weather" />
       </template>
     </div>
 

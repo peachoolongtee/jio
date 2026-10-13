@@ -17,6 +17,7 @@ import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
 import { itineraryAction } from './session.js'
+import { combineWeather, stateOf, venueSetting } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
 import { bindCurrentUser, currentUserId } from './currentUser.js'
@@ -2249,10 +2250,14 @@ export async function addOption(id, slotId, venueId) {
   return touch(session, 'options')
 }
 
-// Replace an outdoor option with an indoor one when it rains.
+// Replace an outdoor option with an indoor one when it rains. While voting this changes the options (and takes back the
+// votes for the one that left). Once the plan is confirmed it changes the plan's stop for that slot, so only the host may,
+// and asking again after the stop is already the indoor place changes nothing (the indoor swap is made once).
+// How to call: await swapOption('s1', 'activity', 'east-coast-park', 'toa-payoh-library')
 export async function swapOption(id, slotId, fromId, toId) {
   await wait(DELAY.write)
   const session = sessionById(id)
+  if (session.status === 'confirmed' && session.plan?.stops.some((s) => s.slotId === slotId)) return swapPlannedStop(session, slotId, fromId, toId)
   session.options[slotId] = (session.options[slotId] || []).map((v) => (v === fromId ? toId : v))
   const votes = session.votes[slotId] || {}
   for (const person of Object.keys(votes)) if (votes[person] === fromId) delete votes[person]
@@ -2286,6 +2291,8 @@ const rankedDetail = (o) => ({
   dietUnknown: o.dietUnknown,
   verify: o.verify,
   approximate: o.approximate,
+  // The weather at that time, so the confirmed plan can show its marks without asking again. Left out when there was none.
+  ...(o.weather ? { weather: o.weather } : {}),
 })
 
 // The options of a confirmed or completed slot, from what was stored: no planner call, so nothing is re-ranked
@@ -2317,7 +2324,7 @@ export async function getPlan(id) {
   const settled = session.status !== 'voting'
   const rankings = settled ? null : await rankBrowse(session, slots)
   const view = slots.map((slot, i) => {
-    const ranked = settled ? { options: [], current: [], widened: false, few: null, empty: null } : rankings[i]
+    const ranked = settled ? { options: [], current: [], widened: false, few: null, empty: null, weather: null } : rankings[i]
     const byId = settled ? storedOptions(session, slot, area) : Object.fromEntries([...ranked.options, ...ranked.current].map((o) => [o.venue.id, o]))
     const optionIds = (session.options[slot.id] || []).filter((v) => byId[v])
     const votes = session.votes[slot.id] || {}
@@ -2341,6 +2348,7 @@ export async function getPlan(id) {
           dietUnknown: o.dietUnknown,
           verify: o.verify,
           approximate: o.approximate,
+          ...(o.weather ? { weather: o.weather } : {}),
         }
       })
       // The planner's score is a penalty: lowest first is best first.
@@ -2363,9 +2371,13 @@ export async function getPlan(id) {
       myVote: votes[me()] || null,
     }
   })
+  // Where the forecast came from, once for the whole list: the planner's block for each slot while voting, what was kept with
+  // each option once the plan is settled. Left out when there is none.
+  const forecast = combineWeather(settled ? view.flatMap((v) => v.options.map((o) => o.weather)) : rankings.map((r) => r.weather))
   return {
     area: { ...area },
     radius: session.radius ?? null,
+    ...(forecast ? { weather: forecast } : {}),
     slots: view,
     voters: P.voters(session.votes, ids),
     prefs: clone(session.prefs),
@@ -2430,8 +2442,13 @@ export async function getItinerary(id) {
     .filter((p) => p.place)
     .map((p) => ({ id: p.id, name: p.name, end: { ...p.place } }))
   const area = session.meeting ? areaById(session.meeting.areaId) : null
+  // The weather kept with each stop when the plan was confirmed. A plan confirmed before it was kept has none: null.
+  // How to call: keptWeather(timed[0]) -> { state: 'dry', ... } or null
+  const keptWeather = (s) => session.confirmedRanking?.[s.slotId]?.[s.venue?.id]?.weather ?? null
   return {
-    stops: timed.map((s, index) => ({ index, slotId: s.slotId, category: s.category, venue: clone(s.venue), start: s.start, end: s.end, duration: s.duration, open: s.open })),
+    stops: timed.map((s, index) => ({ index, slotId: s.slotId, category: s.category, venue: clone(s.venue), start: s.start, end: s.end, duration: s.duration, open: s.open, weather: keptWeather(s) })),
+    // Where the kept forecast came from, once for all stops, or null.
+    weather: combineWeather(timed.map(keptWeather)),
     legs,
     end: P.endPoint(last),
     trips: P.tripsHome(last, people),
@@ -2448,6 +2465,103 @@ export async function getItinerary(id) {
 function planOf(session) {
   if (!session.plan) throw new Error('This session has no plan yet. Confirm one first.')
   return session.plan
+}
+
+// ── Weather on the day ────────────────────────────────────────────────────
+
+// The day the stops of a plan fall on: the session's date, or today when the demo's session-day switch is on.
+// How to call: stopDay(session) -> '2026-10-11'
+function stopDay(session) {
+  return db.conditions.sessionDay && session.date !== todayKey() ? todayKey() : session.date
+}
+
+// A stop's start as the planner reads it, "YYYY-MM-DDTHH:MM" in Singapore time. A start past midnight is on the next day.
+// How to call: localStart('2026-10-11', 1500) -> '2026-10-12T01:00'
+function localStart(day, minutes) {
+  const date = format(addDays(parseISO(day), Math.floor(minutes / 1440)), 'yyyy-MM-dd')
+  return `${date}T${P.fromMinutes(minutes)}`
+}
+
+// The weather at the stops of a confirmed plan, asked of the planner now, for the times the itinerary shows. Nothing is
+// written: the itinerary keeps the answer in its store. A failed request throws, and the caller keeps its last answer.
+// Resolves { checkedAt, stops: { [slotId]: weather object }, weather: the answer's block }.
+// How to call: await checkStopWeather('s1')
+export async function checkStopWeather(id) {
+  await wait(DELAY.read)
+  const session = sessionById(id)
+  const stops = timedStops(session).flatMap((s) => {
+    const venue = venueById(s.venueId)
+    if (!venue) return []
+    const { indoor, exposure } = venueSetting(venue)
+    return [{ id: s.slotId, point: { lat: venue.lat, lng: venue.lng }, start: localStart(stopDay(session), s.start), setting: indoor ? 'indoor' : 'outdoor', exposure }]
+  })
+  if (!stops.length) return { checkedAt: Date.now(), stops: {}, weather: null }
+  const answer = await planner.stopsWeather({ stops, conditions: db.conditions })
+  return { checkedAt: Date.now(), stops: answer.stops, weather: answer.weather }
+}
+
+// The weather at some places and times, for Home's map: the planner's answer for each stop, with the demo's rain switch applied.
+// Nothing is written. A failed request throws.
+//   stops: [{ id, point: { lat, lng }, start: 'YYYY-MM-DDTHH:MM' }], at most 8
+// Resolves { stops: { [id]: weather object (lib/weatherText.js) }, weather: the answer's block }.
+// How to call: await weatherAt([{ id: 'bishan', point: { lat: 1.3508, lng: 103.8485 }, start: '2026-10-11T15:00' }])
+export async function weatherAt(stops) {
+  await wait(DELAY.read)
+  return planner.stopsWeather({ stops, conditions: db.conditions })
+}
+
+// The slot a plan stop is, as the planner ranks it: the stop's own time and length.
+// How to call: slotOfStop(timed) -> { id: 'activity', category: 'activity', start: 900, time: '15:00', duration: 90 }
+const slotOfStop = (stop) => ({ id: stop.slotId, category: stop.category, start: stop.start, time: P.fromMinutes(stop.start), duration: stop.duration })
+
+// The indoor place the planner would swap a stop for in the rain, or null when it offers none. Asks the planner about this
+// stop at its time on the day, with the stop's place as the one option: the same `swap` the voting card shows. Nothing is
+// written. Resolves { id, name } or null; a failed request throws.
+// How to call: await findRainSwap('s1', 'activity') -> { id: 'toa-payoh-library', name: 'Toa Payoh Public Library' }
+export async function findRainSwap(id, slotId) {
+  await wait(DELAY.read)
+  const session = sessionById(id)
+  const stop = timedStops(session).find((s) => s.slotId === slotId)
+  if (!stop) return null
+  const ranked = await rankSlot({ ...session, date: stopDay(session) }, slotOfStop(stop), [], [stop.venueId])
+  const swap = ranked.current.find((o) => o.venue.id === stop.venueId)?.swap
+  return swap ? { id: swap.id, name: swap.name } : null
+}
+
+// Change a confirmed plan's stop to another place: only the host, and only the place the stop now has. The new place is
+// ranked for the stop's time first, so its details are kept with the plan like the others and it must fit. Asking again once
+// the stop is the new place changes nothing.
+// How to call: await swapPlannedStop(session, 'activity', 'east-coast-park', 'toa-payoh-library')
+async function swapPlannedStop(session, slotId, fromId, toId) {
+  if (session.hostId !== me()) throw new Error('Only the host can swap a stop.')
+  const current = session.plan.stops.find((s) => s.slotId === slotId)
+  if (current.venueId === toId) return summary(session)
+  if (current.venueId !== fromId) throw new Error('That stop has changed. Look at the plan again.')
+  const stop = timedStops(session).find((s) => s.slotId === slotId)
+  const ranked = await rankSlot({ ...session, date: stopDay(session) }, slotOfStop(stop), [], [toId])
+  const found = [...ranked.current, ...ranked.options].find((o) => o.venue.id === toId)
+  if (!found) throw new Error(`${venueById(toId)?.name || 'That place'} does not fit this stop.`)
+  // The plan may have changed while the planner answered.
+  const now = session.status === 'confirmed' && session.plan?.stops.find((s) => s.slotId === slotId)
+  if (!now || now.venueId !== fromId) throw new Error('That stop has changed. Look at the plan again.')
+  session.plan.stops = session.plan.stops.map((s) => (s.slotId === slotId ? { ...s, venueId: toId } : s))
+  session.options[slotId] = [...new Set((session.options[slotId] || []).map((v) => (v === fromId ? toId : v)))]
+  const { [fromId]: _left, ...kept } = session.confirmedRanking?.[slotId] || {}
+  session.confirmedRanking = { ...session.confirmedRanking, [slotId]: { ...kept, [toId]: rankedDetail(found) } }
+  if (session.weatherDismissed) delete session.weatherDismissed[slotId]
+  return touch(session, 'options')
+}
+
+// The host keeps a stop as it is in the rain. The warning stays dismissed for that stop until the forecast changes state
+// (lib/weatherText.js isDismissed), so `state` is the forecast's state when it was dismissed. Only the host.
+// How to call: await dismissRainWarning('s1', 'activity', 'showers')
+export async function dismissRainWarning(id, slotId, state) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (session.hostId !== me()) throw new Error('Only the host can dismiss this.')
+  if (session.status !== 'confirmed' || !session.plan?.stops.some((s) => s.slotId === slotId)) throw new Error('This stop is not in the plan.')
+  session.weatherDismissed = { ...session.weatherDismissed, [slotId]: stateOf(state) }
+  return touch(session, 'plan')
 }
 
 export async function setTravelMode(id, legIndex, mode) {
@@ -2691,6 +2805,8 @@ export async function roamNearby(id, { point, categories } = {}) {
     }),
     empty: answer.empty,
     widened: answer.widened,
+    // Where the forecast came from, for the line under the list; left out when the planner sent none.
+    ...(answer.weather ? { weather: combineWeather([answer.weather]) } : {}),
     blocked: proposeBlock({ stops: stopIds.length, mine: proposals.filter((p) => p.by === me()).length, total: proposals.length }),
   }
 }
@@ -2790,6 +2906,7 @@ async function reopenVoting(session, trigger) {
   session.plan = null
   clearProposals(session)
   delete session.confirmedRanking
+  delete session.weatherDismissed
   session.meeting = next
   if (pinnedSpot) refreshSpot(session, pinnedSpot)
   const moved = (previous?.areaId ?? null) !== (next?.areaId ?? null)

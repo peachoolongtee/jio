@@ -26,6 +26,13 @@ export const useEventsStore = defineStore('events', () => {
   const orderPending = {}
   // The Confirm dialog's suggested order by session: { key, loading, answer, failed } for the newest question asked.
   const orders = ref({})
+  // Weather on the day, by session: the latest check of the plan's stops, { checkedAt, stops: { [slotId]: weather }, weather:
+  // the answer's block, failed }. A failed check keeps the answer before it and says so in `failed`.
+  const weatherChecks = ref({})
+  // The indoor place offered for a stop in the rain, by session and slot: { key, status: 'loading' | 'ready' | 'none' | 'failed', swap }.
+  const rainSwaps = ref({})
+  const checkSeq = {}
+  const swapSeq = {}
 
   // The signed-in person's current session: the newest one that is still going, otherwise the newest one.
   const current = computed(() => {
@@ -142,6 +149,57 @@ export const useEventsStore = defineStore('events', () => {
     return pending
   }
 
+  // Asks the planner for the weather at the stops of a confirmed plan and keeps the answer with its time. A check that fails keeps
+  // the answer before it and marks it `failed`; one that fails with nothing before it keeps an empty answer, `failed`. Only the
+  // newest check of a session is kept. Never rejects (the schedule asks again in its own time).
+  // How to call: await checkWeather('s1'); weatherChecks.value.s1.stops.eat.state
+  async function checkWeather(id) {
+    const ticket = (checkSeq[id] = (checkSeq[id] || 0) + 1)
+    try {
+      const answer = await api.checkStopWeather(id)
+      if (ticket === checkSeq[id]) weatherChecks.value = { ...weatherChecks.value, [id]: { ...answer, failed: false } }
+    } catch {
+      if (ticket !== checkSeq[id]) return
+      const before = weatherChecks.value[id]
+      weatherChecks.value = { ...weatherChecks.value, [id]: { checkedAt: before?.checkedAt ?? null, stops: before?.stops ?? {}, weather: before?.weather ?? null, failed: true } }
+    }
+  }
+
+  // Asks the planner which indoor place it would offer in place of a stop in the rain, once for each stop and forecast state
+  // (`key` names them); the same key reuses the answer, or the request running. Never rejects: a failure is kept as 'failed'.
+  // How to call: await loadRainSwap('s1', 'activity', 'east-coast-park:showers'); rainSwaps.value.s1.activity.swap.name
+  async function loadRainSwap(id, slotId, key) {
+    const have = rainSwaps.value[id]?.[slotId]
+    if (have && have.key === key && have.status !== 'failed') return
+    const ticket = (swapSeq[`${id}:${slotId}`] = (swapSeq[`${id}:${slotId}`] || 0) + 1)
+    const set = (entry) => (rainSwaps.value = { ...rainSwaps.value, [id]: { ...rainSwaps.value[id], [slotId]: { key, swap: null, ...entry } } })
+    set({ status: 'loading' })
+    try {
+      const swap = await api.findRainSwap(id, slotId)
+      if (ticket === swapSeq[`${id}:${slotId}`]) set(swap ? { status: 'ready', swap } : { status: 'none' })
+    } catch {
+      if (ticket === swapSeq[`${id}:${slotId}`]) set({ status: 'failed' })
+    }
+  }
+
+  // The host accepts the indoor swap: the stop becomes the indoor place (the data layer's swap), the itinerary is loaded again
+  // and the offer is forgotten. Rejects with the data layer's message when it cannot.
+  // How to call: await swapStop('s1', 'activity', 'east-coast-park', 'toa-payoh-library')
+  async function swapStop(id, slotId, fromId, toId) {
+    put(await api.swapOption(id, slotId, fromId, toId))
+    swapSeq[`${id}:${slotId}`] = (swapSeq[`${id}:${slotId}`] || 0) + 1
+    const { [slotId]: _done, ...rest } = rainSwaps.value[id] || {}
+    rainSwaps.value = { ...rainSwaps.value, [id]: rest }
+    await loadItinerary(id)
+  }
+
+  // The host keeps the stop in the rain: the warning stays dismissed until the forecast changes state (`state` is its state now).
+  // How to call: await dismissRain('s1', 'activity', 'showers')
+  async function dismissRain(id, slotId, state) {
+    put(await api.dismissRainWarning(id, slotId, state))
+    await loadItinerary(id)
+  }
+
   // Moves the stop on screen straight away, then saves and re-times from the server's answer.
   // If the save fails, the old order comes back, the itinerary is loaded again, and the error is thrown.
   async function reorderStops(id, from, to) {
@@ -180,9 +238,12 @@ export const useEventsStore = defineStore('events', () => {
       byId.value = {}
       loaded.value = false
     }
+    for (const tickets of [checkSeq, swapSeq]) for (const key of Object.keys(tickets)) tickets[key] += 1
     itineraries.value = {}
     photos.value = {}
     orders.value = {}
+    weatherChecks.value = {}
+    rainSwaps.value = {}
   }
   // Whose sessions the store holds. A change of person, with or without a sign-out between, empties it (see forgetSessions).
   let owner = currentUserId()
@@ -214,8 +275,8 @@ export const useEventsStore = defineStore('events', () => {
   })
 
   return {
-    sessions, byId, itineraries, photos, loaded, current,
-    loadSessions, loadSession, loadItinerary, loadPhotos,
+    sessions, byId, itineraries, photos, loaded, current, weatherChecks, rainSwaps,
+    loadSessions, loadSession, loadItinerary, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
     create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
   }
 })

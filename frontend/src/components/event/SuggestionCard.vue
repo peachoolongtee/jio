@@ -3,7 +3,8 @@
 //   <SuggestionCard :option="option" :stop="{ start: 900, duration: 60 }" :group-size="3" me="ian" leading mine :outing="['faith']" :friends="['nicole']" @vote="vote" @swap="swap" @open="showReviews" />
 // A photo of the kind of place with its category icon, the name, walking time, price tier,
 // up to three tags (the planner's reasons, and when the place is open at `stop`), one sample review, a rain warning with an
-// indoor swap, and who voted. The walking time is not labelled here: the page says once where walks are measured from.
+// indoor swap (the warning is a WeatherMark in the option's weather state, "Outdoor, showers"; "Outdoor, rain expected" when
+// the option has no state), and who voted. The walking time is not labelled here: the page says once where walks are measured from.
 // The name is a button inside its heading and its press area covers the photo too, so the photo and the name both open the
 // place (`open`, with the option and 'name'); one control, so a screen reader meets the place once.
 // The review line is its own button, apart from the vote and the swap, and opens the place's reviews (`open`, with 'review'). It quotes
@@ -24,10 +25,12 @@ import InfoTag from '../ui/InfoTag.vue'
 import PriceTier from '../ui/PriceTier.vue'
 import RatingBadge from '../ui/RatingBadge.vue'
 import UserAvatar from '../ui/UserAvatar.vue'
+import WeatherMark from '../weather/WeatherMark.vue'
 import { distanceText } from '@/lib/planner/format.js'
 import { placeImage } from '@/lib/placeImages.js'
 import { cardLine, reviewLabel } from '@/lib/reviewPick.js'
 import { cardTags, hoursNote, votersText } from '@/lib/cardText.js'
+import { optionMark } from '@/lib/weatherText.js'
 
 const props = defineProps({
   option: { type: Object, required: true },
@@ -54,6 +57,9 @@ defineEmits(['vote', 'swap', 'open'])
 const tags = computed(() => cardTags(props.option.reasons, hoursNote(props.option.venue.hours, props.stop?.start, props.stop?.duration)))
 const votedText = computed(() => votersText({ voters: props.option.voters, votes: props.option.votes, groupSize: props.groupSize, me: props.me }))
 const openName = computed(() => `Open ${props.option.venue.name}`)
+// The rain warning, in the weather state the planner gave ("Outdoor, showers"); null when the option has none. Its source is
+// said once under the list, not on the card.
+const rainMark = computed(() => optionMark(props.option))
 
 // The review line: how many sample reviews the place has and the one to quote, if there is one.
 const line = computed(() => cardLine(props.option.venue, { outing: props.outing, friends: props.friends }))
@@ -86,7 +92,7 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
     <div class="sugg__tags">
       <InfoTag v-if="leading" tone="strong" icon="trophy">Leading</InfoTag>
       <InfoTag v-for="tag in tags" :key="tag.key" :tone="tag.tone" :icon="tag.icon">{{ tag.text }}</InfoTag>
-      <InfoTag v-if="option.warnings.includes('rain')" tone="warning" icon="rain">Outdoor, rain expected</InfoTag>
+      <WeatherMark v-if="rainMark" :mark="rainMark" />
     </div>
     <button type="button" class="sugg__review" :data-review-for="option.id" :aria-label="reviewName" @click="$emit('open', option, 'review')">
       <template v-if="line.review">

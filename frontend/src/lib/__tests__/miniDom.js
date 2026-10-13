@@ -11,7 +11,8 @@ const node = (type, tag = '') => ({ type, tag, props: {}, listeners: {}, childre
 // How to call: const { createApp } = createRenderer(options) — the operations Vue needs to build and change a tree.
 function operations(body) {
   return {
-    createElement: (tag) => node('el', tag),
+    // `style` is there for v-show, which sets style.display on the element itself.
+    createElement: (tag) => ({ ...node('el', tag), style: {} }),
     createText: (text) => ({ ...node('text'), text }),
     createComment: () => node('comment'),
     setText: (n, text) => { n.text = text },
