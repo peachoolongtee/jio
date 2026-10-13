@@ -14,6 +14,9 @@
 //             and the map with the meeting pin and a line from each person's start. The other spots are gone. The
 //             footer's button is named for where it goes: "Choose places", then "Today's plan" or "See the plan".
 //             Confirming a spot, or naming a known place, leaves the person here; it does not jump to Vote.
+//             The host can change the spot afterwards ("Change spot", while voting or once the plan is confirmed): after a
+//             confirmation that says what goes (votes for places, and a confirmed plan's itinerary), the page is back to
+//             choosing where to meet, with the spots worked out again.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -224,6 +227,27 @@ function askSkip(person) {
 }
 const continueWithout = () => run(() => events.optOut(props.id, skipTarget.value.id), () => { skipOpen.value = false })
 
+// The host changes the meeting spot after it was confirmed: back to choosing where to meet, after a confirmation.
+const canChangeSpot = computed(() => isHost.value && ['voting', 'confirmed'].includes(session.value?.status))
+const changeOpen = ref(false)
+// What changing the spot takes away, in words for the dialog.
+const changeText = computed(() =>
+  session.value?.status === 'confirmed'
+    ? 'Everyone goes back to choosing where to meet. The confirmed plan and its itinerary are cleared, and so are votes for places, because places are found around the meeting spot.'
+    : 'Everyone goes back to choosing where to meet. Votes for places are cleared, because places are found around the meeting spot.',
+)
+// How to call: openChangeSpot()
+function openChangeSpot() {
+  error.value = ''
+  changeOpen.value = true
+}
+// A second press while the first is still saving does nothing (the button is only drawn off after the page updates).
+// How to call: changeSpot()
+function changeSpot() {
+  if (busy.value) return
+  run(() => events.changeSpot(props.id), () => { changeOpen.value = false })
+}
+
 const hostName = computed(() => nameOf(session.value?.hostId) || 'the host')
 // The meeting spots changed what the people card shows: while choosing, their trips are to each spot, not to a meeting
 // area, so the card does not claim one.
@@ -349,9 +373,12 @@ const startSession = () => run(() => events.start(props.id))
                   <span v-if="myTrip" class="caption-sm text-muted">{{ myTrip }}</span>
                 </div>
               </div>
-              <AppButton variant="secondary" small class="area__go" :href="spotDirections" target="_blank" :aria-label="`Directions to ${settled.area.name}, opens Google Maps in a new tab`">
-                <AppIcon name="route" :size="16" />Directions
-              </AppButton>
+              <div class="area__actions">
+                <AppButton variant="secondary" small class="area__go" :href="spotDirections" target="_blank" :aria-label="`Directions to ${settled.area.name}, opens Google Maps in a new tab`">
+                  <AppIcon name="route" :size="16" />Directions
+                </AppButton>
+                <AppButton v-if="canChangeSpot" variant="secondary" small data-testid="change-spot" @click="openChangeSpot"><AppIcon name="swap" :size="16" />Change spot</AppButton>
+              </div>
             </section>
 
             <!-- The meeting spots, while locating: members say which work for them and the host confirms one at any time. -->
@@ -420,6 +447,11 @@ const startSession = () => run(() => events.start(props.id))
       <AppButton block variant="secondary" @click="skipOpen = false">Keep waiting</AppButton>
       <AppButton block variant="danger" :disabled="busy" @click="continueWithout">Continue without {{ skipTarget?.name }}</AppButton>
     </ModalDialog>
+    <ModalDialog v-model:open="changeOpen" :title="`Change the meeting spot from ${settled?.area.name || 'here'}?`" :text="changeText">
+      <template #content><p v-if="error" class="body-sm text-error" role="alert" data-testid="change-spot-error">{{ error }}</p></template>
+      <AppButton block variant="secondary" @click="changeOpen = false">Keep {{ settled?.area.name || 'this spot' }}</AppButton>
+      <AppButton block :variant="session.status === 'confirmed' ? 'danger' : 'primary'" :disabled="busy" data-testid="confirm-change-spot" @click="changeSpot">{{ busy ? 'Changing' : 'Change spot' }}</AppButton>
+    </ModalDialog>
     <LocationSheet v-model:open="sheet.open" :which="sheet.which" :home="homeArea" @select="saveLocation" />
   </main>
   <main v-else class="screen" data-testid="group-detail-view">
@@ -474,6 +506,8 @@ button.route__row:focus-visible { outline: 2px solid var(--ink); outline-offset:
    to a few letters in the list column and on a phone. */
 .area:not(.is-finding) { flex-direction: column; align-items: stretch; }
 .area__go { align-self: flex-start; }
+/* Directions, and Change spot for the host, side by side under the spot; they wrap on a very narrow phone. */
+.area__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm); }
 .area__main--reveal { animation: area-reveal 420ms var(--ease-spring) both; }
 @keyframes area-reveal { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .area__main--reveal { animation: none; } }

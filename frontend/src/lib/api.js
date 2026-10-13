@@ -1852,6 +1852,42 @@ export async function setKnownPlace(id, areaId) {
   })
 }
 
+// The host changes their mind about where to meet, after a spot was confirmed or a known place set: the session goes back
+// from Voting (or a confirmed plan) to choosing where to meet. The spots are worked out again from everyone's starts and
+// the suggestions there are; who said a spot works for them stays. Votes for places go, because places are found around
+// the meeting spot, and so does a confirmed plan's itinerary. Confirming a spot again carries on as the first time.
+// Throws if the person is not the host, no spot is confirmed yet, the session has ended, or the planner cannot answer;
+// nothing changes then.
+// How to call: await changeMeetingSpot('s1')
+export async function changeMeetingSpot(id) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
+  assertHost(session, 'change the meeting spot')
+  if (!['voting', 'confirmed'].includes(session.status)) throw new Error('The meeting spot can be changed once one is confirmed.')
+  return orUndo(session, async () => {
+    session.status = 'locating'
+    // No meeting area pinned any more, so the spots are worked out afresh.
+    session.meeting = null
+    session.plan = null
+    delete session.confirmedRanking
+    session.replan = null
+    session.banner = null
+    session.votes = {}
+    session.options = {}
+    const answered = await latestAnswer(
+      session,
+      () => computeMeeting(session),
+      ({ meeting, spots }) => {
+        session.meeting = meeting
+        if (spots) applyPlannedSpots(session, spots)
+      },
+    )
+    if (!answered) throw new Error('The meeting spots could not be worked out. Try again.')
+    return touch(session, 'session')
+  })
+}
+
 export async function optOut(id, personId) {
   await wait(DELAY.write)
   const session = sessionById(id)

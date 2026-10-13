@@ -1,7 +1,8 @@
 <script setup>
 // One meeting spot in the list: its name and who put it forward, the longest trip, the average and each person's
 // minutes, a "Works for me" toggle with the people who chose it, and, on your own suggestion, "We are here already" and
-// Withdraw. The name is a real button that selects the spot (and its pin on the map).
+// Withdraw. The name is a real button that selects the spot (and its pin on the map), for the keyboard and screen
+// readers; a click anywhere else on the card that is not one of its controls selects it too.
 //   <SpotRow :spot="spot" :number="1" :selected="true" :mine="false" :names="nameOf" my-id="ian" can-approve fairest
 //            @select="pick" @approve="(on) => ..." />
 // spot: one entry of session.spots.list. number: its place in the list, drawn on its pin too. mine: you said it works
@@ -36,10 +37,18 @@ const props = defineProps({
   myId: { type: String, default: '' },
 })
 const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
+
+// A click anywhere on the card selects the spot, like its name does. A click on one of the card's own controls (the name
+// itself, Works for me, We are here already, Withdraw) does only what that control does.
+// How to call: <li @click="onCardClick">
+function onCardClick(event) {
+  if (event.target?.closest?.('button, a, input, label, select, textarea')) return
+  emit('select')
+}
 </script>
 
 <template>
-  <li class="spot" :class="{ 'is-selected': selected }" :data-area="spot.areaId">
+  <li class="spot" :class="{ 'is-selected': selected }" :data-area="spot.areaId" @click="onCardClick">
     <button type="button" class="spot__head" :aria-pressed="selected" @click="emit('select')">
       <span class="spot__num tnum" aria-hidden="true">{{ number }}</span>
       <span class="spot__text">
@@ -90,6 +99,9 @@ const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
 /* A flat card with a hairline. The selected spot has a 2px ink outline (the padding gives back the pixel so nothing moves). */
 .spot { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
 .spot.is-selected { padding: 11px calc(var(--spacing-base) - 1px); border: 2px solid var(--ink); background: var(--surface-soft); }
+/* The whole card picks the spot, so it looks like it can be pressed. */
+.spot { cursor: pointer; transition: border-color var(--motion-fast) var(--ease-out); }
+@media (hover: hover) { .spot:not(.is-selected):hover { border-color: var(--border-strong); } }
 .spot__head { display: flex; align-items: center; gap: var(--spacing-md); width: 100%; min-height: var(--tap-min); margin: 0; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .spot__head:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* The number on the row is the number on its pin. Ink when selected, so the pair differs by more than colour. */

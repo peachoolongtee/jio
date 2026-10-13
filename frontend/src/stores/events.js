@@ -90,6 +90,8 @@ export const useEventsStore = defineStore('events', () => {
   const approveMySpot = (id, areaId, on) => act(api.approveSpot)(id, HOST_ID, areaId, on)
   const confirmSpot = act(api.confirmSpot)
   const setKnownPlace = act(api.setKnownPlace)
+  // The host goes back to choosing where to meet after a spot was confirmed. How to call: await changeSpot('s1')
+  const changeSpot = act(api.changeMeetingSpot)
   const cancel = act(api.cancelSession)
   // The host carries on without a member who has not shared where they start (they opt out of this session).
   const optOut = act(api.optOut)
@@ -177,6 +179,6 @@ export const useEventsStore = defineStore('events', () => {
   return {
     sessions, byId, itineraries, photos, loaded, current,
     loadSessions, loadSession, loadItinerary, loadPhotos,
-    create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
+    create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, changeSpot, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, setTravelMode, deleteStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
   }
 })

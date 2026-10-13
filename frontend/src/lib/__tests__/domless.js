@@ -79,6 +79,13 @@ class Node_ {
   get id() {
     return this.attrs.id
   }
+  // The element itself or the nearest one above it that matches one of the selectors ('button, a'), as a browser's
+  // closest() does, with the selector forms matches() knows. Null when none does.
+  closest(selector) {
+    const forms = selector.split(',').map((s) => s.trim())
+    for (let node = this; node; node = node.parent) if (forms.some((form) => matches(node, form))) return node
+    return null
+  }
   addEventListener(name, fn) {
     ;(this.listeners[name] ||= []).push(fn)
   }
@@ -114,6 +121,10 @@ class DocumentStub {
   querySelector() {
     return null
   }
+  // Listeners on the whole page (a click or key outside a popover) are taken and never called: nothing here clicks
+  // outside a component.
+  addEventListener() {}
+  removeEventListener() {}
 }
 class ShadowRootStub {}
 const documentStub = new DocumentStub()
