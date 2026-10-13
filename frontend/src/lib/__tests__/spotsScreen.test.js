@@ -26,7 +26,7 @@ vi.mock('../../components/ui/ModalDialog.vue', async () => {
 vi.stubGlobal('localStorage', fakeStorage())
 const { default: SpotList } = await import('../../components/spots/SpotList.vue')
 const { default: SpotConfirm } = await import('../../components/spots/SpotConfirm.vue')
-const { canApprove, canSuggest, confirmedAreaId, pinName, settledView, shownFor, shownSpotId, spotsToShow, tripsLine, unpricedSuggestion } = await import('../../components/spots/spotText.js')
+const { canApprove, canSuggest, confirmedAreaId, myTripLine, pinName, settledView, shownFor, shownSpotId, spotsToShow, tripsLine, unpricedSuggestion } = await import('../../components/spots/spotText.js')
 const { useEventsStore } = await import('../../stores/events.js')
 const { clearApprovals, friendSuggests, friendsApprove, hasSpots } = await import('../../components/dev/spotDemo.js')
 
@@ -531,5 +531,25 @@ describe('the Locate screen once the meeting spot is settled', () => {
     expect(settledView(settled({ status: 'inviting' }), names)).toBeNull()
     expect(settledView(settled({ meeting: null }), names)).toBeNull()
     expect(settledView(settled({ area: null }), names)).toBeNull()
+  })
+})
+
+describe('your own trip on the meeting spot card', () => {
+  const view = (minutes, areaName = 'Bugis') => ({ area: { name: 'Bishan' }, people: [{ id: 'ian', name: 'Ian', areaName, minutes }, { id: 'faith', name: 'Faith', areaName: 'Tampines', minutes: 30 }] })
+
+  it('says how long and from where', () => {
+    expect(myTripLine(view(13), 'ian')).toBe('About 13 min from Bugis')
+    expect(myTripLine(view(30), 'faith')).toBe('About 30 min from Tampines')
+  })
+
+  it('says so when there is nothing to travel', () => {
+    expect(myTripLine(view(0), 'ian')).toBe('You are already there')
+  })
+
+  it('is empty with no time, no start, or no settled spot, and never prints "null"', () => {
+    for (const minutes of [null, undefined, NaN]) expect(myTripLine(view(minutes), 'ian')).toBe('')
+    expect(myTripLine(view(13), 'nobody')).toBe('')
+    expect(myTripLine(null, 'ian')).toBe('')
+    expect(myTripLine(view(13, ''), 'ian')).toBe('About 13 min from your start')
   })
 })
