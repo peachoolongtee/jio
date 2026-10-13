@@ -1,12 +1,12 @@
 <script>
 import { passwordRules } from '@/lib/signupRules.js'
 
-// What the password step asks for. With a Supabase project behind sign-up: 6 or more characters with an uppercase
-// letter, a lowercase letter, a number and one of ! @ # $ % *, and nothing but letters, numbers and those six
-// (lib/signupRules.js). Anything
-// else the server refuses comes back as a sentence (lib/auth.js) and is shown as it is. With local accounts the
-// password is not used, so the older checklist stays as it was.
-// How to call: passwordChecks('Abc1!x', true) -> [{ label: '6 or more characters', ok: true }, ...]
+// What the password step asks for. With a Supabase project behind sign-up: 8 to 72 characters with an uppercase letter,
+// a lowercase letter, a number and a symbol (any printable character that is not a letter, number or space), and no
+// space at either end (lib/signupRules.js, the same rule as the reset page). Anything else the server refuses comes back
+// as a sentence (lib/auth.js) and is shown as it is. With local accounts the password is not used, so the older
+// checklist stays as it was.
+// How to call: passwordChecks('Abc1!xyz', true) -> [{ label: '8 or more characters', ok: true }, ...]
 export function passwordChecks(password, realAccounts) {
   if (realAccounts) return passwordRules(password)
   return [
@@ -204,16 +204,31 @@ async function usernameFree() {
   }
 }
 
+// How many names to try, and how many free ones to offer. Four tried is the most that is ever asked of the database, and
+// asking stops as soon as three are free.
+const SUGGESTIONS_TRIED = 4
+const SUGGESTIONS_OFFERED = 3
+
 // Find up to 3 free usernames like a taken one (the same name with _<number>, see usernameCandidates) and offer them
-// under the field. They are all checked at once. Quiet when the checks fail: the person types another name instead.
-// Dropped when the name was changed in the meantime.
+// under the field. At most 4 names are tried: the first 3 together, and the fourth only if one of those was taken. Quiet
+// when the checks fail: the person types another name instead. Dropped when the name was changed in the meantime.
 // How to call: suggestUsernames('testuser_887')
 async function suggestUsernames(taken) {
   usernameSuggestions.value = []
-  const candidates = usernameCandidates(taken)
-  const answers = await Promise.allSettled(candidates.map((candidate) => api.checkUsername(candidate)))
-  if (draft.value.username !== taken) return
-  usernameSuggestions.value = candidates.filter((_, i) => answers[i].status === 'fulfilled' && answers[i].value.available).slice(0, 3)
+  const candidates = usernameCandidates(taken, { count: SUGGESTIONS_TRIED }).slice(0, SUGGESTIONS_TRIED)
+  const free = []
+  let next = 0
+  while (next < candidates.length && free.length < SUGGESTIONS_OFFERED) {
+    // Ask only for as many as are still needed, so a name is never checked once three are free.
+    const wave = candidates.slice(next, next + SUGGESTIONS_OFFERED - free.length)
+    next += wave.length
+    const answers = await Promise.allSettled(wave.map((candidate) => api.checkUsername(candidate)))
+    if (draft.value.username !== taken) return
+    wave.forEach((candidate, i) => {
+      if (answers[i].status === 'fulfilled' && answers[i].value.available) free.push(candidate)
+    })
+  }
+  usernameSuggestions.value = free.slice(0, SUGGESTIONS_OFFERED)
 }
 
 // Use a suggested username. The field changes, so the "taken" message and the suggestions go away.
@@ -223,8 +238,10 @@ function pickUsername(name) {
 }
 
 // Is this email free to sign up with? False (with "already exists" under the field, beside the Log in link) when an
-// account already uses it. When the check itself cannot be made (no connection, or the database function is not on the
-// project yet) the person goes on: the sign-up checks the email again at the end.
+// account already uses it. The answer comes from the Jio backend, which allows only a few asks a minute for each caller,
+// so this screen does say whether an email has an account; that is the one place it does. When the check cannot be made
+// (no connection, over that limit, the backend or database not answering) the person goes on: the sign-up checks the
+// email again at the end.
 // How to call: if (await emailFree()) draft.value.step += 1
 async function emailFree() {
   busy.value = true
