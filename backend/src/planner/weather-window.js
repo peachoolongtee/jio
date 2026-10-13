@@ -237,6 +237,26 @@ export function createWeatherResolver({ data, weather, now = Date.now, warn = (.
 }
 
 /**
+ * Puts venues that join a ranking after the weather was resolved (Google's, found per request) under the weather that
+ * ranking is scored on, so the engine finds their rain risk. `resolved` is what resolver.resolve() answered:
+ *   area, regional   each venue takes the forecast area nearest to it, the same as every other venue in `planData`
+ *   simulated, none  venues keep their own region label, which is one of the regions the mock weather cases and the
+ *                    "no effect" copy of the clear case are keyed by
+ * A venue whose area the weather case does not have is left out, never passed on: scoring reads
+ * weatherCases[weatherCase][venue.forecastArea] without a guard, so one such venue would fail the whole ranking.
+ * This happens only when a forecast has no areas at all.
+ *
+ * How to call:
+ *   const resolved = await resolver.resolve({ start, weatherCase })
+ *   const ready = placeVenues(resolved, googleVenues)
+ */
+export function placeVenues({ planData, weatherCase, forecast }, venues) {
+  const placed = forecast ? withLiveWeather({ ...planData, venues }, forecast).venues : venues
+  const byArea = planData.weatherCases[weatherCase] ?? {}
+  return placed.filter((v) => Object.hasOwn(byArea, v.forecastArea))
+}
+
+/**
  * The block for a request about several stops, from each stop's own forecast result (forecastFor's answer).
  *   basis       the stops' shared basis, or 'mixed' when they differ
  *   source      'simulated' | 'live' when any stop has a forecast, else 'unavailable' when any stop failed, else 'none'

@@ -225,11 +225,57 @@ const rules = [
     respond: () => loadFixture('google/places-nearby.json'),
   },
   {
+    method: 'POST',
+    host: 'places.googleapis.com',
+    path: '/v1/places:searchText',
+    // Two invented places near Orchard: a karaoke with few reviews and a noodle house. Same answer whatever the words.
+    respond: () => loadFixture('google/places-text-search.json'),
+  },
+  {
+    method: 'GET',
+    host: 'places.googleapis.com',
+    // One place by id: /v1/places/<place id>. Answered from the invented places in the two fixtures above; any other
+    // id is a 404, as Google answers for a place that does not exist.
+    pathPattern: /^\/v1\/places\/[^/]+$/,
+    respond: ({ url }) => {
+      const id = decodeURIComponent(url.pathname.slice('/v1/places/'.length))
+      const all = [...loadFixture('google/places-nearby.json').places, ...loadFixture('google/places-text-search.json').places]
+      const place = all.find((p) => p.id === id)
+      if (!place) throw new ExternalApiError('google answered 404', { service: 'google', status: 404, url: url.href })
+      return place
+    },
+  },
+  {
     method: 'GET',
     host: 'places.googleapis.com',
     // A photo's address: /v1/places/<place id>/photos/<photo id>/media
     pathPattern: /^\/v1\/places\/[^/]+\/photos\/[^/]+\/media$/,
     respond: ({ url }) => ({ name: url.pathname.slice(4, -6), photoUri: 'https://lh3.googleusercontent.com/stub-photo' }),
+  },
+  {
+    // Gemini reading a post (services/link-reader.js): two invented places and an invented pop-up, whatever is asked.
+    method: 'POST',
+    host: 'generativelanguage.googleapis.com',
+    pathPattern: /^\/v1beta\/models\/[^/]+:generateContent$/,
+    respond: () => loadFixture('link-reader/gemini-places.json'),
+  },
+  {
+    method: 'GET',
+    host: 'www.googleapis.com',
+    path: '/youtube/v3/videos',
+    respond: () => loadFixture('link-reader/youtube-video.json'),
+  },
+  {
+    method: 'GET',
+    host: 'www.googleapis.com',
+    path: '/youtube/v3/commentThreads',
+    respond: () => loadFixture('link-reader/youtube-comments.json'),
+  },
+  {
+    method: 'GET',
+    host: 'www.tiktok.com',
+    path: '/oembed',
+    respond: () => loadFixture('link-reader/tiktok-oembed.json'),
   },
   {
     method: 'GET',

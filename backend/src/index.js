@@ -5,6 +5,7 @@ import { DEFAULT_CALLS_PER_MINUTE } from './services/budget.js'
 import { assertStubAllowed, createHttp } from './services/http.js'
 import { createGooglePlaces, readGoogleSettings } from './services/google-places.js'
 import { createItineraryAi, readItinerarySettings } from './services/itinerary-ai.js'
+import { setUpLinkReader } from './services/link-reader.js'
 import { createOneMap, readOneMapSettings } from './services/onemap.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -97,6 +98,27 @@ const itineraryAi = createItineraryAi({
   stub,
 })
 
+// Reading places out of a pasted link (YouTube, TikTok, Instagram, Xiaohongshu) with Gemini. OFF unless LINK_READER=1: without
+// it nothing is built, nothing is scheduled, and the three /api/links routes do not exist (they answer 404 like any unknown
+// address). With it, GEMINI_API_KEY is needed too, or read and refresh answer 503. A YouTube post's description, date and
+// comments need YOUTUBE_API_KEY (the YouTube Data API v3), and comments also need LINK_READER_COMMENTS=1, which waits for
+// the team lead's decision. Downloading TikTok and Instagram videos (LINK_READER_YTDLP=1) and opening their pages in Chrome
+// for slides, Instagram and Xiaohongshu (LINK_READER_BROWSER=1) go against those sites' terms, so they run only with
+// NODE_ENV=development as well: for a laptop, never the deployed server.
+//
+// LINK_READER_CALLS_PER_MINUTE is the budget for every AI call the reader makes (default 6, one token per model call).
+// LINK_READER_PER_CALLER_PER_MINUTE is how many reads, and separately how many refreshes, one caller may make a minute (3).
+//
+// How to turn it on:
+//   LINK_READER=1 and GEMINI_API_KEY=... and optionally YOUTUBE_API_KEY=... in backend/.env
+// How to change the budget:
+//   LINK_READER_CALLS_PER_MINUTE=10
+const link = setUpLinkReader({ env: process.env, http, places, stub })
+for (const warning of link.warnings) console.warn(warning)
+const linkReader = link.reader
+const linkSettings = link.settings
+const linkRateLimit = stub ? null : { windowMs: 60_000, read: linkSettings.perCaller, refresh: linkSettings.perCaller }
+
 // The simulated forecast: lets a planner request send `weatherCase` to pretend it is raining. Off unless
 // switched on, because the planner uses the live data.gov.sg forecast otherwise. Stub mode always allows it.
 //
@@ -145,7 +167,7 @@ const supabase =
       })
     : null
 
-createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, supabase, allowSimulatedWeather, planRateLimit }).listen(port, () => {
+createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader, linkRateLimit, supabase, allowSimulatedWeather, planRateLimit }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
   if (stub) console.log('Stub mode is ON: external API calls are answered from fixtures.')
   else if (!onemap.routingEnabled) {
@@ -169,6 +191,18 @@ createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, supabase, a
         ? `Itinerary AI is ON: ${itineraryAi.provider === 'gemini' ? 'Gemini' : 'Claude'} suggests the order of each plan when it is confirmed, at most ${itinerarySettings.callsPerMinute} AI calls a minute.`
         : 'Itinerary AI is OFF: plans get the order the rules score best (travel and waiting). Set GEMINI_API_KEY in backend/.env.',
     )
+  }
+  if (!linkReader) {
+    console.log('Link reader is OFF (the default): pasted links cannot be read and /api/links does not exist. Set LINK_READER=1 and GEMINI_API_KEY in backend/.env to turn it on.')
+  } else if (!linkReader.enabled) {
+    console.log('Link reader is ON but has no GEMINI_API_KEY, so reading and refreshing answer 503. Set GEMINI_API_KEY in backend/.env.')
+  } else if (!stub) {
+    const caps = linkReader.capabilities()
+    console.log(
+      `Link reader is ON: YouTube ${caps.youtube.comments ? 'with comments' : caps.youtube.description ? 'with description, without comments' : 'without description (no YOUTUBE_API_KEY)'}, TikTok ${caps.tiktok.slides ? 'with slides and video (Chrome)' : caps.tiktok.video ? 'with video (yt-dlp)' : 'by caption only'}, at most ${linkSettings.callsPerMinute} AI calls a minute and ${linkSettings.perCaller} reads a minute for one caller.`,
+    )
+  } else {
+    console.log('Link reader is ON in stub mode: it answers from fixtures.')
   }
   if (allowSimulatedWeather) console.log('Simulated weather is ON: planner requests may send weatherCase to fake the forecast.')
   if (!supabase) {

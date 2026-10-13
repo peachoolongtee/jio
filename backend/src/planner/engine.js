@@ -510,20 +510,32 @@ function meetingArea(input, data, deps = {}) {
   };
 }
 
+// An address is matched only by a query this long: "mrt" or "rd" would otherwise match the address of half the island.
+const MIN_ADDRESS_QUERY = 3;
+
 /**
  * Search by name, to add an option by hand (the frontend's searchVenuesForSlot). Matches the venue name, its
- * area, or the name of a stall at a CDC site. Every match says whether it fits the slot and, if not, why:
+ * area, its address (so a postal code finds it), the name of a stall at a CDC site, or any id in `alsoMatch` (places
+ * the route found another way: by Google, or at a postal code's building). Every match says whether it fits the slot and, if not, why:
  * the hard-filter reasons ('closed', 'diet:halal', 'category', 'near_mrt'...) plus 'far' when it is more than
- * maxKm (default 3, the engine's cap) from the meeting point. Fitting places first, then by walking time.
+ * maxKm (default 3, the engine's cap) from the meeting point, and 'not_an_outing' (first in the list) for a searched
+ * Google place that is not something to do (a bank, a clinic: venue.notAnOuting). Fitting places first; among those of
+ * the same fit, a place whose name (or a stall's name) holds the words before one matched by area, address or `alsoMatch`;
+ * then by walking time. An address is matched only by a query of 3 or more characters.
  * @param input { query, centre, dateTime, members?, durationMinutes?, categories?, lastStop?, groupConstraints?,
- *                unknownPolicy?, maxKm?, limit? (default 12) }
+ *                unknownPolicy?, maxKm?, limit? (default 12), alsoMatch? (venue ids) }
  */
 function searchVenues(input, data) {
   const q = input.query.trim().toLowerCase();
   if (!q) return [];
+  // A place matches by its name, area, address (so a postal code finds it) or a stall's name, or because the caller
+  // already knows it is a match (`alsoMatch`: ids found by Google or at a postal code's building).
+  const alsoMatch = new Set(input.alsoMatch ?? []);
+  const addressToo = q.length >= MIN_ADDRESS_QUERY;
   const matches = data.venues
     .map(v => ({ v, stall: v.stalls?.find(st => st.name.toLowerCase().includes(q))?.name ?? null }))
-    .filter(({ v, stall }) => v.name.toLowerCase().includes(q) || (v.area ?? '').toLowerCase().includes(q) || stall);
+    .map(m => ({ ...m, byName: m.v.name.toLowerCase().includes(q) || m.stall !== null }))
+    .filter(({ v, byName }) => byName || alsoMatch.has(v.id) || (v.area ?? '').toLowerCase().includes(q) || (addressToo && typeof v.address === 'string' && v.address.toLowerCase().includes(q)));
 
   const ctx = {
     members: input.members ?? [], groupConstraints: lastStopRules(input, {}).constraints, dateTime: input.dateTime,
@@ -534,16 +546,20 @@ function searchVenues(input, data) {
   const maxKm = input.maxKm ?? 3;
 
   return matches
-    .map(({ v, stall }) => {
+    .map(({ v, stall, byName }) => {
       const distanceKm = haversineKm(input.centre, v);
-      const unfit = [...(reasonsById.get(v.id) ?? []), ...(distanceKm > maxKm ? ['far'] : [])];
+      const unfit = [...(v.notAnOuting ? ['not_an_outing'] : []), ...(reasonsById.get(v.id) ?? []), ...(distanceKm > maxKm ? ['far'] : [])];
       return {
-        venueId: v.id, name: v.name, area: v.area, category: v.category, source: v.source, matchedStall: stall,
-        walkMinutes: walkMinutes(input.centre, v), distanceKm, fits: unfit.length === 0, unfit,
+        row: {
+          venueId: v.id, name: v.name, area: v.area, category: v.category, source: v.source, matchedStall: stall,
+          walkMinutes: walkMinutes(input.centre, v), distanceKm, fits: unfit.length === 0, unfit,
+        },
+        byName,
       };
     })
-    .sort((a, b) => Number(!a.fits) - Number(!b.fits) || a.walkMinutes - b.walkMinutes)
-    .slice(0, input.limit ?? 12);
+    .sort((a, b) => Number(!a.row.fits) - Number(!b.row.fits) || Number(!a.byName) - Number(!b.byName) || a.row.walkMinutes - b.row.walkMinutes)
+    .slice(0, input.limit ?? 12)
+    .map(({ row }) => row);
 }
 
 export { converge, roam, meetingArea, meetingAreaPlan, searchVenues, resolveMembers, occasionWeights };
