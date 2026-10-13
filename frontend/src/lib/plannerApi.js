@@ -178,6 +178,18 @@ api.interceptors.response.use(
   },
 )
 
+// Does this email have an account? The sign-up screen asks on its email question. The backend answers from the database
+// with its own key (POST /api/accounts/email-check) and allows about 10 asks a minute for each caller, so a failure here
+// is normal and means "carry on": the message is the error reader's (429 "Too many requests", 503 and no connection
+// included). An answer that is not exactly true or false is an error, never a guess.
+// How to call: await emailRegistered('sam@example.com') -> true
+export async function emailRegistered(email) {
+  // A shorter wait than the planner's: the person is held on the email question while this runs.
+  const { data } = await api.post('/api/accounts/email-check', { email: String(email || '').trim() }, { timeout: 5000 })
+  if (typeof data?.registered !== 'boolean') throw new Error('The planner sent an answer Jio could not read. Try again later.')
+  return data.registered
+}
+
 // The weather the planner used for the last ranking: { source: 'live' | 'simulated' | 'unavailable', simulationIgnored? }.
 // The demo panel reads it to say when the server ignored the rain switch. Null until a ranking has come back.
 export const lastWeather = ref(null)

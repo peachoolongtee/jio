@@ -3,13 +3,16 @@
 //     headed in ?next=), and to /signup otherwise, as before.
 //   - A signed-in visitor to /login or /signup goes Home.
 //   - /login with no real accounts behind it goes to /signup: there is nothing to log in to.
+//   - /forgot-password and /reset-password are for real accounts only, and go to /signup otherwise. A signed-in visitor
+//     to /forgot-password goes Home. /reset-password is open to everyone, but its page shows the new-password form only
+//     to a session that a reset link started (stores/auth.js `recovering`); anyone else is told to ask for a new link.
 import { useAuthStore } from '@/stores/auth.js'
 
 const BASE = 'http://jio.invalid'
 
 // The in-app path for a ?next= value, or '' when it is anything else (an outside address, a protocol-relative address,
 // a backslash trick, control characters, dot segments that resolve to a protocol-relative address, a path back to the
-// login or sign-up screen, a list of values). Only a path that stays on this site comes back, and it comes back rebuilt
+// login, sign-up or password screens, a list of values). Only a path that stays on this site comes back, and it comes back rebuilt
 // from the parsed address.
 // How to call: safeNext('/sessions/s1?tab=past') -> '/sessions/s1?tab=past';  safeNext('//evil.example') -> ''
 export function safeNext(raw) {
@@ -24,7 +27,7 @@ export function safeNext(raw) {
     return ''
   }
   if (url.origin !== BASE) return ''
-  if (/^\/(login|signup)(\/|$)/.test(url.pathname)) return ''
+  if (/^\/(login|signup|forgot-password|reset-password)(\/|$)/.test(url.pathname)) return ''
   const path = url.pathname + url.search + url.hash
   // Dot segments are resolved by the parser: '/.//evil.example' becomes '//evil.example', an address on another site.
   if (path.startsWith('//')) return ''
@@ -39,6 +42,11 @@ export function guardFor(to, auth) {
     if (auth.signedIn) return { name: 'home' }
     // A ?next= that is not an in-app path is dropped, never followed.
     if (to.query.next !== undefined && safeNext(to.query.next) !== to.query.next) return { name: 'login' }
+    return true
+  }
+  if (to.name === 'forgot-password' || to.name === 'reset-password') {
+    if (!auth.realAccounts) return { name: 'signup' }
+    if (to.name === 'forgot-password' && auth.signedIn) return { name: 'home' }
     return true
   }
   if (!to.meta.public && !auth.signedIn) {

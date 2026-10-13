@@ -5,6 +5,7 @@
 //     memory for this list: it is never saved, put in the address or shown to the group, who would see the area's name at most.
 //     If the browser refuses, has no position, or the person is outside Singapore, a sentence says so and the area picker
 //     opens, so there is always a way forward.
+//   - A card's name, photo or review line opens the place's detail (the Vote page's), with no planner request.
 //   - Chips narrow the list to one kind of place (All, Eat, Drink, Shop, Activity).
 //   - Each place is the voting page's card (SuggestionCard) with how far it is, why it was chosen and a rain mark. Its foot
 //     is "Propose" for anyone in the meetup; a place that is proposed says by whom ("Proposed by you" with "Take back",
@@ -25,13 +26,15 @@ import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import LocationSheet from '@/components/group/LocationSheet.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
+import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
 import WeatherSource from '@/components/weather/WeatherSource.vue'
 import NotFoundView from './NotFoundView.vue'
 import * as api from '@/lib/api.js'
 import { CATEGORY_LABELS } from '@/lib/planner/slots.js'
-import { ROAM_CATEGORIES, ROAM_WORDS, centreLine, closedText, placeAction, placeState, proposeBlock, travelLine } from '@/lib/roam.js'
+import { ROAM_CATEGORIES, ROAM_WORDS, centreLine, closedText, memberBlock, placeAction, placeState, proposeBlock, travelLine } from '@/lib/roam.js'
 import { roamOpen, sessionPath } from '@/lib/session.js'
+import { usePlaceDetail } from '@/lib/usePlaceDetail.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -55,6 +58,8 @@ const note = ref('')
 const locating = ref(false)
 const pickerOpen = ref(false)
 const working = ref('')
+// What a press of Propose or Take back did, for a screen reader (the list's own announcement is separate).
+const said = ref('')
 let ticket = 0
 
 const session = computed(() => events.byId[props.id])
@@ -65,6 +70,12 @@ const meetingName = computed(() => session.value?.areaName || '')
 const centreName = computed(() => (centre.value.mode === 'meeting' ? meetingName.value : centre.value.areaName))
 const centreText = computed(() => centreLine(centre.value.mode, centreName.value))
 
+// A card's name, photo or review line opens the place's detail over this page, the same one the Vote page opens
+// (lib/usePlaceDetail.js): no planner request, focus back on the control that opened it, the meetup's people first in the reviews.
+const { detail, outing, open: openPlace, close: closePlace, reset: resetPlace } = usePlaceDetail(() => session.value)
+// Where the detail measures its distance from: the person ("you") when the list is centred on their position, else the area's name.
+const detailFrom = computed(() => (centre.value.mode === 'here' ? 'you' : centreName.value))
+
 // The places with the plan and the proposals as they are now, so a proposal made elsewhere shows without asking again.
 const stopIds = computed(() => (session.value?.plan?.stops || []).map((s) => s.venueId))
 const places = computed(() =>
@@ -73,7 +84,10 @@ const places = computed(() =>
     return { ...place, state, proposal: proposal && { id: proposal.id, by: proposal.by, byName: proposal.byName } }
   }),
 )
+// Why Propose is off, said in words on the page: the person is not in the meetup (or opted out of it), or the limits are reached.
 const blocked = computed(() => {
+  const outside = memberBlock(session.value, myId.value)
+  if (outside) return outside
   const waiting = session.value?.proposals || []
   return proposeBlock({ stops: stopIds.value.length, mine: waiting.filter((p) => p.by === myId.value).length, total: waiting.length })
 })
@@ -119,6 +133,7 @@ async function start() {
 }
 onMounted(start)
 watch(() => props.id, () => {
+  resetPlace()
   centre.value = { mode: 'meeting', areaName: '' }
   position.value = null
   kind.value = ''
@@ -197,9 +212,16 @@ async function act(place, action) {
   if (working.value) return
   working.value = place.id
   actionError.value = ''
+  said.value = ''
   try {
-    if (action.kind === 'free') await events.proposeMyStop(props.id, place.id)
-    else await events.resolveProposal(props.id, place.proposal.id, false)
+    const name = place.venue.name
+    if (action.kind === 'free') {
+      const changed = await events.proposeMyStop(props.id, place.id)
+      said.value = changed === false ? ROAM_WORDS.alreadyProposed(name) : ROAM_WORDS.proposed(name, session.value?.hostName || 'The host')
+    } else {
+      const changed = await events.resolveProposal(props.id, place.proposal.id, false)
+      said.value = changed === false ? ROAM_WORDS.gone : ROAM_WORDS.takenBack(name)
+    }
     await nextTick()
   } catch (e) {
     actionError.value = e.message
@@ -247,6 +269,7 @@ const actionFor = (place) => placeAction(place, { myId: myId.value, blocked: blo
         </div>
 
         <p class="sr-only" role="status">{{ announcement }}</p>
+        <p class="sr-only" role="status" data-testid="roam-said">{{ said }}</p>
         <p v-if="actionError" class="body-sm text-error" role="alert" data-testid="roam-error">{{ actionError }}</p>
         <p v-if="blocked && !loading && !loadError" id="roam-blocked" class="body-sm text-muted" data-testid="roam-blocked">{{ blocked }}</p>
 
@@ -261,7 +284,7 @@ const actionFor = (place) => placeAction(place, { myId: myId.value, blocked: blo
         </EmptyState>
         <ul v-else class="grid-3 places" :aria-label="`Places ${centreText.toLowerCase()}`" data-testid="roam-list">
           <li v-for="place in places" :key="place.id" class="places__item" :data-place="place.id">
-            <SuggestionCard :option="place" :meta="travelLine(place)">
+            <SuggestionCard :option="place" :meta="travelLine(place)" @open="openPlace">
               <template #foot>
                 <InfoTag v-if="actionFor(place).tag" tone="strong" :icon="actionFor(place).icon">{{ actionFor(place).tag }}</InfoTag>
                 <span v-else />
@@ -285,6 +308,7 @@ const actionFor = (place) => placeAction(place, { myId: myId.value, blocked: blo
       </template>
     </div>
 
+    <PlaceDetail v-if="detail" :place="detail.place" :reviews="detail.reviews" :outing="outing" :from="detailFrom" @close="closePlace" />
     <LocationSheet v-model:open="pickerOpen" which="spot" :title="ROAM_WORDS.pick" @select="pickArea" />
   </main>
   <main v-else class="screen" data-testid="roam-view">

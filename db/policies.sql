@@ -74,6 +74,10 @@ $accounts$;
 
 revoke execute on function public.handle_new_user() from public, anon, authenticated;
 grant execute on function public.username_available(text) to anon, authenticated;
+-- Whether an email has an account is for the server only: anyone with the public key could otherwise ask about any
+-- address, as fast as they liked. The sign-up screen asks the backend (POST /api/accounts/email-check), which limits it.
+revoke execute on function public.email_registered(text) from public, anon, authenticated;
+grant execute on function public.email_registered(text) to service_role;
 
 -- New with the planner columns: a person sets their own home area and planner needs.
 grant update (home_area_id, dietary, budget_max_per_person, needs_step_free) on public.profile_private to authenticated;
