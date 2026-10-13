@@ -225,6 +225,23 @@ export const useEventsStore = defineStore('events', () => {
     await loadItinerary(id)
   }
 
+  // The places of `category` (the stop's own when left out) that could take a confirmed stop's place:
+  // { stop, category, stopCount, options }. Asks the planner; nothing is saved. Only the host.
+  // How to call: const { stop, options } = await events.replaceChoices('s1', 'drink', 'activity')
+  const replaceChoices = (id, slotId, category) => api.replaceChoices(id, slotId, category)
+
+  // Put another place in a confirmed stop's place, as a place of `category` (the stop's own when left out), then reload
+  // the itinerary. `seenId` is the place the person saw in the stop: a stop that holds another by then is refused. The rain
+  // swap offered for the stop is forgotten, as it is after a swap. Rejects with the data layer's message when it cannot.
+  // How to call: await events.replaceStop('s1', 'drink', 'cdc_560160', 'activity', 'cdc_100001')
+  async function replaceStop(id, slotId, venueId, category, seenId) {
+    put(await api.replaceStop(id, slotId, venueId, category, seenId))
+    swapSeq[`${id}:${slotId}`] = (swapSeq[`${id}:${slotId}`] || 0) + 1
+    const { [slotId]: _done, ...rest } = rainSwaps.value[id] || {}
+    rainSwaps.value = { ...rainSwaps.value, [id]: rest }
+    await loadItinerary(id)
+  }
+
   // Forget everything kept for the sessions of the last account: the list, each session, its itinerary, its photos and the
   // suggested orders. Every account's first session is `s1`, so a kept `s1` would be shown as the next account's. Loads that
   // were still running for the last account find their ticket out of date and drop their answer.
@@ -277,6 +294,6 @@ export const useEventsStore = defineStore('events', () => {
   return {
     sessions, byId, itineraries, photos, loaded, current, weatherChecks, rainSwaps,
     loadSessions, loadSession, loadItinerary, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
-    create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
+    create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
   }
 })

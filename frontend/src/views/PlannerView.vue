@@ -10,10 +10,18 @@
 // from (WeatherSource); a simulated forecast also shows a banner at the top.
 // Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
 // shows the message and the rest of the page stays usable.
+// Replace (/sessions/:id/plan?replace=<slot>, from Replace on the itinerary of a confirmed plan): the page shows the one
+// stop being replaced, a row of categories (Eat, Drink, Shop, Activity; the stop's own to start), and the places of the
+// chosen category that fit the stop's time, the ones the group voted on first, each with "Use this place". Choosing a
+// place of another category turns the stop into that category, at the same time. Choosing one puts it in the
+// itinerary and goes back there; "Keep this stop" goes back without a change. Nobody votes again and the plan stays confirmed.
+// Only the host may replace a stop (anyone else sees a sentence saying so and the way back). The header lights Itinerary
+// and goes back to it, as on the photos and the map. Only a list of the category the tabs show is ever on the page.
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import AvatarStack from '@/components/ui/AvatarStack.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
 import CategoryIcon from '@/components/ui/CategoryIcon.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
@@ -44,6 +52,7 @@ import { walkFromText } from '@/lib/cardText.js'
 import { usePlaceDetail } from '@/lib/usePlaceDetail.js'
 import { confetti } from '@/lib/confetti.js'
 import { mealWindow, MEAL_WINDOWS } from '@/lib/planner/timeOfDay.js'
+import { isBehind } from '@/lib/stepNav.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
@@ -52,6 +61,7 @@ import { usePlannerStore } from '@/stores/planner.js'
 const props = defineProps({ id: { type: String, required: true } })
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const events = useEventsStore()
 const groups = useGroupsStore()
@@ -202,6 +212,107 @@ const mapPlaces = computed(() =>
 const selectedEntry = computed(() => mapOptions.value.find(({ option }) => option.id === selected.value) || null)
 const selectedOption = computed(() => selectedEntry.value?.option || null)
 
+// ── Replace one stop of a confirmed plan ──
+// The slot of the stop being replaced, from ?replace=. Only a confirmed plan has stops to replace; any other session
+// shows the voting page as usual.
+const replacing = computed(() => (typeof route.query.replace === 'string' ? route.query.replace : ''))
+const replaceMode = computed(() => !!replacing.value && session.value?.status === 'confirmed')
+// Only the host replaces a stop (the data layer refuses anyone else): a member proposes a stop for the host to add instead.
+const isHost = computed(() => !!session.value && session.value.hostId === auth.myId)
+// The stop being replaced ({ slotId, category, venue, time, duration }), kept apart from the list so a failed request
+// does not take it off the page. The last answer ({ category, options }), whether one is being asked for, why it failed,
+// and the place being saved.
+const stop = ref(null)
+const choices = ref(null)
+const choicesLoading = ref(false)
+const replaceError = ref('')
+const choosing = ref('')
+// The category the places are of: '' for the stop's own until another is picked.
+const replaceCategory = ref('')
+const shownCategory = computed(() => replaceCategory.value || stop.value?.category || '')
+// Picking another category than the stop's turns the stop into it.
+const changesCategory = computed(() => !!stop.value && shownCategory.value !== stop.value.category)
+// Only a list of the category the tabs show is ever on the page: an answer for another one (an older request) is not.
+const currentChoices = computed(() => (choices.value && choices.value.category === shownCategory.value ? choices.value : null))
+// Each request is numbered, so an older answer that arrives late (after a quick change of category) is dropped.
+let choicesTicket = 0
+
+// Ask for the places of the shown category that could take the stop's place.
+// How to call: await loadChoices()
+async function loadChoices() {
+  if (!replaceMode.value || !isHost.value) return
+  const ticket = ++choicesTicket
+  const wanted = replaceCategory.value
+  choicesLoading.value = true
+  try {
+    const answer = await events.replaceChoices(props.id, replacing.value, wanted || undefined)
+    if (ticket !== choicesTicket) return
+    // An answer for another category than the one asked for is not shown as if it were.
+    if (wanted && answer.category !== wanted) throw new Error('The places could not be loaded. Reload the page and try again.')
+    stop.value = answer.stop
+    choices.value = answer
+  } catch (e) {
+    if (ticket !== choicesTicket) return
+    replaceError.value = e.message
+  } finally {
+    if (ticket === choicesTicket) choicesLoading.value = false
+  }
+}
+watch([replaceMode, replacing, isHost], () => {
+  replaceError.value = ''
+  replaceCategory.value = ''
+  stop.value = null
+  choices.value = null
+  loadChoices()
+}, { immediate: true })
+
+// Ask again for the places after a failure, with the error taken off the page.
+// How to call: retryChoices()
+function retryChoices() {
+  replaceError.value = ''
+  loadChoices()
+}
+
+// Show the places of another category (or the stop's own again).
+// How to call: pickCategory('activity')
+function pickCategory(category) {
+  // The category that is shown is pressed again only to ask again, after its places could not be loaded.
+  if ((category === shownCategory.value && currentChoices.value) || choosing.value) return
+  replaceCategory.value = category
+  replaceError.value = ''
+  selected.value = ''
+  loadChoices()
+}
+
+// Back to the itinerary: Back when it is the page behind this one, so the history has no repeat.
+// How to call: backToItinerary()
+function backToItinerary() {
+  const to = `/sessions/${props.id}/itinerary`
+  if (isBehind(to)) router.back()
+  else router.replace(to)
+}
+
+// Put the chosen place in the stop's place and go back. When it no longer fits, say so and ask again.
+// How to call: await choose(option)
+async function choose(option) {
+  // Only a place on the list shown now, for the category the tabs show.
+  if (choosing.value || !currentChoices.value?.options.some((o) => o.id === option.id)) return
+  choosing.value = option.id
+  replaceError.value = ''
+  try {
+    // The place the person saw in the stop goes with it, so a stop that was changed meanwhile is refused.
+    await events.replaceStop(props.id, replacing.value, option.id, shownCategory.value || undefined, stop.value?.venue.id)
+    backToItinerary()
+  } catch (e) {
+    replaceError.value = e.message
+    await loadChoices()
+  } finally {
+    choosing.value = ''
+  }
+}
+
+const replacePlaces = computed(() => (currentChoices.value?.options || []).map((o) => ({ id: o.id, name: o.venue.name, lat: o.venue.lat, lng: o.venue.lng, category: o.venue.category })))
+
 // ── Confirm ──
 // The plan the votes make: each voted category at its time, with the place that has the most votes there.
 const winners = computed(() =>
@@ -274,6 +385,89 @@ async function confirm() {
           <AppButton variant="secondary" :to="`/sessions/${id}`">People</AppButton>
         </EmptyState>
       </div>
+
+      <template v-else-if="replaceMode">
+        <section class="replace" aria-labelledby="replace-head" data-testid="replace-view">
+          <span class="caption text-muted">Replacing</span>
+          <div class="replace__now">
+            <CategoryIcon v-if="stop" :category="stop.category" :size="32" />
+            <div class="stack">
+              <h2 id="replace-head" class="title-md">{{ stop?.venue.name || 'This stop' }}</h2>
+              <span v-if="stop" class="caption-sm text-muted">{{ CATEGORY_LABELS[stop.category] }} at {{ stop.time }} · {{ stop.duration }} min</span>
+            </div>
+          </div>
+          <p v-if="isHost" class="body-sm text-muted">Choose another place for this stop, or something else to do instead. This stop keeps its start, and the rest of the plan stays as it is. Later stops may move with the travel time.</p>
+        </section>
+
+        <EmptyState v-if="!isHost" title="Only the host can replace a stop" text="You can propose a place for the host to add once the outing is under way." data-testid="replace-host-only" />
+        <template v-else>
+
+        <!-- What to do instead: the stop's own category to start, or another one. -->
+        <div class="filter scroll-x" role="radiogroup" aria-label="What to do instead" data-testid="replace-categories">
+          <ChipButton
+            v-for="c in CATEGORIES"
+            :key="c"
+            radio
+            :selected="shownCategory === c"
+            :disabled="!!choosing || !stop"
+            :data-testid="`replace-cat-${c}`"
+            @click="pickCategory(c)"
+          >
+            <template #leading><CategoryIcon :category="c" :size="24" /></template>
+            {{ CATEGORY_LABELS[c] }}
+          </ChipButton>
+        </div>
+        <p v-if="changesCategory" class="body-sm replace__change" data-testid="replace-change">
+          <AppIcon name="arrow-right" :size="16" />This stop becomes {{ CATEGORY_LABELS[shownCategory] }} instead of {{ CATEGORY_LABELS[stop.category] }}, at {{ stop.time }}.
+        </p>
+        <div v-if="replaceError" class="replace__error">
+          <p class="body-sm text-error" role="alert" data-testid="replace-error">{{ replaceError }}</p>
+          <AppButton small variant="secondary" :disabled="choicesLoading || !!choosing" data-testid="replace-retry" @click="retryChoices">Try again</AppButton>
+        </div>
+
+        <SplitView v-model:view="view" label="Places">
+          <template #list>
+            <div v-if="choicesLoading && !currentChoices" class="stack gap-md" data-testid="replace-loading">
+              <SkeletonRow v-for="n in 3" :key="n" avatar :lines="3" />
+            </div>
+            <EmptyState
+              v-else-if="currentChoices && !currentChoices.options.length"
+              :title="changesCategory ? `No ${CATEGORY_LABELS[shownCategory]} places fit` : 'Nothing else fits'"
+              :text="`No other ${CATEGORY_LABELS[shownCategory]} place nearby is open at ${stop.time}. Try another category, keep this stop${currentChoices.stopCount > 1 ? ', or delete it from the itinerary' : ''}.`"
+            />
+            <div v-else-if="currentChoices" class="slot__options" data-testid="replace-options">
+              <SuggestionCard
+                v-for="option in currentChoices.options"
+                :key="option.id"
+                :option="option"
+                closed
+                :selected="selected === option.id"
+                :outing="outingIds"
+                :friends="friendIds"
+                :stop="stop ? { start: stop.start, duration: stop.duration } : null"
+                :group-size="active.length"
+                :me="auth.myId"
+                @open="openReviews"
+              >
+                <!-- No vote here: who voted for the place, and the one button. -->
+                <template #foot="{ votedText }">
+                  <span class="replace__count">
+                    <AvatarStack v-if="option.voters.length" :people="option.voters" :size="20" :max="4" />
+                    <span class="caption">{{ votedText }}</span>
+                  </span>
+                  <AppButton variant="secondary" small :disabled="!!choosing" :aria-label="`Use ${option.venue.name} instead`" @click="choose(option)">{{ choosing === option.id ? 'Saving' : 'Use this place' }}</AppButton>
+                </template>
+              </SuggestionCard>
+            </div>
+          </template>
+
+          <template #map>
+            <PlannerMap :area="session.area" :places="replacePlaces" :selected="selected" label="Places map" @select="selected = $event" />
+            <CategoryKey :categories="replacePlaces.map((p) => p.category)" />
+          </template>
+        </SplitView>
+        </template>
+      </template>
 
       <template v-else>
         <ProgressDonut compact title="Votes" :people="donutPeople" done-label="Voted" />
@@ -360,7 +554,10 @@ async function confirm() {
       </template>
     </div>
 
-    <footer v-if="voting && session.meeting" class="screen__footer">
+    <footer v-if="replaceMode" class="screen__footer">
+      <AppButton block variant="secondary" :disabled="!!choosing" data-testid="keep-stop" @click="backToItinerary">{{ stop && isHost ? 'Keep this stop' : 'Back to the itinerary' }}</AppButton>
+    </footer>
+    <footer v-else-if="voting && session.meeting" class="screen__footer">
       <AppButton block :disabled="!canConfirm" @click="confirmOpen = true">
         {{ canConfirm ? 'Confirm plan' : 'Needs 2 voters' }}
       </AppButton>
@@ -440,6 +637,15 @@ async function confirm() {
 .slot__options { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .slot__more { display: flex; gap: var(--spacing-base); }
 .empty-wrap { padding-top: var(--spacing-lg); }
+/* Replace: the stop being replaced, above the places that could take its place. */
+.replace { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-base); border-radius: var(--rounded-md); background: var(--surface-soft); }
+.replace p, .replace h2 { margin: 0; }
+.replace__now { display: flex; align-items: center; gap: var(--spacing-md); min-width: 0; }
+.replace__count { display: inline-flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }
+.replace__error { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); }
+.replace__error p { margin: 0; min-width: 0; }
+.replace__change { display: flex; align-items: flex-start; gap: var(--spacing-xs); margin: 0; color: var(--ink); }
+.replace__change :deep(svg) { flex-shrink: 0; margin-top: 2px; }
 .pin-card { position: absolute; left: var(--spacing-sm); right: var(--spacing-sm); bottom: var(--spacing-xl); z-index: 600; display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md) var(--spacing-md) var(--spacing-sm) var(--spacing-base); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); }
 .pin-card__photo { flex-shrink: 0; width: 56px; height: 56px; object-fit: cover; border-radius: var(--rounded-sm); }
 .pin-card__name { flex: 1 1 0; min-width: 0; }

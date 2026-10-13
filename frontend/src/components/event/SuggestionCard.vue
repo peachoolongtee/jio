@@ -13,7 +13,8 @@
 // Colour coding: a stripe in the category colour. `leading` outlines the card in ink
 // and tags it "Leading"; `behind` (another place leads) mutes the vote count. `closed` makes the vote read-only.
 // Roam ("What next?") uses the same card without votes: `meta` replaces the walking line ("about 4 min away · 250 m") and
-// the `foot` slot replaces the vote row (a tag and a "Propose" button).
+// the `foot` slot replaces the vote row (a tag and a "Propose" button). Replacing a stop of the itinerary uses it too, for "Use this
+// place" beside who voted for the place; the slot is given `votedText` ("You and Darius voted") and `leading` for that.
 //   <SuggestionCard :option="place" meta="about 4 min away · 250 m"><template #foot>...</template></SuggestionCard>
 import { computed } from 'vue'
 import AppButton from '../ui/AppButton.vue'
@@ -112,7 +113,7 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
     </AppButton>
 
     <div class="sugg__vote">
-      <slot name="foot">
+      <slot name="foot" :voted-text="votedText" :leading="leading">
         <span class="sugg__count">
           <AvatarStack v-if="option.voters.length" :people="option.voters" :size="20" :max="4" />
           <span class="caption" :class="{ 'sugg__lead': leading }">{{ votedText }}</span>
