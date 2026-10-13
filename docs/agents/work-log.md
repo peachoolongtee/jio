@@ -1234,3 +1234,71 @@ The lead said: "apply and land staging since the pitch is over", "off the email 
 - **27.6:** built on `feat/weather-on-screen` by a frontend-engineer subagent, merged with `dev` (two conflicts, both sides kept). Run by the lead on that state: frontend 1449, backend 1163 and 2 skipped, build. Seen by the lead: its screenshot of the itinerary on its day with rain simulated (the simulated banner, the host's Swap and Keep, "Indoor" and "Outdoor, showers"). Different from the ticket: 24-hour times; Home's rain around the outings' meeting areas, not every forecast area; with a simulated forecast every stop counts as still to come. Merged as #144 (`d0e66c2`).
 - **Not verified by anyone:** a real sign-up, login or reset link; the real forecast in a browser; the link reader against any real service; two devices.
 - **Arrived during the round, not looked at:** two pull requests from darryl5942 into `main` (an itinerary change and an edit-profile page), each showing about 25,000 added lines because `main` is far behind `dev`.
+
+## Round 28: two pull requests from darryl5942 audited (2026-10-13)
+
+The lead moved the work to his PC and said to pull, read the handoff of 13 October and carry on from the map. First on the handoff's list: darryl5942's two pull requests into `main`, an itinerary change (peachoolongtee/jio#141, branch `itinerary-replace`) and an edit-profile page (peachoolongtee/jio#142, branch `user-profile`). Each forked from `dev` at `adee7e8` and touches only `frontend/`: 7 files and 887 added lines, and 16 files and 1,257 added lines. They share `lib/api.js` and the tests' `domless.js`. `dev` has 56 commits they do not.
+
+Baseline on `dev` at `16d4d08`, run by the lead agent on the PC, exit codes read: frontend 1,448 passed and 1 failed, 86 files (with `VITE_API_BASE_URL` blank); backend 1,162 passed, 1 failed, 2 skipped, 37 files (Google forced off); build succeeded. Both failures are this machine's line endings, not the code: `identityScan.test.js` does not strip a comment from a line that ends in a carriage return, and the saved-places test compares bytes with a file git checked out with CRLF. `realAccountData.test.js` timed out in a hook on the first run and passed alone.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 28.1 | Code reviewer, read-only | #141: replacing a stop of a confirmed itinerary | Nothing | Each finding with a file, a scenario and a fix | **Completed** |
+| 28.2 | Code reviewer, read-only | #142: the edit-profile page, the photo, the password tab and the change to the password rule's hints | Nothing | The same | **Completed** |
+| 28.3 | Lead | Merge each branch with `dev` locally, run the frontend suite and the build, also with outbound calls blocked | Local branches only; nothing pushed | Real output, exit codes read | **Completed** |
+| 28.4 | Implementer | Fix what the reviews find, on integration branches (`dev` plus the branch plus fixes): `feat/itinerary-replace-integration` and `feat/user-profile-integration`, each in its own temporary checkout | Those branches, uncommitted | Every finding fixed with a test | **Completed** |
+
+### 28.1 Review of #141, replacing a stop
+
+- **Verdict:** merge after fixes. Nothing is half-written, nothing is written to a session that is over, no privacy leak, the save's shape is unchanged, one planner request per action.
+- **Significant, three:**
+  - The page says "It keeps its time, and the rest of the plan stays as it is", and the code drops the stop's earliest start and resets both travel legs. With a suggested order confirmed, a replaced Eat stop held at 12:00 starts at about 11:38, and a stop added from Roam can land in the past. The lead read `replaceStop` and confirmed it.
+  - The cards are given the sample person as "me" (`:me="HOST_ID"`), which `dev` no longer has in that file; git merges it with no conflict.
+  - Anyone in the session can replace a stop, while `dev`'s rain swap, which does the same job, is for the host only and keeps more in step (the options, the dismissed rain warning, a check that the stop has not changed).
+- **Smaller:** up to ten red buttons on one screen; a footer button that overflows on a phone for a long place name; no "Try again" when the planner fails on opening; the page is drawn as the Vote step with "Back to Home"; three of its tests cannot fail; the swap icon used for Replace beside the rain flow's "Swap".
+- **Merging with `dev`:** conflicts in four files (`SuggestionCard.vue`, `lib/api.js`, `stores/events.js`, `PlannerView.vue`).
+- **The lead agent's defaults for the fixes, for the lead to confirm:** replacing a stop is for the host only, like the rain swap; one piece of code changes a confirmed stop's place for both; the replaced stop keeps its start and the page says later stops may move.
+
+### 28.2 Review of #142, the edit-profile page
+
+- **Verdict:** merge after fixes. The password change is sound: the current password is checked by a fresh sign-in, nothing changes when it is wrong, other sessions are ended afterwards, and the password is kept nowhere. The route is private. Writes go only to columns a person may change. The photo is redrawn to a small picture, which drops any location data, and is never uploaded.
+- **Breaks on `dev`, two, both seen by the lead in a test run of the merged branch:** "Edit profile" appears on someone else's profile for a real account; the page uses the sample person's id for the avatar's colour.
+- **Significant, three:** Save sends every field whether it changed or not, so a tab opened before another device set a dietary need erases it when only the name is edited; after a failed write to Supabase the Save button is disabled and nothing can try again, and the edit is replaced by the account's older values at the next start; the current-password check is in the page, not in Supabase, so it can be skipped from the browser's developer tools on an unlocked device (true on `dev` today too; closing it is a dashboard setting).
+- **Smaller:** white text on the brand red for "Add photo"; a picture that fails while being drawn gives no message; a mismatch between the two new passwords empties the current password too; focus is lost after a failed attempt; no username field for a password manager; reset-flow words if the session ends mid-change.
+- **The password rule after this pull request:** what a password must contain is unchanged from the audit of 13 October (8 or more characters, the four kinds, any symbol, at most 72 bytes, no space at either end). The pull request takes the sixth part off the checklist on sign-up, reset and the new tab, and shows it under the field only when it is broken. The three screens agree with each other and with the code. The words say "72 characters" where the code counts bytes.
+- **Its edits to four existing test files** follow that one change of display and weaken nothing else.
+- **Merging with `dev`, by the lead:** one conflict, in the tests' `domless.js`, where both sides added the same getter; the pull request's fuller one was kept. On the merged branch before any fix: frontend 1,489 passed and 3 failed (the two above and this machine's line-ending failure); the build succeeded.
+
+### 28.3 and 28.4 The fixes, and what the lead ran and saw
+
+Both fixing agents stopped once at their turn limit with no report and were resumed.
+
+**#142, edit profile** (`feat/user-profile-integration`: `dev`, the merge, and fixes in nine files)
+
+- **Fixed, all thirteen findings**, each with a test; the agent undid each source file in turn and saw its tests fail, though several fixes share `EditProfileView.vue` and could only be seen failing together.
+- **Run by the lead after the fixes, exit codes read:** frontend 1,511 passed and 1 failed (this machine's line-ending failure, which also fails on `dev` here), the same with outbound calls blocked and no call attempted; the build succeeded.
+- **Read by the lead:** the patch that sends only the fields that changed, and the current-password check, which now confirms the account that signed in is the same person and puts the old session back when it is not.
+- **Seen by the lead in a browser** (the demo account, a local one, at 320 px): "Edit profile" on my own profile and not on Darius's; the page fits; "Add photo" is outlined, not red; Save is disabled until something changes; the Password tab shows only "This account lives only in this browser and has no password to change."; no console errors.
+- **Changed from the teammate's design, for the lead to know:** a mismatch between the two new passwords keeps what was typed; the second field is labelled "Type it again" and the message is "The two passwords do not match.", as on the reset page; after a save that did not reach the account the page says "Saved on this device, but not to your account. Press Save details to try again." and the button stays usable; a picture over 15 MB is refused.
+- **Not seen by anyone:** the password tab for a real account, a photo being chosen, the failed-save line, anything against the real project.
+
+**#141, replacing a stop** (`feat/itinerary-replace-integration`: `dev`, the merge with four conflicts resolved, and fixes)
+
+- **The merge:** both sides kept. The card keeps `dev`'s `foot` slot, which now passes the voters' line and whether the place leads; the pull request's `action` slot is gone.
+- **Fixed, all ten findings.** One private function, `changeStopPlace`, now changes a confirmed stop's place for both the rain swap and Replace: the host only; refused when the stop no longer holds the place the caller saw or has moved; ranked for the day the itinerary uses; the stop never starts earlier than the time it was checked for; the options, the kept ranking detail and the dismissed rain warning stay in step. `replaceStop` takes the place the page saw as a fifth argument.
+- **The rain swap changed with it, by the agent's choice:** it now also resets the travel to and from the stop to the default, clears the AI's note and holds the stop's start. No test of `dev`'s failed.
+- **Run by the lead, exit codes read:** frontend 1,505 passed and 1 failed (the same line-ending failure), the same with outbound calls blocked and no call attempted; the build succeeded; no conflict marker left; no existing test of `dev`'s changed (`planFixture.js` gained three helpers).
+- **Seen by the lead in a browser** (the showcase's confirmed "Chinatown makan crawl", stub backend, 375 px): Replace on each stop in edit mode; the replace page lights Itinerary and its arrow is "Back to Itinerary"; "This stop keeps its start, and the rest of the plan stays as it is. Later stops may move with the travel time."; "Use this place" is a secondary button; the footer is "Keep this stop"; no overflow; choosing Capitol Theatre returned to the itinerary with the stop still at 20:09 and the next stop unmoved; no console errors.
+- **Found and left:** the browser tab's title on the replace page is still "Vote".
+- **Not seen by anyone:** a member's view of the page, "Try again" after a planner failure, the rain flow after the change, widths other than 375 px.
+- **Defaults taken by the lead agent, awaiting the lead:** replacing a stop is for the host only; a replace into another kind of stop takes the old place out of the options without adding the new one.
+
+### 28.5 Committed, posted and sent to `dev`
+
+The lead said: "commit no co author lines same as usual and post as a comment and merge dev".
+
+- **Committed** on each integration branch as the merge and one commit of fixes, with no co-author line. On the itinerary branch the merge commit carries the fixes that sit in the four conflicted files, because the conflicts were resolved and fixed in one pass.
+- **Posted:** the audit of each pull request as a comment on it (#141 and #142).
+- **Pull requests into `dev`:** peachoolongtee/jio#147 for edit profile, and one for replacing a stop from `feat/itinerary-replace-integration`, which also carries this log.
+- **Both together, run by the lead before either merged, exit codes read:** frontend 1,568 passed and 1 failed (the line-ending failure), 89 files; the build succeeded. The two branches merge with each other without a conflict.
+- **Left alone:** the base of #141 and #142, which is still `main`.

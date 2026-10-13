@@ -83,6 +83,7 @@ Each is recorded in full on the ticket named. Read the ticket before changing th
 - **A guessed price makes no claim for any place** (the lead's decision of 2026-10-11): a venue with `dataQuality.priceAssumed`, whether from OneMap, Google or CDC, gets no "Budget friendly" tag and no "within budget" sentence, through `priceIsKnown` in `backend/src/planner/scoring.js`. The price still counts in the score and in the `max_price_pp` filter. Only the curated and mock venues with hand-entered prices can carry the claim.
 - **The AI is a paid budget too.** `POST /api/itinerary/arrange` asks an AI to choose among orders the rules allow. Every AI call goes through one budget (`ITINERARY_AI_CALLS_PER_MINUTE`, 20 by default, 2 at once), a 10-minute cache, a pause after three failures and an 8-second deadline; anything else answers by the rules. Only venue names, kinds, times and the weather go to the provider, never anything about a person.
 - **Local accounts in a production build are off** when Supabase is set up, and a production build with no Supabase settings refuses to run. `VITE_ALLOW_LOCAL_ACCOUNTS=1` turns them on, which a deployed demo needs.
+- **One way to change a confirmed stop's place.** `changeStopPlace` in `frontend/src/lib/api.js` is behind both the rain swap and Replace: the host only, refused when the stop no longer holds the place the caller saw, and the stop never starts earlier than the time the planner checked it for. Do not add a second way.
 - **Meeting spots:** a planner answer computed before the host confirmed is never applied afterwards, and a failed write takes back only its own change (`latestAnswer` and `orUndo` in `frontend/src/lib/api.js`). Naming an area in `include` never changes the planner's own pick.
 - **Google places may not be shown on or beside the OneMap map** (Google's terms, read on 2026-10-11). No screen shows them yet; read the research on the map before building one that does.
 - **Planner limits:** every list, string and number in a planner request has an upper bound, held in one `MAX` block in `backend/src/routes/plan-schemas.js`.
@@ -103,6 +104,8 @@ The full record is `docs/agents/work-log.md`. Add a round there before delegatin
 **Round 23, 2026-10-11, the tracker cleared, the demo tour checked, and each real service run once.** Open tickets went from 66 to 36 under one map. With the lead's keys: OneMap routing, the live forecast and Gemini answered; with the Google key set every converge result was a Google place.
 
 **Rounds 21 and 22, 2026-10-11, five pieces built in parallel and the place-search pull request audited.** Weather's backend half, Roam in a meetup, the demo tour and the session schema are on `integration/after-pitch`; the place-search fixes are on `feat/real-search-integration`, held for the Google decision.
+
+**Round 28, 2026-10-13, two pull requests from darryl5942 audited, fixed and sent to `dev`: completed.** Two read-only reviewers, then two frontend agents: an edit-profile page with a password tab, and replacing a stop of a confirmed itinerary. Replacing a stop is for the host only and shares one function with the rain swap.
 
 **Round 20, 2026-10-11, decisions and a new map.** Dietary needs, weather, the demo tour and invites were settled; the map is issue #109.
 
@@ -197,6 +200,8 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-11 | `feat/google-places-integration` after round 12 | `pnpm --filter jio-frontend test`; `pnpm build` | 324 passed, 30 files; succeeded |
 | 2026-10-11 | `feat/meeting-spots-integration` after round 19 (all of `dev`) | `pnpm test`; `pnpm --filter jio-frontend test`; both also with outbound calls blocked; `pnpm build` | 815 passed, 2 skipped, 29 files; 807 passed, 56 files; no call attempted; succeeded |
 | 2026-10-11 | live `jio` database | Row counts | 1 account, 1 profile; every session table empty |
+| 2026-10-13 | `dev` at `16d4d08`, on the Windows machine | frontend suite; backend suite; build | 1,448 passed, 1 failed, 86 files; 1,162 passed, 1 failed, 2 skipped, 37 files; succeeded. Both failures are that machine's line endings (`identityScan.test.js` and the saved-places test) |
+| 2026-10-13 | round 28's two integration branches merged together, on the Windows machine | frontend suite, the build; each branch alone also with outbound calls blocked | 1,568 passed, 1 failed (the same line-ending test), 89 files; succeeded; no call attempted |
 | 2026-10-11 | `feat/demo-showcase` on top of round 12 | `pnpm test`; `pnpm --filter jio-frontend test`; `pnpm build` | 547 passed, 1 skipped; 353 passed, 33 files; succeeded |
 | 2026-10-11 | the pull request before the fixes, and `main` | OneMap route calls for one meeting-area request, 30 members, stubbed | 60 on both (round 9 recorded 59; the cap is 60) |
 | 2026-10-11 | `feat/meeting-spots` at `2e1643d`, before round 15, on the Windows machine | backend suite; frontend suite; build | 546 passed, 1 failed, 1 skipped, 24 files; 324 passed, 30 files; succeeded. The failure is a line-ending test (see round 15) |
