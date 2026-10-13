@@ -53,7 +53,8 @@ create table if not exists public.profile_private (
 -- Creates both profile rows when someone signs up. The username and date of birth come from the sign-up call:
 --   supabase.auth.signUp({ email, password, options: { data: { username, dob: '2003-05-17' } } })
 -- Sign-up fails without both, or with a username that is taken or badly formed, so call
--- username_available first.
+-- username_available first. This is the function as first made on "jio"; it is replaced further down (after the
+-- planner columns) by one that also saves the name, home area and dietary needs.
 do $accounts$
 begin
   if not exists (
@@ -127,6 +128,73 @@ alter table public.profile_private
   add column if not exists budget_max_per_person numeric(6, 2)
     constraint budget_positive check (budget_max_per_person > 0),
   add column if not exists needs_step_free boolean not null default false;
+
+-- The sign-up trigger's function again, now that profile_private has the planner columns. Besides the username and
+-- date of birth it saves the name, home area and dietary needs typed at sign-up, which come in the same metadata:
+--   supabase.auth.signUp({ email, password, options: { data: {
+--     username: 'sam', dob: '2003-05-17', name: 'Sam Tan', home_area_id: 'tampines', dietary: ['halal'] } } })
+-- They are saved here, not by the app afterwards, because with email confirmation on nobody is signed in after
+-- sign-up to write them. Those three are optional: one that breaks a rule (a name over 50 characters, an unknown
+-- dietary need) is left out rather than failing the sign-up. "create or replace" so it also updates the "jio" project,
+-- where the original function from the block above already exists.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_meta jsonb := coalesce(new.raw_user_meta_data, '{}'::jsonb);
+  v_username text := lower(trim(v_meta ->> 'username'));
+  v_dob date := (v_meta ->> 'dob')::date;
+  v_name text := nullif(trim(v_meta ->> 'name'), '');
+  v_area text := nullif(trim(v_meta ->> 'home_area_id'), '');
+  v_dietary text[] := '{}';
+begin
+  if v_username is null or v_dob is null then
+    raise exception 'A username and date of birth are required to sign up';
+  end if;
+  if v_dob > current_date then
+    raise exception 'Date of birth cannot be in the future';
+  end if;
+  if char_length(v_name) > 50 then
+    v_name := null;
+  end if;
+  if char_length(v_area) > 60 then
+    v_area := null;
+  end if;
+  if jsonb_typeof(v_meta -> 'dietary') = 'array' then
+    select coalesce(array_agg(distinct need order by need), '{}') into v_dietary
+    from jsonb_array_elements_text(v_meta -> 'dietary') as t(need)
+    where need in ('halal', 'vegetarian', 'vegan');
+  end if;
+
+  insert into public.profiles (id, username, display_name)
+  values (new.id, v_username, coalesce(v_name, v_username));
+
+  insert into public.profile_private (id, dob, home_area_id, dietary)
+  values (new.id, v_dob, v_area, v_dietary);
+
+  return new;
+end;
+$$;
+
+-- Is this email already used by an account? Asked by the sign-up screen on its email question, before anything else, so
+-- a registered email is told straight away instead of after every question. It answers only true or false, but that
+-- is still a lookup of who has an account, so only the server may call it (policies.sql grants it to service_role and
+-- to nobody else): the browser asks the backend (POST /api/accounts/email-check), which limits how often each caller
+-- may ask. Auth stores addresses in lower case, so the address is lower-cased and trimmed here and compared with the
+-- column as it is, which lets the index on auth.users.email be used. An account that has been deleted
+-- (auth.users.deleted_at is set) does not count. Fails to create if this Supabase version has no deleted_at column.
+--   select public.email_registered('sam@example.com');  -- true or false
+create or replace function public.email_registered(p_email text)
+returns boolean
+language sql stable security definer set search_path = ''
+as $$
+  select exists (
+    select 1 from auth.users
+    where email = lower(trim(p_email))
+      and deleted_at is null
+  );
+$$;
 
 -- True when a list has no repeated entry. Used by the check on session_members.categories, so one
 -- person cannot count three times by sending the same category three times.

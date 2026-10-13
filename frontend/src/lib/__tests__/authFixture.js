@@ -59,7 +59,10 @@ export function fakeSupabase(options = {}) {
     signUpCalls: [],
     signInCalls: [],
     signOutCalls: [],
+    resetCalls: [],
+    passwordUpdates: [],
     refreshCalls: 0,
+    otherSessionsEnded: 0,
     rpcCalls: [],
     writes: [],
     listeners: new Set(),
@@ -138,8 +141,13 @@ export function fakeSupabase(options = {}) {
         }
         const user = { id: `uid-${state.users.length + 1}`, email, password, meta }
         state.users.push(user)
-        state.profiles[user.id] = { username: meta.username, display_name: meta.username, avatar_url: null }
-        state.priv[user.id] = { dob: meta.dob, home_area_id: null }
+        // As the sign-up trigger does (db/schema.sql): the optional name, home area and dietary needs are saved when
+        // they keep the rules, and left out otherwise.
+        const name = typeof meta.name === 'string' && meta.name.trim() && meta.name.trim().length <= 50 ? meta.name.trim() : null
+        const area = typeof meta.home_area_id === 'string' && meta.home_area_id.trim() ? meta.home_area_id.trim() : null
+        const diet = Array.isArray(meta.dietary) ? [...new Set(meta.dietary.filter((d) => ['halal', 'vegetarian', 'vegan'].includes(d)))].sort() : []
+        state.profiles[user.id] = { username: meta.username, display_name: name || meta.username, avatar_url: null }
+        state.priv[user.id] = { dob: meta.dob, home_area_id: area, dietary: diet }
         if (state.options.confirmEmail) return { data: { user: { ...publicUser(user) }, session: null }, error: null }
         start(user)
         return { data: { user: publicUser(user), session: state.session }, error: null }
@@ -155,6 +163,15 @@ export function fakeSupabase(options = {}) {
       signOut(args) {
         state.signOutCalls.push(args)
         const mode = state.options.signOutMode
+        // Signing out the other sessions leaves this one where it is, as the real client does (scope 'others').
+        if (args?.scope === 'others') {
+          if (mode === 'throw') throw new Error('boom')
+          if (mode === 'reject') return Promise.reject(new Error('Failed to fetch'))
+          if (mode === 'error') return Promise.resolve({ error: retryable(0, 'Failed to fetch') })
+          if (mode === 'hang') return new Promise(() => {})
+          state.otherSessionsEnded += 1
+          return Promise.resolve({ error: null })
+        }
         if (mode === 'throw') throw new Error('boom')
         if (mode === 'reject') return Promise.reject(new Error('Failed to fetch'))
         if (mode === 'error') return Promise.resolve({ error: retryable(0, 'Failed to fetch') })
@@ -179,6 +196,27 @@ export function fakeSupabase(options = {}) {
       async refreshSession() {
         return refresh()
       },
+      // Answers the same for a registered and an unknown email, as Supabase does. 'limited@example.com' is rate limited.
+      async resetPasswordForEmail(email, opts) {
+        state.resetCalls.push({ email, options: opts })
+        if (state.options.down) return { data: null, error: retryable(0, 'Failed to fetch') }
+        if (email === 'limited@example.com') return { data: null, error: apiError(429, 'over_email_send_rate_limit', 'Email rate limit exceeded') }
+        return { data: {}, error: null }
+      },
+      // Changes the signed-in user's password. The password is not recorded in `passwordUpdates`, only that it changed.
+      async updateUser({ password }) {
+        if (state.options.down) return { data: { user: null }, error: retryable(0, 'Failed to fetch') }
+        const stored = read()
+        if (!stored) return { data: { user: null }, error: sessionMissing() }
+        const user = state.users.find((u) => u.id === stored.user.id)
+        if (password === user.password) {
+          return { data: { user: null }, error: apiError(422, 'same_password', 'New password should be different from the old password.') }
+        }
+        user.password = password
+        state.passwordUpdates.push(user.id)
+        fire('USER_UPDATED')
+        return { data: { user: publicUser(user) }, error: null }
+      },
       onAuthStateChange(fn) {
         state.listeners.add(fn)
         return { data: { subscription: { unsubscribe: () => state.listeners.delete(fn) } } }
@@ -187,6 +225,8 @@ export function fakeSupabase(options = {}) {
     async rpc(name, args) {
       state.rpcCalls.push({ name, args })
       if (state.options.down) return lostData()
+      // The database refuses this to the browser's key (db/policies.sql): the browser asks the backend instead.
+      if (name === 'email_registered') throw new Error('The browser must not call email_registered; it asks the backend.')
       if (state.options.rpcError) return { data: null, error: state.options.rpcError, status: 500 }
       const taken = Object.values(state.profiles).some((p) => p.username === args.p_username)
       const stale = state.options.staleUsernameCheck && state.signUpCalls.length === 0
@@ -228,6 +268,10 @@ export function fakeSupabase(options = {}) {
       }
     },
   }
+  // The client tells its listeners something, as when a reset link is accepted: fake.state.emit('PASSWORD_RECOVERY').
+  state.emit = (event) => fire(event)
+  // The backend's email check, answered from the users here (a stand-in for POST /api/accounts/email-check).
+  state.emailRegistered = (email) => state.users.some((u) => u.email.toLowerCase() === String(email).trim().toLowerCase())
   // The session ends without the app asking, as when a refresh token expires or another tab signs out.
   state.endSession = () => {
     write(null)

@@ -29,7 +29,7 @@ async function setUp(fake, storageOptions = {}) {
 }
 
 const signUpFirst = async (store) => {
-  Object.assign(store.draft, { ...PROFILE, step: 7 })
+  Object.assign(store.draft, { ...PROFILE, step: 8 })
   await store.signUp()
 }
 
