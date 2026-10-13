@@ -22,6 +22,8 @@ export const routes = [
   { path: '/leaderboard', name: 'leaderboard', component: () => import('@/views/LeaderboardView.vue'), meta: { tabs: true, tab: 'leaderboard', title: 'Leaderboard' } },
   { path: '/rewards', name: 'rewards', component: () => import('@/views/RewardsView.vue'), meta: { tabs: true, tab: 'rewards', title: 'Rewards' } },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfileView.vue'), meta: { tabs: true, tab: 'profile', title: 'Profile' } },
+  { path: '/profile/edit', name: 'profile-edit', component: () => import('@/views/EditProfileView.vue'), meta: { tab: 'profile', title: 'Edit profile' } },
+  { path: '/profile/edit/password', name: 'profile-password', component: () => import('@/views/EditProfileView.vue'), meta: { tab: 'profile', title: 'Password' } },
   { path: '/people/:id', name: 'person', component: () => import('@/views/ProfileView.vue'), props: true, meta: { title: 'Profile' } },
   // /demo exists only in a build that has the demo tour: development, or VITE_DEMO_TOUR=1 (lib/tourFlag.js; written out here so the bundler drops it).
   ...(import.meta.env.DEV || import.meta.env.VITE_DEMO_TOUR === '1' ? [{ path: '/demo', name: 'demo', component: () => import('@/tour/DemoView.vue'), meta: { nav: false, public: true, title: 'Demo tour' } }] : []),

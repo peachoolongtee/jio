@@ -40,14 +40,17 @@ import SelectField from '@/components/ui/SelectField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import * as api from '@/lib/api.js'
+import { shrinkPhoto } from '@/lib/photo.js'
 import { MESSAGES } from '@/lib/auth.js'
 import {
   DIETARY_OPTIONS,
   dobToIso,
   fieldForSignUpError,
   formatDobInput,
+  hiddenProblem,
   isoToDob,
   NAME_MAX,
+  shownRules,
   USERNAME_HINT,
   usernameCandidates,
   validateDob,
@@ -113,6 +116,9 @@ const emailValid = computed(() => !validateEmail(draft.value.email))
 const emailTouched = ref(false)
 const emailShown = computed(() => emailError.value || (emailTouched.value && draft.value.email ? validateEmail(draft.value.email) : ''))
 const checks = computed(() => passwordChecks(draft.value.password, auth.realAccounts))
+// The checklist leaves out the rule almost nobody breaks; when it is broken, it is said under the field instead.
+const shownChecks = computed(() => shownRules(checks.value))
+const passwordProblem = computed(() => hiddenProblem(checks.value, draft.value.password))
 // The date of birth as typed, DD/MM/YYYY. The draft keeps YYYY-MM-DD, and only once all 8 digits are there, so only a
 // full but impossible date shows a message.
 const dobText = ref(isoToDob(draft.value.dob))
@@ -366,34 +372,17 @@ async function finish() {
   }
 }
 
-// Read the chosen picture, shrink it, and keep it in the draft.
-// How to call: onPhoto(event) (the file input's change)
-function onPhoto(event) {
+// Read the chosen picture, shrink it (lib/photo.js), and keep it in the draft.
+// How to call: await onPhoto(event) (the file input's change)
+async function onPhoto(event) {
   const file = event.target.files?.[0]
   photoError.value = ''
   if (!file) return
-  if (!file.type.startsWith('image/')) {
-    photoError.value = 'Choose an image file.'
-    return
+  try {
+    draft.value.photo = await shrinkPhoto(file)
+  } catch (err) {
+    photoError.value = err.message
   }
-  const reader = new FileReader()
-  reader.onload = () => {
-    // Shrink the photo so it fits in local storage.
-    const img = new Image()
-    img.onload = () => {
-      const size = 160
-      const canvas = document.createElement('canvas')
-      canvas.width = size
-      canvas.height = size
-      const scale = Math.max(size / img.width, size / img.height)
-      const w = img.width * scale
-      const h = img.height * scale
-      canvas.getContext('2d').drawImage(img, (size - w) / 2, (size - h) / 2, w, h)
-      draft.value.photo = canvas.toDataURL('image/jpeg', 0.8)
-    }
-    img.src = reader.result
-  }
-  reader.readAsDataURL(file)
 }
 
 // Pick a dietary need, or take it off. Any number can be picked, or none.
@@ -469,13 +458,13 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
 
       <template v-else-if="step === 'password'">
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Create a password</h1>
-        <TextField v-model="draft.password" label="Password" :type="showPassword ? 'text' : 'password'" autocomplete="new-password" :error="passwordError" @input="passwordError = ''">
+        <TextField v-model="draft.password" label="Password" :type="showPassword ? 'text' : 'password'" autocomplete="new-password" :error="passwordError || passwordProblem" @input="passwordError = ''">
           <template #trailing>
             <button type="button" class="signup__peek" @click="showPassword = !showPassword">{{ showPassword ? 'Hide' : 'Show' }}</button>
           </template>
         </TextField>
         <ul class="checklist" aria-label="Password checklist" aria-live="polite">
-          <li v-for="check in checks" :key="check.label" class="checklist__item" :class="{ 'is-ok': check.ok }">
+          <li v-for="check in shownChecks" :key="check.label" class="checklist__item" :class="{ 'is-ok': check.ok }">
             <span class="checklist__mark"><AppIcon v-if="check.ok" name="check" :size="10" /></span>
             <span class="checklist__text">
               <span class="body-sm">{{ check.label }}</span>

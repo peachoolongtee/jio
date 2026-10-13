@@ -11,7 +11,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import JioLogo from '@/components/ui/JioLogo.vue'
 import TextField from '@/components/ui/TextField.vue'
-import { passwordRules } from '@/lib/signupRules.js'
+import { hiddenProblem, passwordRules, shownRules } from '@/lib/signupRules.js'
 import { useAuthStore } from '@/stores/auth.js'
 
 const auth = useAuthStore()
@@ -29,6 +29,9 @@ const doneTitle = ref(null)
 
 const checks = computed(() => passwordRules(password.value))
 const strong = computed(() => checks.value.every((c) => c.ok))
+// The checklist leaves out the rule almost nobody breaks; when it is broken, it is said under the field instead.
+const shownChecks = computed(() => shownRules(checks.value))
+const passwordProblem = computed(() => hiddenProblem(checks.value, password.value))
 const linkWorks = computed(() => auth.recovering && auth.signedIn && !expired.value)
 
 // How to call: await submit()   (the form's submit, which Enter in either field also triggers)
@@ -92,13 +95,13 @@ async function submit() {
 
     <form id="reset-form" class="screen__body reset__body" novalidate @submit.prevent="submit">
       <h1 class="display-xl">Choose a new password</h1>
-      <TextField id="reset-password" v-model="password" label="New password" :type="showPassword ? 'text' : 'password'" autocomplete="new-password" autofocus @input="error = ''">
+      <TextField id="reset-password" v-model="password" label="New password" :type="showPassword ? 'text' : 'password'" autocomplete="new-password" autofocus :error="passwordProblem" @input="error = ''">
         <template #trailing>
           <button type="button" class="reset__peek" @click="showPassword = !showPassword">{{ showPassword ? 'Hide' : 'Show' }}</button>
         </template>
       </TextField>
       <ul class="checklist" aria-label="Password checklist" aria-live="polite">
-        <li v-for="check in checks" :key="check.label" class="checklist__item" :class="{ 'is-ok': check.ok }">
+        <li v-for="check in shownChecks" :key="check.label" class="checklist__item" :class="{ 'is-ok': check.ok }">
           <span class="checklist__mark"><AppIcon v-if="check.ok" name="check" :size="10" /></span>
           <span class="checklist__text">
             <span class="body-sm">{{ check.label }}</span>
