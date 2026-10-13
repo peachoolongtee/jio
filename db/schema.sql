@@ -178,16 +178,21 @@ end;
 $$;
 
 -- Is this email already used by an account? Asked by the sign-up screen on its email question, before anything else, so
--- a registered email is told straight away instead of after every question. Like username_available() it works before
--- signing up, so anyone can ask it about an address; it answers only true or false. The address is compared ignoring
--- case and spaces at either end, the way Supabase Auth stores it.
+-- a registered email is told straight away instead of after every question. It answers only true or false, but that
+-- is still a lookup of who has an account, so only the server may call it (policies.sql grants it to service_role and
+-- to nobody else): the browser asks the backend (POST /api/accounts/email-check), which limits how often each caller
+-- may ask. Auth stores addresses in lower case, so the address is lower-cased and trimmed here and compared with the
+-- column as it is, which lets the index on auth.users.email be used. An account that has been deleted
+-- (auth.users.deleted_at is set) does not count. Fails to create if this Supabase version has no deleted_at column.
 --   select public.email_registered('sam@example.com');  -- true or false
 create or replace function public.email_registered(p_email text)
 returns boolean
 language sql stable security definer set search_path = ''
 as $$
   select exists (
-    select 1 from auth.users where lower(email) = lower(trim(p_email))
+    select 1 from auth.users
+    where email = lower(trim(p_email))
+      and deleted_at is null
   );
 $$;
 

@@ -995,6 +995,11 @@ function detachAccount() {
 
 // The Supabase session changed without this app asking: another tab signed out (or in), or the refresh token expired.
 auth.onChange(({ event, user }) => {
+  // A password reset link was accepted. Said before the check below, because it can arrive while the session is being read.
+  if (event === 'recovery') {
+    broadcast({ type: 'recovery' })
+    return
+  }
   if (acting > 0 || adopting.size > 0) return
   if (event === 'signedOut' && db.user?.authId) {
     detachAccount()
@@ -1185,6 +1190,13 @@ export async function requestPasswordReset(email) {
   await auth.requestPasswordReset(email, `${origin}/reset-password`)
 }
 
+// Was the session in this tab started by a password reset link, and not yet finished with? The reset page shows its form
+// only then. Always false with local accounts.
+// How to call: if (passwordRecovery()) showTheForm()
+export function passwordRecovery() {
+  return auth.recoveryPending()
+}
+
 // Set a new password for the signed-in real account (the reset link signs the person in). Rejects with the messages
 // in lib/auth.js, including MESSAGES.reset_link_invalid when there is no session to change.
 // How to call: await changePassword('N3w-secret!')
@@ -1250,13 +1262,15 @@ export async function checkUsername(username) {
   return { available: !taken }
 }
 
-// Is this email already used by an account? With Supabase set up this asks the database; with local accounts nothing
-// is registered anywhere else, so the answer is always no. Rejects with the "could not reach Jio" message (code
-// 'offline' or 'unknown') when the check cannot be made.
+// Is this email already used by an account? With Supabase set up this asks the Jio backend (POST /api/accounts/email-check),
+// which asks the database with its own key and limits how often one caller may ask; the browser cannot ask the database
+// itself. With local accounts nothing is registered anywhere else, so the answer is always no. Rejects when the check
+// cannot be made (no connection, over the limit, the backend or database down): the sign-up screen then carries on,
+// and the sign-up itself still catches a registered email at the end.
 // How to call: const { registered } = await checkEmail('sam@example.com')
 export async function checkEmail(email) {
   await wait(DELAY.read)
-  if (auth.configured()) return { registered: await auth.emailRegistered(email) }
+  if (auth.configured()) return { registered: await planner.emailRegistered(email) }
   return { registered: false }
 }
 
