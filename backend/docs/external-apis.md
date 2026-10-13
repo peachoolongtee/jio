@@ -85,6 +85,7 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
    - a token bucket of `ONEMAP_CALLS_PER_MINUTE` calls a minute (default 240, leaving headroom under 300). It starts full and refills evenly.
    - A routing trip that finds the bucket empty does not wait: it keeps the estimate at once and the result is `approximate`. An address search answers `503 search_unavailable` with `Retry-After`.
    - Stub mode runs the same code with a very large budget, so tests do not hit it.
+   - Searching one different postal code after another spends one call each (`POST /api/search` looks the building up to find saved places near it, and `GET /api/places/search` asks for the address). 240 different postal codes in one minute use up the budget; routing then falls back to the estimate and address search answers 503 with `Retry-After`. The planner rate limit (per caller) is the only brake on that; no extra limiter was added for it.
 3. **A failing OneMap is left alone.**
    - **Rejected token (401):** the token is dropped, the server logs in once (requests that arrive meanwhile share that login), and the call is retried once. If the new token is rejected too, no login is tried for 60 seconds.
    - **Failed login:** not tried again for 60 seconds. Meanwhile routing keeps the estimate and no login is attempted. If a renewal fails while the old token has not expired, the old token is kept.
@@ -135,7 +136,9 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
 ### Google Places (New)
 
 - **Calls:**
-  - `POST https://places.googleapis.com/v1/places:searchNearby`: one per Converge or Roam request.
+  - `POST https://places.googleapis.com/v1/places:searchNearby`: one per Converge or Roam request, at most.
+  - `GET https://places.googleapis.com/v1/places/{id}`: Place Details, for a Google place the group already has as an option and the ranking does not have. At most 3 per Converge or Roam request, 2 at a time (see "Google search by name, and looking a place up by id").
+  - `POST https://places.googleapis.com/v1/places:searchText`: one per search by name.
   - `GET https://places.googleapis.com/v1/{photo name}/media`: one per photo shown.
 
   Docs: [Nearby Search (New)](https://developers.google.com/maps/documentation/places/web-service/nearby-search).
@@ -158,14 +161,15 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
   Checked live: near Bishan, Golden Village Bishan; near Newton, The FRIENDS™ Experience and Fever Exhibition Hall. The filters removed a watch-film shop listed as an "art gallery" and a sports academy.
 - **Why "nearest first":** the planner looks within 500 m first and only widens when it has fewer than 3 options. Google's default ("most popular") returned places 300–800 m away, which the planner never reached. Checked live near Bishan: with "nearest", Din Tai Fung, Pepper Grill, Stuff'd and Shake Shack at Junction 8 made the top 6.
 - **Cost control:**
-  - One request per slot at most, cached by points about 110 m apart.
-  - **One budget for every Google call**, searches and photos together: `GOOGLE_CALLS_PER_MINUTE` (default 60; invalid or blank means 60), at most 4 in flight (same mechanism as OneMap's, `services/budget.js`). A call over the budget makes no request: the planner answers with `google.source: 'unavailable'` and the photo route answers 503.
+  - One nearby search per slot at most, cached by points about 110 m apart. Look-ups by id and searches by name have their own limits below.
+  - **One budget for every Google call**, searches, look-ups and photos together: `GOOGLE_CALLS_PER_MINUTE` (default 60; invalid or blank means 60), at most 4 in flight (same mechanism as OneMap's, `services/budget.js`). A call over the budget makes no request: the planner answers with `google.source: 'unavailable'` and the photo route answers 503.
   - The search radius is rounded up to the planner's steps (500, 1000, 2000, 3000 m) before it is sent and cached, so changing `radiusMeters` by a metre does not make a new billed search. A photo's width is rounded up to 200, 400, 800 or 1600.
   - Only the fields Jio uses (`NEARBY_FIELDS`): each extra field can move the request to a dearer tier. The current list includes rating, review count, opening hours and price level, which is likely the dearer tier (see "Decisions for the lead" below).
   - A daily quota on the key is the real safety net.
 - **Failure handling:**
   - A Google call times out after **3 seconds** (the HTTP helper takes a `timeoutMs` per call; the default for the other services stays 10 s).
-  - **Circuit:** 3 failures in a row (timeout, network error, 4xx, 5xx, or an answer that cannot be read) pause Google for 60 seconds: no request is made and the answer is `unavailable` at once. After that one call is tried; one success closes the circuit. A photo Google says does not exist (404 or 400) is not a failure.
+  - **Circuit:** 3 failures in a row (timeout, network error, 4xx, 5xx, or an answer that cannot be read) pause Google for 60 seconds: no request is made and the answer is `unavailable` at once. After that one call is tried; one success closes the circuit. A photo Google says does not exist (404 or 400) is not a failure, and nor is a place look-up that answers 404. A look-up that answers 400 is a failure (a 400 can mean a bad key or field mask).
+  - **What Google can add to one ranking waits at most one call timeout plus 250 ms (3.25 seconds)**: the nearby search and the look-ups run together under one deadline. Past it, the ranking goes on without them: `google.source` is `unavailable` if the nearby search was not back, and the look-ups not back are listed in `google.missing`. The calls themselves end at their own 3 s timeout.
   - A failure is logged at most once a minute per reason, never with the key.
   - An answer whose `places` is not a list is a failure and is not cached. A place that is not an object, has no string id or no numeric location, or cannot be converted is skipped.
 - **What's a guess:**
@@ -179,11 +183,12 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
   - The redirect (302, `Cache-Control: public, max-age=1800`) goes only to an `https` address on `googleusercontent.com`, `ggpht.com` or a subdomain; any other link from Google is a 502 `photos_unavailable` and is not cached.
   - Google 404 or 400 for a photo: 404 `not_found`, remembered for 5 minutes. Any other failure: 503 `photos_unavailable`.
   - **Attribution:** Google requires attribution for all Google content shown to a user, not only photos: say that places, ratings and hours come from Google. A photo needs every author in `photo.credits` (`displayName`, linked to `uri`). `photo.credit` is only the first author, kept for older code.
-- **Every answer says** `google: { source, added }`:
+- **Every answer says** `google: { source, added, missing? }`:
   - `google`: places were added
   - `off`: no key
-  - `not_needed`: the request asked for no category Google is used for
+  - `not_needed`: the request asked for no category Google is used for (on `POST /api/search`: the words are shorter than 3 characters)
   - `unavailable`: Google failed, its call budget is used up, or it is paused; the planner answers with its other venues
+  - `missing` (Converge and Roam, only when Google is on and only when not empty): the option ids `google_...` in `currentOptionIds` that could not be looked up this time. The place may be gone from Google (404), the look-up may have failed, been over the request's limit of 3, or been too slow; the id may not be a Google place id; or the place is not an outing (a bank). The screen can word each option as "can't be checked right now".
 
 - **Test data:** `backend/tests/fixtures/google/places-nearby.json` is **invented** (ids like `stub_place_01`, made-up names, addresses, ratings and hours), not a recording. Google's terms allow storing only a place id, so no real place's details are kept in the repo.
 
@@ -191,6 +196,23 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
 
 - **Billing tier.** The nearby search's field mask asks for rating, review count, opening hours and price level. That is likely the dearer billing tier, but it is not confirmed: check Google's pricing page for Places API (New) Nearby Search. Dropping those fields would make the call cheaper and lose the ratings and hours the planner scores on.
 - **Terms and the map.** Google's terms restrict showing Places content alongside a non-Google map, and Jio's map is OneMap. Whether the current use is allowed has not been checked against the current terms.
+
+What the browser keeps. When a Google place is added as an option, the frontend keeps the whole venue object the backend sent, not only its id: `frontend/src/lib/api.js` stores every venue of a ranking in `db.venues`, and the demo's save in the browser's local storage holds it. So that place's name, address, photo name and photo credit stay in the browser after the page closes. Google's terms allow keeping a place id, not its details. The backend never writes them to a file, but the frontend does. Keeping only `googlePlaceId` and asking again when a screen needs the place would match what the terms allow. This was not changed because it is in `frontend/`.
+
+Where Google content could show beside the OneMap map. No screen shows Google's photo, rating or credit yet, but a Google place already reaches several screens once a key is set, next to the OneMap map: the Vote page's option cards, its search rows and its map pins; the itinerary's stops and their pins; and the location sheet's rows (`GET /api/places/search`). Google's terms restrict showing Places content beside a map that is not Google's, so whether the app shows Google places at all is the lead's decision and is still open. There is no switch for only the search routes: with `GOOGLE_MAPS_API_KEY` unset every answer is as it was before Google.
+
+### Google search by name, and looking a place up by id
+
+- **Text Search (New)** (`places:searchText`) finds places by name, address or postal code. At most 10 places, cached 10 minutes. Two routes use it, with different field masks (the mask is part of the cache key):
+  - the Vote page's "Search" (`POST /api/search`), for words of 3 or more characters, near the meeting point. It asks for the full field list (`NEARBY_FIELDS`), because the places are scored and checked against opening hours;
+  - the location search for start and end points and meeting spots (`GET /api/places/search`), only when OneMap found nothing, the words have a letter in them and are at least 4 characters after trimming (a pasted postal code, and each prefix of what a person is typing, are OneMap's). It asks for a name, an address and a point only (`PLACE_SEARCH_FIELDS`: `places.id`, `places.displayName`, `places.location`, `places.formattedAddress`), with a bias circle of 25 km around the middle of the island. A place Google sends with no name, a name of only digits, or a point outside the planner's Singapore box (lat 1.1 to 1.5, lng 103.5 to 104.1) is dropped. The box is generous: it also takes in the far south of Johor.
+- **Place Details (New)** (`places/{id}`) looks up one Google place the group added from a search, so the planner can rank it: it is not among the 20 nearest. It uses the full field list. Only the place id is ever kept, which Google's terms allow. Per ranking:
+  - a place looked up in the last 10 minutes costs nothing; a place Google answered 404 for in the last 5 minutes costs nothing (so an invented id is paid for once);
+  - of the others, at most 3 are looked up, at most 2 at a time; the rest are `google.missing` this time. Only the first 6 Google ids of `currentOptionIds` are read (`MAX.googleOptions`);
+  - an id that is not a Google place id (letters, digits, `_` and `-`, 1 to 300 characters) is never sent.
+- Searches and look-ups use the same per-minute budget (`GOOGLE_CALLS_PER_MINUTE`), the same 3 s timeout and the same pause after repeated failures. Stub mode answers from `tests/fixtures/google/places-text-search.json` (invented places) and the nearby fixture.
+- **A searched place that is not an outing.** A place found by name that has no food, drink or shop type is offered as an activity only when Google types it as an outing (`OUTING_TYPES` in `planner/google-adapter.js`: attractions and culture, parks and nature, sports and recreation, entertainment). Otherwise it comes back in `POST /api/search` with `fits: false` and `unfit[0] = 'not_an_outing'` (a bank, a clinic, a school, a petrol station), and a ranking will not take it as an option. A tuition centre or an advert for a name, which the nearby search leaves out, is marked the same way when searched.
+- **Limits worth knowing.** A different invented id costs one paid look-up until it is remembered, so a caller sending fresh invented ids can still spend the budget at 3 look-ups a request; the planner rate limit is what bounds that. Different postal-code searches each spend a OneMap call (the postal match in `POST /api/search`): 240 different ones in a minute use up the shared OneMap budget, and the location search and routing then answer from the estimate or with 503 until it refills. No new limiter was added.
 
 ### Google reviews (not built: feasibility, checked 10 Oct 2026)
 

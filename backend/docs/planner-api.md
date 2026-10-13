@@ -297,7 +297,15 @@ Same as `/api/converge`, with these differences:
 
 ## POST /api/search
 
-Find a place by name to add as an option (the frontend's `searchVenuesForSlot`). It matches the venue name, its area, or the name of a stall at a CDC site ("Ming Kee Chicken Rice" finds the hawker centre it is in).
+Find a place to add as an option (the frontend's `searchVenuesForSlot`), by name, address or postal code. It looks in three places:
+
+- **Our saved places:** the venue name, its area, its address (only for words of 3 or more characters), or the name of a stall at a CDC site ("Ming Kee Chicken Rice" finds the hawker centre it is in).
+- **A postal code (6 digits):** OneMap finds the building, and our saved places within 150 m of it match.
+- **Google** (with `GOOGLE_MAPS_API_KEY`): a text search for the words near `centre` ("Teo Heng", "Havefun Karaoke", or "Singapore 238843" for a postal code). Places of every kind are kept (one of another kind than the slot comes back with `unfit: ["category"]`, so the screen says "Eat, not Activity"), places we already have are skipped (compared by name only: a saved place of the same kind close by does not hide it), words shorter than 3 characters are not sent to Google (`google.source` is `not_needed`), and Google's review minimum is not applied: the group asked for that place by name. These results have ids starting `google_` and `source: "google"`. The answer says where Google stood in `google: { source, added }`, as `/converge` does.
+
+A Google place added as an option is not saved anywhere but its id. Every ranking that has it in `currentOptionIds` looks it up again by id (Place Details; see "Venues from Google" for the limits), so it is scored like any other option. OneMap or Google being down never fails the search: it answers with what it has. In the answer, matches that hold the words in their name come before those matched by area, address or Google, among places that fit equally.
+
+**A searched Google place that is not an outing.** A place found by name that Google does not type as food, drink, a shop or an outing (a bank, a clinic, a school, an ATM, a petrol station, a temple that is not also a tourist attraction, a place with no types) comes back with `fits: false` and `unfit: ["not_an_outing", ...]`, the reason first, so the screen can say "not somewhere to go" instead of showing nothing. A tuition centre, a school or an advert for a name is marked the same way. It cannot be taken as an option: a ranking that gets its id in `currentOptionIds` leaves it out and lists it in `google.missing`. The list of types that count as outings (`OUTING_TYPES`) is in `planner/google-adapter.js`.
 
 Request: the slot's fields, so the answer says whether the place fits.
 
@@ -340,6 +348,7 @@ Places that fit come first, then by walking time. `distanceKm` is rounded here. 
 | `capacity` | Too small for the group. |
 | `far` | More than `maxKm` from the meeting point. |
 | `closed_for_cleaning` | A hawker centre's NEA cleaning or repair day. |
+| `not_an_outing` | A Google place found by name that is not something to do (a bank, a clinic, a school). Always first in the list. |
 
 ## Errors
 
@@ -545,7 +554,7 @@ The **screen's** limit is separate, and it's the frontend's: `OPTIONS_START` (3)
 With `GOOGLE_MAPS_API_KEY` set, `/api/converge` and `/api/roam` add up to 20 of the nearest places from Google Places: restaurants, cafés, bars and dessert shops for food and drink slots, shopping malls for shop slots, and bowling, cinemas, karaoke, arcades, amusement centres, galleries, the zoo and aquarium for activity slots (OneMap already supplies parks, sport centres, museums, libraries and theatres). Only places of the slot's category are added. A mall needs at least 50 Google reviews and an activity 30; an activity whose name is an advert or a school is left out; and a place whose name says it has closed is left out. They're added for that request only, never saved, because Google's terms don't allow it. Every answer says:
 
 ```json
-"google": { "source": "google", "added": 16 }
+"google": { "source": "google", "added": 16, "missing": ["google_ChIJabc"] }
 ```
 
 | `source` | Meaning |
@@ -555,7 +564,9 @@ With `GOOGLE_MAPS_API_KEY` set, `/api/converge` and `/api/roam` add up to 20 of 
 | `not_needed` | The request asked for no category Google is used for |
 | `unavailable` | Google couldn't be used: it failed or timed out, the server's Google call budget for the minute is used up, or Google is paused after repeated failures. The answer uses the other venues |
 
-**How many Google calls this makes.** Every Google call, searches and photos together, is counted against one budget for the whole server: `GOOGLE_CALLS_PER_MINUTE` (default 60), with at most 4 calls running at once. A call over the budget is not made, and the answer says `unavailable`. A search is cached for 10 minutes, and its radius is rounded up to 500, 1000, 2000 or 3000 m before it is asked or cached (so `radiusMeters: 1001` and `2000` share one search; the circle always covers what was asked). A Google call waits at most 3 seconds. After 3 failures in a row (a timeout, a network error, a 4xx or 5xx, or an answer that cannot be read) Google is skipped for 60 seconds, and one success closes the pause again. A failure is logged at most once a minute per reason. An answer where `places` is not a list is a failure and is never cached; a single unreadable place in a list is skipped.
+`missing` is there only when the server has a Google key and it is not empty. It lists the option ids `google_...` in `currentOptionIds` that could not be looked up this time, so the screen can show those options as "can't be checked right now" instead of dropping them without a word. A place is missing when Google answered 404 for it (remembered for 5 minutes), the look-up failed, was too slow, or was over this request's limit, the id is not a Google place id, or the place is not an outing (`not_an_outing`). It is "this time" only: the same id may be found by the next request.
+
+**How many Google calls this makes.** A ranking makes at most one nearby search, and looks up at most 3 of the Google places in `currentOptionIds` (at most 2 at a time; only the first 6 Google ids are read). A place looked up in the last 10 minutes, or answered 404 for in the last 5, costs no call. The nearby search and the look-ups run together, and everything Google adds waits at most 3.25 seconds (one call timeout of 3 s plus 250 ms); past that the ranking goes on without it. Every Google call, searches, look-ups and photos together, is counted against one budget for the whole server: `GOOGLE_CALLS_PER_MINUTE` (default 60), with at most 4 calls running at once. A call over the budget is not made, and the answer says `unavailable`. A search is cached for 10 minutes, and its radius is rounded up to 500, 1000, 2000 or 3000 m before it is asked or cached (so `radiusMeters: 1001` and `2000` share one search; the circle always covers what was asked). A Google call waits at most 3 seconds. After 3 failures in a row (a timeout, a network error, a 4xx or 5xx, or an answer that cannot be read) Google is skipped for 60 seconds, and one success closes the pause again. A failure is logged at most once a minute per reason. An answer where `places` is not a list is a failure and is never cached; a single unreadable place in a list is skipped.
 
 A Google venue has `source: 'google'`, `googlePlaceId`, a real `rating` and `ratingCount`, `address`, and that **day of the week's** `openingHours`. It may also have `photo: { name, credit, credits }`:
 
@@ -622,9 +633,11 @@ How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 
 ## GET /api/places/search
 
-`GET /api/places/search?q=520201` → `{ "results": [{ "name", "address", "postal", "lat", "lng" }] }`, at most 10.
+`GET /api/places/search?q=520201` → `{ "results": [{ "name", "address", "postal", "lat", "lng", "source" }] }`, at most 10. `source` is `"onemap"` or `"google"`. `postal` is a string, or `null` when the place has none, whichever the source.
 
-For start and end points: an address, postal code or building name, searched with OneMap. It needs no OneMap account. Results are cached for a day. The rate limit applies, and so does the server's shared OneMap call budget (the same one routing draws from).
+For start and end points, and meeting spots: an address, postal code or building name, searched with OneMap. It needs no OneMap account. Results are cached for a day. The rate limit applies, and so does the server's shared OneMap call budget (the same one routing draws from).
+
+When OneMap finds nothing, and the words have a letter in them and are at least 4 characters, Google's text search adds places by name (a karaoke, a shop, a landmark OneMap does not list), in the same shape; `postal` is read from Google's address when it has one. A postal code, and the first letters of a word still being typed, are not sent to Google. Only a name, an address and a point are asked for, with a bias that covers the island. A Google place with no name, a name of only digits, or a point outside Singapore is left out. The answer is 503 only when neither OneMap nor Google could answer (or OneMap failed and Google had nothing to show).
 
 | Status | When |
 |---|---|
