@@ -169,9 +169,20 @@ describe('the list of places near the group', () => {
     await expect(api.roamNearby(id)).rejects.toThrow(/Cannot reach the Jio planner/)
     expect(api.storage.store[STORAGE_KEY]).toBe(before)
     expect(await api.getSession(id)).toEqual(session)
-    // A place that came back earlier can still be proposed after a failed list, and the list works again once the planner does.
+    // The list works again once the planner does.
     planner.roamNearby.mockImplementation(async () => listOf(...VENUES.slice(0, 3)))
     expect((await api.roamNearby(id)).places).toHaveLength(3)
+  })
+
+  it('still lets a place that came back in an earlier list be proposed after a later list fails', async () => {
+    const { api, id } = await underway()
+    const stranger = { id: 'google-earlier', name: 'Earlier Place', category: 'activity', area: 'Bishan', price: 20, lat: 1.35, lng: 103.85 }
+    answered = listOf(stranger)
+    await api.roamNearby(id)
+    planner.roamNearby.mockRejectedValue(new Error('Cannot reach the Jio planner right now. Check your connection and try again.'))
+    await expect(api.roamNearby(id)).rejects.toThrow(/Cannot reach the Jio planner/)
+    const session = await api.proposeStop(id, 'ian', 'google-earlier')
+    expect(session.proposals.map((p) => p.venueId)).toEqual(['google-earlier'])
   })
 })
 
@@ -464,7 +475,7 @@ describe('a save from before Roam', () => {
     expect((await other.getSession(id)).proposals).toEqual([])
   })
 
-  it('stays an empty list in the save for a session that never had one, through a re-plan or a finish', async () => {
+  it('leaves the key out of the save for a session that never had proposals, after the outing is finished', async () => {
     const { api, id } = await underway()
     await api.endPlan(id)
     expect('proposals' in JSON.parse(api.storage.store[STORAGE_KEY]).sessions[0]).toBe(false)
@@ -489,5 +500,245 @@ describe('a write that cannot be saved', () => {
     api.storage.limit = Infinity
     await api.proposeStop(id, 'ian', second.id)
     expect((await api.getSession(id)).proposals).toHaveLength(2)
+  })
+})
+
+
+describe('the list for a session that is not under way', () => {
+  it('is refused for a finished outing, a cancelled one and one still voting, without asking the planner', async () => {
+    const done = await underway()
+    await done.api.endPlan(done.id)
+    await expect(done.api.roamNearby(done.id)).rejects.toThrow(/has ended/)
+    const off = await underway()
+    await off.api.cancelSession(off.id)
+    await expect(off.api.roamNearby(off.id)).rejects.toThrow(/has ended/)
+    const api = await loadApi()
+    await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2000-01-31', homeAreaId: 'tampines' })
+    const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' })
+    await api.inviteFriends(id, ['jonathan'])
+    await api.startSession(id)
+    await api.setConditions({ sessionDay: true })
+    await expect(api.roamNearby(id)).rejects.toThrow(/once the plan is confirmed/)
+    expect(planner.roamNearby).not.toHaveBeenCalled()
+  })
+})
+
+// The clock, as a Date on the test day, at a number of minutes after midnight.
+const clockAt = (minutes) => new Date(2026, 9, 9, Math.floor(minutes / 60), minutes % 60)
+const hhmm = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+
+describe('a stop added after the plan has ended', () => {
+  afterEach(() => vi.setSystemTime(new Date('2026-10-09T10:00:00')))
+
+  // The plan under way, and the clock three hours after its last stop ends.
+  async function late() {
+    const ctx = await underway()
+    const before = await ctx.api.getItinerary(ctx.id)
+    const lastEnd = before.stops.at(-1).end
+    const now = lastEnd + 180
+    expect(now).toBeLessThan(1440)
+    vi.setSystemTime(clockAt(now))
+    return { ...ctx, before, lastEnd, now }
+  }
+
+  it('is ranked for the clock and, once accepted, starts no earlier than the clock, as the list showed it', async () => {
+    const { api, id, lastEnd, now } = await late()
+    const [venue] = await freeVenues(api, id)
+    await api.roamNearby(id)
+    expect(planner.roamNearby.mock.calls[0][0].time).toBe(hhmm(now))
+    const proposed = await api.proposeStop(id, 'jonathan', venue.id)
+    const after = await api.resolveProposal(id, proposed.proposals[0].id, true)
+    expect(after.applied).toBe(true)
+    const added = (await api.getItinerary(id)).stops.at(-1)
+    // Not at about the old end, which is in the past; at the time the list was ranked for.
+    expect(added.start).toBe(now)
+    expect(added.start).toBeGreaterThan(lastEnd + 120)
+    const stored = JSON.parse(api.storage.store[STORAGE_KEY]).sessions[0].plan.stops.at(-1)
+    expect(stored).toMatchObject({ venueId: venue.id, plannedStart: lastEnd, notBefore: now })
+  })
+
+  it('starts after the last stop and its leg when the clock is still before that, as it did', async () => {
+    const { api, id } = await underway()
+    const before = await api.getItinerary(id)
+    const [venue] = await freeVenues(api, id)
+    const proposed = await api.proposeStop(id, 'jonathan', venue.id)
+    await api.resolveProposal(id, proposed.proposals[0].id, true)
+    const itinerary = await api.getItinerary(id)
+    expect(itinerary.stops.at(-1).start).toBe(before.stops.at(-1).end + itinerary.legs.at(-1).minutes)
+    expect(JSON.parse(api.storage.store[STORAGE_KEY]).sessions[0].plan.stops.at(-1).notBefore).toBe(before.stops.at(-1).end)
+  })
+
+  it('keeps its time when the stop before it is deleted: the plan then starts when the added stop may', async () => {
+    const { api, id, now } = await late()
+    const [venue] = await freeVenues(api, id)
+    const proposed = await api.proposeStop(id, 'jonathan', venue.id)
+    await api.resolveProposal(id, proposed.proposals[0].id, true)
+    expect((await api.getItinerary(id)).stops).toHaveLength(3)
+    await api.deleteStop(id, 0)
+    await api.deleteStop(id, 0)
+    const [only] = (await api.getItinerary(id)).stops
+    expect(only.venue.id).toBe(venue.id)
+    // Not at the old plan's end (hours ago): at the time it was added for, and not later.
+    expect(only.start).toBe(now)
+    const plan = JSON.parse(api.storage.store[STORAGE_KEY]).sessions[0].plan
+    expect(plan.startAt).toBe(now)
+    expect(plan.stops[0].notBefore).toBe(now)
+  })
+
+  it('still clears the earliest start the AI order gave an ordinary stop when a stop is deleted or moved', async () => {
+    const { api, id } = await underway()
+    const state = JSON.parse(api.storage.store[STORAGE_KEY])
+    state.sessions[0].plan.stops.forEach((stop) => { stop.notBefore = stop.plannedStart })
+    const other = await loadApi({ data: { [STORAGE_KEY]: JSON.stringify(state) } })
+    await other.reorderStops(id, 0, 1)
+    expect(JSON.parse(other.storage.store[STORAGE_KEY]).sessions[0].plan.stops.every((s) => s.notBefore === undefined)).toBe(true)
+  })
+})
+
+describe('deciding on a proposal that is not there any more', () => {
+  it('answers applied: false and changes nothing, after an opt-out took it or it was decided already', async () => {
+    const { api, id } = await underway({ friends: ['faith'] })
+    const [venue] = await freeVenues(api, id)
+    const proposed = await api.proposeStop(id, 'faith', venue.id)
+    const proposalId = proposed.proposals[0].id
+    expect(proposed.applied).toBe(true)
+    await api.optOut(id, 'faith')
+    const stops = (await api.getItinerary(id)).stops.length
+    const gone = await api.resolveProposal(id, proposalId, true)
+    expect(gone.applied).toBe(false)
+    expect((await api.getItinerary(id)).stops).toHaveLength(stops)
+  })
+
+  it('answers applied: false to a second press, and to proposing a place that is already proposed', async () => {
+    const { api, id } = await underway()
+    const [venue] = await freeVenues(api, id)
+    const first = await api.proposeStop(id, 'jonathan', venue.id)
+    expect((await api.proposeStop(id, 'ian', venue.id)).applied).toBe(false)
+    expect((await api.resolveProposal(id, first.proposals[0].id, false)).applied).toBe(true)
+    expect((await api.resolveProposal(id, first.proposals[0].id, false)).applied).toBe(false)
+  })
+
+  it('is told to the screen by the store as true or false, and the session it stores has no `applied` in it', async () => {
+    const { api, id } = await underway()
+    const { createPinia, setActivePinia } = await import('pinia')
+    setActivePinia(createPinia())
+    const { useEventsStore } = await import('../../stores/events.js')
+    const events = useEventsStore()
+    const [venue] = await freeVenues(api, id)
+    expect(await events.proposeMyStop(id, venue.id)).toBe(true)
+    expect(await events.proposeMyStop(id, venue.id)).toBe(false)
+    const proposalId = events.byId[id].proposals[0].id
+    expect('applied' in events.byId[id]).toBe(false)
+    expect(await events.resolveProposal(id, proposalId, false)).toBe(true)
+    expect(await events.resolveProposal(id, proposalId, false)).toBe(false)
+    expect(events.byId[id].proposals).toEqual([])
+  })
+})
+
+describe('a waiting proposal after the session\'s day', () => {
+  it('can still be decided while the plan is confirmed, though no new place can be proposed', async () => {
+    const { api, id } = await underway()
+    const [venue, other] = await freeVenues(api, id)
+    const proposed = await api.proposeStop(id, 'jonathan', venue.id)
+    await api.setConditions({ sessionDay: false })
+    await expect(api.proposeStop(id, 'jonathan', other.id)).rejects.toThrow(/on the day of the outing/)
+    const stops = (await api.getItinerary(id)).stops.length
+    const after = await api.resolveProposal(id, proposed.proposals[0].id, true)
+    expect(after.applied).toBe(true)
+    expect((await api.getItinerary(id)).stops).toHaveLength(stops + 1)
+  })
+})
+
+describe('the venues proposals save', () => {
+  const stranger = (n) => ({ id: `google-${n}`, name: `Place ${n}`, category: 'activity', area: 'Bishan', price: 20, lat: 1.35, lng: 103.85 })
+  const saved = (api) => JSON.parse(api.storage.store[STORAGE_KEY]).venues
+
+  it('leaves the save when the proposal is dismissed, taken back, or cleared by a cancel or a re-plan', async () => {
+    const { api, id } = await underway()
+    answered = listOf(stranger(1), stranger(2), stranger(3))
+    await api.roamNearby(id)
+    const one = await api.proposeStop(id, 'ian', 'google-1')
+    expect(saved(api)['google-1']).toBeTruthy()
+    await api.resolveProposal(id, one.proposals[0].id, false)
+    expect(saved(api)['google-1']).toBeUndefined()
+    // Taken back by a member who is not the host.
+    const two = await api.proposeStop(id, 'ian', 'google-2')
+    const guest = await hostedBy(api, 'jonathan')
+    await guest.resolveProposal(id, two.proposals[0].id, false)
+    expect(saved(guest)['google-2']).toBeUndefined()
+    // Cleared by a re-plan.
+    answered = listOf(stranger(3))
+    await guest.roamNearby(id)
+    await guest.proposeStop(id, 'ian', 'google-3')
+    expect(saved(guest)['google-3']).toBeTruthy()
+    await guest.replan(id)
+    expect(saved(guest)['google-3']).toBeUndefined()
+  })
+
+  it('leaves the save when the outing is cancelled', async () => {
+    const { api, id } = await underway()
+    answered = listOf(stranger(4))
+    await api.roamNearby(id)
+    await api.proposeStop(id, 'ian', 'google-4')
+    await api.cancelSession(id)
+    expect(saved(api)['google-4']).toBeUndefined()
+  })
+
+  it('stays when the place is now a stop in the plan, or another proposal still holds it', async () => {
+    const { api, id } = await underway()
+    answered = listOf(stranger(5))
+    await api.roamNearby(id)
+    const proposed = await api.proposeStop(id, 'ian', 'google-5')
+    await api.resolveProposal(id, proposed.proposals[0].id, true)
+    expect(saved(api)['google-5']).toBeTruthy()
+    expect((await api.getItinerary(id)).stops.at(-1).venue.name).toBe('Place 5')
+  })
+
+  it('goes with a member who opts out, and stays when the opt-out is taken back by a failure', async () => {
+    const { api, id } = await underway({ friends: ['faith'] })
+    answered = listOf(stranger(6))
+    await api.roamNearby(id)
+    await api.proposeStop(id, 'faith', 'google-6')
+    await api.optOut(id, 'faith')
+    expect(saved(api)['google-6']).toBeUndefined()
+  })
+
+  it('forgets the oldest places the planner sent beyond a bound, and keeps the newest', async () => {
+    const { api, id } = await underway()
+    answered = listOf(...Array.from({ length: 250 }, (_, i) => stranger(`bulk-${i}`)))
+    await api.roamNearby(id)
+    await expect(api.proposeStop(id, 'ian', 'google-bulk-0')).rejects.toThrow(/does not exist/)
+    const session = await api.proposeStop(id, 'ian', 'google-bulk-249')
+    expect(session.proposals[0].venue.name).toBe('Place bulk-249')
+  })
+})
+
+describe('an opt-out that fails while someone proposes', () => {
+  it('puts back the opted-out member\'s waiting proposals and keeps the one made meanwhile', async () => {
+    const { api, id } = await underway({ friends: ['faith'] })
+    const [first, second] = await freeVenues(api, id)
+    await api.proposeStop(id, 'faith', first.id)
+    // The planner holds the opt-out's answer until the test says.
+    let fail
+    planner.meetingArea.mockImplementation(() => new Promise((resolve, reject) => { fail = reject }))
+    const optingOut = api.optOut(id, 'faith')
+    const result = optingOut.catch((e) => e)
+    await vi.waitFor(() => expect(fail).toBeTypeOf('function'))
+    expect((await api.getSession(id)).proposals).toEqual([])
+    await api.proposeStop(id, 'ian', second.id)
+    fail(new Error('Cannot reach the Jio planner right now. Check your connection and try again.'))
+    expect((await result).message).toMatch(/Cannot reach the Jio planner/)
+    const session = await api.getSession(id)
+    expect(session.proposals.map((p) => [p.by, p.venueId])).toEqual([['faith', first.id], ['ian', second.id]])
+    expect(session.members.find((m) => m.id === 'faith').state).toBe('joined')
+  })
+
+  it('restores them when it fails with nothing else going on', async () => {
+    const { api, id } = await underway({ friends: ['faith'] })
+    const [first] = await freeVenues(api, id)
+    await api.proposeStop(id, 'faith', first.id)
+    planner.meetingArea.mockRejectedValue(new Error('Cannot reach the Jio planner right now. Check your connection and try again.'))
+    await expect(api.optOut(id, 'faith')).rejects.toThrow(/Cannot reach the Jio planner/)
+    expect((await api.getSession(id)).proposals.map((p) => p.by)).toEqual(['faith'])
   })
 })

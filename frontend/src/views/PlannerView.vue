@@ -8,7 +8,7 @@
 // The list and the map show the same places, and the map has a key to the categories of the places on it.
 // Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
 // shows the message and the rest of the page stays usable.
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -37,10 +37,8 @@ import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { distanceText } from '@/lib/planner/format.js'
 import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, votedRows } from '@/lib/confirmOrder.js'
 import { placeImage } from '@/lib/placeImages.js'
-import { placeFromOption } from '@/lib/reviewPick.js'
 import { walkFromText } from '@/lib/cardText.js'
-import { reviewsFor } from '@/lib/mock/reviews.js'
-import { getPlace } from '@/lib/api.js'
+import { usePlaceDetail } from '@/lib/usePlaceDetail.js'
 import { confetti } from '@/lib/confetti.js'
 import { mealWindow, MEAL_WINDOWS } from '@/lib/planner/timeOfDay.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -98,8 +96,7 @@ const loading = computed(() => planner.loading[props.id] && !plan.value?.slots?.
 const voting = computed(() => session.value?.status === 'voting')
 const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
-// Who a card's review line may quote: the other people in this outing, then the signed-in person's friends.
-const outingIds = computed(() => active.value.filter((id) => id !== auth.myId))
+// Who a card's review line may quote: the other people in this outing (`outingIds`, below), then the signed-in person's friends.
 const friendIds = computed(() => groups.friends.map((p) => p.id))
 const slots = computed(() => plan.value?.slots || [])
 // Where the walking times on the cards are measured from, said once above the list. Nothing without a meeting area.
@@ -126,31 +123,9 @@ async function vote(slot, option) {
 }
 
 // ── Sample reviews ──
-// A card's review line opens the place's detail over this page. It is built from the option, so no request is made and it
-// opens with the planner off; the address is added from the place list when the place is in it.
-const reviewing = ref(null)
-
-// How to call: openReviews(option, 'name') (from a card's name or photo; 'review' from its review line, the default)
-function openReviews(option, from = 'review') {
-  const place = placeFromOption(option)
-  reviewing.value = { optionId: option.id, from, place, reviews: reviewsFor(option.venue) }
-  if (place.address) return
-  getPlace(option.venue.id, session.value?.area?.id)
-    .then((known) => {
-      if (reviewing.value?.optionId === option.id && known.address) reviewing.value.place = { ...reviewing.value.place, address: known.address }
-    })
-    .catch(() => {})
-}
-
-// Close the detail and put focus back on the control that opened it: the card's name (its photo shares that control) or its review line.
-// How to call: closeReviews()
-async function closeReviews() {
-  const id = reviewing.value?.optionId
-  const attr = reviewing.value?.from === 'name' ? 'data-open-for' : 'data-review-for'
-  reviewing.value = null
-  await nextTick()
-  document.querySelector(`[${attr}="${CSS.escape(id ?? '')}"]`)?.focus({ preventScroll: true })
-}
+// A card's name, photo or review line opens the place's detail over this page (lib/usePlaceDetail.js, shared with Roam).
+// `outingIds` are the other people in the outing, whose reviews it puts first.
+const { detail: reviewing, outing: outingIds, open: openReviews, close: closeReviews } = usePlaceDetail(() => session.value)
 
 async function more(slot) {
   loadingMore.value = slot.id

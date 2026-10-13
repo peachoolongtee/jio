@@ -100,8 +100,15 @@ export const useEventsStore = defineStore('events', () => {
   const endPlan = act(api.endPlan)
   // Roam. The first acts as the signed-in person; the host adds a proposed place to the plan or leaves it out, and the
   // person who proposed it may take it back. How to call: proposeMyStop('s1', 'v25'), resolveProposal('s1', 'pp7', true)
-  const proposeMyStop = (id, venueId) => act(api.proposeStop)(id, currentUserId(), venueId)
-  const resolveProposal = act(api.resolveProposal)
+  // Both answer true when the change was made, and false when it was not (the place was already proposed; the proposal was
+  // not there any more), so a screen only says what happened.
+  const decided = (fn) => async (...args) => {
+    const { applied, ...session } = await fn(...args)
+    put(session)
+    return applied !== false
+  }
+  const proposeMyStop = (id, venueId) => decided(api.proposeStop)(id, currentUserId(), venueId)
+  const resolveProposal = decided(api.resolveProposal)
 
   const addPhoto = (id, src) => act(api.addPhoto)(id, currentUserId(), src)
   const deletePhoto = act(api.deletePhoto)

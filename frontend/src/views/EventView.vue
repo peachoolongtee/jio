@@ -48,7 +48,8 @@ import { placeImage } from '@/lib/placeImages.js'
 import TravelConnector from '@/components/event/TravelConnector.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
-import { fromMinutes } from '@/lib/planner/format.js'
+import { dayTime } from '@/lib/planner/format.js'
+import { lateLine } from '@/lib/roam.js'
 import { sourceIcon, sourceText } from '@/lib/confirmOrder.js'
 import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -82,7 +83,7 @@ function clearConfirmedFlag() {
 }
 const confirmedLine = computed(() => {
   const stops = itinerary.value?.stops || []
-  const summary = stops.length ? ` ${stops.length} ${stops.length === 1 ? 'stop' : 'stops'}, starting ${fromMinutes(stops[0].start)}.` : ''
+  const summary = stops.length ? ` ${stops.length} ${stops.length === 1 ? 'stop' : 'stops'}, starting ${dayTime(stops[0].start)}.` : ''
   return `Everyone in the group can see the itinerary now.${summary}`
 })
 function dismissConfirmed() {
@@ -118,6 +119,9 @@ const underway = computed(() => !!session.value && roamOpen(session.value))
 const myId = computed(() => auth.myId)
 const longTrips = computed(() => (itinerary.value?.trips || []).filter((t) => t.long))
 const lastStop = computed(() => itinerary.value?.stops[itinerary.value.stops.length - 1])
+// "Ends after the session's end, 21:30" when the plan runs past the end time the host set (stops added from Roam, or a long
+// outing with many categories, can), else ''. Said under the plan's end; nothing is refused.
+const lateText = computed(() => (lastStop.value ? lateLine(lastStop.value.end, session.value?.end) : ''))
 // A confirmed plan with two or more stops can be rearranged, and a stop deleted, while editing.
 const canMove = computed(() => confirmed.value && (itinerary.value?.stops.length || 0) > 1)
 const canEdit = computed(() => canMove.value && editing.value)
@@ -328,14 +332,15 @@ async function endPlan() {
                 <div v-if="itinerary.end" class="timeline__end">
                   <span class="timeline__flag" aria-hidden="true"><AppIcon name="flag" :size="14" /></span>
                   <div class="stack">
-                    <span class="title-sm">Ends {{ fromMinutes(lastStop.end) }}</span>
+                    <span class="title-sm">Ends {{ dayTime(lastStop.end) }}</span>
+                    <span v-if="lateText" class="timeline__warning caption-sm" data-testid="plan-late"><AppIcon name="warning" :size="12" /> {{ lateText }}</span>
                     <span class="caption-sm text-muted">about {{ itinerary.end.mrtWalk }} min walk to {{ itinerary.end.mrt }} MRT</span>
                     <span v-if="itinerary.end.farFromMrt" class="timeline__warning caption-sm"><AppIcon name="warning" :size="12" /> Far from the MRT</span>
                   </div>
                 </div>
               </div>
 
-              <ProposedStops v-if="confirmed" :session="session" :my-id="myId" @emptied="timeline?.focus()" />
+              <ProposedStops v-if="confirmed" :session="session" :itinerary="itinerary" :my-id="myId" @emptied="timeline?.focus()" />
 
               <AppButton v-if="underway" variant="secondary" class="whatnext" :to="`/sessions/${id}/roam`">
                 <AppIcon name="sparkle" />

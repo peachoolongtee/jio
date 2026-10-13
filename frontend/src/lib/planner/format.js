@@ -12,6 +12,13 @@ export function fromMinutes(minutes) {
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 }
 
+// A time of the day for people to read: 900 -> "15:00", and a time past midnight says so, 1530 -> "01:30 tomorrow" (a stop of a
+// late outing can end then). fromMinutes alone would show it as 01:30, as if it were earlier the same day.
+// How to call: dayTime(1530) -> '01:30 tomorrow'
+export function dayTime(minutes) {
+  return Math.round(minutes) >= 1440 ? `${fromMinutes(minutes)} tomorrow` : fromMinutes(minutes)
+}
+
 // Price per person as a tier: $ under SGD 10, $$ SGD 10 to 25, $$$ above SGD 25.
 export function priceTier(price) {
   if (price < 10) return '$'
@@ -37,7 +44,7 @@ export function durationLabel(minutes) {
 
 // The time and the duration on one line: "15:00 · 45 min".
 export function timeAndDuration(start, minutes) {
-  const time = typeof start === 'number' ? fromMinutes(start) : start
+  const time = typeof start === 'number' ? dayTime(start) : start
   return `${time} · ${durationLabel(minutes)}`
 }
 
