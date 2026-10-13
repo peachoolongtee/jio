@@ -39,6 +39,10 @@ Work is tracked in GitHub Issues on `peachoolongtee/jio`. The one live map is is
 
 Single-context: one `CONTEXT.md` glossary at the repo root, and `docs/adr/` when a decision earns a record. See `docs/agents/domain.md`.
 
+### Handoffs
+
+`docs/handoffs/2026-10-13-continue-on-another-machine.md` is where to start a session on a new machine: what is waiting on the lead, how he works, and the traps already met. `docs/handoffs/meeting-spots-and-roam.md` holds the meeting spots and Roam decisions.
+
 ## Current State
 
 As of 2026-10-09. The Supabase foundation was built on branch `feat/supabase-foundation`, which sits on top of `dev`, and was sent to `main` through a pull request at the lead's request. `main` therefore also carries everything that was on `dev`. Run `git log --oneline origin/dev..origin/main` to see whether `dev` has caught up.
