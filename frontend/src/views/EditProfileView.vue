@@ -27,7 +27,7 @@ import * as api from '@/lib/api.js'
 import { MESSAGES } from '@/lib/auth.js'
 import { HOST_ID } from '@/lib/mock/people.js'
 import { shrinkPhoto } from '@/lib/photo.js'
-import { DIETARY_OPTIONS, NAME_MAX, cleanDietary, passwordRules, validateName } from '@/lib/signupRules.js'
+import { DIETARY_OPTIONS, NAME_MAX, cleanDietary, hiddenProblem, passwordRules, shownRules, validateName } from '@/lib/signupRules.js'
 import { useAuthStore } from '@/stores/auth.js'
 
 const auth = useAuthStore()
@@ -148,6 +148,9 @@ const passwordChanged = ref(false)
 
 const checks = computed(() => passwordRules(next.value))
 const strong = computed(() => checks.value.every((c) => c.ok))
+// The checklist leaves out the rule almost nobody breaks; when it is broken, it is said under the field instead.
+const shownChecks = computed(() => shownRules(checks.value))
+const nextProblem = computed(() => hiddenProblem(checks.value, next.value))
 
 // Empty every message of the password part, before an attempt or when the person types again.
 // How to call: clearPasswordMessages()
@@ -272,7 +275,7 @@ async function savePassword() {
             label="New password"
             :type="shown.next ? 'text' : 'password'"
             autocomplete="new-password"
-            :error="nextError"
+            :error="nextError || nextProblem"
             @input="clearPasswordMessages"
           >
             <template #trailing>
@@ -280,7 +283,7 @@ async function savePassword() {
             </template>
           </TextField>
           <ul class="checklist" aria-label="Password checklist" aria-live="polite">
-            <li v-for="check in checks" :key="check.label" class="checklist__item" :class="{ 'is-ok': check.ok }">
+            <li v-for="check in shownChecks" :key="check.label" class="checklist__item" :class="{ 'is-ok': check.ok }">
               <span class="checklist__mark"><AppIcon v-if="check.ok" name="check" :size="10" /></span>
               <span class="checklist__text">
                 <span class="body-sm">{{ check.label }}</span>

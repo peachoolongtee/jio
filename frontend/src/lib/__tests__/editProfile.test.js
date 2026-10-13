@@ -261,14 +261,25 @@ describe('changing the password', () => {
   it('has the sign-up checklist, with its hint, and holds the button until the rule is kept', async () => {
     const t = await setUp()
     const view = await draw(t, '/profile/edit/password', 'EditProfileView')
-    expect(view.all('.checklist__item')).toHaveLength(6)
-    // Every hint of the sign-up rule is shown, whatever the rule says.
-    const { passwordRules } = await import('../signupRules.js')
-    const hints = passwordRules('').map((rule) => rule.hint).filter(Boolean)
+    // Every part of the sign-up rule that a checklist draws, with its hint, whatever the rule says.
+    const { passwordRules, shownRules } = await import('../signupRules.js')
+    expect(view.all('.checklist__item')).toHaveLength(shownRules(passwordRules('')).length)
+    const hints = shownRules(passwordRules('')).map((rule) => rule.hint).filter(Boolean)
     expect(hints.length).toBeGreaterThan(0)
     for (const hint of hints) expect(view.text('.checklist')).toContain(hint)
     typePasswords(view, RIGHT, 'n3wsecret!', 'n3wsecret!')
     await view.tick()
+    expect(view.one('[data-testid="save-password"]').disabled).toBe(true)
+  })
+
+  it('says under the new password when the part not on the checklist is broken, and holds the button', async () => {
+    const t = await setUp()
+    const view = await draw(t, '/profile/edit/password', 'EditProfileView')
+    expect(view.text()).not.toContain('No more than 72 characters')
+    typePasswords(view, RIGHT, 'N3wSecret! ', 'N3wSecret! ')
+    await view.tick()
+    expect(view.text()).toContain('Use 72 characters or fewer, with no space at the start or end and no control characters.')
+    expect(view.one('#edit-new').attrs['aria-invalid']).toBe('true')
     expect(view.one('[data-testid="save-password"]').disabled).toBe(true)
   })
 

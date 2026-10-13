@@ -46,8 +46,10 @@ import {
   dobToIso,
   fieldForSignUpError,
   formatDobInput,
+  hiddenProblem,
   isoToDob,
   NAME_MAX,
+  shownRules,
   USERNAME_HINT,
   usernameCandidates,
   validateDob,
@@ -109,6 +111,9 @@ const emailValid = computed(() => !validateEmail(draft.value.email))
 const emailTouched = ref(false)
 const emailShown = computed(() => emailError.value || (emailTouched.value && draft.value.email ? validateEmail(draft.value.email) : ''))
 const checks = computed(() => passwordChecks(draft.value.password, auth.realAccounts))
+// The checklist leaves out the rule almost nobody breaks; when it is broken, it is said under the field instead.
+const shownChecks = computed(() => shownRules(checks.value))
+const passwordProblem = computed(() => hiddenProblem(checks.value, draft.value.password))
 // The date of birth as typed, DD/MM/YYYY. The draft keeps YYYY-MM-DD, and only once all 8 digits are there, so only a
 // full but impossible date shows a message.
 const dobText = ref(isoToDob(draft.value.dob))
@@ -440,13 +445,13 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
 
       <template v-else-if="step === 'password'">
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Create a password</h1>
-        <TextField v-model="draft.password" label="Password" :type="showPassword ? 'text' : 'password'" autocomplete="new-password" :error="passwordError" @input="passwordError = ''">
+        <TextField v-model="draft.password" label="Password" :type="showPassword ? 'text' : 'password'" autocomplete="new-password" :error="passwordError || passwordProblem" @input="passwordError = ''">
           <template #trailing>
             <button type="button" class="signup__peek" @click="showPassword = !showPassword">{{ showPassword ? 'Hide' : 'Show' }}</button>
           </template>
         </TextField>
         <ul class="checklist" aria-label="Password checklist" aria-live="polite">
-          <li v-for="check in checks" :key="check.label" class="checklist__item" :class="{ 'is-ok': check.ok }">
+          <li v-for="check in shownChecks" :key="check.label" class="checklist__item" :class="{ 'is-ok': check.ok }">
             <span class="checklist__mark"><AppIcon v-if="check.ok" name="check" :size="10" /></span>
             <span class="checklist__text">
               <span class="body-sm">{{ check.label }}</span>
