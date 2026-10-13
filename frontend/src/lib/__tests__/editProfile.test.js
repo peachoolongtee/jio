@@ -262,7 +262,11 @@ describe('changing the password', () => {
     const t = await setUp()
     const view = await draw(t, '/profile/edit/password', 'EditProfileView')
     expect(view.all('.checklist__item')).toHaveLength(6)
-    expect(view.text('.checklist')).toContain('e.g. ! @ # $ % *')
+    // Every hint of the sign-up rule is shown, whatever the rule says.
+    const { passwordRules } = await import('../signupRules.js')
+    const hints = passwordRules('').map((rule) => rule.hint).filter(Boolean)
+    expect(hints.length).toBeGreaterThan(0)
+    for (const hint of hints) expect(view.text('.checklist')).toContain(hint)
     typePasswords(view, RIGHT, 'n3wsecret!', 'n3wsecret!')
     await view.tick()
     expect(view.one('[data-testid="save-password"]').disabled).toBe(true)
