@@ -2,10 +2,12 @@
 // The app frame: the screen, with the tab bar (TabBar) on top-level screens: a floating pill at the bottom on
 // mobile, a full-width bar along the top from tablet up. Other screens have their own back button and, often, an action bar at the bottom.
 // Until the app knows who is signed in (auth.ready, a few hundred milliseconds, at most about four seconds), it shows a
-// placeholder of the same shape, so the page is never blank.
+// placeholder of the same shape, so the page is never blank. Confirming the meeting spot, when it takes over 600 ms,
+// shows PageLoading's spinner over everything.
 import { computed, defineAsyncComponent, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import JioLogo from '@/components/ui/JioLogo.vue'
+import PageLoading from '@/components/ui/PageLoading.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SyncNotice from '@/components/ui/SyncNotice.vue'
 import TabBar from '@/components/ui/TabBar.vue'
@@ -56,4 +58,5 @@ const showTabs = computed(() => showNav.value && route.meta.tabs === true)
     <TabBar v-if="showTabs" class="app__tabs" />
     <component :is="DemoPanel" v-if="DemoPanel && auth.signedIn && route.meta.nav !== false" />
   </div>
+  <PageLoading />
 </template>

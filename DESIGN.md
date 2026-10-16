@@ -502,6 +502,7 @@ There are no z-index tokens. The values in use:
 | 60 | The confetti canvas. |
 | 500, 600 | Overlays on a Leaflet map (`CategoryKey`, map buttons, the selected-place card). |
 | 1000 | The `.enter-game` cover. |
+| 1100 | `PageLoading`, the spinner while the meeting spot is confirmed (once it has taken 600 ms). It is above everything, takes every click, tap, scroll and key press, and lets the page be used again after 20 seconds. |
 | 1100 | The bars and card of `SessionMapView`. |
 
 ## Elevation & Depth
@@ -740,6 +741,7 @@ A global rule in `app.css` covers every CSS animation and transition under `pref
 | `live` | `CountdownChip` | 1.6s ease-in-out, endless | A session is happening now. | Not applied (`no-preference` query). |
 | `skeleton-pulse` | `SkeletonRow` | 1.2s ease-in-out, endless | A list is loading. | Global rule only. |
 | `loading` | `PhotosView` | 1.1s ease-in-out, alternating | A thumbnail is uploading. | Global rule only. |
+| `page-loading-spin` | `PageLoading` | 0.8s linear, endless; the card fades in over `--motion-fast` | Confirming the meeting spot on Locate has run for 600 ms; it then stays at least 400 ms (`lib/pageLoading.js`). | Slowed to 2.4s a turn, not stopped, so it still says the page is working. |
 | `sgmap-draw` | `SingaporeMap` | 1.4s `--ease-out`, delayed 0.2s plus 0.2s per route | The map mounts. | Routes are drawn at once. |
 | `sgmap-comet` | `SingaporeMap` | 3.2s `cubic-bezier(0.45, 0, 0.25, 1)`, endless | After a route is drawn. | Switched off in the component's reduced-motion block. |
 | `sgmap-pop` | `SingaporeMap` | 400ms `--ease-out` | A route's start ring appears. | Shown at once. |
