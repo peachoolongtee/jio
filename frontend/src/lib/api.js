@@ -2545,29 +2545,56 @@ export async function findRainSwap(id, slotId) {
   return swap ? { id: swap.id, name: swap.name } : null
 }
 
-// Change a confirmed plan's stop to another place: only the host, and only the place the stop now has. The new place is
-// ranked for the stop's time first, so its details are kept with the plan like the others and it must fit. Asking again once
-// the stop is the new place changes nothing.
-// How to call: await swapPlannedStop(session, 'activity', 'east-coast-park', 'toa-payoh-library')
-async function swapPlannedStop(session, slotId, fromId, toId) {
-  if (session.hostId !== me()) throw new Error('Only the host can swap a stop.')
-  const current = session.plan.stops.find((s) => s.slotId === slotId)
-  if (current.venueId === toId) return summary(session)
-  if (current.venueId !== fromId) throw new Error('That stop has changed. Look at the plan again.')
-  const stop = timedStops(session).find((s) => s.slotId === slotId)
-  const ranked = await rankSlot({ ...session, date: stopDay(session) }, slotOfStop(stop), [], [toId])
+// Change a confirmed plan's stop to another place: the one piece of code that does it, for the rain swap (swapPlannedStop)
+// and for Replace (replaceStop), so the two keep the same things in step. Only the host. The new place is ranked for the stop's
+// time on its day first, so its details are kept with the plan like the others, and it must fit. Asking again once the stop is
+// the new place changes nothing. It is refused when the stop holds another place than `fromId`, the one the caller saw, either
+// when asked or by the time the planner answered (so of two changes asked at once only one is made), or when the stop has moved.
+// What it keeps in step: the stop's place and category; the stop's earliest start, which is the start the planner checked (so a
+// meal held at 12:00 is never started earlier than the time it was checked for, and a stop added from Roam keeps meaning "not
+// before the moment it was added"); the travel to and from the stop, back to its default modes; the AI's note about the order;
+// the group's options for the slot (the place goes in the old one's place; for another category the old one just leaves);
+// the details kept for the confirmed plan; and the rain warning the host dismissed for the stop.
+// `last` ranks it as the plan's last stop; `verb` ('swap' or 'replace') is the word in the refusals.
+// How to call: await changeStopPlace(session, 'activity', 'toa-payoh-library', { fromId: 'east-coast-park', verb: 'swap' })
+async function changeStopPlace(session, slotId, toId, { fromId, category, last = false, verb = 'swap' } = {}) {
+  if (session.hostId !== me()) throw new Error(`Only the host can ${verb} a stop.`)
+  if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can have a stop replaced.')
+  const { stop: current, slot } = stopSlot(session, slotId, category)
+  const seen = fromId ?? current.venueId
+  if (current.venueId === toId && current.category === slot.category) return summary(session)
+  if (current.venueId !== seen) throw new Error('That stop has changed. Look at the plan again.')
+  const taken = () => session.plan.stops.some((s) => s.slotId !== slotId && s.venueId === toId)
+  if (taken()) throw new Error(`${venueById(toId)?.name || 'This place'} is already in the plan.`)
+  const ranked = await rankSlot({ ...session, date: stopDay(session) }, slot, last ? [slot] : [], [toId])
   const found = [...ranked.current, ...ranked.options].find((o) => o.venue.id === toId)
-  if (!found) throw new Error(`${venueById(toId)?.name || 'That place'} does not fit this stop.`)
-  // The plan may have changed while the planner answered.
-  const now = session.status === 'confirmed' && session.plan?.stops.find((s) => s.slotId === slotId)
-  if (!now || now.venueId !== fromId) throw new Error('That stop has changed. Look at the plan again.')
-  session.plan.stops = session.plan.stops.map((s) => (s.slotId === slotId ? { ...s, venueId: toId } : s))
-  session.options[slotId] = [...new Set((session.options[slotId] || []).map((v) => (v === fromId ? toId : v)))]
-  const { [fromId]: _left, ...kept } = session.confirmedRanking?.[slotId] || {}
+  if (!found) throw new Error(`${venueById(toId)?.name || 'That place'} does not fit this stop.${verb === 'replace' ? ' Choose another place.' : ''}`)
+  // The plan may have changed while the planner answered: the stop must hold the place the caller saw, still at the time that was checked.
+  const index = session.status === 'confirmed' ? (session.plan?.stops || []).findIndex((s) => s.slotId === slotId) : -1
+  const now = index >= 0 ? session.plan.stops[index] : null
+  if (!now || now.venueId !== seen || now.category !== current.category || timedStops(session)[index].start !== slot.start) throw new Error('That stop has changed. Look at the plan again.')
+  if (taken()) throw new Error(`${venueById(toId)?.name || 'This place'} is already in the plan.`)
+  session.plan.stops = session.plan.stops.map((s, i) => (i === index ? { ...s, venueId: toId, category: slot.category, notBefore: Math.max(s.notBefore ?? 0, slot.start) } : s))
+  const modes = [...(session.plan.modes || [])]
+  if (index > 0) modes[index - 1] = undefined
+  if (index < modes.length) modes[index] = undefined
+  session.plan.modes = modes
+  session.plan.aiNote = null
+  const options = session.options[slotId] || []
+  session.options[slotId] = slot.category === current.category ? [...new Set(options.map((v) => (v === seen ? toId : v)))] : options.filter((v) => v !== seen)
+  const { [seen]: _left, ...kept } = session.confirmedRanking?.[slotId] || {}
   session.confirmedRanking = { ...session.confirmedRanking, [slotId]: { ...kept, [toId]: rankedDetail(found) } }
   if (session.weatherDismissed) delete session.weatherDismissed[slotId]
   return touch(session, 'options')
 }
+
+// Change a confirmed plan's stop to another place in the rain: only the host, and only the place the stop now has. The work is
+// changeStopPlace's, the same as Replace.
+// How to call: await swapPlannedStop(session, 'activity', 'east-coast-park', 'toa-payoh-library')
+async function swapPlannedStop(session, slotId, fromId, toId) {
+  return changeStopPlace(session, slotId, toId, { fromId, verb: 'swap' })
+}
+
 
 // The host keeps a stop as it is in the rain. The warning stays dismissed for that stop until the forecast changes state
 // (lib/weatherText.js isDismissed), so `state` is the forecast's state when it was dismissed. Only the host.
@@ -2892,6 +2919,98 @@ export async function resolveProposal(id, proposalId, accept) {
   session.proposals = proposals.filter((p) => p.id !== proposalId)
   forgetUnusedVenues([proposal.venueId])
   return { ...touch(session, 'plan'), applied: true }
+}
+
+// ── Replacing one stop of a confirmed plan ─────────────────────────────────
+// Replace on the itinerary opens the voting page for one stop: the other places that fit that stop, at the time the
+// stop has in the itinerary now (after any moves), ranked by the planner. The places the group voted on are among them,
+// with their votes. Choosing one puts it in the stop's place; the stop keeps its start and length, and the plan stays
+// confirmed: nobody votes again. Only the host may, like the rain swap; a member who wants another stop proposes one.
+// The places can be of another category than the stop's (Activity instead of Drink): the stop then becomes that
+// category, at the same time. A place already in the plan as another stop is never offered.
+
+// The stop with this slot id in a confirmed plan, and the slot to rank for it: `category` (the stop's own when left
+// out), and the time and length the stop has in the itinerary as it stands. Throws when the stop is gone, or for a
+// category that does not exist.
+// How to call: stopSlot(session, 'drink', 'activity') -> { index, stop, slot: { id, category, start, time, duration }, isLast, count }
+function stopSlot(session, slotId, category) {
+  const { stops } = planOf(session)
+  const index = stops.findIndex((s) => s.slotId === slotId)
+  if (index < 0) throw new Error('This stop is no longer in the plan.')
+  const stop = stops[index]
+  const kind = category || stop.category
+  if (!P.CATEGORIES.includes(kind)) throw new Error('Choose Eat, Drink, Shop or Activity.')
+  const timed = timedStops(session)[index]
+  return { index, stop, slot: { ...slotOfStop(timed), category: kind }, isLast: index === stops.length - 1, count: stops.length }
+}
+
+// What could go in a confirmed stop's place: { stop, category, stopCount, options }. `stop` is the stop as the itinerary
+// shows it ({ slotId, category, venue, start, time, duration }); `category` is the one the places are of (the stop's own
+// when left out); `stopCount` is how many stops the plan has; `options` are the places of that category that fit the
+// stop's time on its day, shaped like the voting page's options (with the weather it kept) and best first, each with the
+// votes the group gave it in that category (0 for a place nobody voted on). Only the host. Throws unless the plan is
+// confirmed and has this stop.
+// How to call: const { stop, options } = await replaceChoices('s1', 'drink', 'activity')
+export async function replaceChoices(id, slotId, category) {
+  await wait(DELAY.plan)
+  const session = sessionById(id)
+  if (session.hostId !== me()) throw new Error('Only the host can replace a stop.')
+  if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can have a stop replaced.')
+  const { stop, slot, isLast, count } = stopSlot(session, slotId, category)
+  // The places the group voted on in that category, kept from voting.
+  const voted = session.options[slot.category] || []
+  const ranked = await rankSlot({ ...session, date: stopDay(session) }, slot, isLast ? [slot] : [], voted)
+  if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can have a stop replaced.')
+  const area = areaById(session.meeting.areaId)
+  const votes = session.votes[slot.category] || {}
+  const counts = P.tally(votes)
+  // Not the stop's own place, nor a place another stop already has.
+  const seen = new Set(session.plan.stops.map((s) => s.venueId))
+  const options = []
+  for (const o of [...ranked.current, ...ranked.options]) {
+    if (seen.has(o.venue.id)) continue
+    seen.add(o.venue.id)
+    options.push({
+      id: o.venue.id,
+      venue: clone(o.venue),
+      score: o.score,
+      walk: o.walk,
+      distanceM: Math.round(P.distanceKm(area, o.venue) * 1000),
+      reasons: o.reasons,
+      warnings: o.warnings,
+      votes: counts[o.venue.id] || 0,
+      voters: Object.keys(votes).filter((p) => votes[p] === o.venue.id).map((pid) => ({ id: pid, name: nameOf(pid) })),
+      // A rain swap belongs to voting; here the place is chosen outright.
+      swap: null,
+      explanation: o.explanation,
+      dietUnknown: o.dietUnknown,
+      verify: o.verify,
+      approximate: o.approximate,
+      // The weather at the stop's time, which the card's rain mark reads: without it an indoor place would be marked as outdoor in rain.
+      ...(o.weather ? { weather: o.weather } : {}),
+    })
+  }
+  // Places the group voted for first (most votes first), then the planner's order (its score is a penalty).
+  options.sort((a, b) => b.votes - a.votes || a.score - b.score)
+  return {
+    stop: { slotId, category: stop.category, venue: clone(venueById(stop.venueId)), start: slot.start, time: slot.time, duration: stop.duration },
+    category: slot.category,
+    stopCount: count,
+    options,
+  }
+}
+
+// Put `venueId` in the place of a confirmed stop, as a place of `category` (the stop's own when left out; another one
+// turns the stop into that category). Only the host. The planner is asked first whether it still fits the stop's time on its
+// day; when it does not, nothing changes and this throws. A place another stop already has is refused. `seenId` is the place
+// the caller saw in the stop (the stop's own when left out): a stop that holds another place by then is refused. The
+// stop keeps its start and length (see changeStopPlace).
+// How to call: await replaceStop('s1', 'drink', 'cdc_560160', 'activity', 'cdc_100001')
+export async function replaceStop(id, slotId, venueId, category, seenId) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  const isLast = session.plan?.stops.at(-1)?.slotId === slotId
+  return changeStopPlace(session, slotId, venueId, { fromId: seenId, category, last: isLast, verb: 'replace' })
 }
 
 // After Confirmed, a change asks "Re-plan?". Accepting returns the session to Voting; declining keeps the plan.

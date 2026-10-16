@@ -122,6 +122,10 @@ class DocumentStub {
   querySelector() {
     return null
   }
+  // Listeners on the whole page (a click or key outside a popover) are taken and never called: nothing here clicks
+  // outside a component.
+  addEventListener() {}
+  removeEventListener() {}
 }
 class ShadowRootStub {}
 const documentStub = new DocumentStub()
