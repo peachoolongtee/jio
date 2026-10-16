@@ -12,7 +12,14 @@
 // "Database error saving new user" arrives as a 500 of that class. Sign-up with email confirmation on returns a user and
 // no session, and a repeat sign-up of a registered email returns a user with no identities. Profile writes follow the
 // database's column grants (db/policies.sql).
+//
+// Stage 2 adds the sessions side of the database (fakeDatabase.js): `from('sessions' | 'session_members' | 'invites')`,
+// the functions `invite_preview`, `join_session`, `my_invitations` and `decline_invite`, and Realtime's `channel()` /
+// `removeChannel()`, all acting as the signed-in user (or the public key when nobody is signed in). By default each
+// stand-in has a database of its own; give `database` to have several share one (a script holding one database for two
+// browsers). What is not modelled is listed at the top of fakeDatabase.js.
 import { AUTH_STORAGE_KEY } from '@/lib/supabase.js'
+import { createDataClient, createDatabase } from './fakeDatabase.js'
 
 const OWN_PROFILE_COLUMNS = ['display_name', 'avatar_url']
 const OWN_PRIVATE_COLUMNS = ['dob', 'home_area_id', 'dietary', 'budget_max_per_person', 'needs_step_free']
@@ -36,6 +43,10 @@ const OWN_PRIVATE_COLUMNS = ['dob', 'home_area_id', 'dietary', 'budget_max_per_p
 //   signUpError         an error to answer sign-up with
 //   uuidIds             new users get uuid-shaped ids (like the real project's) instead of `uid-1`
 //   memoryOnly          the session is kept in `state` only, and local storage (including the real client's key) is never touched
+//   realtimeLeaveMs     how long a Realtime channel takes to leave (the server's acknowledgement). A channel is torn down only
+//                       after it, as in realtime-js
+//   database            a database from createDatabase() (or a stand-in for one in another process) to use instead of a new one.
+//                       New users then get random uuids, so two stand-ins sharing it never make the same id
 // How to call: const fake = fakeSupabase({ confirmEmail: true })
 export function fakeSupabase(options = {}) {
   const state = {
@@ -56,6 +67,8 @@ export function fakeSupabase(options = {}) {
       signUpError: null,
       uuidIds: false,
       memoryOnly: false,
+      database: null,
+      realtimeLeaveMs: 30,
       ...options,
     },
     users: [],
@@ -80,6 +93,16 @@ export function fakeSupabase(options = {}) {
     reads: [],
     listeners: new Set(),
     count: 0,
+    database: null,
+  }
+  // The sessions side of the database: its own, or one shared with other stand-ins.
+  state.database = state.options.database || createDatabase({ profiles: state.profiles })
+  const shared = !!state.options.database
+  // Reads of other people's profiles that this stand-in does not hold yet, from the shared database.
+  // How to call: await learn([uid])
+  const learn = async (ids) => {
+    const found = await state.database.getProfiles(ids.filter((id) => !state.profiles[id]))
+    Object.assign(state.profiles, found)
   }
   const fire = (event) => {
     for (const fn of [...state.listeners]) fn(event, state.session)
@@ -110,9 +133,14 @@ export function fakeSupabase(options = {}) {
       return null
     }
   }
+  // A token's text. Stand-ins that share a database must not issue the same one to two people, so then it is random.
+  // How to call: tokenText() -> 'token-3'
+  const tokenText = () => (shared ? `token-${globalThis.crypto.randomUUID()}` : `token-${state.count}`)
   const start = (u) => {
     state.count += 1
-    write({ access_token: `token-${state.count}`, refresh_token: `refresh-${state.count}`, user: publicUser(u) })
+    write({ access_token: tokenText(), refresh_token: `refresh-${state.count}`, user: publicUser(u) })
+    // A shared database learns whose token this is, so a stand-in backend can check it.
+    if (shared) state.database.setToken?.(state.session.access_token, u.id)
     state.issued[state.session.refresh_token] = state.session
     fire('SIGNED_IN')
   }
@@ -129,11 +157,26 @@ export function fakeSupabase(options = {}) {
       return { data: { user: null, session: null }, error: apiError(400, 'refresh_token_not_found', 'Invalid Refresh Token: Refresh Token Not Found') }
     }
     state.count += 1
-    write({ ...stored, access_token: `token-${state.count}` })
+    write({ ...stored, access_token: tokenText() })
+    if (shared) state.database.setToken?.(state.session.access_token, stored.user.id)
     state.options.expired = false
     fire('TOKEN_REFRESHED')
     return { data: { user: state.session.user, session: state.session }, error: null }
   }
+
+  // The sessions side of the database, acting as the signed-in user (the public key when nobody is). When the connection is
+  // down (option `down`) every request fails like a lost connection.
+  const data = createDataClient({
+    database: {
+      run: async (op) => (state.options.down ? lostData() : state.database.run(op)),
+      subscribe: (spec, cb) => state.database.subscribe(spec, cb),
+    },
+    as: () => read()?.user.id ?? null,
+    leaveMs: state.options.realtimeLeaveMs,
+  })
+
+  // For a test: the channels open now, `state.dataClient.getChannels()`.
+  state.dataClient = data
 
   const client = {
     auth: {
@@ -150,11 +193,11 @@ export function fakeSupabase(options = {}) {
           return { data: { user: null, session: null }, error: apiError(422, 'user_already_exists', 'User already registered') }
         }
         const meta = opts?.data || {}
-        if (state.options.breakTrigger || Object.values(state.profiles).some((p) => p.username === meta.username)) {
+        if (state.options.breakTrigger || Object.values(state.profiles).some((p) => p.username === meta.username) || (shared && (await state.database.usernameTaken(meta.username)))) {
           return { data: { user: null, session: null }, error: retryable(500, 'Database error saving new user') }
         }
         const number = state.users.length + 1
-        const id = state.options.uuidIds ? `00000000-0000-4000-8000-${String(number).padStart(12, '0')}` : `uid-${number}`
+        const id = shared ? globalThis.crypto.randomUUID() : state.options.uuidIds ? `00000000-0000-4000-8000-${String(number).padStart(12, '0')}` : `uid-${number}`
         const user = { id, email, password, meta }
         state.users.push(user)
         // As the sign-up trigger does (db/schema.sql): the optional name, home area and dietary needs are saved when
@@ -163,6 +206,8 @@ export function fakeSupabase(options = {}) {
         const area = typeof meta.home_area_id === 'string' && meta.home_area_id.trim() ? meta.home_area_id.trim() : null
         const diet = Array.isArray(meta.dietary) ? [...new Set(meta.dietary.filter((d) => ['halal', 'vegetarian', 'vegan'].includes(d)))].sort() : []
         state.profiles[user.id] = { username: meta.username, display_name: name || meta.username, avatar_url: null }
+        // A shared database learns the new person, so another stand-in can read their name.
+        if (shared) await state.database.setProfile(user.id, state.profiles[user.id])
         state.priv[user.id] = { dob: meta.dob, home_area_id: area, dietary: diet }
         if (state.options.confirmEmail) return { data: { user: { ...publicUser(user) }, session: null }, error: null }
         start(user)
@@ -253,12 +298,18 @@ export function fakeSupabase(options = {}) {
       if (state.options.down) return lostData()
       // The database refuses this to the browser's key (db/policies.sql): the browser asks the backend instead.
       if (name === 'email_registered') throw new Error('The browser must not call email_registered; it asks the backend.')
+      // The functions of the sessions side of the database, acting as whoever is signed in.
+      if (state.database.functionNames.includes(name)) return data.rpc(name, args)
       if (state.options.rpcError) return { data: null, error: state.options.rpcError, status: 500 }
-      const taken = Object.values(state.profiles).some((p) => p.username === args.p_username)
+      const taken = Object.values(state.profiles).some((p) => p.username === args.p_username) || (shared && !!(await state.database.usernameTaken(args.p_username)))
       const stale = state.options.staleUsernameCheck && state.signUpCalls.length === 0
       return { data: stale ? true : !taken, error: null }
     },
+    channel: (name) => data.channel(name),
+    removeChannel: (channel) => data.removeChannel(channel),
     from(table) {
+      // The sessions side of the database has its own tables and rules (fakeDatabase.js).
+      if (['sessions', 'session_members', 'invites'].includes(table)) return data.from(table)
       const rows = table === 'profiles' ? state.profiles : state.priv
       return {
         select(columns) {
@@ -274,14 +325,27 @@ export function fakeSupabase(options = {}) {
               const bad = ids.find((id) => !UUID.test(id))
               if (bad !== undefined) return { data: null, error: { message: `invalid input syntax for type uuid: "${bad}"`, code: '22P02' }, status: 400 }
               if (table !== 'profiles' || !read()) return { data: null, error: { message: 'permission denied' }, status: 403 }
+              if (shared) await learn(ids)
               const named = String(columns).split(',').map((c) => c.trim())
               const rowFor = (id) => Object.fromEntries(named.map((c) => [c, c === 'id' ? id : rows[id][c] ?? null]))
               return { data: ids.filter((id) => rows[id]).map(rowFor), error: null }
             },
-            eq: (_col, id) => ({
+            eq: (col, id) => ({
               maybeSingle: async () => {
                 if (state.options.readsHang) return new Promise(() => {})
                 if (state.options.down) return lostData()
+                // A person is looked up by id (the account's own profile) or, for the invite by username, by username.
+                if (col === 'username' && table === 'profiles') {
+                  if (!read()) return { data: null, error: { message: 'permission denied' }, status: 403 }
+                  let found = Object.entries(rows).find(([, p]) => p.username === id)
+                  if (!found && shared) {
+                    const remote = await state.database.profileByUsername(id)
+                    if (remote) found = [remote.id, remote]
+                  }
+                  if (!found) return { data: null, error: null }
+                  const named = String(columns).split(',').map((c) => c.trim())
+                  return { data: Object.fromEntries(named.map((c) => [c, c === 'id' ? found[0] : found[1][c] ?? null])), error: null }
+                }
                 const row = rows[id]
                 if (!row) return { data: null, error: null }
                 return { data: row, error: null }

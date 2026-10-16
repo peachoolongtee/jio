@@ -27,11 +27,18 @@ export const MADE_UP_ACCOUNT = {
 
 let stand = null
 
+// A database to share with other pages, when a script that drives several browsers has put one on the page as
+// `globalThis.__jioStandInDatabase` ({ run, subscribe, setProfile, getProfiles, usernameTaken, profileByUsername }, each
+// possibly returning a Promise). Without it the stand-in's database is this page's own. A script may also set
+// `globalThis.__jioStandInAccount` ({ email, name, username }) to make this page's made-up account differ from another's.
+// How to call: sharedDatabase() -> the shared database, or undefined
+const sharedDatabase = () => globalThis.__jioStandInDatabase || undefined
+
 // The stand-in client, made once per page and handed to lib/auth.js.
 // How to call: const { state } = installStandIn()
 export function installStandIn() {
   if (!stand) {
-    stand = fakeSupabase({ uuidIds: true, memoryOnly: true })
+    stand = fakeSupabase({ uuidIds: true, memoryOnly: true, database: sharedDatabase() })
     lib.useClient(stand.client, { storage: false })
   }
   return stand
@@ -42,7 +49,15 @@ export function installStandIn() {
 // How to call: await signUpAsMadeUp(auth)
 export async function signUpAsMadeUp(auth, details = {}) {
   const { state } = installStandIn()
-  const profile = { ...MADE_UP_ACCOUNT, ...details }
+  const profile = { ...MADE_UP_ACCOUNT, ...(globalThis.__jioStandInAccount || {}), ...details }
   if (state.users.some((u) => u.email === profile.email)) return auth.signIn(profile.email, profile.password)
   return auth.signUpAs(profile)
+}
+
+// Put the stand-in in place before the app starts, when a script has handed this page a shared database. Then a visitor who
+// is not signed in (the join page) reads through the stand-in too, not through the real client, which has nowhere to go.
+// Called by main.js in development builds only.
+// How to call: installForSharedDatabase()
+export function installForSharedDatabase() {
+  if (sharedDatabase()) installStandIn()
 }
