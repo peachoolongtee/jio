@@ -2,9 +2,11 @@
 // Profiles, across the whole page.
 //   The top: a banner in the person's own colour (the same as their avatar and map pin), their avatar overlapping
 //   it, name, @username and home area, and a strip of three numbers (meetups, season rank, JioCoins). Someone else's
-//   also has "Add friend" / "Friends". Ian's own has no create button: the navbar has one.
-//   Then the meetup graph, and Ian's sessions or the other person's recent activity.
-//   Ian's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
+//   also has "Add friend" / "Friends" under the numbers (in the sample world only); the signed-in person's own has
+//   "Edit profile" there (/profile/edit), and nobody else's does. The signed-in person's own
+//   has no create button: the navbar has one.
+//   Then the meetup graph, and the signed-in person's sessions or the other person's recent activity.
+//   The signed-in person's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
 //   the demo" note, because other people's profiles are hand-written.
 //   Signing out of a local account (one that lives only in this browser) erases everything saved here, so its dialog
 //   says so. Signing out of a real account keeps its meetups on this device and the dialog says that instead. A local
@@ -148,6 +150,10 @@ async function signOut() {
               <AppButton v-if="!isMe && auth.sampleWorld" block :variant="person.isFriend ? 'secondary' : 'primary'" :disabled="friendBusy" :aria-pressed="String(person.isFriend)" @click="toggleFriend">
                 <AppIcon :name="person.isFriend ? 'check' : 'plus'" />
                 {{ person.isFriend ? 'Friends' : 'Add friend' }}
+              </AppButton>
+              <AppButton v-else-if="isMe" block variant="secondary" to="/profile/edit" data-testid="edit-profile">
+                <AppIcon name="edit" />
+                Edit profile
               </AppButton>
             </div>
           </div>
