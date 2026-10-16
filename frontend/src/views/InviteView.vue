@@ -9,7 +9,7 @@
 // layer allows it, and the header's Invite button already does), and when a confirmed plan is left with too few people.
 // Otherwise (a confirmed plan with enough people, a finished or cancelled session, or anyone but the host) the page lists
 // who is in and says why invites are closed, with no picker and no Send button (inviteAccess in lib/session.js).
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -21,7 +21,11 @@ import IllustrationBlob from '@/components/ui/IllustrationBlob.vue'
 import ListRow from '@/components/ui/ListRow.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
+import InviteByUsername from '@/components/group/InviteByUsername.vue'
+import RemoveMember from '@/components/group/RemoveMember.vue'
+import ShareLink from '@/components/group/ShareLink.vue'
 import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
+import { watchSessions } from '@/lib/api.js'
 import { inviteAccess } from '@/lib/session.js'
 import { exitFor, goBackIfBehind, isBehind } from '@/lib/stepNav.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -41,9 +45,13 @@ const sent = ref([])
 const busy = ref(false)
 const error = ref('')
 
+// A shared session changes under this page (someone joins, the host's link is used): the list follows.
+let stopWatching = () => {}
 onMounted(async () => {
+  stopWatching = watchSessions()
   await Promise.all([events.loadSession(props.id).catch(() => null), groups.loadPeople()])
 })
+onBeforeUnmount(() => stopWatching())
 
 const session = computed(() => events.byId[props.id])
 // Back: the step before this one (backFor). For the host that is the create form, with the title, day and times filled
@@ -130,6 +138,43 @@ function done() {
 
     <div v-if="!session" class="screen__body">
       <SkeletonRow v-for="n in 4" :key="n" avatar />
+    </div>
+
+    <!-- A shared session: invite with a link or a username. The list shows who is in, and the host can remove a guest. -->
+    <div v-else-if="session.remote" class="screen__body">
+      <BannerNote v-if="!access.open" icon="info">{{ access.text }}</BannerNote>
+      <section class="invite card" aria-labelledby="invite-in">
+        <header class="invite__session">
+          <span class="invite__badge" aria-hidden="true">{{ initial }}</span>
+          <div class="stack">
+            <span class="title-md">{{ session.title }}</span>
+            <span class="invite__count caption text-muted"><AppIcon name="people" :size="16" />{{ members.length }} in this session</span>
+          </div>
+        </header>
+        <template v-if="access.open">
+          <hr class="invite__rule" />
+          <ShareLink :session-id="session.id" :title="session.title" />
+          <hr class="invite__rule" />
+          <InviteByUsername :session="session" />
+        </template>
+        <hr class="invite__rule" />
+        <section class="invite__group" aria-labelledby="invite-in">
+          <h2 id="invite-in" class="caption text-muted">In this session</h2>
+          <ul class="invite__list">
+            <li v-for="person in members" :key="person.id" class="invite__row">
+              <UserAvatar :name="person.name" :person="person.id" :size="44" />
+              <span class="invite__who">
+                <span class="title-sm truncate">{{ person.name }}<template v-if="person.me"> (you)</template></span>
+                <span class="caption-sm text-muted truncate"><template v-if="person.username">@{{ person.username }}</template><template v-if="person.username && person.homeArea"> · </template>{{ person.homeArea }}</span>
+              </span>
+              <span v-if="person.host" class="invite__tag invite__tag--host"><AppIcon name="crown" :size="14" />Host</span>
+              <span v-else-if="isInvited(person.id)" class="invite__tag invite__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
+              <span v-else class="invite__tag"><AppIcon name="check" :size="14" />Joined</span>
+              <RemoveMember v-if="mine && !person.host && !isInvited(person.id)" :session-id="session.id" :person="person" />
+            </li>
+          </ul>
+        </section>
+      </section>
     </div>
 
     <!-- After sending: each friend was invited. -->
@@ -236,7 +281,10 @@ function done() {
       </section>
     </div>
 
-    <footer v-if="session && access.open" class="screen__footer">
+    <footer v-if="session?.remote" class="screen__footer">
+      <AppButton next block @click="done">Done</AppButton>
+    </footer>
+    <footer v-else-if="session && access.open" class="screen__footer">
       <AppButton v-if="sent.length" next block @click="done">Done</AppButton>
       <template v-else>
         <span class="caption text-muted invite__picked" aria-live="polite">{{ picked.length }} selected</span>

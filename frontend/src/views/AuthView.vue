@@ -28,7 +28,7 @@ export function passwordChecks(password, realAccounts) {
 // the screen goes back to the question the problem belongs to, keeps every other answer, and asks for the password again
 // before it tries again. When the project wants the email confirmed first, "Check your email" replaces the questions.
 import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
@@ -58,12 +58,26 @@ import {
   validateName,
   validateUsername,
 } from '@/lib/signupRules.js'
+import { safeNext } from '@/router/guard.js'
 import { useAuthStore } from '@/stores/auth.js'
 
 const ALL_STEPS = ['email', 'password', 'name', 'dob', 'username', 'photo', 'home', 'diet', 'friends']
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
+
+// Where to go once the account exists: the page the person was heading for (?next=, the same rule as the login screen:
+// an in-app path only), otherwise Home. An invite link sends a new person here and takes them back to the invitation.
+// How to call: router.replace(afterSignUp()) -> '/join/q3D9...' or '/'
+function afterSignUp() {
+  const next = safeNext(route.query.next)
+  if (!next || router.resolve(next).name === 'not-found') return '/'
+  return next
+}
+// The same ?next= goes with the link to the login screen, so a person who has an account lands in the same place.
+// How to call: <AppButton :to="loginLink()">
+const loginLink = () => (safeNext(route.query.next) ? { path: '/login', query: { next: safeNext(route.query.next) } } : '/login')
 // A real account starts with nobody but itself, so it is not offered the sample people to add as friends: its friends are
 // the people it shares a session with, and its last question is the dietary needs (step 7). Local accounts keep the step
 // (the friends are step 8).
@@ -338,7 +352,7 @@ async function finish() {
   try {
     const account = await auth.signUp()
     // No account yet means the email must be confirmed first: "Check your email" is shown instead of the questions.
-    if (account) router.replace('/')
+    if (account) router.replace(afterSignUp())
   } catch (err) {
     // Show the data layer's message under the question it is about; otherwise above the button.
     const message = err?.message || 'Could not create your account. Try again.'
@@ -418,7 +432,7 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
       <p class="body-md" role="status">We sent a link to <strong class="signup__address">{{ auth.pendingConfirmation.email }}</strong>. Open it to confirm your account, then log in.</p>
     </div>
     <footer class="screen__footer signup__footer">
-      <AppButton next block to="/login">Log in</AppButton>
+      <AppButton next block :to="loginLink()">Log in</AppButton>
       <AppButton variant="tertiary" underline @click="changeEmail">Use a different email</AppButton>
     </footer>
   </main>
@@ -451,7 +465,7 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
         />
         <div v-if="auth.realAccounts" class="signup__have">
           <span class="body-md text-muted">Already have an account?</span>
-          <AppButton variant="tertiary" underline to="/login">Log in</AppButton>
+          <AppButton variant="tertiary" underline :to="loginLink()">Log in</AppButton>
         </div>
         <component :is="DemoSignIn" v-if="DemoSignIn" />
       </template>

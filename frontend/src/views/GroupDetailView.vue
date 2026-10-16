@@ -21,12 +21,15 @@ import UserAvatar from '@/components/ui/UserAvatar.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
 import SegmentedProgress from '@/components/ui/SegmentedProgress.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import InviteDialog from '@/components/group/InviteDialog.vue'
+import LeaveSession from '@/components/group/LeaveSession.vue'
+import RemoveMember from '@/components/group/RemoveMember.vue'
 import LocationSheet from '@/components/group/LocationSheet.vue'
 import MemberList from '@/components/group/MemberList.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
@@ -35,6 +38,8 @@ import SpotList from '@/components/spots/SpotList.vue'
 import SpotPins from '@/components/spots/SpotPins.vue'
 import { confirmedAreaId, myTripLine, settledView, shownFor, spotsToShow } from '@/components/spots/spotText.js'
 import NotFoundView from './NotFoundView.vue'
+import { watchSessions } from '@/lib/api.js'
+import { WORDS } from '@/lib/sessionsRemote.js'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
 import { directionsUrl } from '@/lib/maps.js'
 import { locateNext } from '@/lib/session.js'
@@ -49,7 +54,10 @@ const auth = useAuthStore()
 const events = useEventsStore()
 const groups = useGroupsStore()
 
+// The session does not exist, or the person is not in it (the data layer's `not_found`), and why the page could not load it at
+// all (no connection, the server down) with a Retry. The two are different pages: only the first is "not found".
 const missing = ref(false)
+const loadError = ref('')
 const busy = ref(false)
 const error = ref('')
 const sheet = ref({ open: false, which: 'start' })
@@ -61,16 +69,32 @@ const picked = ref('')
 
 async function load() {
   missing.value = false
+  loadError.value = ''
   try {
     await Promise.all([events.loadSession(props.id), groups.loadPeople()])
-  } catch {
-    missing.value = true
+  } catch (err) {
+    if (err?.code === 'not_found') missing.value = true
+    else loadError.value = err?.message || 'The session could not be loaded.'
   }
 }
-onMounted(load)
+// A shared session changes under this page (someone joins or leaves, the host renames it or calls it off): it is read again
+// as it happens. Stops when the page is left.
+let stopWatching = () => {}
+onMounted(() => {
+  stopWatching = watchSessions()
+  load()
+})
+onBeforeUnmount(() => stopWatching())
 watch(() => props.id, () => { picked.value = ''; load() })
 
 const session = computed(() => events.byId[props.id])
+// A session that arrives (the person was added, a live update, a retry) ends any "not found" or failed load.
+watch(session, (found) => {
+  if (found) {
+    missing.value = false
+    loadError.value = ''
+  }
+})
 const status = computed(() => session.value?.status)
 const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
@@ -83,11 +107,13 @@ const lobby = computed(() =>
     .filter((m) => ['joined', 'invited'].includes(m.state))
     .map((m) => {
       const p = m.id === auth.myId ? { username: auth.user?.username, homeArea: auth.user?.homeAreaName } : groups.people.find((x) => x.id === m.id) || {}
-      return { id: m.id, name: nameOf(m.id), host: m.role === 'host', joined: m.state === 'joined', username: p.username || '', homeArea: p.homeArea || '' }
+      return { id: m.id, name: nameOf(m.id), host: m.role === 'host', me: m.id === auth.myId, joined: m.state === 'joined', username: p.username || '', homeArea: p.homeArea || '' }
     }),
 )
 const lobbyRing = computed(() => lobby.value.map((p) => ({ name: p.name, done: p.joined })))
 const inviteOpen = ref(false)
+// The people list of a session that is still inviting, or of a shared one that was cancelled before it started.
+const lobbyShown = computed(() => status.value === 'inviting' || (status.value === 'cancelled' && !!session.value?.remote))
 
 const myLoc = computed(() => session.value?.locations?.[auth.myId] || { start: null, end: null })
 const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAreaId, name: auth.user.homeAreaName } : null))
@@ -269,12 +295,13 @@ const startSession = () => run(() => events.start(props.id))
       <SessionNotices :session="session" />
       <BannerNote v-if="approvalsBanner" icon="info" dismissible @dismiss="dismissBanner">{{ approvalsBanner.text }}</BannerNote>
 
-      <!-- Inviting: who is in, whether the session can start, and Start session below. -->
-      <section v-if="status === 'inviting'" class="card lobby" aria-labelledby="lobby-head">
+      <!-- Inviting: who is in, whether the session can start, and Start session below. A shared session that was called off
+           while it was still inviting shows the same list, read-only, under the "Session cancelled" note. -->
+      <section v-if="lobbyShown" class="card lobby" aria-labelledby="lobby-head">
         <header class="lobby__head">
           <h2 id="lobby-head" class="sr-only">Who is in</h2>
           <ProgressDonut compact title="Joined" :people="lobbyRing" done-label="Joined" />
-          <AppButton variant="secondary" small @click="inviteOpen = true"><AppIcon name="user-plus" :size="16" />Invite</AppButton>
+          <AppButton v-if="status === 'inviting'" variant="secondary" small @click="inviteOpen = true"><AppIcon name="user-plus" :size="16" />Invite</AppButton>
         </header>
 
         <div class="lobby__group">
@@ -282,13 +309,14 @@ const startSession = () => run(() => events.start(props.id))
           <ul class="lobby__list">
             <li v-for="(person, i) in lobby" :key="person.id" class="lobby__row rise" :class="{ 'is-pending': !person.joined }" :style="{ '--i': i }">
               <UserAvatar :name="person.name" :person="person.id" :size="44" />
-              <RouterLink :to="person.host ? '/profile' : `/people/${person.id}`" class="lobby__who">
-                <span class="title-sm truncate">{{ person.name }}<template v-if="person.host"> (you)</template></span>
+              <RouterLink :to="person.me ? '/profile' : `/people/${person.id}`" class="lobby__who">
+                <span class="title-sm truncate">{{ person.name }}<template v-if="person.me"> (you)</template></span>
                 <span class="caption-sm text-muted truncate"><template v-if="person.username">@{{ person.username }}</template><template v-if="person.username && person.homeArea"> · </template>{{ person.homeArea }}</span>
               </RouterLink>
               <span v-if="person.host" class="lobby__tag lobby__tag--host"><AppIcon name="crown" :size="14" />Host</span>
               <span v-else-if="person.joined" class="lobby__tag"><AppIcon name="check" :size="14" />Joined</span>
               <span v-else class="lobby__tag lobby__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
+              <RemoveMember v-if="session.remote && status === 'inviting' && isHost && person.joined && !person.host" :session-id="session.id" :person="person" />
             </li>
           </ul>
         </div>
@@ -400,7 +428,14 @@ const startSession = () => run(() => events.start(props.id))
     </div>
 
     <footer v-if="status !== 'cancelled'" class="screen__footer">
-      <AppButton v-if="status === 'inviting' && active.length < 2" block @click="inviteOpen = true">Invite friends</AppButton>
+      <!-- A session kept on the server stops at the lobby for now: starting it waits for the next update (WORDS.startHeld). -->
+      <template v-if="status === 'inviting' && session.remote">
+        <p id="start-held" class="body-sm text-muted lobby__held">{{ WORDS.startHeld }}</p>
+        <AppButton v-if="isHost && active.length >= 2" next block disabled aria-describedby="start-held">Start session</AppButton>
+        <AppButton v-else-if="isHost" block @click="inviteOpen = true">Invite friends</AppButton>
+        <LeaveSession v-else :session-id="session.id" />
+      </template>
+      <AppButton v-else-if="status === 'inviting' && active.length < 2" block @click="inviteOpen = true">Invite friends</AppButton>
       <AppButton v-else-if="status === 'inviting'" next block :disabled="busy" @click="startSession">Start session</AppButton>
       <SpotConfirm
         v-else-if="status === 'locating'"
@@ -422,6 +457,21 @@ const startSession = () => run(() => events.start(props.id))
     </ModalDialog>
     <LocationSheet v-model:open="sheet.open" :which="sheet.which" :home="homeArea" @select="saveLocation" />
   </main>
+  <!-- The person is not in this shared session any more: they left, or the host took them out. -->
+  <main v-else-if="events.gone[props.id]" class="screen" data-testid="session-gone">
+    <div class="screen__body" style="padding-top: var(--spacing-xl)">
+      <EmptyState title="You are not in this session any more" text="You left it, or the host took you out of it.">
+        <AppButton to="/">Back to Home</AppButton>
+      </EmptyState>
+    </div>
+  </main>
+  <main v-else-if="loadError" class="screen" data-testid="session-load-error">
+    <div class="screen__body" style="padding-top: var(--spacing-xl)">
+      <EmptyState title="Could not load this session" :text="loadError" role="alert">
+        <AppButton variant="secondary" @click="load">Retry</AppButton>
+      </EmptyState>
+    </div>
+  </main>
   <main v-else class="screen" data-testid="group-detail-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
       <SkeletonRow v-for="n in 4" :key="n" avatar />
@@ -441,6 +491,8 @@ const startSession = () => run(() => events.start(props.id))
 .lobby__row + .lobby__row { border-top: 1px solid var(--hairline-soft); }
 .lobby__who { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; color: var(--ink); text-decoration: none; }
 @media (hover: hover) { .lobby__who:hover .title-sm { text-decoration: underline; } }
+.lobby__held { margin: 0; }
+@media (min-width: 744px) { .lobby__held { margin-right: auto; max-width: 56ch; } }
 .lobby__tag { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: var(--rounded-full); color: var(--body); font: var(--text-caption); }
 .lobby__tag--host { border-color: color-mix(in srgb, var(--primary) 35%, var(--canvas)); color: var(--primary-active); }
 /* Invited, not joined yet: a dashed tag and a faded row, until they accept. */

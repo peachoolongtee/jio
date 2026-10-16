@@ -174,7 +174,9 @@ api.interceptors.response.use(
       }
       throw new Error(SESSION_ENDED)
     }
-    throw new Error(plannerErrorMessage(err))
+    // The server's own code for a refusal (backend/src/routes/sessions.js sends one), so a caller can word it for the person.
+    const code = err?.response?.data?.error
+    throw Object.assign(new Error(plannerErrorMessage(err)), typeof code === 'string' ? { code, status: err.response.status } : {})
   },
 )
 
@@ -188,6 +190,16 @@ export async function emailRegistered(email) {
   const { data } = await api.post('/api/accounts/email-check', { email: String(email || '').trim() }, { timeout: 5000 })
   if (typeof data?.registered !== 'boolean') throw new Error('The planner sent an answer Jio could not read. Try again later.')
   return data.registered
+}
+
+// A member leaves a session, or the host removes a guest (`personId` is 'me' for leaving, or the guest's user id). The server
+// checks who is asking and who may do what (backend/src/routes/sessions.js) and answers { planVersion, left } or
+// { planVersion, removed }. A refusal arrives as an Error whose `code` is one of session_not_found, host_cannot_leave,
+// host_only, session_closed, member_not_found.
+// How to call: await removeSessionMember('3b1f...', 'me')
+export async function removeSessionMember(sessionId, personId = 'me') {
+  const { data } = await api.delete(`/api/sessions/${encodeURIComponent(sessionId)}/members/${encodeURIComponent(personId)}`, { timeout: 8000 })
+  return data
 }
 
 // The weather the planner used for the last ranking: { source: 'live' | 'simulated' | 'unavailable', simulationIgnored? }.

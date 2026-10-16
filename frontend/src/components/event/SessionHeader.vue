@@ -42,7 +42,8 @@ const status = computed(() => props.session.status)
 const back = computed(() => (props.back ? { label: 'Back', to: props.back } : backFor(props.session, route.fullPath, props.session.hostId === auth.myId, exitFor())))
 // While inviting, the page has its own Invite button, so the header does not repeat it.
 const canInvite = computed(() => ['locating', 'voting'].includes(status.value))
-const canCancel = computed(() => !['completed', 'cancelled'].includes(status.value))
+// Only the host can call a shared session (one kept on the server) off; a guest leaves it instead, from its page.
+const canCancel = computed(() => !['completed', 'cancelled'].includes(status.value) && (!props.session.remote || props.session.hostId === auth.myId))
 
 async function cancelSession() {
   busy.value = true

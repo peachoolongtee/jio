@@ -1,12 +1,14 @@
 <script setup>
 // Sessions: every session the signed-in person is in, upcoming and past.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import SegmentTabs from '@/components/ui/SegmentTabs.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
+import InvitationList from '@/components/event/InvitationList.vue'
 import SessionCard from '@/components/event/SessionCard.vue'
+import { watchSessions } from '@/lib/api.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
@@ -17,7 +19,13 @@ const events = useEventsStore()
 const groups = useGroupsStore()
 const tab = ref('upcoming')
 
-onMounted(() => Promise.all([events.loadSessions(), groups.loadPeople()]))
+// Shared sessions change while this page is open: the list follows. Stops when the page is left.
+let stopWatching = () => {}
+onBeforeUnmount(() => stopWatching())
+onMounted(() => {
+  stopWatching = watchSessions()
+  return Promise.all([events.loadSessions(), groups.loadPeople()])
+})
 
 const isPast = (s) => ['completed', 'cancelled'].includes(s.status)
 const list = computed(() => visibleSessions(events.sessions).filter((s) => (tab.value === 'past' ? isPast(s) : !isPast(s))))
@@ -37,6 +45,7 @@ const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf
       <SegmentTabs v-model="tab" label="Sessions" :tabs="[{ id: 'upcoming', label: 'Upcoming' }, { id: 'past', label: 'Past' }]" />
     </header>
     <div class="screen__body">
+      <InvitationList />
       <div v-if="!events.loaded" class="stack">
         <SkeletonRow v-for="n in 3" :key="n" :lines="3" />
       </div>

@@ -41,6 +41,10 @@ function afterLogin() {
   return next
 }
 
+// The sign-up link keeps the page the person was heading for, so an invite link survives the detour.
+// How to call: signupLink() -> { path: '/signup', query: { next: '/join/q3D9...' } }, or '/signup' with no ?next=
+const signupLink = () => (safeNext(route.query.next) ? { path: '/signup', query: { next: safeNext(route.query.next) } } : '/signup')
+
 // Focus the password again after a failed attempt (it was emptied), or the email when that is what needs fixing.
 // How to call: await refocus('login-password')
 async function refocus(id) {
@@ -113,7 +117,7 @@ async function submit() {
 
     <footer class="screen__footer login__footer">
       <AppButton next block type="submit" form="login-form" :disabled="busy">{{ busy ? 'Logging in' : 'Log in' }}</AppButton>
-      <AppButton variant="tertiary" underline to="/signup" class="login__alt">New to Jio? Sign up</AppButton>
+      <AppButton variant="tertiary" underline :to="signupLink()" class="login__alt">New to Jio? Sign up</AppButton>
     </footer>
   </main>
 </template>

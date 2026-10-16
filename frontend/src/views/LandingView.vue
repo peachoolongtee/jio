@@ -38,6 +38,7 @@ import UserAvatar from '@/components/ui/UserAvatar.vue'
 import PlaceCard from '@/components/event/PlaceCard.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import WeatherSource from '@/components/weather/WeatherSource.vue'
+import InvitationList from '@/components/event/InvitationList.vue'
 import SessionCard from '@/components/event/SessionCard.vue'
 import MeetupDetail from '@/components/home/MeetupDetail.vue'
 import MeetupList from '@/components/home/MeetupList.vue'
@@ -95,7 +96,11 @@ async function loadHome() {
     loadError.value = true
   }
 }
+// Shared sessions change while Home is open (someone joins, a session is called off, an invitation arrives).
+let stopWatching = () => {}
+onBeforeUnmount(() => stopWatching())
 onMounted(() => {
+  stopWatching = api.watchSessions()
   loadHome()
   // The demo's "Simulate rain" switch, which decides what the rain below asks for.
   planner.loadConditions().catch(() => {})
@@ -371,6 +376,10 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <p class="caption text-muted">{{ today }}</p>
         <h1 id="home-hello" class="hello"><span class="hello__hi">Hi,</span> <span class="hello__name">{{ auth.user?.name }}</span></h1>
         <p class="body-md home__blurb">{{ blurb }}</p>
+        <!-- An invitation waiting for an answer: the list is lower down the page, so the band says so and links to it. -->
+        <RouterLink v-if="events.invitations.length" :to="{ query: route.query, hash: '#invitations' }" class="home__invites" data-testid="home-invites">
+          <AppIcon name="user-plus" :size="16" />{{ events.invitations.length === 1 ? 'You have an invitation' : `You have ${events.invitations.length} invitations` }}
+        </RouterLink>
         <!-- Rain within two hours: the map's layer in words, so it does not depend on seeing the map. -->
         <div v-if="rain.view.value" class="home__rain" data-testid="home-rain">
           <p class="home__rain-line caption" role="status"><AppIcon name="rain" :size="16" />{{ rain.view.value.text }}</p>
@@ -393,6 +402,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
     </section>
 
     <div class="screen__body home__body">
+      <InvitationList />
       <BannerNote v-if="missingPlace" tone="warning" icon="warning" dismissible @dismiss="missingPlace = false">That place could not be found.</BannerNote>
       <!-- No meetup going: the ones before. Nothing at all until there is one. -->
       <section v-if="events.loaded && !hasMeetups && past.length" class="section rise" aria-labelledby="home-meetups">
@@ -484,6 +494,8 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 .hero::before { content: ""; position: absolute; inset: 0 auto 0 50%; width: 100vw; transform: translateX(-50%); background: linear-gradient(to bottom, var(--surface-soft) 75%, var(--canvas)); }
 .hero__hello { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xs); padding: 0 var(--gutter); }
 .home__blurb { max-width: 460px; margin: 0; color: var(--body); }
+.home__invites { display: inline-flex; align-items: center; justify-content: center; gap: var(--spacing-xs); min-height: var(--tap-min); padding: var(--spacing-xxs) var(--spacing-base); text-align: center; border: 1px solid var(--ink); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font: var(--text-button-sm); text-decoration: none; }
+@media (hover: hover) { .home__invites:hover { background: var(--surface-soft); } }
 /* Rain within two hours, in words: a line with its icon, and the forecast's source under it. */
 .home__rain { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xxs); max-width: 460px; }
 .home__rain-line { display: inline-flex; align-items: center; justify-content: center; gap: var(--spacing-xs); margin: 0; color: var(--ink); font-weight: 600; }
