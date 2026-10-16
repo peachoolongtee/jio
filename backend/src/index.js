@@ -140,6 +140,18 @@ if (!Number.isInteger(plannerLimitPerMinute) || plannerLimitPerMinute <= 0) {
 }
 const planRateLimit = stub ? null : { windowMs: 60_000, max: plannerLimitPerMinute }
 
+// How many times one signed-in person may leave a session or remove a guest each minute (DELETE /api/sessions/:id/members/:userId).
+// Few real people do either more than a handful of times, so 30 is loose. Stub mode has no limit.
+//
+// How to change it:
+//   SESSION_RATE_LIMIT_PER_MINUTE=10
+const sessionLimitPerMinute = Number(process.env.SESSION_RATE_LIMIT_PER_MINUTE || 30)
+if (!Number.isInteger(sessionLimitPerMinute) || sessionLimitPerMinute <= 0) {
+  console.error('SESSION_RATE_LIMIT_PER_MINUTE must be a whole number above 0.')
+  process.exit(1)
+}
+const sessionRateLimit = stub ? null : { windowMs: 60_000, max: sessionLimitPerMinute }
+
 // Supabase: token checks and database access. All three values are needed. With none of them the server
 // still runs outside production, but the routes that need a login are switched off. With only some of them
 // it refuses to start, because that is a mistake in the settings, not a choice.
@@ -167,7 +179,7 @@ const supabase =
       })
     : null
 
-createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader, linkRateLimit, supabase, allowSimulatedWeather, planRateLimit }).listen(port, () => {
+createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader, linkRateLimit, supabase, allowSimulatedWeather, planRateLimit, sessionRateLimit }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
   if (stub) console.log('Stub mode is ON: external API calls are answered from fixtures.')
   else if (!onemap.routingEnabled) {

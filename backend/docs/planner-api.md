@@ -722,6 +722,28 @@ or `{ "status": "no_other_order", "message", "blockers" }` when no other order f
 | `mrtWalk` | 0 to 120 minutes |
 | `startAt`, `endAt`, a stop's `start` | `startAt` 0 to 1439; `endAt` and `start` 0 to 2880 (minutes after midnight, over 1440 for past midnight) |
 
+## DELETE /api/sessions/:id/members/:userId
+
+Leave a shared session, or (as the host) remove a guest. Not a planner route: it needs a login (`Authorization: Bearer <token>`, see `GET /api/me`) and Supabase to be set up; without them the route does not exist and answers 404. A browser cannot delete a member row itself (the database gives a signed-in user no delete on `session_members`), so the server does it with its own key after checking the caller as the user.
+
+`:userId` is `me` (the caller leaves) or a person's id (the host removes them). `:id` is the session's id. No body.
+
+| Answer | When |
+|---|---|
+| 200 `{ "planVersion": 3, "left": true }` | The caller left. |
+| 200 `{ "planVersion": 3, "removed": true }` | The host removed a guest. |
+| 400 `invalid_input` | `:id` or `:userId` is not a uuid (or `me`). |
+| 401 `unauthenticated`, 503 `auth_unavailable` | The login check, as for every route that needs one. |
+| 403 `host_cannot_leave` | The host asked to leave, or someone asked to remove the host. They cancel the session instead. |
+| 403 `host_only` | A guest asked to remove someone else. |
+| 404 `session_not_found` | No such session, or the caller is not in it (the same answer, so a stranger learns nothing). |
+| 404 `member_not_found` | The person is not in the session (or went a moment ago). |
+| 409 `session_closed` | The session is completed or cancelled. |
+| 409 `session_started` | The session is no longer inviting. For now only a session that is still inviting can be left or taken out of: the database lets a host start one directly, and a person who left it would leave their votes and spot approvals counted. Stage 3 takes those with the member and lifts this. |
+| 429 `rate_limited` | More than `SESSION_RATE_LIMIT_PER_MINUTE` (30) a minute from one person. |
+
+The member's exact place goes with their row (a foreign key). The server then raises `sessions.plan_version` by one, which every remaining member hears as an update of the session row (Realtime), so their screens follow. The version is written only if it is still what the server read (`update ... where plan_version = <read>`), up to four tries, so another write that raised it meanwhile is never moved backwards. This is best effort: if it cannot be raised the answer is still 200, `planVersion` is the last version seen, and the others find out on their next read. Ids are compared without regard to the case of their letters.
+
 ## Limits
 
 Every list and number has an upper limit, so one request cannot keep the server busy. Going over any of them is a 400 naming the field.
