@@ -46,6 +46,7 @@ export const MESSAGES = {
   sign_out_failed: 'Could not log you out of this browser. Check your connection and try again.',
   reset_link_invalid: 'This reset link has expired or has already been used. Ask for a new one.',
   same_password: 'Choose a password different from your old one.',
+  wrong_password: 'Your current password is not right.',
   unknown: 'Something went wrong. Try again.',
 }
 
@@ -336,6 +337,64 @@ export async function requestPasswordReset(email, redirectTo) {
     throw explain(err, 'reset')
   }
   if (result?.error) throw explain(result.error, 'reset')
+}
+
+// Is this the signed-in person's password? Asked before a password is changed from the edit-profile page, by signing in
+// again with it: Supabase's own check, so the password is compared nowhere but on the server. A right password starts a
+// fresh session for the same person, which the app keeps. Resolves true; a wrong one rejects with
+// MESSAGES.wrong_password. The account that signs in must be the one in `userId`: if it is anyone else's (the email on
+// file now belongs to another account), the session this browser held is put back, nothing is changed, and it rejects
+// with MESSAGES.wrong_password too. If the old session cannot be put back, this browser is signed out rather than left
+// holding someone else's.
+// Rejects with: MESSAGES.wrong_password, rate_limited, offline or unknown.
+// How to call: await checkPassword('sam@example.com', 'Sup3rSecret!', user.id)
+export async function checkPassword(email, password, userId) {
+  const c = need()
+  const held = await heldSession(c)
+  let signedIn
+  try {
+    signedIn = await signIn({ email, password })
+  } catch (err) {
+    if (err?.code === 'invalid_credentials') throw problem('wrong_password')
+    throw err
+  }
+  if (!userId || signedIn.user.id !== userId) {
+    await putBack(c, held)
+    throw problem('wrong_password')
+  }
+  return true
+}
+
+// The tokens of the session this browser holds now, to put back later, or null when there is none or it does not answer
+// in time. Never throws.
+// How to call: const held = await heldSession(client)
+async function heldSession(c) {
+  try {
+    const answer = await Promise.race([c.auth.getSession(), pause(timing.confirmMs).then(() => null)])
+    const session = answer?.data?.session
+    return session?.access_token && session?.refresh_token ? { access_token: session.access_token, refresh_token: session.refresh_token } : null
+  } catch {
+    return null
+  }
+}
+
+// Make the session from heldSession the current one again, after a check signed in as somebody else. With nothing to put
+// back, or when putting it back fails, the browser is signed out instead. Never throws.
+// How to call: await putBack(client, held)
+async function putBack(c, held) {
+  try {
+    if (held) {
+      const result = await c.auth.setSession(held)
+      if (!result?.error) return
+    }
+  } catch {
+    // Fall through to signing out.
+  }
+  try {
+    await signOut()
+  } catch {
+    // Nothing more can be done from here.
+  }
 }
 
 // Set a new password for the signed-in person: the one the reset link signed in. The password is sent to Supabase and

@@ -79,10 +79,13 @@ class Node_ {
   get id() {
     return this.attrs.id
   }
-  // A <select> lists its <option>s, which v-model reads to mark the chosen one (the sign-up screen's last question for a
-  // real account is a select).
+  // A <select>'s <option> elements, however deep, which Vue's v-model reads to mark the chosen one (the sign-up screen's
+  // last question for a real account is a select, and so are the edit-profile page's).
   get options() {
-    return this.children.filter((child) => child.tag === 'option')
+    if (this.tag !== 'select') return undefined
+    const found = []
+    walk(this, (n) => n !== this && n.kind === 'el' && n.tag === 'option' && found.push(n))
+    return found
   }
   addEventListener(name, fn) {
     ;(this.listeners[name] ||= []).push(fn)

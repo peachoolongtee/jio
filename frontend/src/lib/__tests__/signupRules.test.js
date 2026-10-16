@@ -134,7 +134,14 @@ describe('the password rule', () => {
     expect(validatePassword(`Aa1!${'\u00e9'.repeat(35)}`)).toBe(MESSAGE)
   })
 
-  it('ticks off each part as typed, and says what a symbol is', () => {
+  it('ticks off each part as typed, and says what a symbol is', async () => {
+    // The checklist draws the first five; the sixth is hidden, and said under the field only when it is broken.
+    const { shownRules, hiddenProblem } = await import('../signupRules.js')
+    expect(shownRules(passwordRules('')).map((r) => r.label)).toEqual(['8 or more characters', 'An uppercase letter', 'A lowercase letter', 'A number', 'A symbol'])
+    expect(hiddenProblem(passwordRules(''), '')).toBe('')
+    expect(hiddenProblem(passwordRules('Abc1!xyz'), 'Abc1!xyz')).toBe('')
+    expect(hiddenProblem(passwordRules(' Abc1!xyz'), ' Abc1!xyz')).toBe('Use 72 characters or fewer, with no space at the start or end and no control characters.')
+    expect(hiddenProblem(passwordRules('Ab1!'.repeat(20)), 'Ab1!'.repeat(20))).toBe('Use 72 characters or fewer, with no space at the start or end and no control characters.')
     expect(passwordRules('a1 ').map((r) => r.ok)).toEqual([false, false, true, true, false, false])
     expect(passwordRules('Abcdefg1').map((r) => r.ok)).toEqual([true, true, true, true, false, true])
     expect(passwordRules('Abc1!xyz').map((r) => r.ok)).toEqual([true, true, true, true, true, true])

@@ -125,6 +125,12 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // Change the password from the edit-profile page, after checking the current one. Rejects with a message fit to show.
+  // How to call: await auth.changeOwnPassword({ current: 'Sup3rSecret!', next: 'N3wSecret!' })
+  async function changeOwnPassword(passwords) {
+    await api.changeOwnPassword(passwords)
+  }
+
   // Leave the "check your email" state, for the sign-up screen's way back to the first question.
   // How to call: auth.dismissConfirmation()
   function dismissConfirmation() {
@@ -235,6 +241,7 @@ export const useAuthStore = defineStore('auth', () => {
     signIn,
     requestPasswordReset,
     changePassword,
+    changeOwnPassword,
     dismissConfirmation,
     signUpAs,
     startOver,

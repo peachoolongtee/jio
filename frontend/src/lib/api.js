@@ -1347,6 +1347,23 @@ export async function changePassword(password) {
   await auth.updatePassword(password)
 }
 
+// Change the signed-in real account's password from the edit-profile page: the current password is checked with
+// Supabase first, and only then is the new one set. The listener for session changes is held off while the check signs
+// the same person in again. Rejects with the messages in lib/auth.js, MESSAGES.wrong_password when the current
+// password is not right, and a plain sentence for a local account, which has no password.
+// How to call: await changeOwnPassword({ current: 'Sup3rSecret!', next: 'N3wSecret!' })
+export async function changeOwnPassword({ current, next }) {
+  await wait(DELAY.write)
+  if (!db.user?.authId) throw new Error('This account lives only in this browser and has no password to change.')
+  acting += 1
+  try {
+    await auth.checkPassword(db.user.email, current, db.user.authId)
+    await auth.updatePassword(next)
+  } finally {
+    acting -= 1
+  }
+}
+
 // What a signed-in person may change on a real account: the name, photo, home area, date of birth and dietary needs. The username
 // and email are not editable.
 const REAL_EDITABLE = ['name', 'photo', 'homeAreaId', 'dob', 'dietary']
