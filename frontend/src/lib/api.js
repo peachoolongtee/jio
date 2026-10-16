@@ -22,6 +22,7 @@ import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './plac
 import * as auth from './auth.js'
 import { bindCurrentUser, currentUserId } from './currentUser.js'
 import { createPeopleSource, isUuid } from './peopleSource.js'
+import { WORDS as SHARING_WORDS, createSessionsRemote } from './sessionsRemote.js'
 import { isLegacyRealSave, remapLegacySave } from './legacySave.js'
 import { cleanDietary } from './signupRules.js'
 import { localAccountsAllowed, projectOrigin } from './supabase.js'
@@ -357,6 +358,125 @@ const people = createPeopleSource({
   timeoutMs: () => auth.timing.peopleMs,
 })
 
+// ── A real account's sessions are on the server ────────────────────────────
+
+// Where a real account's sessions live. `on: true` (the normal case) sends the session functions of a real account to
+// Supabase (lib/sessionsRemote.js). The demo account and local accounts always use the local data layer below. Tests of
+// the local layer for a real account's ids (stage 1) switch it off, through lib/__tests__/authFixture.js.
+// How to call: sharedSessions.on = false (a test of the local layer)
+export const sharedSessions = { on: true }
+
+// The people in each session of this account that is kept on the server, by session id, as last read. A real account's
+// friends are the people it shares a session with (coMemberIds), and a session of the server is not in `db.sessions`.
+const serverMembers = new Map()
+// Raised whenever what was read from the server belongs to another account (the signed-in account changed). A read that began
+// in an earlier epoch is dropped when it answers: it writes into nothing and is shown to nobody.
+let epoch = 0
+
+// Does this call go to the server? A real account, with a Supabase client to ask.
+// How to call: if (onServer()) return remote.list()
+const onServer = () => sharedSessions.on && isReal() && !!auth.dataClient()
+
+// The server's side, built on the Supabase client and the Jio backend (leaving and removing).
+// How to call: await remote.list()
+const remote = createSessionsRemote({
+  client: () => auth.dataClient(),
+  me: () => currentUserId(),
+  backend: { removeMember: (sessionId, personId) => planner.removeSessionMember(sessionId, personId) },
+})
+
+// A session read from the server, completed with the fields that belong to the later stages (where people start, the
+// meeting area, votes, the plan), all empty, so that summary() makes the same shape as for a local session.
+// How to call: summary(fromServer(await remote.get(id)))
+function fromServer(row) {
+  serverMembers.set(row.id, row.members.map((m) => m.id))
+  return { ...row, locations: {}, meeting: null, spots: emptySpots(), prefs: {}, deletedSlots: [], options: {}, votes: {}, plan: null, banner: null, replan: null, photos: [], radius: null }
+}
+
+// Live updates for a real account's sessions. Screens that show sessions call watchSessions() when they appear and the
+// function it returns when they go; one channel serves them all and closes when the last has gone, or when the signed-in
+// account changes. Changes arrive as the same events a local write makes: { type: 'session', sessionId } (read it again),
+// 'session-gone' (the person is no longer in it), 'invitations' and 'resync' (everything may have changed: the channel has
+// just connected, or the tab is back in view).
+let watchers = 0
+let closeChannel = () => {}
+// Is a channel open now? Another watcher joins the one that is.
+let channelOpen = false
+let closing = 0
+const changed = new Map()
+
+// How long the channel stays open after the last screen that watched has gone. Moving from one screen to the next unmounts the
+// old one before the new one is drawn, so the watchers go to none and back in one tick; the channel then simply stays. Tests of
+// the exact moment of closing set it to 0.
+// How to call: sessionsWatch.graceMs = 0
+export const sessionsWatch = { graceMs: 800 }
+
+// Read a session again soon: several events for one session (a member row, the session row and an invite change together) are
+// read once. How to call: readSoon('3b1f...')
+function readSoon(sessionId) {
+  if (changed.has(sessionId)) return
+  changed.set(sessionId, setTimeout(() => {
+    changed.delete(sessionId)
+    broadcast({ type: 'session', sessionId })
+  }, 30))
+}
+
+// How to call: openChannel() (does nothing without watchers, without a real account, or when a channel is already open)
+function openChannel() {
+  if (watchers === 0 || channelOpen || !onServer()) return
+  channelOpen = true
+  const hear = (change) => {
+    if (change.kind === 'session') readSoon(change.sessionId)
+    else if (change.kind === 'member-deleted') {
+      // A delete of any membership anywhere reaches here. Only a session this account knows matters; for any other the answer
+      // is nothing at all: no read, and no "gone" for a session the person was never in.
+      if (!serverMembers.has(change.sessionId)) return
+      if (change.mine) {
+        serverMembers.delete(change.sessionId)
+        broadcast({ type: 'session-gone', sessionId: change.sessionId })
+      } else readSoon(change.sessionId)
+    } else if (change.kind === 'invitations') broadcast({ type: 'invitations' })
+    else if (change.kind === 'resync') broadcast({ type: 'resync' })
+  }
+  const stop = remote.watch(hear)
+  // A tab that comes back into view may have missed what happened: read everything again.
+  const back = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') broadcast({ type: 'resync' })
+  }
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', back)
+  closeChannel = () => {
+    stop()
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', back)
+    for (const timer of changed.values()) clearTimeout(timer)
+    changed.clear()
+    channelOpen = false
+    closeChannel = () => {}
+  }
+}
+
+// Start listening for changes to the sessions on the screen. Returns the function that stops listening. Does nothing for
+// the demo account and local accounts.
+// How to call: onMounted(() => (stop = watchSessions())); onBeforeUnmount(() => stop())
+export function watchSessions() {
+  watchers += 1
+  // Back within the grace time: the channel that is open stays.
+  closing += 1
+  openChannel()
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    watchers -= 1
+    if (watchers > 0) return
+    const mine = ++closing
+    const close = () => {
+      if (watchers === 0 && mine === closing) closeChannel()
+    }
+    if (sessionsWatch.graceMs > 0) setTimeout(close, sessionsWatch.graceMs)
+    else close()
+  }
+}
+
 // A person's name for the screens: the signed-in person's own, a sample person's, a real person's once read, otherwise
 // the neutral "Someone". How to call: nameOf(session.hostId)
 const nameOf = (id) => people.nameOf(id)
@@ -376,7 +496,8 @@ function warmPeople(ids) {
 
 function sessionById(id) {
   const session = db.sessions.find((s) => s.id === id)
-  if (!session) throw new Error('This session does not exist.')
+  if (!session && serverMembers.has(id)) throw new Error(SHARING_WORDS.startHeld)
+  if (!session) throw Object.assign(new Error('This session does not exist.'), { code: 'not_found' })
   settleInvites(session)
   return session
 }
@@ -884,6 +1005,10 @@ function resetSessionState() {
   for (const kept of [tickets, newestRun, commits, waiting]) for (const key of Object.keys(kept)) delete kept[key]
   finding.clear()
   findingSpots.clear()
+  // What was read from the server belongs to the last account, and so does the channel that listens for it.
+  serverMembers.clear()
+  epoch += 1
+  closeChannel()
 }
 
 // An object that is not an array or null. How to call: isPlain({}) -> true
@@ -1066,6 +1191,8 @@ async function adoptAccount(sessionUser, known = null, fetchProfile = true) {
   // A save that cannot be written (storage full or missing) does not stop sign-in: the account works in memory.
   save()
   broadcast({ type: 'user' })
+  // Screens already waiting for live updates get them for the new account.
+  openChannel()
   return account()
 }
 
@@ -1443,6 +1570,7 @@ export async function checkEmail(email) {
 // How to call: coMemberIds() -> ['7f3c...']
 function coMemberIds() {
   const ids = new Set()
+  for (const members of serverMembers.values()) for (const id of members) if (id !== me()) ids.add(id)
   for (const session of db.sessions) for (const m of session.members) if (m.id !== me()) ids.add(m.id)
   return [...ids]
 }
@@ -1815,6 +1943,20 @@ function summary(session, { warm = true } = {}) {
 }
 
 export async function listSessions() {
+  // A real account's sessions are the database's (the ones it is in), newest first.
+  if (onServer()) {
+    const asked = epoch
+    const read = await remote.list()
+    // The account changed while the read was out: what it found belongs to nobody now. It is not kept, not shown, and no
+    // person in it is read from their profile.
+    if (asked !== epoch) return []
+    // The list is every session the account is in, so it also says which it has left or been taken out of.
+    serverMembers.clear()
+    const rows = read.map(fromServer)
+    announceCoMembers()
+    warmPeople(rows.flatMap((s) => s.members.map((m) => m.id)))
+    return rows.map((s) => summary(s, { warm: false }))
+  }
   await wait(DELAY.read)
   db.sessions.forEach((s) => settleInvites(s))
   // One read for every real person in every session, not one per session.
@@ -1823,6 +1965,22 @@ export async function listSessions() {
 }
 
 export async function getSession(id) {
+  if (onServer()) {
+    const asked = epoch
+    let read
+    try {
+      read = await remote.get(id)
+    } catch (err) {
+      // No longer a session this account is in: its people are no longer people it shares a session with.
+      if (err?.code === 'not_found' && asked === epoch) serverMembers.delete(id)
+      throw err
+    }
+    // Read for the account before: not kept, not shown.
+    if (asked !== epoch) throw Object.assign(new Error('That was read for another account.'), { code: 'stale' })
+    const session = summary(fromServer(read))
+    announceCoMembers()
+    return session
+  }
   await wait(DELAY.read)
   return summary(sessionById(id))
 }
@@ -1831,6 +1989,12 @@ export async function getSession(id) {
 // signed-in person already a guest in it (the demo's showcase uses it to show a session the person does not run).
 // How to call: await createSession({ title: 'Dinner', date: '2026-10-17', start: '18:00', end: '21:00', hostId: 'darius' })
 export async function createSession({ title, date, start, end, hostId = me() }) {
+  if (onServer()) {
+    requireMe(undefined, 'Log in to create a session.')
+    const session = summary(fromServer(await remote.create(checkSessionFields({ title, date, start, end }))))
+    broadcast({ type: 'session', sessionId: session.id })
+    return session
+  }
   await wait(DELAY.write)
   requireMe(undefined, 'Log in to create a session.')
   if (hostId !== me() && !personById(hostId)) throw new Error('This person does not exist.')
@@ -1886,6 +2050,11 @@ function checkSessionFields({ title, date, start, end }) {
 // else on the session changes. Checked like the create form (checkSessionFields).
 // How to call: await updateSession('s1', { title: 'Dinner', date: '2026-10-17', start: '18:00', end: '21:00' })
 export async function updateSession(id, fields) {
+  if (onServer()) {
+    const session = summary(fromServer(await remote.update(id, checkSessionFields(fields))))
+    broadcast({ type: 'session', sessionId: id })
+    return session
+  }
   await wait(DELAY.write)
   requireMe()
   const session = sessionById(id)
@@ -1902,6 +2071,8 @@ export async function updateSession(id, fields) {
 // no timer; the invite is accepted by the first read after it passes. The demo's showcase uses it to leave invites pending.
 // How to call: await inviteFriends('s1', ['faith'], { pending: true, acceptAfter: 7 * 24 * 60 * 60 * 1000 })
 export async function inviteFriends(id, personIds, { pending = false, acceptAfter = ACCEPT_AFTER } = {}) {
+  // A real account invites with a link or a username (inviteByUsername), never by picking sample friends.
+  if (onServer()) throw new Error('Invite people with a link or their username.')
   await wait(DELAY.write)
   const session = sessionById(id)
   let at = Date.now() + acceptAfter
@@ -1926,6 +2097,8 @@ export async function inviteFriends(id, personIds, { pending = false, acceptAfte
 }
 
 export async function startSession(id) {
+  // Held for a session on the server until locations and the rest are on it too (see sessionsRemote.js).
+  if (onServer()) return remote.start(id)
   await wait(DELAY.write)
   const session = sessionById(id)
   if (activeIds(session).length < 2) throw new Error('A session needs at least 2 people.')
@@ -2165,6 +2338,11 @@ export async function dismissBanner(id) {
 }
 
 export async function cancelSession(id) {
+  if (onServer()) {
+    const session = summary(fromServer(await remote.cancel(id)))
+    broadcast({ type: 'session', sessionId: id })
+    return session
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   if (session.status === 'completed') throw new Error('A completed session cannot be cancelled.')
@@ -2172,6 +2350,109 @@ export async function cancelSession(id) {
   session.replan = null
   clearProposals(session)
   return touch(session, 'session')
+}
+
+// ── A shared session: invite links, invitations, joining, leaving ───────────
+
+// Is there a server to share through? False for a copy of the app with no Supabase project (local accounts only), where a
+// link cannot work. How to call: if (!sharingAvailable()) showNote()
+export const sharingAvailable = () => auth.configured()
+
+// The invite functions are for a real account's session on the server. For the demo account and local accounts, whose data is the
+// sample person's, they send nothing anywhere: they say what to do.
+// How to call: needServer() (throws unless a real account is signed in)
+function needServer() {
+  if (!onServer()) throw new Error(SHARING_WORDS.needsAccount)
+}
+
+// The session's invite link as the host sees it, or null when it has none: { token, path, expiresAt, expired }. `path` is
+// the in-app address, "/join/<token>"; a screen adds its own origin to make the link to share.
+// How to call: const link = await getInviteLink('3b1f...')
+export async function getInviteLink(id) {
+  needServer()
+  const link = await remote.currentLink(id)
+  return link && { ...link, path: `/join/${link.token}` }
+}
+
+// Make the link (or return the live one). How to call: const link = await makeInviteLink('3b1f...')
+export async function makeInviteLink(id) {
+  needServer()
+  const link = await remote.makeLink(id)
+  return { ...link, path: `/join/${link.token}` }
+}
+
+// Turn the link off. How to call: await revokeInviteLink('3b1f...')
+export async function revokeInviteLink(id) {
+  needServer()
+  await remote.revoke(id)
+}
+
+// The person with exactly this username, as { id, name, username, avatarUrl }, or null. Rejects with a sentence for text
+// that cannot be a username. How to call: const person = await findByUsername('@kim_2')
+export async function findByUsername(text) {
+  needServer()
+  return remote.findPerson(text)
+}
+
+// The host invites a person by id; they see it on Home. Resolves with the session as it is then.
+// How to call: await inviteByUsername('3b1f...', '7f3c...')
+export async function inviteByUsername(id, personId) {
+  needServer()
+  await remote.invitePerson(id, personId)
+  warmPeople([personId])
+  const session = await getSession(id)
+  broadcast({ type: 'session', sessionId: id })
+  return session
+}
+
+// What an invite link leads to, for anyone (signed in or not): { title, date, start, end, hostName }, or null when the link
+// does not work. Rejects with a sentence when the server cannot be reached.
+// How to call: const preview = await previewInvite(token)
+export async function previewInvite(token) {
+  return remote.preview(token)
+}
+
+// Join with a link or a personal invitation. Resolves with { sessionId, already }. Rejects with a sentence that says why not.
+// How to call: const { sessionId } = await joinWithLink(token)
+export async function joinWithLink(token) {
+  if (!isReal()) throw new Error(sharingAvailable() ? 'Log in with a Jio account to join.' : SHARING_WORDS.offline)
+  const joined = await remote.join(token)
+  broadcast({ type: 'session', sessionId: joined.sessionId })
+  return joined
+}
+
+// The invitations addressed to the signed-in person that are still open, newest first. An answer read for the account before
+// is dropped (an empty list). How to call: const list = await listInvitations()
+export async function listInvitations() {
+  if (!onServer()) return []
+  const asked = epoch
+  const list = await remote.invitations()
+  return asked === epoch ? list : []
+}
+
+// Say no to an invitation. How to call: await declineInvitation(token)
+export async function declineInvitation(token) {
+  needServer()
+  await remote.decline(token)
+  broadcast({ type: 'invitations' })
+}
+
+// The signed-in person leaves a session of the server (their member row goes), and it is no longer one they share. Resolves
+// when it is done. How to call: await leaveSession('3b1f...')
+export async function leaveSession(id) {
+  needServer()
+  await remote.removeMember(id, 'me')
+  serverMembers.delete(id)
+  broadcast({ type: 'session-gone', sessionId: id })
+}
+
+// The host removes a guest from a session of the server. The session is read again, so the guest is no longer someone the
+// account shares it with. How to call: await removeFromSession('3b1f...', '7f3c...')
+export async function removeFromSession(id, personId) {
+  needServer()
+  await remote.removeMember(id, personId)
+  broadcast({ type: 'session', sessionId: id })
+  return getSession(id)
 }
 
 // ── Step 6: categories, timing, suggestions and votes ──────────────────────

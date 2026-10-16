@@ -8,9 +8,13 @@ export { fakeSupabase }
 
 // Fresh copies of api.js and auth.js on top of the given storage and the stand-in client, as if the page had just
 // loaded. Without `fake`, Supabase is not set up (the test runner never sets it up itself).
+// A real account's sessions are on the server (lib/sessionsRemote.js), which the stage 1 tests of the local data layer for a
+// real account's ids are not about, so they run with that switched off. A test of the shared sessions asks for it:
+// `boot(fake, {}, { shared: true })`.
 // How to call: const { api, auth, storage } = await boot(fake, { data: previous.storage.store })
-export async function boot(fake = null, storageOptions = {}) {
+export async function boot(fake = null, storageOptions = {}, { shared = false } = {}) {
   const loaded = await loadApi(storageOptions)
+  loaded.sharedSessions.on = shared
   const auth = await import('../auth.js')
   auth.useClient(fake ? fake.client : null)
   return { api: loaded, auth, storage: loaded.storage }

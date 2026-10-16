@@ -22,6 +22,17 @@ if (mustRefuse()) {
   console.error('Jio: this build has the demo tour (VITE_DEMO_TOUR=1) but not local accounts. The tour needs them: set VITE_ALLOW_LOCAL_ACCOUNTS=1 as well (see frontend/.env.example) and build again.')
   createApp(UnavailableView).mount('#app')
 } else {
+  // Not top-level await, which the build target may not allow: the app starts from a function.
+  startApp()
+}
+
+// How to call: startApp() (builds the app and mounts it)
+async function startApp() {
+  // Development only: a script that drives several browsers at one stand-in database hands it over before the app starts.
+  if (import.meta.env.DEV && globalThis.__jioStandInDatabase) {
+    const { installForSharedDatabase } = await import('./components/dev/madeUpAccount.js')
+    installForSharedDatabase()
+  }
   const pinia = createPinia()
   const app = createApp(App).use(pinia).use(router)
   const start = () => app.mount('#app')

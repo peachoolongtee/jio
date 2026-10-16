@@ -19,6 +19,11 @@ export const useEventsStore = defineStore('events', () => {
   // Photos by session, loaded with loadPhotos: a session summary carries only photoCount.
   const photos = ref({})
   const loaded = ref(false)
+  // A real account's open invitations by name (lib/api.js listInvitations), newest first, and whether they were asked for.
+  const invitations = ref([])
+  const invitationsLoaded = ref(false)
+  // Sessions the signed-in person is no longer in (they left, or the host removed them), by id. A screen on one shows that.
+  const gone = ref({})
   const seq = {}
   const itinerarySeq = {}
   const photoSeq = {}
@@ -41,6 +46,10 @@ export const useEventsStore = defineStore('events', () => {
   })
 
   function put(session) {
+    if (gone.value[session.id]) {
+      const { [session.id]: _back, ...rest } = gone.value
+      gone.value = rest
+    }
     byId.value = { ...byId.value, [session.id]: session }
     const i = sessions.value.findIndex((s) => s.id === session.id)
     if (i === -1) sessions.value = [session, ...sessions.value]
@@ -48,11 +57,66 @@ export const useEventsStore = defineStore('events', () => {
     return session
   }
 
+  // Only the newest read of the list applies, and none that began before the account changed (forgetSessions raises the count).
+  // How to call: await loadSessions()
+  let listSeq = 0
   async function loadSessions() {
-    sessions.value = await api.listSessions()
+    const ticket = ++listSeq
+    // The sessions held when the read began: one of them that the list no longer has is one the person has left or been taken
+    // out of (a session made after the read began is not counted).
+    const held = Object.keys(byId.value)
+    const list = await api.listSessions()
+    if (ticket !== listSeq) return
+    sessions.value = list
     byId.value = Object.fromEntries(sessions.value.map((s) => [s.id, s]))
     loaded.value = true
+    for (const id of held) if (!byId.value[id]) gone.value = { ...gone.value, [id]: true }
   }
+
+  // The invitations to this person that are still open. How to call: await loadInvitations()
+  let inviteSeq = 0
+  async function loadInvitations() {
+    const ticket = ++inviteSeq
+    const list = await api.listInvitations()
+    if (ticket !== inviteSeq) return
+    invitations.value = list
+    invitationsLoaded.value = true
+  }
+
+  // Take a session out of what the store holds and say the person is not in it any more. Only a session the store holds can be
+  // gone: for any other id, which the person was never in, nothing happens.
+  // How to call: dropSession('3b1f...')
+  function dropSession(id) {
+    if (!byId.value[id] && !sessions.value.some((s) => s.id === id)) return
+    markGone(id)
+  }
+  // How to call: markGone('3b1f...') (for a session that was held a moment ago)
+  function markGone(id) {
+    sessions.value = sessions.value.filter((s) => s.id !== id)
+    const { [id]: _was, ...rest } = byId.value
+    byId.value = rest
+    gone.value = { ...gone.value, [id]: true }
+  }
+
+  // The invitation is answered: accepting joins the session and puts it in the list; declining only removes the invitation.
+  // How to call: await acceptInvitation(invitation) -> the session joined
+  async function acceptInvitation(invitation) {
+    const { sessionId } = await api.joinWithLink(invitation.token)
+    invitations.value = invitations.value.filter((i) => i.token !== invitation.token)
+    return loadSession(sessionId)
+  }
+  // How to call: await declineInvitation(invitation)
+  async function declineInvitation(invitation) {
+    await api.declineInvitation(invitation.token)
+    invitations.value = invitations.value.filter((i) => i.token !== invitation.token)
+  }
+
+  // The signed-in person leaves a shared session, and the host removes a guest. How to call: await leave('3b1f...')
+  async function leave(id) {
+    await api.leaveSession(id)
+    dropSession(id)
+  }
+
 
   // Only the newest answer for a session is kept, so quick live updates never show older data.
   async function loadSession(id) {
@@ -81,6 +145,11 @@ export const useEventsStore = defineStore('events', () => {
   }
 
   const act = (fn) => async (id, ...args) => put(await fn(id, ...args))
+
+  // The host removes a guest from a shared session, and invites a person by username (the session comes back with them as
+  // invited). How to call: await removeGuest('3b1f...', '7f3c...'), await inviteByUsername('3b1f...', '7f3c...')
+  const removeGuest = act(api.removeFromSession)
+  const inviteByUsername = act(api.inviteByUsername)
 
   const create = async (data) => put(await api.createSession(data))
   // The host changes the title, day and times while the session is still inviting. How to call: update('s1', { title, date, start, end })
@@ -249,11 +318,17 @@ export const useEventsStore = defineStore('events', () => {
   // How to call: forgetSessions({ list: true }) (when the signed-in person changes)
   function forgetSessions({ list = false } = {}) {
     for (const tickets of [seq, itinerarySeq, photoSeq, orderSeq]) for (const id of Object.keys(tickets)) tickets[id] += 1
+    // A read of the list or of the invitations still out belongs to the account before.
+    listSeq += 1
+    inviteSeq += 1
     for (const id of Object.keys(orderPending)) delete orderPending[id]
     if (list) {
       sessions.value = []
       byId.value = {}
       loaded.value = false
+      invitations.value = []
+      invitationsLoaded.value = false
+      gone.value = {}
     }
     for (const tickets of [checkSeq, swapSeq]) for (const key of Object.keys(tickets)) tickets[key] += 1
     itineraries.value = {}
@@ -277,14 +352,43 @@ export const useEventsStore = defineStore('events', () => {
       await loadSessions()
       return
     }
+    // The person is no longer in this session.
+    if (event.type === 'session-gone') {
+      dropSession(event.sessionId)
+      return
+    }
+    // The channel connected, or the tab came back into view: anything may have changed while nobody listened.
+    if (event.type === 'resync') {
+      // Every session the store holds is read again, not only the list: a page opened by its address, or by joining, is held
+      // without the list ever being loaded. One that is no longer there (the person left or was removed meanwhile) is gone.
+      const held = Object.keys(byId.value)
+      if (loaded.value) await loadSessions().catch(() => {})
+      await Promise.all(
+        held
+          .filter((id) => !loaded.value || !byId.value[id])
+          .map((id) =>
+            loadSession(id).catch((err) => {
+              if (err?.code === 'not_found') markGone(id)
+            }),
+          ),
+      )
+      if (invitationsLoaded.value) await loadInvitations().catch(() => {})
+      return
+    }
+    if (event.type === 'invitations') {
+      if (invitationsLoaded.value) await loadInvitations().catch(() => {})
+      return
+    }
     if (event.sessionId) {
       try {
         await loadSession(event.sessionId)
         if (itineraries.value[event.sessionId] !== undefined) await loadItinerary(event.sessionId)
         if (event.type === 'photos' && photos.value[event.sessionId] !== undefined) await loadPhotos(event.sessionId)
-      } catch {
-        // The session is not there any more (the person changed or signed out since the write): nothing to refresh, and no
-        // screen is waiting on this live update to report it to.
+      } catch (err) {
+        // A shared session the person is not in any more (they left, or the host removed them) is dropped, and a screen on
+        // it says so. Otherwise the session is not there any more (the person changed or signed out since the write):
+        // nothing to refresh, and no screen is waiting on this live update to report it to.
+        if (err?.code === 'not_found') dropSession(event.sessionId)
       }
     }
     // 'people': a real person's profile was read, so the names on every session may have changed.
@@ -292,7 +396,8 @@ export const useEventsStore = defineStore('events', () => {
   })
 
   return {
-    sessions, byId, itineraries, photos, loaded, current, weatherChecks, rainSwaps,
+    sessions, byId, itineraries, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
+    loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, dropSession,
     loadSessions, loadSession, loadItinerary, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
     create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
   }

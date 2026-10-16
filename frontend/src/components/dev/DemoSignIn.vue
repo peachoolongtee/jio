@@ -9,14 +9,16 @@
 // "Use a made-up real account" (only when Supabase is set up) signs up through the real path against a stand-in for the
 // Supabase client (madeUpAccount.js), so a real account's screens can be walked with no project contacted.
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppButton from '../ui/AppButton.vue'
+import { safeNext } from '@/router/guard.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { DEMO_ACCOUNT } from './demoAccount.js'
 import { loadShowcase } from './showcase.js'
 import { useTourStore } from '@/tour/store.js'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const tour = useTourStore()
 
@@ -39,7 +41,8 @@ async function enter(kind) {
     if (kind === 'madeup') {
       const { signUpAsMadeUp } = await import('./madeUpAccount.js')
       await signUpAsMadeUp(auth)
-      router.replace('/')
+      // A made-up account that came from an invite link goes back to it, as a real sign-up does.
+      router.replace(safeNext(route.query.next) || '/')
       return
     }
     await auth.signUpAs(DEMO_ACCOUNT)

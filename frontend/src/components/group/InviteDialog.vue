@@ -4,11 +4,15 @@
 //   <InviteDialog v-model:open="inviteOpen" :session="session" />
 // A search box, then friends (and, when searching, other people on Jio) who are not in the session yet, each
 // picked with a tap. At the bottom: how many are picked and Send invites. Invites are pending until each accepts.
+// A shared session (session.remote, a real account's) has no friends to pick: the popover holds the invite link and the
+// invite by username instead (ShareLink, InviteByUsername).
 import { computed, nextTick, ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import PopoverPanel from '../ui/PopoverPanel.vue'
 import UserAvatar from '../ui/UserAvatar.vue'
+import InviteByUsername from './InviteByUsername.vue'
+import ShareLink from './ShareLink.vue'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 
@@ -73,6 +77,12 @@ async function send() {
 
 <template>
   <PopoverPanel v-model:open="open" title="Invite friends" :width="380">
+    <template v-if="session.remote">
+      <ShareLink compact :session-id="session.id" :title="session.title" />
+      <InviteByUsername :session="session" />
+      <AppButton variant="tertiary" underline :to="`/sessions/${session.id}/invite`">All invite options</AppButton>
+    </template>
+    <template v-else>
     <p class="body-sm text-muted">They join {{ session.title }} once they accept.</p>
     <label class="invite__field">
       <AppIcon name="search" :size="16" />
@@ -97,8 +107,9 @@ async function send() {
       </ul>
     </section>
     <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
+    </template>
 
-    <template #footer>
+    <template v-if="!session.remote" #footer>
       <span class="caption text-muted tnum invite__count" aria-live="polite">{{ picked.length ? `${picked.length} selected` : '' }}</span>
       <AppButton small :disabled="!picked.length || busy" @click="send">Send invites</AppButton>
     </template>
