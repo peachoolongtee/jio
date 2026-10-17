@@ -1,5 +1,7 @@
 import { Router } from 'express'
 import { ZodError } from 'zod'
+import { loadCompletedGroupHistory } from '../db/session-history.js'
+import { requireUser } from '../middleware/auth.js'
 import { converge, meetingArea, meetingAreaPlan, resolveMembers, roam, searchVenues } from '../planner/engine.js'
 import { fromGooglePlaces } from '../planner/google-adapter.js'
 import { centroid, fairnessWeights, haversineKm, minimaxCenter } from '../planner/geo.js'
@@ -145,6 +147,7 @@ function startDeadline(ms) {
 
 export function createPlanRouter({
   data,
+  supabase = null,
   weather,
   now = Date.now,
   weatherResolver = createWeatherResolver({ data, weather, now }),
@@ -157,6 +160,14 @@ export function createPlanRouter({
 }) {
   const schemas = makePlanSchemas(data)
   const router = Router()
+
+  // A session id opts into authenticated, group-specific history. Requests without one keep the existing stateless
+  // planner behavior. The browser never supplies visit records or the group key itself.
+  const sessionHistoryAuth = (req, res, next) => {
+    if (!req.body?.sessionId) return next()
+    if (!supabase) return res.status(503).json({ error: 'supabase_unavailable', message: 'Session history is not available right now.' })
+    return requireUser({ supabase })(req, res, next)
+  }
 
   // Stub mode only (Playwright): the x-jio-scenario header picks whether routing fails. The weather scenario
   // reaches the forecast through the HTTP helper, so it needs nothing here. Outside stub mode currentScenario()
@@ -472,24 +483,38 @@ export function createPlanRouter({
   //   router.post('/converge', handle(schemas.converge, converge, { usesWeather: true, usesTravel: true }))
   const handle = (schema, run, { usesWeather = false, usesTravel = false, travelOptions = {} } = {}) => async (req, res, next) => {
     try {
-      const input = schema.parse(req.body ?? {})
+      let input = schema.parse(req.body ?? {})
+      let planData = data
+      if (input.sessionId) {
+        const history = await loadCompletedGroupHistory({
+          supabase,
+          userClient: req.supabase,
+          sessionId: input.sessionId,
+          userId: req.user.id,
+          today: input.dateTime.slice(0, 10),
+        })
+        if (history.notFound) return res.status(404).json({ error: 'session_not_found', message: 'This session does not exist, or you are not in it.' })
+        input = { ...input, groupId: history.groupId }
+        planData = { ...data, visitHistory: history.visitHistory }
+      }
       if (!usesWeather) {
         if (!usesTravel) {
-          res.json(await run(input, data, depsFor()))
+          res.json(await run(input, planData, depsFor()))
           return
         }
-        const { result, travel } = await runWithTravel(input, data, run, travelOptions)
+        const { result, travel } = await runWithTravel(input, planData, run, travelOptions)
         res.json({ ...result, travel })
         return
       }
       // A simulated forecast the server does not allow is dropped, and the answer says so.
       const simulationIgnored = input.weatherCase !== undefined && !allowSimulatedWeather
       const resolved = await resolveWeather(simulationIgnored ? { ...input, weatherCase: undefined } : input)
-      const { weatherCase, planData: weatherData, weather: weatherBlock } = resolved
-      const { planData, google } = await addGoogle(input, weatherData, resolved)
+      const { weatherCase, planData: resolvedWeatherData, weather: weatherBlock } = resolved
+      const weatherData = input.sessionId ? { ...resolvedWeatherData, visitHistory: planData.visitHistory } : resolvedWeatherData
+      const { planData: rankedData, google } = await addGoogle(input, weatherData, resolved)
       const { result, travel } = usesTravel
-        ? await runWithTravel(withOptionCounts({ ...input, weatherCase }), planData, run, travelOptions)
-        : { result: await run(withOptionCounts({ ...input, weatherCase }), planData, depsFor()) }
+        ? await runWithTravel(withOptionCounts({ ...input, weatherCase }), rankedData, run, travelOptions)
+        : { result: await run(withOptionCounts({ ...input, weatherCase }), rankedData, depsFor()) }
       res.json({
         ...result,
         ...(travel && { travel }),
@@ -535,8 +560,8 @@ export function createPlanRouter({
     ...guard,
     handle(schemas.meetingArea, meetingAreaWithRouting, { usesTravel: true, travelOptions: meetingAreaTravelFor }),
   )
-  router.post('/converge', ...guard, handle(schemas.converge, converge, { usesWeather: true, usesTravel: true }))
-  router.post('/roam', ...guard, handle(schemas.roam, roam, { usesWeather: true, usesTravel: true }))
+  router.post('/converge', ...guard, sessionHistoryAuth, handle(schemas.converge, converge, { usesWeather: true, usesTravel: true }))
+  router.post('/roam', ...guard, sessionHistoryAuth, handle(schemas.roam, roam, { usesWeather: true, usesTravel: true }))
   router.post('/search', ...guard, handle(schemas.search, searchEverywhere))
 
   // A new order for a confirmed itinerary. Food stops keep their place, so meals stay at meal times; the other

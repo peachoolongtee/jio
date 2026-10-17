@@ -14,6 +14,12 @@ Base URL: `VITE_API_BASE_URL` (locally `http://localhost:3000`). Every request a
 
 Travel times are real OneMap public transport times once the server has a OneMap account (`ONEMAP_EMAIL`, `ONEMAP_PASSWORD`), and the engine's estimate until then. Every answer says which it used: see [Travel times](#travel-times). Weather: see [Weather](#weather).
 
+For authenticated recommendations based on a Supabase session, `/api/converge` and `/api/roam` also accept `sessionId`. Send the session's UUID and the caller's Supabase access token. The backend ignores any caller-supplied `groupId`, verifies membership, and uses completed stops from sessions with the exact same joined-member roster, dated within the prior 60 days. Requests without `sessionId` remain stateless and do not read session history.
+
+When an outing actually ends, a session member can save the completed stops with `POST /api/sessions/:id/complete`. The request is authenticated and the database marks the session completed while saving its stops in one transaction. Apply migration `db/migrations/20261017000000_jio_completed_session_stops.sql` first (or use the updated `db/schema.sql` and `db/policies.sql` when building a fresh database).
+
+The current frontend still holds the Supabase session workflow before the planning stage (`sessionsRemote.start()` returns `startHeld`), so this data path is not yet exercised by the normal UI. The frontend request helpers now carry the session id and can save completion, but the remote session planning flow must be enabled and connected to them before real outings can populate `stops` from the app.
+
 ## How it fits the frontend's slot flow
 
 1. Everyone sets a start point. Call `/api/meeting-area` with the members. Show `area.name` on the map and `worstMinutes` in the result line.

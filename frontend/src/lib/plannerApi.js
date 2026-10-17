@@ -284,7 +284,7 @@ export async function meetingArea({ members, routing = true, alternatives, inclu
 // weather: what the planner used, { source: 'live' | 'simulated' | 'unavailable', simulationIgnored? }.
 // The weather case is only sent while the demo rain switch is on; otherwise the planner uses the live forecast.
 // few: { found, widenToKm } when fewer than 3 places fit inside the search radius.
-export async function rankSlot({ members, centre, date, slot, lastStop, currentOptionIds = [], conditions = {}, radiusMeters, topN }) {
+export async function rankSlot({ members, centre, date, slot, lastStop, currentOptionIds = [], conditions = {}, radiusMeters, topN, sessionId }) {
   const { data } = await api.post('/api/converge', {
     members,
     occasion: DEFAULT_OCCASION,
@@ -294,6 +294,7 @@ export async function rankSlot({ members, centre, date, slot, lastStop, currentO
     centre: point(centre),
     lastStop,
     currentOptionIds,
+    ...(sessionId ? { sessionId } : {}),
     ...(conditions.rain ? { weatherCase: 'rain' } : {}),
     unknownPolicy: UNKNOWN_POLICY,
     radiusMeters,
@@ -332,7 +333,7 @@ function toRoamPlace(r, block = null) {
 // Returns { places (best first, each as a voting-page card plus id, travelMinutes, distanceKm, distanceM), empty (the
 // planner's answer when nothing fits, else null), widened, weather }.
 // How to call: await roamNearby({ members: [{ id: 'ian' }], current: { lat: 1.35, lng: 103.85 }, date: '2026-10-11', time: '15:00', minutes: 60 })
-export async function roamNearby({ members, current, date, time, minutes, categories, conditions = {}, topN }) {
+export async function roamNearby({ members, current, date, time, minutes, categories, conditions = {}, topN, sessionId }) {
   const { data } = await api.post(
     '/api/roam',
     {
@@ -345,6 +346,7 @@ export async function roamNearby({ members, current, date, time, minutes, catego
       ...(conditions.rain ? { weatherCase: 'rain' } : {}),
       unknownPolicy: UNKNOWN_POLICY,
       topN,
+      ...(sessionId ? { sessionId } : {}),
     },
     { timeout: ROAM_TIMEOUT_MS },
   )
@@ -353,6 +355,21 @@ export async function roamNearby({ members, current, date, time, minutes, catego
   if (data.status !== 'ok') return { places: [], empty: data, widened: false, weather }
   if (!Array.isArray(data.results)) throw new Error(notJsonMessage())
   return { places: data.results.map((r) => toRoamPlace(r, weather)), empty: null, widened: !!data.notice, weather }
+}
+
+// Save the itinerary the group actually completed. This endpoint requires an authenticated session member.
+// Stops use planner IDs and minutes after midnight; the backend stores no venue ratings.
+export async function completeSession(sessionId, stops) {
+  const { data } = await api.post(`/api/sessions/${encodeURIComponent(sessionId)}/complete`, {
+    stops: stops.map((stop) => ({
+      category: stop.category,
+      venueId: stop.venueId,
+      plannedStartMinute: stop.plannedStartMinute ?? stop.plannedStart,
+      durationMinutes: stop.durationMinutes ?? stop.duration,
+      ...((stop.notBeforeMinute ?? stop.notBefore) !== undefined ? { notBeforeMinute: stop.notBeforeMinute ?? stop.notBefore } : {}),
+    })),
+  })
+  return data
 }
 
 // The weather at each stop of a plan, from the planner (POST /api/weather/stops): the itinerary asks when it opens on its day and

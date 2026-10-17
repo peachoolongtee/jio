@@ -58,6 +58,7 @@ const point = z.object({
 const dateTime = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/, 'use local time as YYYY-MM-DDTHH:MM, e.g. 2026-10-10T19:00')
+const sessionId = z.string().uuid().optional()
 
 // Lowercased first, so "Halal" from a form still means halal instead of rejecting every venue.
 const diet = z.string().transform((s) => s.toLowerCase()).pipe(z.enum(['halal', 'vegetarian', 'vegan']))
@@ -151,6 +152,7 @@ export function makePlanSchemas(data) {
     .object({
       ...groupFields,
       ...rankFields,
+      sessionId,
       centre: point.optional(),
       seed: z.enum(['weighted_centroid', 'centroid', 'minimax']).optional(),
       lastStop: z.boolean().default(false),
@@ -167,6 +169,7 @@ export function makePlanSchemas(data) {
 
   const roam = z.object({
     ...rankFields,
+    sessionId,
     current: point,
     members: z.array(roamMember).min(1).max(MAX.members).refine(uniqueIds, 'member ids must be unique'),
     weights: weightsFor(ROAM_FACTORS),

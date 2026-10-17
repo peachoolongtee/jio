@@ -118,6 +118,7 @@ export function createApp({
     '/api',
     createPlanRouter({
       data: planData,
+      supabase,
       weather,
       weatherResolver,
       onemap,

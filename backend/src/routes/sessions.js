@@ -34,6 +34,14 @@ import { requireUser } from '../middleware/auth.js'
 
 const uuid = z.string().uuid()
 const target = z.union([z.literal('me'), uuid])
+const completedStop = z.object({
+  category: z.enum(['eat', 'drink', 'shop', 'activity']),
+  venueId: z.string().min(1).max(80),
+  plannedStartMinute: z.number().int().min(0).max(1439),
+  durationMinutes: z.number().int().min(1).max(720),
+  notBeforeMinute: z.number().int().min(0).max(1439).nullable().optional(),
+})
+const completion = z.object({ stops: z.array(completedStop).min(1).max(8) })
 
 // How many times the version is read and written again when another write got in between.
 const BUMP_TRIES = 4
@@ -77,6 +85,60 @@ async function raiseVersion(service, sessionId, firstSeen) {
 //   const router = createSessionsRouter({ supabase, limiter: rateLimit({ windowMs: 60_000, max: 60 }) })
 export function createSessionsRouter({ supabase, limiter = null }) {
   const router = Router()
+
+  // Persist the places an authenticated member says the group actually completed. The database function writes
+  // all stops and marks the session completed in one transaction, so a retry cannot leave half a history record.
+  router.post('/sessions/:id/complete', requireUser({ supabase }), ...(limiter ? [limiter] : []), async (req, res, next) => {
+    try {
+      const id = uuid.safeParse(req.params.id)
+      const input = completion.safeParse(req.body ?? {})
+      if (!id.success || !input.success) {
+        return refuse(res, 400, 'invalid_input', 'Send a session id and between 1 and 8 completed stops.')
+      }
+
+      const { data: session, error: sessionError } = await req.supabase
+        .from('sessions')
+        .select('id, status')
+        .eq('id', id.data)
+        .maybeSingle()
+      if (sessionError) throw new Error(`Could not load the session: ${sessionError.message}`)
+      if (!session) return refuse(res, 404, 'session_not_found', 'This session does not exist, or you are not in it.')
+
+      const { data: members, error: membersError } = await req.supabase
+        .from('session_members')
+        .select('user_id, state')
+        .eq('session_id', id.data)
+      if (membersError) throw new Error(`Could not load the session members: ${membersError.message}`)
+      if (!members?.some((m) => m.user_id.toLowerCase() === req.user.id.toLowerCase() && m.state === 'joined')) {
+        return refuse(res, 404, 'session_not_found', 'This session does not exist, or you are not in it.')
+      }
+      if (session.status !== 'confirmed' && session.status !== 'completed') {
+        return refuse(res, 409, 'session_not_confirmed', 'Only a confirmed outing can be completed.')
+      }
+      if (session.status === 'completed') return res.json({ completed: true, stopsSaved: 0, alreadyCompleted: true })
+
+      const { error } = await supabase.service.rpc('complete_session_with_stops', {
+        p_session_id: id.data,
+        p_stops: input.data.stops.map((stop, seq) => ({
+          seq,
+          category: stop.category,
+          venue_id: stop.venueId,
+          planned_start_minute: stop.plannedStartMinute,
+          duration_minutes: stop.durationMinutes,
+          not_before_minute: stop.notBeforeMinute ?? null,
+        })),
+      })
+      if (error) {
+        if (error.message?.includes('session is not confirmed')) {
+          return refuse(res, 409, 'session_not_confirmed', 'Only a confirmed outing can be completed.')
+        }
+        throw new Error(`Could not save the completed outing: ${error.message}`)
+      }
+      res.json({ completed: true, stopsSaved: input.data.stops.length })
+    } catch (err) {
+      next(err)
+    }
+  })
 
   router.delete('/sessions/:id/members/:userId', requireUser({ supabase }), ...(limiter ? [limiter] : []), async (req, res, next) => {
     try {

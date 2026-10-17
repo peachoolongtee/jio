@@ -876,6 +876,7 @@ async function rankSlot(session, slot, slots, currentOptionIds = session.options
     conditions: db.conditions,
     radiusMeters: session.radius || undefined,
     topN: RANKED_MAX,
+    ...(session.remote ? { sessionId: session.id } : {}),
   })
   for (const o of [...ranked.options, ...ranked.current]) db.venues[o.venue.id] = o.venue
   return ranked
@@ -3159,6 +3160,7 @@ export async function roamNearby(id, { point, categories } = {}) {
     categories,
     conditions: db.conditions,
     topN: RANKED_MAX,
+    ...(session.remote ? { sessionId: session.id } : {}),
   })
   for (const place of answer.places) rememberRoamed(place.id, place.venue)
   const stopIds = (session.plan?.stops || []).map((s) => s.venueId)
