@@ -427,7 +427,8 @@ const startSession = () => run(() => events.start(props.id))
       </template>
     </div>
 
-    <footer v-if="status !== 'cancelled'" class="screen__footer">
+    <!-- No footer for a cancelled outing, or one that closed by itself with no plan (there is nothing to go on to). -->
+    <footer v-if="status !== 'cancelled' && !(status === 'completed' && !session.plan)" class="screen__footer">
       <!-- A session kept on the server stops at the lobby for now: starting it waits for the next update (WORDS.startHeld). -->
       <template v-if="status === 'inviting' && session.remote">
         <p id="start-held" class="body-sm text-muted lobby__held">{{ WORDS.startHeld }}</p>

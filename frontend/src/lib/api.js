@@ -16,7 +16,7 @@ import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
-import { itineraryAction } from './session.js'
+import { dueEnding, itineraryAction } from './session.js'
 import { combineWeather, stateOf, venueSetting } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
@@ -1959,6 +1959,7 @@ export async function listSessions() {
   }
   await wait(DELAY.read)
   db.sessions.forEach((s) => settleInvites(s))
+  settleOutings()
   // One read for every real person in every session, not one per session.
   warmPeople(db.sessions.flatMap((s) => s.members.map((m) => m.id)))
   return db.sessions.map((s) => summary(s, { warm: false })).sort((a, b) => b.createdAt - a.createdAt)
@@ -3189,10 +3190,12 @@ export async function resolveProposal(id, proposalId, accept) {
     if (!venue) throw new Error('This place does not exist.')
     if (!stops.some((s) => s.venueId === proposal.venueId)) {
       if (stops.length >= ROAM.stops) throw new Error(proposeBlock({ stops: stops.length, mine: 0, total: 0 }))
+      // A light meetup (startRoam) starts with no stops: its first stop starts now.
       const last = timedStops(session).at(-1)
       const now = new Date()
-      const notBefore = nextStopStart(last.end, now.getHours() * 60 + now.getMinutes())
-      session.plan.stops = [...stops, { slotId: `roam-${proposal.id}`, category: venue.category, venueId: proposal.venueId, plannedStart: last.end, duration: ROAM.minutes, notBefore }]
+      const notBefore = nextStopStart(last?.end, now.getHours() * 60 + now.getMinutes())
+      session.plan.stops = [...stops, { slotId: `roam-${proposal.id}`, category: venue.category, venueId: proposal.venueId, plannedStart: last?.end ?? notBefore, duration: ROAM.minutes, notBefore }]
+      if (!last) session.plan.startAt = notBefore
       // The note was about the order the stops had; the plan is no longer exactly that.
       session.plan.aiNote = null
     }
@@ -3200,6 +3203,53 @@ export async function resolveProposal(id, proposalId, accept) {
   session.proposals = proposals.filter((p) => p.id !== proposalId)
   forgetUnusedVenues([proposal.venueId])
   return { ...touch(session, 'plan'), applied: true }
+}
+
+// "Already out? Find something nearby" on Home: a light meetup for today, hosted by the signed-in person, already under way
+// around one area, so the Roam list opens at once. There is no location step and no vote: the area is the meeting area (the
+// group sees its name, never the exact place it came from), the plan starts with no stops, and places are added through
+// Roam's proposals. It runs from now for three hours (to 23:59 at the latest), so it finishes by itself after that like any
+// confirmed outing. Inviting friends is optional: with one person it is not paused (lib/session.js isPaused). Local
+// accounts only for now: a shared session's status is the server's to set.
+// How to call: const session = await startRoam({ areaId: 'bugis' })
+export async function startRoam({ areaId, title = '' } = {}) {
+  if (onServer()) throw new Error('Finding something nearby is not ready for shared sessions yet.')
+  await wait(DELAY.write)
+  requireMe(undefined, 'Log in to find something nearby.')
+  const area = areaById(areaId)
+  if (!area) throw new Error('Pick an area first.')
+  const name = String(title ?? '').trim() || `Out in ${area.name}`
+  if (name.length > 60) throw new Error('A title can be at most 60 characters.')
+  const now = new Date()
+  const from = Math.min(now.getHours() * 60 + now.getMinutes(), 23 * 60 + 58)
+  const session = {
+    id: `s${db.seq++}`,
+    title: name,
+    date: todayKey(),
+    start: P.fromMinutes(from),
+    end: P.fromMinutes(Math.min(from + 3 * 60, 23 * 60 + 59)),
+    hostId: me(),
+    status: 'confirmed',
+    light: true,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    members: [{ id: me(), role: 'host', state: 'joined' }],
+    locations: {},
+    meeting: meetingAtSpot(area.id, 'chosen', { times: {}, worstMinutes: null, approximate: false }),
+    spots: emptySpots(),
+    prefs: {},
+    deletedSlots: [],
+    options: {},
+    votes: {},
+    plan: { stops: [], modes: [], startAt: from },
+    proposals: [],
+    banner: null,
+    replan: null,
+    photos: [],
+    radius: null,
+  }
+  db.sessions.push(session)
+  return touch(session, 'session')
 }
 
 // ── Replacing one stop of a confirmed plan ─────────────────────────────────
@@ -3346,20 +3396,52 @@ export async function endPlan(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can be ended.')
+  if (completeOuting(session, 'hand')) emit({ type: 'stats' })
+  return touch(session, 'session')
+}
+
+// Completes an outing. `how` is kept as `endedBy`: 'hand' ("Finish outing"), 'auto' (its end time passed) or 'closed' (two
+// days past its end with no confirmed plan). A confirmed plan pays every member who is in it; a closed one pays nobody, and
+// counts for nobody's Jio streak. Saves nothing itself: the caller saves. Answers whether coins were paid.
+// How to call: if (completeOuting(session, 'auto')) emit({ type: 'stats' })
+function completeOuting(session, how) {
+  const paid = session.status === 'confirmed'
   // A season that ran out before today closes first, so these points count for the season they were earned in.
   catchUpSeasons()
   session.status = 'completed'
   session.completedAt = Date.now()
+  session.endedBy = how
   session.replan = null
   clearProposals(session)
+  if (!paid) return false
   for (const personId of activeIds(session)) {
     const stats = statsOf(personId)
     stats.meetups += 1
     stats.points += POINTS_PER_MEETUP
     stats.seasonPoints += POINTS_PER_MEETUP
   }
-  emit({ type: 'stats' })
-  return touch(session, 'session')
+  return true
+}
+
+// Finishes every confirmed outing whose end time has passed, and closes every other one two days past its end
+// (lib/session.js dueEnding). Run when the list is read, so an outing finishes without anyone pressing "Finish outing"
+// even when nobody had the app open at the time. A cancelled or completed session is never touched. It is part of a read,
+// so a save that fails (the storage is full) keeps the change in memory instead of failing the read; the next write
+// saves it. How to call: settleOutings()
+function settleOutings(now = new Date()) {
+  let changed = false
+  let paid = false
+  for (const session of db.sessions) {
+    const due = dueEnding(session, now)
+    if (!due) continue
+    if (completeOuting(session, due === 'finish' ? 'auto' : 'closed')) paid = true
+    session.updatedAt = Date.now()
+    commits[session.id] = commitsOf(session) + 1
+    changed = true
+  }
+  if (!changed) return
+  save()
+  if (paid) broadcast({ type: 'stats' })
 }
 
 // ── Photos: everyone in a session can post pictures from the day ────────────

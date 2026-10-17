@@ -13,6 +13,7 @@ export function votesClearedBanner(session) {
 //   - Re-plan? after Confirmed, when a location changes or someone opts out
 //   - Not enough people, when an opt-out leaves fewer than 2
 //   - Cancelled
+//   - Closed, for an outing completed two days past its end with no confirmed plan (lib/api.js settleOutings)
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '../ui/AppButton.vue'
@@ -29,6 +30,7 @@ const busy = ref(false)
 
 const paused = computed(() => isPaused(props.session))
 const clearedBanner = computed(() => votesClearedBanner(props.session))
+const closed = computed(() => props.session.status === 'completed' && props.session.endedBy === 'closed')
 
 async function dismissBanner() {
   try {
@@ -54,8 +56,9 @@ async function cancel() {
 </script>
 
 <template>
-  <div v-if="session.status === 'cancelled' || paused || clearedBanner || (session.replan && session.status === 'confirmed')" class="notices">
+  <div v-if="session.status === 'cancelled' || closed || paused || clearedBanner || (session.replan && session.status === 'confirmed')" class="notices">
     <BannerNote v-if="session.status === 'cancelled'" tone="error" icon="close">Session cancelled</BannerNote>
+    <BannerNote v-if="closed" icon="clock">This outing closed by itself two days after its end time, without a confirmed plan.</BannerNote>
 
     <BannerNote v-if="clearedBanner" icon="info" dismissible @dismiss="dismissBanner">{{ clearedBanner.text }}</BannerNote>
 

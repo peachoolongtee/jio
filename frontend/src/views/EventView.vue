@@ -24,6 +24,8 @@
 //   - While the plan is under way (roamOpen in lib/session.js: a confirmed plan on its day) a "What next?" button under the
 //     stops opens the Roam page, and the places members proposed there appear under the stops as proposed stops
 //     (ProposedStops). It is a secondary button: the footer's "Finish outing" stays the page's one main action.
+//   - A plan with no stops (a light meetup started from Home, before anything is added) says "No stops yet" in place of
+//     the timeline.
 //   - Travel and trip-home times are estimates from distance, so they read "about" or "est.".
 //   - Weather (a confirmed plan): a mark on each stop (Dry, Cloudy, Showers, Thundery showers, Not known; "Indoor" for an indoor
 //     stop when rain is likely; "Outdoor, showers" for an exposed stop, in the warning tone) and one muted line under the stops
@@ -357,7 +359,9 @@ async function endPlan() {
               <SkeletonRow v-for="n in 3" :key="n" avatar />
             </div>
             <template v-else>
-              <div ref="timeline" class="timeline card" tabindex="-1">
+              <!-- A light meetup (Roam from Home) starts with no stops: it says so, and "What next?" below is the way in. -->
+              <EmptyState v-if="!itinerary.stops.length" title="No stops yet" text="Find something nearby with What next?, then add it to the plan." data-testid="no-stops" />
+              <div v-else ref="timeline" class="timeline card" tabindex="-1">
                 <SortableList
                   :items="itinerary.stops"
                   :item-key="(s) => s.slotId"
