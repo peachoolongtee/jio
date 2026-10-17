@@ -420,7 +420,7 @@ Values written as plain pixels where no token matches include 6px, 10px, 14px, 2
 
 `frontend/src/App.vue` renders `.app > .app__main` and, on top-level screens, `TabBar`. A screen is top-level when its route has `meta.tabs: true` and the user is signed in: Home (`/`), Sessions (`/sessions`), Leaderboard, Rewards and Profile (`frontend/src/router/index.js`). Every other screen has its own back arrow and no tab bar.
 
-`.app__main` is a column at least `100dvh` tall with `overflow-x: clip`, so a full-width band never scrolls sideways. `html` has `scrollbar-gutter: stable`. On top-level screens `.app__main` is padded by `--topbar-height` at the top and by `--tabbar-height` plus `env(safe-area-inset-bottom)` at the bottom.
+`.app__main` is a column at least `100dvh` tall with `overflow-x: clip`, so a full-width band never scrolls sideways. `html` has `scrollbar-gutter: stable`. On top-level screens `.app__main` is padded by `--topbar-height` at the top and by `--tabbar-height` plus `env(safe-area-inset-bottom)` at the bottom. The page runs edge to edge under a phone's notch and home indicator (`viewport-fit=cover` in `frontend/index.html`); see Safe areas.
 
 A screen is built from classes in `app.css`:
 
@@ -477,11 +477,16 @@ One-off widths used by a single component: 379px, 399px and 399.98px (`TabBar`, 
 
 ### How screens stack on phones
 
-Everything is one column. A list and its map are shown one at a time with a List / Map switch (`SplitView`). Overlays rise from the bottom as sheets. The main action is a full-width button in the sticky footer. The photo and controls of a `StopCard` drop under its text at 480px and below. Layout changes are done in CSS, so resizing the window keeps a screen's state.
+Everything is one column. A list and its map are shown one at a time with a List / Map switch (`SplitView`). Under 1128px the map is `max(240px, min(72dvh, 100dvh - 160px))` tall, so on a phone on its side (about 375px high) the whole map sits above the footer's button. Overlays rise from the bottom as sheets and can be dragged down by the handle or header to close: let go past 96px, or flick, and the sheet closes; otherwise it springs back. On a screen in landscape under 500px tall, the sticky footer's padding drops to 8px above and below, so it is 64px tall instead of 88px. The main action is a full-width button in the sticky footer. The photo and controls of a `StopCard` drop under its text at 480px and below. Layout changes are done in CSS, so resizing the window keeps a screen's state.
 
 ### Safe areas
 
-`env(safe-area-inset-bottom)` is added in three places: the bottom padding of `.app__main`, the phone pill's position in `TabBar`, and the floating camera button in `PhotosView`. No rule reads the top, left or right insets.
+`frontend/index.html` sets `viewport-fit=cover`, so the page draws under the notch and home indicator, and the insets are not zero on those phones. Where they are read (issue #63):
+
+- **Sides:** `.app` is padded by `env(safe-area-inset-left)` and `-right`, for a notch on a phone on its side. The top bar keeps its content at least 16px inside them.
+- **Top:** `.app__main` is padded by `env(safe-area-inset-top)`, and the top bar grows by it, for an app added to the home screen. In Safari's own window the top inset is 0.
+- **Bottom:** `.app__main` on top-level screens, the phone pill in `TabBar`, the sticky `.screen__footer`, the body or footer of a `BottomSheet`, and the floating camera button in `PhotosView`.
+- **The full-screen map** (`SessionMapView`) runs under every inset; its back bar, stop list and place card stay inside them.
 
 ### Stacking order
 
