@@ -46,7 +46,7 @@ const items = computed(() => props.options.map((opt) => (typeof opt === 'object'
   height: 56px;
   margin: 0;
   padding: 14px 12px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--border-control);
   border-radius: var(--rounded-sm);
   background: var(--canvas);
   color: var(--ink);

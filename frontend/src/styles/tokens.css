@@ -81,9 +81,10 @@
   --surface-card: #ffffff;
   --surface-soft: #f7f7f7; /* Quiet panels, banners, hover backgrounds. */
   --surface-strong: #f2f2f2; /* Circular icon buttons, category icon circles, photo plates, segmented tracks. */
-  --hairline: #dddddd; /* The default 1px border: cards, inputs, dividers. */
+  --hairline: #dddddd; /* The default 1px border: cards and dividers. Too light to outline a control. */
   --hairline-soft: #ebebeb; /* Lighter dividers between list rows. */
-  --border-strong: #c1c1c1; /* Outlines of unselected chips, disabled outlines. */
+  --border-strong: #c1c1c1; /* Decorative outlines: dashed empties, the sheet handle, disabled outlines. */
+  --border-control: #8a8a8a; /* The outline that marks a control: inputs, selects, unselected chips, the switch. 3.45:1 on white, the 3:1 WCAG asks of a control's edge. */
   --on-primary: #ffffff; /* Text on Rausch. */
   --on-dark: #ffffff; /* Text on ink. */
   --scrim: #000000; /* Modal backdrop. Render at 50% opacity. */
