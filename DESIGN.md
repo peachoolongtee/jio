@@ -420,7 +420,7 @@ Values written as plain pixels where no token matches include 6px, 10px, 14px, 2
 
 `frontend/src/App.vue` renders `.app > .app__main` and, on top-level screens, `TabBar`. A screen is top-level when its route has `meta.tabs: true` and the user is signed in: Home (`/`), Sessions (`/sessions`), Leaderboard, Rewards and Profile (`frontend/src/router/index.js`). Every other screen has its own back arrow and no tab bar.
 
-`.app__main` is a column at least `100dvh` tall with `overflow-x: clip`, so a full-width band never scrolls sideways. `html` has `scrollbar-gutter: stable`. On top-level screens `.app__main` is padded by `--topbar-height` at the top and by `--tabbar-height` plus `env(safe-area-inset-bottom)` at the bottom. The page runs edge to edge under a phone's notch and home indicator (`viewport-fit=cover` in `frontend/index.html`); see Safe areas.
+`.app__main` is a column at least `100dvh` tall with `overflow-x: clip`, so a full-width band never scrolls sideways. `html` has `scrollbar-gutter: stable`. On top-level screens `.app__main` is padded by `--topbar-real-height` at the top and by `--tabbar-real-height` at the bottom (the bar plus the safe-area inset it grows by; see Safe areas). The page runs edge to edge under a phone's notch and home indicator (`viewport-fit=cover` in `frontend/index.html`); see Safe areas.
 
 A screen is built from classes in `app.css`:
 
@@ -455,6 +455,8 @@ A screen is built from classes in `app.css`:
 | `--side-panel-width` | 420px | `BottomSheet` with `side` on desktop. |
 | `--tabbar-height` | 88px; 0px from 744px | Room kept for the phone pill. |
 | `--topbar-height` | 0px; 72px from 744px | Room kept for the top bar. |
+| `--topbar-real-height` | `--topbar-height` + `env(safe-area-inset-top)` | The top bar's real height. Use it, not the line above, wherever something clears, clamps to or sticks under the top bar. Registered with `@property` as a length, so a script reads it in px (`frontend/src/lib/bars.js`). |
+| `--tabbar-real-height` | `--tabbar-height` + `env(safe-area-inset-bottom)` | The same for the phone pill: its height, its gap and the home indicator's inset. |
 | `--tap-min` | 44px | The smallest tap target. |
 
 ### Navigation and the width at which it switches
@@ -477,7 +479,7 @@ One-off widths used by a single component: 379px, 399px and 399.98px (`TabBar`, 
 
 ### How screens stack on phones
 
-Everything is one column. A list and its map are shown one at a time with a List / Map switch (`SplitView`). Under 1128px the map is `max(240px, min(72dvh, 100dvh - 160px))` tall, so on a phone on its side (about 375px high) the whole map sits above the footer's button. Overlays rise from the bottom as sheets and can be dragged down by the handle or header to close: let go past 96px, or flick, and the sheet closes; otherwise it springs back. On a screen in landscape under 500px tall, the sticky footer's padding drops to 8px above and below, so it is 64px tall instead of 88px. The main action is a full-width button in the sticky footer. The photo and controls of a `StopCard` drop under its text at 480px and below. Layout changes are done in CSS, so resizing the window keeps a screen's state.
+Everything is one column. A list and its map are shown one at a time with a List / Map switch (`SplitView`). Under 1128px the map is `max(240px, min(72dvh, 100dvh - 160px))` tall, so on a phone on its side (about 375px high) it is 240px: the formula's `100dvh - 160px` is only 215px there, and the 240px floor wins. Measured at 812x375 and 667x375, the map scrolled into view ends 24px above the top of the 64px footer (85px with a 21px bottom inset), but the page's header and the List / Map switch sit above the map, so the map and the button are not both in view before the page is scrolled. Overlays rise from the bottom as sheets and can be dragged down by the handle or header to close: let go past 96px, or flick, and the sheet closes; otherwise it springs back. A sheet that was dragged closed opens again at rest. The handle's grab area is 44px tall: for a sheet with no header it grows upward over the backdrop, so nothing inside the sheet moves. On a screen in landscape under 500px tall, the sticky footer's padding drops to 8px above and below, so it is 64px tall instead of 88px. The main action is a full-width button in the sticky footer. The photo and controls of a `StopCard` drop under its text at 480px and below. Layout changes are done in CSS, so resizing the window keeps a screen's state.
 
 ### Safe areas
 
@@ -485,8 +487,9 @@ Everything is one column. A list and its map are shown one at a time with a List
 
 - **Sides:** `.app` is padded by `env(safe-area-inset-left)` and `-right`, for a notch on a phone on its side. The top bar keeps its content at least 16px inside them.
 - **Top:** `.app__main` is padded by `env(safe-area-inset-top)`, and the top bar grows by it, for an app added to the home screen. In Safari's own window the top inset is 0.
-- **Bottom:** `.app__main` on top-level screens, the phone pill in `TabBar`, the sticky `.screen__footer`, the body or footer of a `BottomSheet`, and the floating camera button in `PhotosView`.
-- **The full-screen map** (`SessionMapView`) runs under every inset; its back bar, stop list and place card stay inside them.
+- **Bottom:** `.app__main` on top-level screens, the phone pill in `TabBar`, the sticky `.screen__footer`, the body or footer of a `BottomSheet`, the floating camera button in `PhotosView`, the development-only Demo button, and `ToastMessage` (its `offset` is measured from the inset).
+- **One source for the bars' height:** `--topbar-real-height` and `--tabbar-real-height` (tokens.css) include the insets. `.app__main`, the top bar's own height, Home's full-height band, the sticky tops on Home and Edit profile, the Demo button and the hover cards' clamp in `MeetupPins` and `SpotPins` (through `barHeights()` in `lib/bars.js`) all read them.
+- **The full-screen map** (`SessionMapView`) runs under every inset; its back bar, stop list and place card stay inside them, and so do Leaflet's own corner boxes (the zoom buttons and the attribution), moved in by the insets with `:deep(.leaflet-*)` rules.
 
 ### Stacking order
 

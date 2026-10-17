@@ -62,7 +62,7 @@ svg { display: block; flex-shrink: 0; }
    content out of the safe-area insets: the sides for a notch in landscape, the top for an app added to the home screen. */
 .app { min-height: 100dvh; padding-right: env(safe-area-inset-right, 0px); padding-left: env(safe-area-inset-left, 0px); background: var(--canvas); }
 .app__main { display: flex; flex-direction: column; min-width: 0; min-height: 100dvh; padding-top: env(safe-area-inset-top, 0px); overflow-x: clip; } /* clip: a full-bleed band (Home's map) never scrolls sideways; sticky still works. */
-.app.has-tabs .app__main { padding-top: calc(var(--topbar-height) + env(safe-area-inset-top, 0px)); padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px)); }
+.app.has-tabs .app__main { padding-top: var(--topbar-real-height); padding-bottom: var(--tabbar-real-height); }
 
 /* A screen is a column: header, a body, and an optional footer that stays in view.
    On wide windows it sits in a centred column no wider than --content-max-width. */

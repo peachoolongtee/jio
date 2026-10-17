@@ -1,3 +1,11 @@
+<script>
+// How far, or how fast, a drag down must go for the sheet to close. Kept outside <script setup> so a test can call it.
+// How to call: shouldClose(120, 300) -> true (dragged 120px in 300ms)
+export function shouldClose(distance, ms) {
+  return distance > 96 || (distance > 24 && distance / Math.max(ms, 1) > 0.5)
+}
+</script>
+
 <script setup>
 // A sheet that slides up from the bottom over a dimmed backdrop.
 //   <BottomSheet v-model:open="showSheet" title="Add a stop"> ... </BottomSheet>
@@ -6,7 +14,7 @@
 // It closes on the backdrop, the close button and the Escape key.
 // Use the `footer` slot for a button that stays in view while the content scrolls.
 // On phones and tablets it can be dragged down by its handle or header to close, like a native sheet.
-import { ref, useId } from 'vue'
+import { ref, useId, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import IconButton from './IconButton.vue'
 import { useFocusTrap } from '@/lib/useFocusTrap.js'
@@ -38,10 +46,14 @@ const { onKeydown: trap } = useFocusTrap(open, panel)
 const drag = ref(null)
 const offset = ref(0)
 
-// How to call: shouldClose(120, 300) -> true (dragged 120px in 300ms)
-function shouldClose(distance, ms) {
-  return distance > 96 || (distance > 24 && distance / Math.max(ms, 1) > 0.5)
-}
+// The panel stays mounted between openings (a screen keeps one sheet and flips `open`), so a drag that closed it must not
+// leave it shifted down. The offset is reset when `open` turns true, before the panel is drawn, and not when it turns
+// false: the sheet leaves from where the finger let go, and a reset then would make it jump back up as it fades.
+watch(open, (isOpen) => {
+  if (!isOpen) return
+  drag.value = null
+  offset.value = 0
+})
 
 // How to call: <div @pointerdown="dragStart"> (on the handle and header; a press on a button there is left alone)
 function dragStart(event) {
@@ -119,7 +131,10 @@ function dragEnd(event) {
 }
 .sheet__panel.is-dragging { transition: none; }
 /* The handle and header take the drag; the browser does not scroll the page from them. */
-.sheet__grab { flex-shrink: 0; display: flex; flex-direction: column; touch-action: none; cursor: grab; }
+.sheet__grab { position: relative; flex-shrink: 0; display: flex; flex-direction: column; touch-action: none; cursor: grab; }
+/* A sheet with no header has only the 12px handle to grab. Its hit area grows to the 44px minimum upwards, over the
+   backdrop, so nothing inside the sheet moves and the handle looks the same. */
+.sheet__grab:not(:has(.sheet__head))::before { content: ''; position: absolute; top: calc(12px - var(--tap-min)); right: 0; left: 0; height: var(--tap-min); }
 .sheet__panel.is-dragging .sheet__grab { cursor: grabbing; }
 .sheet__panel--tall { height: 75dvh; }
 .sheet__handle { flex-shrink: 0; align-self: center; width: 36px; height: var(--spacing-xs); margin-top: var(--spacing-sm); border-radius: var(--rounded-full); background: var(--border-strong); }
@@ -141,6 +156,7 @@ function dragEnd(event) {
   .sheet__panel--tall { height: min(720px, calc(100dvh - var(--spacing-xl) * 2)); }
   .sheet__handle { display: none; }
   .sheet__grab { touch-action: auto; cursor: auto; }
+  .sheet__grab::before { display: none; }
   .sheet__head { padding-top: var(--spacing-base); }
   .sheet--side { justify-content: flex-end; align-items: stretch; padding: 0; }
   .sheet--side .sheet__panel { width: var(--side-panel-width); max-width: 100%; height: 100dvh; max-height: none; border-radius: var(--rounded-lg) 0 0 var(--rounded-lg); }

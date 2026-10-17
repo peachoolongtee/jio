@@ -81,6 +81,12 @@ const card = computed(() => {
 <style scoped>
 .full-map { position: fixed; inset: 0; z-index: 1; background: var(--surface-strong); }
 .full-map__map { position: absolute; inset: 0; }
+/* Leaflet's own controls (the zoom buttons and the attribution) sit in corner boxes at the edge of the map, which runs under
+   the notch and the home indicator; the boxes move in by the insets, and the controls keep their 10px margin inside. */
+.full-map__map :deep(.leaflet-top) { top: env(safe-area-inset-top, 0px); }
+.full-map__map :deep(.leaflet-bottom) { bottom: env(safe-area-inset-bottom, 0px); }
+.full-map__map :deep(.leaflet-left) { left: env(safe-area-inset-left, 0px); }
+.full-map__map :deep(.leaflet-right) { right: env(safe-area-inset-right, 0px); }
 /* The map runs under a notch and the home indicator; the controls on it stay inside the safe area. */
 .full-map__bar { position: absolute; top: calc(var(--spacing-md) + env(safe-area-inset-top, 0px)); left: calc(var(--spacing-md) + env(safe-area-inset-left, 0px)); right: calc(var(--spacing-md) + env(safe-area-inset-right, 0px)); z-index: 1100; display: flex; align-items: center; gap: var(--spacing-sm); pointer-events: none; }
 .full-map__bar > * { pointer-events: auto; box-shadow: var(--shadow-float); }
