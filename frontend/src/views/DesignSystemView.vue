@@ -46,6 +46,7 @@ import SuggestionCard from '@/components/event/SuggestionCard.vue'
 import TravelConnector from '@/components/event/TravelConnector.vue'
 import { dayLabel, pinName, pinsFor } from '@/lib/homeMeetups.js'
 import { moveItem } from '@/lib/planner/itinerary.js'
+import { vRadioGroup } from '@/lib/radioGroup.js'
 
 const COLOURS = [
   ['primary', 'Rausch. Main action.'], ['primary-active', 'Rausch pressed.'], ['primary-bright', 'Bright Rausch. Decoration only, no text.'], ['primary-disabled', 'Disabled, pale wash.'], ['primary-error-text', 'Errors, warnings.'], ['scale-middle', 'Amber fills, no text.'], ['scale-middle-text', 'Amber as text.'],
@@ -188,7 +189,7 @@ const toast = ref(false)
             {{ friend }}
           </ChipButton>
         </div>
-        <div class="chip-row" role="radiogroup" aria-label="Stay until">
+        <div class="chip-row" role="radiogroup" v-radio-group aria-label="Stay until">
           <ChipButton v-for="t in ['15:00', '18:00', '21:00']" :key="t" radio :selected="stayTime === t" @click="stayTime = t">{{ t }}</ChipButton>
         </div>
         <div class="row gap-xs wrap">
@@ -272,7 +273,7 @@ const toast = ref(false)
       <section class="stack gap-md" aria-labelledby="ds-cards">
         <h2 id="ds-cards" class="display-sm">Places, suggestions and the itinerary</h2>
         <PlaceCard :place="PLACE" />
-        <div role="radiogroup" aria-label="Example slot" class="stack gap-md">
+        <div role="radiogroup" v-radio-group="{ follow: false }" aria-label="Example slot" class="stack gap-md">
           <SuggestionCard :option="OPTION" :total="4" leading mine />
           <SuggestionCard :option="RAIN_OPTION" :total="4" />
         </div>
@@ -290,7 +291,7 @@ const toast = ref(false)
             </template>
           </SortableList>
         </div>
-        <div class="card" role="radiogroup" aria-label="Poll">
+        <div class="card" role="radiogroup" v-radio-group="{ follow: false }" aria-label="Poll">
           <PollBar name="Ming Kee Chicken Rice" :votes="votes.a" :total="votes.a + votes.b" :leading="votes.a > votes.b" :mine="myVote === 'a'" @vote="myVote = 'a'" />
           <PollBar name="Kopitiam Junction 8" :votes="votes.b" :total="votes.a + votes.b" :leading="votes.b > votes.a" :mine="myVote === 'b'" @vote="myVote = 'b'" />
         </div>

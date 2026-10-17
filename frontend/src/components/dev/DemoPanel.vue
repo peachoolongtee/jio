@@ -28,6 +28,7 @@ import { AREAS } from '@/lib/mock/places.js'
 import { useEventsStore } from '@/stores/events.js'
 import { usePlannerStore } from '@/stores/planner.js'
 import { useTourStore } from '@/tour/store.js'
+import { vRadioGroup } from '@/lib/radioGroup.js'
 
 const SPAN = 3000
 // Which option each friend votes for, by rank, so one place usually leads.
@@ -355,7 +356,7 @@ const setCondition = (key, value) => planner.setCondition(key, value)
     <section class="demo-group">
       <h3 class="title-md">Change a friend's location</h3>
       <SelectField v-model="change.personId" label="Friend" :options="friendOptions" :disabled="!friendOptions.length" />
-      <div class="chip-row" role="radiogroup" aria-label="Which location">
+      <div class="chip-row" role="radiogroup" v-radio-group aria-label="Which location">
         <ChipButton radio :selected="change.which === 'start'" @click="change.which = 'start'">Start</ChipButton>
         <ChipButton radio :selected="change.which === 'end'" @click="change.which = 'end'">End</ChipButton>
       </div>

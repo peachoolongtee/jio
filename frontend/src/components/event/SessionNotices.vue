@@ -13,6 +13,8 @@ export function votesClearedBanner(session) {
 //   - Re-plan? after Confirmed, when a location changes or someone opts out
 //   - Not enough people, when an opt-out leaves fewer than 2
 //   - Cancelled
+// Cancelled and paused are states the session is in, not news: they say role="status", so they are not read out as an
+// alert each time the screen loads.
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '../ui/AppButton.vue'
@@ -55,7 +57,7 @@ async function cancel() {
 
 <template>
   <div v-if="session.status === 'cancelled' || paused || clearedBanner || (session.replan && session.status === 'confirmed')" class="notices">
-    <BannerNote v-if="session.status === 'cancelled'" tone="error" icon="close">Session cancelled</BannerNote>
+    <BannerNote v-if="session.status === 'cancelled'" tone="error" icon="close" role="status">Session cancelled</BannerNote>
 
     <BannerNote v-if="clearedBanner" icon="info" dismissible @dismiss="dismissBanner">{{ clearedBanner.text }}</BannerNote>
 
@@ -67,7 +69,7 @@ async function cancel() {
       </template>
     </BannerNote>
 
-    <BannerNote v-if="paused" tone="error" icon="people">
+    <BannerNote v-if="paused" tone="error" icon="people" role="status">
       Not enough people. Invite someone or cancel.
       <template #actions>
         <AppButton small :to="`/sessions/${session.id}/invite`">Invite someone</AppButton>

@@ -57,6 +57,7 @@ import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 import { usePlannerStore } from '@/stores/planner.js'
+import { vRadioGroup } from '@/lib/radioGroup.js'
 
 const props = defineProps({ id: { type: String, required: true } })
 
@@ -234,6 +235,12 @@ const shownCategory = computed(() => replaceCategory.value || stop.value?.catego
 const changesCategory = computed(() => !!stop.value && shownCategory.value !== stop.value.category)
 // Only a list of the category the tabs show is ever on the page: an answer for another one (an older request) is not.
 const currentChoices = computed(() => (choices.value && choices.value.category === shownCategory.value ? choices.value : null))
+// What a screen reader hears while places load; the grey placeholder rows say nothing themselves.
+const loadingSaid = computed(() => {
+  if (replaceMode.value) return choicesLoading.value && !currentChoices.value ? 'Finding other places' : ''
+  if (loading.value) return 'Finding places'
+  return loadingMore.value ? 'Finding more places' : ''
+})
 // Each request is numbered, so an older answer that arrives late (after a quick change of category) is dropped.
 let choicesTicket = 0
 
@@ -370,6 +377,7 @@ async function confirm() {
     <SessionHeader :session="session" />
 
     <div class="screen__body">
+      <p class="sr-only" role="status">{{ loadingSaid }}</p>
       <SessionNotices :session="session" />
       <BannerNote v-if="planError" tone="error" icon="warning" role="alert" data-testid="plan-error">
         {{ planError }}
@@ -403,7 +411,7 @@ async function confirm() {
         <template v-else>
 
         <!-- What to do instead: the stop's own category to start, or another one. -->
-        <div class="filter scroll-x" role="radiogroup" aria-label="What to do instead" data-testid="replace-categories">
+        <div class="filter scroll-x" role="radiogroup" v-radio-group aria-label="What to do instead" data-testid="replace-categories">
           <ChipButton
             v-for="c in CATEGORIES"
             :key="c"
@@ -474,7 +482,7 @@ async function confirm() {
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
         <!-- One filter for the list and the map. -->
-        <div class="filter scroll-x" role="radiogroup" aria-label="Show">
+        <div class="filter scroll-x" role="radiogroup" v-radio-group aria-label="Show">
           <ChipButton radio :selected="!filter" @click="filter = ''">All</ChipButton>
           <ChipButton v-for="c in CATEGORIES" :key="c" radio :selected="filter === c" :aria-label="`${CATEGORY_LABELS[c]}, ${countOf(c)} places`" @click="filter = c">
             <template #leading><CategoryIcon :category="c" :size="24" /></template>
@@ -497,7 +505,8 @@ async function confirm() {
 
               <p v-if="!slot.options.length" class="body-sm text-muted">{{ emptyText(slot) }}</p>
               <template v-else>
-                <div class="slot__options" role="radiogroup" :aria-labelledby="`slot-${slot.id}`">
+                <!-- A group, not a radiogroup: each card holds several controls, and every Vote chip has to be a Tab stop of its own. -->
+                <div class="slot__options" role="group" :aria-labelledby="`slot-${slot.id}`">
                   <SuggestionCard
                     v-for="option in slot.options"
                     :key="option.id"
@@ -544,7 +553,7 @@ async function confirm() {
               </div>
               <div class="row between">
                 <span class="caption">{{ selectedOption.votes }} {{ selectedOption.votes === 1 ? 'vote' : 'votes' }}</span>
-                <ChipButton v-if="voting" radio check :selected="selectedEntry.slot.myVote === selectedOption.id" @click="vote(selectedEntry.slot, selectedOption)">
+                <ChipButton v-if="voting" check :selected="selectedEntry.slot.myVote === selectedOption.id" @click="vote(selectedEntry.slot, selectedOption)">
                   {{ selectedEntry.slot.myVote === selectedOption.id ? 'Voted' : 'Vote' }}
                 </ChipButton>
               </div>
@@ -622,6 +631,7 @@ async function confirm() {
         </template>
       </BannerNote>
       <SkeletonRow v-for="n in 4" v-else :key="n" avatar />
+      <p class="sr-only" role="status">{{ loadError ? '' : 'Loading the session' }}</p>
     </div>
   </main>
 </template>

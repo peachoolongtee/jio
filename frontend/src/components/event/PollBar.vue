@@ -1,6 +1,6 @@
 <script setup>
 // One option of a poll: name, vote count and a bar. Tap it to vote.
-//   <div role="radiogroup" aria-label="Stop 3">
+//   <div role="radiogroup" v-radio-group="{ follow: false }" aria-label="Stop 3">
 //     <PollBar name="Junction 8" :votes="2" :total="3" leading mine @vote="vote('junction-8')" />
 //   </div>
 // `leading` highlights the option in ink. `note` is the word after the count: Leading, Winner or Tied.
