@@ -53,6 +53,15 @@ describe('tabStopIndex', () => {
     expect(tabStopIndex([{ disabled: true }, {}, {}])).toBe(1)
   })
 
+  it('gives a natively disabled chosen radio up to the first enabled one, which can take focus', () => {
+    expect(tabStopIndex([{ checked: false }, { checked: true, disabled: true }, { checked: false }])).toBe(0)
+    expect(tabStopIndex([{ disabled: true }, { checked: true, disabled: true }, {}])).toBe(2)
+  })
+
+  it('gives a chosen radio that is both natively and aria-disabled up too, and skips aria-disabled ones when it looks', () => {
+    expect(tabStopIndex([{ ariaDisabled: true }, { checked: true, disabled: true, ariaDisabled: true }, {}])).toBe(2)
+  })
+
   it('is the first radio when none is chosen or enabled, and none for an empty set', () => {
     expect(tabStopIndex([{ disabled: true }, { ariaDisabled: true }])).toBe(0)
     expect(tabStopIndex([])).toBe(-1)

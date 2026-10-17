@@ -505,7 +505,8 @@ async function confirm() {
 
               <p v-if="!slot.options.length" class="body-sm text-muted">{{ emptyText(slot) }}</p>
               <template v-else>
-                <div class="slot__options" role="radiogroup" v-radio-group="{ follow: false }" :aria-labelledby="`slot-${slot.id}`">
+                <!-- A group, not a radiogroup: each card holds several controls, and every Vote chip has to be a Tab stop of its own. -->
+                <div class="slot__options" role="group" :aria-labelledby="`slot-${slot.id}`">
                   <SuggestionCard
                     v-for="option in slot.options"
                     :key="option.id"
@@ -552,7 +553,7 @@ async function confirm() {
               </div>
               <div class="row between">
                 <span class="caption">{{ selectedOption.votes }} {{ selectedOption.votes === 1 ? 'vote' : 'votes' }}</span>
-                <ChipButton v-if="voting" radio check :selected="selectedEntry.slot.myVote === selectedOption.id" @click="vote(selectedEntry.slot, selectedOption)">
+                <ChipButton v-if="voting" check :selected="selectedEntry.slot.myVote === selectedOption.id" @click="vote(selectedEntry.slot, selectedOption)">
                   {{ selectedEntry.slot.myVote === selectedOption.id ? 'Voted' : 'Vote' }}
                 </ChipButton>
               </div>

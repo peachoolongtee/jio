@@ -3,6 +3,7 @@
 //   <BannerNote icon="info" dismissible @dismiss="clear">Meeting area moved from Bishan to Serangoon because Jonathan opted out.</BannerNote>
 // Tones: info (default), warning, error. Put buttons in the `actions` slot.
 // An error banner is announced at once (role="alert"); the others wait their turn (role="status").
+// An error that is a standing state, not an answer to something just done, passes role="status" so a screen load does not shout it.
 import AppIcon from './AppIcon.vue'
 import IconButton from './IconButton.vue'
 

@@ -28,13 +28,15 @@ export function moveIndex(items, current, key) {
   return -1
 }
 
-// Which radio holds the set's one Tab stop: the chosen one (even while it is disabled, so focus is never lost),
-// otherwise the first that can be chosen, otherwise the first. `items` are { checked, disabled, ariaDisabled }.
+// Which radio holds the set's one Tab stop: the chosen one (even while it is aria-disabled, so focus is never lost during
+// a request), otherwise the first that can be chosen, otherwise the first. A chosen radio that is natively disabled
+// cannot take focus, so it does not hold the stop: the first enabled one does, or the set could never be tabbed into.
+// `items` are { checked, disabled, ariaDisabled }.
 // How to call: tabStopIndex([{ checked: false }, { checked: true }]) -> 1
 export function tabStopIndex(items) {
   if (!items.length) return -1
   const checked = items.findIndex((item) => item.checked)
-  if (checked >= 0) return checked
+  if (checked >= 0 && !items[checked].disabled) return checked
   const enabled = items.findIndex(isEnabled)
   return enabled >= 0 ? enabled : 0
 }
