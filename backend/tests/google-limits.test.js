@@ -99,7 +99,7 @@ async function harness({ respond, callsPerMinute = 1000, timeoutMs, apiKey = KEY
     now: clock.now,
     warn,
   })
-  const app = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }), places, planData })
+  const app = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }), places, planData, ownPlacesEnough: Infinity })
   const server = app.listen(0, '127.0.0.1')
   await once(server, 'listening')
   servers.push(server)
@@ -584,7 +584,7 @@ describe('GET /api/places/photo', () => {
   })
 
   it('still answers from the stub fixtures in stub mode', async () => {
-    const server = createApp({ frontendOrigin: FRONTEND, stub: true, planData }).listen(0, '127.0.0.1')
+    const server = createApp({ frontendOrigin: FRONTEND, stub: true, planData, ownPlacesEnough: Infinity }).listen(0, '127.0.0.1')
     await once(server, 'listening')
     servers.push(server)
     const res = await fetch(`http://127.0.0.1:${server.address().port}/api/places/photo?name=places/abc/photos/def&maxWidth=250.7`, { redirect: 'manual' })
@@ -666,7 +666,7 @@ describe('the point Google places are fetched around', () => {
   async function pointFor(extra) {
     const asked = []
     const places = { enabled: true, nearby: vi.fn(async (p) => { asked.push(p); return [] }), photoUrl: vi.fn() }
-    const server = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }), places, planData }).listen(0, '127.0.0.1')
+    const server = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }), places, planData, ownPlacesEnough: Infinity }).listen(0, '127.0.0.1')
     await once(server, 'listening')
     servers.push(server)
     const res = await fetch(`http://127.0.0.1:${server.address().port}/api/converge`, {
@@ -722,7 +722,7 @@ describe('defaults with Google off', () => {
   ]
 
   it('a converge and a roam answer the same with minOptions and shortlistSize left out as with the engine\'s own 3 and 10', async () => {
-    const server = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }), planData }).listen(0, '127.0.0.1')
+    const server = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }), planData, ownPlacesEnough: Infinity }).listen(0, '127.0.0.1')
     await once(server, 'listening')
     servers.push(server)
     const call = async (path, body) => {

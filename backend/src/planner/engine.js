@@ -7,6 +7,7 @@
 import { centroid, fairnessWeights, minimaxCenter, radiusSearch, mockTravelMinutes, haversineKm, walkMinutes } from './geo.js';
 import { filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds } from './filters.js';
 import * as S from './scoring.js';
+import { diversify } from './diversity.js';
 
 /** Apply per-plan overrides (start/end) and drop members who opted out. Default start and end = home.
  *  With no home, end = start: the API accepts a member with only a start point. */
@@ -64,24 +65,31 @@ function staticFactors(venue, c) {
     cdc: S.cdcPenalty(venue),
     antiRepeat: S.antiRepeatPenalty(venue.id, c.history, { today: c.today, groupId: c.groupId }),
     crowd: S.crowdPenalty(venue, c.hour),
+    rating: S.ratingPenalty(venue),
   };
 }
 
+// The pre-score's shares. Distance and fit keep the ratio they had before ratings counted (0.625 : 0.375, as 0.53125 :
+// 0.31875), and the rating takes 0.15 of the whole, so a request with no ratings anywhere shortlists as it always did.
+const PRUNE_DISTANCE = 0.53125, PRUNE_FIT = 0.31875, PRUNE_RATING = 0.15;
+
 /**
  * Cheap pre-score using straight-line distance only (no routing). Keeps the best N so we make
- * at most N x members routing calls. It uses fit as well as distance, so a close but
- * poor-fit venue cannot push a much better one out of the shortlist.
+ * at most N x members routing calls. It uses fit and rating as well as distance, so a close but
+ * poor-fit venue cannot push a much better one out of the shortlist, and a place that is close only
+ * because it has one five-star review cannot beat a well-reviewed one (the rating is the weighted one).
  * Occasion fit is computed the same way as in the final score, so a venue without a precomputed
- * occasionFit is not mistaken for a zero fit and cut here.
+ * occasionFit is not mistaken for a zero fit and cut here. Places in one building, and more than 2 Google
+ * places among a category's first 5, rank below the rest (diversity.js), so the N are not all look-alikes.
  */
 function prune(candidates, c, keep) {
   if (candidates.length <= keep) return candidates;
   const dn = S.normalizeMinMax(candidates.map(x => x.distanceKm));
-  return candidates
-    .map((x, i) => ({ x, pre: 0.625 * dn[i] + 0.375 * (100 - occasionFitOf(x.venue, c.occasion, c.profile)) }))
+  const sorted = candidates
+    .map((x, i) => ({ x, pre: PRUNE_DISTANCE * dn[i] + PRUNE_FIT * (100 - occasionFitOf(x.venue, c.occasion, c.profile)) + PRUNE_RATING * S.ratingPenalty(x.venue) }))
     .sort((a, b) => a.pre - b.pre)
-    .slice(0, keep)
     .map(o => o.x);
+  return diversify(sorted).slice(0, keep);
 }
 
 /**
@@ -161,6 +169,26 @@ function lastStopRules(input, weights) {
   };
 }
 
+/**
+ * The hard filters a request is filtered with, as the context filterByConstraints() takes. Converge and Roam build their
+ * filter from this, and so does the route that decides whether Google is worth asking (it counts our own places that
+ * would pass), so the two can never disagree about what fits. `members` are the active ones (resolveMembers() for
+ * Converge). Converge adds the near-MRT rule of a last stop (lastStopRules); Roam does not. Categories default to eat
+ * and drink for Converge, and to eat, drink and activity for Roam.
+ *
+ * How to call:
+ *   const ctx = hardFilterContext(input, resolveMembers(input.members, input.overrides, input.optedOut), 'converge')
+ *   filterByConstraints(venues, ctx).passed
+ */
+function hardFilterContext(input, members, mode) {
+  const roaming = mode === 'roam';
+  return {
+    members, groupConstraints: roaming ? input.groupConstraints ?? [] : lastStopRules(input, {}).constraints, dateTime: input.dateTime,
+    categories: input.categories ?? (roaming ? ['eat', 'drink', 'activity'] : ['eat', 'drink']), excludeVenueIds: input.excludeVenueIds ?? [],
+    unknownPolicy: input.unknownPolicy ?? 'strict', durationMinutes: input.durationMinutes ?? 0,
+  };
+}
+
 /** Fewer than minResults options inside the cap: still show them, but tell the UI how far to look for more. */
 function fewOptions(rs) {
   if (rs.reachedMin) return null;
@@ -201,11 +229,7 @@ function converge(input, data, deps = {}) {
     centroid(starts, fw);
 
   // 2. hard filters
-  const ctx = {
-    members, groupConstraints: last.constraints, dateTime: input.dateTime,
-    categories: input.categories ?? ['eat', 'drink'], excludeVenueIds: input.excludeVenueIds ?? [],
-    unknownPolicy: input.unknownPolicy ?? 'strict', durationMinutes: input.durationMinutes ?? 0,
-  };
+  const ctx = hardFilterContext(input, members, 'converge');
   const filt = filterByConstraints(data.venues, ctx);
   const diagnostics = {
     rejectedCounts: countReasons(filt.rejected), passedFilters: filt.passed.length,
@@ -230,7 +254,7 @@ function converge(input, data, deps = {}) {
   );
   diagnostics.routingCalls = pruned.length * members.length * 2;
   const c = context(input, data, members);
-  const weights = occasionWeights(baseWeights, c.profile);
+  const weights = S.withRatingWeight(occasionWeights(baseWeights, c.profile), 'converge');
 
   let rows = pruned.map(({ venue, distanceKm }) => {
     const fallbacksBefore = diagnostics.approximateLegs ?? 0;
@@ -267,6 +291,7 @@ function converge(input, data, deps = {}) {
     r.hasHistory = c.groupId !== null && c.history.some(h => h.groupId === c.groupId);
   });
   rows.sort((a, b) => a.score - b.score);
+  rows = diversify(rows); // one place per building, and Google only as a top-up (diversity.js)
 
   // 7. explain
   const names = Object.fromEntries(members.map(m => [m.id, m.name]));
@@ -298,11 +323,7 @@ function roam(input, data, deps = {}) {
   const members = input.members.map(m => ({ ...m }));
   const { pruneTo = 10, topN = 5 } = input;
   const baseWeights = input.weights ?? S.DEFAULT_WEIGHTS.roam;
-  const ctx = {
-    members, groupConstraints: input.groupConstraints ?? [], dateTime: input.dateTime,
-    categories: input.categories ?? ['eat', 'drink', 'activity'], excludeVenueIds: input.excludeVenueIds ?? [],
-    unknownPolicy: input.unknownPolicy ?? 'strict', durationMinutes: input.durationMinutes ?? 0,
-  };
+  const ctx = hardFilterContext(input, members, 'roam');
   const filt = filterByConstraints(data.venues, ctx);
   const diagnostics = { rejectedCounts: countReasons(filt.rejected), passedFilters: filt.passed.length };
   if (filt.passed.length === 0) {
@@ -316,9 +337,9 @@ function roam(input, data, deps = {}) {
   const pruned = prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion] }, pruneTo);
   diagnostics.routingCalls = pruned.length;
   const c = context(input, data, members);
-  const weights = occasionWeights(baseWeights, c.profile);
+  const weights = S.withRatingWeight(occasionWeights(baseWeights, c.profile), 'roam');
 
-  const rows = pruned.map(({ venue, distanceKm }) => {
+  let rows = pruned.map(({ venue, distanceKm }) => {
     const fallbacksBefore = diagnostics.approximateLegs ?? 0;
     const travelMinutes = routedMinutes(tm, input.current, venue, diagnostics);
     return { venue, distanceKm, travelMinutes, factors: staticFactors(venue, c), approximate: (diagnostics.approximateLegs ?? 0) > fallbacksBefore };
@@ -331,6 +352,7 @@ function roam(input, data, deps = {}) {
     r.hasHistory = c.groupId !== null && c.history.some(h => h.groupId === c.groupId);
   });
   rows.sort((a, b) => a.score - b.score);
+  rows = diversify(rows);
   const label = c.profile?.label ?? 'meetup';
   const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, input.current, input, c.weatherByArea);
   const results = shown.map((r, i) => ({
@@ -562,4 +584,4 @@ function searchVenues(input, data) {
     .map(({ row }) => row);
 }
 
-export { converge, roam, meetingArea, meetingAreaPlan, searchVenues, resolveMembers, occasionWeights };
+export { converge, roam, hardFilterContext, meetingArea, meetingAreaPlan, searchVenues, resolveMembers, occasionWeights };

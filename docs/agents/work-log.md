@@ -1340,3 +1340,20 @@ The lead asked for the new pull requests to be reconciled. Open then: NICHOLE-ON
 - **Taking ratings out of the score (#151)** overlaps the Google ranking ticket #149, whose review-weighted ratings are now moot unless the lead wants ratings back; the lead was asked.
 - **Known and left:** in the demo, instant invite acceptance still lets a person pair with a sample friend to earn coins (the points are a labelled demo); anti-repeat's `groupId` is caller-supplied until real history exists.
 - **Not verified by anyone:** any of the four on a real phone, keyboard or screen reader.
+
+## Round 30: Faith's Google ranking pull request reconciled (2026-10-17)
+
+The lead asked for faithpho's #160 (ticket #149: Google places compete fairly) to be reconciled like the four before it. It was merged with `dev` on `review/pr-160` without conflicts, run by the lead's agent, reviewed by a read-only reviewer, fixed by an implementer agent, checked again, and merged into `dev`.
+
+**Ratings are back in the score, by the lead's agreement of 16 October on #149.** #151 had taken them out a day later; #160 puts in the review-weighted rating `(20 × 4.0 + reviews × stars) ÷ (20 + reviews)`, with no rating or no review count counting as 4.0, and rewrote #151's "rating never counts" tests to the new rule. The reviewer checked that they were updated, not weakened, and that a `rating` weight in a request is still a 400.
+
+| Review finding | Fixed |
+|---|---|
+| Significant: the count of our own places before asking Google used only category, distance and opening hours, so Google was skipped when diet, a last stop's near-MRT rule, closed weekdays, NEA closures, budget, duration or capacity left too few | The route counts with the engine's own hard filters (`hardFilterContext` in `engine.js`, used by Converge, Roam and the route) |
+| Significant: "2 Google in the top 5" was "2 in the top `topN`", and the app asks for 10 | A fixed window, `GOOGLE_CAP_WINDOW = 5` |
+| Significant: the rating's fixed weight of 8 swamped a caller's own small weights (8 of 9 with `{ worst: 1 }`) | `withRatingWeight` scales it to the weights in use, so its share stays about 8% |
+| Minor: the pre-score's distance-to-fit ratio moved for every request; the "Rated … from … reviews" reason was cut by the two-tag limit and lowercase; docs said cards show a review count (not built) and that the invented venues count as 4.0 (they carry counts); a wrong worked example | All |
+
+- **Tests:** 28 more in the backend suite (1,220 to 1,248), in `google-fair-ranking.test.js`; the filter, cap-window and rating-share tests failed on the code before the fixes. One existing test (`weather-forecast-window.test.js`) compared Google's additions for stops 1 and 5 hours from the real clock, which the top-up rule makes depend on the time of day (at 16:00 it failed: our own places were enough for food at 17:00 and not at 21:00). It now always asks Google, as the other Google tests do.
+- **Run by the lead's agent before merging, exit codes read:** in the table in `CLAUDE.md`.
+- **Not done (needs the lead's key and word):** #149's before-and-after count with one real Google ranking. The card's review count ("★ 9.2 (512)") is not built.

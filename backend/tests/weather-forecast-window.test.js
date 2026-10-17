@@ -172,10 +172,12 @@ describe('which forecast a ranking uses', () => {
 
 describe('venues added later in the request', () => {
   it('places Google venues in forecast areas under the regional forecast, as under the area forecast', async () => {
-    // Stub mode: Google answers from its fixture, the forecast from the stubbed regional answer moved to cover now.
+    // Stub mode: Google answers from its fixture, the forecast from the stubbed regional answer moved to cover now. Google is
+    // always asked (ownPlacesEnough: Infinity): the two stops are hours apart on the real clock, so how many of our own places
+    // are open differs, and with it which categories the top-up would ask Google for (ticket #149).
     const { createApp } = await import('../src/app.js')
     const { once } = await import('node:events')
-    const server = createApp({ frontendOrigin: 'http://localhost:5173', stub: true }).listen(0, '127.0.0.1')
+    const server = createApp({ frontendOrigin: 'http://localhost:5173', stub: true, ownPlacesEnough: Infinity }).listen(0, '127.0.0.1')
     servers.push(server)
     await once(server, 'listening')
     const stopIn = (hours) => singaporeNow(Date.now() + hours * HOUR)
