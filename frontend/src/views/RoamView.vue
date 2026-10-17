@@ -37,6 +37,7 @@ import { roamOpen, sessionPath } from '@/lib/session.js'
 import { usePlaceDetail } from '@/lib/usePlaceDetail.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
+import { vRadioGroup } from '@/lib/radioGroup.js'
 
 const props = defineProps({ id: { type: String, required: true } })
 
@@ -260,7 +261,7 @@ const actionFor = (place) => placeAction(place, { myId: myId.value, blocked: blo
           <p v-if="centre.mode === 'here'" class="caption-sm text-muted where__privacy"><AppIcon name="lock" :size="12" /> The group sees the area's name, never where you are.</p>
         </section>
 
-        <div class="filter scroll-x" role="radiogroup" aria-label="Kind of place">
+        <div class="filter scroll-x" role="radiogroup" v-radio-group aria-label="Kind of place">
           <ChipButton radio :selected="!kind" @click="pickKind('')">All</ChipButton>
           <ChipButton v-for="c in ROAM_CATEGORIES" :key="c" radio :selected="kind === c" @click="pickKind(c)">
             <template #leading><CategoryIcon :category="c" :size="24" /></template>

@@ -18,6 +18,7 @@ import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import { useGroupsStore } from '@/stores/groups.js'
 import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
 import { REWARD_CATEGORIES } from '@/lib/mock/rewards.js'
+import { vRadioGroup } from '@/lib/radioGroup.js'
 
 const groups = useGroupsStore()
 const confirming = ref(null)
@@ -104,7 +105,7 @@ async function redeem() {
           <h2 id="vouchers-head" class="display-sm">Café vouchers</h2>
         </div>
         <div v-if="groups.rewards.length" class="filters">
-          <div class="scroll-x" role="radiogroup" aria-label="Voucher category">
+          <div class="scroll-x" role="radiogroup" v-radio-group aria-label="Voucher category">
             <ChipButton radio :selected="category === 'all'" @click="category = 'all'">All</ChipButton>
             <ChipButton v-for="c in categories" :key="c.id" radio :selected="category === c.id" @click="category = c.id">{{ c.label }}</ChipButton>
           </div>
