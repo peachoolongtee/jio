@@ -108,9 +108,11 @@ grant all
      public.slots, public.slot_options, public.votes, public.stops, public.commute_ledger, public.route_cache
   to service_role;
 
--- The backend validates the caller and writes completed stops in one transaction through this function.
+-- The backend validates the caller and writes completed stops and commute history in one transaction.
 revoke all on function public.complete_session_with_stops(uuid, jsonb) from public, anon, authenticated;
 grant execute on function public.complete_session_with_stops(uuid, jsonb) to service_role;
+revoke all on function public.complete_session_with_travel(uuid, jsonb, jsonb) from public, anon, authenticated;
+grant execute on function public.complete_session_with_travel(uuid, jsonb, jsonb) to service_role;
 
 -- A host creates a session, renames it, moves its date and times, starts it and cancels it.
 -- The trigger guard_session_changes decides which of those are allowed when.

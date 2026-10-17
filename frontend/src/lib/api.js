@@ -676,7 +676,12 @@ async function askMeeting(session, members, extra, { bar = false, spots = false 
   if (spots) findingSpots.add(session.id)
   try {
     if (bar || spots) emit({ type: 'pending', sessionId: session.id })
-    const [data] = await Promise.all([planner.meetingArea({ members, routing: db.conditions.routing, ...extra }), bar ? wait(DELAY.meeting) : null])
+    const [data] = await Promise.all([planner.meetingArea({
+      members,
+      routing: db.conditions.routing,
+      ...(session.remote ? { sessionId: session.id } : {}),
+      ...extra,
+    }), bar ? wait(DELAY.meeting) : null])
     return data
   } finally {
     finding.delete(session.id)

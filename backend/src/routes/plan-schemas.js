@@ -193,6 +193,7 @@ export function makePlanSchemas(data) {
   const meetingArea = z
     .object({
       ...groupFields,
+      sessionId,
       method: z.enum(['station', 'weighted_centroid', 'centroid', 'minimax']).default('station'),
       maxCandidates: z.number().int().min(1).max(50).optional(),
       // When the group sets off, for real public transport times. Without it, the server uses the time now.

@@ -41,7 +41,19 @@ const completedStop = z.object({
   durationMinutes: z.number().int().min(1).max(720),
   notBeforeMinute: z.number().int().min(0).max(1439).nullable().optional(),
 })
-const completion = z.object({ stops: z.array(completedStop).min(1).max(8) })
+const completedCommute = z.object({
+  userId: uuid,
+  minutesIn: z.number().int().min(0).max(1440),
+  minutesBetween: z.number().int().min(0).max(1440),
+  minutesHome: z.number().int().min(0).max(1440),
+})
+const completion = z.object({
+  stops: z.array(completedStop).min(1).max(8),
+  commutes: z.array(completedCommute).min(1).max(30).refine(
+    (rows) => new Set(rows.map((row) => row.userId.toLowerCase())).size === rows.length,
+    'each attendee may appear once',
+  ),
+})
 
 // How many times the version is read and written again when another write got in between.
 const BUMP_TRIES = 4
@@ -86,14 +98,14 @@ async function raiseVersion(service, sessionId, firstSeen) {
 export function createSessionsRouter({ supabase, limiter = null }) {
   const router = Router()
 
-  // Persist the places an authenticated member says the group actually completed. The database function writes
-  // all stops and marks the session completed in one transaction, so a retry cannot leave half a history record.
+  // Persist completed stops and reported/planned commute minutes. The database function writes both histories and
+  // marks the session completed in one transaction, so a retry cannot leave a partial record.
   router.post('/sessions/:id/complete', requireUser({ supabase }), ...(limiter ? [limiter] : []), async (req, res, next) => {
     try {
       const id = uuid.safeParse(req.params.id)
       const input = completion.safeParse(req.body ?? {})
       if (!id.success || !input.success) {
-        return refuse(res, 400, 'invalid_input', 'Send a session id and between 1 and 8 completed stops.')
+        return refuse(res, 400, 'invalid_input', 'Send a session id, 1 to 8 completed stops, and travel minutes for at least one attendee.')
       }
 
       const { data: session, error: sessionError } = await req.supabase
@@ -117,7 +129,13 @@ export function createSessionsRouter({ supabase, limiter = null }) {
       }
       if (session.status === 'completed') return res.json({ completed: true, stopsSaved: 0, alreadyCompleted: true })
 
-      const { error } = await supabase.service.rpc('complete_session_with_stops', {
+      const joinedIds = new Set((members ?? []).filter((m) => m.state === 'joined').map((m) => m.user_id.toLowerCase()))
+      const commuteIds = new Set(input.data.commutes.map((row) => row.userId.toLowerCase()))
+      if (commuteIds.size !== joinedIds.size || [...commuteIds].some((userId) => !joinedIds.has(userId))) {
+        return refuse(res, 400, 'invalid_commutes', 'Send travel minutes exactly once for every joined member of this session.')
+      }
+
+      const { error } = await supabase.service.rpc('complete_session_with_travel', {
         p_session_id: id.data,
         p_stops: input.data.stops.map((stop, seq) => ({
           seq,
@@ -127,6 +145,12 @@ export function createSessionsRouter({ supabase, limiter = null }) {
           duration_minutes: stop.durationMinutes,
           not_before_minute: stop.notBeforeMinute ?? null,
         })),
+        p_commutes: input.data.commutes.map((row) => ({
+          user_id: row.userId,
+          minutes_in: row.minutesIn,
+          minutes_between: row.minutesBetween,
+          minutes_home: row.minutesHome,
+        })),
       })
       if (error) {
         if (error.message?.includes('session is not confirmed')) {
@@ -134,7 +158,7 @@ export function createSessionsRouter({ supabase, limiter = null }) {
         }
         throw new Error(`Could not save the completed outing: ${error.message}`)
       }
-      res.json({ completed: true, stopsSaved: input.data.stops.length })
+      res.json({ completed: true, stopsSaved: input.data.stops.length, commutesSaved: input.data.commutes.length })
     } catch (err) {
       next(err)
     }

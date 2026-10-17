@@ -58,3 +58,31 @@ export async function loadCompletedGroupHistory({ supabase, userClient, sessionI
     visitHistory: (stops ?? []).map((stop) => ({ venueId: stop.venue_id, groupId: key, date: dateBySession.get(stop.session_id) })),
   }
 }
+
+// Read the server-only commute ledger for the joined members of this session. The user-scoped
+// reads prove the caller is a member before the service client calls the private RPC.
+export async function loadSessionTravelDebt({ supabase, userClient, sessionId, userId }) {
+  const { data: current, error: currentError } = await userClient
+    .from('sessions')
+    .select('id')
+    .eq('id', sessionId)
+    .maybeSingle()
+  if (currentError) throw new Error(`Could not load the session: ${currentError.message}`)
+  if (!current) return { notFound: true, byUser: {} }
+
+  const { data: membership, error: membershipError } = await userClient
+    .from('session_members')
+    .select('state')
+    .eq('session_id', sessionId)
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (membershipError) throw new Error(`Could not check session membership: ${membershipError.message}`)
+  if (membership?.state !== 'joined') return { notFound: true, byUser: {} }
+
+  const { data, error } = await supabase.service.rpc('session_travel_debt', { sid: sessionId })
+  if (error) throw new Error(`Could not load travel history: ${error.message}`)
+  return {
+    notFound: false,
+    byUser: Object.fromEntries((data ?? []).map((row) => [row.user_id.toLowerCase(), Number(row.debt_minutes)])),
+  }
+}

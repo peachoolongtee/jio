@@ -260,6 +260,7 @@ function toOption(r, block = null) {
 //   routing: false is the demo's "routing off" switch: the geographic centre, named after the nearest area.
 //   alternatives: how many runners-up to ask for besides the chosen area (0 to 3). The app's three spots are alternatives: 2.
 //   include:      area ids to work out whatever their rank (up to 8), such as the spots members suggested.
+//   sessionId:    optional Supabase session id; the backend loads members' recent commute balance for fairness.
 // Both are optional. Left out, the request is exactly what it always was and the answer has no `candidates`.
 // Returns the backend's answer: { area: { id, name, lat, lng }, centre, travelByMember, worstMinutes, method, approximate, travel }.
 // With alternatives or include it also has candidates, the chosen area first:
@@ -267,8 +268,9 @@ function toOption(r, block = null) {
 // `approximate` is false when routing is off, although every time is then an estimate: travel.source is 'estimate' then
 // (and 'onemap' when at least one trip got a real time). Say "about" for either.
 // How to call: await meetingArea({ members, routing: true, alternatives: 2, include: ['bugis'] })
-export async function meetingArea({ members, routing = true, alternatives, include }) {
+export async function meetingArea({ members, routing = true, alternatives, include, sessionId }) {
   const body = { members, method: routing ? 'station' : 'centroid' }
+  if (sessionId) body.sessionId = sessionId
   if (alternatives !== undefined) body.alternatives = alternatives
   if (include?.length) body.include = include
   const { data } = await api.post('/api/meeting-area', body)
@@ -357,9 +359,11 @@ export async function roamNearby({ members, current, date, time, minutes, catego
   return { places: data.results.map((r) => toRoamPlace(r, weather)), empty: null, widened: !!data.notice, weather }
 }
 
-// Save the itinerary the group actually completed. This endpoint requires an authenticated session member.
+// Save the itinerary and per-attendee route minutes when an outing ends. The caller must include one commute row
+// per attendee: { userId, minutesIn, minutesBetween, minutesHome }. Use actual times only if the app has collected
+// them; otherwise these are planner estimates. This endpoint requires an authenticated session member.
 // Stops use planner IDs and minutes after midnight; the backend stores no venue ratings.
-export async function completeSession(sessionId, stops) {
+export async function completeSession(sessionId, stops, commutes) {
   const { data } = await api.post(`/api/sessions/${encodeURIComponent(sessionId)}/complete`, {
     stops: stops.map((stop) => ({
       category: stop.category,
@@ -367,6 +371,12 @@ export async function completeSession(sessionId, stops) {
       plannedStartMinute: stop.plannedStartMinute ?? stop.plannedStart,
       durationMinutes: stop.durationMinutes ?? stop.duration,
       ...((stop.notBeforeMinute ?? stop.notBefore) !== undefined ? { notBeforeMinute: stop.notBeforeMinute ?? stop.notBefore } : {}),
+    })),
+    commutes: commutes.map((row) => ({
+      userId: row.userId,
+      minutesIn: row.minutesIn,
+      minutesBetween: row.minutesBetween,
+      minutesHome: row.minutesHome,
     })),
   })
   return data

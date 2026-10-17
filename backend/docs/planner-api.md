@@ -16,9 +16,26 @@ Travel times are real OneMap public transport times once the server has a OneMap
 
 For authenticated recommendations based on a Supabase session, `/api/converge` and `/api/roam` also accept `sessionId`. Send the session's UUID and the caller's Supabase access token. The backend ignores any caller-supplied `groupId`, verifies membership, and uses completed stops from sessions with the exact same joined-member roster, dated within the prior 60 days. Requests without `sessionId` remain stateless and do not read session history.
 
-When an outing actually ends, a session member can save the completed stops with `POST /api/sessions/:id/complete`. The request is authenticated and the database marks the session completed while saving its stops in one transaction. Apply migration `db/migrations/20261017000000_jio_completed_session_stops.sql` first (or use the updated `db/schema.sql` and `db/policies.sql` when building a fresh database).
+When an outing ends, a session member can save completed stops and per-attendee travel minutes with `POST /api/sessions/:id/complete`. The request is authenticated; the database saves stops, writes each attendee's travel minutes and fairness delta to `commute_ledger`, and marks the session completed in one transaction. `commutes` contains `{ userId, minutesIn, minutesBetween, minutesHome }`; supply the route minutes the app recorded for attendees (these are estimates unless the app separately captures actual journey times). Apply migrations `db/migrations/20261017000000_jio_completed_session_stops.sql` and `db/migrations/20261017000100_jio_commute_history.sql` first (or use the updated `db/schema.sql` and `db/policies.sql` when building a fresh database).
 
-The current frontend still holds the Supabase session workflow before the planning stage (`sessionsRemote.start()` returns `startHeld`), so this data path is not yet exercised by the normal UI. The frontend request helpers now carry the session id and can save completion, but the remote session planning flow must be enabled and connected to them before real outings can populate `stops` from the app.
+Example completion body:
+
+```json
+{
+  "stops": [
+    { "category": "eat", "venueId": "cdc_123", "plannedStartMinute": 720, "durationMinutes": 60 }
+  ],
+  "commutes": [
+    { "userId": "<joined-member-uuid>", "minutesIn": 25, "minutesBetween": 18, "minutesHome": 32 }
+  ]
+}
+```
+
+Each commute row represents one attendee's minutes to the meetup, between stops, and home. The server calculates `delta_from_mean` against the listed attendees; positive values mean that attendee travelled more than the average and become a fairness balance later.
+
+For a Supabase session, `/api/meeting-area` and `/api/converge` also accept `sessionId` and the caller's access token. The backend checks membership, reads `session_travel_debt()` using its service client, and overrides any client-supplied `travelDebtMinutes`. A positive balance means that member travelled more than the attendee average in recent outings; the planner uses it in the meeting-area fairness calculation and Converge's fairness-weighted travel score. Requests without `sessionId` remain stateless.
+
+The current frontend still holds the Supabase session workflow before the planning stage (`sessionsRemote.start()` returns `startHeld`), so this data path is not yet exercised by the normal UI. The frontend request helpers can send the session id and commute rows, but the remote planning and completion flow must be enabled and connected before the app will save travel history automatically.
 
 ## How it fits the frontend's slot flow
 

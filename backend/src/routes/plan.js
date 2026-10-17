@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { ZodError } from 'zod'
-import { loadCompletedGroupHistory } from '../db/session-history.js'
+import { loadCompletedGroupHistory, loadSessionTravelDebt } from '../db/session-history.js'
 import { requireUser } from '../middleware/auth.js'
 import { converge, meetingArea, meetingAreaPlan, resolveMembers, roam, searchVenues } from '../planner/engine.js'
 import { fromGooglePlaces } from '../planner/google-adapter.js'
@@ -481,11 +481,28 @@ export function createPlanRouter({
   //
   // How to call:
   //   router.post('/converge', handle(schemas.converge, converge, { usesWeather: true, usesTravel: true }))
-  const handle = (schema, run, { usesWeather = false, usesTravel = false, travelOptions = {} } = {}) => async (req, res, next) => {
+  const handle = (schema, run, { usesWeather = false, usesTravel = false, usesTravelDebt = false, usesSessionHistory = false, travelOptions = {} } = {}) => async (req, res, next) => {
     try {
       let input = schema.parse(req.body ?? {})
       let planData = data
-      if (input.sessionId) {
+      if (usesTravelDebt && input.sessionId) {
+        const history = await loadSessionTravelDebt({
+          supabase,
+          userClient: req.supabase,
+          sessionId: input.sessionId,
+          userId: req.user.id,
+        })
+        if (history.notFound) return res.status(404).json({ error: 'session_not_found', message: 'This session does not exist, or you are not in it.' })
+        input = {
+          ...input,
+          members: input.members.map((member) => ({
+            ...member,
+            // Never trust a caller-supplied debt when a Supabase session is present.
+            travelDebtMinutes: history.byUser[member.id.toLowerCase()] ?? 0,
+          })),
+        }
+      }
+      if (usesSessionHistory && input.sessionId) {
         const history = await loadCompletedGroupHistory({
           supabase,
           userClient: req.supabase,
@@ -558,10 +575,11 @@ export function createPlanRouter({
   router.post(
     '/meeting-area',
     ...guard,
-    handle(schemas.meetingArea, meetingAreaWithRouting, { usesTravel: true, travelOptions: meetingAreaTravelFor }),
+    sessionHistoryAuth,
+    handle(schemas.meetingArea, meetingAreaWithRouting, { usesTravel: true, usesTravelDebt: true, travelOptions: meetingAreaTravelFor }),
   )
-  router.post('/converge', ...guard, sessionHistoryAuth, handle(schemas.converge, converge, { usesWeather: true, usesTravel: true }))
-  router.post('/roam', ...guard, sessionHistoryAuth, handle(schemas.roam, roam, { usesWeather: true, usesTravel: true }))
+  router.post('/converge', ...guard, sessionHistoryAuth, handle(schemas.converge, converge, { usesWeather: true, usesTravel: true, usesTravelDebt: true, usesSessionHistory: true }))
+  router.post('/roam', ...guard, sessionHistoryAuth, handle(schemas.roam, roam, { usesWeather: true, usesTravel: true, usesSessionHistory: true }))
   router.post('/search', ...guard, handle(schemas.search, searchEverywhere))
 
   // A new order for a confirmed itinerary. Food stops keep their place, so meals stay at meal times; the other
