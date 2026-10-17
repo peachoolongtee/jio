@@ -130,8 +130,9 @@ const isActive = (tab) => route.meta.tab === tab.id
     width: auto;
     min-width: 0;
     max-width: none;
-    height: var(--topbar-height);
-    padding: 0 max(var(--gutter), calc((100vw - var(--content-max-width)) / 2));
+    /* Below the status bar of an app added to the home screen, and clear of a notch on a phone on its side. */
+    height: calc(var(--topbar-height) + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) max(var(--gutter), calc((100vw - var(--content-max-width)) / 2), calc(env(safe-area-inset-right, 0px) + var(--spacing-base))) 0 max(var(--gutter), calc((100vw - var(--content-max-width)) / 2), calc(env(safe-area-inset-left, 0px) + var(--spacing-base)));
     border: 0;
     border-bottom: 1px solid var(--hairline);
     border-radius: 0;
