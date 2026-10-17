@@ -20,6 +20,7 @@
 // backdrop, no focus trap. The pin is aria-describedby the card while it is open.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import MeetupSummary from './MeetupSummary.vue'
+import { barHeights } from '@/lib/bars.js'
 import { placeCard } from '@/lib/homeMeetups.js'
 import { project } from '@/lib/singaporeDots.js'
 
@@ -137,12 +138,11 @@ function onOutside(event) {
 // too short. Everything in viewport px.
 function boxes() {
   const area = layer.value.getBoundingClientRect()
-  const root = getComputedStyle(document.documentElement)
-  const bar = (name) => parseFloat(root.getPropertyValue(name)) || 0
+  const bars = barHeights()
   const left = Math.max(area.left, 0) + MARGIN
   const right = Math.min(area.right, document.documentElement.clientWidth) - MARGIN
-  const top = bar('--topbar-height') + MARGIN
-  const bottom = window.innerHeight - bar('--tabbar-height') - MARGIN
+  const top = bars.top + MARGIN
+  const bottom = window.innerHeight - bars.bottom - MARGIN
   return {
     map: { left, right, top: Math.max(area.top, top), bottom: Math.min(area.bottom, bottom) },
     viewport: { left, right, top, bottom },

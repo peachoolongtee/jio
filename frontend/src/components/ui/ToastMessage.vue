@@ -9,7 +9,7 @@ const show = defineModel('show', { type: Boolean, default: false })
 const props = defineProps({
   text: { type: String, required: true },
   duration: { type: Number, default: 2500 },
-  // Distance from the bottom edge, to clear a footer or the tab bar.
+  // Distance from the bottom edge, to clear a footer or the tab bar. The home indicator's inset is added to it.
   offset: { type: Number, default: 96 },
 })
 
@@ -23,7 +23,7 @@ onBeforeUnmount(() => clearTimeout(timer))
 
 <template>
   <Transition name="toast">
-    <div v-if="show" class="toast" role="status" :style="{ bottom: offset + 'px' }">
+    <div v-if="show" class="toast" role="status" :style="{ bottom: `calc(${offset}px + env(safe-area-inset-bottom, 0px))` }">
       <AppIcon name="check" :size="14" />
       <span>{{ text }}</span>
     </div>
@@ -33,8 +33,8 @@ onBeforeUnmount(() => clearTimeout(timer))
 <style scoped>
 .toast {
   position: fixed;
-  left: var(--spacing-lg);
-  right: var(--spacing-lg);
+  left: calc(var(--spacing-lg) + env(safe-area-inset-left, 0px));
+  right: calc(var(--spacing-lg) + env(safe-area-inset-right, 0px));
   z-index: 40;
   display: flex;
   align-items: center;
