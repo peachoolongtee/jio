@@ -132,10 +132,13 @@ test('engine: step_free and sockets are unknown for CDC sites, so strict mode re
   assert.strictEqual(filterByConstraints(data.venues, ctx).passed.length, 0);
   assert.strictEqual(filterByConstraints(data.venues, { ...ctx, unknownPolicy: 'lenient' }).passed.length, 2);
 });
-test('scoring: unknown rating is neutral, not a reward or a punishment', () => {
-  assert.strictEqual(S.ratingPenalty({ rating: null }), 50);
-  assert.strictEqual(S.ratingPenalty({ rating: 5 }), 0);
-  assert.ok(!/rated null/.test(S.explain({ venue: { rating: null, exposure: 2, cdcAccepted: true }, factors: { occasion: 90, weather: 20, preference: 80, rating: 50, price: 0, antiRepeat: 0 }, weights: { rating: 10, cdc: 3 }, hasHistory: false })));
+test('scoring: an unknown rating counts as the average (4.0), and a rating counts as far as its reviews (#149)', () => {
+  assert.strictEqual(S.ratingPenalty({ rating: null }), 20);
+  assert.strictEqual(S.ratingPenalty({ rating: 5 }), 20); // a rating with no review count is unknown: the made-up ratings of curated places
+  assert.ok(Math.abs(S.weightedRating({ rating: 5, ratingCount: 1 }) - 4.0476) < 1e-3); // one five-star review is almost nothing
+  assert.ok(Math.abs(S.weightedRating({ rating: 4.6, ratingCount: 500 }) - 4.5769) < 1e-3);
+  assert.ok(S.ratingPenalty({ rating: 4.6, ratingCount: 500 }) < S.ratingPenalty({ rating: 5, ratingCount: 1 }));
+  assert.ok(!/rated null/.test(S.explain({ venue: { rating: null, exposure: 2, cdcAccepted: true }, factors: { occasion: 90, weather: 20, preference: 80, rating: 20, price: 0, antiRepeat: 0 }, weights: { rating: 10, cdc: 3 }, hasHistory: false })));
 });
 test('roam on CDC sites: a hawker area scores as cheap, CDC-accepting and explained', () => {
   const r = roam({ current: { lat: 1.351, lng: 103.846 }, members: [member('ian')], occasion: 'casual_meal', dateTime: '2026-10-10T12:30', unknownPolicy: 'lenient' }, data);

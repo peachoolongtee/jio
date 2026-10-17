@@ -157,7 +157,7 @@ describe('Google places in the planner routes', () => {
   const FRONTEND = 'http://localhost:5173'
   const servers = []
   const start = async (options) => {
-    const s = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }), ...options }).listen(0)
+    const s = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }), ownPlacesEnough: Infinity, ...options }).listen(0)
     await once(s, 'listening')
     servers.push(s)
     return `http://127.0.0.1:${s.address().port}`

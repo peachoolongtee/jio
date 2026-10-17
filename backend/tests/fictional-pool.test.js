@@ -1,6 +1,6 @@
 // The planner's pool and scoring rules from the "keep fictional venues out of default recommendations" change:
 //   - the 36 invented venues and the sample visit history are served only with INCLUDE_FICTIONAL_VENUES=1;
-//   - a venue's rating changes no Converge or Roam score and no place in the shortlist;
+//   - a venue's rating counts as far as its reviews (ticket #149), in the score and in the shortlist;
 //   - anti-repeat is 0 without a groupId, and uses today's Singapore date on every request.
 // These tests go through loadPlanData() and the app's own default, as production does. The other test files read
 // mock-data.json directly or run with the fictional pool on (vitest.config.js), so they cannot catch a broken gate.
@@ -111,48 +111,48 @@ describe('rating and the score', () => {
     expect('rating' in DEFAULT_WEIGHTS.roam).toBe(false)
   })
 
-  it('leaves two venues that differ only in rating with the same Converge score', () => {
-    const data = withVenues([twin('hi', 5, 900), twin('lo', 1, 3), twin('none', null, 0)])
+  // Ticket #149 (agreed with the lead on 16 October 2026) replaced "rating never counts" with "a rating counts as far as its
+  // reviews": weightedRating() mixes 20 reviews at 4.0 into every rating, and no rating (or no review count) is 4.0.
+  // `rating` is still not a weight a caller can send, and still not a default one (the test above).
+  it('ranks a well-reviewed venue above an unrated one above a one-review five-star, in Converge', () => {
+    const data = withVenues([twin('lo', 5, 1), twin('none', null, 0), twin('hi', 4.6, 500)])
     const out = converge({ ...dinner, members: [member('ian'), member('faith')], centre: here, topN: 5 }, data)
-    expect(out.results).toHaveLength(3)
-    const scores = out.results.map((r) => r.score)
-    expect(new Set(scores).size).toBe(1)
-    for (const r of out.results) {
-      expect(r.breakdown.rating).toBeUndefined()
-      expect(r.explanation).not.toMatch(/rated/)
-    }
+    expect(out.results.map((r) => r.venueId)).toEqual(['hi', 'lo', 'none'])
+    const rank = Object.fromEntries(out.results.map((r) => [r.venueId, r]))
+    // 5.0 from one review is 4.05: barely above an unrated place (4.0); 4.6 from 500 reviews is 4.58.
+    expect(rank.hi.score).toBeLessThan(rank.lo.score)
+    expect(rank.lo.score).toBeLessThan(rank.none.score)
+    expect(rank.hi.breakdown.rating.value).toBeCloseTo(100 - 4.5769 * 20, 1)
+    expect(rank.none.breakdown.rating.value).toBe(20)
+    expect(out.results[0].venueId).toBe('hi')
   })
 
-  it('leaves two venues that differ only in rating with the same Roam score', () => {
-    const data = withVenues([twin('hi', 5, 900), twin('lo', 1, 3), twin('none', null, 0)])
+  it('ranks a well-reviewed venue above a one-review five-star in Roam, and tags it only with enough reviews', () => {
+    const data = withVenues([twin('few', 5, 1), twin('many', 4.6, 512)])
     const out = roam({ ...dinner, current: here, members: [member('faith')], topN: 5 }, data)
-    expect(out.results).toHaveLength(3)
-    expect(new Set(out.results.map((r) => r.score)).size).toBe(1)
-    for (const r of out.results) expect(r.explanation).not.toMatch(/rated/)
+    expect(out.results.map((r) => r.venueId)).toEqual(['many', 'few'])
+    expect(out.results[0].reasons).toContain('Rated 4.6 from 512 reviews')
+    expect(out.results[1].reasons.join(' ')).not.toMatch(/rated/i)
   })
 
-  // Venues at growing distances from Orchard, all alike but for rating. The same venues come back with their ratings
-  // reversed. If rating decided who survives the cut to the shortlist, the two shortlists would differ.
+  // Twelve venues at one point, alike but for rating (100 reviews each). The shortlist keeps the four best-rated, so the
+  // cut to the shortlist uses the weighted rating too.
   const spread = (ratingOf) => Array.from({ length: 12 }, (_, i) => ({
-    ...base, id: `s${i}`, name: `s${i}`, lat: here.lat + i * 0.0015, lng: here.lng, rating: ratingOf(i), ratingCount: 100,
+    ...base, id: `s${i}`, name: `s${i}`, lat: here.lat, lng: here.lng, rating: ratingOf(i), ratingCount: 100,
   }))
 
-  it('does not change the Converge shortlist or its order', () => {
+  it('keeps the best-rated venues in the Converge shortlist, whatever order they come in', () => {
     const run = (ratingOf) => converge({ ...dinner, members: [member('faith')], centre: here, radius: { minResults: 12 }, pruneTo: 4, topN: 4 }, withVenues(spread(ratingOf)))
     const ascending = run((i) => 0.5 + i * 0.4)
-    const descending = run((i) => 5 - i * 0.4)
-    expect(ascending.results.length).toBe(4)
-    expect(ascending.results.map((r) => r.venueId)).toEqual(descending.results.map((r) => r.venueId))
-    expect(ascending.results.map((r) => r.score)).toEqual(descending.results.map((r) => r.score))
+    const descending = run((i) => 4.9 - i * 0.4)
+    expect(ascending.results.map((r) => r.venueId).sort()).toEqual(['s8', 's9', 's10', 's11'].sort())
+    expect(descending.results.map((r) => r.venueId).sort()).toEqual(['s0', 's1', 's2', 's3'].sort())
   })
 
-  it('does not change the Roam shortlist or its order', () => {
+  it('keeps the best-rated venues in the Roam shortlist, whatever order they come in', () => {
     const run = (ratingOf) => roam({ ...dinner, current: here, members: [member('faith')], radius: { minResults: 12 }, pruneTo: 4, topN: 4 }, withVenues(spread(ratingOf)))
     const ascending = run((i) => 0.5 + i * 0.4)
-    const descending = run((i) => 5 - i * 0.4)
-    expect(ascending.results.length).toBe(4)
-    expect(ascending.results.map((r) => r.venueId)).toEqual(descending.results.map((r) => r.venueId))
-    expect(ascending.results.map((r) => r.score)).toEqual(descending.results.map((r) => r.score))
+    expect(ascending.results.map((r) => r.venueId)).toEqual(['s11', 's10', 's9', 's8'])
   })
 
   it('keeps rating and ratingCount on the venue, for display', () => {
