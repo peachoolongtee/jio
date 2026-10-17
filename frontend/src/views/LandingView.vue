@@ -24,6 +24,8 @@
 // An outing past its end time with no confirmed plan gets a banner that says when it closes by itself (lib/session.js
 // overdueOuting). A confirmed one finishes by itself: when its end time passes while Home is open, the list is read again,
 // which completes it (lib/api.js settleOutings).
+// "Already out? Find something nearby" (RoamFromHome) sits under the meetups, or alone under the band when there are none,
+// for a local account: it starts a light meetup around one area and opens its Roam list (ticket #98).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { format } from 'date-fns'
@@ -46,6 +48,7 @@ import SessionCard from '@/components/event/SessionCard.vue'
 import MeetupDetail from '@/components/home/MeetupDetail.vue'
 import MeetupList from '@/components/home/MeetupList.vue'
 import MeetupPins from '@/components/home/MeetupPins.vue'
+import RoamFromHome from '@/components/home/RoamFromHome.vue'
 import * as api from '@/lib/api.js'
 import { enterGame } from '@/lib/enterGame.js'
 import { activeMeetups, dayLabel, pinName, pinsFor, routesFor, selectMeetup } from '@/lib/homeMeetups.js'
@@ -125,6 +128,8 @@ const selected = computed(() => selectMeetup(meetups.value, route.query.meetup))
 const past = computed(() => sessions.value.filter((s) => !meetups.value.includes(s)).slice(0, 3))
 const hasFinished = computed(() => sessions.value.length > meetups.value.length)
 const area = computed(() => selected.value?.area || null)
+// The person's home area, a quick choice for "Already out?".
+const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAreaId, name: auth.user.homeAreaName } : null))
 
 // Outings past their end time that have not been completed, each with when it closes by itself. A confirmed one is left
 // out: it is finishing (below).
@@ -456,6 +461,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         </template>
       </div>
       <p class="sr-only" role="status">{{ announce }}</p>
+      <RoamFromHome v-if="events.loaded && auth.sampleWorld" class="rise home__roam" :home="homeArea" />
 
       <!-- A midpoint: places around it, nearest first. -->
       <section v-if="area" class="section rise" aria-labelledby="home-places">

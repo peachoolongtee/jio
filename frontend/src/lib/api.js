@@ -3190,10 +3190,12 @@ export async function resolveProposal(id, proposalId, accept) {
     if (!venue) throw new Error('This place does not exist.')
     if (!stops.some((s) => s.venueId === proposal.venueId)) {
       if (stops.length >= ROAM.stops) throw new Error(proposeBlock({ stops: stops.length, mine: 0, total: 0 }))
+      // A light meetup (startRoam) starts with no stops: its first stop starts now.
       const last = timedStops(session).at(-1)
       const now = new Date()
-      const notBefore = nextStopStart(last.end, now.getHours() * 60 + now.getMinutes())
-      session.plan.stops = [...stops, { slotId: `roam-${proposal.id}`, category: venue.category, venueId: proposal.venueId, plannedStart: last.end, duration: ROAM.minutes, notBefore }]
+      const notBefore = nextStopStart(last?.end, now.getHours() * 60 + now.getMinutes())
+      session.plan.stops = [...stops, { slotId: `roam-${proposal.id}`, category: venue.category, venueId: proposal.venueId, plannedStart: last?.end ?? notBefore, duration: ROAM.minutes, notBefore }]
+      if (!last) session.plan.startAt = notBefore
       // The note was about the order the stops had; the plan is no longer exactly that.
       session.plan.aiNote = null
     }
@@ -3201,6 +3203,53 @@ export async function resolveProposal(id, proposalId, accept) {
   session.proposals = proposals.filter((p) => p.id !== proposalId)
   forgetUnusedVenues([proposal.venueId])
   return { ...touch(session, 'plan'), applied: true }
+}
+
+// "Already out? Find something nearby" on Home: a light meetup for today, hosted by the signed-in person, already under way
+// around one area, so the Roam list opens at once. There is no location step and no vote: the area is the meeting area (the
+// group sees its name, never the exact place it came from), the plan starts with no stops, and places are added through
+// Roam's proposals. It runs from now for three hours (to 23:59 at the latest), so it finishes by itself after that like any
+// confirmed outing. Inviting friends is optional: with one person it is not paused (lib/session.js isPaused). Local
+// accounts only for now: a shared session's status is the server's to set.
+// How to call: const session = await startRoam({ areaId: 'bugis' })
+export async function startRoam({ areaId, title = '' } = {}) {
+  if (onServer()) throw new Error('Finding something nearby is not ready for shared sessions yet.')
+  await wait(DELAY.write)
+  requireMe(undefined, 'Log in to find something nearby.')
+  const area = areaById(areaId)
+  if (!area) throw new Error('Pick an area first.')
+  const name = String(title ?? '').trim() || `Out in ${area.name}`
+  if (name.length > 60) throw new Error('A title can be at most 60 characters.')
+  const now = new Date()
+  const from = Math.min(now.getHours() * 60 + now.getMinutes(), 23 * 60 + 58)
+  const session = {
+    id: `s${db.seq++}`,
+    title: name,
+    date: todayKey(),
+    start: P.fromMinutes(from),
+    end: P.fromMinutes(Math.min(from + 3 * 60, 23 * 60 + 59)),
+    hostId: me(),
+    status: 'confirmed',
+    light: true,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    members: [{ id: me(), role: 'host', state: 'joined' }],
+    locations: {},
+    meeting: meetingAtSpot(area.id, 'chosen', { times: {}, worstMinutes: null, approximate: false }),
+    spots: emptySpots(),
+    prefs: {},
+    deletedSlots: [],
+    options: {},
+    votes: {},
+    plan: { stops: [], modes: [], startAt: from },
+    proposals: [],
+    banner: null,
+    replan: null,
+    photos: [],
+    radius: null,
+  }
+  db.sessions.push(session)
+  return touch(session, 'session')
 }
 
 // ── Replacing one stop of a confirmed plan ─────────────────────────────────

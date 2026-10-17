@@ -27,9 +27,10 @@ export function submissionStatus(session, personId, voterIds = []) {
 
 export const STATUS_TONE = { Joined: 'neutral', 'Location submitted': 'strong', Voted: 'strong', 'Opted out': 'error' }
 
-// A session pauses when fewer than 2 people are left before it ends.
+// A session pauses when fewer than 2 people are left before it ends. A light meetup (Roam from Home) never does: one
+// person out on their own is how it starts, and inviting friends is optional.
 export function isPaused(session) {
-  return ['locating', 'voting', 'confirmed'].includes(session.status) && session.activeIds.length < 2
+  return !session.light && ['locating', 'voting', 'confirmed'].includes(session.status) && session.activeIds.length < 2
 }
 
 // The words for calling an outing off, written once so the hold button in the header, its dialog and the "not enough
@@ -45,14 +46,15 @@ export const CANCEL_OUTING = {
 
 // May this person invite people to this session now, and if not, what to tell them. Only the host invites. It is open
 // while the session is inviting, locating or voting, and for a confirmed plan only when too few people are left (the
-// "not enough people" notice links to the invite page). Once the plan is confirmed with enough people, or the session is
+// "not enough people" notice links to the invite page), or for a light meetup at any time. Once the plan is confirmed with enough people, or the session is
 // over, it is closed: the page shows who is in and says so.
 // How to call: inviteAccess({ status: 'voting', activeIds: ['ian', 'faith'] }, true) -> { open: true, text: '' }
 export function inviteAccess(session, mine, hostName = 'the host') {
   const closed = (text) => ({ open: false, text })
   if (session.status === 'completed') return closed('The outing is over, so invites are closed.')
   if (session.status === 'cancelled') return closed('The outing was cancelled, so invites are closed.')
-  if (session.status === 'confirmed' && !isPaused(session)) return closed('The plan is confirmed, so invites are closed.')
+  // A light meetup is under way from the start, and its host may bring friends along at any time.
+  if (session.status === 'confirmed' && !session.light && !isPaused(session)) return closed('The plan is confirmed, so invites are closed.')
   if (!mine) return closed(`Only ${hostName} can invite people.`)
   return { open: true, text: '' }
 }
