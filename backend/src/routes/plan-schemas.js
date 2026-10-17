@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { MAX_MOVABLE_STOPS } from '../planner/arrange.js'
+import { isSingaporePoint } from '../planner/singapore.js'
 
 // Request checks for the planner endpoints. Every request is checked here BEFORE the engine runs, so the
 // engine only ever sees input it can score, and the frontend gets a 400 that says which field is wrong.
@@ -45,19 +46,35 @@ export const MAX = {
 }
 const text = (max = MAX.text) => z.string().min(1).max(max)
 
-// Singapore, with a little margin. Catches swapped lat/lng and (0, 0) from a failed geocode. The location search also
-// drops a Google place outside it.
+// Coarse range prefilter; validation also uses the URA Singapore land polygons and the central planning envelope.
 export const SINGAPORE_BOUNDS = { lat: { min: 1.1, max: 1.5 }, lng: { min: 103.5, max: 104.1 } }
-const point = z.object({
+const pointCoordinates = z.object({
   lat: z.number().min(SINGAPORE_BOUNDS.lat.min).max(SINGAPORE_BOUNDS.lat.max),
   lng: z.number().min(SINGAPORE_BOUNDS.lng.min).max(SINGAPORE_BOUNDS.lng.max),
   label: z.string().max(MAX.text).optional(),
 })
+const withinLegacyBounds = ({ lat, lng }) =>
+  lat >= SINGAPORE_BOUNDS.lat.min && lat <= SINGAPORE_BOUNDS.lat.max &&
+  lng >= SINGAPORE_BOUNDS.lng.min && lng <= SINGAPORE_BOUNDS.lng.max
+const point = pointCoordinates.superRefine((value, ctx) => {
+  if (withinLegacyBounds(value) && !isSingaporePoint(value)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'coordinates must be in Singapore', path: ['lat'] })
+  }
+})
 
-// "2026-10-10T19:00": local time, no time zone, sliced not parsed (see filters.js).
+function isRealLocalDateTime(value) {
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number)
+  const date = new Date(0)
+  date.setUTCHours(0, 0, 0, 0)
+  date.setUTCFullYear(year, month - 1, day)
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
+// "2026-10-10T19:00": valid Singapore local date and time, with no time zone.
 const dateTime = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/, 'use local time as YYYY-MM-DDTHH:MM, e.g. 2026-10-10T19:00')
+  .refine(isRealLocalDateTime, 'dateTime must contain a real calendar date')
 
 // Lowercased first, so "Halal" from a form still means halal instead of rejecting every venue.
 const diet = z.string().transform((s) => s.toLowerCase()).pipe(z.enum(['halal', 'vegetarian', 'vegan']))
@@ -221,6 +238,20 @@ export function makePlanSchemas(data) {
     limit: z.number().int().min(1).max(50).optional(),
   })
 
+  // Build-spec GET alias for search. `lat`/`lng` are optional together; without them, search around Singapore's centre.
+  const venuesSearchQuery = z.object({
+    q: z.string().trim().min(1).max(MAX.searchQuery),
+    lat: z.coerce.number().optional(),
+    lng: z.coerce.number().optional(),
+    dateTime: dateTime.optional(),
+    category: category.optional(),
+    durationMinutes: z.coerce.number().int().min(0).max(720).optional(),
+    limit: z.coerce.number().int().min(1).max(50).optional(),
+  }).refine((query) => (query.lat === undefined) === (query.lng === undefined), {
+    message: 'lat and lng must be sent together',
+    path: ['lat'],
+  })
+
   // GET /api/places/search?q=... : an address, postal code or building name, sent to OneMap.
   const placeSearch = z.object({ q: z.string().trim().min(1).max(MAX.text) })
 
@@ -231,8 +262,8 @@ export function makePlanSchemas(data) {
     name: text(),
     category,
     kind: text().optional(),
-    lat: point.shape.lat,
-    lng: point.shape.lng,
+    lat: pointCoordinates.shape.lat,
+    lng: pointCoordinates.shape.lng,
     duration: z.number().int().min(MAX.stopMinutes.min).max(MAX.stopMinutes.max),
     // When the itinerary shows the stop starting now, in minutes after midnight. A meal keeps this time.
     start: z.number().int().min(0).max(2 * MAX.minutes).optional(),
@@ -242,6 +273,10 @@ export function makePlanSchemas(data) {
       .default([]),
     indoor: z.boolean().optional(),
     mrtWalk: z.number().min(0).max(MAX.mrtWalkMinutes).optional(),
+  }).superRefine(({ lat, lng }, ctx) => {
+    if (withinLegacyBounds({ lat, lng }) && !isSingaporePoint({ lat, lng })) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'coordinates must be in Singapore', path: ['lat'] })
+    }
   })
   const arrange = z
     .object({
@@ -265,7 +300,11 @@ export function makePlanSchemas(data) {
   // POST /api/weather/stops: where and when each stop of a plan is, to ask what the weather will be there.
   const weatherStop = z.object({
     id: text(),
-    point: point.pick({ lat: true, lng: true }),
+    point: pointCoordinates.pick({ lat: true, lng: true }).superRefine((value, ctx) => {
+      if (withinLegacyBounds(value) && !isSingaporePoint(value)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'coordinates must be in Singapore', path: ['lat'] })
+      }
+    }),
     start: dateTime,
     exposure: z.number().min(0).max(MAX.exposure).optional(),
     setting: z.enum(['indoor', 'outdoor', 'mixed']).optional(),
@@ -279,5 +318,5 @@ export function makePlanSchemas(data) {
     weatherCase,
   })
 
-  return { converge, roam, meetingArea, search, placeSearch, arrange, weatherStops }
+  return { converge, roam, meetingArea, search, venuesSearchQuery, placeSearch, arrange, weatherStops }
 }

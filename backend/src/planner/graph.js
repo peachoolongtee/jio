@@ -112,7 +112,7 @@ function rideMinutes(graph, fromStation, toStation) {
  * walk from the nearest station to the destination. Compared against just walking. Label as "approximate" in the UI.
  * @param net { graph, stations: {name: [lat, lng]} }
  */
-function estimateTransitMinutes(from, to, net, { walkKmh = 4.5, waitMinutes = 5, detour = 1.3 } = {}) {
+function estimateTransitMinutes(from, to, net, { walkKmh = 5, waitMinutes = 5, detour = 1.3 } = {}) {
   const walk = km => (km * detour * 60) / walkKmh;
   const nearest = p => Object.entries(net.stations)
     .map(([name, [lat, lng]]) => ({ name, km: haversineKm(p, { lat, lng }) }))

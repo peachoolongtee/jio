@@ -2,7 +2,9 @@
 
 How the frontend asks the backend where to meet and which venues to suggest. The routes live in `backend/src/routes/plan.js`, the input checks in `backend/src/routes/plan-schemas.js`.
 
-Base URL: `VITE_API_BASE_URL` (locally `http://localhost:3000`). Every request and response is JSON. All four endpoints are `POST`.
+Base URL: `VITE_API_BASE_URL` (locally `http://localhost:3000`). Planner requests and responses are JSON. Ranking and slot search use `POST`; address search and the build-spec venue-search alias use `GET`.
+
+Coordinates are checked against the URA Master Plan planning-area land polygons plus a bounded central planning envelope, so outlying Johor and Batam points are rejected while central coastal points remain usable. `dateTime` must be a real `YYYY-MM-DDTHH:MM` calendar date in Singapore local time; weekday-specific Google opening hours and explicit closed-weekday data use its date.
 
 | Endpoint | Use it for |
 |---|---|
@@ -10,6 +12,8 @@ Base URL: `VITE_API_BASE_URL` (locally `http://localhost:3000`). Every request a
 | `POST /api/converge` | Once per itinerary slot: rank venues for the group around the meeting point. |
 | `POST /api/roam` | "What next?": rank venues near one person's current point. |
 | `POST /api/search` | Find a place by name to add as an option, and say whether it fits the slot. |
+| `POST /api/plan/converge`, `POST /api/plan/roam` | Build-spec aliases for the two ranking endpoints above. |
+| `GET /api/venues/search?q=...` | Build-spec search alias. Optional `lat`, `lng`, `dateTime`, `category`, `durationMinutes` and `limit`; defaults to central Singapore and the current Singapore date/time. |
 | `GET /api/places/search?q=` | Find an address, postal code or building with OneMap, for start and end points. |
 
 Travel times are real OneMap public transport times once the server has a OneMap account (`ONEMAP_EMAIL`, `ONEMAP_PASSWORD`), and the engine's estimate until then. Every answer says which it used: see [Travel times](#travel-times). Weather: see [Weather](#weather).
@@ -613,7 +617,7 @@ The counts always add up: `asked = routed + cached + walked + failed + estimated
 | `failed` | OneMap was asked and gave no time (an error, or no route), or the cache remembers "no route". The engine used its estimate. |
 | `estimated` | Never asked, so the engine used its estimate. Its venue or area did not fit the per-request cap (or the meeting-area shortlist), or OneMap was not available (the shared call budget was used up, routing was paused after repeated failures, the login failed), or this request waited its 8 seconds. |
 
-`approximate: true` on a result (or on the meeting area) means at least one of its trips used the estimate, whether it `failed` or was `estimated`. A result that is not approximate has real times for every trip. `diagnostics.routingCalls` is the engine's own count of the trips it asked about; `travel` is what was really fetched.
+`approximate: true` on a result (or on the meeting area) means at least one of its trips used the estimate, whether it `failed` or was `estimated`. A result that is not approximate has real times for every trip. Travel-minute fields are rounded to one decimal place in normal server responses. Internal `diagnostics` counters are omitted unless `PLANNER_DIAGNOSTICS=1`; tests include them to exercise engine behavior. `travel` is the public summary of what was fetched.
 
 How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 - The engine runs once to find the trips it needs. Those are fetched from OneMap, 6 at a time, and the engine runs again with the real times.

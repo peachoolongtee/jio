@@ -82,6 +82,7 @@ export function createApp({
   accountCheckRateLimit = { windowMs: 60_000, max: 10 },
   routingDeadlineMs = undefined,
   ownPlacesEnough = undefined,
+  includePlannerDiagnostics = process.env.NODE_ENV === 'test' || process.env.PLANNER_DIAGNOSTICS === '1',
   supabase = null,
   mount = () => {},
 }) {
@@ -130,6 +131,7 @@ export function createApp({
       allowSimulatedWeather: allowSimulatedWeather || stub,
       routingDeadlineMs,
       ownPlacesEnough,
+      includeDiagnostics: includePlannerDiagnostics,
       limiter,
     }),
   )

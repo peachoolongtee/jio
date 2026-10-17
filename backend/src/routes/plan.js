@@ -18,7 +18,8 @@ import { OneMapUnavailableError } from '../services/budget.js'
 import { ExternalApiError } from '../services/errors.js'
 import { currentScenario } from '../services/scenario.js'
 import { estimateTravel, ROUTING_DEADLINE_MS, runWithRealTravel } from '../services/travel-times.js'
-import { MAX, makePlanSchemas, SINGAPORE_BOUNDS } from './plan-schemas.js'
+import { MAX, makePlanSchemas } from './plan-schemas.js'
+import { isSingaporePoint } from '../planner/singapore.js'
 import { arrangeCandidates, freshCandidates } from '../planner/arrange.js'
 import { createItineraryAi } from '../services/itinerary-ai.js'
 
@@ -160,6 +161,7 @@ export function createPlanRouter({
   limiter = null,
   routingDeadlineMs = ROUTING_DEADLINE_MS,
   ownPlacesEnough = OWN_PLACES_ENOUGH,
+  includeDiagnostics = process.env.NODE_ENV === 'test' || process.env.PLANNER_DIAGNOSTICS === '1',
 }) {
   const schemas = makePlanSchemas(data)
   const router = Router()
@@ -344,8 +346,7 @@ export function createPlanRouter({
     const name = typeof p?.displayName?.text === 'string' ? p.displayName.text.trim() : ''
     if (name === '' || /^\d+$/.test(name)) return null
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-    const { lat: la, lng: lo } = SINGAPORE_BOUNDS
-    if (lat < la.min || lat > la.max || lng < lo.min || lng > lo.max) return null
+    if (!isSingaporePoint({ lat, lng })) return null
     const address = typeof p.formattedAddress === 'string' ? p.formattedAddress : ''
     return { name, address, postal: address.match(/Singapore (\d{6})/)?.[1] ?? null, lat, lng, source: 'google' }
   }
@@ -481,6 +482,25 @@ export function createPlanRouter({
   const invalid = (res, issues) =>
     res.status(400).json({ error: 'invalid_input', message: 'Some fields in the request are missing or not valid. See issues.', issues })
 
+  const timeMapKeys = new Set(['travelByMember', 'returnByMember', 'times'])
+  const publicResponse = (value, parentKey = '') => {
+    if (Array.isArray(value)) return value.map((item) => publicResponse(item))
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value)
+        .filter(([key]) => includeDiagnostics || key !== 'diagnostics')
+        .map(([key, item]) => [key,
+          !includeDiagnostics && timeMapKeys.has(parentKey) && typeof item === 'number'
+            ? Math.round(item * 10) / 10
+            : publicResponse(item, key),
+        ]))
+    }
+    if (!includeDiagnostics && typeof value === 'number' && (timeMapKeys.has(parentKey) || /minutes$/i.test(parentKey))) {
+      return Math.round(value * 10) / 10
+    }
+    return value
+  }
+  const answer = (res, body) => res.json(publicResponse(body))
+
   // Wraps a handler: checks the body, runs the engine, answers 400 with the field errors on bad input.
   // With `usesWeather` it also resolves the weather first and adds `weather` to the answer.
   // With `usesTravel` it runs the engine with real OneMap travel times when it can, and adds `travel`.
@@ -493,11 +513,11 @@ export function createPlanRouter({
       const input = schema.parse(req.body ?? {})
       if (!usesWeather) {
         if (!usesTravel) {
-          res.json(await run(input, data, depsFor()))
+          answer(res, await run(input, data, depsFor()))
           return
         }
         const { result, travel } = await runWithTravel(input, data, run, travelOptions)
-        res.json({ ...result, travel })
+        answer(res, { ...result, travel })
         return
       }
       // A simulated forecast the server does not allow is dropped, and the answer says so.
@@ -508,7 +528,7 @@ export function createPlanRouter({
       const { result, travel } = usesTravel
         ? await runWithTravel(withOptionCounts({ ...input, weatherCase }), planData, run, travelOptions)
         : { result: await run(withOptionCounts({ ...input, weatherCase }), planData, depsFor()) }
-      res.json({
+      answer(res, {
         ...result,
         ...(travel && { travel }),
         google,
@@ -548,14 +568,36 @@ export function createPlanRouter({
     const { outside } = meetingAreaPlan(withRoutingCandidates(input), data)
     return { ...meetingAreaTravel, namedAreas: { notShortlisted: outside, afterShortlist: input.include ?? [] } }
   }
-  router.post(
-    '/meeting-area',
-    ...guard,
-    handle(schemas.meetingArea, meetingAreaWithRouting, { usesTravel: true, travelOptions: meetingAreaTravelFor }),
-  )
-  router.post('/converge', ...guard, handle(schemas.converge, converge, { usesWeather: true, usesTravel: true }))
-  router.post('/roam', ...guard, handle(schemas.roam, roam, { usesWeather: true, usesTravel: true }))
-  router.post('/search', ...guard, handle(schemas.search, searchEverywhere))
+  const meetingAreaHandler = handle(schemas.meetingArea, meetingAreaWithRouting, { usesTravel: true, travelOptions: meetingAreaTravelFor })
+  const convergeHandler = handle(schemas.converge, converge, { usesWeather: true, usesTravel: true })
+  const roamHandler = handle(schemas.roam, roam, { usesWeather: true, usesTravel: true })
+  const searchHandler = handle(schemas.search, searchEverywhere)
+  router.post('/meeting-area', ...guard, meetingAreaHandler)
+  router.post('/converge', ...guard, convergeHandler)
+  router.post('/roam', ...guard, roamHandler)
+  router.post('/search', ...guard, searchHandler)
+  // Build-spec paths; the shorter /api/converge and /api/roam paths remain supported for the current frontend.
+  router.post('/plan/converge', ...guard, convergeHandler)
+  router.post('/plan/roam', ...guard, roamHandler)
+
+  // Build-spec GET search alias. Optional coordinates and filters preserve the richer POST /api/search contract.
+  router.get('/venues/search', ...guard, async (req, res, next) => {
+    try {
+      const query = schemas.venuesSearchQuery.parse(req.query)
+      const input = schemas.search.parse({
+        query: query.q,
+        centre: query.lat === undefined ? SINGAPORE_CENTRE : { lat: query.lat, lng: query.lng },
+        dateTime: query.dateTime ?? nowInSingapore(),
+        ...(query.category ? { categories: [query.category] } : {}),
+        ...(query.durationMinutes !== undefined ? { durationMinutes: query.durationMinutes } : {}),
+        ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      })
+      answer(res, await searchEverywhere(input, data))
+    } catch (err) {
+      if (err instanceof ZodError) invalid(res, err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })))
+      else next(err)
+    }
+  })
 
   // A new order for a confirmed itinerary. Food stops keep their place, so meals stay at meal times; the other
   // stops are put in the order the AI (Gemini or Claude) finds nicest among the orders that keep every place open

@@ -150,7 +150,7 @@ Added so the frontend loses nothing when it switches to the API. Each Converge a
 
 ## 4. Bug fixed along the way
 
-- **Regret line said "would add 0 minutes"** (`scoring.js` `regretCounterfactual`). The gap was checked before rounding, so 0.3 minutes passed and then printed as 0. It now rounds first and hides gaps under one minute.
+- **Regret line noise** (`scoring.js` `regretCounterfactual`). The gap is rounded first and shown only when choosing the other place would add at least 3 minutes to the most affected member's trip.
 
 ## 5. The API
 
@@ -160,6 +160,8 @@ Added so the frontend loses nothing when it switches to the API. Each Converge a
 - `POST /api/converge`
 - `POST /api/roam`
 - `POST /api/search`
+- `POST /api/plan/converge` and `POST /api/plan/roam` are aliases for the build spec; the shorter `/api/converge` and `/api/roam` paths remain supported.
+- `GET /api/venues/search?q=...` is the build-spec search alias. It accepts optional `lat`, `lng`, `dateTime`, `category`, `durationMinutes` and `limit`; without coordinates it searches around central Singapore. The richer `POST /api/search` remains supported.
 
 Every request is checked by zod (`src/routes/plan-schemas.js`) before the engine runs:
 
