@@ -1,6 +1,6 @@
 // The planner's pool and scoring rules from the "keep fictional venues out of default recommendations" change:
 //   - the 36 invented venues and the sample visit history are served only with INCLUDE_FICTIONAL_VENUES=1;
-//   - a venue's rating changes no Converge or Roam score and no place in the shortlist;
+//   - a venue's rating counts as far as its reviews (ticket #149), in the score and in the shortlist;
 //   - anti-repeat is 0 without a groupId, and uses today's Singapore date on every request.
 // These tests go through loadPlanData() and the app's own default, as production does. The other test files read
 // mock-data.json directly or run with the fictional pool on (vitest.config.js), so they cannot catch a broken gate.
@@ -131,8 +131,8 @@ describe('rating and the score', () => {
     const data = withVenues([twin('few', 5, 1), twin('many', 4.6, 512)])
     const out = roam({ ...dinner, current: here, members: [member('faith')], topN: 5 }, data)
     expect(out.results.map((r) => r.venueId)).toEqual(['many', 'few'])
-    expect(out.results[0].reasons).toContain('rated 4.6 from 512 reviews')
-    expect(out.results[1].reasons.join(' ')).not.toMatch(/rated/)
+    expect(out.results[0].reasons).toContain('Rated 4.6 from 512 reviews')
+    expect(out.results[1].reasons.join(' ')).not.toMatch(/rated/i)
   })
 
   // Twelve venues at one point, alike but for rating (100 reviews each). The shortlist keeps the four best-rated, so the
