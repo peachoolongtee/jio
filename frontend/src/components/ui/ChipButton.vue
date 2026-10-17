@@ -5,14 +5,26 @@
 // Without it the chip is a toggle. `check` shows a tick when selected.
 // The `leading` slot holds an avatar or an icon.
 // Set --chip-on (for example to a category colour) to fill the selected chip with it instead of ink.
+// A disabled chip stays focusable (aria-disabled) and ignores clicks, so focus is not lost while a request runs.
+// A set of radio chips gets one Tab stop and the arrow keys from v-radio-group on its radiogroup.
 import AppIcon from './AppIcon.vue'
 
-defineProps({
+const props = defineProps({
   selected: { type: Boolean, default: false },
   radio: { type: Boolean, default: false },
   check: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
 })
+const emit = defineEmits(['click'])
+
+// How to call: <button @click="onClick"> (passes the click on unless the chip is disabled)
+function onClick(event) {
+  if (props.disabled) {
+    event.preventDefault()
+    return
+  }
+  emit('click', event)
+}
 </script>
 
 <template>
@@ -23,7 +35,8 @@ defineProps({
     :role="radio ? 'radio' : undefined"
     :aria-checked="radio ? String(selected) : undefined"
     :aria-pressed="radio ? undefined : String(selected)"
-    :disabled="disabled"
+    :aria-disabled="disabled ? 'true' : undefined"
+    @click="onClick"
   >
     <span class="chip__pill">
       <slot name="leading" />
@@ -55,7 +68,7 @@ defineProps({
   min-width: var(--tap-min);
   height: 32px;
   padding: 0 var(--spacing-md);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-control);
   border-radius: var(--rounded-full);
   background: var(--canvas);
   color: var(--ink);
@@ -63,24 +76,25 @@ defineProps({
   white-space: nowrap;
   transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), transform 260ms var(--ease-spring);
 }
-.chip:not(:disabled):active .chip__pill { transform: scale(0.94); }
+.chip:not([aria-disabled="true"]):active .chip__pill { transform: scale(0.94); }
 /* Turning a chip on pops it, so the choice registers. */
 .chip.is-selected .chip__pill { animation: chip-pop 320ms var(--ease-spring); }
 @keyframes chip-pop { 0% { transform: scale(0.9); } 100% { transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { .chip.is-selected .chip__pill { animation: none; } }
-.chip:not(:disabled):active .chip__pill { border-color: var(--ink); background: var(--surface-strong); transition-duration: 0ms; }
-.chip.is-selected:not(:disabled):active .chip__pill { border-color: var(--chip-on, var(--body)); background: var(--chip-on, var(--body)); filter: brightness(0.9); }
+.chip:not([aria-disabled="true"]):active .chip__pill { border-color: var(--ink); background: var(--surface-strong); transition-duration: 0ms; }
+.chip.is-selected:not([aria-disabled="true"]):active .chip__pill { border-color: var(--chip-on, var(--body)); background: var(--chip-on, var(--body)); filter: brightness(0.9); }
 .chip__text { overflow: hidden; text-overflow: ellipsis; }
 /* A chip with an avatar is a little taller and hugs the avatar on the left. */
 .chip.has-leading .chip__pill { gap: var(--spacing-sm); height: 40px; padding: 0 var(--spacing-md) 0 var(--spacing-xs); }
 .chip.is-selected .chip__pill { border-color: var(--chip-on, var(--selected)); background: var(--chip-on, var(--selected)); color: var(--on-selected); }
-.chip:disabled { cursor: not-allowed; }
-.chip:disabled .chip__pill { border-color: var(--hairline); color: var(--muted-soft); }
+/* A disabled chip that is not chosen fades. A chosen one keeps its fill and white text, so it stays readable. */
+.chip[aria-disabled="true"] { cursor: not-allowed; }
+.chip[aria-disabled="true"]:not(.is-selected) .chip__pill { border-color: var(--hairline); color: var(--muted-soft); }
 /* The focus ring sits on the pill, not on the larger tap area. */
 .chip:focus-visible { outline: none; }
 .chip:focus-visible .chip__pill { outline: 2px solid var(--ink); outline-offset: 2px; }
 @media (hover: hover) {
-  .chip:not(:disabled):hover .chip__pill { border-color: var(--ink); }
-  .chip.is-selected:not(:disabled):hover .chip__pill { border-color: var(--chip-on, var(--body)); background: var(--chip-on, var(--body)); filter: brightness(1.06); }
+  .chip:not([aria-disabled="true"]):hover .chip__pill { border-color: var(--ink); }
+  .chip.is-selected:not([aria-disabled="true"]):hover .chip__pill { border-color: var(--chip-on, var(--body)); background: var(--chip-on, var(--body)); filter: brightness(1.06); }
 }
 </style>

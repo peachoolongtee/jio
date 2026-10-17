@@ -19,6 +19,7 @@ colors:
   hairline: "#dddddd"
   hairline-soft: "#ebebeb"
   border-strong: "#c1c1c1"
+  border-control: "#8a8a8a"
   on-primary: "#ffffff"
   on-dark: "#ffffff"
   scrim: "#000000"
@@ -319,9 +320,10 @@ These carry information on maps, keys, stripes and avatars. None of them is used
 | `--canvas` | `#ffffff` | The page, cards, sheets, dialogs. |
 | `--surface-soft` | `#f7f7f7` | Banners, hover backgrounds, the Home map band. |
 | `--surface-strong` | `#f2f2f2` | Icon-button circles, photo plates, neutral tags, empty progress blocks. |
-| `--hairline` | `#dddddd` | The default 1px border. |
+| `--hairline` | `#dddddd` | The default 1px border of cards and dividers. Too light (1.36:1) to outline a control. |
 | `--hairline-soft` | `#ebebeb` | Lighter dividers; the progress bar's track. |
-| `--border-strong` | `#c1c1c1` | The outline of an unselected chip, the switch, the sheet handle. |
+| `--border-strong` | `#c1c1c1` | Decorative outlines: dashed empties, the next button, the sheet handle, disabled outlines. |
+| `--border-control` | `#8a8a8a` | The edge that marks a control: text fields, selects, unselected chips, the switch. 3.45:1 on white, for WCAG's 3:1 (issue #62). |
 | `--on-primary` | `#ffffff` | Text and icons on the red. |
 | `--on-dark` | `#ffffff` | Text on ink and on the photo viewer. |
 | `--scrim` | `#000000` | The backdrop behind sheets and dialogs, drawn at 50% opacity. |
@@ -817,8 +819,9 @@ No template contains an exclamation mark, an emoji or an upper-case label.
 - **Focus.** `:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }` applies to every control (`app.css`). Components that draw their own keep the 2px ink line: `ChipButton` puts it on the pill, not the larger tap area; `PinButton` turns the pin's white stroke to a 4px ink stroke; `HeroButton` and `RadialTimePicker` use rings made with `box-shadow`; `TextField` and `SelectField` thicken the border to 2px ink.
 - **The focus trap.** `useFocusTrap(open, panel, { restoreOnUnmount })` in `frontend/src/lib/useFocusTrap.js` moves focus into a panel when it opens, keeps Tab and Shift+Tab inside it, and returns focus to the control that opened it. A composable is a function that a Vue component calls to share behaviour. It is used by `BottomSheet`, `ModalDialog`, `PopoverPanel` and `PlaceDetail`. `PhotoViewer` keeps focus inside itself with its own code. Each of the five closes on Escape.
 - **Dialog roles.** `BottomSheet`, `ModalDialog` and `PlaceDetail` have `role="dialog"`, `aria-modal="true"` and `aria-labelledby`. `PopoverPanel` has `role="dialog"` without `aria-modal`.
+- **Announcements.** An error `BannerNote` is `role="alert"`, the other tones `role="status"`. `ToastMessage` keeps its `role="status"` region on the page, so the first toast is heard. Placeholder rows are hidden from screen readers; the planner says "Finding places" in a hidden status line instead, as Roam does. Map pins for places are named with their stop number and category ("Stop 1, Eat: Maxwell Food Centre").
 - **Labels.** `IconButton` requires `label` and sets it as both `aria-label` and `title`. `TextField` and `SelectField` require `label` and tie hints and errors to the input with `aria-describedby`; errors have `role="alert"`. Tabs carry `aria-current="page"`. `ChipButton` sets `aria-pressed`, or `role="radio"` with `aria-checked`. `ToggleSwitch` has `role="switch"`. `ProgressBar` and `SegmentedProgress` have `role="progressbar"`. `CoinBadge` reads as "500 JioCoins". Decoration (`SingaporeMap`, `GridPulse`, the enter-game cover, confetti) is hidden with `aria-hidden`.
-- **Keyboard.** `SortableList` moves an item with the arrow keys from its handle. `HoldButton` works with Space or Enter held, and with a single activation from assistive technology. `CalendarPicker` moves between days with the arrow keys. Map pins in `PlannerMap` take focus and select on Enter. `MeetupGraph` is one focusable element that reads out the day the arrow keys land on. `AuthView` moves focus to each new question's heading.
+- **Keyboard.** A set of radio chips or poll bars is one Tab stop: `v-radio-group` (`frontend/src/lib/radioGroup.js`) on the `radiogroup` moves between its choices with the arrow keys, Home and End, skipping disabled ones. Filters choose as focus moves; vote sets (`{ follow: false }`) only move focus, and Space or Enter votes. A disabled `ChipButton` is `aria-disabled`, not `disabled`, so it keeps focus while a request runs, and a chosen one keeps its fill. `SortableList` moves an item with the arrow keys from its handle. `HoldButton` works with Space or Enter held, and with a single activation from assistive technology. `CalendarPicker` moves between days with the arrow keys. Map pins in `PlannerMap` take focus and select on Enter. `MeetupGraph` is one focusable element that reads out the day the arrow keys land on. `AuthView` moves focus to each new question's heading.
 - **Target size.** `--tap-min` is 44px. Shapes that look smaller reach it by padding: a 32px chip in a 44px button, a 28px switch with a pseudo-element that extends it. The exceptions are under Known Conflicts.
 - **Touch.** Links and buttons have `-webkit-tap-highlight-color: transparent` and `touch-action: manipulation`. Hover styles sit inside `@media (hover: hover)`, and nothing is revealed by hover alone: the next button is filled from the start on touch screens, and `RadialTimePicker` opens on tap.
 - **Reduced motion.** See Motion: one global rule, plus a check in every script that animates except the `HoldButton` fill.

@@ -259,6 +259,11 @@
           "#eeeeee"
         ]
       },
+      "border-control": {
+        "role": "neutral",
+        "displayName": "Control border",
+        "canonical": "#8a8a8a"
+      },
       "on-primary": {
         "role": "neutral",
         "displayName": "On red",
