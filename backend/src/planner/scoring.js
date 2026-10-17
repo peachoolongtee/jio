@@ -12,9 +12,9 @@ const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 const mean = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 // Defaults are starting points. Expose them as sliders and tune against your mock data.
-// There is no rating term, on purpose: a venue's rating (from the frontend's list or from Google) does not change
-// any score or the shortlist, because ratings come from different sources on different scales. `rating` is not a
-// weight a caller can send either (the API answers 400). Venues still carry `rating` and `ratingCount` for display.
+// The rating counts, but only as far as its reviews (ticket #149, agreed with the lead on 16 October 2026): see
+// weightedRating() and RATING_WEIGHT below. The weight is fixed here, not one of the weights a caller sends (the API
+// still answers 400 for `rating`), and it is added to whatever weights a request uses, so a custom set cannot switch it off.
 // Two more factors exist but have NO default weight, so they only count when a caller asks for them:
 //   crowd       (both engines) estimated crowd at the visit time, from the frontend's profiles
 //   returnWorst (Converge)     the longest trip home from the venue; lastStop: true turns it on
@@ -178,6 +178,9 @@ function reasonTags({ venue, walkMinutes, crowd, rainy, homeMaxMinutes = null, t
   if (walkMinutes <= 5) tags.push('Short walk');
   if ((venue.tags ?? []).includes('hidden')) tags.push('Hidden gem');
   if (venue.avgPricePerPerson < 10 && priceIsKnown(venue)) tags.push('Budget friendly');
+  if (Number.isFinite(venue.rating) && Number.isFinite(venue.ratingCount) && venue.ratingCount >= MIN_REVIEWS_TO_SHOW && weightedRating(venue) >= 4.2) {
+    tags.push(`rated ${venue.rating.toFixed(1)} from ${venue.ratingCount} reviews`);
+  }
   return tags.slice(0, 2);
 }
 
@@ -192,11 +195,32 @@ function singaporeToday() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
 }
 
+// A rating counts as far as its reviews. Twenty reviews at four stars are mixed into every rating, so a single five-star
+// review scores 4.05 and 500 reviews at 4.6 stay 4.58. A place with no rating, or a rating with no review count (the
+// curated and sample places, whose ratings were made up), counts as the average: 4.0, the same as a place with no reviews.
+const RATING_PRIOR_REVIEWS = 20;
+const RATING_PRIOR_STARS = 4.0;
+// How much the weighted rating counts in a score, next to the weights in DEFAULT_WEIGHTS (starting value; they total 90 to 100).
+const RATING_WEIGHT = 8;
+// The "rated 4.6 from 512 reviews" tag needs at least this many reviews: fewer says little.
+const MIN_REVIEWS_TO_SHOW = 50;
+
 /**
- * Unknown rating (e.g. CDC stalls) is neutral (50): not a reward, not a punishment. Kept as a helper for the
- * display side; no score uses it (see the note above DEFAULT_WEIGHTS).
+ * The rating a venue is scored on: (20 x 4.0 + reviews x stars) / (20 + reviews). Unknown is 4.0.
+ *
+ * How to call:
+ *   weightedRating({ rating: 5, ratingCount: 1 })      // 4.0476
+ *   weightedRating({ rating: 4.6, ratingCount: 500 })  // 4.5846
+ *   weightedRating({ rating: 4.2, ratingCount: null }) // 4 (a rating with no review count is unknown)
  */
-const ratingPenalty = venue => (venue.rating === null || venue.rating === undefined ? 50 : clamp(100 - venue.rating * 20, 0, 100));
+const weightedRating = venue => {
+  const stars = venue.rating, n = venue.ratingCount;
+  if (!Number.isFinite(stars) || !Number.isFinite(n) || n <= 0) return RATING_PRIOR_STARS;
+  return (RATING_PRIOR_REVIEWS * RATING_PRIOR_STARS + n * clamp(stars, 0, 5)) / (RATING_PRIOR_REVIEWS + n);
+};
+
+/** The weighted rating as a penalty 0-100: 5 stars = 0, 4 stars (and unknown) = 20, 0 stars = 100. */
+const ratingPenalty = venue => clamp(100 - weightedRating(venue) * 20, 0, 100);
 const cdcPenalty = venue => (venue.cdcAccepted ? 0 : 100);
 
 /** 100 if visited within 14 days, falling linearly to 0 at 60 days. Dates are "YYYY-MM-DD". */
@@ -295,6 +319,6 @@ function paretoFront(items, keys) {
 
 export {
   DEFAULT_WEIGHTS, travelPenalty, normalizeMinMax, computeOccasionFit, cuisineMatch, healthMatch, preferencePenalty,
-  pricePenalty, weatherPenalty, ratingPenalty, singaporeToday, cdcPenalty, antiRepeatPenalty, combine, explain,
+  pricePenalty, weatherPenalty, ratingPenalty, weightedRating, RATING_WEIGHT, MIN_REVIEWS_TO_SHOW, singaporeToday, cdcPenalty, antiRepeatPenalty, combine, explain,
   regretCounterfactual, paretoFront, crowdEstimate, crowdPenalty, crowdLevel, rainLikelyAt, rainWarning, reasonTags, weatherOf, RAIN_LIKELY, RAIN_EXPOSED,
 };

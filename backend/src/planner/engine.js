@@ -7,6 +7,7 @@
 import { centroid, fairnessWeights, minimaxCenter, radiusSearch, mockTravelMinutes, haversineKm, walkMinutes } from './geo.js';
 import { filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds } from './filters.js';
 import * as S from './scoring.js';
+import { diversify } from './diversity.js';
 
 /** Apply per-plan overrides (start/end) and drop members who opted out. Default start and end = home.
  *  With no home, end = start: the API accepts a member with only a start point. */
@@ -64,24 +65,27 @@ function staticFactors(venue, c) {
     cdc: S.cdcPenalty(venue),
     antiRepeat: S.antiRepeatPenalty(venue.id, c.history, { today: c.today, groupId: c.groupId }),
     crowd: S.crowdPenalty(venue, c.hour),
+    rating: S.ratingPenalty(venue),
   };
 }
 
 /**
  * Cheap pre-score using straight-line distance only (no routing). Keeps the best N so we make
- * at most N x members routing calls. It uses fit as well as distance, so a close but
- * poor-fit venue cannot push a much better one out of the shortlist.
+ * at most N x members routing calls. It uses fit and rating as well as distance, so a close but
+ * poor-fit venue cannot push a much better one out of the shortlist, and a place that is close only
+ * because it has one five-star review cannot beat a well-reviewed one (the rating is the weighted one).
  * Occasion fit is computed the same way as in the final score, so a venue without a precomputed
- * occasionFit is not mistaken for a zero fit and cut here.
+ * occasionFit is not mistaken for a zero fit and cut here. Places in one building, and more than 2 Google
+ * places in a category, rank below the rest (diversity.js), so the N are not all look-alikes.
  */
 function prune(candidates, c, keep) {
   if (candidates.length <= keep) return candidates;
   const dn = S.normalizeMinMax(candidates.map(x => x.distanceKm));
-  return candidates
-    .map((x, i) => ({ x, pre: 0.625 * dn[i] + 0.375 * (100 - occasionFitOf(x.venue, c.occasion, c.profile)) }))
+  const sorted = candidates
+    .map((x, i) => ({ x, pre: 0.55 * dn[i] + 0.3 * (100 - occasionFitOf(x.venue, c.occasion, c.profile)) + 0.15 * S.ratingPenalty(x.venue) }))
     .sort((a, b) => a.pre - b.pre)
-    .slice(0, keep)
     .map(o => o.x);
+  return diversify(sorted, 5).slice(0, keep);
 }
 
 /**
@@ -230,7 +234,7 @@ function converge(input, data, deps = {}) {
   );
   diagnostics.routingCalls = pruned.length * members.length * 2;
   const c = context(input, data, members);
-  const weights = occasionWeights(baseWeights, c.profile);
+  const weights = { ...occasionWeights(baseWeights, c.profile), rating: S.RATING_WEIGHT };
 
   let rows = pruned.map(({ venue, distanceKm }) => {
     const fallbacksBefore = diagnostics.approximateLegs ?? 0;
@@ -267,6 +271,7 @@ function converge(input, data, deps = {}) {
     r.hasHistory = c.groupId !== null && c.history.some(h => h.groupId === c.groupId);
   });
   rows.sort((a, b) => a.score - b.score);
+  rows = diversify(rows, topN); // one place per building, and Google only as a top-up (diversity.js)
 
   // 7. explain
   const names = Object.fromEntries(members.map(m => [m.id, m.name]));
@@ -316,9 +321,9 @@ function roam(input, data, deps = {}) {
   const pruned = prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion] }, pruneTo);
   diagnostics.routingCalls = pruned.length;
   const c = context(input, data, members);
-  const weights = occasionWeights(baseWeights, c.profile);
+  const weights = { ...occasionWeights(baseWeights, c.profile), rating: S.RATING_WEIGHT };
 
-  const rows = pruned.map(({ venue, distanceKm }) => {
+  let rows = pruned.map(({ venue, distanceKm }) => {
     const fallbacksBefore = diagnostics.approximateLegs ?? 0;
     const travelMinutes = routedMinutes(tm, input.current, venue, diagnostics);
     return { venue, distanceKm, travelMinutes, factors: staticFactors(venue, c), approximate: (diagnostics.approximateLegs ?? 0) > fallbacksBefore };
@@ -331,6 +336,7 @@ function roam(input, data, deps = {}) {
     r.hasHistory = c.groupId !== null && c.history.some(h => h.groupId === c.groupId);
   });
   rows.sort((a, b) => a.score - b.score);
+  rows = diversify(rows, topN);
   const label = c.profile?.label ?? 'meetup';
   const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, input.current, input, c.weatherByArea);
   const results = shown.map((r, i) => ({
