@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { ZodError } from 'zod'
 import { converge, meetingArea, meetingAreaPlan, resolveMembers, roam, searchVenues } from '../planner/engine.js'
+import { isOpenAt } from '../planner/filters.js'
 import { fromGooglePlaces } from '../planner/google-adapter.js'
 import { centroid, fairnessWeights, haversineKm, minimaxCenter } from '../planner/geo.js'
 import { dropKnownPlaces, withEstimatedMrtWalk } from '../db/venues.js'
@@ -143,6 +144,10 @@ function startDeadline(ms) {
   return { passed: () => passed, race: (promise) => Promise.race([promise, expired]), stop: () => clearTimeout(timer) }
 }
 
+// Google tops up, it does not flood (ticket #149): it is asked about a category only when we know fewer than this many open
+// places of it near the meeting point.
+export const OWN_PLACES_ENOUGH = 6
+
 export function createPlanRouter({
   data,
   weather,
@@ -154,6 +159,7 @@ export function createPlanRouter({
   allowSimulatedWeather = false,
   limiter = null,
   routingDeadlineMs = ROUTING_DEADLINE_MS,
+  ownPlacesEnough = OWN_PLACES_ENOUGH,
 }) {
   const schemas = makePlanSchemas(data)
   const router = Router()
@@ -261,9 +267,19 @@ export function createPlanRouter({
     if (wanted.length === 0) return { venues: [], google: { source: 'not_needed', added: 0 } }
     const point = rankingPoint(input)
     if (!point) return { venues: [], google: { source: 'not_needed', added: 0 } }
+    // Count our own places first: the saved and curated ones open at the time asked, inside the circle Google would search.
+    // A category with enough of them is not asked of Google.
+    const radiusMeters = input.radiusMeters ?? 1000
+    const ownNear = (category) =>
+      planData.venues.filter(
+        (v) => v.source !== 'google' && v.category === category && haversineKm(point, v) * 1000 <= radiusMeters && (!input.dateTime || isOpenAt(v, input.dateTime)),
+      ).length
+    const ask = wanted.filter((c) => ownNear(c) < ownPlacesEnough)
+    if (ask.length === 0) return { venues: [], google: { source: 'not_needed', added: 0, reason: 'enough_own_places' } }
+    const skipped = wanted.filter((c) => !ask.includes(c))
     let raw
     try {
-      raw = await places.nearby(point, { categories: wanted, radiusMeters: input.radiusMeters ?? 1000 })
+      raw = await places.nearby(point, { categories: ask, radiusMeters })
     } catch (err) {
       // Only an API failure falls back. A bug must still reach the error handler. The Google service logs the
       // failure itself, at most once a minute per reason, so it is not logged again here.
@@ -273,11 +289,11 @@ export function createPlanRouter({
     // Only places of the categories this request is for: a dessert shop Google sends for a café search is food.
     // A place Google sent in a shape the adapter cannot read is skipped, never fatal.
     const fresh = dropKnownPlaces(
-      fromGooglePlaces(raw, input.dateTime).filter((v) => wanted.includes(v.category)),
+      fromGooglePlaces(raw, input.dateTime).filter((v) => ask.includes(v.category)),
       planData.venues,
     )
     const venues = readyGoogleVenues(fresh, resolved)
-    return { venues, google: { source: 'google', added: venues.length } }
+    return { venues, google: { source: 'google', added: venues.length, ...(skipped.length > 0 && { skipped }) } }
   }
 
   // Adds Google's places to this request's plan data: the nearby search and the look-ups of the options already chosen,

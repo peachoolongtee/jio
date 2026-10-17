@@ -49,6 +49,9 @@ import { createWeather } from './services/weather.js'
 //                    it from ALLOW_SIMULATED_WEATHER=1.
 //   routingDeadlineMs - The most time one planner request waits for OneMap routes in total. Defaults to 8
 //                    seconds. Tests shorten it.
+//   ownPlacesEnough - Google is asked about a food, drink, shop or activity category only when fewer than this many
+//                    of our own open places are near the meeting point. Defaults to 6 (ticket #149). Tests that
+//                    need Google asked pass Infinity.
 //   planRateLimit  - { windowMs, max } to limit how often one caller may use the planner routes, or leave
 //                    it out for no limit. index.js sets it outside stub mode.
 //   accountCheckRateLimit - { windowMs, max } for POST /api/accounts/email-check, which tells whether an email has an
@@ -78,6 +81,7 @@ export function createApp({
   sessionRateLimit = null,
   accountCheckRateLimit = { windowMs: 60_000, max: 10 },
   routingDeadlineMs = undefined,
+  ownPlacesEnough = undefined,
   supabase = null,
   mount = () => {},
 }) {
@@ -125,6 +129,7 @@ export function createApp({
       ai: itineraryAi,
       allowSimulatedWeather: allowSimulatedWeather || stub,
       routingDeadlineMs,
+      ownPlacesEnough,
       limiter,
     }),
   )
