@@ -21,6 +21,9 @@
 // Tapping a place opens it (?place=id): its card grows into PlaceDetail and shrinks back on close. If the place
 // cannot be loaded, PlaceDetail says so (or, for a link to a place that is not there, a note appears on Home).
 // A failed load of the meetups or of the nearby places shows a message with a Retry button, never a skeleton for ever.
+// An outing past its end time with no confirmed plan gets a banner that says when it closes by itself (lib/session.js
+// overdueOuting). A confirmed one finishes by itself: when its end time passes while Home is open, the list is read again,
+// which completes it (lib/api.js settleOutings).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { format } from 'date-fns'
@@ -49,6 +52,7 @@ import { activeMeetups, dayLabel, pinName, pinsFor, routesFor, selectMeetup } fr
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useHomeRain } from '@/lib/useHomeRain.js'
+import { dueEnding, overdueOuting, sessionPath } from '@/lib/session.js'
 import { useNow } from '@/lib/useNow.js'
 import { canViewTransition, withViewTransition } from '@/lib/viewTransition.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -121,6 +125,22 @@ const selected = computed(() => selectMeetup(meetups.value, route.query.meetup))
 const past = computed(() => sessions.value.filter((s) => !meetups.value.includes(s)).slice(0, 3))
 const hasFinished = computed(() => sessions.value.length > meetups.value.length)
 const area = computed(() => selected.value?.area || null)
+
+// Outings past their end time that have not been completed, each with when it closes by itself. A confirmed one is left
+// out: it is finishing (below).
+const overdue = computed(() =>
+  meetups.value.flatMap((s) => {
+    const late = overdueOuting(s, now.value)
+    return late && !dueEnding(s, now.value) ? [{ session: s, closes: format(late.closesAt, 'EEE d MMM, HH:mm') }] : []
+  }),
+)
+// A confirmed outing whose end time passed while Home is open: reading the list again finishes it and pays its coins.
+watch(
+  () => meetups.value.some((s) => dueEnding(s, now.value)),
+  (due) => {
+    if (due) events.loadSessions().catch(() => {})
+  },
+)
 
 // Selecting by pin or by row is the same thing: put the id in the address (replacing the entry, so Back does not
 // step through selections) and keep any other part of the address, such as an open place.
@@ -403,6 +423,10 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 
     <div class="screen__body home__body">
       <InvitationList />
+      <BannerNote v-for="o in overdue" :key="o.session.id" tone="warning" icon="clock" data-testid="home-overdue">
+        {{ o.session.title }} has passed its end time without a confirmed plan. It closes by itself on {{ o.closes }}.
+        <template #actions><AppButton variant="secondary" small :to="sessionPath(o.session)">Open outing</AppButton></template>
+      </BannerNote>
       <BannerNote v-if="missingPlace" tone="warning" icon="warning" dismissible @dismiss="missingPlace = false">That place could not be found.</BannerNote>
       <!-- No meetup going: the ones before. Nothing at all until there is one. -->
       <section v-if="events.loaded && !hasMeetups && past.length" class="section rise" aria-labelledby="home-meetups">

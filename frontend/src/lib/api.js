@@ -16,7 +16,7 @@ import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
-import { itineraryAction } from './session.js'
+import { dueEnding, itineraryAction } from './session.js'
 import { combineWeather, stateOf, venueSetting } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
@@ -1959,6 +1959,7 @@ export async function listSessions() {
   }
   await wait(DELAY.read)
   db.sessions.forEach((s) => settleInvites(s))
+  settleOutings()
   // One read for every real person in every session, not one per session.
   warmPeople(db.sessions.flatMap((s) => s.members.map((m) => m.id)))
   return db.sessions.map((s) => summary(s, { warm: false })).sort((a, b) => b.createdAt - a.createdAt)
@@ -3346,20 +3347,52 @@ export async function endPlan(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can be ended.')
+  if (completeOuting(session, 'hand')) emit({ type: 'stats' })
+  return touch(session, 'session')
+}
+
+// Completes an outing. `how` is kept as `endedBy`: 'hand' ("Finish outing"), 'auto' (its end time passed) or 'closed' (two
+// days past its end with no confirmed plan). A confirmed plan pays every member who is in it; a closed one pays nobody, and
+// counts for nobody's Jio streak. Saves nothing itself: the caller saves. Answers whether coins were paid.
+// How to call: if (completeOuting(session, 'auto')) emit({ type: 'stats' })
+function completeOuting(session, how) {
+  const paid = session.status === 'confirmed'
   // A season that ran out before today closes first, so these points count for the season they were earned in.
   catchUpSeasons()
   session.status = 'completed'
   session.completedAt = Date.now()
+  session.endedBy = how
   session.replan = null
   clearProposals(session)
+  if (!paid) return false
   for (const personId of activeIds(session)) {
     const stats = statsOf(personId)
     stats.meetups += 1
     stats.points += POINTS_PER_MEETUP
     stats.seasonPoints += POINTS_PER_MEETUP
   }
-  emit({ type: 'stats' })
-  return touch(session, 'session')
+  return true
+}
+
+// Finishes every confirmed outing whose end time has passed, and closes every other one two days past its end
+// (lib/session.js dueEnding). Run when the list is read, so an outing finishes without anyone pressing "Finish outing"
+// even when nobody had the app open at the time. A cancelled or completed session is never touched. It is part of a read,
+// so a save that fails (the storage is full) keeps the change in memory instead of failing the read; the next write
+// saves it. How to call: settleOutings()
+function settleOutings(now = new Date()) {
+  let changed = false
+  let paid = false
+  for (const session of db.sessions) {
+    const due = dueEnding(session, now)
+    if (!due) continue
+    if (completeOuting(session, due === 'finish' ? 'auto' : 'closed')) paid = true
+    session.updatedAt = Date.now()
+    commits[session.id] = commitsOf(session) + 1
+    changed = true
+  }
+  if (!changed) return
+  save()
+  if (paid) broadcast({ type: 'stats' })
 }
 
 // ── Photos: everyone in a session can post pictures from the day ────────────

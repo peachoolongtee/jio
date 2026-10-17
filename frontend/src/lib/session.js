@@ -1,10 +1,11 @@
 // Session helpers shared by the screens: where a session opens, its date line and each person's status.
-import { differenceInCalendarDays, format, parseISO } from 'date-fns'
+import { differenceInCalendarDays, format, isValid, parseISO } from 'date-fns'
 
-// The screen a session card opens, by status.
+// The screen a session card opens, by status. A completed session with no plan (it closed by itself, two days past its end
+// with no plan confirmed) opens its own page, as there is no itinerary to show.
 export function sessionPath(session) {
   if (session.status === 'voting') return `/sessions/${session.id}/plan`
-  if (session.status === 'confirmed' || session.status === 'completed') return `/sessions/${session.id}/itinerary`
+  if (session.status === 'confirmed' || (session.status === 'completed' && session.plan)) return `/sessions/${session.id}/itinerary`
   return `/sessions/${session.id}`
 }
 
@@ -82,6 +83,39 @@ export function startsIn(session, now = new Date()) {
   if (days <= 0) return { text: `Today, ${session.start}`, tone: 'soon' }
   if (days === 1) return { text: `Tomorrow, ${session.start}`, tone: 'later' }
   return { text: `In ${days} days`, tone: 'later' }
+}
+
+// How long after its end time an outing that never got a confirmed plan stays open before it closes by itself.
+export const CLOSE_AFTER_MS = 2 * 24 * 60 * 60 * 1000
+
+// The moment a session's time window closes, from its own date (the demo's session-day switch does not move it), or null
+// when the date or end time is missing. How to call: sessionEnd({ date: '2026-10-10', end: '21:00' }) -> Date
+export function sessionEnd(session) {
+  if (!session?.date || !session.end) return null
+  const end = parseISO(`${session.date}T${session.end}`)
+  return isValid(end) ? end : null
+}
+
+// What should happen now to a session whose end time has passed. 'finish': a confirmed plan finishes by itself, and pays
+// out its coins as "Finish outing" does. 'close': a session with no confirmed plan, two days past its end, is completed
+// with no coins. null: nothing yet, and never anything for a completed or cancelled session.
+// How to call: dueEnding({ status: 'confirmed', date: '2026-10-10', end: '21:00' }, new Date('2026-10-10T21:05')) -> 'finish'
+export function dueEnding(session, now = new Date()) {
+  if (!session || ['completed', 'cancelled'].includes(session.status)) return null
+  const end = sessionEnd(session)
+  if (!end || now < end) return null
+  if (session.status === 'confirmed') return 'finish'
+  return now - end >= CLOSE_AFTER_MS ? 'close' : null
+}
+
+// A session past its end time that has not been completed, which Home reminds the group about, with when it closes by
+// itself: { closesAt }, or null. A confirmed plan past its end is included until the next read finishes it.
+// How to call: overdueOuting({ status: 'voting', date: '2026-10-10', end: '21:00' }, now) -> { closesAt: Date }
+export function overdueOuting(session, now = new Date()) {
+  if (!session || ['completed', 'cancelled'].includes(session.status)) return null
+  const end = sessionEnd(session)
+  if (!end || now < end) return null
+  return { closesAt: new Date(end.getTime() + CLOSE_AFTER_MS) }
 }
 
 // Is the plan under way, so that people can ask "What next?" and propose places? Yes for a confirmed plan on the session's
