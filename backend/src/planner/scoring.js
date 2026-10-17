@@ -18,8 +18,8 @@ const mean = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
 // Occasion fit is one of the heaviest factors on purpose: "what suits a date / birthday / study session" is
 // the product. With occasion at only 10, a venue that matched the group's cuisine beat one that fit the mood.
 const DEFAULT_WEIGHTS = {
-  converge: { worst: 25, mean: 5, occasion: 25, preference: 10, rating: 10, weather: 12, price: 8, cdc: 3, antiRepeat: 2 },
-  roam:     { distance: 20, occasion: 25, preference: 10, rating: 12, weather: 18, price: 10, cdc: 3, antiRepeat: 2 },
+  converge: { worst: 25, mean: 5, occasion: 25, preference: 10, rating: 0, weather: 12, price: 8, cdc: 3, antiRepeat: 2 },
+  roam:     { distance: 20, occasion: 25, preference: 10, rating: 0, weather: 18, price: 10, cdc: 3, antiRepeat: 2 },
 };
 
 /** Travel minutes as a penalty: 0 min = 0, ceilingMinutes or more = 100. Absolute, so tiny gaps stay tiny. */
@@ -184,9 +184,11 @@ const cdcPenalty = venue => (venue.cdcAccepted ? 0 : 100);
 
 /** 100 if visited within 14 days, falling linearly to 0 at 60 days. Dates are "YYYY-MM-DD". */
 function antiRepeatPenalty(venueId, history, { today, groupId = null }) {
+  // Without a group identity there is no defensible way to apply private visit history.
+  if (!groupId) return 0;
   const day = d => Date.parse(`${d}T00:00:00Z`) / 86400000;
   const gaps = history
-    .filter(h => h.venueId === venueId && (groupId === null || h.groupId === groupId))
+    .filter(h => h.venueId === venueId && h.groupId === groupId)
     .map(h => day(today) - day(h.date))
     .filter(g => g >= 0);
   if (gaps.length === 0) return 0;

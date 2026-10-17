@@ -5,7 +5,7 @@ import { attachClosures, closureCoverage, closureStaleWarning } from '../planner
 import { dedupeOneMapVenues, preparePool } from '../planner/onemap-adapter.js'
 
 // Builds the one `data` object the planner engine reads, from the venue sources we have today:
-//   mock-data.json       36 fictional venues + members, occasion profiles, weather cases, visit history
+//   mock-data.json       test/demo fixtures: fictional venues, profiles, weather cases, visit history
 //   curated-venues.json  63 real places from the frontend team's list (built by scripts/build-venues.js)
 //   onemap-places.json   483 places saved from OneMap's government lists (sport centres, attractions, museums, libraries,
 //                        theatres, parks and hawker centres), plus NEA's hawker closure dates. Fewer reach the planner:
@@ -164,7 +164,10 @@ export function loadPlanData({ fresh = false, today = singaporeToday() } = {}) {
 
   const onemapFile = readOptionalJson('onemap-places.json')
   if (!onemapFile) console.warn('venues: onemap-places.json is missing, so there are no OneMap places and no hawker closure dates. Build it with pnpm build:onemap-places (run in backend/).')
-  const mockVenues = mock.venues.map((v) => ({ ...v, source: v.source ?? 'mock' }))
+  // Fictional venues and visit history are for tests/demos only. Normal dev and production loads
+  // need an explicit opt-in so invented places can never leak into recommendations by default.
+  const includeFictional = process.env.NODE_ENV === 'test' || process.env.INCLUDE_FICTIONAL_VENUES === '1'
+  const mockVenues = includeFictional ? mock.venues.map((v) => ({ ...v, source: v.source ?? 'mock' })) : []
 
   // The frontend's hawker centres replace their CDC copies, and so do OneMap's (which have photos and stall counts).
   const { venues: curatedMerged, droppedCdcIds } = mergeCuratedWithCdc(curated, cdc)
@@ -200,12 +203,13 @@ export function loadPlanData({ fresh = false, today = singaporeToday() } = {}) {
     areas,
     occasionProfiles: mock.occasionProfiles,
     weatherCases: mock.weatherCases,
-    visitHistory: mock.visitHistory,
+    // Sample visits are not real group feedback and must not affect any group's results.
+    visitHistory: includeFictional ? mock.visitHistory : [],
     _meta: {
-      // The mock visit history is dated relative to this day, so anti-repeat stays meaningful in the demo.
-      today: mock._meta.today,
+      // Use Singapore's current date unless a caller supplies one (e.g. deterministic tests).
+      today,
       sources: {
-        mock: mock.venues.length,
+        mock: mockVenues.length,
         curated: curated.length,
         onemap: onemapMerged.length,
         // Of the places saved from OneMap: set aside as not somewhere to go, one of several rows for a place, already in a hand-made list.
