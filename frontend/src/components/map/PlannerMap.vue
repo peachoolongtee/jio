@@ -21,6 +21,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { travelTone } from '@/lib/planner/travel.js'
+import { CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { personIndex } from '@/lib/people.js'
 import { retireMap } from './retireMap.js'
 
@@ -76,6 +77,15 @@ function areaIcon() {
     iconSize: [40, 40],
     iconAnchor: [20, 20],
   })
+}
+
+// A place's name as a screen reader hears it, with its stop number and category, since the pins' colours alone
+// do not tell Eat from Activity for everyone.
+// How to call: placeName({ name: 'Maxwell Food Centre', category: 'eat', label: '1' }) -> 'Stop 1, Eat: Maxwell Food Centre'
+function placeName(place) {
+  const kind = CATEGORY_LABELS[place.category]
+  const text = kind ? `${kind}: ${place.name}` : place.name
+  return place.label ? `Stop ${place.label}, ${text}` : text
 }
 
 function placeIcon(place) {
@@ -161,7 +171,7 @@ function draw() {
   }
 
   for (const place of props.places) {
-    const marker = L.marker([place.lat, place.lng], { icon: placeIcon(place), title: place.name, alt: place.name, keyboard: true, riseOnHover: true, zIndexOffset: place.id === props.selected ? 1000 : 300 })
+    const marker = L.marker([place.lat, place.lng], { icon: placeIcon(place), title: placeName(place), alt: placeName(place), keyboard: true, riseOnHover: true, zIndexOffset: place.id === props.selected ? 1000 : 300 })
     if (place.highlight) marker.bindTooltip('Leading', { permanent: true, direction: 'top', offset: [0, -18], className: 'pm-tip pm-tip--lead' })
     marker.on('click', () => emit('select', place.id))
     marker.on('keypress', (event) => {
