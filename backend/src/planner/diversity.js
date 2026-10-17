@@ -1,10 +1,13 @@
 // diversity.js: keeps a ranking from filling up with look-alikes (ticket #149).
 //   - one place per building in a category's results: five stalls in one hotel food court are one outing, not five;
-//   - Google as a top-up: at most 2 of the top 5 places in a category may be Google's, so places we already know
+//   - Google as a top-up: at most 2 of the first 5 places in a category may be Google's, so places we already know
 //     are not crowded out by whatever happens to be nearest.
 // Both only reorder. Nothing is dropped: a place that loses its spot moves below the places that keep theirs.
 
 export const MAX_GOOGLE_IN_TOP = 2;
+// The window the cap counts in: the first 5 places of a category. It is fixed, not the caller's `topN`: a screen that asks
+// for 10 places still gets at most 2 Google places among the first 5, and Google may fill positions 6 and on.
+export const GOOGLE_CAP_WINDOW = 5;
 
 const POSTCODE = /\b(\d{6})\b/;
 
@@ -58,7 +61,7 @@ export function onePerBuilding(rows) {
  * How to call:
  *   capGoogle(rows, 5, 2) // rows best first; the 3rd Google place of a category that would be in its top 5 drops down
  */
-export function capGoogle(rows, top = 5, max = MAX_GOOGLE_IN_TOP) {
+export function capGoogle(rows, top = GOOGLE_CAP_WINDOW, max = MAX_GOOGLE_IN_TOP) {
   const placed = {}, google = {};
   const kept = [], moved = [];
   for (const r of rows) {
@@ -77,5 +80,11 @@ export function capGoogle(rows, top = 5, max = MAX_GOOGLE_IN_TOP) {
   return [...kept, ...moved];
 }
 
-/** Both rules, in the order they apply: one place per building, then the Google cap. */
-export const diversify = (rows, top = 5) => capGoogle(onePerBuilding(rows), top);
+/**
+ * Both rules, in the order they apply: one place per building, then the Google cap on the first GOOGLE_CAP_WINDOW places of
+ * each category, whatever `topN` the request asked for.
+ *
+ * How to call:
+ *   diversify(rows) // rows best first
+ */
+export const diversify = rows => capGoogle(onePerBuilding(rows));
