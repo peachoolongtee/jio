@@ -50,7 +50,8 @@ const confirming = ref(false)
 let toDelete = null
 
 const session = computed(() => events.byId[props.id])
-const open = computed(() => ['confirmed', 'completed'].includes(session.value?.status))
+// An outing that closed by itself never had a plan, so photos stay shut for it (lib/api.js addPhoto refuses too).
+const open = computed(() => ['confirmed', 'completed'].includes(session.value?.status) && session.value?.endedBy !== 'closed')
 // undefined until the pictures have loaded.
 const loaded = computed(() => events.photos[props.id])
 

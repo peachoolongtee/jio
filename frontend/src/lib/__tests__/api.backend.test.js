@@ -1,6 +1,6 @@
 // The frontend and the backend planner together: a whole session through api.js, against the real
 // Express app started in this process. If the request or response shapes drift apart, this fails.
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../../../../backend/src/app.js'
 import { createHttp } from '../../../../backend/src/services/http.js'
 import * as api from '../api.js'
@@ -9,6 +9,10 @@ import { HOST_ID } from '../mock/people.js'
 let server
 
 beforeAll(async () => {
+  // The sessions here are dated Saturday 10 October 2026. A read after a session's end time finishes it (lib/api.js
+  // settleOutings), so the clock is held the day before, as in the other data-layer tests. Only Date is faked.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-09T10:00:00'))
   // The rain test below fakes the forecast, so the server has to allow that.
   // Stub HTTP: the weather and any routing are answered from the backend's fixtures, so these tests never
   // wait on data.gov.sg or OneMap. Without it the first ranking fetched the live forecast and ran close to the
@@ -18,7 +22,10 @@ beforeAll(async () => {
   api.api.defaults.baseURL = `http://127.0.0.1:${server.address().port}`
 })
 
-afterAll(() => server?.close())
+afterAll(() => {
+  server?.close()
+  vi.useRealTimers()
+})
 
 describe('a session planned by the backend', () => {
   let id

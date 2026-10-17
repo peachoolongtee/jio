@@ -152,6 +152,9 @@ export const useEventsStore = defineStore('events', () => {
   const inviteByUsername = act(api.inviteByUsername)
 
   const create = async (data) => put(await api.createSession(data))
+  // Home's "Already out? Find something nearby": a light meetup for today around one area, under way at once (lib/api.js
+  // startRoam). How to call: const session = await startRoam({ areaId: 'bugis' })
+  const startRoam = async (data) => put(await api.startRoam(data))
   // The host changes the title, day and times while the session is still inviting. How to call: update('s1', { title, date, start, end })
   const update = act(api.updateSession)
   // Invites from the app are pending until each friend accepts.
@@ -399,6 +402,6 @@ export const useEventsStore = defineStore('events', () => {
     sessions, byId, itineraries, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
     loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, dropSession,
     loadSessions, loadSession, loadItinerary, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
-    create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
+    create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
   }
 })

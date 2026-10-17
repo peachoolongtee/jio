@@ -1033,6 +1033,38 @@ Taken by the lead from a list of suggestions. The repeated stock photos stay, at
 
 Not built, suggested to the lead for after the pitch: the person's own trip and a "Directions" button on the meeting spot card; one bar per person on a shared scale, with the longest trip stated, so the fairness is seen; a line saying how the spot was chosen, with the other spots behind a disclosure; the start and end card shrunk once settled; the top navigation kept on session pages at desktop width.
 
+### Walkthrough items and Roam from Home, 17 Oct 2026 (branch `feat/darius-walkthrough-items`)
+
+Tickets #120, #121, #122 and #98. Nothing here adds a colour or a token, and no white text was added on `--primary`.
+
+| Piece | Where | What it is |
+|---|---|---|
+| Overdue banner | `LandingView` | A `BannerNote` (tone `warning`, clock icon) under the invitations for each outing past its end time with no confirmed plan: "{title} has passed its end time without a confirmed plan. It closes by itself on {day, time}." with a small secondary "Open outing". A confirmed outing gets none: it finishes by itself (`dueEnding` in `lib/session.js`, `settleOutings` in `lib/api.js`). |
+| Closed notice | `SessionNotices` | An info `BannerNote` (clock icon) on an outing that closed by itself two days after its end with no plan. Its session page has no footer, and its card opens the session page, not an empty itinerary (`sessionPath`). |
+| Frequent hangouts | `InviteView` | Friends only. "Frequent hangouts" (up to five, most outings together first) above "All friends"; with no history, one list headed "Friends". The Jio streak sits beside the name: a 20px pill, `--primary-active` on a 10% `--primary` tint, sparkle icon and the count, with "Jio streak: N outings together" for screen readers (`lib/hangouts.js`). |
+| Suggested people | `ProfileView` | On your own profile only, between the graph and Sessions: up to six rows (44px avatar, name, @username and area) in one column, two from 744px, each opening the profile, with a small secondary "Add friend" in the sample world. Moved here from the invite page. |
+| Search within | `PlannerView` | While voting: a "Search within" caption, radio chips (Auto, 100 m, 250 m, 500 m, 1 km, 2 km, 3 km) under the category filter, and one muted line on what the choice means. The map's dashed ring follows it. A category with too few places inside says "Only N places fit within X." with "Widen to Y". |
+| Create form times | `CreateEventView` | A new session starts at the next round hour and ends three hours later (`defaultTimes`). |
+| One create button | `GroupsView` | The page header's Create pill and the empty state's button are gone: the navigation's Create (top bar or tab bar) is the one on the page, as on the profile. |
+| "Already out?" row | `components/home/RoamFromHome.vue` | Under the meetups on Home (local accounts). The start row's box with a hairline outline, a 44px `--surface-strong` badge with the locate icon, "Already out?" over "Find something nearby", and a chevron. It opens `LocationSheet` ("Where are you?", with "Use current location" and the home area), then starts a light meetup and opens its Roam list. |
+| No stops yet | `EventView` | A light meetup's itinerary before anything is added shows an `EmptyState` in place of the timeline, with "What next?" below it as usual. |
+
+Changes made in the review of the pull request, before it merged:
+
+| Piece | Where | What it is |
+|---|---|---|
+| No coins for one | `EventView`, `SessionNotices` | An outing pays JioCoins only when at least two people are in it (`earnsCoins`, `lib/session.js`), light or not; otherwise "Already out?" could be repeated for coins. The Finish outing dialog says "Outings with friends earn JioCoins. This one is just you, so it earns none." in place of the +10 line; the toast after says "Completed · No JioCoins for an outing of one. Outings with friends earn them."; and a finished outing of one (by hand or by itself) carries an info `BannerNote`, "This outing was just you, so it earned no JioCoins. Outings with friends earn them.", in place of the trophy banner. |
+| Home settles on open | `LandingView` | Home reads the list again when it opens if an outing's end has passed (the store may already be loaded), as well as when the clock crosses an end time while it is open. |
+| One read, never an old save | `lib/api.js` | Settling is a write made by a read. It takes up a newer save from another tab first (`adoptNewerSave`) and settles on top of it, so a stale tab cannot save over a voucher or a balance. Opening one outing by its address settles too, and "Finish outing" on an outing that already finished says "This outing has already finished." |
+| Demo sessions stay as built | `tour/builders.js` | Sessions made by the showcase and the tour are made with `keepOpen`, so the clock never finishes or closes them (their "today" window is fixed when they load), and Home shows no overdue banner for them. |
+| Invite streaks follow the tour | `InviteView` | The Jio streaks are counted from the sessions the lists show (`visibleSessions`), so the tour's final, completed save does not give the friends a streak at the earlier checkpoints. |
+| Radius chips stay focusable | `PlannerView`, `ChipButton` | The chip row is a `role="radiogroup"` named by "Search within", with `v-radio-group` (one Tab stop, arrow keys choose, as the Show chips). While a radius change runs the chips are `aria-disabled` (ChipButton's `disabled`: faded, still focusable, clicks ignored), so keyboard focus is not thrown to the page. |
+| Votes cleared by the radius | `lib/api.js setRadius`, `SessionNotices` | Any member may still change the radius. When it drops votes, the voting page shows the usual dismissible votes-cleared `BannerNote`: "Votes for places outside the new ring were cleared." (Auto: "Votes for places that no longer fit were cleared."). |
+| Late-night create form | `CreateEventView` | After 23:00 the default start is 00:00, so the day starts as tomorrow (`defaultDate`); an end that has already passed today is refused under the end time, "That time has already passed today." |
+| Closed outings take no photos | `lib/api.js addPhoto`, `PhotosView` | An outing that closed by itself has no plan, so photos stay shut for it. |
+
+Time. An outing's end time, the auto-finish and the overdue banner all use the browser's time zone, as the rest of the app's date code does (`date-fns` on local times). They do not use Singapore time; for a person in Singapore the two are the same.
+
 ## Known Conflicts
 
 Each item is a place where the shipped code departs from a rule written in `CLAUDE.md`, in `frontend/src/styles/README.md`, or in a comment in the code. They are recorded as facts. Nothing here has been changed, and the lead decides each one. Contrast ratios are computed from the token values with the WCAG 2 formula; 4.5:1 is the threshold `CLAUDE.md` names.

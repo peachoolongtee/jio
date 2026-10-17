@@ -13,6 +13,8 @@ export function votesClearedBanner(session) {
 //   - Re-plan? after Confirmed, when a location changes or someone opts out
 //   - Not enough people, when an opt-out leaves fewer than 2
 //   - Cancelled
+//   - Closed, for an outing completed two days past its end with no confirmed plan (lib/api.js settleOutings)
+//   - No coins, for an outing of one person that finished (by hand or by itself): outings with friends earn JioCoins
 // Cancelled and paused are states the session is in, not news: they say role="status", so they are not read out as an
 // alert each time the screen loads.
 import { computed, ref } from 'vue'
@@ -20,7 +22,7 @@ import { useRouter } from 'vue-router'
 import AppButton from '../ui/AppButton.vue'
 import BannerNote from '../ui/BannerNote.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
-import { CANCEL_OUTING, isPaused } from '@/lib/session.js'
+import { CANCEL_OUTING, NO_COINS, isPaused } from '@/lib/session.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({ session: { type: Object, required: true } })
@@ -31,6 +33,9 @@ const busy = ref(false)
 
 const paused = computed(() => isPaused(props.session))
 const clearedBanner = computed(() => votesClearedBanner(props.session))
+const closed = computed(() => props.session.status === 'completed' && props.session.endedBy === 'closed')
+// A finished outing that paid nothing because only one person was in it (`paid` is absent on a session saved before it was kept).
+const noCoins = computed(() => props.session.status === 'completed' && props.session.endedBy !== 'closed' && props.session.paid === false)
 
 async function dismissBanner() {
   try {
@@ -56,8 +61,10 @@ async function cancel() {
 </script>
 
 <template>
-  <div v-if="session.status === 'cancelled' || paused || clearedBanner || (session.replan && session.status === 'confirmed')" class="notices">
+  <div v-if="session.status === 'cancelled' || closed || noCoins || paused || clearedBanner || (session.replan && session.status === 'confirmed')" class="notices">
     <BannerNote v-if="session.status === 'cancelled'" tone="error" icon="close" role="status">Session cancelled</BannerNote>
+    <BannerNote v-if="closed" icon="clock" role="status">This outing closed by itself two days after its end time, without a confirmed plan.</BannerNote>
+    <BannerNote v-if="noCoins" icon="info" role="status" data-testid="no-coins-notice">{{ NO_COINS.done }}</BannerNote>
 
     <BannerNote v-if="clearedBanner" icon="info" dismissible @dismiss="dismissBanner">{{ clearedBanner.text }}</BannerNote>
 
