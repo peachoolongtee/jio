@@ -1022,6 +1022,22 @@ Taken by the lead from a list of suggestions. The repeated stock photos stay, at
 
 Not built, suggested to the lead for after the pitch: the person's own trip and a "Directions" button on the meeting spot card; one bar per person on a shared scale, with the longest trip stated, so the fairness is seen; a line saying how the spot was chosen, with the other spots behind a disclosure; the start and end card shrunk once settled; the top navigation kept on session pages at desktop width.
 
+### Walkthrough items and Roam from Home, 17 Oct 2026 (branch `feat/darius-walkthrough-items`)
+
+Tickets #120, #121, #122 and #98. Nothing here adds a colour or a token, and no white text was added on `--primary`.
+
+| Piece | Where | What it is |
+|---|---|---|
+| Overdue banner | `LandingView` | A `BannerNote` (tone `warning`, clock icon) under the invitations for each outing past its end time with no confirmed plan: "{title} has passed its end time without a confirmed plan. It closes by itself on {day, time}." with a small secondary "Open outing". A confirmed outing gets none: it finishes by itself (`dueEnding` in `lib/session.js`, `settleOutings` in `lib/api.js`). |
+| Closed notice | `SessionNotices` | An info `BannerNote` (clock icon) on an outing that closed by itself two days after its end with no plan. Its session page has no footer, and its card opens the session page, not an empty itinerary (`sessionPath`). |
+| Frequent hangouts | `InviteView` | Friends only. "Frequent hangouts" (up to five, most outings together first) above "All friends"; with no history, one list headed "Friends". The Jio streak sits beside the name: a 20px pill, `--primary-active` on a 10% `--primary` tint, sparkle icon and the count, with "Jio streak: N outings together" for screen readers (`lib/hangouts.js`). |
+| Suggested people | `ProfileView` | On your own profile only, between the graph and Sessions: up to six rows (44px avatar, name, @username and area) in one column, two from 744px, each opening the profile, with a small secondary "Add friend" in the sample world. Moved here from the invite page. |
+| Search within | `PlannerView` | While voting: a "Search within" caption, radio chips (Auto, 100 m, 250 m, 500 m, 1 km, 2 km, 3 km) under the category filter, and one muted line on what the choice means. The map's dashed ring follows it. A category with too few places inside says "Only N places fit within X." with "Widen to Y". |
+| Create form times | `CreateEventView` | A new session starts at the next round hour and ends three hours later (`defaultTimes`). |
+| One create button | `GroupsView` | The page header's Create pill and the empty state's button are gone: the navigation's Create (top bar or tab bar) is the one on the page, as on the profile. |
+| "Already out?" row | `components/home/RoamFromHome.vue` | Under the meetups on Home (local accounts). The start row's box with a hairline outline, a 44px `--surface-strong` badge with the locate icon, "Already out?" over "Find something nearby", and a chevron. It opens `LocationSheet` ("Where are you?", with "Use current location" and the home area), then starts a light meetup and opens its Roam list. |
+| No stops yet | `EventView` | A light meetup's itinerary before anything is added shows an `EmptyState` in place of the timeline, with "What next?" below it as usual. |
+
 ## Known Conflicts
 
 Each item is a place where the shipped code departs from a rule written in `CLAUDE.md`, in `frontend/src/styles/README.md`, or in a comment in the code. They are recorded as facts. Nothing here has been changed, and the lead decides each one. Contrast ratios are computed from the token values with the WCAG 2 formula; 4.5:1 is the threshold `CLAUDE.md` names.
