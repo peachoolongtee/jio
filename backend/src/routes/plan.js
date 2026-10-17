@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { ZodError } from 'zod'
-import { converge, meetingArea, meetingAreaPlan, resolveMembers, roam, searchVenues } from '../planner/engine.js'
-import { isOpenAt } from '../planner/filters.js'
+import { converge, hardFilterContext, meetingArea, meetingAreaPlan, resolveMembers, roam, searchVenues } from '../planner/engine.js'
+import { filterByConstraints } from '../planner/filters.js'
 import { fromGooglePlaces } from '../planner/google-adapter.js'
 import { centroid, fairnessWeights, haversineKm, minimaxCenter } from '../planner/geo.js'
 import { dropKnownPlaces, withEstimatedMrtWalk } from '../db/venues.js'
@@ -267,14 +267,16 @@ export function createPlanRouter({
     if (wanted.length === 0) return { venues: [], google: { source: 'not_needed', added: 0 } }
     const point = rankingPoint(input)
     if (!point) return { venues: [], google: { source: 'not_needed', added: 0 } }
-    // Count our own places first: the saved and curated ones open at the time asked, inside the circle Google would search.
-    // A category with enough of them is not asked of Google.
+    // Count our own places first: those the engine itself would keep for this request (its hard filters, run with the same
+    // context: diet, group constraints, a last stop's near-MRT rule, closed days, duration, capacity, exclusions), inside the
+    // circle Google would search. A category with enough of them is not asked of Google.
     const radiusMeters = input.radiusMeters ?? 1000
-    const ownNear = (category) =>
-      planData.venues.filter(
-        (v) => v.source !== 'google' && v.category === category && haversineKm(point, v) * 1000 <= radiusMeters && (!input.dateTime || isOpenAt(v, input.dateTime)),
-      ).length
-    const ask = wanted.filter((c) => ownNear(c) < ownPlacesEnough)
+    const members = input.current ? input.members : resolveMembers(input.members, input.overrides, input.optedOut)
+    const ctx = { ...hardFilterContext(input, members, input.current ? 'roam' : 'converge'), categories: wanted }
+    const own = { eat: 0, drink: 0, shop: 0, activity: 0 }
+    const ours = planData.venues.filter((v) => v.source !== 'google' && haversineKm(point, v) * 1000 <= radiusMeters)
+    for (const v of filterByConstraints(ours, ctx).passed) own[v.category] += 1
+    const ask = wanted.filter((c) => own[c] < ownPlacesEnough)
     if (ask.length === 0) return { venues: [], google: { source: 'not_needed', added: 0, reason: 'enough_own_places' } }
     const skipped = wanted.filter((c) => !ask.includes(c))
     let raw
