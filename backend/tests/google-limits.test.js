@@ -14,6 +14,7 @@ import {
   GOOGLE_CIRCUIT_OPEN_MS,
   GOOGLE_FAILURES_TO_OPEN,
   GOOGLE_MAX_IN_FLIGHT,
+  GOOGLE_STALE_WAIT_MS,
   GOOGLE_TIMEOUT_MS,
   GoogleUnavailableError,
   PHOTO_MISS_MS,
@@ -326,6 +327,44 @@ describe('Google circuit and timeout', () => {
     await h.converge(point(7))
     expect(Date.now() - before).toBeLessThan(500)
     expect(h.nearbyCalls()).toHaveLength(fetched)
+  })
+
+  it('a call that waited a long time for a slot while Google was failing is not started', async () => {
+    // Four calls hang and fill every slot; a fifth waits. When the first hung call fails (one failure: the circuit is not
+    // open yet) the fifth gets its slot, but it waited a whole timeout, so it is refused and makes no request of its own.
+    const clock = makeClock()
+    const hung = []
+    const http = {
+      postJson: vi.fn(() => new Promise((_, reject) => hung.push(() => reject(new ExternalApiError('google timed out', { service: 'google', status: null, url: 'u' }))))),
+      getJson: vi.fn(),
+    }
+    const places = createGooglePlaces({ http, apiKey: KEY, now: clock.now, callsPerMinute: 1000 })
+    const calls = Array.from({ length: GOOGLE_MAX_IN_FLIGHT + 1 }, (_, i) => places.nearby(point(i), { categories: ['eat'] }).then(() => 'ok', (err) => err))
+    await vi.waitFor(() => expect(http.postJson).toHaveBeenCalledTimes(GOOGLE_MAX_IN_FLIGHT))
+    clock.advance(GOOGLE_STALE_WAIT_MS + 2000)
+    hung[0]()
+    const fifth = await calls[GOOGLE_MAX_IN_FLIGHT]
+    expect(fifth).toBeInstanceOf(GoogleUnavailableError)
+    expect(http.postJson).toHaveBeenCalledTimes(GOOGLE_MAX_IN_FLIGHT) // the fifth never made a request
+    hung.slice(1).forEach((fail) => fail())
+    await Promise.all(calls)
+  })
+
+  it('a call that waited just as long while Google was healthy still goes ahead', async () => {
+    const clock = makeClock()
+    const finish = []
+    const http = {
+      postJson: vi.fn(() => new Promise((resolve) => finish.push(() => resolve({ places: [] })))),
+      getJson: vi.fn(),
+    }
+    const places = createGooglePlaces({ http, apiKey: KEY, now: clock.now, callsPerMinute: 1000 })
+    const calls = Array.from({ length: GOOGLE_MAX_IN_FLIGHT + 1 }, (_, i) => places.nearby(point(i), { categories: ['eat'] }))
+    await vi.waitFor(() => expect(http.postJson).toHaveBeenCalledTimes(GOOGLE_MAX_IN_FLIGHT))
+    clock.advance(GOOGLE_STALE_WAIT_MS + 2000)
+    finish[0]() // a success: no failure to be suspicious of
+    await vi.waitFor(() => expect(http.postJson).toHaveBeenCalledTimes(GOOGLE_MAX_IN_FLIGHT + 1))
+    finish.slice(1).forEach((done) => done())
+    await Promise.all(calls)
   })
 
   it('asks the HTTP helper for a 3 second wait, and the helper takes a wait per call', async () => {

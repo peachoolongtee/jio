@@ -38,6 +38,9 @@ export const GOOGLE_MAX_IN_FLIGHT = 4
 export const GOOGLE_TIMEOUT_MS = 3000 // Shorter than the HTTP helper's 10 seconds, which would hold a planner request up.
 export const GOOGLE_FAILURES_TO_OPEN = 3 // Failed calls in a row that open the circuit.
 export const GOOGLE_CIRCUIT_OPEN_MS = 60 * 1000 // How long Google is skipped once the circuit opens.
+// A call that waited this long for a slot, while the last call failed, is not started: a hung Google would otherwise make
+// the fifth and later requests of a burst wait for a slot (one timeout) and then spend a timeout of their own.
+export const GOOGLE_STALE_WAIT_MS = 1000
 export const PHOTO_MISS_MS = 5 * 60 * 1000 // A photo Google says does not exist is not asked for again for this long.
 export const PLACE_MISS_MS = 5 * 60 * 1000 // A place Google says does not exist (404) is not asked for again for this long.
 export const PLACE_CACHE_MS = 10 * 60 * 1000 // How long a search or a place look-up is kept. Other parts of the server keep Google content no longer than this.
@@ -290,7 +293,12 @@ export function createGooglePlaces({
   async function guarded(fn, { benign = () => false, lane = null } = {}) {
     let probe = false
     // Refuses while the circuit is open. Once the pause is over, lets exactly one call through as a probe.
+    const queuedAt = now()
     const claim = () => {
+      // Waited a long time for a slot and the last call failed: Google is probably down, so do not start another timeout.
+      if (!probe && circuit.failures > 0 && now() - queuedAt >= GOOGLE_STALE_WAIT_MS) {
+        throw new GoogleUnavailableError('circuit_open', 'Google is failing and this call waited a long time for its turn')
+      }
       if (probe || circuit.failures < GOOGLE_FAILURES_TO_OPEN) return
       if (now() < circuit.openUntil || circuit.probing) {
         throw new GoogleUnavailableError('circuit_open', 'Google is paused after repeated failures')
