@@ -559,7 +559,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 }
 /* No midpoint yet: the band fills the screen under the top bar (above the tab bar on phones), the stage takes all
    the room under the greeting, and the map runs edge to edge, fading only at the very edges. */
-.hero--full { min-height: calc(100dvh - var(--topbar-height) - var(--tabbar-height)); margin-bottom: 0; }
+.hero--full { min-height: calc(100dvh - var(--topbar-real-height) - var(--tabbar-real-height)); margin-bottom: 0; }
 .hero--full .hero__stage { flex: 1 1 auto; height: auto; min-height: 420px; }
 .hero--full .hero__map { --edge: radial-gradient(ellipse 72% 72% at 50% 50%, #000 70%, transparent 100%); width: 100vw; }
 /* On a phone the map is drawn small, so its dots are drawn a little bigger to keep the island's shape clear. */
@@ -575,7 +575,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 @media (min-width: 744px) {
   .home__meetups:not(.is-split) > * { max-width: var(--form-max-width); }
   .home__meetups.is-split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
-  .home__meetups.is-split > :first-child { position: sticky; top: calc(var(--topbar-height) + var(--spacing-base)); }
+  .home__meetups.is-split > :first-child { position: sticky; top: calc(var(--topbar-real-height) + var(--spacing-base)); }
 }
 .home__headtext { min-width: 0; }
 

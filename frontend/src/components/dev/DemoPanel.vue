@@ -410,8 +410,8 @@ const setCondition = (key, value) => planner.setCondition(key, value)
 .demo-note { padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--rounded-sm); background: var(--surface-soft); color: var(--ink); }
 .demo-fab {
   position: fixed;
-  right: var(--spacing-base);
-  bottom: calc(var(--tabbar-height) + var(--spacing-base));
+  right: calc(var(--spacing-base) + env(safe-area-inset-right, 0px));
+  bottom: calc(var(--tabbar-real-height) + var(--spacing-base));
   z-index: 25;
   display: inline-flex;
   align-items: center;
@@ -426,7 +426,7 @@ const setCondition = (key, value) => planner.setCondition(key, value)
   font: var(--text-button-sm);
 }
 /* From tablet up the screen's main action sits bottom-right, so the demo button moves out of its way. */
-@media (min-width: 744px) { .demo-fab { right: auto; left: var(--spacing-base); } }
+@media (min-width: 744px) { .demo-fab { right: auto; left: calc(var(--spacing-base) + env(safe-area-inset-left, 0px)); } }
 @media (hover: hover) { .demo-fab:hover { background: var(--body); } }
 .demo-target { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-md); border-radius: var(--rounded-md); background: var(--surface-soft); }
 .demo-group { display: flex; flex-direction: column; gap: var(--spacing-sm); padding-top: var(--spacing-base); border-top: 1px solid var(--hairline); }

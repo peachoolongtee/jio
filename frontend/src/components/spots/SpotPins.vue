@@ -17,6 +17,7 @@
 // the viewport (lib/homeMeetups.js placeCard). It is not a dialog: no backdrop, no focus trap.
 // Only areas are shown, never a member's exact place.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
+import { barHeights } from '@/lib/bars.js'
 import { placeCard } from '@/lib/homeMeetups.js'
 import { byLine, pinName, tripsLine, worksForText } from './spotText.js'
 
@@ -156,12 +157,11 @@ function onOutside(event) {
 // How to call: boxes() -> { map: { left, right, top, bottom }, viewport: { left, right, top, bottom } }
 function boxes() {
   const area = layer.value.getBoundingClientRect()
-  const root = getComputedStyle(document.documentElement)
-  const bar = (name) => parseFloat(root.getPropertyValue(name)) || 0
+  const bars = barHeights()
   const left = Math.max(area.left, 0) + MARGIN
   const right = Math.min(area.right, document.documentElement.clientWidth) - MARGIN
-  const top = bar('--topbar-height') + MARGIN
-  const bottom = window.innerHeight - bar('--tabbar-height') - MARGIN
+  const top = bars.top + MARGIN
+  const bottom = window.innerHeight - bars.bottom - MARGIN
   return {
     map: { left, right, top: Math.max(area.top, top), bottom: Math.min(area.bottom, bottom) },
     viewport: { left, right, top, bottom },

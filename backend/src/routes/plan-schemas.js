@@ -108,8 +108,8 @@ const uniqueIds = (members) => new Set(members.map((m) => m.id)).size === member
 // Weights must be 0 or more, and only for factors that engine computes (combine() throws on others).
 // They also have a ceiling: huge weights overflow to Infinity and turn every score into NaN.
 const weightsFor = (keys) => z.record(z.enum(keys), z.number().min(0).max(MAX.weight)).optional()
-const CONVERGE_FACTORS = ['worst', 'mean', 'returnWorst', 'occasion', 'preference', 'rating', 'weather', 'price', 'cdc', 'antiRepeat', 'crowd']
-const ROAM_FACTORS = ['distance', 'occasion', 'preference', 'rating', 'weather', 'price', 'cdc', 'antiRepeat', 'crowd']
+const CONVERGE_FACTORS = ['worst', 'mean', 'returnWorst', 'occasion', 'preference', 'weather', 'price', 'cdc', 'antiRepeat', 'crowd']
+const ROAM_FACTORS = ['distance', 'occasion', 'preference', 'weather', 'price', 'cdc', 'antiRepeat', 'crowd']
 
 export function makePlanSchemas(data) {
   const occasion = z.enum(Object.keys(data.occasionProfiles))

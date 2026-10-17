@@ -53,8 +53,8 @@ Six commits after `7fc0a66 changed the cdc-venues.json`. Only `backend/` and one
 
 ## 3. `2eb72d0` Join the mock, frontend and CDC venues into one list
 
-`src/db/venues.js` → `loadPlanData()` served **1,513 venues** at this commit (it serves 1,819 now, with the OneMap places: see [engine-integration.md](engine-integration.md)):
-- 36 mock venues
+`src/db/venues.js` → `loadPlanData()` served **1,513 venues** at this commit (it serves 1,783 by default now, with the OneMap places and without the invented ones: see [engine-integration.md](engine-integration.md)):
+- 36 mock venues (since left out of the default pool; they are served only with `INCLUDE_FICTIONAL_VENUES=1`, which the tests set)
 - 63 frontend places, converted by `src/planner/venue-adapter.js`
 - 1,414 CDC food sites
 
@@ -337,7 +337,7 @@ return data.results.map((r) => ({
 |---|---|
 | Rain | `weatherCase: 'rain'`. When the switch is off, **leave `weatherCase` out** so the live NEA forecast is used (Part D). |
 | Routing off | `method: 'centroid'` on `/api/meeting-area` (step 2). For Playwright, the backend's stub `routing-fail` scenario is more realistic: results come back `approximate: true`. |
-| Simulate crowd | No exact equivalent. The backend has no "+0.4 boost". Closest: send `weights: { worst: 25, mean: 5, occasion: 25, preference: 10, rating: 10, weather: 12, price: 8, cdc: 3, antiRepeat: 2, crowd: 20 }` so crowd counts in the ranking. |
+| Simulate crowd | No exact equivalent. The backend has no "+0.4 boost". Closest: send `weights: { worst: 25, mean: 5, occasion: 25, preference: 10, weather: 12, price: 8, cdc: 3, antiRepeat: 2, crowd: 20 }` so crowd counts in the ranking. |
 
 ## Step 8: crowd can be `unknown`
 

@@ -161,6 +161,16 @@
   --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1); /* Sheets and dialogs arriving, like a native sheet. */
 }
 
+/* The bars' real heights: the bar plus the safe-area inset it grows by (the top bar under a status bar, the pill above the
+   home indicator). Anything that clears, clamps to or sticks under a bar uses these, not the two above. They are
+   registered as lengths so a script can read them in px (lib/bars.js); an unregistered one would read back as text. */
+@property --topbar-real-height { syntax: '<length>'; inherits: true; initial-value: 0px; }
+@property --tabbar-real-height { syntax: '<length>'; inherits: true; initial-value: 0px; }
+:root {
+  --topbar-real-height: calc(var(--topbar-height) + env(safe-area-inset-top, 0px));
+  --tabbar-real-height: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px));
+}
+
 @media (min-width: 744px) {
   :root { --gutter: var(--spacing-xxl); --tabbar-height: 0px; --topbar-height: 72px; }
 }

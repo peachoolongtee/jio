@@ -377,7 +377,7 @@ async function savePassword() {
 /* Tablet and up: the tabs become a menu down the left, and the open tab sits beside it. */
 @media (min-width: 744px) {
   .edit__layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); align-items: start; column-gap: var(--spacing-xl); }
-  .edit__nav { position: sticky; top: calc(var(--topbar-height) + var(--spacing-base)); flex-direction: column; gap: var(--spacing-xs); border-bottom: 0; }
+  .edit__nav { position: sticky; top: calc(var(--topbar-real-height) + var(--spacing-base)); flex-direction: column; gap: var(--spacing-xs); border-bottom: 0; }
   .edit__tab { min-height: 48px; margin: 0; padding: 0 var(--spacing-base); border-bottom: 0; border-radius: var(--rounded-sm); color: var(--ink); font: var(--text-body-md); }
   .edit__tab.is-active { background: var(--surface-strong); font-weight: 600; }
   @media (hover: hover) { .edit__tab:not(.is-active):hover { background: var(--surface-soft); } }
