@@ -22,20 +22,29 @@ onBeforeUnmount(() => clearTimeout(timer))
 </script>
 
 <template>
-  <Transition name="toast">
-    <div v-if="show" class="toast" role="status" :style="{ bottom: offset + 'px' }">
-      <AppIcon name="check" :size="14" />
-      <span>{{ text }}</span>
-    </div>
-  </Transition>
+  <!-- The live region is always there, so screen readers are listening before the first toast arrives. -->
+  <div class="toast-region" role="status" :style="{ bottom: offset + 'px' }">
+    <Transition name="toast">
+      <div v-if="show" class="toast">
+        <AppIcon name="check" :size="14" />
+        <span>{{ text }}</span>
+      </div>
+    </Transition>
+  </div>
 </template>
 
 <style scoped>
-.toast {
+.toast-region {
   position: fixed;
   left: var(--spacing-lg);
   right: var(--spacing-lg);
   z-index: 40;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
