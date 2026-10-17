@@ -159,7 +159,7 @@ describe('the planner\'s pool of OneMap places', () => {
     for (const v of left) { expect(ids.has(v.id), v.id).toBe(false); expect(saved.venues.some((s) => s.id === v.id)).toBe(true); }
     expect(pool.some((v) => /interim park/i.test(v.name))).toBe(false);
     expect(pool.some((v) => /^Pulau (Sekudu|Unum)$/.test(v.name))).toBe(false);
-    for (const name of ['Maghain Aboth Synagogue', 'NUS Baba House - Singapore Peranakan Architecture']) {
+    for (const name of ['Maghain Aboth Synagogue', 'NUS Baba House']) {
       expect(saved.venues.some((v) => v.name === name), name).toBe(true);
       expect(data.venues.some((v) => v.name === name), name).toBe(false);
     }

@@ -4,7 +4,7 @@ import { test, describe } from 'vitest';
 import assert from 'node:assert';
 import {
   fromOneMapRow, fromOneMapTheme, parseOpeningHoursText, cleanName, isRealPark, fixText, https, stripContacts, postalCodeOf, repairAddress,
-  descriptionOf, closedWeekdaysOf, isByAppointmentOnly, notInPoolBecause, hawkerDisplayName, isSamePlace, dedupeOneMapVenues, preparePool,
+  descriptionOf, plainName, withStreet, repairSavedVenue, closedWeekdaysOf, isByAppointmentOnly, notInPoolBecause, hawkerDisplayName, isSamePlace, dedupeOneMapVenues, preparePool,
 } from '../src/planner/onemap-adapter.js';
 import { explain, reasonTags } from '../src/planner/scoring.js';
 import { parseClosureRows, parseClosureReport, attachClosures, isClosedOn, closureCoverage, closureStaleWarning } from '../src/planner/hawker-closures.js';
@@ -509,4 +509,53 @@ test('the price filter is untouched: a venue with a guessed price passes or fail
   assert.strictEqual(universal.avgPricePerPerson, 15);
   assert.strictEqual(filterByConstraints([universal], ctx(20)).passed.length, 1);
   assert.deepStrictEqual(filterByConstraints([universal], ctx(10)).rejected[0].reasons, ['max_price']);
+});
+
+
+// ---------------------------------------------------------------- taglines and theatre streets (ticket #101)
+test('plainName: a tourist-board tagline is cut, a name that really has a dash or a colon is not', () => {
+  assert.strictEqual(plainName('Sri Mariamman Temple: Hindu Temple in Singapore'), 'Sri Mariamman Temple');
+  assert.strictEqual(plainName('St Andrew’s Cathedral- Singapore Architecture Landmark'), 'St Andrew’s Cathedral');
+  assert.strictEqual(plainName('Gillman Barracks – YourSingapore'), 'Gillman Barracks');
+  assert.strictEqual(plainName('Peranakan Museum Singapore: History & Culture'), 'Peranakan Museum');
+  assert.strictEqual(plainName('Jurong Bird Park, Singapore: Attractions & Things to Do'), 'Jurong Bird Park');
+  assert.strictEqual(plainName('Indian National Army (INA) Monument in Singapore'), 'Indian National Army (INA) Monument');
+  assert.strictEqual(plainName('Merlion Park, Singapore'), 'Merlion Park');
+  // Singapore that is part of the name, and dashes that are not taglines, stay.
+  assert.strictEqual(plainName('National Museum of Singapore'), 'National Museum of Singapore');
+  assert.strictEqual(plainName('National Gallery Singapore'), 'National Gallery Singapore');
+  assert.strictEqual(plainName('Raffles Statue – Sir Stamford Raffles Landing Site'), 'Raffles Statue – Sir Stamford Raffles Landing Site');
+  assert.strictEqual(plainName('Esplanade – Theatres on the Bay'), 'Esplanade – Theatres on the Bay');
+  assert.strictEqual(plainName(''), '');
+  assert.ok(plainName(': Singapore').length > 0); // a name is never emptied
+  assert.ok(plainName('Singapore').length > 0);
+});
+
+test('withStreet: a theatre address with only a block number gets its street from the description', () => {
+  assert.strictEqual(withStreet('3615, Singapore 159461', 'Jalan Bukit Merah Gateway Theatre'), '3615 Jalan Bukit Merah Gateway Theatre, Singapore 159461');
+  assert.strictEqual(withStreet('1A, Singapore 397688', 'Stadium Walk'), '1A Stadium Walk, Singapore 397688');
+  assert.strictEqual(withStreet('72-13, Singapore 239007', 'Mohamed Sultan Road'), '72-13 Mohamed Sultan Road, Singapore 239007');
+  // Left alone: an address that already has a street, no description, a sentence, a link, an address that is not a bare block.
+  assert.strictEqual(withStreet('21 Canberra Link, Singapore 756973', 'Jalan Bukit Merah'), '21 Canberra Link, Singapore 756973');
+  assert.strictEqual(withStreet('3615, Singapore 159461', null), '3615, Singapore 159461');
+  assert.strictEqual(withStreet('3615, Singapore 159461', 'A lovely theatre for all kinds of shows.'), '3615, Singapore 159461');
+  assert.strictEqual(withStreet('3615, Singapore 159461', 'https://theatre.example.sg'), '3615, Singapore 159461');
+  assert.strictEqual(withStreet(null, 'Stadium Walk'), null);
+});
+
+test('repairSavedVenue applies both, and repairing twice changes nothing more', () => {
+  const venue = { id: 'x', name: 'Haw Par Villa: Singapore Theme Park', address: '3615, Singapore 159461', description: 'Jalan Bukit Merah Gateway Theatre', postalCode: '159461' };
+  const once = repairSavedVenue(venue);
+  assert.strictEqual(once.name, 'Haw Par Villa');
+  assert.strictEqual(once.address, '3615 Jalan Bukit Merah Gateway Theatre, Singapore 159461');
+  assert.strictEqual(once.area, once.address);
+  assert.deepStrictEqual(repairSavedVenue(once), once);
+});
+
+test('the saved file: no theatre address lacks a street, and no name carries a tagline', () => {
+  const saved = JSON.parse(readFileSync(new URL('../src/db/mock/onemap-places.json', import.meta.url), 'utf8'));
+  const bare = saved.venues.filter((v) => /^\d+[A-Za-z]?(?:-\d+)?, Singapore \d{6}$/.test(v.address ?? ''));
+  assert.deepStrictEqual(bare.map((v) => v.name), []);
+  const taglined = saved.venues.filter((v) => plainName(v.name) !== v.name);
+  assert.deepStrictEqual(taglined.map((v) => v.name), []);
 });
