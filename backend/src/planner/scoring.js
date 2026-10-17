@@ -12,14 +12,17 @@ const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 const mean = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 // Defaults are starting points. Expose them as sliders and tune against your mock data.
+// There is no rating term, on purpose: a venue's rating (from the frontend's list or from Google) does not change
+// any score or the shortlist, because ratings come from different sources on different scales. `rating` is not a
+// weight a caller can send either (the API answers 400). Venues still carry `rating` and `ratingCount` for display.
 // Two more factors exist but have NO default weight, so they only count when a caller asks for them:
 //   crowd       (both engines) estimated crowd at the visit time, from the frontend's profiles
 //   returnWorst (Converge)     the longest trip home from the venue; lastStop: true turns it on
 // Occasion fit is one of the heaviest factors on purpose: "what suits a date / birthday / study session" is
 // the product. With occasion at only 10, a venue that matched the group's cuisine beat one that fit the mood.
 const DEFAULT_WEIGHTS = {
-  converge: { worst: 25, mean: 5, occasion: 25, preference: 10, rating: 0, weather: 12, price: 8, cdc: 3, antiRepeat: 2 },
-  roam:     { distance: 20, occasion: 25, preference: 10, rating: 0, weather: 18, price: 10, cdc: 3, antiRepeat: 2 },
+  converge: { worst: 25, mean: 5, occasion: 25, preference: 10, weather: 12, price: 8, cdc: 3, antiRepeat: 2 },
+  roam:     { distance: 20, occasion: 25, preference: 10, weather: 18, price: 10, cdc: 3, antiRepeat: 2 },
 };
 
 /** Travel minutes as a penalty: 0 min = 0, ceilingMinutes or more = 100. Absolute, so tiny gaps stay tiny. */
@@ -178,7 +181,21 @@ function reasonTags({ venue, walkMinutes, crowd, rainy, homeMaxMinutes = null, t
   return tags.slice(0, 2);
 }
 
-/** Unknown rating (e.g. CDC stalls) is neutral (50): not a reward, not a punishment. */
+/**
+ * Today in Singapore as "YYYY-MM-DD" (the date strings the planner takes are Singapore local time). Worked out on every
+ * call, never kept, so a server that runs past midnight uses the new date.
+ *
+ * How to call:
+ *   singaporeToday()   // '2026-10-17'
+ */
+function singaporeToday() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
+}
+
+/**
+ * Unknown rating (e.g. CDC stalls) is neutral (50): not a reward, not a punishment. Kept as a helper for the
+ * display side; no score uses it (see the note above DEFAULT_WEIGHTS).
+ */
 const ratingPenalty = venue => (venue.rating === null || venue.rating === undefined ? 50 : clamp(100 - venue.rating * 20, 0, 100));
 const cdcPenalty = venue => (venue.cdcAccepted ? 0 : 100);
 
@@ -230,7 +247,6 @@ function explain(row, occasionLabel = 'meetup') {
   add('occasion', f.occasion <= 40, `a good fit for a ${occasionLabel.toLowerCase()}`);
   if (row.worstMinutes !== undefined) add('worst', true, `${Math.round(row.worstMinutes)} min for whoever travels furthest`);
   if (row.travelMinutes !== undefined) add('distance', true, `${Math.round(row.travelMinutes)} min away`);
-  add('rating', f.rating <= 20 && v.rating != null, `rated ${v.rating}`);
   add('preference', f.preference <= 50, "suits the group's tastes");
   add('cdc', v.cdcAccepted, 'accepts CDC vouchers');
   add('price', f.price === 0 && priceIsKnown(v), 'within budget');
@@ -279,6 +295,6 @@ function paretoFront(items, keys) {
 
 export {
   DEFAULT_WEIGHTS, travelPenalty, normalizeMinMax, computeOccasionFit, cuisineMatch, healthMatch, preferencePenalty,
-  pricePenalty, weatherPenalty, ratingPenalty, cdcPenalty, antiRepeatPenalty, combine, explain,
+  pricePenalty, weatherPenalty, ratingPenalty, singaporeToday, cdcPenalty, antiRepeatPenalty, combine, explain,
   regretCounterfactual, paretoFront, crowdEstimate, crowdPenalty, crowdLevel, rainLikelyAt, rainWarning, reasonTags, weatherOf, RAIN_LIKELY, RAIN_EXPOSED,
 };

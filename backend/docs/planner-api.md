@@ -212,11 +212,12 @@ Request (one slot; the response below is real output for these two members with 
 | `lastStop` | no | The frontend's last-stop rule: only venues within `lastStopMrtWalkMinutes` (default 10) of an MRT, and the longest trip home counts toward the score. |
 | `unknownPolicy` | no | `strict` (default): a venue with no data on a diet need, step-free access or sockets is left out. `lenient`: it is kept, and `dietUnknown` says what we don't know. |
 | `groupConstraints` | no | `step_free`, `sockets`, `quiet`, `indoor_only`, `max_price_pp:N`, `near_mrt:N`. |
-| `weights` | no | Override scoring weights, all 0 or more. Keys: `worst`, `mean`, `returnWorst`, `occasion`, `preference`, `rating`, `weather`, `price`, `cdc`, `antiRepeat`, `crowd`. `crowd` has no weight by default, so it doesn't change the ranking unless you send one. |
+| `weights` | no | Override scoring weights, all 0 or more. Keys: `worst`, `mean`, `returnWorst`, `occasion`, `preference`, `weather`, `price`, `cdc`, `antiRepeat`, `crowd`. `crowd` has no weight by default, so it doesn't change the ranking unless you send one. **There is no `rating` weight**: a venue's rating changes no score and no place in the shortlist, so a request that sends `weights.rating` is refused with the usual 400 (`invalid_input`, path `weights.rating`). Venues still carry `rating` and `ratingCount` for display. (Roam takes the same keys except `worst`, `mean` and `returnWorst`, plus `distance`.) |
 | `weatherCase` | no | `clear`, `rain`, `rain_east`: a simulated forecast. Used only when the server allows it; otherwise ignored. See [Weather](#weather). |
 | `currentOptionIds` | no | The options the group is already voting on. Each one that passes the hard filters and is within 3 km is always scored, even past the shortlist (a place added by search, or swapped in for rain), and comes back in `current`. A rain swap never suggests one of these. |
 | `radiusMeters` | no | The search radius the group chose, 100 to 3000. Only places inside it are suggested or kept in `current`. Without it, the search widens on its own (500 m, 1, 2, then 3 km). Search takes the same limit as `maxKm`. |
-| `optedOut`, `overrides`, `excludeVenueIds`, `groupId`, `topN`, `seed`, `travelCeilingMinutes` | no | As in the engine (`backend/src/planner/engine.js`). |
+| `groupId` | no | Names the group whose visit history anti-repeat looks at. Without it anti-repeat is 0 for every venue. See [Known limits](#known-limits). |
+| `optedOut`, `overrides`, `excludeVenueIds`, `topN`, `seed`, `travelCeilingMinutes` | no | As in the engine (`backend/src/planner/engine.js`). |
 | `minOptions` | no | Keep widening the search (500 m, 1 km, 2 km, 3 km) until at least this many places fit. Default **3**, max 30. Ignored when `radiusMeters` is sent. |
 | `shortlistSize` | no | How many places are fully scored, with travel times. Default **10**, max 30. The answer has at most this many `results` (and at most `topN`). Each one costs a OneMap route per member and trip. |
 
@@ -765,6 +766,14 @@ Every list and number has an upper limit, so one request cannot keep the server 
 | `budgetMaxPerPerson` | 10000 |
 | `max_price_pp:N` | 5 digits |
 | `near_mrt:N` | 3 digits |
+
+## Known limits
+
+Things that are true today and that the team should know. None of them is fixed here.
+
+- **`groupId` comes from the caller.** Anti-repeat uses the visit history of the group the request names, and `groupId` is a free-text field the caller supplies. That is harmless while there is no real visit history (a default server holds none: the sample visits are served only with `INCLUDE_FICTIONAL_VENUES=1`). Once real history exists, the group must come from the signed-in session on the server, not from the request, or anyone could read which places another group visited by guessing its id (the ranking and its "somewhere new for the group" and "the group went here recently" lines would show it).
+- **Saved sessions that hold invented venues.** The 36 fictional venues are no longer in the planner's pool. A session saved in a browser before this change can still hold their ids, and the screens keep showing them. But a voting session drops such an option, and the votes on it, on its next re-rank; no rain swap is offered for such a stop; and replacing a stop with one is refused.
+- **There is no rating term in the score.** Ratings from the frontend's list and from Google are on different scales and sources, so none counts. If one is wanted later it needs a decision about how to compare them first.
 
 ## Testing from Playwright (stub mode)
 

@@ -60,7 +60,6 @@ function staticFactors(venue, c) {
     weather: S.weatherPenalty(venue, c.weatherByArea),
     preference: S.preferencePenalty(venue, c.members),
     occasion: 100 - occasionFitOf(venue, c.occasion, c.profile),
-    rating: S.ratingPenalty(venue),
     price: S.pricePenalty(venue, c.members),
     cdc: S.cdcPenalty(venue),
     antiRepeat: S.antiRepeatPenalty(venue.id, c.history, { today: c.today, groupId: c.groupId }),
@@ -104,7 +103,7 @@ function context(input, data, members) {
   return {
     members, occasion: input.occasion, profile: data.occasionProfiles[input.occasion],
     weatherByArea: data.weatherCases[input.weatherCase ?? 'clear'],
-    history: data.visitHistory ?? [], today: input.today ?? data._meta.today, groupId: input.groupId ?? null,
+    history: data.visitHistory ?? [], today: input.today ?? data._meta?.today ?? S.singaporeToday(), groupId: input.groupId ?? null,
     hour: Number(input.dateTime.slice(11, 13)), time: input.dateTime.slice(11, 16),
   };
 }
@@ -188,7 +187,7 @@ function converge(input, data, deps = {}) {
   const members = resolveMembers(input.members, input.overrides, input.optedOut);
   if (members.length === 0) throw new Error('converge: no active members');
   const { seed = 'weighted_centroid', pruneTo = 10, topN = 5 } = input;
-  const last = lastStopRules(input, { ...(input.weights ?? S.DEFAULT_WEIGHTS.converge), rating: 0 });
+  const last = lastStopRules(input, input.weights ?? S.DEFAULT_WEIGHTS.converge);
   const baseWeights = last.weights;
 
   // 1. seed point. input.centre skips this: the itinerary flow picks the meeting area ONCE (meetingArea below)
@@ -298,7 +297,7 @@ function roam(input, data, deps = {}) {
   validateInput(input, data);
   const members = input.members.map(m => ({ ...m }));
   const { pruneTo = 10, topN = 5 } = input;
-  const baseWeights = { ...(input.weights ?? S.DEFAULT_WEIGHTS.roam), rating: 0 };
+  const baseWeights = input.weights ?? S.DEFAULT_WEIGHTS.roam;
   const ctx = {
     members, groupConstraints: input.groupConstraints ?? [], dateTime: input.dateTime,
     categories: input.categories ?? ['eat', 'drink', 'activity'], excludeVenueIds: input.excludeVenueIds ?? [],

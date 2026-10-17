@@ -50,11 +50,24 @@ describe('planner input limits', () => {
       ...valid,
       categories: ['eat'],
       currentOptionIds: many(6, (i) => `venue-${i}`),
-      weights: { worst: 25, mean: 5, occasion: 25, preference: 10, rating: 10, weather: 12, price: 8, cdc: 3, antiRepeat: 2, crowd: 20 },
+      weights: { worst: 25, mean: 5, occasion: 25, preference: 10, weather: 12, price: 8, cdc: 3, antiRepeat: 2, crowd: 20 },
       radiusMeters: 1000,
       topN: 10,
     })
     expect(r.status).toBe(200)
+  })
+
+  it('refuses a rating weight: the score has no rating term, so there is nothing to weigh', async () => {
+    const converge = await send('/api/converge', { ...valid, weights: { worst: 25, rating: 10 } })
+    expect(converge.status).toBe(400)
+    expect(converge.json.error).toBe('invalid_input')
+    expect(pathsOf(converge)).toContain('weights.rating')
+    const roamBody = { ...valid, current: group[0].home, members: [{ id: 'ian' }] }
+    expect((await send('/api/roam', { ...roamBody, weights: { distance: 20 } })).status).toBe(200) // the same request without rating
+    const roam = await send('/api/roam', { ...roamBody, weights: { distance: 20, rating: 10 } })
+    expect(roam.status).toBe(400)
+    expect(roam.json.error).toBe('invalid_input')
+    expect(pathsOf(roam)).toContain('weights.rating')
   })
 
   it('refuses more than 4 categories', async () => {
@@ -101,7 +114,7 @@ describe('planner input limits', () => {
   })
 
   it('never returns a score that is not a number', async () => {
-    const r = await send('/api/converge', { ...valid, weights: { worst: 1000, mean: 1000, rating: 1000 } })
+    const r = await send('/api/converge', { ...valid, weights: { worst: 1000, mean: 1000, occasion: 1000 } })
     expect(r.status).toBe(200)
     for (const result of r.json.results) expect(Number.isFinite(result.score)).toBe(true)
   })

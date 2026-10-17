@@ -49,17 +49,19 @@ The frontend (`dev` branch) had its own planner in `frontend/src/lib/planner/`, 
 
   It is one parameter (`method`) on `/api/meeting-area`.
 
-## 1. One venue list from four sources
+## 1. One venue list from three real sources (and a fictional one for tests)
 
 `backend/src/db/venues.js` → `loadPlanData()` builds the `data` object the engine reads:
 
 | Source | File | Venues | Built by |
 |---|---|---|---|
-| Fictional mock venues | `src/db/mock/mock-data.json` | 36 | by hand |
+| Fictional mock venues (**left out by default**: added only with `INCLUDE_FICTIONAL_VENUES=1`, which the tests set in `vitest.config.js`) | `src/db/mock/mock-data.json` | 0 by default, 36 when included | by hand |
 | The frontend team's real places | `src/db/mock/curated-venues.json` | 63 | `pnpm build:venues` |
-| OneMap's government lists (sport centres, attractions, museums, libraries, theatres, parks, hawker centres), added 9 Oct | `src/db/mock/onemap-places.json` | 417 of 483 saved (30 not somewhere a group can go, 16 duplicates, 20 already in a hand-made list) | `pnpm build:onemap-places` |
-| CDC voucher food sites | `src/db/mock/cdc-venues.json` | 1,303 of 1,422 (8 replaced by the frontend's hawker centres, 111 by OneMap's) | `pnpm build:cdc` |
-| **Total** | | **1,819** | |
+| OneMap's government lists (sport centres, attractions, museums, libraries, theatres, parks, hawker centres), added 9 Oct | `src/db/mock/onemap-places.json` | 418 of 483 saved (30 not somewhere a group can go, 16 duplicates, 19 already in a hand-made list; with the fictional venues in, 417 and 20) | `pnpm build:onemap-places` |
+| CDC voucher food sites | `src/db/mock/cdc-venues.json` | 1,302 of 1,422 (8 replaced by the frontend's hawker centres, 112 by OneMap's; with the fictional venues in, 1,303 and 111) | `pnpm build:cdc` |
+| **Total** | | **1,783** by default (63 + 418 + 1,302); 1,819 with the 36 fictional venues | |
+
+The fictional venues and the sample visit history (`visitHistory`) are for tests and demos. A running server serves neither unless `INCLUDE_FICTIONAL_VENUES=1` is set in its environment; `NODE_ENV` does not change it. `loadPlanData({ includeFictional })` overrides the environment, and the backend's tests turn the switch on through `vitest.config.js`.
 
 Activities went from 20 to 326 (sports from 2 to 45). See [external-apis.md](external-apis.md#onemap-themes-and-hawker-closures-a-snapshot-not-a-call-per-request).
 
@@ -228,7 +230,7 @@ Two tests were checked by breaking the code on purpose, to make sure they can fa
 - Real travel times from OneMap (`services/onemap.js`).
 - Live weather from NEA.
 - The database instead of JSON files (`loadPlanData` is the one place to change).
-- The mock `today` date (`2026-10-04`) is used for anti-repeat until real visit history exists.
+- Anti-repeat has no real visit history yet, so by default it has nothing to work on: the sample visits in `mock-data.json` are served only with `INCLUDE_FICTIONAL_VENUES=1` and they apply only to the group id they name. The date anti-repeat measures from is today in Singapore, worked out on every request (a request may send `today`; the fixture file pins `2026-10-04` for the tests that read it directly). See the "Known limits" in [planner-api.md](planner-api.md).
 
 ## Files
 

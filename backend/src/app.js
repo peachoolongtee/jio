@@ -29,7 +29,7 @@ import { createWeather } from './services/weather.js'
 //   stub           - true answers external API calls from fixtures.
 //   http           - The HTTP helper to share. Defaults to one built from `stub`.
 //   planData       - Venues and settings the planner reads. Defaults to loadPlanData() (curated + OneMap + CDC;
-//                    fictional fixtures are included only in tests or with INCLUDE_FICTIONAL_VENUES=1).
+//                    fictional fixtures are included only with INCLUDE_FICTIONAL_VENUES=1, which the tests set).
 //   weather        - The weather service, from createWeather(). Defaults to one built on `http` and `now`.
 //   now            - Returns the time in milliseconds, for the weather: which forecast a stop is judged by depends on
 //                    how far away it is. Defaults to Date.now. Tests pass a fake clock.
