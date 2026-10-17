@@ -2,7 +2,7 @@
 //
 // The frontend team listed 63 real Singapore places with a lighter format:
 //   { id, name, category, kind, area, lat, lng, hours: ['07:30-20:00'], serves, price, indoor,
-//     mrt, mrtWalk, rating (0-10), popularity (0-1), tags: ['cdc', 'hidden', 'touristy'] }
+//     mrt, mrtWalk, popularity (0-1), tags: ['cdc', 'hidden', 'touristy'] }
 // The engine needs more fields (diet, attributes, exposure, group size...). Anything the frontend list
 // does not say is either UNKNOWN (null / 'unknown', so strict mode treats it honestly) or a DEFAULT for
 // that kind of place, and dataQuality says which. Defaults are guesses, not measurements.

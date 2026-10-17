@@ -3,9 +3,10 @@ import { matchVenueToCdc, nameSimilarity } from '../planner/cdc-adapter.js'
 import { haversineKm, walkMinutes } from '../planner/geo.js'
 import { attachClosures, closureCoverage, closureStaleWarning } from '../planner/hawker-closures.js'
 import { dedupeOneMapVenues, preparePool } from '../planner/onemap-adapter.js'
+import { singaporeToday } from '../planner/scoring.js'
 
 // Builds the one `data` object the planner engine reads, from the venue sources we have today:
-//   mock-data.json       36 fictional venues + members, occasion profiles, weather cases, visit history
+//   mock-data.json       test/demo fixtures: fictional venues, profiles, weather cases, visit history
 //   curated-venues.json  63 real places from the frontend team's list (built by scripts/build-venues.js)
 //   onemap-places.json   483 places saved from OneMap's government lists (sport centres, attractions, museums, libraries,
 //                        theatres, parks and hawker centres), plus NEA's hawker closure dates. Fewer reach the planner:
@@ -24,6 +25,7 @@ const MOCK_DIR = new URL('./mock/', import.meta.url)
 const readJson = (name) => JSON.parse(fs.readFileSync(new URL(name, MOCK_DIR), 'utf8'))
 
 let cached = null
+let cachedFictional = false
 
 // Hawker centres are listed twice: once by the frontend team ("Maxwell Food Centre") and once as a CDC
 // site ("Food stalls at 1 Kadayanallur Street"). Keep the named curated venue and drop the CDC copy.
@@ -132,9 +134,6 @@ export function dropKnownPlaces(candidates, known, { meters = 300, minSimilarity
 
 const readOptionalJson = (name) => (fs.existsSync(new URL(name, MOCK_DIR)) ? readJson(name) : null)
 
-// Today in Singapore as "YYYY-MM-DD" (the date strings the planner takes are Singapore local time).
-const singaporeToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' })
-
 /**
  * The attribution the Singapore Open Data Licence asks for, to show wherever OneMap's or NEA's data is shown.
  *
@@ -148,15 +147,22 @@ export function dataAttribution(fetchedAt) {
 }
 
 /**
- * The one object the planner reads. Cached after the first call; `fresh: true` reads the files again. `today` is the
- * date ("YYYY-MM-DD") the hawker closure dates are checked against, and defaults to today in Singapore.
+ * The one object the planner reads. Cached after the first call; `fresh: true` reads the files again, and so does a
+ * call that asks for the other pool (`includeFictional` differs from the cached one). `today` is the date
+ * ("YYYY-MM-DD") the hawker closure dates are checked against at load, and defaults to today in Singapore. It is not
+ * kept in the result: the engine works out the date anti-repeat needs on every request (see `context` in engine.js).
+ *
+ * `includeFictional` adds the mock file's invented venues and sample visit history. It defaults to
+ * INCLUDE_FICTIONAL_VENUES=1 in the environment, which is the only switch for a running server. The backend's tests
+ * turn it on in vitest.config.js, not through NODE_ENV, so no machine's NODE_ENV changes which places are served.
  *
  * How to call:
  *   const data = loadPlanData()
  *   const again = loadPlanData({ fresh: true, today: '2027-01-05' }) // logs the stale-closures warning
+ *   const withMock = loadPlanData({ includeFictional: true })        // the 36 invented venues and the sample visits too
  */
-export function loadPlanData({ fresh = false, today = singaporeToday() } = {}) {
-  if (cached && !fresh) return cached
+export function loadPlanData({ fresh = false, today = singaporeToday(), includeFictional = process.env.INCLUDE_FICTIONAL_VENUES === '1' } = {}) {
+  if (cached && !fresh && cachedFictional === includeFictional) return cached
   const mock = readJson('mock-data.json')
   const curated = readJson('curated-venues.json').venues
   const cdc = readJson('cdc-venues.json').venues
@@ -164,7 +170,9 @@ export function loadPlanData({ fresh = false, today = singaporeToday() } = {}) {
 
   const onemapFile = readOptionalJson('onemap-places.json')
   if (!onemapFile) console.warn('venues: onemap-places.json is missing, so there are no OneMap places and no hawker closure dates. Build it with pnpm build:onemap-places (run in backend/).')
-  const mockVenues = mock.venues.map((v) => ({ ...v, source: v.source ?? 'mock' }))
+  // Fictional venues and visit history are for tests and demos only. A load needs an explicit opt-in
+  // (INCLUDE_FICTIONAL_VENUES=1 or the option), so invented places can never leak into recommendations by default.
+  const mockVenues = includeFictional ? mock.venues.map((v) => ({ ...v, source: v.source ?? 'mock' })) : []
 
   // The frontend's hawker centres replace their CDC copies, and so do OneMap's (which have photos and stall counts).
   const { venues: curatedMerged, droppedCdcIds } = mergeCuratedWithCdc(curated, cdc)
@@ -200,12 +208,12 @@ export function loadPlanData({ fresh = false, today = singaporeToday() } = {}) {
     areas,
     occasionProfiles: mock.occasionProfiles,
     weatherCases: mock.weatherCases,
-    visitHistory: mock.visitHistory,
+    // Sample visits are not real group feedback and must not affect any group's results.
+    visitHistory: includeFictional ? mock.visitHistory : [],
     _meta: {
-      // The mock visit history is dated relative to this day, so anti-repeat stays meaningful in the demo.
-      today: mock._meta.today,
+      // No `today` here on purpose: a date kept at load would stay at the server's start date after midnight.
       sources: {
-        mock: mock.venues.length,
+        mock: mockVenues.length,
         curated: curated.length,
         onemap: onemapMerged.length,
         // Of the places saved from OneMap: set aside as not somewhere to go, one of several rows for a place, already in a hand-made list.
@@ -229,5 +237,6 @@ export function loadPlanData({ fresh = false, today = singaporeToday() } = {}) {
       onemap: onemapFile ? { fetchedAt: onemapFile._meta?.fetchedAt ?? null, attribution: dataAttribution(onemapFile._meta?.fetchedAt) } : null,
     },
   }
+  cachedFictional = includeFictional
   return cached
 }

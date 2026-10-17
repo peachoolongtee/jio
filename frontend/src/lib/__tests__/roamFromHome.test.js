@@ -80,7 +80,7 @@ describe('a light meetup from Home', () => {
     expect(inviteAccess({ ...s, light: false, activeIds: ['ian', 'faith'] }, true).open).toBe(false)
   })
 
-  it('ends by 23:59 late at night, and finishes by itself after its three hours', async () => {
+  it('ends by 23:59 late at night, and finishes by itself once that end has passed', async () => {
     vi.setSystemTime(new Date('2026-10-17T22:30:00'))
     const api = await signedIn()
     const s = await api.startRoam({ areaId: 'bugis' })

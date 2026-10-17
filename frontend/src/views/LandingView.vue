@@ -108,7 +108,8 @@ let stopWatching = () => {}
 onBeforeUnmount(() => stopWatching())
 onMounted(() => {
   stopWatching = api.watchSessions()
-  loadHome()
+  // Outings whose end time passed while Home was not on screen are settled now, not only when the clock next crosses one.
+  loadHome().then(settleDue)
   // The demo's "Simulate rain" switch, which decides what the rain below asks for.
   planner.loadConditions().catch(() => {})
 })
@@ -139,11 +140,18 @@ const overdue = computed(() =>
     return late && !dueEnding(s, now.value) ? [{ session: s, closes: format(late.closesAt, 'EEE d MMM, HH:mm') }] : []
   }),
 )
-// A confirmed outing whose end time passed while Home is open: reading the list again finishes it and pays its coins.
+// A confirmed outing whose end time has passed: reading the list again finishes it and pays its coins (lib/api.js settleOutings).
+// Run when Home opens, since the store may already be loaded with an outing that ended while the person was on another page
+// (nothing then changes for the watcher below to notice), and again whenever the clock crosses an end time while Home is open.
+// How to call: settleDue() (the clock is read again, as the shared one may be older than the page)
+function settleDue() {
+  const at = new Date()
+  if (sessions.value.some((s) => dueEnding(s, at))) return events.loadSessions().catch(() => {})
+}
 watch(
   () => meetups.value.some((s) => dueEnding(s, now.value)),
   (due) => {
-    if (due) events.loadSessions().catch(() => {})
+    if (due) settleDue()
   },
 )
 
@@ -589,7 +597,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 }
 /* No midpoint yet: the band fills the screen under the top bar (above the tab bar on phones), the stage takes all
    the room under the greeting, and the map runs edge to edge, fading only at the very edges. */
-.hero--full { min-height: calc(100dvh - var(--topbar-height) - var(--tabbar-height)); margin-bottom: 0; }
+.hero--full { min-height: calc(100dvh - var(--topbar-real-height) - var(--tabbar-real-height)); margin-bottom: 0; }
 .hero--full .hero__stage { flex: 1 1 auto; height: auto; min-height: 420px; }
 .hero--full .hero__map { --edge: radial-gradient(ellipse 72% 72% at 50% 50%, #000 70%, transparent 100%); width: 100vw; }
 /* On a phone the map is drawn small, so its dots are drawn a little bigger to keep the island's shape clear. */
@@ -605,7 +613,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 @media (min-width: 744px) {
   .home__meetups:not(.is-split) > * { max-width: var(--form-max-width); }
   .home__meetups.is-split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
-  .home__meetups.is-split > :first-child { position: sticky; top: calc(var(--topbar-height) + var(--spacing-base)); }
+  .home__meetups.is-split > :first-child { position: sticky; top: calc(var(--topbar-real-height) + var(--spacing-base)); }
 }
 .home__headtext { min-width: 0; }
 

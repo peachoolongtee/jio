@@ -1,5 +1,5 @@
 // Session helpers shared by the screens: where a session opens, its date line and each person's status.
-import { differenceInCalendarDays, format, isValid, parseISO } from 'date-fns'
+import { addDays, differenceInCalendarDays, format, isValid, parseISO } from 'date-fns'
 
 // The screen a session card opens, by status. A completed session with no plan (it closed by itself, two days past its end
 // with no plan confirmed) opens its own page, as there is no itinerary to show.
@@ -100,10 +100,11 @@ export function sessionEnd(session) {
 
 // What should happen now to a session whose end time has passed. 'finish': a confirmed plan finishes by itself, and pays
 // out its coins as "Finish outing" does. 'close': a session with no confirmed plan, two days past its end, is completed
-// with no coins. null: nothing yet, and never anything for a completed or cancelled session.
+// with no coins. null: nothing yet, and never anything for a completed or cancelled session, or for a demo session built to
+// stay as it is (keepOpen, set by the showcase and the tour: their times are fixed when they are loaded, whatever the hour).
 // How to call: dueEnding({ status: 'confirmed', date: '2026-10-10', end: '21:00' }, new Date('2026-10-10T21:05')) -> 'finish'
 export function dueEnding(session, now = new Date()) {
-  if (!session || ['completed', 'cancelled'].includes(session.status)) return null
+  if (!session || session.keepOpen || ['completed', 'cancelled'].includes(session.status)) return null
   const end = sessionEnd(session)
   if (!end || now < end) return null
   if (session.status === 'confirmed') return 'finish'
@@ -114,7 +115,7 @@ export function dueEnding(session, now = new Date()) {
 // itself: { closesAt }, or null. A confirmed plan past its end is included until the next read finishes it.
 // How to call: overdueOuting({ status: 'voting', date: '2026-10-10', end: '21:00' }, now) -> { closesAt: Date }
 export function overdueOuting(session, now = new Date()) {
-  if (!session || ['completed', 'cancelled'].includes(session.status)) return null
+  if (!session || session.keepOpen || ['completed', 'cancelled'].includes(session.status)) return null
   const end = sessionEnd(session)
   if (!end || now < end) return null
   return { closesAt: new Date(end.getTime() + CLOSE_AFTER_MS) }
@@ -136,6 +137,22 @@ export function locateNext(session) {
   return { label, to: `/sessions/${session.id}/itinerary` }
 }
 
+// The fewest people an outing needs to earn JioCoins when it finishes. One person out alone starts a light meetup from Home,
+// which would otherwise be a way to earn coins again and again.
+export const EARN_MIN_PEOPLE = 2
+
+// What is said when an outing of one person pays nothing: in the Finish outing dialog (before), in the toast after it, and in the
+// notice on a finished outing's page (done, which is also what an outing that finished by itself shows).
+export const NO_COINS = {
+  before: 'Outings with friends earn JioCoins. This one is just you, so it earns none.',
+  toast: 'No JioCoins for an outing of one. Outings with friends earn them.',
+  done: 'This outing was just you, so it earned no JioCoins. Outings with friends earn them.',
+}
+
+// Does an outing with this many people in it earn coins when it finishes?
+// How to call: earnsCoins(1) -> false, earnsCoins(2) -> true
+export const earnsCoins = (people) => people >= EARN_MIN_PEOPLE
+
 // The times a new session's form starts with: the next round hour, and three hours after it (no later than 23:59).
 // After 23:00 the next round hour is midnight, for an outing on a later day.
 // How to call: defaultTimes(new Date('2026-10-17T14:20')) -> { start: '15:00', end: '18:00' }
@@ -144,4 +161,20 @@ export function defaultTimes(now = new Date()) {
   const pad = (n) => String(n).padStart(2, '0')
   const endMinutes = Math.min((hour + 3) * 60, 23 * 60 + 59)
   return { start: `${pad(hour)}:00`, end: `${pad(Math.floor(endMinutes / 60))}:${pad(endMinutes % 60)}` }
+}
+
+// The day a new session's form starts with: nothing (the person picks), except late at night, when the default start is after
+// midnight and so belongs to tomorrow. A form that left the day empty there would let someone pick today and get an outing
+// that began hours ago. Returns a yyyy-MM-dd string or ''.
+// How to call: defaultDate(new Date('2026-10-17T23:30')) -> '2026-10-18'
+export function defaultDate(now = new Date()) {
+  return now.getHours() === 23 ? format(addDays(now, 1), 'yyyy-MM-dd') : ''
+}
+
+// Has this end time already passed on this day? The create form refuses such a window for today, as it would be over before
+// it began. Only today can be past: any later day is not.
+// How to call: endHasPassed('2026-10-17', '15:00', new Date('2026-10-17T16:00')) -> true
+export function endHasPassed(date, end, now = new Date()) {
+  if (!date || !end || date !== format(now, 'yyyy-MM-dd')) return false
+  return end <= format(now, 'HH:mm')
 }

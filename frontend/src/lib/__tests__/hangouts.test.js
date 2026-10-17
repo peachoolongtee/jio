@@ -63,7 +63,7 @@ describe('the invite page\'s groups', () => {
     expect(all.map((p) => p.streak)).toEqual([1, 2])
   })
 
-  it('reads the counts from completed outings end to end', () => {
+  it('builds the two groups from the counts of completed outings (the two helpers together; no screen is drawn)', () => {
     const sessions = [outing('completed', ['ian', 'faith']), outing('cancelled', ['ian', 'darius'])]
     const { frequent, all } = inviteGroups(friends, outingsTogether(sessions, 'ian'))
     expect(frequent.map((p) => p.id)).toEqual(['faith'])

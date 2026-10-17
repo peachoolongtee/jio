@@ -118,7 +118,7 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
           <AvatarStack v-if="option.voters.length" :people="option.voters" :size="20" :max="4" />
           <span class="caption" :class="{ 'sugg__lead': leading }">{{ votedText }}</span>
         </span>
-        <ChipButton v-if="!closed" radio check :selected="mine" :aria-label="`${mine ? 'Your vote' : 'Vote for'} ${option.venue.name}`" @click="$emit('vote', option)">
+        <ChipButton v-if="!closed" check :selected="mine" :aria-label="`Vote for ${option.venue.name}`" @click="$emit('vote', option)">
           {{ mine ? 'Voted' : 'Vote' }}
         </ChipButton>
       </slot>

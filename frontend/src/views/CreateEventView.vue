@@ -2,7 +2,9 @@
 // Step 1: create a session. Title, a day from the calendar and a time window.
 // The times sit to the right of the calendar from tablet up (start on top, end below), and under it on phones.
 // Next stays disabled until the title, the date and the start time are set. A new session's times start filled in: the next
-// round hour and three hours after it (defaultTimes in lib/session.js), so only the title and the day are left to choose.
+// round hour and three hours after it (defaultTimes in lib/session.js), so only the title and the day are left to choose. After
+// 23:00 that start is after midnight, so the day starts as tomorrow (defaultDate); and a window that has already ended today is
+// refused under the end time (endHasPassed), never a default for a day that is over.
 // The same form edits a session (/sessions/:id/edit), reached from the invite step's back arrow or the steps bar's
 // Create: the heading says "Edit session", the form starts with the session's title, day and times, and Next saves them
 // and goes on to the invite step. The back arrow goes Home, as from the first step of any session. Only the host can
@@ -28,7 +30,7 @@ import TextField from '@/components/ui/TextField.vue'
 import NotFoundView from './NotFoundView.vue'
 import { fromMinutes, toMinutes } from '@/lib/planner/format.js'
 import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
-import { defaultTimes } from '@/lib/session.js'
+import { defaultDate, defaultTimes, endHasPassed } from '@/lib/session.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -42,8 +44,9 @@ const events = useEventsStore()
 const auth = useAuthStore()
 
 const title = ref('')
-const date = ref('') // yyyy-MM-dd
-// A new session starts with real times; an edited one takes the session's own (fill, below).
+// A new session starts with real times (and, late at night, with tomorrow as the day: the default start is after midnight); an
+// edited one takes the session's own (fill, below).
+const date = ref(props.id ? '' : defaultDate()) // yyyy-MM-dd
 const startTimes = props.id ? { start: '', end: '' } : defaultTimes()
 const start = ref(startTimes.start)
 const end = ref(startTimes.end)
@@ -90,7 +93,11 @@ const today = startOfDay(new Date())
 const lastDay = format(addDays(today, 90), 'yyyy-MM-dd')
 // Without an end time the window runs six hours, up to midnight.
 const endValue = computed(() => end.value || (start.value ? fromMinutes(Math.min(toMinutes(start.value) + DEFAULT_LENGTH, 23 * 60 + 59)) : ''))
-const endError = computed(() => (start.value && end.value && toMinutes(end.value) <= toMinutes(start.value) ? 'End time must be after the start time.' : ''))
+const endError = computed(() => {
+  if (start.value && end.value && toMinutes(end.value) <= toMinutes(start.value)) return 'End time must be after the start time.'
+  // Today, with an end that has gone: the outing would be over before it began.
+  return endHasPassed(date.value, endValue.value) ? 'That time has already passed today.' : ''
+})
 const ready = computed(() => title.value.trim().length > 0 && date.value !== '' && start.value !== '' && !endError.value)
 
 // Creates the session, or saves the changes to it, and goes on to the invite step in place of this screen.

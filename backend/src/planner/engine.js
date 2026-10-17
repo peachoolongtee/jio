@@ -60,7 +60,6 @@ function staticFactors(venue, c) {
     weather: S.weatherPenalty(venue, c.weatherByArea),
     preference: S.preferencePenalty(venue, c.members),
     occasion: 100 - occasionFitOf(venue, c.occasion, c.profile),
-    rating: S.ratingPenalty(venue),
     price: S.pricePenalty(venue, c.members),
     cdc: S.cdcPenalty(venue),
     antiRepeat: S.antiRepeatPenalty(venue.id, c.history, { today: c.today, groupId: c.groupId }),
@@ -70,7 +69,7 @@ function staticFactors(venue, c) {
 
 /**
  * Cheap pre-score using straight-line distance only (no routing). Keeps the best N so we make
- * at most N x members routing calls. It uses fit and rating as well as distance, so a close but
+ * at most N x members routing calls. It uses fit as well as distance, so a close but
  * poor-fit venue cannot push a much better one out of the shortlist.
  * Occasion fit is computed the same way as in the final score, so a venue without a precomputed
  * occasionFit is not mistaken for a zero fit and cut here.
@@ -79,7 +78,7 @@ function prune(candidates, c, keep) {
   if (candidates.length <= keep) return candidates;
   const dn = S.normalizeMinMax(candidates.map(x => x.distanceKm));
   return candidates
-    .map((x, i) => ({ x, pre: 0.5 * dn[i] + 0.3 * (100 - occasionFitOf(x.venue, c.occasion, c.profile)) + 0.2 * S.ratingPenalty(x.venue) }))
+    .map((x, i) => ({ x, pre: 0.625 * dn[i] + 0.375 * (100 - occasionFitOf(x.venue, c.occasion, c.profile)) }))
     .sort((a, b) => a.pre - b.pre)
     .slice(0, keep)
     .map(o => o.x);
@@ -104,7 +103,7 @@ function context(input, data, members) {
   return {
     members, occasion: input.occasion, profile: data.occasionProfiles[input.occasion],
     weatherByArea: data.weatherCases[input.weatherCase ?? 'clear'],
-    history: data.visitHistory ?? [], today: input.today ?? data._meta.today, groupId: input.groupId ?? null,
+    history: data.visitHistory ?? [], today: input.today ?? data._meta?.today ?? S.singaporeToday(), groupId: input.groupId ?? null,
     hour: Number(input.dateTime.slice(11, 13)), time: input.dateTime.slice(11, 16),
   };
 }
@@ -265,7 +264,7 @@ function converge(input, data, deps = {}) {
     r.factors.returnWorst = S.travelPenalty(Math.max(...r.back), ceiling);
     const { score, breakdown } = S.combine(r.factors, weights);
     r.score = score; r.breakdown = breakdown; r.weights = weights;
-    r.hasHistory = c.history.length > 0;
+    r.hasHistory = c.groupId !== null && c.history.some(h => h.groupId === c.groupId);
   });
   rows.sort((a, b) => a.score - b.score);
 
@@ -328,7 +327,8 @@ function roam(input, data, deps = {}) {
   rows.forEach(r => {
     r.factors.distance = S.travelPenalty(r.travelMinutes, ceiling);
     const { score, breakdown } = S.combine(r.factors, weights);
-    r.score = score; r.breakdown = breakdown; r.weights = weights; r.hasHistory = c.history.length > 0;
+    r.score = score; r.breakdown = breakdown; r.weights = weights;
+    r.hasHistory = c.groupId !== null && c.history.some(h => h.groupId === c.groupId);
   });
   rows.sort((a, b) => a.score - b.score);
   const label = c.profile?.label ?? 'meetup';

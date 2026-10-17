@@ -19,6 +19,7 @@ colors:
   hairline: "#dddddd"
   hairline-soft: "#ebebeb"
   border-strong: "#c1c1c1"
+  border-control: "#8a8a8a"
   on-primary: "#ffffff"
   on-dark: "#ffffff"
   scrim: "#000000"
@@ -319,9 +320,10 @@ These carry information on maps, keys, stripes and avatars. None of them is used
 | `--canvas` | `#ffffff` | The page, cards, sheets, dialogs. |
 | `--surface-soft` | `#f7f7f7` | Banners, hover backgrounds, the Home map band. |
 | `--surface-strong` | `#f2f2f2` | Icon-button circles, photo plates, neutral tags, empty progress blocks. |
-| `--hairline` | `#dddddd` | The default 1px border. |
+| `--hairline` | `#dddddd` | The default 1px border of cards and dividers. Too light (1.36:1) to outline a control. |
 | `--hairline-soft` | `#ebebeb` | Lighter dividers; the progress bar's track. |
-| `--border-strong` | `#c1c1c1` | The outline of an unselected chip, the switch, the sheet handle. |
+| `--border-strong` | `#c1c1c1` | Decorative outlines: dashed empties, the next button, the sheet handle, disabled outlines. |
+| `--border-control` | `#8a8a8a` | The edge that marks a control: text fields, selects, unselected chips, the switch. 3.45:1 on white, for WCAG's 3:1 (issue #62). |
 | `--on-primary` | `#ffffff` | Text and icons on the red. |
 | `--on-dark` | `#ffffff` | Text on ink and on the photo viewer. |
 | `--scrim` | `#000000` | The backdrop behind sheets and dialogs, drawn at 50% opacity. |
@@ -420,7 +422,7 @@ Values written as plain pixels where no token matches include 6px, 10px, 14px, 2
 
 `frontend/src/App.vue` renders `.app > .app__main` and, on top-level screens, `TabBar`. A screen is top-level when its route has `meta.tabs: true` and the user is signed in: Home (`/`), Sessions (`/sessions`), Leaderboard, Rewards and Profile (`frontend/src/router/index.js`). Every other screen has its own back arrow and no tab bar.
 
-`.app__main` is a column at least `100dvh` tall with `overflow-x: clip`, so a full-width band never scrolls sideways. `html` has `scrollbar-gutter: stable`. On top-level screens `.app__main` is padded by `--topbar-height` at the top and by `--tabbar-height` plus `env(safe-area-inset-bottom)` at the bottom.
+`.app__main` is a column at least `100dvh` tall with `overflow-x: clip`, so a full-width band never scrolls sideways. `html` has `scrollbar-gutter: stable`. On top-level screens `.app__main` is padded by `--topbar-real-height` at the top and by `--tabbar-real-height` at the bottom (the bar plus the safe-area inset it grows by; see Safe areas). The page runs edge to edge under a phone's notch and home indicator (`viewport-fit=cover` in `frontend/index.html`); see Safe areas.
 
 A screen is built from classes in `app.css`:
 
@@ -455,6 +457,8 @@ A screen is built from classes in `app.css`:
 | `--side-panel-width` | 420px | `BottomSheet` with `side` on desktop. |
 | `--tabbar-height` | 88px; 0px from 744px | Room kept for the phone pill. |
 | `--topbar-height` | 0px; 72px from 744px | Room kept for the top bar. |
+| `--topbar-real-height` | `--topbar-height` + `env(safe-area-inset-top)` | The top bar's real height. Use it, not the line above, wherever something clears, clamps to or sticks under the top bar. Registered with `@property` as a length, so a script reads it in px (`frontend/src/lib/bars.js`). |
+| `--tabbar-real-height` | `--tabbar-height` + `env(safe-area-inset-bottom)` | The same for the phone pill: its height, its gap and the home indicator's inset. |
 | `--tap-min` | 44px | The smallest tap target. |
 
 ### Navigation and the width at which it switches
@@ -477,11 +481,17 @@ One-off widths used by a single component: 379px, 399px and 399.98px (`TabBar`, 
 
 ### How screens stack on phones
 
-Everything is one column. A list and its map are shown one at a time with a List / Map switch (`SplitView`). Overlays rise from the bottom as sheets. The main action is a full-width button in the sticky footer. The photo and controls of a `StopCard` drop under its text at 480px and below. Layout changes are done in CSS, so resizing the window keeps a screen's state.
+Everything is one column. A list and its map are shown one at a time with a List / Map switch (`SplitView`). Under 1128px the map is `max(240px, min(72dvh, 100dvh - 160px))` tall, so on a phone on its side (about 375px high) it is 240px: the formula's `100dvh - 160px` is only 215px there, and the 240px floor wins. Measured at 812x375 and 667x375, the map scrolled into view ends 24px above the top of the 64px footer (85px with a 21px bottom inset), but the page's header and the List / Map switch sit above the map, so the map and the button are not both in view before the page is scrolled. Overlays rise from the bottom as sheets and can be dragged down by the handle or header to close: let go past 96px, or flick, and the sheet closes; otherwise it springs back. A sheet that was dragged closed opens again at rest. The handle's grab area is 44px tall: for a sheet with no header it grows upward over the backdrop, so nothing inside the sheet moves. On a screen in landscape under 500px tall, the sticky footer's padding drops to 8px above and below, so it is 64px tall instead of 88px. The main action is a full-width button in the sticky footer. The photo and controls of a `StopCard` drop under its text at 480px and below. Layout changes are done in CSS, so resizing the window keeps a screen's state.
 
 ### Safe areas
 
-`env(safe-area-inset-bottom)` is added in three places: the bottom padding of `.app__main`, the phone pill's position in `TabBar`, and the floating camera button in `PhotosView`. No rule reads the top, left or right insets.
+`frontend/index.html` sets `viewport-fit=cover`, so the page draws under the notch and home indicator, and the insets are not zero on those phones. Where they are read (issue #63):
+
+- **Sides:** `.app` is padded by `env(safe-area-inset-left)` and `-right`, for a notch on a phone on its side. The top bar keeps its content at least 16px inside them.
+- **Top:** `.app__main` is padded by `env(safe-area-inset-top)`, and the top bar grows by it, for an app added to the home screen. In Safari's own window the top inset is 0.
+- **Bottom:** `.app__main` on top-level screens, the phone pill in `TabBar`, the sticky `.screen__footer`, the body or footer of a `BottomSheet`, the floating camera button in `PhotosView`, the development-only Demo button, and `ToastMessage` (its `offset` is measured from the inset).
+- **One source for the bars' height:** `--topbar-real-height` and `--tabbar-real-height` (tokens.css) include the insets. `.app__main`, the top bar's own height, Home's full-height band, the sticky tops on Home and Edit profile, the Demo button and the hover cards' clamp in `MeetupPins` and `SpotPins` (through `barHeights()` in `lib/bars.js`) all read them.
+- **The full-screen map** (`SessionMapView`) runs under every inset; its back bar, stop list and place card stay inside them, and so do Leaflet's own corner boxes (the zoom buttons and the attribution), moved in by the insets with `:deep(.leaflet-*)` rules.
 
 ### Stacking order
 
@@ -551,7 +561,7 @@ Corners are soft everywhere. Controls that hold one word or one icon are fully r
 
 Radii written as plain pixels: 5px (`SegmentedProgress` blocks), 6px (`MeetupGraph` view switch), 10px (the photo strip in `EventView`), 3px and 2px (small swatches and pegs).
 
-Borders are 1px `--hairline` by default. A stronger 1px `--border-strong` outline marks anything tappable that is not filled (an unselected chip, the switch, the next button). Two inset stripes are drawn with `box-shadow`: a 4px stripe in the category colour on the left edge of `SuggestionCard`, and a 3px error-red stripe on the left of an error `BannerNote`.
+Borders are 1px `--hairline` by default. A stronger 1px `--border-control` outline marks a control that is not filled (a text field, a select, an unselected chip, the switch); `--border-strong` is for decoration (a dashed empty, the next button, the sheet handle). Two inset stripes are drawn with `box-shadow`: a 4px stripe in the category colour on the left edge of `SuggestionCard`, and a 3px error-red stripe on the left of an error `BannerNote`.
 
 The recurring silhouettes are the map pin (`PinButton`, a teardrop drawn in a `0 0 100 128` box with its tip at the bottom centre), the crown (in `JioLogo`, `CoinBadge` and the `crown` icon) and the circle.
 
@@ -817,8 +827,9 @@ No template contains an exclamation mark, an emoji or an upper-case label.
 - **Focus.** `:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }` applies to every control (`app.css`). Components that draw their own keep the 2px ink line: `ChipButton` puts it on the pill, not the larger tap area; `PinButton` turns the pin's white stroke to a 4px ink stroke; `HeroButton` and `RadialTimePicker` use rings made with `box-shadow`; `TextField` and `SelectField` thicken the border to 2px ink.
 - **The focus trap.** `useFocusTrap(open, panel, { restoreOnUnmount })` in `frontend/src/lib/useFocusTrap.js` moves focus into a panel when it opens, keeps Tab and Shift+Tab inside it, and returns focus to the control that opened it. A composable is a function that a Vue component calls to share behaviour. It is used by `BottomSheet`, `ModalDialog`, `PopoverPanel` and `PlaceDetail`. `PhotoViewer` keeps focus inside itself with its own code. Each of the five closes on Escape.
 - **Dialog roles.** `BottomSheet`, `ModalDialog` and `PlaceDetail` have `role="dialog"`, `aria-modal="true"` and `aria-labelledby`. `PopoverPanel` has `role="dialog"` without `aria-modal`.
-- **Labels.** `IconButton` requires `label` and sets it as both `aria-label` and `title`. `TextField` and `SelectField` require `label` and tie hints and errors to the input with `aria-describedby`; errors have `role="alert"`. Tabs carry `aria-current="page"`. `ChipButton` sets `aria-pressed`, or `role="radio"` with `aria-checked`. `ToggleSwitch` has `role="switch"`. `ProgressBar` and `SegmentedProgress` have `role="progressbar"`. `CoinBadge` reads as "500 JioCoins". Decoration (`SingaporeMap`, `GridPulse`, the enter-game cover, confetti) is hidden with `aria-hidden`.
-- **Keyboard.** `SortableList` moves an item with the arrow keys from its handle. `HoldButton` works with Space or Enter held, and with a single activation from assistive technology. `CalendarPicker` moves between days with the arrow keys. Map pins in `PlannerMap` take focus and select on Enter. `MeetupGraph` is one focusable element that reads out the day the arrow keys land on. `AuthView` moves focus to each new question's heading.
+- **Announcements.** An error `BannerNote` is `role="alert"`, the other tones `role="status"`; an error that is a standing state of the screen, not an answer to something just done ("Session cancelled", "Not enough people" in `SessionNotices`), passes `role="status"` so it is not read out as an alert each time the screen loads. `ToastMessage` keeps its `role="status"` region on the page, so the first toast is heard. Placeholder rows are hidden from screen readers; the planner says "Finding places" in a hidden status line instead, as Roam does. Map pins for places are named with their stop number and category ("Stop 1, Eat: Maxwell Food Centre").
+- **Labels.** `IconButton` requires `label` and sets it as both `aria-label` and `title`. `TextField` and `SelectField` require `label` and tie hints and errors to the input with `aria-describedby`; errors have `role="alert"`. Tabs carry `aria-current="page"`. `ChipButton` sets `aria-pressed`, or `role="radio"` with `aria-checked` when it is one choice in a set of chips (`radio`). A Vote chip is a toggle (`aria-pressed`, named "Vote for {place}" in either state), because it sits in a card among other buttons. `ToggleSwitch` has `role="switch"`. `ProgressBar` and `SegmentedProgress` have `role="progressbar"`. `CoinBadge` reads as "500 JioCoins". Decoration (`SingaporeMap`, `GridPulse`, the enter-game cover, confetti) is hidden with `aria-hidden`.
+- **Keyboard.** A set of radio chips or poll bars is one Tab stop (a row of chips only, never a group of cards: a `radiogroup` around cards that hold other controls would leave all but one Vote chip out of the Tab order, so a slot's options are a labelled `role="group"` and every Vote chip is a Tab stop of its own): `v-radio-group` (`frontend/src/lib/radioGroup.js`) on the `radiogroup` moves between its choices with the arrow keys, Home and End, skipping disabled ones. Filters choose as focus moves; vote sets (`{ follow: false }`) only move focus, and Space or Enter votes. A disabled `ChipButton` is `aria-disabled`, not `disabled`, so it keeps focus while a request runs, and a chosen one keeps its fill. `SortableList` moves an item with the arrow keys from its handle. `HoldButton` works with Space or Enter held, and with a single activation from assistive technology. `CalendarPicker` moves between days with the arrow keys. Map pins in `PlannerMap` take focus and select on Enter. `MeetupGraph` is one focusable element that reads out the day the arrow keys land on. `AuthView` moves focus to each new question's heading.
 - **Target size.** `--tap-min` is 44px. Shapes that look smaller reach it by padding: a 32px chip in a 44px button, a 28px switch with a pseudo-element that extends it. The exceptions are under Known Conflicts.
 - **Touch.** Links and buttons have `-webkit-tap-highlight-color: transparent` and `touch-action: manipulation`. Hover styles sit inside `@media (hover: hover)`, and nothing is revealed by hover alone: the next button is filled from the start on touch screens, and `RadialTimePicker` opens on tap.
 - **Reduced motion.** See Motion: one global rule, plus a check in every script that animates except the `HoldButton` fill.
@@ -1037,6 +1048,22 @@ Tickets #120, #121, #122 and #98. Nothing here adds a colour or a token, and no 
 | One create button | `GroupsView` | The page header's Create pill and the empty state's button are gone: the navigation's Create (top bar or tab bar) is the one on the page, as on the profile. |
 | "Already out?" row | `components/home/RoamFromHome.vue` | Under the meetups on Home (local accounts). The start row's box with a hairline outline, a 44px `--surface-strong` badge with the locate icon, "Already out?" over "Find something nearby", and a chevron. It opens `LocationSheet` ("Where are you?", with "Use current location" and the home area), then starts a light meetup and opens its Roam list. |
 | No stops yet | `EventView` | A light meetup's itinerary before anything is added shows an `EmptyState` in place of the timeline, with "What next?" below it as usual. |
+
+Changes made in the review of the pull request, before it merged:
+
+| Piece | Where | What it is |
+|---|---|---|
+| No coins for one | `EventView`, `SessionNotices` | An outing pays JioCoins only when at least two people are in it (`earnsCoins`, `lib/session.js`), light or not; otherwise "Already out?" could be repeated for coins. The Finish outing dialog says "Outings with friends earn JioCoins. This one is just you, so it earns none." in place of the +10 line; the toast after says "Completed · No JioCoins for an outing of one. Outings with friends earn them."; and a finished outing of one (by hand or by itself) carries an info `BannerNote`, "This outing was just you, so it earned no JioCoins. Outings with friends earn them.", in place of the trophy banner. |
+| Home settles on open | `LandingView` | Home reads the list again when it opens if an outing's end has passed (the store may already be loaded), as well as when the clock crosses an end time while it is open. |
+| One read, never an old save | `lib/api.js` | Settling is a write made by a read. It takes up a newer save from another tab first (`adoptNewerSave`) and settles on top of it, so a stale tab cannot save over a voucher or a balance. Opening one outing by its address settles too, and "Finish outing" on an outing that already finished says "This outing has already finished." |
+| Demo sessions stay as built | `tour/builders.js` | Sessions made by the showcase and the tour are made with `keepOpen`, so the clock never finishes or closes them (their "today" window is fixed when they load), and Home shows no overdue banner for them. |
+| Invite streaks follow the tour | `InviteView` | The Jio streaks are counted from the sessions the lists show (`visibleSessions`), so the tour's final, completed save does not give the friends a streak at the earlier checkpoints. |
+| Radius chips stay focusable | `PlannerView`, `ChipButton` | The chip row is a `role="radiogroup"` named by "Search within", with `v-radio-group` (one Tab stop, arrow keys choose, as the Show chips). While a radius change runs the chips are `aria-disabled` (ChipButton's `disabled`: faded, still focusable, clicks ignored), so keyboard focus is not thrown to the page. |
+| Votes cleared by the radius | `lib/api.js setRadius`, `SessionNotices` | Any member may still change the radius. When it drops votes, the voting page shows the usual dismissible votes-cleared `BannerNote`: "Votes for places outside the new ring were cleared." (Auto: "Votes for places that no longer fit were cleared."). |
+| Late-night create form | `CreateEventView` | After 23:00 the default start is 00:00, so the day starts as tomorrow (`defaultDate`); an end that has already passed today is refused under the end time, "That time has already passed today." |
+| Closed outings take no photos | `lib/api.js addPhoto`, `PhotosView` | An outing that closed by itself has no plan, so photos stay shut for it. |
+
+Time. An outing's end time, the auto-finish and the overdue banner all use the browser's time zone, as the rest of the app's date code does (`date-fns` on local times). They do not use Singapore time; for a person in Singapore the two are the same.
 
 ## Known Conflicts
 

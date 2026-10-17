@@ -42,7 +42,9 @@ const expanded = ref(false)
 <style scoped>
 .split { display: flex; flex-direction: column; gap: var(--spacing-base); }
 .split__list { display: flex; flex-direction: column; gap: var(--spacing-base); min-width: 0; }
-.split__map { position: relative; height: 72dvh; min-height: 420px; overflow: hidden; border: 1px solid var(--hairline); border-radius: var(--rounded-md); }
+/* Most of a phone's height, but never taller than the screen less a footer, so a phone on its side sees the whole map
+   above the page's button; never shorter than 240px. */
+.split__map { position: relative; height: max(240px, min(72dvh, 100dvh - 160px)); overflow: hidden; border: 1px solid var(--hairline); border-radius: var(--rounded-md); }
 .split__expand { display: none; }
 .split--list .split__map { display: none; }
 .split--map .split__list { display: none; }

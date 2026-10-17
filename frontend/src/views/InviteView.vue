@@ -30,6 +30,7 @@ import ShareLink from '@/components/group/ShareLink.vue'
 import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
 import { watchSessions } from '@/lib/api.js'
 import { inviteAccess } from '@/lib/session.js'
+import { visibleSessions } from '@/lib/sessionFilter.js'
 import { inviteGroups, outingsTogether, streakText } from '@/lib/hangouts.js'
 import { exitFor, goBackIfBehind, isBehind } from '@/lib/stepNav.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -88,7 +89,9 @@ const members = computed(() => {
     })
   return [...rows.filter((r) => r.host), ...rows.filter((r) => !r.host)]
 })
-const streaks = computed(() => outingsTogether(events.sessions, auth.myId))
+// The sessions the lists show: the demo tour hides the saves of its story that are not selected, so the finished one does not
+// give the friends a streak at the checkpoints before it (lib/sessionFilter.js).
+const streaks = computed(() => outingsTogether(visibleSessions(events.sessions), auth.myId))
 const lists = computed(() => {
   const { frequent, all } = inviteGroups(groups.friends.filter((p) => !inSession(p.id) && matches(p)), streaks.value)
   if (!frequent.length) return [{ id: 'friends', title: 'Friends', people: all }]

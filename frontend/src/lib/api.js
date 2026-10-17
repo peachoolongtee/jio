@@ -16,7 +16,7 @@ import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
-import { dueEnding, itineraryAction } from './session.js'
+import { dueEnding, earnsCoins, itineraryAction } from './session.js'
 import { combineWeather, stateOf, venueSetting } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
@@ -295,7 +295,14 @@ function replaceContents(target, source) {
 // Put the in-memory state back to what is stored. Sessions are restored in place: a write still waiting on the
 // planner keeps working on the same object.
 function rollback() {
-  const back = JSON.parse(stored)
+  restoreFrom(stored)
+}
+
+// Put the in-memory state to a save given as text, in place (see rollback). Used to go back to what was stored, and to take up a
+// save another tab wrote (adoptNewerSave).
+// How to call: restoreFrom(localStorage.getItem('jio-demo-v1'))
+function restoreFrom(text) {
+  const back = JSON.parse(text)
   const dob = db.user?.authId ? db.user.dob : undefined
   const live = new Map(db.sessions.map((s) => [s.id, s]))
   back.sessions = back.sessions.map((s) => {
@@ -311,6 +318,23 @@ function rollback() {
 
 function broadcast(event) {
   for (const fn of listeners) fn(event)
+}
+
+// Another tab may have saved since this one last did, and nothing tells a tab when it has. A read that has to write (settleOutings)
+// calls this first and writes on top of the newer save, never over it: otherwise a tab opened before an outing finished, a voucher
+// was redeemed or a photo was added would save its old state back. True when it is safe to go on (this tab's state is the stored
+// one, or the stored one was just taken up); false when the stored save is not this account's, is of another version or cannot be
+// read, and the read must then write nothing.
+// How to call: if (adoptNewerSave()) { ...settle against db... }
+function adoptNewerSave() {
+  if (storageKey === null) return true
+  const raw = readRaw(storageKey)
+  if (raw === null || raw === stored) return true
+  const saved = parseOrNull(raw)
+  if (!hasShape(saved) || saved.user?.id !== db.user?.id || saved.user?.authId !== db.user?.authId) return false
+  restoreFrom(raw)
+  stored = raw
+  return true
 }
 
 // Save, then tell subscribers. When the save fails the state goes back to what is stored and this throws, so
@@ -1958,8 +1982,8 @@ export async function listSessions() {
     return rows.map((s) => summary(s, { warm: false }))
   }
   await wait(DELAY.read)
-  db.sessions.forEach((s) => settleInvites(s))
   settleOutings()
+  db.sessions.forEach((s) => settleInvites(s))
   // One read for every real person in every session, not one per session.
   warmPeople(db.sessions.flatMap((s) => s.members.map((m) => m.id)))
   return db.sessions.map((s) => summary(s, { warm: false })).sort((a, b) => b.createdAt - a.createdAt)
@@ -1983,13 +2007,17 @@ export async function getSession(id) {
     return session
   }
   await wait(DELAY.read)
+  // Opened by its address after its end time: it is finished now, not when Home next reads the list.
+  settleOutings()
   return summary(sessionById(id))
 }
 
 // hostId: the app always makes the signed-in person the host. A friend's id makes a session that friend hosts, with the
 // signed-in person already a guest in it (the demo's showcase uses it to show a session the person does not run).
+// keepOpen: only the demo's own sessions (the showcase and the tour) pass it. Such a session is never finished or closed by
+// its end time (lib/session.js dueEnding), so the demo stays as it was built whatever the hour it is loaded at.
 // How to call: await createSession({ title: 'Dinner', date: '2026-10-17', start: '18:00', end: '21:00', hostId: 'darius' })
-export async function createSession({ title, date, start, end, hostId = me() }) {
+export async function createSession({ title, date, start, end, hostId = me(), keepOpen = false }) {
   if (onServer()) {
     requireMe(undefined, 'Log in to create a session.')
     const session = summary(fromServer(await remote.create(checkSessionFields({ title, date, start, end }))))
@@ -2022,6 +2050,7 @@ export async function createSession({ title, date, start, end, hostId = me() }) 
     replan: null,
     photos: [],
     radius: null,
+    ...(keepOpen ? { keepOpen: true } : {}),
   }
   db.sessions.push(session)
   return touch(session, 'session')
@@ -2493,17 +2522,29 @@ export async function restoreSlots(id) {
 }
 
 // The search radius around the meeting area, in metres (100 to 3000), or null to let the planner widen on its own.
-// Options outside the new radius drop out, with their votes, and each slot tops up to three again.
+// Options outside the new radius drop out, with their votes, and each slot tops up to three again. Any member may change it
+// here (the server stage will decide who may). When votes were dropped, a banner says so for everyone, until it is dismissed or
+// the next change; a banner about the meeting area moving is left alone.
+// How to call: await setRadius('s1', 1000)
 export async function setRadius(id, metres) {
   await wait(DELAY.write)
   const session = sessionById(id)
   if (metres != null && !(metres >= 100 && metres <= 3000)) throw new Error('Pick a radius from 100 m to 3 km.')
   return orUndo(session, async () => {
+    const voted = voteCount(session)
     session.radius = metres ?? null
     await syncOptions(session)
+    if (session.banner?.byRadius) session.banner = null
+    if (voteCount(session) < voted) {
+      const text = metres == null ? 'Votes for places that no longer fit were cleared.' : 'Votes for places outside the new ring were cleared.'
+      session.banner = { text, at: Date.now(), votesCleared: true, byRadius: true }
+    }
     return touch(session, 'options')
   })
 }
+
+// How many votes a session holds. How to call: voteCount(session) -> 4
+const voteCount = (session) => Object.values(session.votes || {}).reduce((sum, byPerson) => sum + Object.keys(byPerson).length, 0)
 
 export async function addMoreOptions(id, slotId) {
   await wait(DELAY.plan)
@@ -3395,26 +3436,31 @@ async function reopenVoting(session, trigger) {
 export async function endPlan(id) {
   await wait(DELAY.write)
   const session = sessionById(id)
+  if (session.status === 'completed') throw new Error('This outing has already finished.')
   if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can be ended.')
   if (completeOuting(session, 'hand')) emit({ type: 'stats' })
   return touch(session, 'session')
 }
 
-// Completes an outing. `how` is kept as `endedBy`: 'hand' ("Finish outing"), 'auto' (its end time passed) or 'closed' (two
-// days past its end with no confirmed plan). A confirmed plan pays every member who is in it; a closed one pays nobody, and
-// counts for nobody's Jio streak. Saves nothing itself: the caller saves. Answers whether coins were paid.
+// Completes an outing. `how` is kept as `endedBy`: 'hand' ("Finish outing"), 'auto' (its end time passed) or 'closed' (two days
+// past its end with no confirmed plan). A confirmed plan pays every member who is in it, but only when at least two people are
+// (lib/session.js earnsCoins): an outing of one is a way to find places, not a way to earn coins, so it can be repeated for
+// nothing. A closed one pays nobody, and counts for nobody's Jio streak. The session keeps `paid` (whether coins were paid) so
+// its page can say why none were. Saves nothing itself: the caller saves. Answers whether coins were paid.
 // How to call: if (completeOuting(session, 'auto')) emit({ type: 'stats' })
 function completeOuting(session, how) {
-  const paid = session.status === 'confirmed'
+  const people = activeIds(session)
+  const paid = session.status === 'confirmed' && earnsCoins(people.length)
   // A season that ran out before today closes first, so these points count for the season they were earned in.
   catchUpSeasons()
   session.status = 'completed'
   session.completedAt = Date.now()
   session.endedBy = how
+  session.paid = paid
   session.replan = null
   clearProposals(session)
   if (!paid) return false
-  for (const personId of activeIds(session)) {
+  for (const personId of people) {
     const stats = statsOf(personId)
     stats.meetups += 1
     stats.points += POINTS_PER_MEETUP
@@ -3424,24 +3470,31 @@ function completeOuting(session, how) {
 }
 
 // Finishes every confirmed outing whose end time has passed, and closes every other one two days past its end
-// (lib/session.js dueEnding). Run when the list is read, so an outing finishes without anyone pressing "Finish outing"
-// even when nobody had the app open at the time. A cancelled or completed session is never touched. It is part of a read,
-// so a save that fails (the storage is full) keeps the change in memory instead of failing the read; the next write
-// saves it. How to call: settleOutings()
+// (lib/session.js dueEnding). Run when the list or one session is read, so an outing finishes without anyone pressing "Finish
+// outing" even when nobody had the app open at the time. A cancelled or completed session is never touched. Nothing is written
+// unless something is due, and then the newer save of another tab is taken up first (adoptNewerSave) and what is due is worked
+// out again against it, so a read never saves an old state over a newer one. It is part of a read, so a save that fails (the
+// storage is full) keeps the change in memory instead of failing the read; the next write saves it.
+// How to call: settleOutings()
 function settleOutings(now = new Date()) {
+  if (!db.sessions.some((s) => dueEnding(s, now))) return
+  const before = stored
+  if (!adoptNewerSave()) return
+  const adopted = stored !== before
   let changed = false
   let paid = false
   for (const session of db.sessions) {
     const due = dueEnding(session, now)
     if (!due) continue
+    // An invite whose time has passed counts as accepted, so the people paid are the people who joined.
+    settleInvites(session)
     if (completeOuting(session, due === 'finish' ? 'auto' : 'closed')) paid = true
     session.updatedAt = Date.now()
     commits[session.id] = commitsOf(session) + 1
     changed = true
   }
-  if (!changed) return
-  save()
-  if (paid) broadcast({ type: 'stats' })
+  if (changed) save()
+  if (paid || adopted) broadcast({ type: 'stats' })
 }
 
 // ── Photos: everyone in a session can post pictures from the day ────────────
@@ -3452,6 +3505,8 @@ export async function addPhoto(id, personId, src) {
   requireMe(personId)
   const session = sessionById(id)
   if (!['confirmed', 'completed'].includes(session.status)) throw new Error('Photos open once the plan is confirmed.')
+  // An outing that closed by itself never had a plan, so there was no outing to take pictures of.
+  if (session.endedBy === 'closed') throw new Error('This outing closed without a plan, so it has no photos.')
   if ((session.photos || []).length >= PHOTOS_MAX) throw new Error(`A session holds up to ${PHOTOS_MAX} photos. Delete one to add another.`)
   session.photos = [...(session.photos || []), { id: `p${db.seq++}`, personId, src, at: Date.now() }]
   // One save: if storage is full it puts the photo back and this rejects.

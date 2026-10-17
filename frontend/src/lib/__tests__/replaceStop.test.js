@@ -18,10 +18,17 @@ vi.setConfig({ testTimeout: 20000 })
 
 // Every screen a test draws, closed after the test, so a page left open never asks the planner during a later test.
 const mounted = []
-beforeEach(() => stubPlanner(planner))
+beforeEach(() => {
+  stubPlanner(planner)
+  // The sessions here are dated Saturday 10 October 2026. A read after a session's end time finishes it (lib/api.js
+  // settleOutings), so the clock is held the day before, as in the other data-layer tests. Only Date is faked.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+})
 afterEach(() => {
   mounted.splice(0).forEach((view) => view.unmount())
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 const eatVenues = VENUES.filter((v) => v.category === 'eat')

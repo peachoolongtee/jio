@@ -34,7 +34,7 @@
 //     the page is left, paused while hidden, one at a time, a failure keeps the last answer), and shows a rain banner for
 //     everyone, with "Swap to <indoor place>?" for the host (RainBanners). A simulated forecast adds a banner at the top.
 import { coins } from '@/lib/currency.js'
-import { itineraryAction, roamOpen } from '@/lib/session.js'
+import { NO_COINS, earnsCoins, itineraryAction, roamOpen } from '@/lib/session.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -130,6 +130,10 @@ const itinerary = computed(() => events.itineraries[props.id])
 const status = computed(() => session.value?.status)
 const confirmed = computed(() => status.value === 'confirmed')
 const today = computed(() => confirmed.value && session.value?.isToday)
+// Does finishing pay? An outing of one person does not (lib/session.js earnsCoins), and the dialog and the toast say so.
+const earns = computed(() => earnsCoins(session.value?.activeIds.length ?? 0))
+// The toast after "Finish outing": what was paid, or why nothing was.
+const toastText = computed(() => (session.value?.paid === false ? `Completed · ${NO_COINS.toast}` : `Completed · +${coins(POINTS_PER_MEETUP)} to spend on sample café vouchers`))
 // 'finish', 'save' or null: the footer's button.
 const footer = computed(() => (session.value ? itineraryAction(session.value) : null))
 // Under way: people can ask "What next?" and propose places.
@@ -323,7 +327,7 @@ async function endPlan() {
             <IconButton label="Dismiss" class="celebrate__close" @click="dismissConfirmed"><AppIcon name="close" :size="16" /></IconButton>
           </section>
         </Transition>
-        <BannerNote v-if="status === 'completed'" icon="trophy">
+        <BannerNote v-if="status === 'completed' && session.paid !== false" icon="trophy">
           Completed · +{{ POINTS_PER_MEETUP }} points each to spend on sample café vouchers
           <template #actions>
             <AppButton small variant="secondary" to="/rewards">Rewards</AppButton>
@@ -463,7 +467,8 @@ async function endPlan() {
 
     <ModalDialog v-model:open="endOpen" title="Finish outing?">
       <template #content>
-        <p class="body-md">+<CoinBadge :amount="POINTS_PER_MEETUP" /> each for {{ session.activeIds.length }} people, to spend on sample café vouchers</p>
+        <p v-if="earns" class="body-md" data-testid="earns-coins">+<CoinBadge :amount="POINTS_PER_MEETUP" /> each for {{ session.activeIds.length }} people, to spend on sample café vouchers</p>
+        <p v-else class="body-md" data-testid="no-coins">{{ NO_COINS.before }}</p>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
       <AppButton block :disabled="busy" @click="endPlan">Finish outing</AppButton>
@@ -484,7 +489,7 @@ async function endPlan() {
       <AppButton block :disabled="busy" @click="replan">Re-plan</AppButton>
     </ModalDialog>
 
-    <ToastMessage v-model:show="toast" :text="`Completed · +${coins(POINTS_PER_MEETUP)} to spend on sample café vouchers`" :offset="120" />
+    <ToastMessage v-model:show="toast" :text="toastText" :offset="120" />
   </main>
   <main v-else class="screen" data-testid="event-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
