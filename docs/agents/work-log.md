@@ -1322,3 +1322,21 @@ The lead split the open work among the team (posted on the map), gave the Google
 - **The builder's browser walk:** 17 steps with three accounts and a signed-out visitor in separate contexts sharing one stand-in database, at 1280, 375 and 320 px, including moving between screens mid-way; no errors, no overflow. Seen by the lead: the step list and results files, not screenshots.
 - **Not verified by anyone:** the live Realtime in a browser (including the `created_by` and `invitee_id` filters), two real devices, a real login token against the new route.
 - **Left for stage 3, recorded in `DESIGN.md`:** the held start is enforced only in the app; a removed guest can rejoin with the same link but cannot be invited by username again; a stage 1 real account's old local-only sessions are hidden.
+
+## Round 29: four teammates' pull requests reconciled (2026-10-17)
+
+The lead asked for the new pull requests to be reconciled. Open then: NICHOLE-ONG's #151 (invented venues, #54), darius-soh's #152 (#120, #121, #122, #98), oj0nathan's #153 (accessibility, #62) and #154 (layout, #63). Each was merged with `dev` on its own integration branch (`review/pr-<n>`), checked by the lead's agent, reviewed by a read-only reviewer, fixed by an agent, checked again, and merged into `dev` in the order #151, #154, #153, #152.
+
+**GitHub Actions has started no job since 16 October 10:18:** "recent account payments have failed or your spending limit needs to be increased". Every red CI mark since then is billing, not code; the lead agent's local runs were the only gate. The lead was told.
+
+| Pull request | Review | Fixed | Run by the lead's agent before merging, exit codes read | Merged as |
+|---|---|---|---|---|
+| #151 | No blockers. No test for any claim; a `rating` weight accepted and ignored; the pool switched on by `NODE_ENV=test`; "today" frozen at first load; stale docs | All; 17 new tests through `loadPlanData`, 13 fail on the old `dev` | backend 1202 (one shared-port failure, passed on rerun), also with `NODE_ENV=development` and with outbound calls blocked; frontend 1705; build | #155 |
+| #154 | Blocker: a sheet dragged closed reopened pushed down. Map controls, hover cards, toast and demo button ignored the insets; Home scrolled by them; a 12 px drag target | All; one source for the bars' real heights; the landscape-map sentence corrected after measuring | frontend 1721; backend; build; frontend with outbound calls blocked | #156 |
+| #153 | Significant: keyboard users could Tab to one Vote chip per slot. Untested directive wiring; a disabled chosen chip could strand a group; standing banners announced as alerts; `SelectField` error not tied to its field | All; Vote chips are toggles; 24 tests of the directive's wiring. One conflict with #156 in the toast, both kept | frontend 1766; backend; build; frontend with outbound calls blocked | #157 |
+| #152 | Required: a one-person "Already out?" outing paid JioCoins without limit; Home did not settle outings that ended elsewhere; the tour's hidden saves leaked into streaks. Advised: a read saved over a newer tab's save; demo "today" outings finished by themselves | All, plus the radius chips in a named chip row with one Tab stop, a notice when a radius change clears votes, tomorrow preset after 23:00, a closed outing taking no photos | frontend 1829; backend; build; frontend with outbound calls blocked | #158 |
+
+- **Tickets closed as done:** #54, #98, #120, #121, #122. #62 and #63 stay open for the checks a person must make (a keyboard and screen reader; a real phone with screenshots).
+- **Taking ratings out of the score (#151)** overlaps the Google ranking ticket #149, whose review-weighted ratings are now moot unless the lead wants ratings back; the lead was asked.
+- **Known and left:** in the demo, instant invite acceptance still lets a person pair with a sample friend to earn coins (the points are a labelled demo); anti-repeat's `groupId` is caller-supplied until real history exists.
+- **Not verified by anyone:** any of the four on a real phone, keyboard or screen reader.
