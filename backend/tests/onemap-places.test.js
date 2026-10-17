@@ -474,8 +474,8 @@ test('a typical price makes no claim for a CDC place, a OneMap place or a Google
   const row = venue => ({ venue: { exposure: 1, ...venue }, factors: { price: 0, occasion: 90, preference: 90, weather: 20, antiRepeat: 20, rating: 90 }, weights: { price: 8 }, hasHistory: false });
   const cdc = A.buildCdcVenues(A.cleanRecords({ lastUpdated: 'test', locations: [{ id: 'm_lone', name: 'LONE NOODLE', address: '1 Test Road, #01-01,  S555555;', postalCode: '555555', type: 'HAWKER_HEARTLAND_MERCHANT', LAT: 1.31, LON: 103.87, filters: { vouchers: { hawker_heartland_merchant: true }, secondary: { budgetmeal: true } }, lastResetDate: '2024-01-01' }] }), { profiles: {} })[0];
   const oneMap = fromOneMapRow('libraries', { NAME: 'Test Library', LatLng: '1.3,103.8' });
-  const google = fromGooglePlace({ id: 'g1', displayName: { text: 'Test Cafe' }, location: { latitude: 1.3, longitude: 103.8 }, primaryType: 'cafe' }, '2026-10-13T12:00');
-  const googleWithLevel = fromGooglePlace({ id: 'g2', displayName: { text: 'Test Stall' }, location: { latitude: 1.3, longitude: 103.8 }, primaryType: 'cafe', priceLevel: 'PRICE_LEVEL_FREE' }, '2026-10-13T12:00');
+  const google = fromGooglePlace({ id: 'g1', displayName: { text: 'Test Cafe' }, location: { latitude: 1.3, longitude: 103.8 }, primaryType: 'cafe', userRatingCount: 100 }, '2026-10-13T12:00'); // food and drink need 20 reviews to be added (#149)
+  const googleWithLevel = fromGooglePlace({ id: 'g2', displayName: { text: 'Test Stall' }, location: { latitude: 1.3, longitude: 103.8 }, primaryType: 'cafe', priceLevel: 'PRICE_LEVEL_FREE', userRatingCount: 100 }, '2026-10-13T12:00');
   assert.ok(cdc && cdc.avgPricePerPerson < 10 && cdc.dataQuality.priceAssumed);
   assert.deepStrictEqual(tags(cdc), []);
   assert.doesNotMatch(explain(row(cdc)), /within budget/i);
