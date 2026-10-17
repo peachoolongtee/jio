@@ -133,3 +133,13 @@ export function locateNext(session) {
   const label = session.status === 'confirmed' && session.isToday ? "Today's plan" : 'See the plan'
   return { label, to: `/sessions/${session.id}/itinerary` }
 }
+
+// The times a new session's form starts with: the next round hour, and three hours after it (no later than 23:59).
+// After 23:00 the next round hour is midnight, for an outing on a later day.
+// How to call: defaultTimes(new Date('2026-10-17T14:20')) -> { start: '15:00', end: '18:00' }
+export function defaultTimes(now = new Date()) {
+  const hour = (now.getHours() + 1) % 24
+  const pad = (n) => String(n).padStart(2, '0')
+  const endMinutes = Math.min((hour + 3) * 60, 23 * 60 + 59)
+  return { start: `${pad(hour)}:00`, end: `${pad(Math.floor(endMinutes / 60))}:${pad(endMinutes % 60)}` }
+}

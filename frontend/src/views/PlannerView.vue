@@ -6,6 +6,9 @@
 //   The plan is made from the categories people voted in, laid out in the session window.
 //   Step 7  "Confirm plan" once at least 2 people have voted.
 // The list and the map show the same places, and the map has a key to the categories of the places on it.
+// Search within (ticket #122): while voting, a row of radius chips under the filter (Auto, 100 m to 3 km). The map draws the
+// radius as a ring round the meeting area, and the places follow it: places outside drop out with their votes, and each
+// category tops up again (lib/api.js setRadius). A category with too few places inside offers "Widen to ...".
 // Weather: a card keeps its small rain mark (SuggestionCard), and one muted line under the list says where the forecast came
 // from (WeatherSource); a simulated forecast also shows a banner at the top.
 // Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
@@ -194,12 +197,37 @@ async function add(result) {
   }
 }
 
+// ── Search radius ──
+// The choices, in metres; null is Auto (the planner starts at 500 m and looks further out until 3 places fit).
+const RADII = [null, 100, 250, 500, 1000, 2000, 3000]
+// How to call: radiusLabel(1000) -> '1 km'
+const radiusLabel = (m) => (m == null ? 'Auto' : m >= 1000 ? `${m / 1000} km` : `${m} m`)
+const radius = computed(() => plan.value?.radius ?? null)
+const settingRadius = ref(false)
+// How to call: await setRadius(1000)
+async function setRadius(metres) {
+  if (metres === radius.value || settingRadius.value) return
+  settingRadius.value = true
+  error.value = ''
+  try {
+    await planner.setRadius(props.id, metres)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    settingRadius.value = false
+  }
+}
+// The smallest choice that reaches `km`, for "Widen to ...". How to call: radiusFor(1.4) -> 2000
+const radiusFor = (km) => RADII.find((m) => m != null && m >= km * 1000) ?? null
+// How far the places may be, in words: the chosen radius, or the planner's own limit of 3 km under Auto.
+const reachText = computed(() => radiusLabel(radius.value ?? 3000))
+
 // Why a slot has nothing, in words.
 function emptyText(slot) {
   const e = slot.empty
   // The nearest distance may be missing, so the sentence about it is optional.
   const nearest = e?.nearestKm != null ? ` The nearest is ${e.nearestKm.toFixed(1)} km away.` : ''
-  if (e?.reason === 'outside_max_radius') return `Nothing that fits is within 3 km.${nearest}`
+  if (e?.reason === 'outside_max_radius') return `Nothing that fits is within ${reachText.value}.${nearest}`
   return 'Jio found no place that is open and fits this time.'
 }
 
@@ -482,6 +510,15 @@ async function confirm() {
           </ChipButton>
         </div>
 
+        <!-- How far from the meeting area places may be. The map shows it as a ring. -->
+        <div v-if="voting && slots.length" class="radius" data-testid="radius">
+          <span id="radius-label" class="caption text-muted">Search within</span>
+          <div class="filter scroll-x" role="radiogroup" aria-labelledby="radius-label">
+            <ChipButton v-for="m in RADII" :key="m ?? 'auto'" radio :selected="radius === m" :disabled="settingRadius" @click="setRadius(m)">{{ radiusLabel(m) }}</ChipButton>
+          </div>
+          <span class="caption-sm text-muted" aria-live="polite">{{ radius == null ? 'Auto starts at 500 m and looks further out until 3 places fit.' : `Only places within ${radiusLabel(radius)} of ${session.area.name}.` }}</span>
+        </div>
+
         <SplitView v-model:view="view" label="Places">
           <template #list>
             <p v-if="!loading && listed.length && walkFrom" class="walk-from caption-sm text-muted" data-testid="walk-from">{{ walkFrom }}</p>
@@ -495,7 +532,10 @@ async function confirm() {
                 <h2 :id="`slot-${slot.id}`" class="title-md">{{ CATEGORY_LABELS[slot.category] }}</h2>
               </header>
 
-              <p v-if="!slot.options.length" class="body-sm text-muted">{{ emptyText(slot) }}</p>
+              <template v-if="!slot.options.length">
+                <p class="body-sm text-muted">{{ emptyText(slot) }}</p>
+                <AppButton v-if="voting && radius && slot.empty?.widenToKm && radiusFor(slot.empty.widenToKm)" variant="secondary" small :disabled="settingRadius" @click="setRadius(radiusFor(slot.empty.widenToKm))">Widen to {{ radiusLabel(radiusFor(slot.empty.widenToKm)) }}</AppButton>
+              </template>
               <template v-else>
                 <div class="slot__options" role="radiogroup" :aria-labelledby="`slot-${slot.id}`">
                   <SuggestionCard
@@ -517,18 +557,22 @@ async function confirm() {
                     @open="openReviews"
                   />
                 </div>
+                <p v-if="voting && radius && slot.few" class="few-line">
+                  <span class="caption-sm text-muted">Only {{ slot.few.found }} {{ slot.few.found === 1 ? 'place fits' : 'places fit' }} within {{ radiusLabel(radius) }}.</span>
+                  <AppButton v-if="slot.few.widenToKm && radiusFor(slot.few.widenToKm)" variant="tertiary" underline small :disabled="settingRadius" @click="setRadius(radiusFor(slot.few.widenToKm))">Widen to {{ radiusLabel(radiusFor(slot.few.widenToKm)) }}</AppButton>
+                </p>
                 <div v-if="voting && slot.options.length < 6" class="slot__more">
                   <AppButton variant="tertiary" underline small :disabled="!slot.canAddMore || loadingMore === slot.id" @click="more(slot)">More places</AppButton>
                   <AppButton variant="tertiary" underline small @click="openAdd(slot)">Search</AppButton>
                 </div>
               </template>
             </section>
-            <p v-if="!loading && slots.length && emptyLabels.length" class="body-sm text-muted">No {{ listJoin(emptyLabels) }} places within 3 km of {{ session.area.name }} yet.</p>
+            <p v-if="!loading && slots.length && emptyLabels.length" class="body-sm text-muted">No {{ listJoin(emptyLabels) }} places within {{ reachText }} of {{ session.area.name }} yet.</p>
             <WeatherSource v-if="!loading && slots.length && plan?.weather" :block="plan.weather" />
           </template>
 
           <template #map>
-            <PlannerMap :area="session.area" :places="mapPlaces" :selected="selected" label="Places map" @select="selected = $event" />
+            <PlannerMap :area="session.area" :places="mapPlaces" :radius="voting ? radius || 0 : 0" :selected="selected" label="Places map" @select="selected = $event" />
             <CategoryKey :categories="mapPlaces.map((p) => p.category)" />
             <div v-if="selectedOption" class="pin-card" role="dialog" :aria-label="selectedOption.venue.name">
               <div class="row between gap-sm">
@@ -627,6 +671,9 @@ async function confirm() {
 </template>
 
 <style scoped>
+/* Search within: a label, the chips, and one line on what the choice means. */
+.radius { display: flex; flex-direction: column; gap: var(--spacing-xs); }
+.few-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); margin: 0; }
 /* The filter: one row of chips, scrolling sideways on a phone. */
 .filter { display: flex; gap: var(--spacing-sm); }
 .filter__count { margin-left: var(--spacing-xs); opacity: 0.6; }

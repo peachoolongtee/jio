@@ -1,7 +1,8 @@
 <script setup>
 // Step 1: create a session. Title, a day from the calendar and a time window.
 // The times sit to the right of the calendar from tablet up (start on top, end below), and under it on phones.
-// Next stays disabled until the title, the date and the start time are set.
+// Next stays disabled until the title, the date and the start time are set. A new session's times start filled in: the next
+// round hour and three hours after it (defaultTimes in lib/session.js), so only the title and the day are left to choose.
 // The same form edits a session (/sessions/:id/edit), reached from the invite step's back arrow or the steps bar's
 // Create: the heading says "Edit session", the form starts with the session's title, day and times, and Next saves them
 // and goes on to the invite step. The back arrow goes Home, as from the first step of any session. Only the host can
@@ -27,6 +28,7 @@ import TextField from '@/components/ui/TextField.vue'
 import NotFoundView from './NotFoundView.vue'
 import { fromMinutes, toMinutes } from '@/lib/planner/format.js'
 import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
+import { defaultTimes } from '@/lib/session.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -41,8 +43,10 @@ const auth = useAuthStore()
 
 const title = ref('')
 const date = ref('') // yyyy-MM-dd
-const start = ref('')
-const end = ref('')
+// A new session starts with real times; an edited one takes the session's own (fill, below).
+const startTimes = props.id ? { start: '', end: '' } : defaultTimes()
+const start = ref(startTimes.start)
+const end = ref(startTimes.end)
 const busy = ref(false)
 const error = ref('')
 
