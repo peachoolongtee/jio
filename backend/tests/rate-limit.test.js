@@ -26,7 +26,7 @@ async function start({ windowMs = WINDOW, max = 3, keyOf, before } = {}) {
   if (before) app.use(before)
   app.use(limiter)
   app.get('/ping', (_req, res) => res.json({ ok: true }))
-  const server = app.listen(0)
+  const server = app.listen(0, '127.0.0.1')
   await once(server, 'listening')
   started.push(server)
   const base = `http://127.0.0.1:${server.address().port}`
@@ -225,7 +225,7 @@ describe('the limiter mounted on the planner routes', () => {
       frontendOrigin: 'http://localhost:5173',
       http: createHttp({ stub: true }),
       ...options,
-    }).listen(0)
+    }).listen(0, '127.0.0.1')
     await once(server, 'listening')
     return { base: `http://localhost:${server.address().port}`, close: () => new Promise((r) => server.close(r)) }
   }

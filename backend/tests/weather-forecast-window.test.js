@@ -175,7 +175,7 @@ describe('venues added later in the request', () => {
     // Stub mode: Google answers from its fixture, the forecast from the stubbed regional answer moved to cover now.
     const { createApp } = await import('../src/app.js')
     const { once } = await import('node:events')
-    const server = createApp({ frontendOrigin: 'http://localhost:5173', stub: true }).listen(0)
+    const server = createApp({ frontendOrigin: 'http://localhost:5173', stub: true }).listen(0, '127.0.0.1')
     servers.push(server)
     await once(server, 'listening')
     const stopIn = (hours) => singaporeNow(Date.now() + hours * HOUR)
