@@ -15,7 +15,8 @@
 // that fit halal and vegetarian"), with no names and no count. Food places are filtered strictly; when fewer than 3 fit, a
 // line says so and offers "Show places we couldn't confirm", each then labelled on its card. "Only places that fit" goes back.
 // Each person is asked once per outing, when it reaches voting, to "Confirm dietary needs" (DietaryConfirm), with the outing's
-// needs already selected; theirs are saved on their profile.
+// needs already selected; theirs are saved on their profile. While voting, "Dietary needs" under the radius holds the same
+// chips (DietaryChips), saved at each tap, so the needs can be changed at any time.
 // Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
 // shows the message and the rest of the page stays usable.
 // Replace (/sessions/:id/plan?replace=<slot>, from Replace on the itinerary of a confirmed plan): the page shows the one
@@ -47,6 +48,8 @@ import TextField from '@/components/ui/TextField.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
+import DietaryChips from '@/components/event/DietaryChips.vue'
+import { DIETARY_OPTIONS } from '@/lib/signupRules.js'
 import DietaryConfirm from '@/components/event/DietaryConfirm.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
 import WeatherSource from '@/components/weather/WeatherSource.vue'
@@ -274,13 +277,33 @@ watch(
   },
   { immediate: true },
 )
-// How to call: await confirmDiet(['halal'])
-async function confirmDiet(needs) {
+// A need's name for its tag. How to call: needLabel('halal') -> 'Halal'
+const needLabel = (need) => DIETARY_OPTIONS.find((o) => o.value === need)?.label ?? need
+
+// A tap on the Vote page's dietary chips, saved at once: the person's own needs and the others' needs not to filter for.
+// How to call: await saveDiet({ mine: ['halal'], dropped: [] })
+async function saveDiet({ mine, dropped }) {
+  if (dietBusy.value) return
+  dietBusy.value = true
+  error.value = ''
+  try {
+    const answer = await planner.confirmDiet(props.id, mine, dropped)
+    if (answer?.syncError) error.value = answer.syncError
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    dietBusy.value = false
+  }
+}
+
+// answer: { mine, dropped } from the dialog: the person's own needs, and the others' needs the group should not filter for.
+// How to call: await confirmDiet({ mine: ['halal'], dropped: [] })
+async function confirmDiet({ mine, dropped }) {
   if (dietBusy.value) return
   dietBusy.value = true
   dietError.value = ''
   try {
-    const answer = await planner.confirmDiet(props.id, needs)
+    const answer = await planner.confirmDiet(props.id, mine, dropped)
     dietAnswered.add(props.id)
     dietOpen.value = false
     // Saved here but not to the account: said under the votes, as the page says other failures.
@@ -598,6 +621,18 @@ async function confirm() {
           <span class="caption-sm text-muted" aria-live="polite">{{ radius == null ? 'Auto starts at 500 m and looks further out until 3 places fit.' : `Only places within ${radiusLabel(radius)} of ${session.area.name}.` }}</span>
         </div>
 
+        <!-- The outing's dietary needs, laid out like "Search within": the label with the needs selected below as tags, then the
+             Halal, Vegetarian and Vegan chips the places are filtered by. A tap saves at once; taking off a need someone else has
+             asks first (DietaryChips). -->
+        <div v-if="voting && plan?.myDietary" class="diet-edit" data-testid="diet-edit">
+          <div class="diet-edit__mine">
+            <span class="caption text-muted">Group dietary needs</span>
+            <InfoTag v-for="need in plan.dietary || []" :key="need" :tone="need === 'halal' ? 'halal' : 'veg'" data-testid="diet-mine">{{ needLabel(need) }}</InfoTag>
+            <span v-if="!plan.dietary?.length" class="caption" data-testid="diet-mine">None</span>
+          </div>
+          <DietaryChips :mine="plan.myDietary" :others="plan.othersDietary || []" :dropped="plan.dietDropped || []" :busy="dietBusy" @change="saveDiet" />
+        </div>
+
         <SplitView v-model:view="view" label="Places">
           <template #list>
             <p v-if="!loading && listed.length && walkFrom" class="walk-from caption-sm text-muted" data-testid="walk-from">{{ walkFrom }}</p>
@@ -612,7 +647,7 @@ async function confirm() {
               </header>
               <p v-if="slot.category === 'eat' && dietLine" class="diet-line caption-sm text-muted" data-testid="diet-line">{{ dietLine }}</p>
               <p v-if="voting && slot.category === 'eat' && (slot.dietFew || plan.unconfirmed)" class="few-line" data-testid="diet-few">
-                <span v-if="plan.unconfirmed" class="caption-sm text-muted">Showing places we couldn't confirm too.</span>
+                <span v-if="plan.unconfirmed" class="caption-sm text-muted">Showing places we couldn't confirm too. Check before you go.</span>
                 <span v-else-if="slot.options.length" class="caption-sm text-muted">{{ fewLine(slot.options.length) }}</span>
                 <AppButton variant="tertiary" underline small :disabled="settingDiet" data-testid="diet-toggle" @click="showUnconfirmed(!plan.unconfirmed)">{{ plan.unconfirmed ? 'Only places that fit' : "Show places we couldn't confirm" }}</AppButton>
               </p>
@@ -698,7 +733,7 @@ async function confirm() {
 
     <PlaceDetail v-if="reviewing" :place="reviewing.place" :reviews="reviewing.reviews" :outing="outingIds" :from="session.area.name" @close="closeReviews" />
 
-    <DietaryConfirm v-if="plan" v-model:open="dietOpen" :mine="plan.myDietary || []" :others="plan.othersDietary || []" :busy="dietBusy" :error="dietError" @confirm="confirmDiet" />
+    <DietaryConfirm v-if="plan" v-model:open="dietOpen" :mine="plan.myDietary || []" :others="plan.othersDietary || []" :dropped="plan.dietDropped || []" :busy="dietBusy" :error="dietError" @confirm="confirmDiet" />
 
     <ModalDialog v-model:open="confirmOpen" title="Confirm plan?">
       <template #content>
@@ -768,6 +803,9 @@ async function confirm() {
 .filter__count { margin-left: var(--spacing-xs); opacity: 0.6; }
 .walk-from { margin: 0; }
 .diet-line { margin: 0; }
+/* "Group dietary needs": the same stack as "Search within" above it; the label and the selected needs share a line. */
+.diet-edit { display: flex; flex-direction: column; gap: var(--spacing-xs); }
+.diet-edit__mine { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); }
 .slot { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .slot + .slot { padding-top: var(--spacing-lg); }
 .slot__head { display: flex; align-items: center; gap: var(--spacing-md); }

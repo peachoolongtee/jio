@@ -293,7 +293,7 @@ const actionFor = (place) => placeAction(place, { myId: myId.value, blocked: blo
         <template v-if="dietLine && !loading && !loadError">
           <p class="caption-sm text-muted diet-line" data-testid="diet-line">{{ dietLine }}</p>
           <p v-if="answer.dietFew || answer.unconfirmed" class="diet-few" data-testid="diet-few">
-            <span class="caption-sm text-muted">{{ answer.unconfirmed ? "Showing places we couldn't confirm too." : fewLine(foodCount) }}</span>
+            <span class="caption-sm text-muted">{{ answer.unconfirmed ? "Showing places we couldn't confirm too. Check before you go." : fewLine(foodCount) }}</span>
             <AppButton variant="tertiary" underline small data-testid="diet-toggle" @click="showUnconfirmed(!answer.unconfirmed)">{{ answer.unconfirmed ? 'Only places that fit' : "Show places we couldn't confirm" }}</AppButton>
           </p>
         </template>

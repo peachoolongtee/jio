@@ -1,72 +1,73 @@
-<script>
-// The chips "Confirm dietary needs" shows: every need, selected when someone in the outing has it. A need someone else has is
-// locked on (it is theirs, not the viewer's to take off); the viewer's own can be picked or taken off.
-// How to call: dietChips({ mine: ['vegan'], others: ['halal'] })
-//   -> [{ value: 'halal', label: 'Halal', selected: true, locked: true }, { value: 'vegetarian', ... }, { value: 'vegan', ..., selected: true, locked: false }]
-import { DIETARY_OPTIONS } from '@/lib/signupRules.js'
-
-export function dietChips({ mine = [], others = [] }) {
-  return DIETARY_OPTIONS.map((o) => ({ ...o, selected: mine.includes(o.value) || others.includes(o.value), locked: others.includes(o.value) }))
-}
-</script>
-
 <script setup>
 // "Confirm dietary needs" (ticket #107): asked of each person once per outing, when it reaches voting, on the Vote page. It
-// opens with the outing's needs already selected, so the group's needs are in front of everyone before they vote. A need
-// someone else has is shown locked with no name; the person confirms or changes their own, which is saved on their profile
-// (a standing setting) and ranks their outings again. Closing it any other way confirms it as it is.
-//   <DietaryConfirm v-model:open="open" :mine="plan.myDietary" :others="plan.othersDietary" @confirm="confirm" />
+// opens with the outing's needs already selected, so the group's needs are in front of everyone before they vote. The chips
+// are DietaryChips: a need someone else has is selected with no name, and taking it off asks first ("Unselect halal?"). The
+// person's own needs are saved on their profile (a standing setting) and rank their outings again. Closing it any other way
+// confirms it as it is.
+//   <DietaryConfirm v-model:open="open" :mine="plan.myDietary" :others="plan.othersDietary" :dropped="plan.dietDropped" @confirm="confirm" />
 import { computed, ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
-import ChipButton from '../ui/ChipButton.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
+import DietaryChips from './DietaryChips.vue'
 import { cleanDietary } from '@/lib/signupRules.js'
 import { needsText } from '@/lib/dietText.js'
 
 const open = defineModel('open', { type: Boolean, default: false })
 const props = defineProps({
-  // The signed-in person's own needs, and the needs of the others in the outing together.
+  // The signed-in person's own needs, the needs of the others in the outing together, and those of the others' needs the
+  // group already chose not to filter for.
   mine: { type: Array, default: () => [] },
   others: { type: Array, default: () => [] },
+  dropped: { type: Array, default: () => [] },
   busy: { type: Boolean, default: false },
   error: { type: String, default: '' },
+  title: { type: String, default: 'Confirm dietary needs' },
 })
-// confirm(needs): the person's own needs, as picked.
+// confirm({ mine, dropped }): the person's own needs, and the others' needs not to filter for.
 const emit = defineEmits(['confirm'])
 
-// The person's own picks, from their profile each time the dialog opens.
+// The person's own picks and the dropped needs, from the outing each time the dialog opens; kept here until Confirm.
 const picked = ref([])
-watch(open, (now) => { if (now) picked.value = cleanDietary(props.mine) }, { immediate: true })
+const droppedNow = ref([])
+watch(open, (now) => {
+  if (!now) return
+  picked.value = cleanDietary(props.mine)
+  droppedNow.value = cleanDietary(props.dropped)
+}, { immediate: true })
 
-const chips = computed(() => dietChips({ mine: picked.value, others: props.others }))
-// "Halal is needed by someone in this outing." No name, no count.
-const lockedText = computed(() => {
-  const text = needsText(props.others)
-  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)} ${props.others.length > 1 ? 'are' : 'is'} needed by someone in this outing.` : ''
-})
-
-// Pick one of your own needs, or take it off. A locked one does nothing.
-// How to call: toggle('halal')
-function toggle(chip) {
-  if (chip.locked) return
-  picked.value = picked.value.includes(chip.value) ? picked.value.filter((d) => d !== chip.value) : [...picked.value, chip.value]
+// How to call: keep({ mine: ['vegan'], dropped: ['halal'] })
+function keep({ mine, dropped }) {
+  picked.value = mine
+  droppedNow.value = dropped
 }
+
+// How to call: capital('halal') -> 'Halal'
+const capital = (text) => (text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : '')
+// "Halal is needed by someone in this outing." for the needs still filtered; the dropped ones are said apart. No name, no count.
+const sharedText = computed(() => {
+  const kept = props.others.filter((n) => !droppedNow.value.includes(n))
+  const text = needsText(kept)
+  return text ? `${capital(text)} ${kept.length > 1 ? 'are' : 'is'} needed by someone in this outing.` : ''
+})
+const droppedText = computed(() => {
+  const text = needsText(droppedNow.value.filter((n) => props.others.includes(n)))
+  return text ? `Someone in this outing needs ${text}, but places will not be filtered for it.` : ''
+})
 
 // How to call: confirm()
 function confirm() {
-  if (!props.busy) emit('confirm', cleanDietary(picked.value))
+  if (!props.busy) emit('confirm', { mine: cleanDietary(picked.value), dropped: cleanDietary(droppedNow.value) })
 }
 </script>
 
 <template>
-  <ModalDialog v-model:open="open" title="Confirm dietary needs" text="Food places will fit these needs. Yours are saved on your profile and stay private: the group sees which needs places fit, never whose." @close="confirm">
+  <ModalDialog v-model:open="open" :title="title" text="Food places will fit these needs. Yours are saved on your profile and stay private: the group sees which needs places fit, never whose." @close="confirm">
     <template #content>
-      <div class="diet-pick" role="group" aria-label="Dietary needs" data-testid="diet-confirm">
-        <ChipButton v-for="chip in chips" :key="chip.value" check :selected="chip.selected" :disabled="chip.locked || busy" @click="toggle(chip)">
-          {{ chip.label }}
-        </ChipButton>
+      <div data-testid="diet-confirm">
+        <DietaryChips :mine="picked" :others="others" :dropped="droppedNow" :busy="busy" @change="keep" />
       </div>
-      <p v-if="lockedText" class="caption-sm text-muted diet-locked" data-testid="diet-locked">{{ lockedText }}</p>
+      <p v-if="sharedText" class="caption-sm text-muted diet-note" data-testid="diet-locked">{{ sharedText }}</p>
+      <p v-if="droppedText" class="caption-sm text-muted diet-note" data-testid="diet-dropped">{{ droppedText }}</p>
       <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
     </template>
     <AppButton block :disabled="busy" data-testid="diet-confirm-button" @click="confirm">{{ busy ? 'Saving' : 'Confirm' }}</AppButton>
@@ -74,6 +75,5 @@ function confirm() {
 </template>
 
 <style scoped>
-.diet-pick { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
-.diet-locked { margin: 0; }
+.diet-note { margin: 0; }
 </style>
