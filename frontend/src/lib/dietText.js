@@ -28,7 +28,7 @@ export function fewLine(found) {
   return `Only ${found} ${found === 1 ? 'place fits' : 'places fit'}.`
 }
 
-// The caveats a place carries, as tags beside "Near MRT", one per need: a need we only guessed from a stall's name ("Halal
+// The caveats a place carries, as tags beside "Near MRT", one per need (after a MUIS tag, when the place has one): a need we only guessed from a stall's name ("Halal
 // likely") and a need we have no data on ("Halal not confirmed", with a warning icon). Halal is brown and vegetarian and
 // vegan green (InfoTag tones `halal` and `veg`). Each tag's `title` is the whole sentence, "... check before you go". None
 // for a place that fits for sure, and none for a drink, shop or activity place (the planner sends none for them).
@@ -39,7 +39,21 @@ export function dietTags(option) {
     const tone = need === 'halal' ? 'halal' : 'veg'
     return { key: `${kind}-${need}`, text, tone, icon: kind === 'unknown' ? 'warning' : '', title: `${text}, check before you go` }
   }
-  return [...cleanDietary(option?.dietUnknown).map((n) => tag(n, 'unknown')), ...cleanDietary(option?.verify).map((n) => tag(n, 'likely'))]
+  return [...certifiedTags(option?.venue), ...cleanDietary(option?.dietUnknown).map((n) => tag(n, 'unknown')), ...cleanDietary(option?.verify).map((n) => tag(n, 'likely'))]
+}
+
+// A centre with stalls certified halal by MUIS (a hand check, recorded on the place) says so first, whatever the group needs:
+// it is a fact about the place. The title gives the count and the day it was checked.
+// How to call: certifiedTags({ dataQuality: { halalSource: 'muis', muisStalls: 9, halalCheckedAt: '2026-10-18' } })
+//   -> [{ key: 'muis-halal', text: 'MUIS halal stalls', tone: 'halal', icon: '', title: '9 stalls certified halal by MUIS, checked 18 Oct 2026' }]
+export function certifiedTags(venue) {
+  const q = venue?.dataQuality
+  if (q?.halalSource !== 'muis' || !(q.muisStalls > 0)) return []
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(q.halalCheckedAt || '')
+    ? new Date(`${q.halalCheckedAt}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    : ''
+  const count = `${q.muisStalls} ${q.muisStalls === 1 ? 'stall' : 'stalls'} certified halal by MUIS`
+  return [{ key: 'muis-halal', text: 'MUIS halal stalls', tone: 'halal', icon: '', title: day ? `${count}, checked ${day}` : count }]
 }
 
 // Why a searched place cannot be added for a dietary need. How to call: unfitDietText('halal') -> 'Halal not confirmed'

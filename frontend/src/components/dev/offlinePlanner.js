@@ -43,6 +43,8 @@ export function asBackendVenue(v) {
     mealPeriods: v.serves || [],
     cdcAccepted: (v.tags || []).includes('cdc'),
     tags: v.tags || [],
+    // A centre with MUIS-certified stalls says so, as the planner's adapter does (venue-adapter.js).
+    ...(v.halal?.muisStalls > 0 ? { dataQuality: { halalSource: 'muis', muisStalls: v.halal.muisStalls, halalCheckedAt: v.halal.checked } } : {}),
   }
 }
 
@@ -119,8 +121,10 @@ export function dietFit(v, needs = [], unknownPolicy = 'lenient') {
   if (v.category === 'drink') return { fits: !(needs.includes('halal') && v.kind === 'bar'), verify: [], dietUnknown: [] }
   if (v.category !== 'eat' || !needs.length) return { fits: true, verify: [], dietUnknown: [] }
   const likely = v.kind === 'hawker' && CENTRE_NAME.test(v.name)
-  const verify = needs.filter((n) => likely && n !== 'vegan')
-  const dietUnknown = needs.filter((n) => !verify.includes(n))
+  // Halal at a centre with MUIS-certified stalls is known, not guessed: it needs no check.
+  const certified = (n) => n === 'halal' && v.halal?.muisStalls > 0
+  const verify = needs.filter((n) => likely && n !== 'vegan' && !certified(n))
+  const dietUnknown = needs.filter((n) => !verify.includes(n) && !certified(n))
   return { fits: !dietUnknown.length || unknownPolicy === 'lenient', verify, dietUnknown }
 }
 

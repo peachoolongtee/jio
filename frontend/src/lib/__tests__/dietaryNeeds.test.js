@@ -365,11 +365,20 @@ describe('the words', () => {
     ])
     expect(dietTags({})).toEqual([])
     expect(unfitDietText('halal')).toBe('Halal not confirmed')
+    // A centre checked against MUIS says so first, with the count and the day on hover.
+    const muis = { dataQuality: { halalSource: 'muis', muisStalls: 9, halalCheckedAt: '2026-10-18' } }
+    expect(dietTags({ venue: muis, dietUnknown: [], verify: ['vegetarian'] }).map((t) => [t.text, t.tone, t.title])).toEqual([
+      ['MUIS halal stalls', 'halal', '9 stalls certified halal by MUIS, checked 18 Oct 2026'],
+      ['Vegetarian likely', 'veg', 'Vegetarian likely, check before you go'],
+    ])
+    expect(dietTags({ venue: { dataQuality: { halalSource: 'muis', muisStalls: 1, halalCheckedAt: '2026-10-18' } } })[0].title).toBe('1 stall certified halal by MUIS, checked 18 Oct 2026')
+    expect(dietTags({ venue: {} })).toEqual([])
   })
 })
 
 describe('the demo tools\' planner', () => {
-  const hawker = VENUES.find((v) => v.kind === 'hawker' && /food centre/i.test(v.name))
+  const hawker = VENUES.find((v) => v.kind === 'hawker' && /food centre/i.test(v.name) && !v.halal)
+  const certified = VENUES.find((v) => v.id === 'newton-food-centre')
   const restaurant = VENUES.find((v) => v.category === 'eat' && v.kind === 'restaurant')
   const bar = VENUES.find((v) => v.kind === 'bar')
   const cafe = VENUES.find((v) => v.category === 'drink' && v.kind === 'cafe')
@@ -382,12 +391,16 @@ describe('the demo tools\' planner', () => {
     expect(dietFit(bar, ['halal'], 'lenient').fits).toBe(false)
     expect(dietFit(bar, ['vegetarian'], 'strict').fits).toBe(true)
     expect(dietFit(cafe, ['halal'], 'strict')).toEqual({ fits: true, verify: [], dietUnknown: [] })
+    // A centre with MUIS-certified stalls needs no check for halal; vegetarian is still a guess there.
+    expect(dietFit(certified, ['halal', 'vegetarian'], 'strict')).toEqual({ fits: true, verify: ['vegetarian'], dietUnknown: [] })
   })
 
   it('ranks only the food that fits in strict mode', () => {
     const centre = { lat: hawker.lat, lng: hawker.lng }
     const { results } = standInConverge({ categories: ['eat'], centre, dateTime: '2026-10-17T12:00', durationMinutes: 60, topN: 30, members: [{ id: 'a', dietary: ['halal'] }], unknownPolicy: 'strict' })
     expect(results.length).toBeGreaterThan(0)
-    expect(results.every((r) => r.verify.includes('halal'))).toBe(true)
+    // Each is either likely halal (a check is asked for) or a centre with MUIS-certified stalls (none needed).
+    expect(results.every((r) => r.verify.includes('halal') || r.venue.dataQuality?.halalSource === 'muis')).toBe(true)
+    expect(results.some((r) => r.venue.dataQuality?.halalSource === 'muis' && r.verify.length === 0 && r.dietUnknown.length === 0)).toBe(true)
   })
 })
