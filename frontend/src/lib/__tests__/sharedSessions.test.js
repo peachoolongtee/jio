@@ -17,6 +17,8 @@ const planner = vi.hoisted(() => ({
     if (server.answer) return server.answer(...args)
     return { planVersion: 1, left: true }
   }),
+  // An outing's dietary needs come from the Jio server, the only one that may read a member's.
+  sessionDietary: vi.fn(async () => ({ dietary: ['halal', 'vegan'], others: ['halal'] })),
 }))
 vi.mock('../plannerApi.js', () => planner)
 
@@ -565,5 +567,27 @@ describe('live updates', () => {
     const stop = demo.api.watchSessions()
     expect(w.database.tables.sessions).toHaveLength(0)
     stop()
+  })
+})
+
+describe('an outing’s dietary needs for a session on the server', () => {
+  it('asks the Jio server, which alone may read a friend’s needs, and adds the person’s own from their profile', async () => {
+    const w = world()
+    const sam = await w.open({ ...PROFILE, dietary: ['vegan'] })
+    const made = await sam.api.createSession({ ...SESSION })
+    await sam.api.getSession(made.id)
+    planner.sessionDietary.mockClear()
+    expect(await sam.api.outingDietary(made.id)).toEqual({ dietary: ['halal', 'vegan'], others: ['halal'], mine: ['vegan'] })
+    expect(planner.sessionDietary).toHaveBeenCalledWith(made.id)
+  })
+
+  it('works out a session in this browser itself, with no server call', async () => {
+    const app = await boot(null)
+    await app.api.signUp({ ...DEMO, dietary: ['vegetarian'] })
+    const { id } = await app.api.createSession({ ...SESSION })
+    await app.api.inviteFriends(id, ['darius'])
+    planner.sessionDietary.mockClear()
+    expect(await app.api.outingDietary(id)).toEqual({ dietary: ['vegetarian'], others: [], mine: ['vegetarian'] })
+    expect(planner.sessionDietary).not.toHaveBeenCalled()
   })
 })

@@ -8,7 +8,7 @@
 import { coins } from './currency.js'
 import { ADDRESSES, AREAS } from './mock/places.js'
 import { VENUES } from './mock/venues.js'
-import { HOST_ID, PAST_ACTIVITY, PEOPLE, LAST_SEASON_MEETUPS, POINTS_PER_MEETUP, SEASON_MEETUPS, STARTING_MEETUPS, isCommunity } from './mock/people.js'
+import { HOST_ID, PAST_ACTIVITY, PEOPLE, LAST_SEASON_MEETUPS, POINTS_PER_MEETUP, SAMPLE_DIETARY, SEASON_MEETUPS, STARTING_MEETUPS, isCommunity } from './mock/people.js'
 import { REWARDS } from './mock/rewards.js'
 import { pastMeetupDates } from './mock/history.js'
 import { reviewsFor } from './mock/reviews.js'
@@ -580,13 +580,73 @@ function membersFor(session) {
 // Who ranking places is for: the people with a start, as membersFor sends them. A known place can be set before
 // anyone has shared a start, and the planner needs at least one person, so then everyone is sent starting at the
 // meeting area (they have no trip to it, so nobody is favoured).
-// How to call: rankingMembers(session) -> [{ id, name, start: { lat, lng }, end: { lat, lng } }]
+// The group's dietary needs ride on the first person sent (see withGroupNeeds).
+// How to call: rankingMembers(session) -> [{ id, start: { lat, lng }, end: { lat, lng }, dietary? }]
 function rankingMembers(session) {
   const members = membersFor(session)
-  if (members.length || !session.meeting) return members
+  if (members.length || !session.meeting) return withGroupNeeds(members, groupNeeds(session))
   const centre = areaById(session.meeting.areaId)
-  return activeIds(session).map((id) => ({ id, start: { lat: centre.lat, lng: centre.lng }, end: { lat: centre.lat, lng: centre.lng } }))
+  return withGroupNeeds(activeIds(session).map((id) => ({ id, start: { lat: centre.lat, lng: centre.lng }, end: { lat: centre.lat, lng: centre.lng } })), groupNeeds(session))
 }
+
+// ── Dietary needs (ticket #107) ──
+// A dietary need is a standing, private setting on a person's profile: halal, vegetarian or vegan. It filters food stops,
+// and for halal it also keeps bars out of drink stops (the planner's rule). The group sees which needs the places fit,
+// never whose they are.
+
+// A person's dietary needs, as far as this browser may know them. The signed-in person's come from their profile. Anyone
+// else's are private (only the server may read them), so the only others known here are the sample friends'; a real
+// friend counts as having none until sessions are on the server (ticket #80).
+// How to call: dietaryOf('faith') -> ['halal']
+function dietaryOf(id) {
+  if (id === me()) return cleanDietary(db.user?.dietary)
+  return cleanDietary(SAMPLE_DIETARY[id])
+}
+
+// The needs the group's places are filtered for: every active member's together, each once, in the app's order.
+// How to call: groupNeeds(session) -> ['halal', 'vegetarian']
+const groupNeeds = (session) => cleanDietary(activeIds(session).flatMap(dietaryOf))
+
+// The needs of everyone in the outing but the signed-in person, together and without names: the ones they cannot take off.
+// How to call: othersNeeds(session) -> ['halal']
+const othersNeeds = (session) => cleanDietary(activeIds(session).filter((id) => id !== me()).flatMap(dietaryOf))
+
+// The members as the planner gets them, with the group's needs on the first one only. The planner filters by every need
+// in the group whoever holds it, so this changes nothing in the ranking, and a need is never tied to the person who has
+// it, even in the request. A member without a start (not sent) still counts.
+// How to call: withGroupNeeds([{ id: 'ian', start, end }], ['halal']) -> [{ id: 'ian', start, end, dietary: ['halal'] }]
+function withGroupNeeds(members, needs) {
+  if (!members.length || !needs.length) return members
+  const [first, ...rest] = members
+  return [{ ...first, dietary: needs }, ...rest]
+}
+
+// An outing's dietary needs for "Confirm dietary needs": `dietary` (everyone's together), `others` (everyone's but the signed-in
+// person's, which they cannot take off) and `mine`. No names. A session on the server asks the server, the only one that may
+// read a real friend's needs (GET /api/sessions/:id/dietary); a session in this browser knows the signed-in person's own and
+// the sample friends'. Rejects as the client does when the server cannot answer.
+// How to call: await outingDietary('s1') -> { dietary: ['halal', 'vegetarian'], others: ['halal', 'vegetarian'], mine: [] }
+export async function outingDietary(id) {
+  const mine = cleanDietary(db.user?.dietary)
+  if (onServer() && serverMembers.has(id)) {
+    const answer = await planner.sessionDietary(id)
+    return { dietary: cleanDietary(answer.dietary), others: cleanDietary(answer.others), mine }
+  }
+  const session = sessionById(id)
+  return { dietary: groupNeeds(session), others: othersNeeds(session), mine: dietaryOf(me()) }
+}
+
+// Are places of this category being filtered strictly for the group's needs? Only food is (a drink stop is not a meal), and
+// only until the group asks to see the places we could not confirm (setUnconfirmed).
+// How to call: strictFor(session, 'eat') -> true
+const strictFor = (session, category) => category === 'eat' && groupNeeds(session).length > 0 && !session.unconfirmed
+
+// What the planner does with a place it has no dietary data for: 'strict' leaves it out, 'lenient' keeps it and says so.
+// How to call: dietPolicy(session, 'eat') -> 'strict'
+const dietPolicy = (session, category) => (strictFor(session, category) ? 'strict' : 'lenient')
+
+// Fewer than this many food places that fit, and the group is told so and offered the places we could not confirm.
+const DIET_FEW = 3
 
 // Sessions whose meeting area the planner is working out right now. getSession shows it as `findingMeeting`.
 const finding = new Set()
@@ -876,6 +936,7 @@ async function rankSlot(session, slot, slots, currentOptionIds = session.options
     conditions: db.conditions,
     radiusMeters: session.radius || undefined,
     topN: RANKED_MAX,
+    unknownPolicy: dietPolicy(session, slot.category),
   })
   for (const o of [...ranked.options, ...ranked.current]) db.venues[o.venue.id] = o.venue
   return ranked
@@ -1255,7 +1316,9 @@ export async function refreshProfile() {
   // A save that cannot be written does not matter here: the change is in memory.
   save()
   broadcast({ type: 'user' })
+  if (changes.dietary) refiltering = refilterForDiet()
 }
+
 
 // End the Supabase session on this browser, if Supabase is set up. Never throws.
 // How to call: await endSession()
@@ -1525,14 +1588,17 @@ const REAL_EDITABLE = ['name', 'photo', 'homeAreaId', 'dob', 'dietary']
 // How to call: const user = await updateUser({ name: 'Sam T.' })
 export async function updateUser(patch) {
   await wait(DELAY.write)
+  const dietBefore = cleanDietary(db.user?.dietary).join()
   if (!db.user?.authId) {
     db.user = { ...db.user, ...patch }
     emit({ type: 'user' })
+    if (cleanDietary(db.user.dietary).join() !== dietBefore) refiltering = refilterForDiet()
     return account()
   }
   const allowed = Object.fromEntries(REAL_EDITABLE.filter((key) => key in patch).map((key) => [key, patch[key]]))
   db.user = { ...db.user, ...allowed }
   emit({ type: 'user' })
+  if (cleanDietary(db.user.dietary).join() !== dietBefore) refiltering = refilterForDiet()
   const { photo, ...remote } = allowed
   let syncError = ''
   if (Object.keys(remote).length > 0) {
@@ -2543,6 +2609,76 @@ export async function setRadius(id, metres) {
   })
 }
 
+// "Confirm dietary needs", asked once per outing of each person when it reaches voting (DietaryConfirm on the Vote page). The
+// person confirms their own needs, which are a standing setting on their profile: a change is saved there (and to the account),
+// and every outing they are voting in is ranked again for it (refilterForDiet). The others' needs are not theirs to change.
+// How to call: await confirmDiet('s1', ['halal'])
+export async function confirmDiet(id, dietary) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  requireMe()
+  if (!activeIds(session).includes(me())) throw new Error('Only people in this session can do that.')
+  session.dietChecked = { ...(session.dietChecked || {}), [me()]: true }
+  const answer = touch(session, 'diet')
+  const next = cleanDietary(dietary)
+  if (next.join() !== cleanDietary(db.user?.dietary).join()) {
+    const { syncError } = await updateUser({ dietary: next })
+    if (syncError) return { ...answer, syncError }
+  }
+  return answer
+}
+
+// Show the food places we could not confirm for the group's dietary needs (on), or only the ones that fit (off). Asked for when
+// fewer than 3 places fit. While on, each such place is labelled ("Halal not confirmed, check before you go"). Turning it off
+// drops those places, with their votes, and a banner says votes were cleared, as the radius does.
+// How to call: await setUnconfirmed('s1', true)
+export async function setUnconfirmed(id, on) {
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (session.status !== 'voting') throw new Error('Places can only change while voting.')
+  if (!!session.unconfirmed === !!on) return summary(session)
+  return orUndo(session, async () => {
+    const voted = voteCount(session)
+    session.unconfirmed = !!on
+    await syncOptions(session)
+    if (session.banner?.byDiet) session.banner = null
+    if (voteCount(session) < voted) session.banner = { text: 'Votes for places we could not confirm were cleared.', at: Date.now(), votesCleared: true, byDiet: true }
+    return touch(session, 'options')
+  })
+}
+
+// A dietary need changed (the signed-in person's own, on their profile): every outing they are voting in is ranked again.
+// Places that no longer fit drop out with their votes, the lists top up, and a banner tells the group that places were
+// filtered, without saying whose need it was. Never throws: an outing the planner cannot answer for keeps its places, and
+// the voting page shows only the ones that fit when it next ranks.
+// It runs after the profile is saved, not before: saving a need never waits for the planner.
+// How to call: refiltering = refilterForDiet()
+async function refilterForDiet() {
+  const mine = db.sessions.filter((s) => s.status === 'voting' && s.meeting && activeIds(s).includes(me()))
+  await Promise.all(
+    mine.map(async (session) => {
+      try {
+        await orUndo(session, async () => {
+          const before = JSON.stringify(session.options)
+          const voted = voteCount(session)
+          await syncOptions(session)
+          if (JSON.stringify(session.options) === before) return summary(session)
+          const cleared = voteCount(session) < voted ? ' Votes for places that no longer fit were cleared.' : ''
+          session.banner = { text: `Places were filtered for a dietary need.${cleared}`, at: Date.now(), votesCleared: true, byDiet: true }
+          return touch(session, 'options')
+        })
+      } catch {
+        // Kept as it was: see above.
+      }
+    }),
+  )
+}
+
+// The latest re-ranking a change of dietary need started (refilterForDiet), so a test or a screen can wait for it.
+let refiltering = Promise.resolve()
+// How to call: await whenRefiltered()
+export const whenRefiltered = () => refiltering
+
 // How many votes a session holds. How to call: voteCount(session) -> 4
 const voteCount = (session) => Object.values(session.votes || {}).reduce((sum, byPerson) => sum + Object.keys(byPerson).length, 0)
 
@@ -2571,6 +2707,7 @@ export async function searchVenuesForSlot(id, slotId, query) {
     slot,
     lastStop: false,
     maxKm: session.radius ? session.radius / 1000 : undefined,
+    unknownPolicy: dietPolicy(session, slot.category),
   })
   return results.map((r) => ({ ...r, added: (session.options[slotId] || []).includes(r.id) }))
 }
@@ -2685,8 +2822,9 @@ export async function getPlan(id) {
           voters: Object.keys(votes).filter((p) => votes[p] === venueId).map((id) => ({ id, name: nameOf(id) })),
           swap: o.swap,
           explanation: o.explanation,
-          dietUnknown: o.dietUnknown,
-          verify: o.verify,
+          // Drink places carry no dietary caveat (the planner sends none for them): only food is checked.
+          dietUnknown: o.dietUnknown || [],
+          verify: o.verify || [],
           approximate: o.approximate,
           ...(o.weather ? { weather: o.weather } : {}),
         }
@@ -2703,6 +2841,9 @@ export async function getPlan(id) {
       empty: ranked.empty ? { reason: ranked.empty.reason, nearestKm: ranked.empty.hints?.nearestKm ?? null, widenToKm: ranked.empty.hints?.widenToKm ?? null } : null,
       // Fewer than 3 places fit inside the search radius: { found, widenToKm }, or null.
       few: ranked.few,
+      // Food places are filtered strictly for the group's needs and fewer than 3 fit: the screen says so and offers the places
+      // we could not confirm (setUnconfirmed).
+      dietFew: !settled && strictFor(session, slot.category) && rankedIds(ranked).length < DIET_FEW,
       leader: P.leader(optionIds, votes),
       // The most votes any option has, and the options sharing it when there is no single leader.
       topVotes: Math.max(0, ...optionIds.map((v) => counts[v] || 0)),
@@ -2717,6 +2858,15 @@ export async function getPlan(id) {
   return {
     area: { ...area },
     radius: session.radius ?? null,
+    // The group's dietary needs, for the line under Eat ("Showing places that fit halal and vegetarian"). No names, no count.
+    dietary: groupNeeds(session),
+    // Whether the group asked to see the food places we could not confirm for those needs.
+    unconfirmed: !!session.unconfirmed,
+    // For "Confirm dietary needs" (DietaryConfirm): the signed-in person's own needs, the needs of the others in the outing
+    // together (no names), and whether the signed-in person has confirmed them for this outing.
+    myDietary: dietaryOf(me()),
+    othersDietary: othersNeeds(session),
+    dietChecked: !!session.dietChecked?.[me()],
     ...(forecast ? { weather: forecast } : {}),
     slots: view,
     voters: P.voters(session.votes, ids),
@@ -3137,8 +3287,11 @@ function timedStops(session) {
 // Each place is a voting-page card plus `id`, `travelMinutes`, `distanceM`, `state` ('stop' already in the plan, 'proposed',
 // or 'free') and, when proposed, `proposal: { id, by, byName }`. `blocked` is why the signed-in person cannot propose now,
 // or ''. `centre` names the area the list is about. Nothing is written.
+// Dietary needs work as on the voting page: food places are filtered strictly for the group's needs, and halal keeps bars out.
+// `unconfirmed: true` (this person's own choice, not saved) shows the food places we could not confirm too. The answer says
+// `dietary` (the group's needs, no names), `unconfirmed`, and `dietFew` when fewer than 3 food places fit.
 // How to call: await roamNearby('s1', { point: { lat: 1.3521, lng: 103.8198 }, categories: ['eat'] })
-export async function roamNearby(id, { point, categories } = {}) {
+export async function roamNearby(id, { point, categories, unconfirmed = false } = {}) {
   await wait(DELAY.read)
   const session = sessionById(id)
   assertRoamOpen(session)
@@ -3150,8 +3303,11 @@ export async function roamNearby(id, { point, categories } = {}) {
   const now = new Date()
   const lastEnd = timedStops(session).at(-1)?.end ?? 0
   const startsAt = Math.min(1439, nextStopStart(lastEnd, now.getHours() * 60 + now.getMinutes()))
+  const needs = groupNeeds(session)
+  const strict = needs.length > 0 && !unconfirmed
   const answer = await planner.roamNearby({
-    members: activeIds(session).map((pid) => ({ id: pid })),
+    members: withGroupNeeds(activeIds(session).map((pid) => ({ id: pid })), needs),
+    unknownPolicy: strict ? 'strict' : 'lenient',
     current: here,
     date: todayKey(),
     time: P.fromMinutes(startsAt),
@@ -3172,6 +3328,10 @@ export async function roamNearby(id, { point, categories } = {}) {
     }),
     empty: answer.empty,
     widened: answer.widened,
+    dietary: needs,
+    unconfirmed: needs.length > 0 && !!unconfirmed,
+    // Food is asked for (or every category is) and fewer than 3 food places fit the group's needs.
+    dietFew: strict && (!categories?.length || categories.includes('eat')) && answer.places.filter((p) => p.venue.category === 'eat').length < DIET_FEW,
     // Where the forecast came from, for the line under the list; left out when the planner sent none.
     ...(answer.weather ? { weather: combineWeather([answer.weather]) } : {}),
     blocked: proposeBlock({ stops: stopIds.length, mine: proposals.filter((p) => p.by === me()).length, total: proposals.length }),

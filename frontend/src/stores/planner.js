@@ -51,6 +51,12 @@ export const usePlannerStore = defineStore('planner', () => {
   const vote = (id, slotId, venueId) => api.vote(id, slotId, currentUserId(), venueId)
   const searchVenues = (id, slotId, query) => api.searchVenuesForSlot(id, slotId, query)
   const setRadius = (id, metres) => api.setRadius(id, metres)
+  // Show the food places we could not confirm for the group's dietary needs, or only the ones that fit.
+  // How to call: await planner.setUnconfirmed(id, true)
+  const setUnconfirmed = (id, on) => api.setUnconfirmed(id, on)
+  // Confirm the signed-in person's dietary needs for this outing (and save a change on their profile).
+  // How to call: await planner.confirmDiet(id, ['halal'])
+  const confirmDiet = (id, dietary) => api.confirmDiet(id, dietary)
 
   // A live reload that fails has nowhere to throw to: the failure is in errors[id].
   const reload = (id) => loadPlan(id, { quiet: true }).catch(() => {})
@@ -89,5 +95,5 @@ export const usePlannerStore = defineStore('planner', () => {
     if (event.sessionId && plans.value[event.sessionId]) reload(event.sessionId)
   })
 
-  return { plans, loading, errors, conditions, loadPlan, loadConditions, setCondition, setMyPreferences, deleteSlot, restoreSlots, addMore, addOption, swapOption, vote, searchVenues, setRadius }
+  return { plans, loading, errors, conditions, loadPlan, loadConditions, setCondition, setMyPreferences, deleteSlot, restoreSlots, addMore, addOption, swapOption, vote, searchVenues, setRadius, setUnconfirmed, confirmDiet }
 })
