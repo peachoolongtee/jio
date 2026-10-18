@@ -286,3 +286,26 @@ test('roam ranks the same way: the food places that likely meet more needs first
   assert.deepStrictEqual(misses, [...misses].sort((a, b) => a - b));
   assert.ok(misses[0] < 3);
 });
+
+test('a centre with MUIS-certified stalls is verified halal, with the count and the day it was checked; others stay unknown', () => {
+  const certified = fromFrontendVenue(frontendVenue({ id: 'c', name: 'A Food Centre', category: 'eat', kind: 'hawker', halal: { muisStalls: 9, checked: '2026-10-18' } }));
+  assert.strictEqual(certified.diet.halal, 'options');
+  assert.deepStrictEqual([certified.dataQuality.halalSource, certified.dataQuality.muisStalls, certified.dataQuality.halalCheckedAt], ['muis', 9, '2026-10-18']);
+  assert.strictEqual(certified.dataQuality.dietUnknown, false);
+  const plain = fromFrontendVenue(frontendVenue({ id: 'p', category: 'eat', kind: 'hawker' }));
+  assert.strictEqual(plain.diet.halal, 'unknown');
+  assert.strictEqual(plain.dataQuality.halalSource, undefined);
+  // In the loaded pool: the six checked on 18 October 2026; a centre with no certified stall (Chomp Chomp) is not marked.
+  const byId = new Map(loadPlanData().venues.map((v) => [v.id, v]));
+  for (const id of ['newton-food-centre', 'serangoon-garden-market', 'tiong-bahru-market', 'maxwell-food-centre', 'chinatown-complex', 'kovan-209-market']) {
+    assert.strictEqual(byId.get(id).diet.halal, 'options', id);
+    assert.strictEqual(byId.get(id).dataQuality.halalSource, 'muis', id);
+  }
+  assert.notStrictEqual(byId.get('chomp-chomp').dataQuality.halalSource, 'muis');
+  // A strict halal ranking around Newton keeps it with no "check" caveat.
+  const centre = { lat: byId.get('newton-food-centre').lat, lng: byId.get('newton-food-centre').lng };
+  const r = converge({ members: [{ id: 'a', home: centre, dietary: ['halal'] }], centre, occasion: 'catch_up', dateTime: '2026-10-13T19:00', durationMinutes: 60, categories: ['eat'], unknownPolicy: 'strict', topN: 30 }, loadPlanData());
+  const newton = r.results.find((x) => x.venueId === 'newton-food-centre');
+  assert.ok(newton, 'Newton is ranked');
+  assert.deepStrictEqual([newton.verify, newton.dietUnknown], [[], []]);
+});
