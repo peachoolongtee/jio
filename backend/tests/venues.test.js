@@ -252,3 +252,37 @@ test('searchVenues says which needs are only likely, and which have no data', ()
   const [plain] = searchVenues({ query: 'north bridge', centre: { lat: 1.3056, lng: 103.8639 }, dateTime: '2026-10-13T12:30' }, { venues });
   assert.deepStrictEqual([plain.verify, plain.dietUnknown], [[], []]);
 });
+
+test('lenient mode ranks places that likely meet more of the group’s needs first: all met, then fewer, then none known', () => {
+  const data = loadPlanData();
+  const centre = { lat: 1.3008, lng: 103.8559 }; // Bugis: food centres likely halal and vegetarian, nothing known vegan
+  const members = [{ id: 'a', home: centre, dietary: ['halal', 'vegetarian', 'vegan'] }];
+  const ask = (more = {}) => converge({ members, centre, occasion: 'catch_up', dateTime: '2026-10-13T12:30', durationMinutes: 60, categories: ['eat'], unknownPolicy: 'lenient', topN: 10, ...more }, data);
+  const { status, results } = ask();
+  assert.strictEqual(status, 'ok');
+  const misses = results.map((r) => r.dietUnknown.length);
+  // Never a place that meets fewer needs above one that meets more.
+  assert.deepStrictEqual(misses, [...misses].sort((a, b) => a - b));
+  // The best meets at least two of the three, and places with nothing known still follow.
+  assert.ok(misses[0] <= 1);
+  assert.ok(misses.includes(3), 'places with nothing known still follow');
+  // The tiering beats the score: a place with nothing known can score better and still come below.
+  const firstUnknown = results.find((r) => r.dietUnknown.length === 3);
+  assert.ok(results.indexOf(firstUnknown) > 0);
+  // Within a tier the planner's score still decides.
+  for (let i = 1; i < results.length; i++) if (misses[i] === misses[i - 1]) assert.ok(results[i].score >= results[i - 1].score - 1e-9);
+  // With no needs nothing is reordered: plain score order.
+  const plain = converge({ members: [{ id: 'a', home: centre }], centre, occasion: 'catch_up', dateTime: '2026-10-13T12:30', durationMinutes: 60, categories: ['eat'], unknownPolicy: 'lenient', topN: 10 }, data);
+  const scores = plain.results.map((r) => r.score);
+  assert.deepStrictEqual(scores, [...scores].sort((a, b) => a - b));
+});
+
+test('roam ranks the same way: the food places that likely meet more needs first', () => {
+  const data = loadPlanData();
+  const current = { lat: 1.3008, lng: 103.8559 };
+  const r = roam({ current, members: [{ id: 'a', dietary: ['halal', 'vegetarian', 'vegan'] }], occasion: 'catch_up', dateTime: '2026-10-13T12:30', durationMinutes: 60, categories: ['eat'], unknownPolicy: 'lenient', topN: 10 }, data);
+  assert.strictEqual(r.status, 'ok');
+  const misses = r.results.map((x) => x.dietUnknown.length);
+  assert.deepStrictEqual(misses, [...misses].sort((a, b) => a - b));
+  assert.ok(misses[0] < 3);
+});

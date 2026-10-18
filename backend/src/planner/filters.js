@@ -113,6 +113,16 @@ function unknownDietNeeds(venue, members) {
   return needs.filter(n => venue.diet[n] === 'unknown');
 }
 
+/**
+ * How many of the group's dietary needs this place is NOT known to meet: 0 for a place that meets all of them (for sure or
+ * likely), and for every drink, shop or activity place. Only lenient mode keeps places above 0. The engine ranks by it first
+ * (ticket #107): places that likely meet more of the group's needs come before those that meet fewer, then by score.
+ * How to call: dietMisses(venue, [{ id: 'a', dietary: ['halal', 'vegan'] }]) -> 1
+ */
+function dietMisses(venue, members) {
+  return unknownDietNeeds(venue, members).length;
+}
+
 // null = unknown. Strict (default): unknown fails a hard constraint. Lenient: unknown passes.
 const SIMPLE_CONSTRAINTS = {
   step_free: (v, lenient) => (v.stepFree === null || v.stepFree === undefined ? lenient : v.stepFree === true),
@@ -210,6 +220,6 @@ function relaxationHints(venues, ctx) {
 }
 
 export {
-  filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds, isOpenAt, isOpenFor, mealPeriodAt, minutesOfDay, toMinutes,
+  filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds, dietMisses, isOpenAt, isOpenFor, mealPeriodAt, minutesOfDay, toMinutes,
   weekdayOf, isClosedWeekday,
 };
