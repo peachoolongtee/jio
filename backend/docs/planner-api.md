@@ -87,7 +87,7 @@ Each member is an object. Only `id` is required, plus a location (`home` or `sta
 ```
 
 - `start` and `end` default to `home`.
-- `dietary` accepts `halal`, `vegetarian` and `vegan`, in any letter case.
+- `dietary` accepts `halal`, `vegetarian` and `vegan`, in any letter case. It filters food places only. A drink stop is not a meal: a halal need keeps bars out of it (kind `bar`, or a halal level of `none`), cafés stay, and no other need changes it. Drink places carry no `verify` or `dietUnknown`.
 - `travelDebtMinutes` comes from the fairness ledger. Positive means the person travelled more than their share last time.
 - Points must be inside Singapore (lat 1.1 to 1.5, lng 103.5 to 104.1). This catches swapped lat and lng.
 
@@ -337,7 +337,7 @@ Response (real output, without `members`):
 }
 ```
 
-Places that fit come first, then by walking time. `distanceKm` is rounded here. `unfit` says why a place can't be added. It uses the same words as `diagnostics.rejectedCounts`:
+Each result also carries `verify` and `dietUnknown`, as a ranked result does (both empty without `members`). Places that fit come first, then by walking time. `distanceKm` is rounded here. `unfit` says why a place can't be added. It uses the same words as `diagnostics.rejectedCounts`:
 
 | `unfit` value | Meaning |
 |---|---|
@@ -747,6 +747,20 @@ Leave a shared session, or (as the host) remove a guest. Not a planner route: it
 
 The member's exact place goes with their row (a foreign key). The server then raises `sessions.plan_version` by one, which every remaining member hears as an update of the session row (Realtime), so their screens follow. The version is written only if it is still what the server read (`update ... where plan_version = <read>`), up to four tries, so another write that raised it meanwhile is never moved backwards. This is best effort: if it cannot be raised the answer is still 200, `planVersion` is the last version seen, and the others find out on their next read. Ids are compared without regard to the case of their letters.
 
+## GET /api/sessions/:id/dietary
+
+An outing's dietary needs, together and without names (ticket #107), so "Confirm dietary needs" can open with them selected for a real friend's need too. Not a planner route: it needs a login and Supabase, as `DELETE /api/sessions/:id/members/:userId` does; without Supabase it does not exist and answers 404. A need is private (`profile_private`, read only by its owner and the server), so the server reads every joined member's through `session_member_needs()` with its own key, after checking as the caller that they are in the session, and answers only the needs.
+
+| Answer | When |
+|---|---|
+| 200 `{ "dietary": ["halal", "vegan"], "others": ["halal"] }` | `dietary` is every joined member's needs together; `others` is everyone's but the caller's (the ones the caller cannot take off). Each list is in the app's order (halal, vegetarian, vegan), each need once; anything else in a row is left out. Never an id, a count or another private field (home area, budget, step-free). `Cache-Control: no-store`. |
+| 400 `invalid_input` | `:id` is not a uuid. |
+| 401 `unauthenticated`, 503 `auth_unavailable` | The login check. |
+| 404 `session_not_found` | No such session, or the caller is not in it (the same answer, so a stranger learns nothing, and no private row is read). |
+| 429 `rate_limited` | More than `SESSION_RATE_LIMIT_PER_MINUTE` (30) a minute from one person, counted apart from leaving. |
+
+In a group of two, `others` is the other person's needs; that is no more than the line "Showing places that fit halal" already tells them.
+
 ## Limits
 
 Every list and number has an upper limit, so one request cannot keep the server busy. Going over any of them is a 400 naming the field.
@@ -761,7 +775,8 @@ Every list and number has an upper limit, so one request cannot keep the server 
 | `alternatives` (meeting area) | 3 |
 | `include` (meeting area) | 8 area ids, each a known area, none repeated |
 | `cuisineLikes`, `cuisineDislikes` | 20 each per member |
-| any id, name or label | 80 characters |
+| a place's id in `currentOptionIds` or `excludeVenueIds` | 120 characters (a saved OneMap place's id carries its address; the longest are 86) |
+| any other id, name or label | 80 characters |
 | `stops` of `/api/itinerary/arrange` | 8, of which at most 6 are not food (see that route's table) |
 | `stops` of `/api/weather/stops` | 8, with different ids; `exposure` 0 to 5 |
 | any weight | 1000 |
