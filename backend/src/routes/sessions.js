@@ -31,6 +31,15 @@ import { requireUser } from '../middleware/auth.js'
 //
 // How to call it from the frontend (lib/plannerApi.js removeSessionMember):
 //   await api.delete(`/api/sessions/${id}/members/me`)
+//
+// An outing's dietary needs (ticket #107), for "Confirm dietary needs", which opens with them selected:
+//   GET /api/sessions/:id/dietary   →   { dietary: ['halal', 'vegetarian'], others: ['halal'] }
+// `dietary` is every joined member's needs together; `others` is everyone's but the caller's, the ones the caller cannot take
+// off. A need is private (profile_private, read only by its owner and the server), so the answer never says whose a need is,
+// how many people have it, or anything else from a member's private row (home area, budget, step-free). The caller must be in
+// the session (404 session_not_found otherwise, the same as for a session that does not exist). The needs are read with the
+// service key through session_member_needs(), which only the server may call. The answer is not cached anywhere.
+//   const { data } = await api.get(`/api/sessions/${id}/dietary`)   (lib/plannerApi.js sessionDietary)
 
 const uuid = z.string().uuid()
 const target = z.union([z.literal('me'), uuid])
@@ -71,12 +80,49 @@ async function raiseVersion(service, sessionId, firstSeen) {
   return seen
 }
 
-// Builds the router. `limiter` limits how often one signed-in caller may use it, or is null for no limit (tests only).
+// The needs a person can have, in the order the app shows them. Anything else in the database is left out.
+const NEEDS = ['halal', 'vegetarian', 'vegan']
+
+// Needs from many rows, each once, in the app's order. How to call: needsOf([['vegan'], ['halal', 'vegan'], null]) -> ['halal', 'vegan']
+const needsOf = (lists) => NEEDS.filter((need) => lists.some((list) => Array.isArray(list) && list.includes(need)))
+
+// Builds the router. `limiter` limits how often one signed-in caller may leave or remove, and `readLimiter` how often they may
+// read an outing's needs (two counters, so reading never uses up leaving). Each is null for no limit (tests only).
 //
 // How to call:
-//   const router = createSessionsRouter({ supabase, limiter: rateLimit({ windowMs: 60_000, max: 60 }) })
-export function createSessionsRouter({ supabase, limiter = null }) {
+//   const router = createSessionsRouter({ supabase, limiter: rateLimit({ windowMs: 60_000, max: 30 }), readLimiter: rateLimit({ windowMs: 60_000, max: 30 }) })
+export function createSessionsRouter({ supabase, limiter = null, readLimiter = null }) {
   const router = Router()
+
+  router.get('/sessions/:id/dietary', requireUser({ supabase }), ...(readLimiter ? [readLimiter] : []), async (req, res, next) => {
+    try {
+      const id = uuid.safeParse(req.params.id)
+      if (!id.success) return refuse(res, 400, 'invalid_input', 'Send a session id.')
+      const me = req.user.id.toLowerCase()
+
+      // Read as the caller: the database shows a session's members only to people in it.
+      const { data: members, error: membersError } = await req.supabase
+        .from('session_members')
+        .select('user_id')
+        .eq('session_id', id.data)
+      if (membersError) throw new Error(`Could not load the members: ${membersError.message}`)
+      if (!members?.some((m) => m.user_id.toLowerCase() === me)) {
+        return refuse(res, 404, 'session_not_found', 'This session does not exist, or you are not in it.')
+      }
+
+      // The server's own key: only it may read the members' private needs.
+      const { data: rows, error: needsError } = await supabase.service.rpc('session_member_needs', { sid: id.data })
+      if (needsError) throw new Error(`Could not load the members' needs: ${needsError.message}`)
+      const list = Array.isArray(rows) ? rows : []
+      res.set('Cache-Control', 'no-store')
+      res.json({
+        dietary: needsOf(list.map((r) => r.dietary)),
+        others: needsOf(list.filter((r) => String(r.user_id).toLowerCase() !== me).map((r) => r.dietary)),
+      })
+    } catch (err) {
+      next(err)
+    }
+  })
 
   router.delete('/sessions/:id/members/:userId', requireUser({ supabase }), ...(limiter ? [limiter] : []), async (req, res, next) => {
     try {

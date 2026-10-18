@@ -60,7 +60,8 @@ import { createWeather } from './services/weather.js'
 //   supabase       - The server's Supabase clients, from createSupabase(). Without it the routes that
 //                    need a login (GET /api/me) are not mounted.
 //   sessionRateLimit - { windowMs, max } to limit how often one signed-in caller may leave a session or remove a guest
-//                    (DELETE /api/sessions/:id/members/:userId), or leave it out for no limit. index.js sets it outside stub mode.
+//                    (DELETE /api/sessions/:id/members/:userId), and, counted apart, read an outing's dietary needs
+//                    (GET /api/sessions/:id/dietary), or leave it out for no limit. index.js sets it outside stub mode.
 //   mount          - A function that adds extra routes. They must go in before the "not found" handler,
 //                    so routes added to the returned app afterwards are never reached. Tests use this:
 //                      createApp({ frontendOrigin, mount: (app) => app.get('/probe', handler) })
@@ -154,8 +155,15 @@ export function createApp({
   // Routes that need a login. The planner routes above do not check one yet: the frontend has to
   // start sending the session token first.
   if (supabase) app.use('/api', createMeRouter({ supabase }))
-  // Leaving a session, and the host removing a guest: /api/sessions/:id/members/:userId. Needs a login, then a limit per person.
-  if (supabase) app.use('/api', createSessionsRouter({ supabase, limiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null }))
+  // Leaving a session, and the host removing a guest: /api/sessions/:id/members/:userId; and an outing's dietary needs together:
+  // GET /api/sessions/:id/dietary. Each needs a login, then a limit per person (one counter for each).
+  if (supabase) {
+    app.use('/api', createSessionsRouter({
+      supabase,
+      limiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null,
+      readLimiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null,
+    }))
+  }
 
   // The email check for the sign-up screen. Always mounted: without Supabase it answers 503, never a guess.
   app.use(

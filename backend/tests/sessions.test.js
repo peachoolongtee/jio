@@ -49,6 +49,13 @@ const fresh = () => ({
     { session_id: STARTED, user_id: HOST, role: 'host' },
     { session_id: STARTED, user_id: GUEST, role: 'guest' },
   ],
+  // Each person's private row, as profile_private holds it: dietary needs and the other private fields.
+  profile_private: [
+    { id: HOST, dietary: ['vegan'], home_area_id: 'tampines', budget_max_per_person: 20, needs_step_free: true },
+    { id: GUEST, dietary: ['halal', 'durian-free'], home_area_id: 'bishan', budget_max_per_person: null, needs_step_free: false },
+    { id: OTHER, dietary: null, home_area_id: 'bugis', budget_max_per_person: null, needs_step_free: false },
+  ],
+  failNeeds: false,
   calls: [],
   failBump: false,
   failDelete: false,
@@ -127,6 +134,18 @@ function userClient(id) {
 }
 const serviceClient = {
   from: (name) => query(world[name], name, () => true, null),
+  // session_member_needs(sid), as db/schema.sql defines it: one row per member, with their private fields.
+  async rpc(name, args) {
+    world.calls.push({ table: name, kind: 'rpc', who: null, filters: [`sid=${args.sid}`] })
+    if (name !== 'session_member_needs') return { data: null, error: { message: 'unknown function' } }
+    if (world.failNeeds) return { data: null, error: { code: 'XX000', message: 'boom' } }
+    const rows = world.session_members
+      .filter((m) => m.session_id === args.sid)
+      .map((m) => world.profile_private.find((p) => p.id === m.user_id))
+      .filter(Boolean)
+      .map((p) => ({ user_id: p.id, home_area_id: p.home_area_id, dietary: p.dietary, budget_max_per_person: p.budget_max_per_person, needs_step_free: p.needs_step_free }))
+    return { data: rows, error: null }
+  },
 }
 
 const started = []
@@ -155,7 +174,12 @@ async function start({ supabase = true, ...options } = {}) {
     const res = await fetch(`${base}/api/sessions/${session}/members/${person}`, { method: 'DELETE', headers: as ? { authorization: `Bearer ${tokenFor(as)}` } : {} })
     return { status: res.status, body: await res.json(), headers: res.headers }
   }
-  return { base, remove }
+  // Asks for `session`'s dietary needs, as `as` (a person's id; none sends no token).
+  const needs = async (session, as) => {
+    const res = await fetch(`${base}/api/sessions/${session}/dietary`, { headers: as ? { authorization: `Bearer ${tokenFor(as)}` } : {} })
+    return { status: res.status, body: await res.json(), headers: res.headers }
+  }
+  return { base, remove, needs }
 }
 
 const memberIds = (session = SESSION) => world.session_members.filter((m) => m.session_id === session).map((m) => m.user_id)
@@ -377,5 +401,60 @@ describe('the route\'s edges', () => {
     expect(failed.status).toBe(500)
     expect(failed.body.error).toBe('server_error')
     expect(memberIds()).toEqual([HOST, OTHER])
+  })
+})
+
+describe('GET /api/sessions/:id/dietary (an outing’s needs, together)', () => {
+  it('gives a member every need in the outing and the others’ needs, in the app’s order, and nothing else', async () => {
+    const t = await start()
+    const asGuest = await t.needs(SESSION, GUEST)
+    expect(asGuest.status).toBe(200)
+    expect(asGuest.body).toEqual({ dietary: ['halal', 'vegan'], others: ['vegan'] })
+    expect((await t.needs(SESSION, HOST)).body).toEqual({ dietary: ['halal', 'vegan'], others: ['halal'] })
+    expect((await t.needs(SESSION, OTHER)).body).toEqual({ dietary: ['halal', 'vegan'], others: ['halal', 'vegan'] })
+    // No ids, no counts, no other private field, and an unknown need is dropped.
+    const text = JSON.stringify(asGuest.body)
+    for (const leak of [HOST, GUEST, OTHER, 'tampines', 'bishan', 'durian', 'budget', 'step']) expect(text).not.toContain(leak)
+    expect(asGuest.headers.get('cache-control')).toBe('no-store')
+  })
+
+  it('reads as the caller first, and the private rows only with the server’s key', async () => {
+    const t = await start()
+    await t.needs(SESSION, GUEST)
+    expect(world.calls.map((c) => [c.table, c.kind, c.who])).toEqual([
+      ['session_members', 'select', GUEST.toLowerCase()],
+      ['session_member_needs', 'rpc', null],
+    ])
+  })
+
+  it('tells a stranger nothing: the same 404 as for a session that does not exist, and no private read', async () => {
+    const t = await start()
+    const stranger = await t.needs(SESSION, STRANGER)
+    expect(stranger.status).toBe(404)
+    expect(stranger.body.error).toBe('session_not_found')
+    expect((await t.needs('cccccccc-cccc-4ccc-8ccc-cccccccccccc', GUEST)).body.error).toBe('session_not_found')
+    expect(world.calls.some((c) => c.kind === 'rpc')).toBe(false)
+  })
+
+  it('needs a login and a session id, and fails as a server error when the needs cannot be read', async () => {
+    const t = await start()
+    expect((await t.needs(SESSION, null)).status).toBe(401)
+    const bad = await t.needs('not-a-uuid', GUEST)
+    expect(bad.status).toBe(400)
+    expect(bad.body.error).toBe('invalid_input')
+    world.failNeeds = true
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const failed = await t.needs(SESSION, GUEST)
+    expect(failed.status).toBe(500)
+    expect(failed.body.error).toBe('server_error')
+  })
+
+  it('is limited per person on its own counter, apart from leaving', async () => {
+    const t = await start({ sessionRateLimit: { windowMs: 60_000, max: 2 } })
+    expect((await t.needs(SESSION, GUEST)).status).toBe(200)
+    expect((await t.needs(SESSION, GUEST)).status).toBe(200)
+    expect((await t.needs(SESSION, GUEST)).status).toBe(429)
+    // Leaving still has its own two.
+    expect((await t.remove(SESSION, 'me', GUEST)).status).toBe(200)
   })
 })
