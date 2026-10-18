@@ -577,7 +577,7 @@ describe('an outing’s dietary needs for a session on the server', () => {
     const made = await sam.api.createSession({ ...SESSION })
     await sam.api.getSession(made.id)
     planner.sessionDietary.mockClear()
-    expect(await sam.api.outingDietary(made.id)).toEqual({ dietary: ['halal', 'vegan'], others: ['halal'], mine: ['vegan'] })
+    expect(await sam.api.outingDietary(made.id)).toEqual({ dietary: ['halal', 'vegan'], others: ['halal'], mine: ['vegan'], dropped: [] })
     expect(planner.sessionDietary).toHaveBeenCalledWith(made.id)
   })
 
@@ -587,7 +587,7 @@ describe('an outing’s dietary needs for a session on the server', () => {
     const { id } = await app.api.createSession({ ...SESSION })
     await app.api.inviteFriends(id, ['darius'])
     planner.sessionDietary.mockClear()
-    expect(await app.api.outingDietary(id)).toEqual({ dietary: ['vegetarian'], others: [], mine: ['vegetarian'] })
+    expect(await app.api.outingDietary(id)).toEqual({ dietary: ['vegetarian'], others: [], mine: ['vegetarian'], dropped: [] })
     expect(planner.sessionDietary).not.toHaveBeenCalled()
   })
 })

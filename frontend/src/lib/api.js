@@ -605,7 +605,11 @@ function dietaryOf(id) {
 
 // The needs the group's places are filtered for: every active member's together, each once, in the app's order.
 // How to call: groupNeeds(session) -> ['halal', 'vegetarian']
-const groupNeeds = (session) => cleanDietary(activeIds(session).flatMap(dietaryOf))
+const groupNeeds = (session) => cleanDietary(activeIds(session).flatMap(dietaryOf)).filter((need) => !droppedNeeds(session).includes(need))
+
+// The needs someone in the outing has that the group chose not to filter for ("Confirm dietary needs", after a warning that
+// someone needs it). Anyone in the outing may drop one or bring it back. How to call: droppedNeeds(session) -> ['halal']
+const droppedNeeds = (session) => cleanDietary(session.dietDropped)
 
 // The needs of everyone in the outing but the signed-in person, together and without names: the ones they cannot take off.
 // How to call: othersNeeds(session) -> ['halal']
@@ -630,10 +634,10 @@ export async function outingDietary(id) {
   const mine = cleanDietary(db.user?.dietary)
   if (onServer() && serverMembers.has(id)) {
     const answer = await planner.sessionDietary(id)
-    return { dietary: cleanDietary(answer.dietary), others: cleanDietary(answer.others), mine }
+    return { dietary: cleanDietary(answer.dietary), others: cleanDietary(answer.others), mine, dropped: [] }
   }
   const session = sessionById(id)
-  return { dietary: groupNeeds(session), others: othersNeeds(session), mine: dietaryOf(me()) }
+  return { dietary: groupNeeds(session), others: othersNeeds(session), mine: dietaryOf(me()), dropped: droppedNeeds(session) }
 }
 
 // Are places of this category being filtered strictly for the group's needs? Only food is (a drink stop is not a meal), and
@@ -1009,7 +1013,11 @@ const rankedIds = (ranked) => [...new Set([...ranked.options, ...ranked.current]
 
 // Keep the options in step with the current slots: drop options that no longer fit, top up to three,
 // and drop votes for options or people that are gone.
-async function syncOptions(session) {
+// `fresh`: the group's dietary filter changed, so the list is picked again from the new ranking: only the places someone voted
+// for stay (while they still fit), and the rest are the planner's best for the new needs. Without it, every place that still fits
+// stays, so a filter that the places already met (halal, then halal and vegetarian at the same food centres) would change nothing.
+// How to call: await syncOptions(session, { fresh: true })
+async function syncOptions(session, { fresh = false } = {}) {
   if (!session.meeting || session.status !== 'voting') return
   const slots = slotsOf(session)
   const isLatest = takeTicket(session, 'options')
@@ -1020,8 +1028,10 @@ async function syncOptions(session) {
   const nextOptions = {}
   const nextVotes = {}
   slots.forEach((slot, i) => {
-    nextOptions[slot.id] = P.reconcileOptions(session.options[slot.id], rankedIds(rankings[i]))
     const votes = session.votes[slot.id] || {}
+    const voted = new Set(Object.values(votes))
+    const keep = fresh ? (session.options[slot.id] || []).filter((venue) => voted.has(venue)) : session.options[slot.id]
+    nextOptions[slot.id] = P.reconcileOptions(keep, rankedIds(rankings[i]))
     nextVotes[slot.id] = Object.fromEntries(Object.entries(votes).filter(([person, venue]) => ids.includes(person) && nextOptions[slot.id].includes(venue)))
   })
   session.options = nextOptions
@@ -2612,20 +2622,36 @@ export async function setRadius(id, metres) {
 // "Confirm dietary needs", asked once per outing of each person when it reaches voting (DietaryConfirm on the Vote page). The
 // person confirms their own needs, which are a standing setting on their profile: a change is saved there (and to the account),
 // and every outing they are voting in is ranked again for it (refilterForDiet). The others' needs are not theirs to change.
-// How to call: await confirmDiet('s1', ['halal'])
-export async function confirmDiet(id, dietary) {
+// The need is saved before the outing is marked confirmed, so the plan the screen reads next already has it.
+// `dropped` (optional): the needs someone else in the outing has that the group should not filter for, after the dialog warned
+// the person; a need nobody else has is ignored here (taking off one's own is a change of profile). Left out, the outing keeps
+// what it had. A change ranks the outing's places again; places that no longer fit go with their votes, and a banner says
+// the places changed, without naming anyone.
+// How to call: await confirmDiet('s1', ['vegan'], ['halal'])
+export async function confirmDiet(id, dietary, dropped) {
   await wait(DELAY.write)
   const session = sessionById(id)
   requireMe()
   if (!activeIds(session).includes(me())) throw new Error('Only people in this session can do that.')
-  session.dietChecked = { ...(session.dietChecked || {}), [me()]: true }
-  const answer = touch(session, 'diet')
   const next = cleanDietary(dietary)
-  if (next.join() !== cleanDietary(db.user?.dietary).join()) {
-    const { syncError } = await updateUser({ dietary: next })
-    if (syncError) return { ...answer, syncError }
-  }
-  return answer
+  let syncError = ''
+  if (next.join() !== cleanDietary(db.user?.dietary).join()) ({ syncError } = await updateUser({ dietary: next }))
+  const wantDropped = dropped === undefined ? droppedNeeds(session) : cleanDietary(dropped).filter((need) => othersNeeds(session).includes(need))
+  const answer = wantDropped.join() === droppedNeeds(session).join()
+    ? (() => {
+        session.dietChecked = { ...(session.dietChecked || {}), [me()]: true }
+        return touch(session, 'diet')
+      })()
+    : await orUndo(session, async () => {
+        const voted = voteCount(session)
+        session.dietDropped = wantDropped
+        session.dietChecked = { ...(session.dietChecked || {}), [me()]: true }
+        await syncOptions(session, { fresh: true })
+        const cleared = voteCount(session) < voted ? ' Votes for places that no longer fit were cleared.' : ''
+        session.banner = { text: `The group's dietary needs changed, so places were ranked again.${cleared}`, at: Date.now(), votesCleared: true, byDiet: true }
+        return touch(session, 'diet')
+      })
+  return syncError ? { ...answer, syncError } : answer
 }
 
 // Show the food places we could not confirm for the group's dietary needs (on), or only the ones that fit (off). Asked for when
@@ -2640,7 +2666,7 @@ export async function setUnconfirmed(id, on) {
   return orUndo(session, async () => {
     const voted = voteCount(session)
     session.unconfirmed = !!on
-    await syncOptions(session)
+    await syncOptions(session, { fresh: true })
     if (session.banner?.byDiet) session.banner = null
     if (voteCount(session) < voted) session.banner = { text: 'Votes for places we could not confirm were cleared.', at: Date.now(), votesCleared: true, byDiet: true }
     return touch(session, 'options')
@@ -2661,7 +2687,7 @@ async function refilterForDiet() {
         await orUndo(session, async () => {
           const before = JSON.stringify(session.options)
           const voted = voteCount(session)
-          await syncOptions(session)
+          await syncOptions(session, { fresh: true })
           if (JSON.stringify(session.options) === before) return summary(session)
           const cleared = voteCount(session) < voted ? ' Votes for places that no longer fit were cleared.' : ''
           session.banner = { text: `Places were filtered for a dietary need.${cleared}`, at: Date.now(), votesCleared: true, byDiet: true }
@@ -2829,8 +2855,9 @@ export async function getPlan(id) {
           ...(o.weather ? { weather: o.weather } : {}),
         }
       })
-      // The planner's score is a penalty: lowest first is best first.
-      .sort((a, b) => a.score - b.score)
+      // Places that likely meet more of the group's dietary needs first (only the unconfirmed ones shown on request miss any),
+      // then by the planner's score, which is a penalty: lowest first is best first.
+      .sort((a, b) => a.dietUnknown.length - b.dietUnknown.length || a.score - b.score)
     return {
       ...slot,
       isLast: slots[slots.length - 1].id === slot.id,
@@ -2866,6 +2893,8 @@ export async function getPlan(id) {
     // together (no names), and whether the signed-in person has confirmed them for this outing.
     myDietary: dietaryOf(me()),
     othersDietary: othersNeeds(session),
+    // The others' needs the group chose not to filter for (they stay in othersDietary, shown unselected).
+    dietDropped: droppedNeeds(session),
     dietChecked: !!session.dietChecked?.[me()],
     ...(forecast ? { weather: forecast } : {}),
     slots: view,

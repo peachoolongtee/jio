@@ -6,7 +6,7 @@ import { loadApi, stubPlanner } from './planFixture.js'
 import { VENUES } from '../mock/venues.js'
 import { SAMPLE_DIETARY } from '../mock/people.js'
 import { dietTags, fewLine, fitLine, needsText, unfitDietText } from '../dietText.js'
-import { dietChips } from '../../components/event/DietaryConfirm.vue'
+import { dietChips } from '../../components/event/DietaryChips.vue'
 import { dietFit, standInConverge } from '../../components/dev/offlinePlanner.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), roamNearby: vi.fn() }))
@@ -125,6 +125,78 @@ describe('fewer than 3 food places fit', () => {
   })
 })
 
+describe('a change of the group’s needs picks the list again', () => {
+  it('shows the planner’s best for the new needs, keeping only the places someone voted for', async () => {
+    // Every place fits both needs, but the planner ranks them differently for each, as it does for real food centres.
+    const eat = VENUES.filter((v) => v.category === 'eat').slice(0, 6)
+    const [a, b, c, d, e, f] = eat.map((v) => v.id)
+    const orderFor = (needs) => (needs.includes('vegetarian') ? [d, e, b, c, a, f] : [a, b, c, d, e, f])
+    planner.rankSlot.mockReset().mockImplementation(async ({ members, slot, currentOptionIds = [] }) => {
+      const needs = [...new Set(members.flatMap((m) => m.dietary || []))]
+      const pool = slot.category === 'eat' ? orderFor(needs).map((id) => eat.find((v) => v.id === id)) : VENUES.filter((v) => v.category === slot.category).slice(0, 3)
+      const option = (venue, i) => ({ venue, rank: i + 1, score: i, walk: 5, crowd: 'quiet', reasons: [], warnings: [], swap: null, explanation: '', dietUnknown: [], verify: [], approximate: false })
+      return { options: pool.slice(0, 6).map(option), current: pool.filter((v) => currentOptionIds.includes(v.id)).map(option), widened: false, few: null, empty: null }
+    })
+    const { api, id } = await voting(['faith'])
+    let s = await api.getSession(id)
+    expect(s.options.eat).toEqual([a, b, c])
+    await api.vote(id, 'eat', 'faith', c)
+    await api.confirmDiet(id, ['vegetarian'])
+    await api.whenRefiltered()
+    s = await api.getSession(id)
+    // The voted place stays; the rest are the best for halal and vegetarian.
+    expect(s.options.eat).toEqual([c, d, e])
+    expect(s.votes.eat).toEqual({ faith: c })
+  })
+})
+
+describe('a need someone else has, dropped for the outing', () => {
+  it('stops filtering for it, says so without a name, and brings it back when selected again', async () => {
+    const { api, id } = await voting(['faith', 'nicole'])
+    await api.confirmDiet(id, [], ['halal'])
+    let plan = await api.getPlan(id)
+    expect(plan.dietDropped).toEqual(['halal'])
+    expect(plan.dietary).toEqual(['vegetarian'])
+    expect(plan.othersDietary).toEqual(['halal', 'vegetarian'])
+    const s = await api.getSession(id)
+    expect(s.banner).toMatchObject({ byDiet: true })
+    expect(s.banner.text).not.toMatch(/Faith|Nicole|halal/i)
+    expect(callsFor('eat').at(-1).members[0].dietary).toEqual(['vegetarian'])
+    // A need nobody else has is not "dropped": taking off one's own is a change of profile.
+    await api.confirmDiet(id, [], ['halal', 'vegan'])
+    expect((await api.getPlan(id)).dietDropped).toEqual(['halal'])
+    // Left out, the outing keeps what it had; an empty list brings the filter back.
+    await api.confirmDiet(id, [])
+    expect((await api.getPlan(id)).dietDropped).toEqual(['halal'])
+    await api.confirmDiet(id, [], [])
+    plan = await api.getPlan(id)
+    expect(plan.dietDropped).toEqual([])
+    expect(plan.dietary).toEqual(['halal', 'vegetarian'])
+  })
+})
+
+describe('the places we could not confirm, in order', () => {
+  it('puts the places that likely meet more of the group’s needs first, whatever their score', async () => {
+    // Three food places: one likely meets halal and vegetarian, one only halal, one neither. The planner scores the worst
+    // fit best, so only the order by needs met can put them right.
+    const eat = VENUES.filter((v) => v.category === 'eat').slice(0, 3)
+    const unknownFor = [['vegan'], ['vegetarian', 'vegan'], ['halal', 'vegetarian', 'vegan']]
+    planner.rankSlot.mockReset().mockImplementation(async ({ slot, currentOptionIds = [], unknownPolicy }) => {
+      const pool = slot.category === 'eat' ? eat : VENUES.filter((v) => v.category === slot.category).slice(0, 3)
+      const option = (venue, i) => ({
+        venue, rank: i + 1, score: slot.category === 'eat' ? 10 - i : i, walk: 5, crowd: 'quiet', reasons: [], warnings: [], swap: null, explanation: '',
+        dietUnknown: slot.category === 'eat' && unknownPolicy === 'lenient' ? unknownFor[i] : [], verify: [], approximate: false,
+      })
+      return { options: pool.map(option), current: pool.filter((v) => currentOptionIds.includes(v.id)).map(option), widened: false, few: null, empty: null }
+    })
+    const { api, id } = await voting(['faith', 'nicole'], ['vegan'])
+    await api.setUnconfirmed(id, true)
+    const options = (await api.getPlan(id)).slots.find((s) => s.category === 'eat').options
+    expect(options.map((o) => o.dietUnknown.length)).toEqual([1, 2, 3])
+    expect(options.map((o) => o.id)).toEqual(eat.map((v) => v.id))
+  })
+})
+
 describe('a need changed mid-vote', () => {
   it('re-ranks, drops the places that no longer fit with their votes, and says places were filtered without naming anyone', async () => {
     const { api, id } = await voting(['jonathan'])
@@ -159,10 +231,10 @@ describe('"Confirm dietary needs" on an outing', () => {
     expect(plan.dietChecked).toBe(false)
     expect(plan.myDietary).toEqual(['vegan'])
     expect(plan.othersDietary).toEqual(['halal', 'vegetarian'])
-    expect(dietChips({ mine: plan.myDietary, others: plan.othersDietary })).toEqual([
-      { value: 'halal', label: 'Halal', selected: true, locked: true },
-      { value: 'vegetarian', label: 'Vegetarian', selected: true, locked: true },
-      { value: 'vegan', label: 'Vegan', selected: true, locked: false },
+    expect(dietChips({ mine: plan.myDietary, others: plan.othersDietary, dropped: plan.dietDropped })).toEqual([
+      { value: 'halal', label: 'Halal', selected: true, shared: true },
+      { value: 'vegetarian', label: 'Vegetarian', selected: true, shared: true },
+      { value: 'vegan', label: 'Vegan', selected: true, shared: false },
     ])
     await api.confirmDiet(id, ['vegan'])
     plan = await api.getPlan(id)
@@ -188,6 +260,49 @@ describe('"Confirm dietary needs" on an outing', () => {
   })
 })
 
+describe('the Vote page after "Confirm dietary needs"', () => {
+  it('shows a need added beside someone else’s, even when no place drops out', async () => {
+    // Every place the planner gives fits every need, so adding one changes no option and no session event follows it.
+    planner.rankSlot.mockReset().mockImplementation(async ({ slot, currentOptionIds = [] }) => {
+      const option = (venue, i) => ({ venue, rank: i + 1, score: i, walk: 5, crowd: 'quiet', reasons: [], warnings: [], swap: null, explanation: '', dietUnknown: [], verify: [], approximate: false })
+      const fits = VENUES.filter((v) => v.category === slot.category)
+      return { options: fits.slice(0, 3).map(option), current: fits.filter((v) => currentOptionIds.includes(v.id)).map(option), widened: false, few: null, empty: null }
+    })
+    const { api, id } = await voting(['faith'])
+    const { createPinia, setActivePinia } = await import('pinia')
+    setActivePinia(createPinia())
+    const { usePlannerStore } = await import('../../stores/planner.js')
+    const store = usePlannerStore()
+    await store.loadPlan(id)
+    expect(store.plans[id].dietary).toEqual(['halal'])
+    await store.confirmDiet(id, ['vegetarian'])
+    await api.whenRefiltered()
+    // The store reloads on its own; wait for the plan it shows to catch up.
+    for (let i = 0; i < 100 && store.plans[id].dietary.join() !== 'halal,vegetarian'; i++) await new Promise((r) => setTimeout(r, 50))
+    expect(store.plans[id].dietary).toEqual(['halal', 'vegetarian'])
+    expect(store.plans[id].myDietary).toEqual(['vegetarian'])
+    expect(store.plans[id].dietChecked).toBe(true)
+  })
+
+  it('follows a need changed on the profile page, even when no place drops out', async () => {
+    planner.rankSlot.mockReset().mockImplementation(async ({ slot, currentOptionIds = [] }) => {
+      const option = (venue, i) => ({ venue, rank: i + 1, score: i, walk: 5, crowd: 'quiet', reasons: [], warnings: [], swap: null, explanation: '', dietUnknown: [], verify: [], approximate: false })
+      const fits = VENUES.filter((v) => v.category === slot.category)
+      return { options: fits.slice(0, 3).map(option), current: fits.filter((v) => currentOptionIds.includes(v.id)).map(option), widened: false, few: null, empty: null }
+    })
+    const { api, id } = await voting(['faith'])
+    const { createPinia, setActivePinia } = await import('pinia')
+    setActivePinia(createPinia())
+    const { usePlannerStore } = await import('../../stores/planner.js')
+    const store = usePlannerStore()
+    await store.loadPlan(id)
+    await api.updateUser({ dietary: ['vegan'] })
+    await api.whenRefiltered()
+    for (let i = 0; i < 100 && store.plans[id].dietary.join() !== 'halal,vegan'; i++) await new Promise((r) => setTimeout(r, 50))
+    expect(store.plans[id].dietary).toEqual(['halal', 'vegan'])
+  })
+})
+
 describe('under stress', () => {
   it('stays consistent through dozens of overlapping need changes, switches, votes and confirms', async () => {
     dietPlanner({ fitting: 2 })
@@ -202,7 +317,8 @@ describe('under stress', () => {
       if (kind === 0) writes.push(api.setUnconfirmed(id, i % 2 === 0))
       if (kind === 1) writes.push(api.updateUser({ dietary: NEEDS[i % NEEDS.length] }))
       if (kind === 2 && eat?.options.length) writes.push(api.vote(id, eat.id, 'ian', eat.options[i % eat.options.length].id))
-      if (kind === 3) writes.push(api.confirmDiet(id, NEEDS[(i + 2) % NEEDS.length]))
+      // Confirming also drops and brings back a need someone else has, as the chips on the Vote page do.
+      if (kind === 3) writes.push(api.confirmDiet(id, NEEDS[(i + 2) % NEEDS.length], i % 3 === 0 ? ['halal'] : []))
       if (kind === 4) writes.push(api.setUnconfirmed(id, i % 3 === 0))
     }
     const settled = await Promise.allSettled(writes)
@@ -216,9 +332,17 @@ describe('under stress', () => {
     expect(plan.unconfirmed).toBe(!!s.unconfirmed)
     expect(plan.dietChecked).toBe(true)
     expect(plan.myDietary).toEqual((await api.getUser()).dietary)
-    // The group's needs are the sample friends' and the signed-in person's own, and the others' are never the person's to drop.
+    // The group's needs are the sample friends' and the signed-in person's own, less what the group dropped; a dropped need is
+    // always one someone else has, and the chips the page draws say the same as the needs the places are filtered for.
     expect(plan.othersDietary).toEqual(['halal', 'vegetarian'])
-    expect(plan.dietary).toEqual([...new Set(['halal', 'vegetarian', ...plan.myDietary])].sort((a, b) => ['halal', 'vegetarian', 'vegan'].indexOf(a) - ['halal', 'vegetarian', 'vegan'].indexOf(b)))
+    for (const need of plan.dietDropped) expect(plan.othersDietary).toContain(need)
+    const ORDER = ['halal', 'vegetarian', 'vegan']
+    const expected = [...new Set(['halal', 'vegetarian', ...plan.myDietary])].filter((n) => !plan.dietDropped.includes(n)).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b))
+    expect(plan.dietary).toEqual(expected)
+    expect(dietChips({ mine: plan.myDietary, others: plan.othersDietary, dropped: plan.dietDropped }).filter((c) => c.selected).map((c) => c.value)).toEqual(expected)
+    // The food places shown were ranked for those needs: the last ranking of Eat asked for exactly them.
+    const lastEat = planner.rankSlot.mock.calls.map(([req]) => req).filter((req) => req.slot.category === 'eat').at(-1)
+    expect(lastEat.members[0].dietary ?? []).toEqual(expected)
     // While strict, every food option fits for sure; once the unconfirmed are shown, they are labelled.
     const eat = plan.slots.find((x) => x.category === 'eat')
     if (!plan.unconfirmed) for (const o of eat.options) expect(o.dietUnknown).toEqual([])

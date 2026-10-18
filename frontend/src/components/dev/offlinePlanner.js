@@ -138,7 +138,9 @@ export function standInConverge({ categories = ['eat'], centre, dateTime, durati
   const km = (v) => distanceKm(centre, v)
   const inRadius = radiusMeters ? ofKind.filter((v) => km(v) * 1000 <= radiusMeters) : ofKind
   const open = inRadius.filter((v) => isOpenFor(v.hours, start, durationMinutes))
-  const ranked = [...(open.length ? open : inRadius)].sort((a, b) => km(a) - km(b) || a.id.localeCompare(b.id))
+  // As the planner does: places that likely meet more of the group's dietary needs first, then the nearest.
+  const misses = (v) => dietFit(v, needs, unknownPolicy).dietUnknown.length
+  const ranked = [...(open.length ? open : inRadius)].sort((a, b) => misses(a) - misses(b) || km(a) - km(b) || a.id.localeCompare(b.id))
   const toResult = (v, i) => ({
     rank: i + 1,
     venueId: v.id,

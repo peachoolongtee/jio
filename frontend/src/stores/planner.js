@@ -54,9 +54,10 @@ export const usePlannerStore = defineStore('planner', () => {
   // Show the food places we could not confirm for the group's dietary needs, or only the ones that fit.
   // How to call: await planner.setUnconfirmed(id, true)
   const setUnconfirmed = (id, on) => api.setUnconfirmed(id, on)
-  // Confirm the signed-in person's dietary needs for this outing (and save a change on their profile).
-  // How to call: await planner.confirmDiet(id, ['halal'])
-  const confirmDiet = (id, dietary) => api.confirmDiet(id, dietary)
+  // Confirm the signed-in person's dietary needs for this outing (and save a change on their profile), and which of the
+  // others' needs the group should not filter for.
+  // How to call: await planner.confirmDiet(id, ['halal'], [])
+  const confirmDiet = (id, dietary, dropped) => api.confirmDiet(id, dietary, dropped)
 
   // A live reload that fails has nowhere to throw to: the failure is in errors[id].
   const reload = (id) => loadPlan(id, { quiet: true }).catch(() => {})
@@ -88,6 +89,12 @@ export const usePlannerStore = defineStore('planner', () => {
     }
     if (event.type === 'conditions') {
       loadConditions()
+      for (const id of Object.keys(plans.value)) reload(id)
+      return
+    }
+    // The signed-in person's profile changed: a dietary need changes what every plan shows and ranks, even when no place
+    // dropped out (and then no session event follows).
+    if (event.type === 'user') {
       for (const id of Object.keys(plans.value)) reload(id)
       return
     }
