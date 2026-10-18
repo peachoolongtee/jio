@@ -11,6 +11,11 @@
 // category tops up again (lib/api.js setRadius). A category with too few places inside offers "Widen to ...".
 // Weather: a card keeps its small rain mark (SuggestionCard), and one muted line under the list says where the forecast came
 // from (WeatherSource); a simulated forecast also shows a banner at the top.
+// Dietary needs (ticket #107): when the group has any, one line under Eat says which needs the places fit ("Showing places
+// that fit halal and vegetarian"), with no names and no count. Food places are filtered strictly; when fewer than 3 fit, a
+// line says so and offers "Show places we couldn't confirm", each then labelled on its card. "Only places that fit" goes back.
+// Each person is asked once per outing, when it reaches voting, to "Confirm dietary needs" (DietaryConfirm), with the outing's
+// needs already selected; theirs are saved on their profile.
 // Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
 // shows the message and the rest of the page stays usable.
 // Replace (/sessions/:id/plan?replace=<slot>, from Replace on the itinerary of a confirmed plan): the page shows the one
@@ -42,6 +47,7 @@ import TextField from '@/components/ui/TextField.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
+import DietaryConfirm from '@/components/event/DietaryConfirm.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
 import WeatherSource from '@/components/weather/WeatherSource.vue'
 import CategoryKey from '@/components/map/CategoryKey.vue'
@@ -53,6 +59,7 @@ import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, vot
 import { placeImage } from '@/lib/placeImages.js'
 import { walkFromText } from '@/lib/cardText.js'
 import { usePlaceDetail } from '@/lib/usePlaceDetail.js'
+import { fewLine, fitLine, unfitDietText } from '@/lib/dietText.js'
 import { confetti } from '@/lib/confetti.js'
 import { mealWindow, MEAL_WINDOWS } from '@/lib/planner/timeOfDay.js'
 import { isBehind } from '@/lib/stepNav.js'
@@ -119,9 +126,11 @@ const slots = computed(() => plan.value?.slots || [])
 // Where the walking times on the cards are measured from, said once above the list. Nothing without a meeting area.
 const walkFrom = computed(() => (session.value?.meeting ? walkFromText(session.value.area?.name) : ''))
 const shown = computed(() => (filter.value ? slots.value.filter((s) => s.category === filter.value) : slots.value))
-// Under All, categories with nothing nearby fold into one line instead of an empty section each.
-const listed = computed(() => (filter.value ? shown.value : shown.value.filter((s) => s.options.length)))
-const emptyLabels = computed(() => (filter.value ? [] : shown.value.filter((s) => !s.options.length).map((s) => CATEGORY_LABELS[s.category])))
+// Under All, categories with nothing nearby fold into one line instead of an empty section each. Eat left empty by the group's
+// dietary needs keeps its section, which offers the places we could not confirm.
+const keepsSection = (s) => s.options.length > 0 || !!s.dietFew
+const listed = computed(() => (filter.value ? shown.value : shown.value.filter(keepsSection)))
+const emptyLabels = computed(() => (filter.value ? [] : shown.value.filter((s) => !keepsSection(s)).map((s) => CATEGORY_LABELS[s.category])))
 const listJoin = (words) => (words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} or ${words.at(-1)}`)
 const countOf = (category) => slots.value.find((s) => s.category === category)?.options.length ?? 0
 const voterIds = computed(() => plan.value?.voters || [])
@@ -186,6 +195,7 @@ function unfitText(result, slot) {
   if (result.unfit === 'closed') return `Closed at ${slot.time}`
   if (result.unfit === 'meal') return `Not open for ${MEAL_WINDOWS.find((w) => w.id === mealWindow(slot.start)).label.toLowerCase()}`
   if (result.unfit === 'mrt') return 'Too far from MRT'
+  if (result.unfit === 'diet') return unfitDietText(result.need)
   return ''
 }
 async function add(result) {
@@ -226,12 +236,70 @@ const radiusFor = (km) => RADII.find((m) => m != null && m >= km * 1000) ?? null
 // How far the places may be, in words: the chosen radius, or the planner's own limit of 3 km under Auto.
 const reachText = computed(() => radiusLabel(radius.value ?? 3000))
 
+// ── Dietary needs ──
+// The line under Eat, or '' when the group has no needs.
+const dietLine = computed(() => fitLine(plan.value?.dietary))
+// True while the group's choice of places runs (the same rule as the radius chips: clicks are ignored meanwhile).
+const settingDiet = ref(false)
+// Show the food places we could not confirm, or only the ones that fit.
+// How to call: await showUnconfirmed(true)
+async function showUnconfirmed(on) {
+  if (settingDiet.value) return
+  settingDiet.value = true
+  error.value = ''
+  try {
+    await planner.setUnconfirmed(props.id, on)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    settingDiet.value = false
+  }
+}
+
+// "Confirm dietary needs": opens by itself while voting until the signed-in person has confirmed for this outing. (Replacing a
+// stop is for a confirmed plan, never while voting, so it never opens there.) Each value is compared on its own, so the session
+// being read again does not count as a change; a dialog answered on this page is never opened again for the outing, even
+// while the plan that says so is still loading; and it closes once the plan says it is confirmed (in another tab, say).
+const dietOpen = ref(false)
+const dietBusy = ref(false)
+const dietError = ref('')
+const dietChecked = computed(() => plan.value?.dietChecked)
+const hasMeeting = computed(() => !!session.value?.meeting)
+const dietAnswered = new Set()
+watch(
+  [voting, hasMeeting, dietChecked],
+  ([isVoting, meeting, checked]) => {
+    if (checked === true) dietOpen.value = false
+    else if (isVoting && meeting && checked === false && !dietAnswered.has(props.id)) dietOpen.value = true
+  },
+  { immediate: true },
+)
+// How to call: await confirmDiet(['halal'])
+async function confirmDiet(needs) {
+  if (dietBusy.value) return
+  dietBusy.value = true
+  dietError.value = ''
+  try {
+    const answer = await planner.confirmDiet(props.id, needs)
+    dietAnswered.add(props.id)
+    dietOpen.value = false
+    // Saved here but not to the account: said under the votes, as the page says other failures.
+    if (answer?.syncError) error.value = answer.syncError
+  } catch (e) {
+    dietError.value = e.message
+    dietOpen.value = true
+  } finally {
+    dietBusy.value = false
+  }
+}
+
 // Why a slot has nothing, in words.
 function emptyText(slot) {
   const e = slot.empty
   // The nearest distance may be missing, so the sentence about it is optional.
   const nearest = e?.nearestKm != null ? ` The nearest is ${e.nearestKm.toFixed(1)} km away.` : ''
   if (e?.reason === 'outside_max_radius') return `Nothing that fits is within ${reachText.value}.${nearest}`
+  if (slot.dietFew) return fewLine(0)
   return 'Jio found no place that is open and fits this time.'
 }
 
@@ -542,6 +610,12 @@ async function confirm() {
                 <CategoryIcon :category="slot.category" :size="32" />
                 <h2 :id="`slot-${slot.id}`" class="title-md">{{ CATEGORY_LABELS[slot.category] }}</h2>
               </header>
+              <p v-if="slot.category === 'eat' && dietLine" class="diet-line caption-sm text-muted" data-testid="diet-line">{{ dietLine }}</p>
+              <p v-if="voting && slot.category === 'eat' && (slot.dietFew || plan.unconfirmed)" class="few-line" data-testid="diet-few">
+                <span v-if="plan.unconfirmed" class="caption-sm text-muted">Showing places we couldn't confirm too.</span>
+                <span v-else-if="slot.options.length" class="caption-sm text-muted">{{ fewLine(slot.options.length) }}</span>
+                <AppButton variant="tertiary" underline small :disabled="settingDiet" data-testid="diet-toggle" @click="showUnconfirmed(!plan.unconfirmed)">{{ plan.unconfirmed ? 'Only places that fit' : "Show places we couldn't confirm" }}</AppButton>
+              </p>
 
               <template v-if="!slot.options.length">
                 <p class="body-sm text-muted">{{ emptyText(slot) }}</p>
@@ -624,6 +698,8 @@ async function confirm() {
 
     <PlaceDetail v-if="reviewing" :place="reviewing.place" :reviews="reviewing.reviews" :outing="outingIds" :from="session.area.name" @close="closeReviews" />
 
+    <DietaryConfirm v-if="plan" v-model:open="dietOpen" :mine="plan.myDietary || []" :others="plan.othersDietary || []" :busy="dietBusy" :error="dietError" @confirm="confirmDiet" />
+
     <ModalDialog v-model:open="confirmOpen" title="Confirm plan?">
       <template #content>
         <div v-if="suggesting || orderView.choice" class="order-pick">
@@ -691,6 +767,7 @@ async function confirm() {
 .filter { display: flex; gap: var(--spacing-sm); }
 .filter__count { margin-left: var(--spacing-xs); opacity: 0.6; }
 .walk-from { margin: 0; }
+.diet-line { margin: 0; }
 .slot { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .slot + .slot { padding-top: var(--spacing-lg); }
 .slot__head { display: flex; align-items: center; gap: var(--spacing-md); }

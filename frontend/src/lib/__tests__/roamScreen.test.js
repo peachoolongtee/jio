@@ -111,7 +111,7 @@ describe('the Roam page', () => {
     expect(page.textOf(cards[0])).not.toContain('Short walk')
     expect(page.all('button', 'Propose')).toHaveLength(2)
     // The request was for the meeting area: no point.
-    expect(api.roamNearby).toHaveBeenCalledWith('s1', { point: undefined, categories: ['eat', 'drink', 'shop', 'activity'] })
+    expect(api.roamNearby).toHaveBeenCalledWith('s1', { point: undefined, categories: ['eat', 'drink', 'shop', 'activity'], unconfirmed: false })
   })
 
   it('does not ask the browser where the person is until the button is pressed', async () => {
@@ -158,11 +158,11 @@ describe('the Roam page', () => {
     const page = await open()
     await page.button('Eat').click()
     await flush()
-    expect(api.roamNearby).toHaveBeenLastCalledWith('s1', { point: undefined, categories: ['eat'] })
+    expect(api.roamNearby).toHaveBeenLastCalledWith('s1', { point: undefined, categories: ['eat'], unconfirmed: false })
     expect(page.attr(page.button('Eat'), 'aria-checked')).toBe('true')
     await page.button('All').click()
     await flush()
-    expect(api.roamNearby).toHaveBeenLastCalledWith('s1', { point: undefined, categories: ['eat', 'drink', 'shop', 'activity'] })
+    expect(api.roamNearby).toHaveBeenLastCalledWith('s1', { point: undefined, categories: ['eat', 'drink', 'shop', 'activity'], unconfirmed: false })
   })
 })
 
@@ -305,7 +305,7 @@ describe('"Use my location"', () => {
     await page.button('Use my location').click()
     await flush()
     expect(api.placeFromCoords).toHaveBeenCalledWith(1.33217, 103.84779)
-    expect(api.roamNearby).toHaveBeenLastCalledWith('s1', { point: { lat: 1.33217, lng: 103.84779 }, categories: ['eat', 'drink', 'shop', 'activity'] })
+    expect(api.roamNearby).toHaveBeenLastCalledWith('s1', { point: { lat: 1.33217, lng: 103.84779 }, categories: ['eat', 'drink', 'shop', 'activity'], unconfirmed: false })
     expect(page.textOf(byTestId(page, 'roam-centre')[0])).toBe('Near you, in Toa Payoh')
     expect(page.text()).not.toContain('1.33217')
     expect(page.text()).not.toContain('103.84779')
@@ -313,7 +313,7 @@ describe('"Use my location"', () => {
     // A way back to the meeting area, which asks for it again with no point.
     await page.button('Back to Bishan').click()
     await flush()
-    expect(api.roamNearby).toHaveBeenLastCalledWith('s1', { point: undefined, categories: ['eat', 'drink', 'shop', 'activity'] })
+    expect(api.roamNearby).toHaveBeenLastCalledWith('s1', { point: undefined, categories: ['eat', 'drink', 'shop', 'activity'], unconfirmed: false })
     expect(page.textOf(byTestId(page, 'roam-centre')[0])).toBe('Near Bishan')
   })
 
@@ -326,7 +326,7 @@ describe('"Use my location"', () => {
     expect(api.roamNearby).toHaveBeenCalledTimes(asked)
     await page.button('Picker: Pick an area').click()
     await flush()
-    expect(api.roamNearby).toHaveBeenLastCalledWith('s1', { point: { lat: 1.3602, lng: 103.8851 }, categories: ['eat', 'drink', 'shop', 'activity'] })
+    expect(api.roamNearby).toHaveBeenLastCalledWith('s1', { point: { lat: 1.3602, lng: 103.8851 }, categories: ['eat', 'drink', 'shop', 'activity'], unconfirmed: false })
     expect(page.textOf(byTestId(page, 'roam-centre')[0])).toBe('Near Kovan')
     expect(page.text()).not.toContain('never where you are')
   })
