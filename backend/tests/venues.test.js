@@ -198,3 +198,57 @@ test('loadPlanData: a OneMap hawker centre and its CDC copy are one venue, whate
   const s = data._meta.sources;
   assert.strictEqual(s.onemap + s.onemapExcluded + s.onemapDuplicates + s.onemapSkippedAsKnown, s.onemapSaved);
 });
+
+// ---------------- dietary needs (ticket #107)
+test('mergeCuratedWithCdc: a curated hawker centre keeps the stalls and dietary hints of the CDC site it replaces', () => {
+  const centre = fromFrontendVenue(frontendVenue({ id: 'nbr', name: 'North Bridge Road Market', category: 'eat', kind: 'hawker', lat: 1.30565, lng: 103.86392 }));
+  assert.strictEqual(filterByConstraints([centre], strictHalal).passed.length, 0); // on its own it knows nothing
+  const { venues: [merged], droppedCdcIds } = mergeCuratedWithCdc([centre], [cdcSite()]);
+  assert.deepStrictEqual(droppedCdcIds, ['cdc_198783']);
+  assert.deepStrictEqual([merged.diet.halal, merged.diet.vegetarian, merged.diet.vegan], ['likely', 'likely', 'unknown']);
+  assert.deepStrictEqual(merged.stalls.map((s) => s.name), ['Ah Seng Bak Chor Mee', 'Warung Pak Din Nasi Padang']);
+  assert.strictEqual(merged.dataQuality.dietUnknown, false);
+  assert.strictEqual(filterByConstraints([merged], strictHalal).passed.length, 1);
+  assert.strictEqual(merged.name, 'North Bridge Road Market');
+});
+
+const drinkAt = (kind, extra = {}) => fromFrontendVenue(frontendVenue({ id: `d-${kind}`, name: `A ${kind}`, kind, hours: ['08:00-23:59'], serves: ['breakfast', 'lunch', 'tea', 'dinner', 'supper'], ...extra }));
+const drinkCtx = (dietary) => ({ members: [{ id: 'a', dietary }], dateTime: '2026-10-13T15:00', categories: ['drink'], unknownPolicy: 'strict' });
+
+test('a halal need keeps bars out of a drink stop, and cafés with no dietary data stay', () => {
+  const cafe = drinkAt('cafe');
+  const bar = drinkAt('bar');
+  const noHalal = { ...drinkAt('lounge'), diet: { ...cafe.diet, halal: 'none' } };
+  const { passed, rejected } = filterByConstraints([cafe, bar, noHalal], drinkCtx(['halal']));
+  assert.deepStrictEqual(passed.map((p) => p.venue?.id ?? p.id), ['d-cafe']);
+  assert.deepStrictEqual(rejected.map((r) => r.reasons), [['diet:halal'], ['diet:halal']]);
+});
+
+test('vegetarian and vegan needs do not change a drink stop, even in strict mode', () => {
+  const { passed } = filterByConstraints([drinkAt('cafe'), drinkAt('bar')], drinkCtx(['vegetarian', 'vegan']));
+  assert.strictEqual(passed.length, 2);
+});
+
+test('a drink place carries no dietary caveat, a food place still does', () => {
+  const data = loadPlanData();
+  const centre = { lat: 1.2803, lng: 103.8448 };
+  const members = [{ id: 'a', home: centre, dietary: ['halal'] }];
+  const drinks = converge({ members, centre, occasion: 'catch_up', dateTime: '2026-10-13T15:00', durationMinutes: 60, categories: ['drink'], unknownPolicy: 'lenient' }, data);
+  assert.strictEqual(drinks.status, 'ok');
+  for (const r of drinks.results) {
+    assert.notStrictEqual(r.venue.kind, 'bar');
+    assert.deepStrictEqual([r.verify, r.dietUnknown], [[], []]);
+  }
+  const food = converge({ members, centre, occasion: 'catch_up', dateTime: '2026-10-13T12:30', durationMinutes: 60, categories: ['eat'], unknownPolicy: 'lenient' }, data);
+  assert.ok(food.results.some((r) => r.dietUnknown.includes('halal') || r.verify.includes('halal')));
+});
+
+test('searchVenues says which needs are only likely, and which have no data', () => {
+  const { venues } = mergeCuratedWithCdc([oneMapCentre('North Bridge Road Market')], [cdcSite()]);
+  const members = [{ id: 'a', dietary: ['halal', 'vegan'] }];
+  const [found] = searchVenues({ query: 'north bridge', centre: { lat: 1.3056, lng: 103.8639 }, dateTime: '2026-10-13T12:30', members, unknownPolicy: 'lenient' }, { venues });
+  assert.deepStrictEqual(found.verify, ['halal']);
+  assert.deepStrictEqual(found.dietUnknown, ['vegan']);
+  const [plain] = searchVenues({ query: 'north bridge', centre: { lat: 1.3056, lng: 103.8639 }, dateTime: '2026-10-13T12:30' }, { venues });
+  assert.deepStrictEqual([plain.verify, plain.dietUnknown], [[], []]);
+});

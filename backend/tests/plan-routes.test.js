@@ -94,9 +94,17 @@ describe('POST /api/converge', () => {
   })
 
   it('lowercases dietary needs, so "Halal" works', async () => {
-    const { body } = await post('/converge', { ...slot, unknownPolicy: 'strict' })
-    expect(['ok', 'empty']).toContain(body.status)
-    if (body.status === 'ok') body.results.forEach((r) => expect(['full', 'options', 'likely']).toContain(r.venue.diet.halal))
+    // Bugis, where hawker centres are known to be likely halal, so strict mode has places to keep.
+    const centre = { lat: 1.3008, lng: 103.8559 }
+    const capital = await post('/converge', { ...slot, centre, unknownPolicy: 'strict' })
+    expect(capital.body.status).toBe('ok')
+    expect(capital.body.results.length).toBeGreaterThan(0)
+    capital.body.results.forEach((r) => expect(['full', 'options', 'likely']).toContain(r.venue.diet.halal))
+    // The same as asking in lower case, and fewer than asking with no need at all.
+    const lower = await post('/converge', { ...slot, centre, unknownPolicy: 'strict', members: group.map((m) => (m.dietary ? { ...m, dietary: ['halal'] } : m)) })
+    expect(lower.body.results.map((r) => r.venueId)).toEqual(capital.body.results.map((r) => r.venueId))
+    const none = await post('/converge', { ...slot, centre, unknownPolicy: 'strict', members: group.map(({ dietary, ...m }) => m) })
+    expect(none.body.diagnostics.passedFilters).toBeGreaterThan(capital.body.diagnostics.passedFilters)
   })
 
   it('answers 400 with every bad field named', async () => {

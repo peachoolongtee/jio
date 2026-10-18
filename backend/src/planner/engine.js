@@ -575,6 +575,8 @@ function searchVenues(input, data) {
         row: {
           venueId: v.id, name: v.name, area: v.area, category: v.category, source: v.source, matchedStall: stall,
           walkMinutes: walkMinutes(input.centre, v), distanceKm, fits: unfit.length === 0, unfit,
+          // The same caveats as a ranked result: needs only 'likely' met, and needs with no data (lenient only).
+          verify: needsVerification(v, ctx.members), dietUnknown: unknownDietNeeds(v, ctx.members),
         },
         byName,
       };
