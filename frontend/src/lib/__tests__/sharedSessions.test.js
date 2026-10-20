@@ -118,17 +118,22 @@ describe('a real account\'s session is a row in the database', () => {
     await expect(sam.api.updateSession(id, { ...SESSION, title: 'Back' })).rejects.toThrow('A cancelled session cannot be changed.')
   })
 
-  it('holds Start session with one plain sentence and changes nothing', async () => {
+  it('lets only the host start it, with two people in, and then it is locating for everyone', async () => {
     const w = world()
     const sam = await w.open(PROFILE)
     const kim = await w.open(OTHER)
     const { id } = await sam.api.createSession({ ...SESSION })
-    await kim.api.joinWithLink((await sam.api.makeInviteLink(id)).token)
-    await expect(sam.api.startSession(id)).rejects.toThrow('Sharing where you start from, and everything after it, comes in the next update, so a session cannot be started yet.')
-    expect((await sam.api.getSession(id)).status).toBe('inviting')
+    // One person alone cannot start it: the database's own sentence says so.
+    await expect(sam.api.startSession(id)).rejects.toThrow('A session needs at least two people before it can start.')
     expect(w.database.tables.sessions[0].status).toBe('inviting')
-    // The later steps of a shared session are not reachable by the local layer either.
-    await expect(sam.api.setLocation(id, sam.id, 'start', { areaId: 'tampines' })).rejects.toThrow('comes in the next update')
+    await kim.api.joinWithLink((await sam.api.makeInviteLink(id)).token)
+    // A guest has no say in starting it.
+    await expect(kim.api.startSession(id)).rejects.toThrow('Only the host can start a session.')
+    expect(w.database.tables.sessions[0].status).toBe('inviting')
+    const started = await sam.api.startSession(id)
+    expect(started.status).toBe('locating')
+    expect(w.database.tables.sessions[0].status).toBe('locating')
+    expect((await kim.api.getSession(id)).status).toBe('locating')
   })
 
   it('never reads another member\'s exact place or touches a table outside this stage', async () => {
