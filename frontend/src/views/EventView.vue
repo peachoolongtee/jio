@@ -77,7 +77,10 @@ const events = useEventsStore()
 const auth = useAuthStore()
 const planner = usePlannerStore()
 
+// The session does not exist, or the person is not in it (the data layer's `not_found`), and why the page could not load it at
+// all (no connection, the planner slow or down) with a Retry. The two are different pages: only the first is "not found".
 const missing = ref(false)
+const loadError = ref('')
 const editing = ref(false)
 const endOpen = ref(false)
 const replanOpen = ref(false)
@@ -108,13 +111,20 @@ function dismissConfirmed() {
   clearConfirmedFlag()
 }
 
+// Only the newest load speaks, so a slow answer for a page already left never changes what the person sees.
+let loadTicket = 0
+// How to call: load() (on mount, when the id changes, and from Retry)
 async function load() {
+  const ticket = ++loadTicket
   missing.value = false
+  loadError.value = ''
   try {
     await events.loadSession(props.id)
     await events.loadItinerary(props.id)
-  } catch {
-    missing.value = true
+  } catch (err) {
+    if (ticket !== loadTicket) return
+    if (err?.code === 'not_found') missing.value = true
+    else loadError.value = err?.message || 'The plan could not be loaded.'
   }
 }
 onMounted(() => {
@@ -297,6 +307,13 @@ async function endPlan() {
 
 <template>
   <NotFoundView v-if="missing" />
+  <main v-else-if="loadError" class="screen" data-testid="plan-load-error">
+    <div class="screen__body" style="padding-top: var(--spacing-xl)">
+      <EmptyState title="Could not load this plan" :text="loadError" role="alert">
+        <AppButton variant="secondary" @click="load">Retry</AppButton>
+      </EmptyState>
+    </div>
+  </main>
   <main v-else-if="session" class="screen" data-testid="event-view">
     <SessionHeader :session="session" :title="today ? 'Today\'s plan' : ''">
       <template v-if="session.plan" #actions>
@@ -493,6 +510,7 @@ async function endPlan() {
   </main>
   <main v-else class="screen" data-testid="event-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
+      <p class="sr-only" role="status">Loading the plan</p>
       <SkeletonRow v-for="n in 4" :key="n" avatar />
     </div>
   </main>

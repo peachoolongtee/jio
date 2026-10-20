@@ -343,16 +343,21 @@ export const useEventsStore = defineStore('events', () => {
   // Whose sessions the store holds. A change of person, with or without a sign-out between, empties it (see forgetSessions).
   let owner = currentUserId()
 
+  // The list read again for a live update that nobody awaits: a failure keeps what is shown and never becomes an unhandled
+  // rejection (the screens that need the list ask for it themselves and show their own failure).
+  // How to call: await refreshList()
+  const refreshList = () => loadSessions().catch(() => {})
+
   api.subscribe(async (event) => {
     if (currentUserId() !== owner) {
       owner = currentUserId()
       forgetSessions({ list: true })
-      if (!['reset', 'user', 'conditions', 'people'].includes(event.type)) await loadSessions()
+      if (!['reset', 'user', 'conditions', 'people'].includes(event.type)) await refreshList()
     }
     if (event.type === 'reset') {
       // A suggestion asked for before the reset belongs to data that is gone.
       forgetSessions()
-      await loadSessions()
+      await refreshList()
       return
     }
     // The person is no longer in this session.
@@ -395,7 +400,7 @@ export const useEventsStore = defineStore('events', () => {
       }
     }
     // 'people': a real person's profile was read, so the names on every session may have changed.
-    if (event.type === 'user' || event.type === 'conditions' || event.type === 'people') await loadSessions()
+    if (event.type === 'user' || event.type === 'conditions' || event.type === 'people') await refreshList()
   })
 
   return {
