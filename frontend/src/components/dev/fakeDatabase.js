@@ -24,8 +24,10 @@
 //   - the functions `invite_preview`, `join_session`, `my_invitations` and `decline_invite`, with the same answers and
 //     errors (P0002 for any link that is not good, 28000 when not signed in, P0001 with hint session_full at 30 people);
 //   - `apply_session_plan`, the one function the server writes a session's plan through (the service key only): the version and
-//     status checks that answer null, the pinned area, the status move, the members', suggestions' and approvals' operations, the
-//     spots as a difference, the banner and the meeting area. A port of the SQL (and of backend/tests/helpers/fake-supabase.js);
+//     status checks that answer null, the pinned area, a pin only with a confirm, the status move (the two-people check after the
+//     operations), the members', suggestions' and approvals' operations (the host cannot be opted out or removed), the spots as a
+//     difference (with the time the inputs were loaded, `loaded_at`), the banner and the meeting area, each a change only where a
+//     value differs from the stored row. A port of the SQL (and of backend/tests/helpers/fake-supabase.js);
 //     it does not run in the built app, only where this stand-in is loaded;
 //   - Realtime: `subscribe` delivers inserts, updates and deletes of the published tables (`sessions`, `session_members`,
 //     `invites`, `spot_approvals`), as the `supabase_realtime` publication carries them. `session_member_places`,
@@ -578,6 +580,16 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
 
   // ── apply_session_plan ──────────────────────────────────────────────────
 
+  // Are two JSON values the same value? Objects by their keys in any order, numbers by value, as jsonb compares them.
+  // How to call: sameJson({ a: 1, b: 2 }, { b: 2, a: 1 }) -> true
+  function sameJson(a, b) {
+    if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return a === b
+    if (Array.isArray(a) !== Array.isArray(b)) return false
+    const keys = Object.keys(a)
+    if (keys.length !== Object.keys(b).length) return false
+    return keys.every((k) => Object.prototype.hasOwnProperty.call(b, k) && sameJson(a[k], b[k]))
+  }
+
   // A rule of the function: P0001 with a hint, which the server reads to refuse in its own words.
   // How to call: throw ruleBroken('area_pinned', 'The meeting area was chosen and cannot be changed by a recompute.')
   const ruleBroken = (hint, message) => new DbError('P0001', message, { hint })
@@ -593,21 +605,32 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
     const s = sessionOf(sid)
     if (!s || Number(s.plan_version) !== Number(expectedVersion) || s.status !== expectedStatus) return null
 
-    // Rule 3: a pinned meeting area stays.
+    // When the server loaded the members the spots are worked out from (before the planner ran), else now.
+    let stamp = now()
+    if (patch.loaded_at != null && patch.loaded_at !== '') {
+      stamp = Date.parse(patch.loaded_at)
+      if (Number.isNaN(stamp)) throw new DbError('22007', `invalid input syntax for type timestamp with time zone: "${patch.loaded_at}"`)
+    }
+    // Never later than the database's clock, as least(loaded_at, now()) in the SQL.
+    stamp = Math.min(stamp, now())
+
+    // Rule 4: a pinned meeting area stays.
     if (has(sp, 'meeting') && ['voted', 'chosen'].includes(s.meeting_method) && ((meeting?.area_id ?? null) !== s.meeting_area_id || (meeting?.method ?? null) !== s.meeting_method)) {
       throw ruleBroken('area_pinned', 'The meeting area was chosen and cannot be changed by a recompute.')
     }
-    // Rule 1: the only move is inviting or locating to voting, with an area; leaving inviting needs two joined members.
+    // Rule 1: the only move is inviting or locating to voting, with an area. (The two-people check comes after the ops.)
     let changed = false
     const newStatus = sp.status ?? s.status
     if (newStatus !== s.status) {
       if (!(['inviting', 'locating'].includes(s.status) && newStatus === 'voting') || !meeting?.area_id) {
         throw ruleBroken('status_transition', `A session cannot go from ${s.status} to ${newStatus} this way.`)
       }
-      if (s.status === 'inviting' && tables.session_members.filter((m) => m.session_id === sid && m.state === 'joined').length < 2) {
-        throw ruleBroken('needs_two_people', 'A session needs at least two people before it can start.')
-      }
       changed = true
+    }
+    // Rule 5: a pin only with a confirm. 'voted' or 'chosen' needs the move to voting in this patch, or the same pin (method and
+    // area) already stored.
+    if (['voted', 'chosen'].includes(meeting?.method) && newStatus === s.status && !(s.meeting_method === meeting.method && s.meeting_area_id === (meeting.area_id ?? null))) {
+      throw ruleBroken('pin_without_confirm', 'A meeting area is pinned only when the host confirms it.')
     }
 
     // Deletes the rows of one table of this session that the test picks, with what hangs on them. True if any went.
@@ -628,6 +651,10 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
     for (const op of patch.ops ?? []) {
       const user = op.user_id
       const member = tables.session_members.find((m) => m.session_id === sid && m.user_id === user)
+      // Rule 6: the host stays.
+      if (['opt_out', 'remove_member'].includes(op.op) && user === s.host_id) {
+        throw ruleBroken('host_member', op.op === 'opt_out' ? 'The host cannot opt out.' : 'The host cannot be removed.')
+      }
       if (op.op === 'opt_out') {
         if (member?.state === 'joined') {
           changeMember(member, { state: 'opted_out' })
@@ -669,6 +696,11 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
       }
     }
 
+    // Rule 2: leaving inviting needs two joined members, counted after the ops.
+    if (s.status === 'inviting' && newStatus !== s.status && tables.session_members.filter((m) => m.session_id === sid && m.state === 'joined').length < 2) {
+      throw ruleBroken('needs_two_people', 'A session needs at least two people before it can start.')
+    }
+
     // The spots, as a difference: listed areas are inserted or updated, unlisted ones deleted with their approvals.
     let bannerText = null
     if (has(patch, 'spots')) {
@@ -689,24 +721,38 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
         checkSpotRow('session_spots', next)
         const existing = tables.session_spots.find((x) => x.session_id === sid && x.area_id === row.area_id)
         if (!existing) {
-          tables.session_spots.push({ ...next, computed_at: iso(now()) })
+          tables.session_spots.push({ ...next, computed_at: iso(stamp) })
           changed = true
-        } else if (['rank', 'worst_minutes', 'mean_minutes', 'approximate'].some((k) => existing[k] !== next[k]) || JSON.stringify(existing.travel_minutes) !== JSON.stringify(next.travel_minutes)) {
-          // A listed spot is written only if something about it changed, so its time of working out is left alone otherwise.
-          Object.assign(existing, next, { computed_at: iso(now()) })
+        } else if (['rank', 'worst_minutes', 'mean_minutes', 'approximate'].some((k) => existing[k] !== next[k]) || !sameJson(existing.travel_minutes, next.travel_minutes)) {
+          // A listed spot is written only if something about it changed, so its time of working out is left alone otherwise. When
+          // it is written, its time of working out is when the inputs were loaded (stamp), not when the write happens.
+          Object.assign(existing, next, { computed_at: iso(stamp) })
           changed = true
         }
       }
       // The ranks are unique in a session, checked at the end (so two spots can swap ranks in one call).
       const ranks = tables.session_spots.filter((x) => x.session_id === sid && x.rank != null).map((x) => x.rank)
       if (new Set(ranks).size !== ranks.length) throw new DbError('23505', 'duplicate key value violates unique constraint "session_spots_session_id_rank_key"', { status: 409 })
-      // A run that worked the spots out again brings their time of working out forward, which is not a change.
-      if (patch.recomputed === true) for (const x of tables.session_spots.filter((r) => r.session_id === sid)) x.computed_at = iso(now())
+      // A run that worked the spots out again brings the time of working out of the older spots forward to when the inputs were
+      // loaded, which is not a change.
+      if (patch.recomputed === true) for (const x of tables.session_spots.filter((r) => r.session_id === sid && Date.parse(r.computed_at) < stamp)) x.computed_at = iso(stamp)
       // The group is told only when the deletion removed an approval.
       if (lostApprovals) bannerText = patch.banner_text || 'Some spots are no longer on the list, so approvals for them were removed.'
     }
 
-    if (Object.keys(sp).length > 0 || bannerText !== null) changed = true
+    // Rule 3: the session section is a change only where a value differs from the stored row. The meeting is compared as it would be
+    // written, after rounding; the banner as stored. Repeating the same pinned meeting or banner changes nothing.
+    const rounded = (value) => (value == null ? null : Math.round(Number(value)))
+    const meetingChanged = has(sp, 'meeting') && [
+      [s.meeting_area_id, meeting?.area_id ?? null],
+      [s.meeting_method, meeting?.method ?? null],
+      [s.meeting_max_minutes, meeting ? rounded(meeting.max_minutes) : null],
+      [s.meeting_total_minutes, meeting ? rounded(meeting.total_minutes) : null],
+      [s.meeting_count, meeting ? rounded(meeting.count) : null],
+      [s.meeting_approximate, meeting?.approximate ?? null],
+    ].some(([stored, written]) => (stored ?? null) !== written)
+    const bannerChanged = has(sp, 'banner') && !sameJson(s.banner ?? null, sp.banner ?? null)
+    if (meetingChanged || bannerChanged || bannerText !== null) changed = true
     if (!changed) return Number(s.plan_version)
 
     // Each joined member's own minutes to the confirmed area.
@@ -716,18 +762,18 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
       }
     }
     s.status = newStatus
-    if (has(sp, 'meeting')) {
+    if (meetingChanged) {
       s.meeting_area_id = meeting?.area_id ?? null
       s.meeting_method = meeting?.method ?? null
-      s.meeting_max_minutes = meeting ? Math.round(meeting.max_minutes) : null
-      s.meeting_total_minutes = meeting ? Math.round(meeting.total_minutes) : null
-      s.meeting_count = meeting ? Math.round(meeting.count) : null
+      s.meeting_max_minutes = meeting ? rounded(meeting.max_minutes) : null
+      s.meeting_total_minutes = meeting ? rounded(meeting.total_minutes) : null
+      s.meeting_count = meeting ? rounded(meeting.count) : null
       s.meeting_approximate = meeting?.approximate ?? null
       s.meeting_computed_at = meeting?.area_id ? iso(now()) : null
     }
     // The banner the function writes when approvals went: { text, at, approvalsRemoved: true }, `at` in milliseconds.
     if (bannerText !== null) s.banner = { text: bannerText, at: now(), approvalsRemoved: true }
-    else if (has(sp, 'banner')) s.banner = sp.banner
+    else if (bannerChanged) s.banner = sp.banner ?? null
     s.plan_version = Number(s.plan_version) + 1
     s.updated_at = iso(now())
     publish('sessions', 'UPDATE', s)
