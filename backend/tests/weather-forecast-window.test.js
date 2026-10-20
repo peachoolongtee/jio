@@ -177,7 +177,7 @@ describe('venues added later in the request', () => {
     // are open differs, and with it which categories the top-up would ask Google for (ticket #149).
     const { createApp } = await import('../src/app.js')
     const { once } = await import('node:events')
-    const server = createApp({ frontendOrigin: 'http://localhost:5173', stub: true, ownPlacesEnough: Infinity }).listen(0)
+    const server = createApp({ frontendOrigin: 'http://localhost:5173', stub: true, ownPlacesEnough: Infinity }).listen(0, '127.0.0.1')
     servers.push(server)
     await once(server, 'listening')
     const stopIn = (hours) => singaporeNow(Date.now() + hours * HOUR)

@@ -1,6 +1,6 @@
 import { haversineKm, walkMinutes } from '../planner/geo.js'
 import { createCallBudget, DEFAULT_CALLS_PER_MINUTE, OneMapUnavailableError } from './budget.js'
-import { createCache } from './cache.js'
+import { createCache, queryKey } from './cache.js'
 import { ExternalApiError } from './http.js'
 import { currentScenario } from './scenario.js'
 
@@ -362,7 +362,7 @@ export function createOneMap({
   // shared call budget is used up. The array returned is the cache's own: copy it before changing it.
   async function search(query) {
     const q = query.trim()
-    const key = `search:${currentScenario()}:${q.toLowerCase()}`
+    const key = `search:${currentScenario()}:${queryKey(q)}`
     return searches.getOrSet(key, async () => {
       const url = `${SEARCH_URL}?searchVal=${encodeURIComponent(q)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`
       const body = await budget.run(() => http.getJson(url))

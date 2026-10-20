@@ -27,7 +27,7 @@ afterAll(() => Promise.all(servers.map((s) => new Promise((resolve) => s.close(r
 //   const ask = await serve(createApp({ frontendOrigin: FRONTEND, stub: true }))
 //   const { status, body } = await ask({ members, alternatives: 2 })
 async function serve(app) {
-  const server = app.listen(0)
+  const server = app.listen(0, '127.0.0.1')
   servers.push(server)
   await once(server, 'listening')
   const base = `http://127.0.0.1:${server.address().port}`

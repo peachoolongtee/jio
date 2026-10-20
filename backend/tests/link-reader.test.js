@@ -541,7 +541,7 @@ describe('/api/links', () => {
     const http = createHttp({ stub: true })
     const places = createGooglePlaces({ http, stub: true })
     const linkReader = createLinkReader({ http, places, geminiKey: 'stub-key', youtubeKey: 'stub-key', sendComments: true })
-    server = createApp({ frontendOrigin: 'http://localhost:5173', stub: true, http, places, linkReader }).listen(0)
+    server = createApp({ frontendOrigin: 'http://localhost:5173', stub: true, http, places, linkReader }).listen(0, '127.0.0.1')
     await once(server, 'listening')
     base = `http://127.0.0.1:${server.address().port}/api`
   })

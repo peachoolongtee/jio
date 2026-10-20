@@ -184,7 +184,7 @@ describe('POST /api/itinerary/arrange', () => {
   let server, base
   beforeAll(async () => {
     const { client } = fakeClient({ choice: 1, reason: 'A good flow.' })
-    server = createApp({ frontendOrigin: 'http://localhost:5173', http: createHttp({ stub: true }), itineraryAi: createItineraryAi({ client }) }).listen(0)
+    server = createApp({ frontendOrigin: 'http://localhost:5173', http: createHttp({ stub: true }), itineraryAi: createItineraryAi({ client }) }).listen(0, '127.0.0.1')
     await once(server, 'listening')
     base = `http://127.0.0.1:${server.address().port}`
   })

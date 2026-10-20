@@ -61,6 +61,55 @@ describe('plannerErrorMessage', () => {
   })
 })
 
+describe('plannerErrorMessage: slow, unreachable and refused', () => {
+  const timeout = { code: 'ECONNABORTED', message: 'timeout of 15000ms exceeded' }
+  const SLOW = 'The Jio planner is taking too long to answer. Try again in a moment.'
+  const DOWN = 'Cannot reach the Jio planner right now. Check your connection and try again.'
+
+  it('says a request that ran out of time is slow, not unreachable, in any build', () => {
+    expect(plannerErrorMessage(timeout, { dev: false })).toBe(SLOW)
+    expect(plannerErrorMessage({ ...timeout, code: 'ETIMEDOUT' }, { dev: false })).toBe(SLOW)
+    expect(plannerErrorMessage(timeout, { dev: false })).not.toBe(plannerErrorMessage({}, { dev: false }))
+  })
+
+  it('adds the request detail to a timeout only in development', () => {
+    expect(plannerErrorMessage(timeout, { dev: true })).toBe(`${SLOW} (timeout of 15000ms exceeded)`)
+    expect(plannerErrorMessage(timeout, { dev: false })).not.toContain('15000')
+  })
+
+  it('still says unreachable when no answer came and it was not a timeout', () => {
+    expect(plannerErrorMessage({ code: 'ERR_NETWORK', message: 'Network Error' }, { dev: false })).toBe(DOWN)
+    expect(plannerErrorMessage(undefined, { dev: false })).toBe(DOWN)
+  })
+
+  it('says a refused request with no reason is a request the planner could not use, not a planner failure', () => {
+    for (const status of [400, 422]) {
+      expect(plannerErrorMessage({ response: { status, data: {} } }, { dev: false })).toBe('The planner could not use this request. Try again.')
+    }
+    expect(plannerErrorMessage({ response: { status: 500, data: {} } }, { dev: false })).toBe('The planner had a problem. Try again.')
+    expect(plannerErrorMessage({ response: { status: 400, data: { message: 'Pick a date first.' } } }, { dev: false })).toBe('Pick a date first.')
+  })
+
+  it('reaches the screens as the Error message when the real client times out, and when nothing answers', async () => {
+    const adapter = api.defaults.adapter
+    try {
+      api.defaults.adapter = async (config) => {
+        throw new AxiosError('timeout of 15000ms exceeded', 'ECONNABORTED', config)
+      }
+      const slow = await meetingArea({ members: [] }).catch((e) => e)
+      expect(slow.message).toContain('taking too long to answer')
+      api.defaults.adapter = async (config) => {
+        throw new AxiosError('Network Error', 'ERR_NETWORK', config)
+      }
+      const down = await meetingArea({ members: [] }).catch((e) => e)
+      expect(down.message).toContain('Cannot reach the Jio planner')
+      expect(down.message).not.toBe(slow.message)
+    } finally {
+      api.defaults.adapter = adapter
+    }
+  })
+})
+
 describe('rankSlot', () => {
   it('sends no weather case unless the rain switch is on', async () => {
     const post = vi.spyOn(api, 'post').mockResolvedValue(answer())

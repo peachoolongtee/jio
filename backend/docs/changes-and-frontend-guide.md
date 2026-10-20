@@ -53,7 +53,7 @@ Six commits after `7fc0a66 changed the cdc-venues.json`. Only `backend/` and one
 
 ## 3. `2eb72d0` Join the mock, frontend and CDC venues into one list
 
-`src/db/venues.js` → `loadPlanData()` served **1,513 venues** at this commit (it serves 1,783 by default now, with the OneMap places and without the invented ones: see [engine-integration.md](engine-integration.md)):
+`src/db/venues.js` → `loadPlanData()` served **1,513 venues** at this commit (it serves 1,782 by default now, with the OneMap places and without the invented ones: see [engine-integration.md](engine-integration.md)):
 - 36 mock venues (since left out of the default pool; they are served only with `INCLUDE_FICTIONAL_VENUES=1`, which the tests set)
 - 63 frontend places, converted by `src/planner/venue-adapter.js`
 - 1,414 CDC food sites
