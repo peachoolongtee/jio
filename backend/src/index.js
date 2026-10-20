@@ -140,12 +140,13 @@ if (!Number.isInteger(plannerLimitPerMinute) || plannerLimitPerMinute <= 0) {
 }
 const planRateLimit = stub ? null : { windowMs: 60_000, max: plannerLimitPerMinute }
 
-// How many times one signed-in person may leave a session or remove a guest each minute (DELETE /api/sessions/:id/members/:userId).
-// Few real people do either more than a handful of times, so 30 is loose. Stub mode has no limit.
+// How many times one signed-in person may use the session endpoints each minute (/api/sessions/:id/...: work out the meeting
+// spots after a start changes, suggest a spot, confirm, opt out, leave). One change of start makes one call, and few people
+// make more than a handful a minute, so 60 is loose. Stub mode has no limit.
 //
 // How to change it:
 //   SESSION_RATE_LIMIT_PER_MINUTE=10
-const sessionLimitPerMinute = Number(process.env.SESSION_RATE_LIMIT_PER_MINUTE || 30)
+const sessionLimitPerMinute = Number(process.env.SESSION_RATE_LIMIT_PER_MINUTE || 60)
 if (!Number.isInteger(sessionLimitPerMinute) || sessionLimitPerMinute <= 0) {
   console.error('SESSION_RATE_LIMIT_PER_MINUTE must be a whole number above 0.')
   process.exit(1)

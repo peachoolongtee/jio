@@ -247,6 +247,68 @@ export async function searchPeopleByUsername(q, { signal } = {}) {
   }
 }
 
+// How long a call about a session's meeting spots is waited for. The server may route trips with OneMap for up to 8 seconds before it
+// answers, so this is longer than a ranking's wait.
+export const SESSION_TIMEOUT_MS = 20000
+
+// The path of one of a session's routes. How to call: sessionPath('3b1f...', '/spots/mine') -> '/api/sessions/3b1f.../spots/mine'
+const sessionPath = (sessionId, tail) => `/api/sessions/${encodeURIComponent(sessionId)}${tail}`
+
+// Have the server work out a session's meeting spots again, after the person's start or end changed (E1 of the sessions design).
+// `trigger` is 'start', 'end' or 'added' (a first start). The server writes the spots; the answer only says what it did and is
+// never put into the screens: the session is read again afterwards.
+// Resolves { planVersion, meetingAreaId, moved, votesCleared, skipped }. A refusal is an Error whose `code` is one of
+// session_not_found, not_joined, not_yet (the group is voting), wrong_status, plan_busy.
+// How to call: await refreshSessionSpots('3b1f...', 'start')
+export async function refreshSessionSpots(sessionId, trigger) {
+  const { data } = await api.post(sessionPath(sessionId, '/meeting-area'), trigger ? { trigger } : {}, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The person suggests an area for the group to meet in (E19), replacing their earlier suggestion. `here` marks it "we are here
+// already". Resolves { planVersion, spots, approvalsRemoved }. Refusals: wrong_status, no_spots, too_many_spots, unknown_area,
+// area_not_priced.
+// How to call: await putSessionSpot('3b1f...', 'bugis', true)
+export async function putSessionSpot(sessionId, areaId, here = false) {
+  const { data } = await api.put(sessionPath(sessionId, '/spots/mine'), { areaId, here }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The person takes their suggestion back (E20). Resolves { planVersion }; with nothing to withdraw it is a no-op.
+// How to call: await deleteSessionSpot('3b1f...')
+export async function deleteSessionSpot(sessionId) {
+  const { data } = await api.delete(sessionPath(sessionId, '/spots/mine'), { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The host confirms a meeting spot (E2): the session moves from locating to voting. Without `areaId` the server takes the spot most
+// people said works for them. Resolves { planVersion, status, meetingAreaId, method, slotCount }. Refusals: host_only,
+// wrong_status, spot_not_found, no_spots.
+// How to call: await confirmSessionSpot('3b1f...', 'bugis')
+export async function confirmSessionSpot(sessionId, areaId) {
+  const { data } = await api.post(sessionPath(sessionId, '/voting'), areaId ? { areaId } : {}, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The host names the place the group already knows (E21), from inviting or locating. Resolves { planVersion, status }. Refusals:
+// host_only, wrong_status, needs_two_people, unknown_area.
+// How to call: await putSessionKnownPlace('3b1f...', 'bugis')
+export async function putSessionKnownPlace(sessionId, areaId) {
+  const { data } = await api.put(sessionPath(sessionId, '/known-place'), { areaId }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The person opts out of a session but keeps their place in it (E10), and comes back (E11). Both resolve { planVersion, state }.
+// How to call: await optOutOfSession('3b1f...'); await rejoinSession('3b1f...')
+export async function optOutOfSession(sessionId) {
+  const { data } = await api.post(sessionPath(sessionId, '/opt-out'), {}, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+export async function rejoinSession(sessionId) {
+  const { data } = await api.post(sessionPath(sessionId, '/rejoin'), {}, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
 // The weather the planner used for the last ranking: { source: 'live' | 'simulated' | 'unavailable', simulationIgnored? }.
 // The demo panel reads it to say when the server ignored the rain switch. Null until a ranking has come back.
 export const lastWeather = ref(null)

@@ -40,7 +40,6 @@ afterEach(() => {
 })
 
 const THIRD = { email: 'lee@example.com', password: 'Th1rd-secret!', name: 'Lee', username: 'lee_third', dob: '1998-01-02', homeAreaId: 'bishan', friends: [] }
-const HELD = 'Sharing where you start from, and everything after it, comes in the next update, so a session cannot be started yet.'
 const press = (view, label) => view.all('button').find((b) => view.text(b).includes(label))
 
 async function open(database, profile) {
@@ -96,7 +95,7 @@ describe('the lobby, for the host', () => {
     return { ...t, database, id, token, sam, kimApp }
   }
 
-  it('lists everyone by name, marks the host and "you", and holds Start session with the one sentence', async () => {
+  it('lists everyone by name, marks the host and "you", and offers Start session to the host', async () => {
     const { view, id } = await hostLobby()
     expect(view.errors).toEqual([])
     const rows = view.all('li').filter((li) => (li.attrs.class || '').includes('lobby__row'))
@@ -104,12 +103,11 @@ describe('the lobby, for the host', () => {
     expect(view.text(rows[0])).toContain('Host')
     expect(view.text(rows[1])).toContain('Joined')
     expect(view.text(rows[1])).not.toContain('(you)')
-    // The held start: the sentence is on screen and the button cannot be pressed.
-    expect(view.text(view.one('#start-held'))).toBe(HELD)
+    // Two people are in, so the host can start it, and nothing says it is held.
     const start = press(view, 'Start session')
-    expect(start.disabled).toBe(true)
-    expect(start.attrs['aria-describedby']).toBe('start-held')
-    expect(view.all('p').filter((p) => view.text(p).includes('comes in the next update'))).toHaveLength(1)
+    expect(start.disabled).toBe(false)
+    expect(view.has('#start-held')).toBe(false)
+    expect(view.all('p').filter((p) => view.text(p).includes('comes in the next update'))).toHaveLength(0)
     // The host can take Kim out, and has no Leave.
     expect(view.one('button[aria-label="Remove Kim"]')).toBeTruthy()
     expect(press(view, 'Leave session')).toBeUndefined()
@@ -186,7 +184,7 @@ describe('the lobby, for a guest', () => {
     const rows = view.all('li').filter((li) => (li.attrs.class || '').includes('lobby__row'))
     expect(rows.map((r) => view.text(r))).toEqual([expect.stringContaining('Sam'), expect.stringContaining('Kim (you)')])
     expect(view.text(rows[0])).not.toContain('(you)')
-    expect(view.text(view.one('#start-held'))).toBe(HELD)
+    expect(view.text()).toContain('Waiting for Sam to start the session.')
     expect(press(view, 'Start session')).toBeUndefined()
     expect(press(view, 'Leave session')).toBeTruthy()
     expect(view.all('button').some((b) => (b.attrs['aria-label'] || '').startsWith('Remove'))).toBe(false)

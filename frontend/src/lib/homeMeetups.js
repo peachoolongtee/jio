@@ -141,6 +141,8 @@ export function nextStepFor(session, myId) {
     return step('Waiting for others', 'wait')
   }
   if (session.status === 'voting') {
+    // A shared session (one kept on the server) stops at the confirmed spot for now: there is nothing to vote on yet.
+    if (session.remote) return step('Open meetup', 'done')
     const voted = Object.values(session.votes || {}).some((byPerson) => byPerson?.[myId])
     return voted ? step('Waiting for others', 'wait') : step('Vote', 'action')
   }
