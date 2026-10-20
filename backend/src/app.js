@@ -14,6 +14,8 @@ import { createHttp } from './services/http.js'
 import { createGooglePlaces } from './services/google-places.js'
 import { createItineraryAi } from './services/itinerary-ai.js'
 import { createOneMap } from './services/onemap.js'
+import { createPlannerRuns } from './services/planner-runs.js'
+import { createSessions } from './services/sessions.js'
 import { scenarioMiddleware } from './services/scenario.js'
 import { createWeather } from './services/weather.js'
 
@@ -64,8 +66,8 @@ import { createWeather } from './services/weather.js'
 //                    limit (only a test should).
 //   supabase       - The server's Supabase clients, from createSupabase(). Without it the routes that
 //                    need a login (GET /api/me) are not mounted.
-//   sessionRateLimit - { windowMs, max } to limit how often one signed-in caller may leave a session or remove a guest
-//                    (DELETE /api/sessions/:id/members/:userId), or leave it out for no limit. index.js sets it outside stub mode.
+//   sessionRateLimit - { windowMs, max } to limit how often one signed-in caller may use the session endpoints (the meeting spots,
+//                    opting out, leaving, removing a guest), or leave it out for no limit. index.js sets it outside stub mode.
 //   peopleSearchRateLimit - { windowMs, max } to limit how often one signed-in caller may search for people to invite
 //                    (GET /api/people/search, which a screen calls as the person types), or leave it out for no limit. index.js sets it
 //                    outside stub mode.
@@ -127,6 +129,9 @@ export function createApp({
   // and to the weather route count together, and a forecast failure is logged once a minute across both.
   const limiter = planRateLimit ? rateLimit(planRateLimit) : null
   const weatherResolver = createWeatherResolver({ data: planData, weather, now })
+  // The planner's engine runs with real travel times, shared by the planner routes and the session endpoints so both spend the
+  // same OneMap budget (services/planner-runs.js).
+  const runs = createPlannerRuns({ data: planData, weatherResolver, onemap, routingDeadlineMs })
 
   // Planner: /api/meeting-area, /api/converge, /api/roam, /api/search, /api/places/search, /api/itinerary/arrange.
   app.use(
@@ -144,6 +149,7 @@ export function createApp({
       includeDiagnostics: includePlannerDiagnostics,
       roundMinutes: roundPlannerMinutes,
       limiter,
+      runs,
     }),
   )
 
@@ -167,8 +173,12 @@ export function createApp({
   // Routes that need a login. The planner routes above do not check one yet: the frontend has to
   // start sending the session token first.
   if (supabase) app.use('/api', createMeRouter({ supabase }))
-  // Leaving a session, and the host removing a guest: /api/sessions/:id/members/:userId. Needs a login, then a limit per person.
-  if (supabase) app.use('/api', createSessionsRouter({ supabase, limiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null }))
+  // Where a group meets, on the server: the meeting spots, a suggestion, the host's confirm and known place, opting out and
+  // rejoining, leaving and removing (/api/sessions/:id/...). Needs a login, then a limit per person.
+  if (supabase) {
+    const sessions = createSessions({ supabase, data: planData, runs, ...(routingDeadlineMs !== undefined && { routingDeadlineMs }) })
+    app.use('/api', createSessionsRouter({ supabase, sessions, limiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null }))
+  }
 
   // Finding a person to invite by the start of their username: /api/people/search. Needs a login, then a limit per person.
   if (supabase) app.use('/api', createPeopleRouter({ supabase, limiter: peopleSearchRateLimit ? rateLimit(peopleSearchRateLimit) : null }))

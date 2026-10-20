@@ -738,11 +738,66 @@ or `{ "status": "no_other_order", "message", "blockers" }` when no other order f
 | `mrtWalk` | 0 to 120 minutes |
 | `startAt`, `endAt`, a stop's `start` | `startAt` 0 to 1439; `endAt` and `start` 0 to 2880 (minutes after midnight, over 1440 for past midnight) |
 
+## Session endpoints: where a group meets (`/api/sessions/:id/...`)
+
+Not planner routes. They work on a shared session in Supabase, so they need a login (`Authorization: Bearer <token>`, see `GET /api/me`) and Supabase to be set up; without them none of these routes exists and each answers 404. Every one runs the login check, then a limit of `SESSION_RATE_LIMIT_PER_MINUTE` (60) a minute per signed-in person (429 `rate_limited` with `Retry-After`), then checks the caller as the user: a session the caller is not in answers 404 `session_not_found`, the same as one that does not exist. `:id` is the session's id; ids are compared without regard to the case of their letters.
+
+What the server does, and what the browser does:
+
+- **The browser writes directly**, under the database's rules (`db/policies.sql`): a member's own start and end area (`session_members.start_area_id`, `end_area_id`), their exact place (`session_member_places`, which only they and the server can read), and "Works for me" (`spot_approvals`: insert or delete one's own row, for a spot that is listed, while the session is `locating` and the member has joined). The server only reads these. After a start or end changes, the browser calls `POST .../meeting-area`.
+- **The server writes everything else**, with the service key, through one database function, `apply_session_plan` (`db/migrations/20261020000000_jio_apply_session_plan.sql`). It locks the session row and writes nothing unless the session's `plan_version` and `status` are still what the server loaded, so an answer worked out while the group was locating is never put over a session the host has since confirmed, and a confirmed meeting area is never moved by a recompute. It raises `plan_version` by one when it writes anything (so the other devices, which watch the session row, refetch), and not when the write would change nothing, so repeating a request leaves the database as it was.
+- **Travel times come from the centres of areas**, never from an exact place: a member's start is the centre of their start area. A spot's minutes therefore say nothing about where in the area anyone is, and the server never reads `session_member_places`. No answer carries a label or a coordinate.
+- **Only saved places and areas.** Nothing here asks Google. Every area id is checked against the planner's list before anything is planned (422 `unknown_area`).
+- **OneMap is the shared budget.** The routes use the same engine runs as the planner routes (`services/planner-runs.js`): at most 60 route calls for one request, whole areas only, the rest estimated and flagged `approximate`, and the server-wide budget of `ONEMAP_CALLS_PER_MINUTE`.
+- **A line per session.** A session's writes run one at a time, and at most one run waits. A request that arrives while one runs is served by the next run, which loads the session afresh; a run that only recomputed and finds another waiting does not write, and its callers are answered by the waiting run. A run that finds the session moved on loads again and does its work again, up to three times, then answers 409 `plan_busy` with `Retry-After: 1`.
+
+The spots are the areas a group chooses between while `locating`: up to three from the app (`rank` 1 to 3, the fairest first) and the ones members suggest (`rank` null), in `session_spots`, each with the longest trip, the mean and every located member's minutes (unrounded; the screens round them), `approximate` when a time is an estimate. `sessions.meeting_*` stay empty while locating; the host's confirm fills them.
+
+Errors common to all of them, all `{ "error": "<code>", "message": "..." }`: 400 `invalid_input` (a path id that is not a uuid, or a body with a missing, wrong or extra field; `issues` lists the fields), 401 `unauthenticated`, 503 `auth_unavailable`, 429 `rate_limited`, 404 `session_not_found`, 409 `plan_busy`, 500 `server_error` (a database that fails; the database's words are never sent). A status that does not fit is 409 `wrong_status`, or 409 `not_yet` for work the voting stage (stage 4) will do.
+
+### POST /api/sessions/:id/meeting-area
+
+Work the spots out again: after a start, an end or a late start was written, or when someone joined. Body `{ "trigger": "start" | "end" | "added" }` (optional; it only words the notice). Joined members only; status `inviting` or `locating`.
+
+200 `{ "planVersion": 5, "meetingAreaId": null, "moved": false, "votesCleared": false, "skipped": ["<user id>"], "spots": 3, "approvalsRemoved": ["orchard"] }`. `meetingAreaId` is null while locating; `moved` and `votesCleared` are for voting (stage 4). `skipped` lists the joined members with no start the planner knows. With fewer than two members that have a start there are no spots (`spots: 0`). One engine run asks for the chosen area and two runners-up and for every suggested area (`include`, oldest first). The spots are written as a difference: listed areas are inserted or updated, unlisted ones deleted, and an approval goes with its spot. When a deleted spot took approvals with it, `sessions.banner` is set to `{ text, at, approvalsRemoved: true }` ("Faith's start location changed. Orchard is no longer on the list, so approvals for it were removed."); otherwise the banner is left alone.
+
+Errors: 403 `not_joined` (the caller opted out), 409 `not_yet` (voting), 409 `wrong_status` (confirmed, completed, cancelled).
+
+### PUT /api/sessions/:id/spots/mine
+
+The caller suggests a spot, replacing their earlier suggestion. Body `{ "areaId": "bugis", "here": true }` (`areaId` 1 to 60 characters; `here`, optional, labels it "we are here already"). Joined members only; status `locating`.
+
+200 `{ "planVersion": 6, "spots": 4, "approvalsRemoved": [] }`. The planner is asked only when the area is not already listed; an area the app already lists just gets the suggestion, which keeps it listed if the app's three change. The old suggestion's spot leaves the list unless it is the app's or another member's, with its approvals (and the banner above).
+
+Errors: 403 `not_joined`, 409 `wrong_status` (not locating), 409 `no_spots` (a new area needs two starts), 409 `too_many_spots` (a ninth different area; the same area as another member's does not count), 422 `unknown_area`, 422 `area_not_priced` (the planner could not work out times to it; nothing is saved).
+
+### DELETE /api/sessions/:id/spots/mine
+
+The caller takes their suggestion back. No body, no planner run. 200 `{ "planVersion": 7 }`; with no suggestion to take back it does nothing and writes nothing. Errors: 403 `not_joined`, 409 `wrong_status`.
+
+### POST /api/sessions/:id/voting
+
+The host confirms a spot. Body `{ "areaId": "bugis" }`, or none for the preselected spot: the one with the most "Works for me" among joined members, a tie going to the shorter longest trip (compared before rounding), then to the list's order (the app's by rank, then the members' by who suggested first). No planner run: the meeting area is written from the spot's stored figures (`meeting_max_minutes` and `meeting_total_minutes` from the rounded minutes, `meeting_count`, `meeting_approximate`, and each joined member's `session_members.travel_minutes`), `sessions.banner` is cleared and the status becomes `voting`. The spots stay as the record. `meeting_method` is `voted` when anyone approved the spot, `same` or `fairest` when nobody did and it is the app's first spot (`same` when every located member starts in one place), and `chosen` otherwise.
+
+200 `{ "planVersion": 8, "status": "voting", "meetingAreaId": "bugis", "method": "voted", "slotCount": 0 }`. **The slots and the places to vote on are the voting stage's (stage 4): this writes the meeting area and the status only**, so `slotCount` is the number of slots that exist (0 until that stage builds them, and a voting session shows no places to vote on until then). Confirming the same spot again answers the same 200 and writes nothing.
+
+Errors: 403 `host_only`, 403 `not_joined`, 404 `spot_not_found` (not on the list), 409 `no_spots` (nothing listed), 409 `wrong_status` (not locating, and not already confirmed for that spot), 422 `unknown_area`.
+
+### PUT /api/sessions/:id/known-place
+
+The host sets the meeting area straight away because the group has already decided. Body `{ "areaId": "bugis" }`. Status `inviting` or `locating`, with at least two joined members. The list becomes that one area (`rank` null), suggestions and approvals are cleared, the meeting area is written with method `chosen` (pinned: a later change of start moves the times, never the area), and the status becomes `voting`. One planner run prices the area for the members who have shared a start (at most one route call per member); with none, the times are zero. Slots are stage 4's, as above.
+
+200 `{ "planVersion": 9, "status": "voting" }`. Setting the same place again answers the same 200 and writes nothing. Errors: 403 `host_only`, 403 `not_joined`, 409 `needs_two_people`, 409 `wrong_status`, 422 `unknown_area`.
+
+### POST /api/sessions/:id/opt-out and POST /api/sessions/:id/rejoin
+
+A guest steps out, and comes back. No body. Opting out keeps the member's row, deletes their approvals and suggestion, and works the spots out without them. Rejoining works them out with the member again (a member who is already in still gets the spots worked out, in case an earlier call was lost). Status `inviting` or `locating`.
+
+200 `{ "planVersion": 10, "state": "opted_out" }` and `{ "planVersion": 11, "state": "joined" }`. Opting out when already out does nothing. Errors: 403 `host_cannot_opt_out`, 409 `not_yet` (voting and confirmed: those need the voting stage), 409 `wrong_status` (completed, cancelled).
+
 ## DELETE /api/sessions/:id/members/:userId
 
-Leave a shared session, or (as the host) remove a guest. Not a planner route: it needs a login (`Authorization: Bearer <token>`, see `GET /api/me`) and Supabase to be set up; without them the route does not exist and answers 404. A browser cannot delete a member row itself (the database gives a signed-in user no delete on `session_members`), so the server does it with its own key after checking the caller as the user.
-
-`:userId` is `me` (the caller leaves) or a person's id (the host removes them). `:id` is the session's id. No body.
+Leave a shared session, or (as the host) remove a guest. `:userId` is `me` (the caller leaves) or a person's id (the host removes them). No body. A browser cannot delete a member row itself (the database gives a signed-in user no delete on `session_members`), so the server does it.
 
 | Answer | When |
 |---|---|
@@ -755,10 +810,11 @@ Leave a shared session, or (as the host) remove a guest. Not a planner route: it
 | 404 `session_not_found` | No such session, or the caller is not in it (the same answer, so a stranger learns nothing). |
 | 404 `member_not_found` | The person is not in the session (or went a moment ago). |
 | 409 `session_closed` | The session is completed or cancelled. |
-| 409 `session_started` | The session is no longer inviting. For now only a session that is still inviting can be left or taken out of: the database lets a host start one directly, and a person who left it would leave their votes and spot approvals counted. Stage 3 takes those with the member and lifts this. |
-| 429 `rate_limited` | More than `SESSION_RATE_LIMIT_PER_MINUTE` (30) a minute from one person. |
+| 409 `session_started` | The session is in `voting` or `confirmed`: taking a person's votes, options and place in the plan with them is the voting stage's work, so for now it is refused. `inviting` and `locating` are allowed. |
+| 409 `plan_busy` | The session changed again three times while this was worked out. |
+| 429 `rate_limited` | More than `SESSION_RATE_LIMIT_PER_MINUTE` (60) a minute from one person. |
 
-The member's exact place goes with their row (a foreign key). The server then raises `sessions.plan_version` by one, which every remaining member hears as an update of the session row (Realtime), so their screens follow. The version is written only if it is still what the server read (`update ... where plan_version = <read>`), up to four tries, so another write that raised it meanwhile is never moved backwards. This is best effort: if it cannot be raised the answer is still 200, `planVersion` is the last version seen, and the others find out on their next read. Ids are compared without regard to the case of their letters.
+The member's row goes, and with it their exact place, approvals and suggestion (foreign keys); then the spots are worked out without them, in the same transaction, and `sessions.plan_version` goes up (which every remaining member hears as an update of the session row). If approvals went with a spot that dropped off the list, the banner says so ("Jonathan left. Orchard is no longer on the list, so approvals for it were removed.").
 
 ## GET /api/people/search?q=
 
@@ -795,6 +851,8 @@ Every list and number has an upper limit, so one request cannot keep the server 
 | `categories` | 4 (repeats are removed) |
 | `alternatives` (meeting area) | 3 |
 | `include` (meeting area) | 8 area ids, each a known area, none repeated |
+| `areaId` (session endpoints) | 60 characters, a known area |
+| different areas members may suggest in one session | 8 |
 | `cuisineLikes`, `cuisineDislikes` | 20 each per member |
 | any id, name or label | 80 characters |
 | `stops` of `/api/itinerary/arrange` | 8, of which at most 6 are not food (see that route's table) |

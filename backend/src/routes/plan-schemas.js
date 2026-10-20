@@ -19,6 +19,8 @@ export const MAX = {
   members: 30,
   alternatives: 3, // runners-up a /meeting-area request may ask for
   includedAreas: 8, // areas a /meeting-area request may name in `include`
+  areaId: 60, // characters in an area id; the database's own limit on session_spots.area_id and the members' start and end areas
+  suggestedSpots: 8, // different areas a session's members may suggest as meeting spots; they travel in `include`, so equal to includedAreas
   listPerMember: 20, // cuisine likes and dislikes
   constraints: 10, // group constraints
   currentOptions: 30, // the app shows at most 6 options per slot
