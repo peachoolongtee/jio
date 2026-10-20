@@ -227,7 +227,7 @@ describe('the limiter mounted on the planner routes', () => {
       ...options,
     }).listen(0, '127.0.0.1')
     await once(server, 'listening')
-    return { base: `http://localhost:${server.address().port}`, close: () => new Promise((r) => server.close(r)) }
+    return { base: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((r) => server.close(r)) }
   }
 
   const search = (base) =>
