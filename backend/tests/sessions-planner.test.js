@@ -243,12 +243,14 @@ describe('one run at a time per session, at most one waiting', () => {
     const confirm = sessions.confirmSpot({ ...as(HOST) }).then((r) => order.push('confirm'))
     const late = sessions.recompute({ ...as(OTHER) }).then(() => order.push('late ok'), (err) => order.push(`late ${err.code}`))
     await vi.waitFor(() => expect(sessions.queue.waiting(SESSION)).toBe(2))
-    const spotsBefore = JSON.stringify(world.session_spots)
+    // Everything on the list but the time it was worked out, which the running recompute may bring forward.
+    const spotContent = () => JSON.stringify(world.session_spots.map(({ computed_at: _at, ...rest }) => rest))
+    const spotsBefore = spotContent()
     release()
     await Promise.all([running, confirm, late])
     expect(order).toEqual(['recompute', 'confirm', 'late not_yet'])
     expect(sessionRow()).toMatchObject({ status: 'voting', meeting_method: 'fairest' })
-    expect(JSON.stringify(world.session_spots)).toBe(spotsBefore)
+    expect(spotContent()).toBe(spotsBefore)
   })
 
   it('does not hold one session behind another', async () => {

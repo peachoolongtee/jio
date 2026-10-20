@@ -236,6 +236,11 @@ function apply(world, session, patch) {
     // The ranks are unique in a session (checked at the end of the transaction).
     const ranks = world.session_spots.filter((x) => x.session_id === sid && x.rank !== null).map((x) => x.rank)
     if (new Set(ranks).size !== ranks.length) throw dbError('23505', 'session_spots: two spots with one rank')
+    // A run that worked the spots out with the planner brings their time of working out forward, but is not a change.
+    if (patch.recomputed === true) {
+      const at = tick(world)
+      for (const x of world.session_spots.filter((row) => row.session_id === sid)) x.computed_at = at
+    }
     if (lostApprovals) bannerText = patch.banner_text || 'Some spots are no longer on the list, so approvals for them were removed.'
   }
 

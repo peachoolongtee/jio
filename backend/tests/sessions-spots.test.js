@@ -157,10 +157,34 @@ describe('POST /api/sessions/:id/meeting-area (E1)', () => {
   it('does not raise the version when nothing changed, so repeating it leaves the database as it was', async () => {
     await start()
     const first = await t.call('POST', path('/meeting-area'), {}, HOST)
-    const rows = JSON.stringify(spots())
+    // Everything but the time of working out, which a run that changed nothing still brings forward (the next test).
+    const withoutTime = () => JSON.stringify(spots().map(({ computed_at: _at, ...rest }) => rest))
+    const rows = withoutTime()
     const second = await t.call('POST', path('/meeting-area'), {}, GUEST)
     expect(second.body.planVersion).toBe(first.body.planVersion)
-    expect(JSON.stringify(spots())).toBe(rows)
+    expect(withoutTime()).toBe(rows)
+  })
+
+  it('brings the spots\' time of working out forward when a run changed nothing, so a page can tell the list is current (the version stays)', async () => {
+    await start()
+    await t.call('POST', path('/meeting-area'), {}, HOST)
+    const firstTimes = spots().map((s) => s.computed_at)
+    const version = session().plan_version
+    // A start written to the database and then written again to the same area: the member row is newer, the spots are the same.
+    await setStart(GUEST, 'clementi')
+    const second = await t.call('POST', path('/meeting-area'), {}, GUEST)
+    expect(second.body.planVersion).toBe(version)
+    expect(session().plan_version).toBe(version)
+    expect(spots().map((s) => s.computed_at).every((at, i) => at > firstTimes[i])).toBe(true)
+    expect(writes().at(-1)).toBeTruthy()
+  })
+
+  it('does not bring it forward when the stored spots were only kept as they were (a suggestion on a listed spot)', async () => {
+    await start()
+    await t.call('POST', path('/meeting-area'), {}, HOST)
+    const before = spots().map((s) => s.computed_at)
+    await t.call('PUT', path('/spots/mine'), { areaId: ranked()[1].area_id, here: false }, GUEST)
+    expect(spots().map((s) => s.computed_at)).toEqual(before)
   })
 
   it('answers 409 not_yet in voting, and 409 wrong_status once confirmed, completed or cancelled', async () => {

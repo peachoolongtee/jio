@@ -255,8 +255,13 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
       const needs = live.some(({ prepared }) => prepared.needs === 'recompute') ? 'recompute' : live.some(({ prepared }) => prepared.needs === 'relist') ? 'relist' : 'none'
       let rows = live.find(({ prepared }) => prepared.spots)?.prepared.spots
       let skipped = []
-      if (rows === undefined && needs === 'recompute') ({ rows, skipped } = await computeSpots(draft, allowance))
-      else if (rows === undefined && needs === 'relist') rows = relistedRows(draft.spots, suggestedAreaIds(draft.suggestions, draft.members, areasById))
+      let recomputed = false
+      if (rows === undefined && needs === 'recompute') {
+        ;({ rows, skipped } = await computeSpots(draft, allowance))
+        recomputed = true
+      } else if (rows === undefined && needs === 'relist') {
+        rows = relistedRows(draft.spots, suggestedAreaIds(draft.suggestions, draft.members, areasById))
+      }
 
       // A job can ask to be refused by what the planner answered (a suggested area that could not be priced). It is refused alone
       // and the others are done again without it.
@@ -282,6 +287,9 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
       let lost = []
       if (rows !== undefined) {
         patch.spots = rows
+        // Said only when the planner just worked the list out, so the database brings its time of working out forward even when no
+        // number moved (a page compares it with a member's last change). A list merely kept as it was never claims that.
+        if (recomputed) patch.recomputed = true
         lost = lostApprovalAreas(spotsBefore, rows, draft.approvals)
         if (lost.length > 0) {
           const reason = live.find(({ prepared }) => prepared.reason)?.prepared

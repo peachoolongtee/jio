@@ -29,7 +29,11 @@
 --   spots    the list of spots the session should have, as a difference: listed areas are inserted or updated, unlisted ones
 --            deleted (an approval goes with its spot). Never delete-everything-then-insert, which would delete every approval.
 --              [{ "area_id": ..., "rank": 1|2|3|null, "worst_minutes": ..., "mean_minutes": ..., "travel_minutes": {...}, "approximate": false }]
---   banner_text   the notice to show if the deletion above removed an approval (it is set only then)
+--   recomputed    true when the spots were worked out with the planner just now (not merely kept as they were): brings every spot's
+--                 computed_at forward without raising the version, so a page that compares it with a member's updated_at
+--                 stops asking for a recompute once one has run, even when it changed nothing
+--   banner_text   the notice to show if the deletion above removed an approval (it is set only then). The banner written is
+--                 { "text": ..., "at": <milliseconds since 1970>, "approvalsRemoved": true }; see backend/docs/planner-api.md
 --   session  { "status": "voting", "banner": null | {...}, "meeting": null | { "area_id", "method", "max_minutes",
 --            "total_minutes", "count", "approximate", "travel": { <user id>: minutes } } }
 --            `meeting` also writes each joined member's session_members.travel_minutes from `travel`.
@@ -178,6 +182,13 @@ begin
       get diagnostics hit = row_count;
       if hit > 0 then changed := true; end if;
     end loop;
+
+    -- A run that worked the spots out again with the planner says so (`recomputed`): the list is now as current as any member's
+    -- row, even when no number moved, so the time of working out is brought forward on every spot. That is not a change: the
+    -- version stays. (A run that only kept the stored spots does not say it, so it never hides a start that was not priced.)
+    if coalesce((patch ->> 'recomputed')::boolean, false) then
+      update public.session_spots x set computed_at = now() where x.session_id = sid and x.computed_at < now();
+    end if;
 
     -- The group is told only when the deletion removed an approval.
     if lost_approvals then

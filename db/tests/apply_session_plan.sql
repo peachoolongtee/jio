@@ -378,6 +378,27 @@ begin
   perform pg_temp.expect_text(45, 'the session is in voting with a chosen area',
     format('select status || '' '' || meeting_method from public.sessions where id = %L', s2), 'voting chosen');
 
+  -- ── The time the spots were worked out ──────────────────────────────
+  -- A page compares a member's updated_at with it, to see whether a start was never priced. A run that worked the spots out and
+  -- changed nothing must still bring it forward, or that page would ask for a recompute every time it opens.
+  perform pg_temp.as_admin();
+  insert into public.session_spots (session_id, area_id, rank, worst_minutes, mean_minutes, travel_minutes, approximate, computed_at)
+    values (s2, 'bishan', 1, 30, 25, '{}', false, now() - interval '1 hour');
+  p := jsonb_build_object('spots', jsonb_build_array(
+    jsonb_build_object('area_id', 'bishan', 'rank', 1, 'worst_minutes', 30, 'mean_minutes', 25, 'travel_minutes', '{}'::jsonb, 'approximate', false)));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(46, 'keeping the stored spots as they are leaves the version alone',
+    format('select pg_temp.apply(%L, 1, ''voting'', %L::jsonb)', s2, p::text), '1');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(47, 'and the time they were worked out',
+    format('select (computed_at < now())::text from public.session_spots where session_id = %L and area_id = ''bishan''', s2), 'true');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(48, 'a run that worked them out again and changed nothing still answers the same version',
+    format('select pg_temp.apply(%L, 1, ''voting'', %L::jsonb)', s2, (p || jsonb_build_object('recomputed', true))::text), '1');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(49, 'but brings the time they were worked out forward',
+    format('select (computed_at = now())::text from public.session_spots where session_id = %L and area_id = ''bishan''', s2), 'true');
+
   raise notice 'ALL STEPS PASSED';
 end;
 $test$;

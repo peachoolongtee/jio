@@ -1072,6 +1072,13 @@ begin
       if hit > 0 then changed := true; end if;
     end loop;
 
+    -- A run that worked the spots out again with the planner says so (`recomputed`): the list is now as current as any member's
+    -- row, even when no number moved, so the time of working out is brought forward on every spot. That is not a change: the
+    -- version stays. (A run that only kept the stored spots does not say it, so it never hides a start that was not priced.)
+    if coalesce((patch ->> 'recomputed')::boolean, false) then
+      update public.session_spots x set computed_at = now() where x.session_id = sid and x.computed_at < now();
+    end if;
+
     -- The group is told only when the deletion removed an approval.
     if lost_approvals then
       banner_text := coalesce(nullif(patch ->> 'banner_text', ''), 'Some spots are no longer on the list, so approvals for them were removed.');
