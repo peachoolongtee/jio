@@ -31,17 +31,38 @@ function inPolygon(lng, lat, rings) {
   return !rings.slice(1).some((hole) => inRing(lng, lat, hole))
 }
 
-const polygons = boundary.features.flatMap(({ geometry }) =>
-  geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.type === 'MultiPolygon' ? geometry.coordinates : [],
-)
+// The smallest box around a polygon's outer ring, worked out once at load, so a point far from a polygon skips its vertices.
+// How to call: boxOf([[103.8, 1.3], [103.9, 1.4], [103.85, 1.35]]) -> { minLng: 103.8, maxLng: 103.9, minLat: 1.3, maxLat: 1.4 } (each widened by 1e-10)
+function boxOf(ring) {
+  const box = { minLng: Infinity, maxLng: -Infinity, minLat: Infinity, maxLat: -Infinity }
+  for (const [lng, lat] of ring) {
+    if (lng < box.minLng) box.minLng = lng
+    if (lng > box.maxLng) box.maxLng = lng
+    if (lat < box.minLat) box.minLat = lat
+    if (lat > box.maxLat) box.maxLat = lat
+  }
+  // The same margin as `onSegment`, so a point on an edge is never cut off by the box.
+  const margin = 1e-10
+  return { minLng: box.minLng - margin, maxLng: box.maxLng + margin, minLat: box.minLat - margin, maxLat: box.maxLat + margin }
+}
 
-/** True for Singapore planning-area land or the bounded central planning envelope. */
+const polygons = boundary.features
+  .flatMap(({ geometry }) =>
+    geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.type === 'MultiPolygon' ? geometry.coordinates : [],
+  )
+  .filter((rings) => rings.length > 0)
+  .map((rings) => ({ rings, box: boxOf(rings[0]) }))
+
+/**
+ * True for Singapore planning-area land or the bounded central planning envelope.
+ * How to call: isSingaporePoint({ lat: 1.3521, lng: 103.8198 }) -> true
+ */
 export function isSingaporePoint({ lat, lng } = {}) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < BOUNDS.minLat || lat > BOUNDS.maxLat || lng < BOUNDS.minLng || lng > BOUNDS.maxLng) {
     return false
   }
   if (lat >= CENTRAL_PLANNING_ENVELOPE.minLat && lat <= CENTRAL_PLANNING_ENVELOPE.maxLat &&
     lng >= CENTRAL_PLANNING_ENVELOPE.minLng && lng <= CENTRAL_PLANNING_ENVELOPE.maxLng) return true
-  if (polygons.some((rings) => inPolygon(lng, lat, rings))) return true
-  return false
+  return polygons.some(({ box, rings }) =>
+    lng >= box.minLng && lng <= box.maxLng && lat >= box.minLat && lat <= box.maxLat && inPolygon(lng, lat, rings))
 }
