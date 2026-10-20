@@ -424,8 +424,10 @@ const remote = createSessionsRemote({
 // has none). The server's banner is the group's, so dismissing it is this person's alone: it is kept in this browser, under
 // the account, and a newer banner (another stamp) shows again.
 const dismissedBanners = new Map()
+// The server writes `at` (the time it was written, in milliseconds) on every banner, so a newer banner always has a new stamp; the
+// version is only the fallback for a banner without one.
 // How to call: bannerStamp({ at: 1760000000000 }, 4) -> 1760000000000
-const bannerStamp = (banner, version) => banner.at ?? version
+const bannerStamp = (banner, version) => (typeof banner.at === 'number' ? banner.at : version)
 // How to call: dismissedStamp('3b1f...') -> 1760000000000, or undefined
 function dismissedStamp(sessionId) {
   const key = `${me()}:${sessionId}`
@@ -492,8 +494,9 @@ function fromServer(row) {
   let banner = null
   if (held && held.text) {
     const stamp = bannerStamp(held, row.planVersion)
-    // While the group is choosing, the only thing a banner says is that approvals went with a spot that left the list.
-    if (dismissedStamp(row.id) !== stamp) banner = { ...held, at: stamp, ...(row.status === 'locating' ? { approvalsRemoved: true } : {}) }
+    // The banner is the server's, as written: { text, at, approvalsRemoved: true } for approvals that went with a spot that left
+    // the list (backend/docs/planner-api.md, "The banner"). Nothing is added here, so the screens show what the server said.
+    if (dismissedStamp(row.id) !== stamp) banner = { ...held, at: stamp }
   }
   return {
     ...rest,
@@ -2304,9 +2307,15 @@ async function whileFindingSpots(id, run) {
   }
 }
 
+// The codes the server answers when it is asked to work the spots out for a session the host has already confirmed: `not_yet` in
+// voting, `wrong_status` once confirmed, completed or cancelled (backend/src/services/sessions.js, requireStatus).
+const HOST_MOVED_ON = new Set(['not_yet', 'wrong_status'])
+
 // A real account's own start or end: the area on its member row and the label of the exact place, written directly, then the
 // server works the spots out again. If the server cannot, this person's own change is taken back (the others' are not touched)
 // and they are told. If the group has moved on meanwhile (the host confirmed), what was saved stays: it only adds a travel time.
+// The server says so with 409 `not_yet` while the group is voting and 409 `wrong_status` after that; both are the host having moved
+// on, so neither is an error here (HOST_MOVED_ON).
 // How to call: await setLocationOnServer('3b1f...', '7f3c...', 'start', { areaId: 'bugis', label: 'Bugis Junction' })
 async function setLocationOnServer(id, personId, which, place) {
   requireMe(personId)
@@ -2318,7 +2327,7 @@ async function setLocationOnServer(id, personId, which, place) {
     try {
       await remote.refreshSpots(id, trigger)
     } catch (err) {
-      if (err?.code === 'wrong_status') return
+      if (HOST_MOVED_ON.has(err?.code)) return
       await remote.restorePlace(id, before)
       throw err
     }

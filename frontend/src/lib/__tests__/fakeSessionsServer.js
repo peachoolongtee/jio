@@ -133,9 +133,11 @@ export function fakeSessionsServer(database) {
     return before - rows('spot_approvals').filter((x) => x.session_id === id).length
   }
 
-  // The banner that says approvals went with a spot that left the list. `at` is the new version, so two banners differ.
-  // How to call: bannerFor(2) -> (version) => ({ banner: { text, at: version } })
-  const bannerFor = (lost) => (version) => (lost > 0 ? { banner: { text: `${lost === 1 ? 'A spot is' : 'Some spots are'} no longer on the list, so approvals for ${lost === 1 ? 'it' : 'them'} were removed.`, at: version } } : {})
+  // The banner that says approvals went with a spot that left the list, in the shape the real server writes (apply_session_plan):
+  // { text, at, approvalsRemoved: true }. `at` is the time in milliseconds; the version is added so that two banners written in the
+  // same millisecond (the tests hold the clock still) still differ.
+  // How to call: bannerFor(2) -> (version) => ({ banner: { text, at: Date.now() + version, approvalsRemoved: true } })
+  const bannerFor = (lost) => (version) => (lost > 0 ? { banner: { text: `${lost === 1 ? 'A spot is' : 'Some spots are'} no longer on the list, so approvals for ${lost === 1 ? 'it' : 'them'} were removed.`, at: Date.now() + version, approvalsRemoved: true } } : {})
 
   // The routes ------------------------------------------------------------
 

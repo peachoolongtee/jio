@@ -60,7 +60,6 @@ export const WORDS = {
   notIn: 'Only people in this session can do that.',
   hostOptOut: 'The host cannot opt out.',
   busy: 'Jio is busy with another change to this session. Try again in a moment.',
-  tooLarge: 'This group is too large to plan.',
   // What stops at the next stage: choosing places and the plan, with friends. Shown where a real account's session reaches it.
   comesNext: 'Choosing places and the plan with friends comes in the next update.',
 }
@@ -83,7 +82,6 @@ const CODE_WORDS = {
   unknown_area: WORDS.noArea,
   area_not_priced: WORDS.noTrips,
   plan_busy: WORDS.busy,
-  group_too_large: WORDS.tooLarge,
 }
 
 // A refusal from the Jio server as an Error with a sentence fit to show, and its code kept on `code`. `words` changes the

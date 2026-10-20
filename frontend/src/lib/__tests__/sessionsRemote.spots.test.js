@@ -192,7 +192,7 @@ describe('what it writes straight to the database', () => {
 
 describe('the sentences for what the server refuses', () => {
   it('has a plain sentence for every code of the contract, and keeps the code', () => {
-    const codes = ['session_not_found', 'not_joined', 'host_only', 'wrong_status', 'no_spots', 'too_many_spots', 'spot_not_found', 'needs_two_people', 'unknown_area', 'area_not_priced', 'plan_busy', 'group_too_large', 'host_cannot_opt_out', 'host_cannot_leave', 'session_closed', 'member_not_found']
+    const codes = ['session_not_found', 'not_joined', 'host_only', 'wrong_status', 'no_spots', 'too_many_spots', 'spot_not_found', 'needs_two_people', 'unknown_area', 'area_not_priced', 'plan_busy', 'host_cannot_opt_out', 'host_cannot_leave', 'session_closed', 'member_not_found']
     for (const code of codes) {
       const err = problem(Object.assign(new Error('The planner had a problem. Try again.'), { code }))
       expect(err.code).toBe(code)

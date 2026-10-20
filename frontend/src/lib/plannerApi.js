@@ -258,7 +258,7 @@ const sessionPath = (sessionId, tail) => `/api/sessions/${encodeURIComponent(ses
 // `trigger` is 'start', 'end' or 'added' (a first start). The server writes the spots; the answer only says what it did and is
 // never put into the screens: the session is read again afterwards.
 // Resolves { planVersion, meetingAreaId, moved, votesCleared, skipped }. A refusal is an Error whose `code` is one of
-// session_not_found, not_joined, wrong_status, plan_busy, group_too_large.
+// session_not_found, not_joined, not_yet (the group is voting), wrong_status, plan_busy.
 // How to call: await refreshSessionSpots('3b1f...', 'start')
 export async function refreshSessionSpots(sessionId, trigger) {
   const { data } = await api.post(sessionPath(sessionId, '/meeting-area'), trigger ? { trigger } : {}, { timeout: SESSION_TIMEOUT_MS })
