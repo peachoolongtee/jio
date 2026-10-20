@@ -138,8 +138,8 @@ describe('the OneMap cap: 30 members, one request, at most 60 trips', () => {
 })
 
 // A service over a world, with the planner run counted and optionally held back, for the tests of the line.
-// How to call: const { sessions, runs, hold, as } = serviceOver(world)
-function serviceOver(over) {
+// How to call: const { sessions, runs, hold, as } = serviceOver(world)   // a second argument adds options for createSessions
+function serviceOver(over, sessionOptions = {}) {
   const supabase = fakeSupabase(over, createSupabase({ url: SUPABASE_URL, anonKey: 'a', serviceKey: 's', fetchImpl: jwksFetch }))
   const data = loadPlanData()
   const base = createPlannerRuns({ data, weatherResolver: null, onemap: null })
@@ -154,7 +154,7 @@ function serviceOver(over) {
       return control.edit ? control.edit(out) : out
     }),
   }
-  const sessions = createSessions({ supabase, data, runs })
+  const sessions = createSessions({ supabase, data, runs, ...sessionOptions })
   // Holds back the next planner run until `release()` is called.
   const hold = () => {
     let release
@@ -305,22 +305,132 @@ describe('one run at a time per session, at most one waiting', () => {
   it('works out the spots for a session once per attempt and shares one allowance of OneMap trips across the attempts', async () => {
     lineWorld()
     const seen = []
+    const http = countingStubHttp()
+    const onemap = createOneMap({ http, email: 'someone@example.test', password: 'not-a-real-password', stub: true })
     const supabase = fakeSupabase(world, createSupabase({ url: SUPABASE_URL, anonKey: 'a', serviceKey: 's', fetchImpl: jwksFetch }))
     const data = loadPlanData()
-    const base = createPlannerRuns({ data, weatherResolver: null, onemap: null })
+    const base = createPlannerRuns({ data, weatherResolver: null, onemap })
     const runs = {
       ...base,
       runWithTravel: vi.fn(async (input, planData, run, options) => {
-        seen.push(typeof options === 'function' ? options(input) : options)
-        return base.runWithTravel(input, planData, run, options)
+        const resolved = typeof options === 'function' ? options(input) : options
+        seen.push(resolved)
+        const out = await base.runWithTravel(input, planData, run, options)
+        resolved.routedAfter = out.travel.routed
+        return out
       }),
     }
     const sessions = createSessions({ supabase, data, runs })
+    world.staleApply = 1 // the first write finds the session moved on, so the run loads again and works the spots out a second time
     await sessions.recompute({ client: userClient(world, HOST), id: SESSION, userId: HOST })
-    expect(seen).toHaveLength(1)
+    expect(seen).toHaveLength(2)
     expect(seen[0]).toMatchObject({ maxTrips: MAX_ROUTED_TRIPS_PER_REQUEST, rankByEstimate: true })
     expect(seen[0].deadlineMs).toBeGreaterThan(0)
     expect(seen[0].namedAreas.afterShortlist).toEqual([]) // no suggestions yet
+    // The first attempt spent trips, and the second may spend only what was left: the allowance is the request's, not each attempt's.
+    expect(seen[0].routedAfter).toBeGreaterThan(0)
+    expect(seen[1].maxTrips).toBe(MAX_ROUTED_TRIPS_PER_REQUEST - seen[0].routedAfter)
+    expect(seen[1].maxTrips).toBeLessThan(seen[0].maxTrips)
+    expect(http.calls.route).toBeLessThanOrEqual(MAX_ROUTED_TRIPS_PER_REQUEST)
+  })
+})
+
+describe('what a run does before it pays, and when the database does not answer', () => {
+  it('has one line for a session however its id is written', async () => {
+    lineWorld()
+    const { sessions, runs, hold, as } = serviceOver(world)
+    const release = hold()
+    const upper = sessions.recompute({ ...as(HOST), id: SESSION.toUpperCase() })
+    await vi.waitFor(() => expect(runs.runWithTravel).toHaveBeenCalledTimes(1))
+    const lower = sessions.recompute({ ...as(GUEST) })
+    // The second waits behind the first: it is in the same lane, not a lane of its own that runs at the same time.
+    await vi.waitFor(() => expect(sessions.queue.waiting(SESSION)).toBe(1))
+    expect(runs.runWithTravel).toHaveBeenCalledTimes(1)
+    release()
+    await Promise.all([upper, lower])
+    expect(sessions.queue.busy()).toBe(0)
+  })
+
+  it('hands a pure recompute over before the planner when an ordinary batch is already waiting, so it spends no OneMap calls', async () => {
+    lineWorld()
+    const { sessions, runs, as } = serviceOver(world)
+    // A request joins the line while the run is reading the session, so the batch is waiting when the run looks at it.
+    let late
+    world.hooks.beforeRead = ({ table }) => {
+      if (table !== 'sessions' || late) return
+      late = sessions.queue.enqueue(SESSION, {
+        exclusive: false,
+        check: () => {},
+        prepare: () => ({ ops: [], needs: 'recompute', nameIds: [], answer: ({ version, rows }) => ({ planVersion: version, spots: rows.length }) }),
+      })
+    }
+    const answer = await sessions.recompute({ ...as(HOST) })
+    expect(await late).toEqual({ planVersion: 1, spots: 3 })
+    expect(runs.runWithTravel).toHaveBeenCalledTimes(1) // the waiting batch's run only
+    expect(writesOf()).toHaveLength(1)
+    expect(answer).toMatchObject({ planVersion: 1, spots: 3 })
+  })
+
+  it('fails a run whose database read never answers, with 503 unavailable, and the line moves on', async () => {
+    lineWorld()
+    const { sessions, runs, as } = serviceOver(world, { dbDeadlineMs: 40 })
+    world.hangReads = true
+    const hung = await sessions.recompute({ ...as(HOST) }).catch((err) => err)
+    expect(hung).toMatchObject({ name: 'SessionError', status: 503, code: 'unavailable', retryAfter: 2 })
+    expect(runs.runWithTravel).not.toHaveBeenCalled()
+    expect(sessions.queue.busy()).toBe(0)
+    world.hangReads = false
+    expect((await sessions.recompute({ ...as(HOST) })).spots).toBe(3)
+  })
+
+  it('fails a run whose write never answers the same way, and a request waiting behind it is served', async () => {
+    lineWorld()
+    const { sessions, as } = serviceOver(world, { dbDeadlineMs: 40 })
+    world.hangApply = true
+    const hung = sessions.recompute({ ...as(HOST) }).catch((err) => err)
+    await vi.waitFor(() => expect(writesOf()).toHaveLength(1))
+    world.hangApply = false
+    const next = sessions.recompute({ ...as(GUEST) })
+    expect(await hung).toMatchObject({ status: 503, code: 'unavailable' })
+    expect((await next).spots).toBe(3)
+    expect(sessions.queue.busy()).toBe(0)
+  })
+
+  it('names the job that took the spot away in the notice, not another member\'s start change that shares the batch', async () => {
+    lineWorld()
+    const { sessions, runs, hold, as } = serviceOver(world)
+    await sessions.recompute({ ...as(HOST) })
+    const [far] = ['tuas-link']
+    await sessions.suggestSpot({ ...as(GUEST), areaId: far })
+    world.spot_approvals.push({ session_id: SESSION, area_id: far, user_id: HOST, created_at: '2026-10-20T08:00:00.000Z' })
+    const release = hold()
+    const first = sessions.recompute({ ...as(HOST), trigger: 'start' })
+    await vi.waitFor(() => expect(runs.runWithTravel).toHaveBeenCalledTimes(3))
+    const withdrawn = sessions.withdrawSpot({ ...as(GUEST) })
+    await vi.waitFor(() => expect(sessions.queue.waiting(SESSION)).toBe(1))
+    release()
+    await Promise.all([first, withdrawn])
+    expect(sessionRow().banner.text).toMatch(/^Person 22 withdrew their suggestion\. .* no longer on the list/)
+    expect(sessionRow().banner.text).not.toContain('Person 11')
+  })
+
+  it('says only that the list changed when several jobs share the batch and none of them removed the spot', async () => {
+    lineWorld()
+    const { sessions, runs, hold, as } = serviceOver(world)
+    await sessions.recompute({ ...as(HOST) })
+    const ranked = world.session_spots.filter((s) => s.rank !== null).map((s) => s.area_id)
+    for (const area of ranked) world.spot_approvals.push({ session_id: SESSION, area_id: area, user_id: HOST, created_at: '2026-10-20T08:00:00.000Z' })
+    const release = hold()
+    const first = sessions.recompute({ ...as(HOST), trigger: 'start' })
+    await vi.waitFor(() => expect(runs.runWithTravel).toHaveBeenCalledTimes(2))
+    // The guest moves far away while the run works; their recompute joins the batch that follows.
+    world.session_members.find((m) => m.user_id === GUEST).start_area_id = 'woodlands'
+    const second = sessions.recompute({ ...as(GUEST), trigger: 'start' })
+    await vi.waitFor(() => expect(sessions.queue.waiting(SESSION)).toBe(1))
+    release()
+    await Promise.all([first, second])
+    expect(world.session_spots.filter((s) => s.rank !== null).map((s) => s.area_id)).not.toEqual(ranked) // the scenario really changes the list
+    expect(sessionRow().banner.text).toMatch(/^The list of spots changed\. .* no longer on the list/)
   })
 })
 

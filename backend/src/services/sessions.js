@@ -43,6 +43,7 @@ import { MAX_ROUTED_TRIPS_PER_REQUEST, ROUTING_DEADLINE_MS } from './travel-time
 //   4. apply_session_plan writes nothing when the session's version or status is not what the run loaded. A run that is too late
 //      loads again and does its jobs again on the new state (so a spot list worked out for a locating session is never put
 //      over a confirmed one, and a job that no longer applies is refused with the right error), up to three times; then 409 plan_busy.
+//      Each call to the database in a run has a deadline (dbDeadlineMs); a run past it fails with 503 `unavailable` and the line moves on.
 //
 // Travel times come from the centres of areas, never from an exact place, and only saved venues exist here: no Google. No answer
 // carries a label or a coordinate, and session_member_places is never read.
@@ -55,6 +56,10 @@ import { MAX_ROUTED_TRIPS_PER_REQUEST, ROUTING_DEADLINE_MS } from './travel-time
 
 // How many times a run loads the session and does its jobs again when the session moved on while it worked out the spots.
 const MAX_TRIES = 3
+
+// The most time one call to the database may take inside a run (the same as OneMap's). A database that hangs must not hold its
+// session's line for ever: after this the run fails with 503 and the line moves on.
+const DB_DEADLINE_MS = 8000
 
 // An error that is the caller's to hear about: a status, a code, and a message that is safe to show.
 //
@@ -72,6 +77,19 @@ export class SessionError extends Error {
 
 // A SessionError to throw. How to call: throw refuse(403, 'host_only', 'Only the host can confirm a spot.')
 const refuse = (status, code, message, options) => new SessionError(status, code, message, options)
+
+// Waits for a call to the database, at most `ms`. Past that it fails with 503 `unavailable` (the call may still finish later, so
+// the caller cannot tell whether a write happened, which is why this is a 5xx and not a refusal).
+//
+// How to call:
+//   const state = await within(loadState(service, id), 8000, 'reading the session')
+function within(work, ms, what) {
+  let timer
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(refuse(503, 'unavailable', `The database did not answer in time while ${what}. Try again in a moment.`, { retryAfter: 2 })), ms)
+  })
+  return Promise.race([work, late]).finally(() => clearTimeout(timer))
+}
 
 // The status check every endpoint makes. `allowed` are the statuses it works in. Of the others: a finished session is `closed`
 // (an error code, default wrong_status), a status listed in `notYet` is work a later stage does (409 not_yet), and anything
@@ -151,10 +169,11 @@ const draftOf = (state) => ({
 //   data     - Venues and areas the planner reads, from loadPlanData(). Only the areas are used.
 //   runs     - The shared planner runs, from createPlannerRuns() (services/planner-runs.js). Every OneMap call goes through them.
 //   queue    - Tests may pass their own lane (createSessionQueue); normally built here.
+//   dbDeadlineMs - The most time one call to the database may take inside a run. Default DB_DEADLINE_MS (8 seconds).
 //
 // How to call:
 //   const sessions = createSessions({ supabase, data, runs })
-export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTING_DEADLINE_MS }) {
+export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTING_DEADLINE_MS, dbDeadlineMs = DB_DEADLINE_MS }) {
   const service = supabase.service
   const areasById = new Map((data.areas ?? []).map((a) => [a.id, a]))
   const areaName = (id) => areasById.get(id)?.name ?? id
@@ -231,7 +250,9 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
     }
 
     for (let attempt = 0; attempt < MAX_TRIES; attempt += 1) {
-      const state = await loadState(service, sessionId)
+      // Taken before the members are read, so a member row changed after it has an updated_at later than the spots' computed_at.
+      const loadedAt = new Date().toISOString()
+      const state = await within(loadState(service, sessionId), dbDeadlineMs, 'reading the session')
       if (!state.session) {
         for (const job of batch.jobs) if (!dropped.has(job)) reject(job, refuse(404, 'session_not_found', 'This session does not exist, or you are not in it.'))
         return
@@ -253,6 +274,11 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
       // The spots: worked out again if any job needs the planner, kept as they are stored if the jobs only move suggestions about,
       // and the job's own list when the host sets a known place.
       const needs = live.some(({ prepared }) => prepared.needs === 'recompute') ? 'recompute' : live.some(({ prepared }) => prepared.needs === 'relist') ? 'relist' : 'none'
+      const ops = live.flatMap(({ prepared }) => prepared.ops ?? [])
+      const sessionPatch = live.find(({ prepared }) => prepared.session)?.prepared.session
+      // A run that would only recompute does not spend a planner run (and its OneMap calls) when a newer run of the same kind is
+      // already waiting: that one does the same work on newer inputs, so the jobs move to it before anything is paid for.
+      if (needs === 'recompute' && ops.length === 0 && !sessionPatch && handOver(live.map(({ job }) => job))) return
       let rows = live.find(({ prepared }) => prepared.spots)?.prepared.spots
       let skipped = []
       let recomputed = false
@@ -281,19 +307,25 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
         continue
       }
 
-      const patch = { ops: live.flatMap(({ prepared }) => prepared.ops ?? []) }
-      const sessionPatch = live.find(({ prepared }) => prepared.session)?.prepared.session
+      const patch = { ops }
       if (sessionPatch) patch.session = sessionPatch
       let lost = []
       if (rows !== undefined) {
         patch.spots = rows
         // Said only when the planner just worked the list out, so the database brings its time of working out forward even when no
-        // number moved (a page compares it with a member's last change). A list merely kept as it was never claims that.
+        // number moved (a page compares it with a member's last change). A list merely kept as it was never claims that. The time
+        // is when the members were read, not when the planner finished, so a start saved while it ran still looks unpriced.
         if (recomputed) patch.recomputed = true
+        patch.loaded_at = loadedAt
         lost = lostApprovalAreas(spotsBefore, rows, draft.approvals)
         if (lost.length > 0) {
-          const reason = live.find(({ prepared }) => prepared.reason)?.prepared
-          const names = await loadNames(service, [...new Set(live.flatMap(({ prepared }) => prepared.nameIds ?? []))])
+          // The notice starts with the change that took the spot away: the job that withdrew or replaced its suggestion, or removed
+          // the person who made it. With several jobs in the batch and none to blame (they all moved starts), it says only that the
+          // list changed, rather than name one person's change for something another's may have caused.
+          const reasoned = live.filter(({ prepared }) => prepared.reason)
+          const culprit = reasoned.find(({ prepared }) => (prepared.removes ?? []).some((areaId) => lost.includes(areaId)))?.prepared
+          const reason = culprit ?? (reasoned.length === 1 ? reasoned[0].prepared : null)
+          const names = await within(loadNames(service, [...new Set(live.flatMap(({ prepared }) => prepared.nameIds ?? []))]), dbDeadlineMs, 'reading the names')
           const nameOf = (id) => names.get(lower(id)) ?? 'Someone'
           patch.banner_text = lostApprovalsBannerText(reason?.reason(nameOf) ?? 'The list of spots changed.', lost, areaName)
         }
@@ -302,10 +334,14 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
       const nothingToWrite = patch.ops.length === 0 && patch.spots === undefined && !patch.session
       let version = Number(state.session.plan_version)
       if (!nothingToWrite) {
-        // A run that only recomputed does not write when a newer run of the same kind is waiting: that one does the same work on newer inputs.
-        if (needs === 'recompute' && patch.ops.length === 0 && !patch.session && handOver(live.map(({ job }) => job))) return
+        // Asked again now: a run may have joined the line while the planner worked, and its jobs would be done again on newer inputs.
+        if (needs === 'recompute' && ops.length === 0 && !sessionPatch && handOver(live.map(({ job }) => job))) return
         try {
-          const written = await applyPlan(service, sessionId, { version: state.session.plan_version, status: state.session.status }, patch)
+          const written = await within(
+            applyPlan(service, sessionId, { version: state.session.plan_version, status: state.session.status }, patch),
+            dbDeadlineMs,
+            'saving the plan',
+          )
           if (written === null) continue // the session moved on while the spots were worked out: load again
           version = written
         } catch (err) {
@@ -320,7 +356,7 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
       }
       for (const { job, prepared } of live) {
         try {
-          job.settle.resolve(await prepared.answer({ version, rows: rows ?? draft.spots, lost, skipped, state }))
+          job.settle.resolve(await within(Promise.resolve(prepared.answer({ version, rows: rows ?? draft.spots, lost, skipped, state })), dbDeadlineMs, 'reading the result'))
         } catch (err) {
           job.settle.reject(err)
         }
@@ -341,14 +377,17 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
   //   spots    the exact rows to leave in session_spots (a known place)
   //   session  columns of the session to change (status, banner, meeting)
   //   reason   (nameOf) => the sentence a notice starts with if approvals were removed; nameIds the people it names
+  //   removes  the area ids whose suggestion this job took away, so the notice names the job that caused a spot to leave the list
   //   verify   (rows) => throws a SessionError if the answer does not satisfy this job
   //   answer   ({ version, rows, lost, skipped }) => the JSON the endpoint answers with
 
   // Admits a request and queues its job. Resolves with the job's answer.
   //
   // How to call:
-  //   return submit({ client, id, userId }, job)
+  //   return submit({ client, id, userId }, job)   // the session id may be in any case; the line uses it in lower case
   async function submit({ client, id, userId }, job) {
+    // One lane per session however its id is written: Postgres reads a uuid without regard to case, and so must the line.
+    id = lower(id)
     const state = await admit(client, id, userId)
     job.check(state)
     return queue.enqueue(id, job)
@@ -419,11 +458,13 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
           if (!listed && locatedMembers(draft.members, areasById).located.length < MIN_STARTS) {
             throw refuse(409, 'no_spots', 'Spots open once two people have shared where they start.')
           }
+          const replaced = draft.suggestions.find((s) => lower(s.user_id) === userId)?.area_id
           draft.suggestions = [...draft.suggestions.filter((s) => lower(s.user_id) !== userId), { user_id: userId, area_id: areaId, here, created_at: new Date().toISOString() }]
           return {
             ops: [{ op: 'suggest', user_id: userId, area_id: areaId, here }],
             needs: listed ? 'relist' : 'recompute',
             nameIds: [userId],
+            removes: replaced && replaced !== areaId ? [replaced] : [],
             reason: (nameOf) => `${nameOf(userId)} suggested ${areaName(areaId)}.`,
             verify: (rows) => {
               if (!rows.some((r) => r.area_id === areaId)) {
@@ -454,12 +495,13 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
         check,
         prepare: (draft) => {
           check(draft)
-          const had = draft.suggestions.some((s) => lower(s.user_id) === userId)
+          const had = draft.suggestions.find((s) => lower(s.user_id) === userId)
           draft.suggestions = draft.suggestions.filter((s) => lower(s.user_id) !== userId)
           return {
             ops: had ? [{ op: 'unsuggest', user_id: userId }] : [],
             needs: had ? 'relist' : 'none',
             nameIds: [userId],
+            removes: had ? [had.area_id] : [],
             reason: (nameOf) => describeChange('withdrew', nameOf(userId)),
             answer: ({ version }) => ({ planVersion: version }),
           }
@@ -489,12 +531,14 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
           const me = requireMember(draft, userId)
           if (me.state === 'opted_out') return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, state: 'opted_out' }) }
           me.state = 'opted_out'
+          const theirs = draft.suggestions.filter((s) => lower(s.user_id) === userId).map((s) => s.area_id)
           draft.suggestions = draft.suggestions.filter((s) => lower(s.user_id) !== userId)
           draft.approvals = draft.approvals.filter((a) => lower(a.user_id) !== userId)
           return {
             ops: [{ op: 'opt_out', user_id: userId }],
             needs: 'recompute',
             nameIds: [userId],
+            removes: theirs,
             reason: (nameOf) => describeChange('optout', nameOf(userId)),
             answer: ({ version }) => ({ planVersion: version, state: 'opted_out' }),
           }
@@ -560,6 +604,7 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
         check,
         prepare: (draft) => {
           check(draft)
+          const theirs = draft.suggestions.filter((s) => lower(s.user_id) === person).map((s) => s.area_id)
           draft.members = draft.members.filter((m) => lower(m.user_id) !== person)
           draft.suggestions = draft.suggestions.filter((s) => lower(s.user_id) !== person)
           draft.approvals = draft.approvals.filter((a) => lower(a.user_id) !== person)
@@ -567,6 +612,7 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
             ops: [{ op: 'remove_member', user_id: person }],
             needs: 'recompute',
             nameIds: [person],
+            removes: theirs,
             reason: (nameOf) => describeChange(leaving ? 'left' : 'removed', nameOf(person)),
             answer: ({ version }) => (leaving ? { planVersion: version, left: true } : { planVersion: version, removed: true }),
           }

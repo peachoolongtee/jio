@@ -1,4 +1,5 @@
 import { generateKeyPairSync, sign } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 
 // A stand-in for Supabase, for the session tests. Nothing here touches the network.
 //
@@ -51,11 +52,14 @@ const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestion
 //   hooks.beforeApply   (args) => void, run inside apply_session_plan before it looks at the session: to play another writer
 //   staleApply          a number: that many calls answer null (the session "moved on") without writing
 //   failApply           true: apply_session_plan fails as a database error
+//   hangApply           true: apply_session_plan never answers (a database that hung)
+//   hangReads           true: the service key's reads never answer
+//   hooks.beforeRead    ({ table }) => void, run before each read by the service key: to play a request that arrives while a run loads
 //
 // How to call:
 //   const world = createWorld()
 export function createWorld() {
-  const world = { calls: [], hooks: {}, staleApply: 0, failApply: false, t: Date.parse('2026-10-20T08:00:00Z') }
+  const world = { calls: [], hooks: {}, staleApply: 0, failApply: false, hangApply: false, hangReads: false, t: Date.parse('2026-10-20T08:00:00Z') }
   for (const table of TABLES) world[table] = []
   return world
 }
@@ -73,6 +77,13 @@ export function tick(world) {
 const dbError = (code, message, hint) => ({ code, message, ...(hint && { hint }) })
 
 const UUID_LOWER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const UUID_ANY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Are two values equal as the database sees them? A uuid is equal to the same uuid in any case, as Postgres compares them.
+//
+// How to call:
+//   sameValue('AAAAAAAA-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') // true
+const sameValue = (a, b) => a === b || (typeof a === 'string' && typeof b === 'string' && UUID_ANY.test(a) && UUID_ANY.test(b) && a.toLowerCase() === b.toLowerCase())
 
 // The database's own checks on a row of session_spots (db/schema.sql), so a row the server should never write is caught here.
 //
@@ -102,7 +113,7 @@ function checkSpot(row) {
 export function applySessionPlan(world, { sid, expected_version: expectedVersion, expected_status: expectedStatus, patch }) {
   world.hooks.beforeApply?.({ sid, expectedVersion, expectedStatus, patch })
   if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) throw dbError('22023', 'The plan must be a JSON object.')
-  const session = world.sessions.find((s) => s.id === sid)
+  const session = world.sessions.find((s) => sameValue(s.id, sid))
   if (world.staleApply > 0) {
     world.staleApply -= 1
     return null
@@ -119,28 +130,47 @@ export function applySessionPlan(world, { sid, expected_version: expectedVersion
   }
 }
 
-// The body of the twin, run on a session already locked and found current.
+// A figure rounded the way the database writes it into an integer column, or null when there is none.
+//
+// How to call:
+//   roundOrNull(10.4) // 10
+const roundOrNull = (value) => (value === undefined || value === null ? null : Math.round(Number(value)))
+
+// The body of the twin, run on a session already locked and found current. It enforces the same rules in the same order as the SQL:
+// a pinned meeting stays; a status moves only from inviting or locating to voting with an area; a pin comes only with that move (or
+// when the same pin is stored); the host is never opted out or removed; leaving inviting needs two joined members after the ops;
+// and the version rises only when a value differs from the stored row.
+//
+// How to call (applySessionPlan does this):
+//   const version = apply(world, session, patch)
 function apply(world, session, patch) {
   const sid = session.id
   const sp = patch.session ?? {}
   const meeting = sp.meeting
   const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key)
   let changed = false
+  // When the server loaded the members the spots are worked out from; absent, the moment of the write.
+  const loadedAt = patch.loaded_at ? new Date(patch.loaded_at) : null
+  if (loadedAt && Number.isNaN(loadedAt.getTime())) throw dbError('22007', `invalid input syntax for type timestamp with time zone: "${patch.loaded_at}"`)
+  // Never later than the database's clock, as least(loaded_at, now()) in the SQL.
+  const stamp = () => { const now = tick(world); return loadedAt && loadedAt.toISOString() < now ? loadedAt.toISOString() : now }
+  const newStatus = sp.status ?? session.status
+  const moving = newStatus !== session.status
 
-  // Rule 3: a pinned meeting area stays.
+  // Rule 4: a pinned meeting area stays.
   if (has(sp, 'meeting') && ['voted', 'chosen'].includes(session.meeting_method) && ((meeting?.area_id ?? null) !== session.meeting_area_id || (meeting?.method ?? null) !== session.meeting_method)) {
     throw dbError('P0001', 'The meeting area was chosen and cannot be changed by a recompute.', 'area_pinned')
   }
-  // Rule 1: the only move is inviting or locating to voting, with an area; leaving inviting needs two joined members.
-  const newStatus = sp.status ?? session.status
-  if (newStatus !== session.status) {
+  // Rule 1: the only move is inviting or locating to voting, with an area.
+  if (moving) {
     if (!(['inviting', 'locating'].includes(session.status) && newStatus === 'voting') || !meeting?.area_id) {
       throw dbError('P0001', `A session cannot go from ${session.status} to ${newStatus} this way.`, 'status_transition')
     }
-    if (session.status === 'inviting' && world.session_members.filter((m) => m.session_id === sid && m.state === 'joined').length < 2) {
-      throw dbError('P0001', 'A session needs at least two people before it can start.', 'needs_two_people')
-    }
     changed = true
+  }
+  // Rule 5: a pin only with a confirm: the move to voting in this patch, or the same pin already stored.
+  if (['voted', 'chosen'].includes(meeting?.method) && !moving && !(session.meeting_method === meeting.method && (session.meeting_area_id ?? null) === (meeting.area_id ?? null))) {
+    throw dbError('P0001', 'A meeting area is pinned only when the host confirms it.', 'pin_without_confirm')
   }
 
   const dropApprovals = (test) => {
@@ -157,6 +187,10 @@ function apply(world, session, patch) {
   for (const op of patch.ops ?? []) {
     const user = op.user_id
     const member = world.session_members.find((m) => m.session_id === sid && m.user_id === user)
+    // Rule 6: the host is never opted out or removed here.
+    if ((op.op === 'opt_out' || op.op === 'remove_member') && sameValue(user, session.host_id)) {
+      throw dbError('P0001', op.op === 'opt_out' ? 'The host cannot opt out.' : 'The host cannot be removed.', 'host_member')
+    }
     if (op.op === 'opt_out') {
       if (member?.state === 'joined') {
         member.state = 'opted_out'
@@ -199,6 +233,11 @@ function apply(world, session, patch) {
     }
   }
 
+  // Rule 2: leaving inviting needs two joined members, counted after the ops.
+  if (session.status === 'inviting' && moving && world.session_members.filter((m) => m.session_id === sid && m.state === 'joined').length < 2) {
+    throw dbError('P0001', 'A session needs at least two people before it can start.', 'needs_two_people')
+  }
+
   let bannerText = null
   if (has(patch, 'spots')) {
     if (!Array.isArray(patch.spots)) throw dbError('22023', 'The spots must be a JSON list.')
@@ -223,12 +262,12 @@ function apply(world, session, patch) {
       checkSpot(next)
       const existing = world.session_spots.find((x) => x.session_id === sid && x.area_id === row.area_id)
       if (!existing) {
-        world.session_spots.push({ ...next, computed_at: tick(world) })
+        world.session_spots.push({ ...next, computed_at: stamp() })
         changed = true
       } else {
         const same = ['rank', 'worst_minutes', 'mean_minutes', 'approximate'].every((k) => existing[k] === next[k]) && JSON.stringify(existing.travel_minutes) === JSON.stringify(next.travel_minutes)
         if (!same) {
-          Object.assign(existing, next, { computed_at: tick(world) })
+          Object.assign(existing, next, { computed_at: stamp() })
           changed = true
         }
       }
@@ -236,15 +275,21 @@ function apply(world, session, patch) {
     // The ranks are unique in a session (checked at the end of the transaction).
     const ranks = world.session_spots.filter((x) => x.session_id === sid && x.rank !== null).map((x) => x.rank)
     if (new Set(ranks).size !== ranks.length) throw dbError('23505', 'session_spots: two spots with one rank')
-    // A run that worked the spots out with the planner brings their time of working out forward, but is not a change.
+    // A run that worked the spots out with the planner brings the time of working out forward on the spots that are older than
+    // when its inputs were loaded, but that is not a change.
     if (patch.recomputed === true) {
-      const at = tick(world)
-      for (const x of world.session_spots.filter((row) => row.session_id === sid)) x.computed_at = at
+      const at = stamp()
+      for (const x of world.session_spots.filter((row) => row.session_id === sid && Date.parse(row.computed_at) < Date.parse(at))) x.computed_at = at
     }
     if (lostApprovals) bannerText = patch.banner_text || 'Some spots are no longer on the list, so approvals for them were removed.'
   }
 
-  if (Object.keys(sp).length > 0 || bannerText !== null) changed = true
+  // Rule 3: the session section is a change only where a value differs from the stored row (the meeting as it would be written).
+  const nextMeeting = [meeting?.area_id ?? null, meeting?.method ?? null, roundOrNull(meeting?.max_minutes), roundOrNull(meeting?.total_minutes), roundOrNull(meeting?.count), meeting?.approximate ?? null]
+  const storedMeeting = [session.meeting_area_id, session.meeting_method, session.meeting_max_minutes, session.meeting_total_minutes, session.meeting_count, session.meeting_approximate].map((v) => v ?? null)
+  const meetingChanged = has(sp, 'meeting') && !isDeepStrictEqual(storedMeeting, nextMeeting)
+  const bannerChanged = has(sp, 'banner') && !isDeepStrictEqual(session.banner ?? null, sp.banner ?? null)
+  if (meetingChanged || bannerChanged || bannerText !== null) changed = true
   if (!changed) return Number(session.plan_version)
 
   if (has(sp, 'meeting') && meeting && typeof meeting === 'object' && meeting.travel) {
@@ -253,17 +298,17 @@ function apply(world, session, patch) {
     }
   }
   session.status = newStatus
-  if (has(sp, 'meeting')) {
+  if (meetingChanged) {
     session.meeting_area_id = meeting?.area_id ?? null
     session.meeting_method = meeting?.method ?? null
-    session.meeting_max_minutes = meeting ? Math.round(meeting.max_minutes) : null
-    session.meeting_total_minutes = meeting ? Math.round(meeting.total_minutes) : null
-    session.meeting_count = meeting ? Math.round(meeting.count) : null
-    session.meeting_approximate = meeting?.approximate ?? null
+    session.meeting_max_minutes = nextMeeting[2]
+    session.meeting_total_minutes = nextMeeting[3]
+    session.meeting_count = nextMeeting[4]
+    session.meeting_approximate = nextMeeting[5]
     session.meeting_computed_at = meeting?.area_id ? tick(world) : null
   }
   if (bannerText !== null) session.banner = { text: bannerText, at: world.t, approvalsRemoved: true }
-  else if (has(sp, 'banner')) session.banner = sp.banner
+  else if (bannerChanged) session.banner = sp.banner ?? null
   session.plan_version = Number(session.plan_version) + 1
   return session.plan_version
 }
@@ -315,6 +360,11 @@ function query(world, table, who) {
 
   const run = () => {
     log()
+    if (who === null && op.kind === 'select') {
+      world.hooks.beforeRead?.({ table })
+      // A database that hung: the service key's reads never answer.
+      if (world.hangReads) return new Promise(() => {})
+    }
     const rows = world[table]
     if (op.kind === 'select') {
       const found = rows.filter(matches)
@@ -385,11 +435,11 @@ function query(world, table, who) {
       return builder
     },
     eq(column, value) {
-      op.filters.push([column, (v) => v === value])
+      op.filters.push([column, (v) => sameValue(v, value)])
       return builder
     },
     in(column, values) {
-      op.filters.push([column, (v) => values.includes(v)])
+      op.filters.push([column, (v) => values.some((candidate) => sameValue(v, candidate))])
       return builder
     },
     maybeSingle() {
@@ -415,6 +465,7 @@ function clientOver(world, who) {
       world.calls.push({ rpc: name, kind: 'rpc', who })
       if (name !== 'apply_session_plan') return { data: null, error: dbError('42883', `no function ${name}`) }
       if (who !== null) return { data: null, error: dbError('42501', 'permission denied for function apply_session_plan') }
+      if (world.hangApply) return new Promise(() => {})
       if (world.failApply) return { data: null, error: dbError('XX000', 'boom') }
       try {
         return { data: applySessionPlan(world, args), error: null }

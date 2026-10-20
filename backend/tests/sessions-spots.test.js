@@ -230,6 +230,15 @@ describe('POST /api/sessions/:id/meeting-area (E1)', () => {
     expect(writes()).toHaveLength(0)
   })
 
+  it('takes the session id in upper case as the same session (Postgres reads a uuid without regard to case)', async () => {
+    await start()
+    const res = await t.call('POST', `/api/sessions/${SESSION.toUpperCase()}/meeting-area`, {}, HOST)
+    expect(res.status).toBe(200)
+    expect(res.body.spots).toBe(3)
+    expect(spots()).toHaveLength(3)
+    expect(session().plan_version).toBe(1)
+  })
+
   it('works out the spots from the centres of areas and never reads an exact place', async () => {
     await start()
     world.session_member_places.push({ session_id: SESSION, user_id: GUEST, start_label: '12 Secret Lane, Singapore 123456', start_lat: 1.3333, start_lng: 103.8888, end_label: null, end_lat: null, end_lng: null })
@@ -583,7 +592,7 @@ describe('a late answer never undoes a confirmation', () => {
 
   it('refuses, inside the write, any patch that would move a pinned meeting area (the twin of the SQL rule)', async () => {
     await start({ status: 'voting' })
-    Object.assign(session(), { meeting_area_id: 'bugis', meeting_method: 'chosen' })
+    Object.assign(session(), { meeting_area_id: 'bugis', meeting_method: 'chosen', meeting_max_minutes: 10, meeting_total_minutes: 20, meeting_count: 2, meeting_approximate: false })
     const supabase = fakeSupabase(world, createSupabase({ url: SUPABASE_URL, anonKey: 'a', serviceKey: 's', fetchImpl: jwksFetch }))
     const meeting = (area, method) => ({ area_id: area, method, max_minutes: 10, total_minutes: 20, count: 2, approximate: false, travel: {} })
     const apply = (m) => supabase.service.rpc('apply_session_plan', { sid: SESSION, expected_version: 0, expected_status: 'voting', patch: { session: { meeting: m } } })
@@ -591,8 +600,8 @@ describe('a late answer never undoes a confirmation', () => {
     expect((await apply(meeting('bugis', 'voted'))).error.hint).toBe('area_pinned')
     expect((await apply(null)).error.hint).toBe('area_pinned')
     expect(session()).toMatchObject({ meeting_area_id: 'bugis', meeting_method: 'chosen', plan_version: 0 })
-    // The same area and method again is allowed (and changes nothing but the time it was worked out).
-    expect((await apply(meeting('bugis', 'chosen'))).error).toBeNull()
+    // The same area and method again is allowed, and changes nothing at all (as the SQL does).
+    expect(await apply(meeting('bugis', 'chosen'))).toEqual({ data: 0, error: null })
   })
 
   it('moves a status only from inviting or locating to voting, with an area, and from inviting only with two people (the twin of the SQL rules)', async () => {
@@ -607,6 +616,110 @@ describe('a late answer never undoes a confirmation', () => {
     expect(session().status).toBe('inviting')
     // A stale status writes nothing and answers null, never an error.
     expect((await apply('locating', { ops: [{ op: 'clear_approvals' }] })).data).toBeNull()
+  })
+})
+
+// The same cases as db/tests/apply_session_plan.sql steps 50 to 76, against the JavaScript twin, so the server's code is tested offline
+// against the rules the SQL enforces.
+describe('the rules of apply_session_plan that the server must not be trusted with (the twin of SQL steps 50 to 76)', () => {
+  const meeting = (extra = {}) => ({ area_id: 'bugis', method: 'chosen', max_minutes: 10.4, total_minutes: 19.6, count: 2, approximate: false, travel: {}, ...extra })
+  const rpc = (patch, { version = 0, status = 'voting' } = {}) =>
+    fakeSupabase(world, createSupabase({ url: SUPABASE_URL, anonKey: 'a', serviceKey: 's', fetchImpl: jwksFetch })).service.rpc('apply_session_plan', {
+      sid: SESSION,
+      expected_version: version,
+      expected_status: status,
+      patch,
+    })
+  // A voting session pinned at Bugis with figures of 10 and 20 minutes, worked out three hours ago.
+  async function pinned() {
+    await start({ status: 'voting' })
+    Object.assign(session(), { meeting_area_id: 'bugis', meeting_method: 'chosen', meeting_max_minutes: 10, meeting_total_minutes: 20, meeting_count: 2, meeting_approximate: false, meeting_computed_at: '2026-10-20T05:00:00.000Z' })
+  }
+
+  it('counts the session section as a change only where a value differs: the same pinned meeting again answers the stored version and writes nothing', async () => {
+    await pinned()
+    expect(await rpc({ session: { meeting: meeting() } })).toEqual({ data: 0, error: null })
+    expect(session()).toMatchObject({ plan_version: 0, meeting_max_minutes: 10, meeting_computed_at: '2026-10-20T05:00:00.000Z' })
+    // A figure that differs is written, and the time the meeting was worked out moves.
+    expect(await rpc({ session: { meeting: meeting({ max_minutes: 11 }) } })).toEqual({ data: 1, error: null })
+    expect(session()).toMatchObject({ plan_version: 1, meeting_max_minutes: 11 })
+    expect(session().meeting_computed_at).not.toBe('2026-10-20T05:00:00.000Z')
+  })
+
+  it('counts a banner as a change only where it differs: the same banner again, or clearing none, changes nothing', async () => {
+    await pinned()
+    const banner = { text: 'Hello', at: 1, approvalsRemoved: true }
+    expect(await rpc({ session: { banner } })).toEqual({ data: 1, error: null })
+    expect(await rpc({ session: { banner: { approvalsRemoved: true, at: 1, text: 'Hello' } } }, { version: 1 })).toEqual({ data: 1, error: null })
+    expect(await rpc({ session: { banner: null } }, { version: 1 })).toEqual({ data: 2, error: null })
+    expect(await rpc({ session: { banner: null } }, { version: 2 })).toEqual({ data: 2, error: null })
+    expect(session().banner).toBeNull()
+  })
+
+  it('counts the people after the ops, so opting someone out and starting in one call needs two others: nothing is written when it is refused', async () => {
+    await start({ status: 'inviting' })
+    world.session_members.splice(2) // the host and one guest
+    const start1 = { status: 'voting', meeting: meeting({ max_minutes: 0, total_minutes: 0, count: 0 }) }
+    for (const op of [{ op: 'opt_out', user_id: GUEST }, { op: 'remove_member', user_id: GUEST }]) {
+      const refused = await rpc({ ops: [op], session: start1 }, { status: 'inviting' })
+      expect(refused.error.hint).toBe('needs_two_people')
+    }
+    expect(world.session_members.map((m) => `${m.user_id}:${m.state}`)).toEqual([`${HOST}:joined`, `${GUEST}:joined`])
+    expect(session()).toMatchObject({ status: 'inviting', plan_version: 0 })
+    // With a third member who steps out as it starts, two remain and it goes through.
+    addMember(world, SESSION, OTHER)
+    expect(await rpc({ ops: [{ op: 'opt_out', user_id: OTHER }], session: start1 }, { status: 'inviting' })).toEqual({ data: 1, error: null })
+    expect(world.session_members.find((m) => m.user_id === OTHER).state).toBe('opted_out')
+    expect(session().status).toBe('voting')
+  })
+
+  it('accepts a pinned method only with the move to voting, or when the same pin is stored', async () => {
+    await start({ status: 'locating' })
+    for (const method of ['voted', 'chosen']) {
+      expect((await rpc({ session: { meeting: meeting({ method }) } }, { status: 'locating' })).error.hint).toBe('pin_without_confirm')
+    }
+    expect(session()).toMatchObject({ plan_version: 0, meeting_method: null })
+    // The planner's own method needs no confirm, and a stored planner method is not a pin.
+    expect(await rpc({ session: { meeting: meeting({ method: 'fairest' }) } }, { status: 'locating' })).toEqual({ data: 1, error: null })
+    expect((await rpc({ session: { meeting: meeting({ method: 'chosen' }) } }, { version: 1, status: 'locating' })).error.hint).toBe('pin_without_confirm')
+    // With the move to voting it is the confirm, and goes through.
+    expect(await rpc({ session: { status: 'voting', meeting: meeting({ method: 'chosen' }) } }, { version: 1, status: 'locating' })).toEqual({ data: 2, error: null })
+  })
+
+  it('never opts the host out or removes them', async () => {
+    await start({ status: 'locating' })
+    for (const op of ['opt_out', 'remove_member']) {
+      const refused = await rpc({ ops: [{ op, user_id: HOST }] }, { status: 'locating' })
+      expect(refused.error).toMatchObject({ code: 'P0001', hint: 'host_member' })
+    }
+    expect(world.session_members.find((m) => m.user_id === HOST).state).toBe('joined')
+    expect(session().plan_version).toBe(0)
+    // A guest still can be, and the host's id in another case is still the host.
+    expect((await rpc({ ops: [{ op: 'opt_out', user_id: GUEST }] }, { status: 'locating' })).error).toBeNull()
+  })
+
+  it('gives a spot the time its inputs were loaded, and brings older spots to it but never a newer one back', async () => {
+    await pinned()
+    const hourAgo = '2026-10-20T07:00:00.000Z'
+    const at = (iso) => new Date(iso).toISOString()
+    const row = (area, rank, worst) => ({ session_id: SESSION, area_id: area, rank, worst_minutes: worst, mean_minutes: worst - 5, travel_minutes: {}, approximate: false })
+    world.session_spots.push(
+      { ...row('bishan', 1, 30), computed_at: '2026-10-20T06:00:00.000Z' },
+      { ...row('bugis', 2, 32), computed_at: '2026-10-20T06:00:00.000Z' },
+      { ...row('orchard', 3, 35), computed_at: '2026-10-20T08:30:00.000Z' },
+    )
+    const list = (bishan) => [row('bishan', 1, bishan), row('bugis', 2, 32), row('orchard', 3, 35)].map(({ session_id: _s, ...rest }) => rest)
+    expect(await rpc({ recomputed: true, loaded_at: hourAgo, spots: list(31) })).toEqual({ data: 1, error: null })
+    const computed = (area) => spots().find((s) => s.area_id === area).computed_at
+    expect(computed('bishan')).toBe(at(hourAgo)) // written: its inputs were loaded an hour ago
+    expect(computed('bugis')).toBe(at(hourAgo)) // untouched but older: brought forward to that time
+    expect(computed('orchard')).toBe('2026-10-20T08:30:00.000Z') // newer than the load: not moved back
+    // A member row changed after the load is newer than the spots, so the repair check still sees it.
+    expect(Date.parse('2026-10-20T07:30:00.000Z')).toBeGreaterThan(Date.parse(computed('bishan')))
+    // A new spot gets the time too, and a patch without loaded_at keeps writing the moment of the write.
+    expect(await rpc({ loaded_at: hourAgo, spots: [...list(31), { area_id: 'jurong-east', rank: null, worst_minutes: 40, mean_minutes: 30, travel_minutes: {}, approximate: false }] }, { version: 1 })).toEqual({ data: 2, error: null })
+    expect(computed('jurong-east')).toBe(at(hourAgo))
+    expect((await rpc({ loaded_at: 'not a time', spots: [] }, { version: 2 })).error).toBeTruthy()
   })
 })
 

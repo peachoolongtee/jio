@@ -12,8 +12,9 @@ import { MAX } from './plan-schemas.js'
 const areaId = z.string().min(1).max(MAX.areaId)
 
 export const sessionSchemas = {
-  // A uuid in a path. Postgres reads one without regard to the case of its letters; the service compares them in lower case.
-  sessionId: z.string().uuid(),
+  // A uuid in a path. Postgres reads one without regard to the case of its letters; the service compares them in lower case, so it is
+  // lower-cased here once and each session has one line however its id is written.
+  sessionId: z.string().uuid().transform((id) => id.toLowerCase()),
   // A person in the path of a leave or remove: "me" or their id.
   member: z.union([z.literal('me'), z.string().uuid()]),
   // POST /api/sessions/:id/meeting-area. `trigger` says what changed, for the notice the group may be shown.
