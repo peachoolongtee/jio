@@ -10,6 +10,7 @@
 //   - stage 3: `session_member_places` (a member's exact place: only its owner reads it, and it is never published to live
 //     updates), `session_spots`, `spot_suggestions` and `spot_approvals` (members read them; only the server writes the first
 //     two, and a member inserts and deletes their own approval while joined and the session is locating);
+//   - `slots`, empty: the server counts them when the host confirms a spot, and nothing in this stage makes any (stage 4 does);
 //   - who may read each row (a member reads their session, a host reads every invite of theirs, an invitee reads their own
 //     invitations, a member reads the pending personal invitations of their session), and who may write which columns:
 //     a signed-in user inserts a session (as the host) and an invite (as its creator, for a session they host), updates a
@@ -22,6 +23,10 @@
 //     only while inviting);
 //   - the functions `invite_preview`, `join_session`, `my_invitations` and `decline_invite`, with the same answers and
 //     errors (P0002 for any link that is not good, 28000 when not signed in, P0001 with hint session_full at 30 people);
+//   - `apply_session_plan`, the one function the server writes a session's plan through (the service key only): the version and
+//     status checks that answer null, the pinned area, the status move, the members', suggestions' and approvals' operations, the
+//     spots as a difference, the banner and the meeting area. A port of the SQL (and of backend/tests/helpers/fake-supabase.js);
+//     it does not run in the built app, only where this stand-in is loaded;
 //   - Realtime: `subscribe` delivers inserts, updates and deletes of the published tables (`sessions`, `session_members`,
 //     `invites`, `spot_approvals`), as the `supabase_realtime` publication carries them. `session_member_places`,
 //     `session_spots` and `spot_suggestions` are not published: a subscriber to them hears nothing. An insert or update reaches only a subscriber who may read the row, and passes the
@@ -52,6 +57,7 @@ const PRIMARY_KEY = {
   session_spots: ['session_id', 'area_id'],
   spot_suggestions: ['session_id', 'user_id'],
   spot_approvals: ['session_id', 'area_id', 'user_id'],
+  slots: ['id'],
 }
 // The tables the supabase_realtime publication carries (db/policies.sql). The others raise no live events.
 const PUBLISHED = new Set(['sessions', 'session_members', 'invites', 'spot_approvals'])
@@ -67,6 +73,7 @@ const GRANTS = {
   session_spots: { insert: [], update: [] },
   spot_suggestions: { insert: [], update: [] },
   spot_approvals: { insert: ['session_id', 'area_id', 'user_id'], update: [], delete: true },
+  slots: { insert: [], update: [] },
 }
 
 // A database error as the client reports it: { message, code, details, hint }, with the HTTP status PostgREST would use.
@@ -92,6 +99,7 @@ const UUID_COLUMNS = {
   session_spots: ['session_id'],
   spot_suggestions: ['session_id', 'user_id'],
   spot_approvals: ['session_id', 'user_id'],
+  slots: ['id', 'session_id'],
 }
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -135,7 +143,7 @@ function dateText(value) {
 
 // How to call: const db = createDatabase({ profiles, now: () => Date.now() })
 export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
-  const tables = { sessions: [], session_members: [], invites: [], session_member_places: [], session_spots: [], spot_suggestions: [], spot_approvals: [] }
+  const tables = { sessions: [], session_members: [], invites: [], session_member_places: [], session_spots: [], spot_suggestions: [], spot_approvals: [], slots: [] }
   const subscribers = new Set()
   // The events of the statement being run, or null outside one.
   let queue = null
@@ -160,7 +168,7 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
     if (table === 'sessions') return row.host_id === as || isMember(as, row.id)
     if (table === 'session_members') return isMember(as, row.session_id)
     // Spots, suggestions and approvals: every member reads them. A person's exact place: only that person.
-    if (['session_spots', 'spot_suggestions', 'spot_approvals'].includes(table)) return isMember(as, row.session_id)
+    if (['session_spots', 'spot_suggestions', 'spot_approvals', 'slots'].includes(table)) return isMember(as, row.session_id)
     if (table === 'session_member_places') return row.user_id === as
     if (table === 'invites') {
       if (isHost(as, row.session_id) || row.invitee_id === as) return true
@@ -263,6 +271,7 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
       meeting_total_minutes: null,
       meeting_count: null,
       meeting_approximate: null,
+      meeting_computed_at: null,
       banner: null,
       plan_version: 0,
       created_at: iso(now()),
@@ -363,10 +372,12 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
   // How to call: select({ as: uid, table: 'sessions', columns: 'id', filters: [], order: [], limit: null, single: null })
   function select(op) {
     const { as, table } = op
-    if (!PRIMARY_KEY[table]) throw new DbError('42P01', `relation "public.${table}" does not exist`, { status: 404 })
+    // The accounts' public profiles are only read (the server looks up names to write a notice): never written here.
+    if (table !== 'profiles' && !PRIMARY_KEY[table]) throw new DbError('42P01', `relation "public.${table}" does not exist`, { status: 404 })
     if (!as) throw denied(table)
     checkFilters(table, op.filters)
-    let rows = filterRows(tables[table].filter((r) => self.canSee(as, table, r)), op.filters)
+    const readable = table === 'profiles' ? Object.entries(profiles).map(([id, row]) => ({ id, ...row })) : tables[table].filter((r) => self.canSee(as, table, r))
+    let rows = filterRows(readable, op.filters)
     for (const { col, ascending = true } of [...(op.order || [])].reverse()) {
       rows = [...rows].sort((a, b) => (a[col] < b[col] ? -1 : a[col] > b[col] ? 1 : 0) * (ascending ? 1 : -1))
     }
@@ -414,7 +425,7 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
       publish(table, 'DELETE', row)
       const children = []
       if (table === 'sessions') {
-        for (const child of ['session_members', 'invites', 'session_member_places', 'session_spots', 'spot_suggestions', 'spot_approvals']) children.push([child, tables[child].filter((r) => r.session_id === row.id)])
+        for (const child of ['session_members', 'invites', 'session_member_places', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots']) children.push([child, tables[child].filter((r) => r.session_id === row.id)])
       } else if (table === 'session_members') {
         for (const child of ['session_member_places', 'spot_suggestions', 'spot_approvals']) children.push([child, tables[child].filter((r) => r.session_id === row.session_id && r.user_id === row.user_id)])
       } else if (table === 'session_spots') {
@@ -565,6 +576,164 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
     return shape(op, targets, table)
   }
 
+  // ── apply_session_plan ──────────────────────────────────────────────────
+
+  // A rule of the function: P0001 with a hint, which the server reads to refuse in its own words.
+  // How to call: throw ruleBroken('area_pinned', 'The meeting area was chosen and cannot be changed by a recompute.')
+  const ruleBroken = (hint, message) => new DbError('P0001', message, { hint })
+
+  // The body of apply_session_plan. Returns the version, or null when the session moved on. Follows the SQL step by step; the
+  // comments name its rules.
+  // How to call: applySessionPlan({ sid, expected_version: 4, expected_status: 'locating', patch: { ops: [], spots: [] } })
+  function applySessionPlan({ sid, expected_version: expectedVersion, expected_status: expectedStatus, patch }) {
+    if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) throw new DbError('22023', 'The plan must be a JSON object.')
+    const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key)
+    const sp = patch.session ?? {}
+    const meeting = sp.meeting
+    const s = sessionOf(sid)
+    if (!s || Number(s.plan_version) !== Number(expectedVersion) || s.status !== expectedStatus) return null
+
+    // Rule 3: a pinned meeting area stays.
+    if (has(sp, 'meeting') && ['voted', 'chosen'].includes(s.meeting_method) && ((meeting?.area_id ?? null) !== s.meeting_area_id || (meeting?.method ?? null) !== s.meeting_method)) {
+      throw ruleBroken('area_pinned', 'The meeting area was chosen and cannot be changed by a recompute.')
+    }
+    // Rule 1: the only move is inviting or locating to voting, with an area; leaving inviting needs two joined members.
+    let changed = false
+    const newStatus = sp.status ?? s.status
+    if (newStatus !== s.status) {
+      if (!(['inviting', 'locating'].includes(s.status) && newStatus === 'voting') || !meeting?.area_id) {
+        throw ruleBroken('status_transition', `A session cannot go from ${s.status} to ${newStatus} this way.`)
+      }
+      if (s.status === 'inviting' && tables.session_members.filter((m) => m.session_id === sid && m.state === 'joined').length < 2) {
+        throw ruleBroken('needs_two_people', 'A session needs at least two people before it can start.')
+      }
+      changed = true
+    }
+
+    // Deletes the rows of one table of this session that the test picks, with what hangs on them. True if any went.
+    // How to call: dropRows('spot_approvals', (a) => a.user_id === uid)
+    const dropRows = (table, test) => {
+      const gone = tables[table].filter((r) => r.session_id === sid && test(r))
+      cascade(table, gone)
+      return gone.length > 0
+    }
+    // The member row's change, with the trigger that keeps updated_at current.
+    // How to call: changeMember(row, { state: 'opted_out' })
+    const changeMember = (row, values) => {
+      Object.assign(row, values, { updated_at: iso(now()) })
+      publish('session_members', 'UPDATE', row)
+    }
+
+    // Members, suggestions and approvals, in the order given.
+    for (const op of patch.ops ?? []) {
+      const user = op.user_id
+      const member = tables.session_members.find((m) => m.session_id === sid && m.user_id === user)
+      if (op.op === 'opt_out') {
+        if (member?.state === 'joined') {
+          changeMember(member, { state: 'opted_out' })
+          changed = true
+        }
+        changed = dropRows('spot_approvals', (a) => a.user_id === user) || changed
+        changed = dropRows('spot_suggestions', (g) => g.user_id === user) || changed
+      } else if (op.op === 'rejoin') {
+        if (member?.state === 'opted_out') {
+          changeMember(member, { state: 'joined' })
+          changed = true
+        }
+      } else if (op.op === 'remove_member') {
+        if (member) {
+          cascade('session_members', [member])
+          changed = true
+        }
+      } else if (op.op === 'suggest') {
+        // One suggestion per member. Suggesting the same again changes nothing; a different one counts as newest.
+        const here = op.here ?? false
+        const existing = tables.spot_suggestions.find((g) => g.session_id === sid && g.user_id === user)
+        if (!existing) {
+          insertSpotRow('spot_suggestions', { session_id: sid, user_id: user, area_id: op.area_id, here })
+          changed = true
+        } else if (existing.area_id !== op.area_id || existing.here !== here) {
+          const next = { ...existing, area_id: op.area_id, here, created_at: iso(now()) }
+          checkSpotRow('spot_suggestions', next)
+          Object.assign(existing, next)
+          changed = true
+        }
+      } else if (op.op === 'unsuggest') {
+        changed = dropRows('spot_suggestions', (g) => g.user_id === user) || changed
+      } else if (op.op === 'clear_approvals') {
+        changed = dropRows('spot_approvals', () => true) || changed
+      } else if (op.op === 'clear_suggestions') {
+        changed = dropRows('spot_suggestions', () => true) || changed
+      } else {
+        throw new DbError('22023', `Unknown operation ${op.op}.`)
+      }
+    }
+
+    // The spots, as a difference: listed areas are inserted or updated, unlisted ones deleted with their approvals.
+    let bannerText = null
+    if (has(patch, 'spots')) {
+      if (!Array.isArray(patch.spots)) throw new DbError('22023', 'The spots must be a JSON list.')
+      const listed = new Set(patch.spots.map((r) => r.area_id))
+      const lostApprovals = tables.spot_approvals.some((a) => a.session_id === sid && !listed.has(a.area_id))
+      if (dropRows('session_spots', (x) => !listed.has(x.area_id))) changed = true
+      for (const row of patch.spots) {
+        const next = {
+          session_id: sid,
+          area_id: row.area_id,
+          rank: row.rank ?? null,
+          worst_minutes: Number(row.worst_minutes),
+          mean_minutes: Number(row.mean_minutes),
+          travel_minutes: structuredClone(row.travel_minutes ?? {}),
+          approximate: row.approximate ?? false,
+        }
+        checkSpotRow('session_spots', next)
+        const existing = tables.session_spots.find((x) => x.session_id === sid && x.area_id === row.area_id)
+        if (!existing) {
+          tables.session_spots.push({ ...next, computed_at: iso(now()) })
+          changed = true
+        } else if (['rank', 'worst_minutes', 'mean_minutes', 'approximate'].some((k) => existing[k] !== next[k]) || JSON.stringify(existing.travel_minutes) !== JSON.stringify(next.travel_minutes)) {
+          // A listed spot is written only if something about it changed, so its time of working out is left alone otherwise.
+          Object.assign(existing, next, { computed_at: iso(now()) })
+          changed = true
+        }
+      }
+      // The ranks are unique in a session, checked at the end (so two spots can swap ranks in one call).
+      const ranks = tables.session_spots.filter((x) => x.session_id === sid && x.rank != null).map((x) => x.rank)
+      if (new Set(ranks).size !== ranks.length) throw new DbError('23505', 'duplicate key value violates unique constraint "session_spots_session_id_rank_key"', { status: 409 })
+      // A run that worked the spots out again brings their time of working out forward, which is not a change.
+      if (patch.recomputed === true) for (const x of tables.session_spots.filter((r) => r.session_id === sid)) x.computed_at = iso(now())
+      // The group is told only when the deletion removed an approval.
+      if (lostApprovals) bannerText = patch.banner_text || 'Some spots are no longer on the list, so approvals for them were removed.'
+    }
+
+    if (Object.keys(sp).length > 0 || bannerText !== null) changed = true
+    if (!changed) return Number(s.plan_version)
+
+    // Each joined member's own minutes to the confirmed area.
+    if (has(sp, 'meeting') && meeting && typeof meeting === 'object' && meeting.travel) {
+      for (const m of tables.session_members.filter((row) => row.session_id === sid && row.state === 'joined')) {
+        changeMember(m, { travel_minutes: has(meeting.travel, m.user_id) ? Math.round(meeting.travel[m.user_id]) : null })
+      }
+    }
+    s.status = newStatus
+    if (has(sp, 'meeting')) {
+      s.meeting_area_id = meeting?.area_id ?? null
+      s.meeting_method = meeting?.method ?? null
+      s.meeting_max_minutes = meeting ? Math.round(meeting.max_minutes) : null
+      s.meeting_total_minutes = meeting ? Math.round(meeting.total_minutes) : null
+      s.meeting_count = meeting ? Math.round(meeting.count) : null
+      s.meeting_approximate = meeting?.approximate ?? null
+      s.meeting_computed_at = meeting?.area_id ? iso(now()) : null
+    }
+    // The banner the function writes when approvals went: { text, at, approvalsRemoved: true }, `at` in milliseconds.
+    if (bannerText !== null) s.banner = { text: bannerText, at: now(), approvalsRemoved: true }
+    else if (has(sp, 'banner')) s.banner = sp.banner
+    s.plan_version = Number(s.plan_version) + 1
+    s.updated_at = iso(now())
+    publish('sessions', 'UPDATE', s)
+    return s.plan_version
+  }
+
   // ── Functions the app calls ─────────────────────────────────────────────
 
   // How to call: usableInvite('<token>', uid) -> the invite and its session when the link is good for this caller, else null
@@ -613,6 +782,16 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
         .filter(({ i, s }) => s && OPEN.includes(s.status) && !isMember(as, s.id) && i.invitee_id === as)
         .sort((a, b) => (a.i.created_at < b.i.created_at ? 1 : -1))
         .map(({ i, s }) => ({ token: i.token, title: s.title, date: s.date, start_time: s.start_time, end_time: s.end_time, host_name: hostName(s.host_id), invited_at: i.created_at }))
+    },
+    // The one function the server writes a session's plan through (db/migrations/20261020000000_jio_apply_session_plan.sql): the
+    // service key only. Answers null when the session's version or status is not what the server loaded (nothing is written), the
+    // version after the write otherwise, and a P0001 error with a hint for a rule (area_pinned, needs_two_people, status_transition).
+    // The caller's whole statement is undone if any step fails, as run() does for every write. This is a JavaScript port of the
+    // SQL, and of applySessionPlan in backend/tests/helpers/fake-supabase.js; the two are separate copies because the backend's
+    // twin keeps its tables as plain arrays and has no cascade or Realtime, and this one has both.
+    apply_session_plan({ as, args }) {
+      if (as !== SERVICE) throw denied('apply_session_plan')
+      return applySessionPlan(args)
     },
     // The invitee says no.
     decline_invite({ as, args }) {
