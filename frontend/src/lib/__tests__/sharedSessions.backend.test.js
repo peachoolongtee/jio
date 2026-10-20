@@ -2,6 +2,7 @@
 // client) calls the real Express routes under /api/sessions/:id, started in this process. The login check is the stand-in's (it knows whose token
 // each stand-in client issued) and the database is the stand-in (components/dev/fakeDatabase.js) that both sides use. If the
 // request or the answer drifts apart, this fails.
+import { AxiosError } from 'axios'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../../../../backend/src/app.js'
 import { createHttp } from '../../../../backend/src/services/http.js'
@@ -147,14 +148,15 @@ async function locatingPair(w, { starts = true } = {}) {
   return { sam, kim, id }
 }
 
-// Counts the calls an app makes to POST /api/sessions/:id/meeting-area (E1), and lets a test run something just before each.
+// Counts the calls an app makes to POST /api/sessions/:id/meeting-area (E1), and lets a test run something just before each (it is
+// given the number of the call and the request, and may throw to make the call fail).
 // How to call: const asked = watchRepairs(kim); ...; expect(asked.count).toBe(1)
 function watchRepairs(app, before = null) {
   const asked = { count: 0 }
   app.api.api.interceptors.request.use(async (config) => {
     if (config.method === 'post' && String(config.url).endsWith('/meeting-area')) {
       asked.count += 1
-      await before?.(asked.count)
+      await before?.(asked.count, config)
     }
     return config
   })
@@ -185,11 +187,113 @@ describe('a start saved while the host confirms', () => {
     expect(seen.locations[kim.user.id].start).toMatchObject({ areaId: 'jurong-east' })
   })
 
-  it('still takes the start back when the server fails for another reason', async () => {
+  it('takes the start back when the server turns the request away, and says why', async () => {
+    // One call a minute for each person: the first start of each is allowed in locatingPair, the change below is turned away (429
+    // rate_limited, a refusal that did nothing).
+    const w = await world({ max: 1 })
+    const { kim, id } = await locatingPair(w)
+    const asked = watchRepairs(kim)
+    await expect(kim.api.setLocation(id, kim.user.id, 'start', { areaId: 'jurong-east', label: 'Jurong East Mall' })).rejects.toMatchObject({ code: 'rate_limited' })
+    expect(asked.count).toBe(1)
+    expect(startOf(w, kim)).toEqual({ area: 'bishan', label: 'Bishan Junction 8' })
+  })
+})
+
+// A failed call to the server as the planner client reports it: an error with a response (a refusal or a failure) or none (a timeout,
+// or the network down: `code` is then axios's own).
+// How to call: throw failure(409, 'plan_busy'); throw failure(null, 'ECONNABORTED')
+function failure(status, code) {
+  const config = { headers: {} }
+  if (status === null) return new AxiosError(code === 'ERR_NETWORK' ? 'Network Error' : 'timeout of 20000ms exceeded', code, config)
+  const response = { status, statusText: String(status), headers: {}, config, data: { error: code, message: code } }
+  return new AxiosError(`Request failed with status code ${status}`, 'ERR_BAD_RESPONSE', config, {}, response)
+}
+
+// A person's start as the database holds it, the area on their member row and the label of the exact place.
+// How to call: expect(startOf(w, kim)).toEqual({ area: 'bishan', label: 'Bishan Junction 8' })
+function startOf(w, app) {
+  return {
+    area: w.database.tables.session_members.find((m) => m.user_id === app.user.id).start_area_id,
+    label: w.database.tables.session_member_places.find((p) => p.user_id === app.user.id)?.start_label ?? null,
+  }
+}
+
+describe('a start the server cannot confirm', () => {
+  const NOTE = 'Your start is saved. The travel times may take a moment to appear.'
+
+  // The server may have done the work: only an answer that says it did nothing (a 4xx with its code) takes the start back.
+  it.each([
+    ['a timeout', null, 'ECONNABORTED'],
+    ['no answer', null, 'ERR_NETWORK'],
+    ['a server failure (500)', 500, 'internal_error'],
+    ['a bad gateway (502)', 502, 'bad_gateway'],
+  ])('keeps the start on %s and says it is saved', async (_name, status, code) => {
     const w = await world()
     const { kim, id } = await locatingPair(w)
-    watchRepairs(kim, async () => { w.database.tables.session_members = w.database.tables.session_members.filter((m) => m.user_id !== kim.user.id) })
-    await expect(kim.api.setLocation(id, kim.user.id, 'start', { areaId: 'bishan', label: 'Bishan Junction 8' })).rejects.toBeInstanceOf(Error)
+    watchRepairs(kim, () => { throw failure(status, code) })
+    await expect(kim.api.setLocation(id, kim.user.id, 'start', { areaId: 'jurong-east', label: 'Jurong East Mall' })).rejects.toMatchObject({ code: 'saved_not_priced', message: NOTE })
+    expect(startOf(w, kim)).toEqual({ area: 'jurong-east', label: 'Jurong East Mall' })
+    // The session as read afterwards has the new start, and the screens were told to read it.
+    expect((await kim.api.getSession(id)).locations[kim.user.id].start).toMatchObject({ areaId: 'jurong-east' })
+  })
+
+  it('takes a start back on every kind of refusal that carries a code', async () => {
+    for (const [status, code] of [[409, 'plan_busy'], [404, 'session_not_found'], [403, 'not_joined'], [422, 'unknown_area']]) {
+      const w = await world()
+      const { kim, id } = await locatingPair(w)
+      watchRepairs(kim, () => { throw failure(status, code) })
+      await expect(kim.api.setLocation(id, kim.user.id, 'start', { areaId: 'jurong-east', label: 'Jurong East Mall' })).rejects.toMatchObject({ code })
+      expect(startOf(w, kim)).toEqual({ area: 'bishan', label: 'Bishan Junction 8' })
+    }
+  })
+
+  it('keeps a second quick change when the first one\'s call fails with plan_busy', async () => {
+    const w = await world()
+    const { kim, id } = await locatingPair(w)
+    const asked = watchRepairs(kim, (n) => {
+      if (n === 1) throw failure(409, 'plan_busy')
+    })
+    // Both are started before either has finished; they run one after the other.
+    const first = kim.api.setLocation(id, kim.user.id, 'start', { areaId: 'jurong-east', label: 'Jurong East Mall' })
+    const second = kim.api.setLocation(id, kim.user.id, 'start', { areaId: 'woodlands', label: 'Woodlands Mall' })
+    await expect(first).rejects.toMatchObject({ code: 'plan_busy' })
+    await expect(second).resolves.toMatchObject({ id })
+    expect(asked.count).toBe(2)
+    expect(startOf(w, kim)).toEqual({ area: 'woodlands', label: 'Woodlands Mall' })
+    // The spots were priced for the second start, from the server.
+    const spots = w.database.tables.session_spots.filter((x) => x.session_id === id)
+    expect(spots.length).toBeGreaterThan(0)
+  })
+
+  it('does not overwrite a newer value written meanwhile, such as from another device', async () => {
+    const w = await world()
+    const { kim, id } = await locatingPair(w)
+    watchRepairs(kim, async () => {
+      // Another device of Kim's saves a start while this one's call is on its way; then this one's call is turned away.
+      const mine = [{ col: 'session_id', op: 'eq', value: id }, { col: 'user_id', op: 'eq', value: kim.user.id }]
+      await w.database.run({ as: kim.user.id, kind: 'update', table: 'session_member_places', values: { start_label: 'Woodlands Mall' }, filters: mine })
+      await w.database.run({ as: kim.user.id, kind: 'update', table: 'session_members', values: { start_area_id: 'woodlands' }, filters: mine })
+      throw failure(409, 'plan_busy')
+    })
+    await expect(kim.api.setLocation(id, kim.user.id, 'start', { areaId: 'jurong-east', label: 'Jurong East Mall' })).rejects.toMatchObject({ code: 'plan_busy' })
+    expect(startOf(w, kim)).toEqual({ area: 'woodlands', label: 'Woodlands Mall' })
+  })
+
+  it('makes the start and the end separate turns: the end does not wait for a start that is held', async () => {
+    const w = await world()
+    const { kim, id } = await locatingPair(w)
+    let release
+    const held = new Promise((resolve) => { release = resolve })
+    watchRepairs(kim, async (_n, config) => {
+      if (config.data.trigger === 'start') await held
+    })
+    const start = kim.api.setLocation(id, kim.user.id, 'start', { areaId: 'jurong-east', label: 'Jurong East Mall' })
+    const end = kim.api.setLocation(id, kim.user.id, 'end', { areaId: 'bugis', label: 'Bugis Junction' })
+    // The end finishes while the start's call is still held, because they are separate turns.
+    await vi.waitFor(() => expect(w.database.tables.session_members.find((m) => m.user_id === kim.user.id).end_area_id).toBe('bugis'))
+    release()
+    await Promise.all([start, end])
+    expect(startOf(w, kim).area).toBe('jurong-east')
   })
 })
 

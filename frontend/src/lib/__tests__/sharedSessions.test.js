@@ -374,7 +374,10 @@ describe('leaving and removing go through the Jio server', () => {
     refuse('member_not_found')
     await expect(sam.api.removeFromSession(id, 'someone')).rejects.toThrow('That person is not in this session any more.')
     refuse('session_started')
-    await expect(sam.api.leaveSession(id)).rejects.toThrow('People can only leave or be removed before the session starts, for now.')
+    await expect(sam.api.leaveSession(id)).rejects.toThrow("You can't leave once voting has started; ask the host to cancel.")
+    await expect(sam.api.removeFromSession(id, 'someone')).rejects.toThrow("You can't remove someone once voting has started; cancel the session instead.")
+    refuse('not_yet')
+    await expect(sam.api.leaveSession(id)).rejects.toThrow("That isn't possible once voting has started.")
     // Anything else keeps the server's own sentence (no connection, over the limit).
     refuse(undefined, 'Too many requests. Wait a few seconds and try again.')
     await expect(sam.api.leaveSession(id)).rejects.toThrow('Too many requests. Wait a few seconds and try again.')

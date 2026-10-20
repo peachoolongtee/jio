@@ -32,6 +32,7 @@ import SessionNotices from '@/components/event/SessionNotices.vue'
 import InviteDialog from '@/components/group/InviteDialog.vue'
 import LeaveSession from '@/components/group/LeaveSession.vue'
 import RemoveMember from '@/components/group/RemoveMember.vue'
+import { removeText, removeTitle } from '@/components/group/removeCopy.js'
 import LocationSheet from '@/components/group/LocationSheet.vue'
 import MemberList from '@/components/group/MemberList.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
@@ -61,6 +62,8 @@ const missing = ref(false)
 const loadError = ref('')
 const busy = ref(false)
 const error = ref('')
+// A quiet notice, not a failure: the person's start is saved but the spots have not been worked out yet.
+const note = ref('')
 const sheet = ref({ open: false, which: 'start' })
 const view = ref('list')
 const mapRef = ref(null)
@@ -218,12 +221,16 @@ function openSheet(which) {
   sheet.value = { open: true, which }
 }
 
+// Save the person's start or end. A start that is saved while the server could not be reached to work the spots out is a notice, not
+// an error: it stays, and the times follow. How to call: await saveLocation({ areaId: 'bugis', label: 'Bugis Junction' })
 async function saveLocation(place) {
   error.value = ''
+  note.value = ''
   try {
     await events.setMyLocation(props.id, sheet.value.which, place)
   } catch (e) {
-    error.value = e.message
+    if (e.code === 'saved_not_priced') note.value = e.message
+    else error.value = e.message
   }
 }
 
@@ -257,6 +264,11 @@ function askSkip(person) {
   skipOpen.value = true
 }
 const continueWithout = () => run(() => events.optOut(props.id, skipTarget.value.id), () => { skipOpen.value = false })
+// In a shared session the host's button takes the person out for good (they are removed, not opted out), so it says "Remove" and
+// is not offered when it would leave fewer than two people in. In a session of this browser it is the reversible "Continue without".
+const sharedSession = computed(() => !!session.value?.remote)
+const canSkip = computed(() => isHost.value && (!sharedSession.value || (session.value.activeIds || []).length > 2))
+const skipLabel = (name) => (sharedSession.value ? `Remove ${name}` : `Continue without ${name}`)
 
 const hostName = computed(() => nameOf(session.value?.hostId) || 'the host')
 // The meeting spots changed what the people card shows: while choosing, their trips are to each spot, not to a meeting
@@ -365,6 +377,7 @@ const startSession = () => run(() => events.start(props.id))
         </div>
 
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
+        <BannerNote v-if="note" icon="info" dismissible @dismiss="note = ''">{{ note }}</BannerNote>
 
         <SplitView v-model:view="view" label="Meeting area">
           <template #list>
@@ -407,13 +420,13 @@ const startSession = () => run(() => events.start(props.id))
             <!-- Locating, and the meeting area is waiting for people who have not set a start. -->
             <section v-if="waiting.length && !loading" class="section card" aria-labelledby="waiting-head">
               <h2 id="waiting-head" class="title-md">Waiting for {{ waiting.length }} {{ waiting.length === 1 ? 'person' : 'people' }}</h2>
-              <p class="body-sm text-muted">Their trips are counted once they share where they start.<template v-if="isHost"> If someone is not going to, you can carry on without them.</template></p>
+              <p class="body-sm text-muted">Their trips are counted once they share where they start.<template v-if="canSkip"> If someone is not going to, you can {{ sharedSession ? 'remove them' : 'carry on without them' }}.</template></p>
               <ul class="waiting" aria-label="People who have not set a start">
                 <li v-for="person in waiting" :key="person.id" class="waiting__row">
                   <UserAvatar :name="person.name" :person="person.id" :size="36" />
                   <span class="title-sm truncate waiting__name">{{ person.me ? 'You' : person.name }}</span>
                   <span v-if="person.me" class="caption-sm text-muted">Add where you are starting, above</span>
-                  <AppButton v-else-if="isHost" small variant="secondary" :disabled="busy" @click="askSkip(person)">Continue without {{ person.name }}</AppButton>
+                  <AppButton v-else-if="canSkip" small variant="secondary" :disabled="busy" @click="askSkip(person)">{{ skipLabel(person.name) }}</AppButton>
                 </li>
               </ul>
             </section>
@@ -429,7 +442,7 @@ const startSession = () => run(() => events.start(props.id))
               <MemberList :session="peopleSession" :names="nameOf" :my-id="myId" :voters="voterIds" :statuses="!settled">
                 <!-- A shared session, while locating: the host can take anyone but themselves out of it. -->
                 <template #action="{ id, label, host, out }">
-                  <RemoveMember v-if="session.remote && choosing && isHost && !host && !out" :session-id="session.id" :person="{ id, name: label }" />
+                  <RemoveMember v-if="session.remote && choosing && isHost && !host && !out && (session.activeIds || []).length > 2" :session-id="session.id" :person="{ id, name: label }" />
                 </template>
               </MemberList>
               <p v-if="!choosing && hasMeetingTrips && !loading" class="travel-key" aria-label="Travel time colours">
@@ -475,10 +488,14 @@ const startSession = () => run(() => events.start(props.id))
     </footer>
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
-    <ModalDialog v-model:open="skipOpen" :title="`Continue without ${skipTarget?.name || 'them'}?`" text="They leave this session, and the meeting point is worked out from the people who have shared where they start. This cannot be undone.">
+    <ModalDialog
+      v-model:open="skipOpen"
+      :title="sharedSession ? removeTitle(skipTarget?.name) : `Continue without ${skipTarget?.name || 'them'}?`"
+      :text="sharedSession ? removeText(skipTarget?.name) : 'They leave this session, and the meeting point is worked out from the people who have shared where they start. This cannot be undone.'"
+    >
       <template #content><p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p></template>
-      <AppButton block variant="secondary" @click="skipOpen = false">Keep waiting</AppButton>
-      <AppButton block variant="danger" :disabled="busy" @click="continueWithout">Continue without {{ skipTarget?.name }}</AppButton>
+      <AppButton block variant="secondary" @click="skipOpen = false">{{ sharedSession ? `Keep ${skipTarget?.name || 'them'}` : 'Keep waiting' }}</AppButton>
+      <AppButton block variant="danger" :disabled="busy" @click="continueWithout">{{ skipLabel(skipTarget?.name) }}</AppButton>
     </ModalDialog>
     <LocationSheet v-model:open="sheet.open" :which="sheet.which" :home="homeArea" @select="saveLocation" />
   </main>

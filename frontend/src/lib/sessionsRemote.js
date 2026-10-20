@@ -39,8 +39,10 @@ export const WORDS = {
   notAllowed: "You can't do that in this session.",
   // A demo account or a local account lives in this browser only; the invite functions are for a real account.
   needsAccount: 'Shared sessions need a Jio account. Log in with one.',
-  started: 'People can only leave or be removed before the session starts, for now.',
+  started: "You can't leave once voting has started; ask the host to cancel.",
   alreadyInvited: 'You have already invited that person.',
+  startedRemove: "You can't remove someone once voting has started; cancel the session instead.",
+  notYet: "That isn't possible once voting has started.",
   hostLeave: 'The host cannot leave. Cancel the session instead.',
   hostOnlyRemove: 'Only the host can remove someone.',
   closed: 'This session has ended.',
@@ -49,6 +51,7 @@ export const WORDS = {
   notLoaded: 'Your sessions could not be loaded. Try again.',
   // Stage 3: the meeting spots and where people start.
   spotsClosed: 'Spots can only change while the group is choosing where to meet.',
+  alreadyConfirmed: 'The host has already confirmed the spot, so your mark stays.',
   startClosed: "Where you start can't be changed now.",
   needTwoStarts: 'Spots open once two people have shared where they start.',
   tooManySpots: 'The group can suggest up to 8 different spots. Ask someone to withdraw theirs first.',
@@ -73,6 +76,7 @@ const CODE_WORDS = {
   host_cannot_opt_out: WORDS.hostOptOut,
   session_closed: WORDS.closed,
   session_started: WORDS.started,
+  not_yet: WORDS.notYet,
   member_not_found: WORDS.gone,
   wrong_status: WORDS.spotsClosed,
   no_spots: WORDS.needTwoStarts,
@@ -84,13 +88,14 @@ const CODE_WORDS = {
   plan_busy: WORDS.busy,
 }
 
-// A refusal from the Jio server as an Error with a sentence fit to show, and its code kept on `code`. `words` changes the
-// sentence for a code in one place (removing someone says "remove", not "do that").
+// A refusal from the Jio server as an Error with a sentence fit to show, its code kept on `code` and the HTTP status (when the
+// server answered) on `status`, so a caller can tell a refusal that did nothing (4xx) from a failure that may have (5xx, no answer).
+// `words` changes the sentence for a code in one place (removing someone says "remove", not "do that").
 // How to call: throw problem(err, { host_only: WORDS.hostOnlyRemove })
 export function problem(err, words = {}) {
   const code = typeof err?.code === 'string' ? err.code : undefined
   const message = (code && (words[code] || CODE_WORDS[code])) || err?.message || WORDS.notSaved
-  return Object.assign(new Error(message), { code })
+  return Object.assign(new Error(message), { code }, Number.isInteger(err?.status) ? { status: err.status } : {})
 }
 
 // A link's token is 32 random bytes written as 43 URL-safe characters (db/schema.sql). Anything else cannot be a link.
@@ -216,10 +221,11 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
         approximate: !!row.meeting_approximate,
       }
     }
-    // A start changed and the spots were not worked out again (the call to the server never came): the newest change to a
-    // member's row is later than the newest time any spot was priced. Only two shared starts have anything to price.
+    // A start changed and the spots were not worked out again (the call to the server never came): the newest change to the row
+    // of a member who has shared a start is later than the newest time any spot was priced. Only two shared starts have anything
+    // to price, and a person without a start (a late joiner, say) changes nothing that is priced, so their row is not looked at.
     const newest = (rows, field) => Math.max(0, ...rows.map((x) => Date.parse(x[field]) || 0))
-    const changed = newest(members, 'updated_at')
+    const changed = newest(located, 'updated_at')
     const stale = row.status === 'locating' && located.length >= 2 && (!spotRows.length || changed > newest(spotRows, 'computed_at'))
     // The time of that change as text (it names the gap, so a screen asks the server once for each), or '' when there is none.
     return { locations, meeting, spots, banner: row.banner && typeof row.banner === 'object' ? { ...row.banner } : null, spotsStale: stale ? String(changed) : '' }
@@ -463,7 +469,9 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     try {
       return await backend.removeMember(sessionId, personId === me() ? 'me' : personId)
     } catch (err) {
-      throw problem(err, { host_only: WORDS.hostOnlyRemove })
+      // Someone being taken out is not "leaving": the sentence for a session that has gone on says what the person did.
+      const leaving = personId === me() || personId === 'me'
+      throw problem(err, { host_only: WORDS.hostOnlyRemove, ...(leaving ? {} : { session_started: WORDS.startedRemove }) })
     }
   }
 
@@ -472,7 +480,8 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   // Change one end of the person's own route (`which`: 'start' or 'end'): the area on their member row, which the group sees,
   // and the label of the exact place in `session_member_places`, which only they and the server can read. No coordinates are
   // written: travel times are worked out from the area (design question 1). `place` is { areaId, label }, or null to clear.
-  // Resolves with what it replaced, for putting back (see restorePlace) and for telling a first start from a change.
+  // Resolves with what it replaced, for putting back (see restorePlace) and for telling a first start from a change; `written`
+  // holds the values this call wrote, which restorePlace needs to take back only its own change.
   // The exact place goes first, because a label with no area shows nothing, while an area with no label shows its name.
   // How to call: const before = await setPlace('3b1f...', 'start', { areaId: 'bugis', label: 'Bugis Junction' })
   async function setPlace(sessionId, which, place) {
@@ -486,10 +495,16 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     const member = answer(memberRead, WORDS.notSaved)
     if (!member) throw Object.assign(new Error(WORDS.notIn), { code: 'not_joined' })
     const had = answer(placeRead, WORDS.notSaved)
-    const before = { which, areaId: member[areaColumn] ?? null, label: had?.[labelColumn] ?? null, hadStart: !!member.start_area_id }
     const label = place ? String(place.label || '').slice(0, 120) || null : null
+    const before = {
+      which,
+      areaId: member[areaColumn] ?? null,
+      label: had?.[labelColumn] ?? null,
+      hadStart: !!member.start_area_id,
+      written: { areaId: place ? place.areaId : null, label },
+    }
     try {
-      await writePlace(sessionId, which, place ? place.areaId : null, label)
+      await writePlace(sessionId, which, before.written.areaId, label)
     } catch (err) {
       await restorePlace(sessionId, before)
       throw err
@@ -514,12 +529,21 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     if (!rows.length) throw Object.assign(new Error(WORDS.startClosed), { code: 'start_closed' })
   }
 
-  // Put one end of the person's route back as `before` (what setPlace answered). Takes back only their own change, and never
-  // fails: it is the repair for a failure, and the failure is the one worth reading.
+  // Put one end of the person's route back as `before` (what setPlace answered). It takes back only their own change: each of
+  // the two values is put back only where the database still holds the value this call wrote (`before.written`), so a newer
+  // value from a second quick change or another device stays. It never fails: it is the repair for a failure, and the failure
+  // is the one worth reading.
   // How to call: await restorePlace('3b1f...', before)
   async function restorePlace(sessionId, before) {
     try {
-      await writePlace(sessionId, before.which, before.areaId, before.label)
+      const mine = who()
+      const areaColumn = before.which === 'end' ? 'end_area_id' : 'start_area_id'
+      const labelColumn = before.which === 'end' ? 'end_label' : 'start_label'
+      // A null needs `is`: `eq` never matches it.
+      const only = (query, column, value) => (value == null ? query.is(column, null) : query.eq(column, value))
+      const { written } = before
+      await only(db().from('session_members').update({ [areaColumn]: before.areaId }).eq('session_id', sessionId).eq('user_id', mine), areaColumn, written.areaId).select('user_id')
+      await only(db().from('session_member_places').update({ [labelColumn]: before.label }).eq('session_id', sessionId).eq('user_id', mine), labelColumn, written.label).select('session_id')
     } catch {
       // The next read shows what is stored.
     }
@@ -531,7 +555,14 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   async function approve(sessionId, areaId, on = true) {
     const mine = who()
     if (!on) {
-      answer(await db().from('spot_approvals').delete().eq('session_id', sessionId).eq('area_id', areaId).eq('user_id', mine), WORDS.notSaved)
+      const removed = answer(await db().from('spot_approvals').delete().eq('session_id', sessionId).eq('area_id', areaId).eq('user_id', mine).select('user_id'), WORDS.notSaved)
+      if (removed.length) return
+      // Nothing was deleted: the mark was not there (nothing to do, which is a success), or the rules would not let it go because the
+      // group is no longer choosing. The spot is then confirmed (or the session is over), and the person is told so.
+      const read = answer(await db().from('sessions').select('status').eq('id', sessionId).maybeSingle(), WORDS.notSaved)
+      if (read && read.status !== 'locating') {
+        throw Object.assign(new Error(read.status === 'voting' ? WORDS.alreadyConfirmed : WORDS.spotsClosed), { code: 'wrong_status' })
+      }
       return
     }
     const { error } = await db().from('spot_approvals').insert({ session_id: sessionId, area_id: areaId, user_id: mine })

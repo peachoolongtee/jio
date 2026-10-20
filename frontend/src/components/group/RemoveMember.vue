@@ -2,12 +2,14 @@
 // The host takes a guest out of a shared session: a small button beside their name, then a question.
 //   <RemoveMember :session-id="session.id" :person="{ id, name }" />
 // Only the host sees it, and never on themselves. The guest leaves the list at once for everyone; they can come back with
-// the link while it works. A failure is said in the dialog, which stays open.
+// an invite link that still works, but not if they were invited by username (the words are in removeCopy.js, shared with the
+// "Waiting for" list). A failure is said in the dialog, which stays open.
 import { ref } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import IconButton from '../ui/IconButton.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
+import { removeText, removeTitle } from './removeCopy.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({
@@ -37,7 +39,7 @@ async function remove() {
 
 <template>
   <IconButton :label="`Remove ${person.name}`" @click="error = ''; open = true"><AppIcon name="close" :size="16" /></IconButton>
-  <ModalDialog v-model:open="open" :title="`Remove ${person.name}?`" text="They leave this session and it disappears from their list. They can come back with the invite link while it works.">
+  <ModalDialog v-model:open="open" :title="removeTitle(person.name)" :text="removeText(person.name)">
     <template #content><p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p></template>
     <AppButton block variant="secondary" @click="open = false">Keep {{ person.name }}</AppButton>
     <AppButton block variant="danger" :disabled="busy" @click="remove">{{ busy ? 'Removing' : `Remove ${person.name}` }}</AppButton>

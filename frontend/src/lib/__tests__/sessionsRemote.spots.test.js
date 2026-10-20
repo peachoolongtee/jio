@@ -4,7 +4,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { SERVICE } from '../../components/dev/fakeDatabase.js'
 import { WORDS, createSessionsRemote, problem } from '../sessionsRemote.js'
-import { KIM_PLACE, SAM_PLACE, locating } from './sessionsWorld.js'
+import { KIM_PLACE, SAM_PLACE, THIRD, locating } from './sessionsWorld.js'
 
 beforeAll(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
@@ -106,6 +106,34 @@ describe('what it reads of a session', () => {
     vi.setSystemTime(new Date('2026-10-09T10:00:00'))
   })
 
+  it('does not call a late joiner without a start a gap, and asks nothing when there is nothing to price', async () => {
+    const { w, sam, id } = await locating({ places: true })
+    vi.setSystemTime(new Date('2026-10-09T10:05:00'))
+    // A third person joins after the spots were priced. Their row is the newest of all, but they have no start.
+    const lee = await w.open(THIRD)
+    await lee.api.joinWithLink((await sam.api.makeInviteLink(id)).token)
+    expect(w.database.tables.session_members.find((m) => m.user_id === lee.id).updated_at).toBe(new Date('2026-10-09T10:05:00').toISOString())
+    expect((await asPerson(sam).get(id)).spotsStale).toBe('')
+    // With a start of their own that is later than the spots, it is a gap.
+    vi.setSystemTime(new Date('2026-10-09T10:06:00'))
+    await w.database.run({ as: lee.id, kind: 'update', table: 'session_members', values: { start_area_id: 'woodlands' }, filters: [eq('session_id', id), eq('user_id', lee.id)] })
+    expect((await asPerson(sam).get(id)).spotsStale).toBe(String(Date.parse('2026-10-09T10:06:00')))
+    vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+  })
+
+  it('does not call it a gap when there are no spots and fewer than two starts to price', async () => {
+    const { w, sam, kim, id } = await locating()
+    expect((await asPerson(sam).get(id)).spotsStale).toBe('')
+    vi.setSystemTime(new Date('2026-10-09T10:05:00'))
+    // One start only: nothing can be priced, however new it is.
+    await w.database.run({ as: sam.id, kind: 'update', table: 'session_members', values: { start_area_id: 'tampines' }, filters: [eq('session_id', id), eq('user_id', sam.id)] })
+    expect((await asPerson(sam).get(id)).spotsStale).toBe('')
+    // The second start makes two, and with no spots at all that is a gap.
+    await w.database.run({ as: kim.id, kind: 'update', table: 'session_members', values: { start_area_id: 'bishan' }, filters: [eq('session_id', id), eq('user_id', kim.id)] })
+    expect((await asPerson(sam).get(id)).spotsStale).toBe(String(Date.parse('2026-10-09T10:05:00')))
+    vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+  })
+
   it('shows people invited by name only while the session is inviting', async () => {
     const { w, sam, kim, id } = await locating({ places: true })
     w.database.setProfile('00000000-0000-4000-8000-000000000999', { username: 'zed', display_name: 'Zed', avatar_url: null })
@@ -121,8 +149,8 @@ describe('what it writes straight to the database', () => {
   it('keeps one end of the route: the label first, then the area, and answers with what it replaced', async () => {
     const { w, sam, id } = await locating()
     const remote = asPerson(sam)
-    expect(await remote.setPlace(id, 'start', { areaId: 'bugis', label: 'Bugis Junction' })).toEqual({ which: 'start', areaId: null, label: null, hadStart: false })
-    expect(await remote.setPlace(id, 'start', { areaId: 'orchard', label: 'x'.repeat(300) })).toEqual({ which: 'start', areaId: 'bugis', label: 'Bugis Junction', hadStart: true })
+    expect(await remote.setPlace(id, 'start', { areaId: 'bugis', label: 'Bugis Junction' })).toEqual({ which: 'start', areaId: null, label: null, hadStart: false, written: { areaId: 'bugis', label: 'Bugis Junction' } })
+    expect(await remote.setPlace(id, 'start', { areaId: 'orchard', label: 'x'.repeat(300) })).toEqual({ which: 'start', areaId: 'bugis', label: 'Bugis Junction', hadStart: true, written: { areaId: 'orchard', label: 'x'.repeat(120) } })
     // A label over the database's 120 characters is cut, not refused.
     expect(w.database.tables.session_member_places[0].start_label).toHaveLength(120)
     await remote.setPlace(id, 'start', null)
@@ -135,10 +163,35 @@ describe('what it writes straight to the database', () => {
     const remote = asPerson(sam)
     await w.database.run({ as: SERVICE, kind: 'update', table: 'sessions', values: { status: 'cancelled' }, filters: [eq('id', id)] })
     await expect(remote.setPlace(id, 'start', { areaId: 'bugis', label: 'Bugis Junction' })).rejects.toMatchObject({ code: '42501' })
-    await expect(remote.restorePlace(id, { which: 'start', areaId: 'tampines', label: SAM_PLACE.label })).resolves.toBeUndefined()
+    await expect(remote.restorePlace(id, { which: 'start', areaId: 'tampines', label: SAM_PLACE.label, written: { areaId: 'bugis', label: 'Bugis Junction' } })).resolves.toBeUndefined()
     // Nothing of the refused write got in.
     expect(w.database.tables.session_members.find((m) => m.user_id === sam.id).start_area_id).toBe('tampines')
     expect(w.database.tables.session_member_places.find((p) => p.user_id === sam.id).start_label).toBe(SAM_PLACE.label)
+  })
+
+  it('takes back only what it wrote: a newer value of the same end stays', async () => {
+    const { w, sam, id } = await locating({ places: true })
+    const remote = asPerson(sam)
+    const row = () => w.database.tables.session_members.find((m) => m.user_id === sam.id)
+    const place = () => w.database.tables.session_member_places.find((p) => p.user_id === sam.id)
+    const before = await remote.setPlace(id, 'start', { areaId: 'bugis', label: 'Bugis Junction' })
+    // Another device writes a newer start before this one's take-back arrives: nothing of it is overwritten.
+    await w.database.run({ as: sam.id, kind: 'update', table: 'session_members', values: { start_area_id: 'orchard' }, filters: [eq('session_id', id), eq('user_id', sam.id)] })
+    await w.database.run({ as: sam.id, kind: 'update', table: 'session_member_places', values: { start_label: 'Orchard Plaza' }, filters: [eq('session_id', id), eq('user_id', sam.id)] })
+    await remote.restorePlace(id, before)
+    expect(row().start_area_id).toBe('orchard')
+    expect(place().start_label).toBe('Orchard Plaza')
+    // Where the database still holds what it wrote, the take-back goes through.
+    await remote.setPlace(id, 'start', { areaId: 'jurong-east', label: 'Jurong East Mall' })
+    const next = await remote.setPlace(id, 'start', { areaId: 'punggol', label: 'Punggol Plaza' })
+    await remote.restorePlace(id, next)
+    expect(row().start_area_id).toBe('jurong-east')
+    expect(place().start_label).toBe('Jurong East Mall')
+    // A first start, taken back, is empty again (the guard matches null as well).
+    const first = await remote.setPlace(id, 'end', { areaId: 'clementi', label: 'Clementi Mall' })
+    await remote.restorePlace(id, first)
+    expect(w.database.tables.session_members.find((m) => m.user_id === sam.id).end_area_id).toBeNull()
+    expect(place().end_label).toBeNull()
   })
 
   it('says someone who is not in the session is not in it', async () => {
@@ -146,6 +199,24 @@ describe('what it writes straight to the database', () => {
     const outsider = await w.open({ email: 'zed@example.com', password: 'Z3d-secret!!', name: 'Zed', username: 'zed_out', dob: '1997-01-01', homeAreaId: 'bishan', friends: [] })
     await expect(asPerson(outsider).setPlace(id, 'start', { areaId: 'bugis', label: 'x' })).rejects.toMatchObject({ code: 'not_joined', message: WORDS.notIn })
     expect(sam.id).toBeTruthy()
+  })
+
+  it('says the spot is confirmed when a mark is taken back after the confirm, and takes it back while locating', async () => {
+    const { w, sam, kim, id } = await locating({ places: true })
+    const remote = asPerson(kim)
+    const [spot] = (await asPerson(sam).get(id)).spots.list
+    await remote.approve(id, spot.areaId, true)
+    expect(w.database.tables.spot_approvals).toHaveLength(1)
+    // Taking back a mark that is not there is a success; taking back the one that is there removes it.
+    await expect(remote.approve(id, 'woodlands', false)).resolves.toBeUndefined()
+    await remote.approve(id, spot.areaId, false)
+    expect(w.database.tables.spot_approvals).toHaveLength(0)
+    await remote.approve(id, spot.areaId, true)
+    await sam.api.confirmSpot(id, spot.areaId)
+    // The rules will not delete it now, and nothing was deleted: that is not success.
+    await expect(remote.approve(id, spot.areaId, false)).rejects.toMatchObject({ code: 'wrong_status', message: WORDS.alreadyConfirmed })
+    expect(WORDS.alreadyConfirmed).toMatch(/already confirmed/)
+    expect(w.database.tables.spot_approvals).toHaveLength(1)
   })
 
   it('words the database\'s refusal of a mark', async () => {
@@ -192,7 +263,7 @@ describe('what it writes straight to the database', () => {
 
 describe('the sentences for what the server refuses', () => {
   it('has a plain sentence for every code of the contract, and keeps the code', () => {
-    const codes = ['session_not_found', 'not_joined', 'host_only', 'wrong_status', 'no_spots', 'too_many_spots', 'spot_not_found', 'needs_two_people', 'unknown_area', 'area_not_priced', 'plan_busy', 'host_cannot_opt_out', 'host_cannot_leave', 'session_closed', 'member_not_found']
+    const codes = ['session_not_found', 'not_joined', 'host_only', 'wrong_status', 'no_spots', 'too_many_spots', 'spot_not_found', 'needs_two_people', 'unknown_area', 'area_not_priced', 'plan_busy', 'host_cannot_opt_out', 'host_cannot_leave', 'session_closed', 'session_started', 'not_yet', 'member_not_found']
     for (const code of codes) {
       const err = problem(Object.assign(new Error('The planner had a problem. Try again.'), { code }))
       expect(err.code).toBe(code)
@@ -206,6 +277,17 @@ describe('the sentences for what the server refuses', () => {
     expect(problem({}).message).toBe(WORDS.notSaved)
     expect(problem(undefined).message).toBe(WORDS.notSaved)
     expect(problem(Object.assign(new Error('x'), { code: 'something_new' })).message).toBe('x')
+  })
+
+  it('words voting as voting: a person cannot leave once it has started, and the work is not possible yet', () => {
+    expect(problem({ code: 'session_started' }).message).toBe("You can't leave once voting has started; ask the host to cancel.")
+    expect(problem({ code: 'not_yet' }).message).toBe("That isn't possible once voting has started.")
+  })
+
+  it('keeps the status of an answer, so a refusal that did nothing (4xx) is told from a failure that may have (5xx, none)', () => {
+    expect(problem(Object.assign(new Error('x'), { code: 'plan_busy', status: 409 }))).toMatchObject({ code: 'plan_busy', status: 409 })
+    expect(problem(Object.assign(new Error('x'), { code: 'plan_busy' })).status).toBeUndefined()
+    expect(problem(new Error('timeout')).status).toBeUndefined()
   })
 
   it('lets a caller word a code its own way', () => {

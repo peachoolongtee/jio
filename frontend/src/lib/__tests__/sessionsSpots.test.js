@@ -82,12 +82,21 @@ describe('where a person starts', () => {
     expect(w.server.calls).toEqual([])
   })
 
-  it('takes back only its own change when the server cannot be reached, and tells the person', async () => {
+  // The server turns the request away: another change landed after it read the session, so it answers 409 plan_busy and writes nothing.
+  // How to call: busyOnce(w, id)
+  function busyOnce(w, id) {
+    w.server.after.meetingArea = async () => {
+      delete w.server.after.meetingArea
+      rowsOf(w, 'sessions').find((x) => x.id === id).plan_version += 1
+    }
+  }
+
+  it('takes back only its own change when the server turns the request away, and tells the person', async () => {
     const { w, sam, kim, id } = await locating({ places: true })
     const kimBefore = { member: { ...memberRow(w, id, kim.id) }, place: { ...placeRow(w, id, kim.id) } }
     const spotsBefore = structuredClone(rowsOf(w, 'session_spots'))
-    w.server.down = true
-    await expect(sam.api.setLocation(id, sam.id, 'start', { areaId: 'jurong-east', label: 'Jurong East Mall' })).rejects.toThrow(/Cannot reach the Jio planner/)
+    busyOnce(w, id)
+    await expect(sam.api.setLocation(id, sam.id, 'start', { areaId: 'jurong-east', label: 'Jurong East Mall' })).rejects.toMatchObject({ code: 'plan_busy', message: 'Jio is busy with another change to this session. Try again in a moment.' })
     // Sam's start is back to what it was, in both places; Kim's is untouched; the spots are as they were.
     expect(memberRow(w, id, sam.id).start_area_id).toBe('tampines')
     expect(placeRow(w, id, sam.id).start_label).toBe(SAM_PLACE.label)
@@ -96,13 +105,31 @@ describe('where a person starts', () => {
     expect(rowsOf(w, 'session_spots')).toEqual(spotsBefore)
   })
 
-  it('takes a first start back to nothing, and the server\'s refusal in words', async () => {
-    const { w, sam, id } = await locating()
+  it('keeps the start, and says it is saved, when the server cannot be reached', async () => {
+    const { w, sam, kim, id } = await locating({ places: true })
+    const kimBefore = { member: { ...memberRow(w, id, kim.id) }, place: { ...placeRow(w, id, kim.id) } }
+    const spotsBefore = structuredClone(rowsOf(w, 'session_spots'))
     w.server.down = true
-    await expect(sam.api.setLocation(id, sam.id, 'start', SAM_PLACE)).rejects.toThrow(/Cannot reach the Jio planner/)
+    await expect(sam.api.setLocation(id, sam.id, 'start', { areaId: 'jurong-east', label: 'Jurong East Mall' })).rejects.toMatchObject({
+      code: 'saved_not_priced',
+      message: 'Your start is saved. The travel times may take a moment to appear.',
+    })
+    // Whether the server did anything is not known, so the write stays; the others' rows and the spots are as they were.
+    expect(memberRow(w, id, sam.id).start_area_id).toBe('jurong-east')
+    expect(placeRow(w, id, sam.id).start_label).toBe('Jurong East Mall')
+    expect(memberRow(w, id, kim.id)).toEqual(kimBefore.member)
+    expect(placeRow(w, id, kim.id)).toEqual(kimBefore.place)
+    expect(rowsOf(w, 'session_spots')).toEqual(spotsBefore)
+    // The session as read has the new start.
+    expect((await sam.api.getSession(id)).locations[sam.id].start.areaId).toBe('jurong-east')
+  })
+
+  it('takes a first start back to nothing when the server turns it away, and says the database\'s refusal in words', async () => {
+    const { w, sam, id } = await locating()
+    busyOnce(w, id)
+    await expect(sam.api.setLocation(id, sam.id, 'start', SAM_PLACE)).rejects.toMatchObject({ code: 'plan_busy' })
     expect(memberRow(w, id, sam.id).start_area_id).toBeNull()
     expect(placeRow(w, id, sam.id)).toMatchObject({ start_label: null })
-    w.server.down = false
     // The session was cancelled meanwhile: the database refuses the write, and says it plainly.
     await sam.api.cancelSession(id)
     await expect(sam.api.setLocation(id, sam.id, 'start', SAM_PLACE)).rejects.toThrow("You can't do that in this session.")

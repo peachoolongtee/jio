@@ -517,16 +517,18 @@ function fromServer(row) {
 
 // The newest read of each session of the server that has been handed out, so that a read which began earlier and answers
 // later (a live update, a list) never puts an old state over a new one, such as a session still locating over one the host
-// has confirmed. A read is older when it began before the newest one, or holds an older version of the plan.
+// has confirmed. A read is older when it holds an older version of the plan, or, at the same version, began before the newest
+// one. The version comes first: a read that began earlier but holds a newer version is newer (a member's own start changes no
+// version, so at the same version only the order the reads began in tells which is newer).
 const newestRead = new Map()
 let readCount = 0
 // Hand out `make()` unless a newer read of the session has been handed out already, in which case that one stands.
 // How to call: return newest('3b1f...', ++readCount, 4, () => summary(fromServer(read)))
 function newest(sessionId, ticket, version, make) {
   const have = newestRead.get(sessionId)
-  if (have && (ticket < have.ticket || version < have.version)) return clone(have.session)
+  if (have && (version < have.version || (version === have.version && ticket < have.ticket))) return clone(have.session)
   const session = make()
-  newestRead.set(sessionId, { ticket, version, session: clone(session) })
+  newestRead.set(sessionId, { ticket: Math.max(ticket, have?.ticket ?? 0), version, session: clone(session) })
   return session
 }
 
@@ -2283,6 +2285,8 @@ async function afterServerWrite(id, type) {
 const findingCounts = new Map()
 // Say the spots are being worked out while `run` goes on, when there is anything to work out: someone else has shared a start
 // (what was last read says so), or the list is there already. A first start alone has no spots to wait for.
+// When `run` fails nothing was written that the caller will read back (a refused suggestion, no connection), so no read would
+// clear the indicator on screen: the session is announced as changed, and the screens read it again and find it off.
 // How to call: await whileFindingSpots('3b1f...', () => remote.suggest(id, 'bugis'))
 async function whileFindingSpots(id, run) {
   const last = newestRead.get(id)?.session
@@ -2293,8 +2297,12 @@ async function whileFindingSpots(id, run) {
     findingSpots.add(id)
     broadcast({ type: 'pending', sessionId: id })
   }
+  let failed = false
   try {
     return await run()
+  } catch (err) {
+    failed = true
+    throw err
   } finally {
     if (show) {
       const left = (findingCounts.get(id) || 1) - 1
@@ -2303,6 +2311,7 @@ async function whileFindingSpots(id, run) {
         findingCounts.delete(id)
         findingSpots.delete(id)
       }
+      if (failed) broadcast({ type: 'session', sessionId: id })
     }
   }
 }
@@ -2311,28 +2320,66 @@ async function whileFindingSpots(id, run) {
 // voting, `wrong_status` once confirmed, completed or cancelled (backend/src/services/sessions.js, requireStatus).
 const HOST_MOVED_ON = new Set(['not_yet', 'wrong_status'])
 
+// Did the server's answer prove it did nothing? Only a refusal does: a 4xx that carries the server's error code (the request was
+// turned away before any work). A timeout, no answer at all or a 5xx says nothing about what the server did, so it proves nothing.
+// How to call: refusedByServer({ code: 'plan_busy', status: 409 }) -> true; refusedByServer(new Error('timed out')) -> false
+const refusedByServer = (err) => typeof err?.code === 'string' && err.code !== '' && err.status >= 400 && err.status < 500
+
+// What a start or end that was saved but not priced says (the spots follow once the server has worked them out, or when the page
+// next opens the session). It is a notice, not a failure: the screen shows it quietly and the start stays.
+export const SAVED_NOT_PRICED = 'Your start is saved. The travel times may take a moment to appear.'
+
+// Changes to one end of one person's route in this browser, one after another: the second starts when the first has finished,
+// including its take-back, so two quick changes never interleave their writes. The key is the session and the end.
+const locationTurns = new Map()
+// Run `run` when the earlier ones with the same key are done; a failure of an earlier one does not stop it.
+// How to call: await inTurn('3b1f...:start', () => saveIt())
+function inTurn(key, run) {
+  const result = (locationTurns.get(key) || Promise.resolve()).then(run)
+  const tail = result.catch(() => {})
+  locationTurns.set(key, tail)
+  tail.then(() => {
+    if (locationTurns.get(key) === tail) locationTurns.delete(key)
+  })
+  return result
+}
+
 // A real account's own start or end: the area on its member row and the label of the exact place, written directly, then the
-// server works the spots out again. If the server cannot, this person's own change is taken back (the others' are not touched)
-// and they are told. If the group has moved on meanwhile (the host confirmed), what was saved stays: it only adds a travel time.
-// The server says so with 409 `not_yet` while the group is voting and 409 `wrong_status` after that; both are the host having moved
-// on, so neither is an error here (HOST_MOVED_ON).
+// server works the spots out again. Changes to the same end in this browser go one at a time (inTurn).
+// If the server turns the request away (a 4xx with its error code: the request did nothing), this person's own change is taken
+// back, only where the database still holds what this call wrote, so a newer change of theirs (from another device, say) stays,
+// and they are told. If the server did not answer in time, did not answer at all or failed (5xx), what it did is not known: the
+// start stays, because the spots are worked out again by the next change or when the page next opens the session, and
+// the person is told it is saved (SAVED_NOT_PRICED, as an Error with the code `saved_not_priced` after the session is announced as changed).
+// If the group has moved on meanwhile (the host confirmed), what was saved stays and nothing is worked out: the server does nothing
+// once the spot is confirmed. It says so with 409 `not_yet` while the group is voting (a later stage's work) and 409 `wrong_status`
+// after that; both are the host having moved on, so neither is an error here (HOST_MOVED_ON).
 // How to call: await setLocationOnServer('3b1f...', '7f3c...', 'start', { areaId: 'bugis', label: 'Bugis Junction' })
 async function setLocationOnServer(id, personId, which, place) {
   requireMe(personId)
   if (personId !== me()) throw new Error(SHARING_WORDS.notAllowed)
   if (place && !areaById(place.areaId)) throw new Error('This area does not exist.')
-  await whileFindingSpots(id, async () => {
-    const before = await remote.setPlace(id, which, place ? { areaId: place.areaId, label: place.label || areaById(place.areaId).name } : null)
-    const trigger = which === 'end' ? 'end' : before.hadStart ? 'start' : 'added'
-    try {
-      await remote.refreshSpots(id, trigger)
-    } catch (err) {
-      if (HOST_MOVED_ON.has(err?.code)) return
-      await remote.restorePlace(id, before)
-      throw err
-    }
-  })
-  return afterServerWrite(id, 'location')
+  let unpriced = false
+  await inTurn(`${id}:${which}`, () =>
+    whileFindingSpots(id, async () => {
+      const before = await remote.setPlace(id, which, place ? { areaId: place.areaId, label: place.label || areaById(place.areaId).name } : null)
+      const trigger = which === 'end' ? 'end' : before.hadStart ? 'start' : 'added'
+      try {
+        await remote.refreshSpots(id, trigger)
+      } catch (err) {
+        if (HOST_MOVED_ON.has(err?.code)) return
+        if (!refusedByServer(err)) {
+          unpriced = true
+          return
+        }
+        await remote.restorePlace(id, before)
+        throw err
+      }
+    }),
+  )
+  const session = await afterServerWrite(id, 'location')
+  if (unpriced) throw Object.assign(new Error(SAVED_NOT_PRICED), { code: 'saved_not_priced', session })
+  return session
 }
 
 // which: 'start' | 'end'. place: { areaId, label }. Only the area is ever shown to other people.
