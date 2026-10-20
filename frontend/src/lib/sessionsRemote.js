@@ -17,7 +17,7 @@
 // call to the Jio server, `now()` the clock in milliseconds.
 // How to call: const remote = createSessionsRemote({ client: () => auth.dataClient(), me: () => currentUserId(), backend, now: Date.now })
 
-import { isUuid, personFromRow } from './peopleSource.js'
+import { isUuid } from './peopleSource.js'
 
 // The words a person reads. Written once so a screen and a test say the same thing.
 export const WORDS = {
@@ -34,7 +34,6 @@ export const WORDS = {
   // A demo account or a local account lives in this browser only; the invite functions are for a real account.
   needsAccount: 'Shared sessions need a Jio account. Log in with one.',
   started: 'People can only leave or be removed before the session starts, for now.',
-  badUsername: 'Enter a full username: 3 to 20 lowercase letters, numbers or underscores.',
   alreadyInvited: 'You have already invited that person.',
   hostLeave: 'The host cannot leave. Cancel the session instead.',
   hostOnlyRemove: 'Only the host can remove someone.',
@@ -49,13 +48,6 @@ export const WORDS = {
 // A link's token is 32 random bytes written as 43 URL-safe characters (db/schema.sql). Anything else cannot be a link.
 // How to call: looksLikeToken('q3D9_-aZ...') -> true
 export const looksLikeToken = (text) => typeof text === 'string' && /^[A-Za-z0-9_-]{20,64}$/.test(text)
-
-// A username as the database holds it: 3 to 20 lowercase letters, numbers or underscores.
-// How to call: cleanUsername(' @Sam_1 ') -> 'sam_1'; cleanUsername('s') -> ''
-export function cleanUsername(text) {
-  const name = String(text ?? '').trim().replace(/^@/, '').toLowerCase()
-  return /^[a-z0-9_]{3,20}$/.test(name) ? name : ''
-}
 
 // "18:00:00" from the database to "18:00" as the screens keep it. How to call: hhmm('18:00:00') -> '18:00'
 const hhmm = (time) => String(time ?? '').slice(0, 5)
@@ -251,16 +243,6 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
 
   // ── Invitations to one named person ───────────────────────────────────────
 
-  // The person with exactly this username, or null. Only a complete username is asked for, and only the public columns.
-  // How to call: const person = await findPerson('kim_2') -> { id, name, username, avatarUrl }
-  async function findPerson(text) {
-    who()
-    const name = cleanUsername(text)
-    if (!name) throw Object.assign(new Error(WORDS.badUsername), { code: 'bad_username' })
-    const row = answer(await db().from('profiles').select('id, username, display_name, avatar_url').eq('username', name).maybeSingle(), WORDS.notLoaded)
-    return row ? personFromRow(row) : null
-  }
-
   // The host invites a person by id; they see it on Home and answer it.
   // How to call: await invitePerson('3b1f...', '7f3c...')
   async function invitePerson(sessionId, personId) {
@@ -384,5 +366,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, create, update, cancel, start, currentLink, makeLink, revoke, findPerson, invitePerson, preview, join, invitations, decline, removeMember, watch }
+  return { list, get, create, update, cancel, start, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
 }

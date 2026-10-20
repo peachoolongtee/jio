@@ -21,7 +21,8 @@ import { combineWeather, stateOf, venueSetting } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
 import { bindCurrentUser, currentUserId } from './currentUser.js'
-import { createPeopleSource, isUuid } from './peopleSource.js'
+import { createPeopleSource, isUuid, personFromRow } from './peopleSource.js'
+import { isSearchable, rankPeople, searchTerm } from './peopleSearch.js'
 import { WORDS as SHARING_WORDS, createSessionsRemote } from './sessionsRemote.js'
 import { isLegacyRealSave, remapLegacySave } from './legacySave.js'
 import { cleanDietary } from './signupRules.js'
@@ -2417,11 +2418,27 @@ export async function revokeInviteLink(id) {
   await remote.revoke(id)
 }
 
-// The person with exactly this username, as { id, name, username, avatarUrl }, or null. Rejects with a sentence for text
-// that cannot be a username. How to call: const person = await findByUsername('@kim_2')
-export async function findByUsername(text) {
-  needServer()
-  return remote.findPerson(text)
+// People whose username starts with what was typed, for the invite field: at most 5 of { id, name, username, avatarUrl,
+// metBefore }, the exact match first, then people already met in a session, then the rest by username, never the signed-in
+// person. Text that cannot start any username (under 3 characters, a space, a dot) is answered with none and asks nobody.
+// A real account asks the server (GET /api/people/search); the demo and local accounts search their own people here, with no
+// request. Rejects with a sentence when the server cannot answer, and with an AbortError when `signal` aborts first.
+// How to call: const people = await searchPeople('@kim', { signal: controller.signal })
+export async function searchPeople(text, { signal } = {}) {
+  const term = searchTerm(text)
+  if (!isSearchable(term)) return []
+  if (isReal()) {
+    needServer()
+    const rows = await planner.searchPeopleByUsername(term, { signal })
+    return rows.map((row) => ({
+      ...personFromRow({ id: row.id, username: row.username, display_name: row.name, avatar_url: row.avatarUrl }, projectOrigin()),
+      metBefore: row.metBefore === true,
+    }))
+  }
+  await wait(DELAY.read)
+  if (signal?.aborted) throw Object.assign(new Error('The search was cancelled.'), { name: 'AbortError' })
+  const sample = PEOPLE.filter((p) => p.id !== (me() || HOST_ID)).map((p) => publicPerson(p.id))
+  return rankPeople(sample.map((p) => ({ id: p.id, name: p.name, username: p.username, avatarUrl: p.photo })), term, { metIds: new Set(coMemberIds()), meId: me() })
 }
 
 // The host invites a person by id; they see it on Home. Resolves with the session as it is then.
