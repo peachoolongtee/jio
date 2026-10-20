@@ -4,9 +4,11 @@
 //   - A pin for the meeting area. No one's start is shown.
 //   - Tapping a pin opens a small card with the stop's name, time and price tier.
 // It is a mobile screen; on desktop the itinerary already shows the map, and this is its expanded view.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import CategoryIcon from '@/components/ui/CategoryIcon.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import PriceTier from '@/components/ui/PriceTier.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
@@ -18,17 +20,30 @@ import { useEventsStore } from '@/stores/events.js'
 const props = defineProps({ id: { type: String, required: true } })
 
 const events = useEventsStore()
+// The session does not exist, or the person is not in it (the data layer's `not_found`), and why the map could not load it at
+// all (no connection, the planner slow or down) with a Retry. The two are different pages: only the first is "not found".
 const missing = ref(false)
+const loadError = ref('')
 const selected = ref('')
 
-onMounted(async () => {
+// Only the newest load speaks, so a slow answer for a map already left never changes what the person sees.
+let loadTicket = 0
+// How to call: load() (on mount, when the id changes, and from Retry)
+async function load() {
+  const ticket = ++loadTicket
+  missing.value = false
+  loadError.value = ''
   try {
     await events.loadSession(props.id)
     await events.loadItinerary(props.id)
-  } catch {
-    missing.value = true
+  } catch (err) {
+    if (ticket !== loadTicket) return
+    if (err?.code === 'not_found') missing.value = true
+    else loadError.value = err?.message || 'The map could not be loaded.'
   }
-})
+}
+onMounted(load)
+watch(() => props.id, load)
 
 const session = computed(() => events.byId[props.id])
 const itinerary = computed(() => events.itineraries[props.id])
@@ -43,6 +58,14 @@ const card = computed(() => {
 
 <template>
   <NotFoundView v-if="missing" />
+  <main v-else-if="loadError" class="screen" data-testid="map-load-error">
+    <div class="screen__body" style="padding-top: var(--spacing-xl)">
+      <EmptyState title="Could not load the map" :text="loadError" role="alert">
+        <AppButton variant="secondary" @click="load">Retry</AppButton>
+        <AppButton variant="tertiary" :to="`/sessions/${id}/itinerary`">Back to the itinerary</AppButton>
+      </EmptyState>
+    </div>
+  </main>
   <main v-else class="full-map">
     <PlannerMap class="full-map__map" :places="places" :area="area" route fit-to="places" zoom-position="bottomright" :selected="selected" label="Plan map" @select="selected = $event" />
 

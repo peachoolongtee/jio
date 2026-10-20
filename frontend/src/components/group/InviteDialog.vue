@@ -32,7 +32,8 @@ watch(open, async (isOpen) => {
   query.value = ''
   picked.value = []
   error.value = ''
-  if (!groups.people.length) groups.loadPeople()
+  // A failure leaves the list empty; the dialog still opens.
+  if (!groups.people.length) groups.loadPeople().catch(() => {})
   await nextTick()
   await nextTick()
   search.value?.focus()

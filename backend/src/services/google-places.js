@@ -1,5 +1,5 @@
 import { createCallBudget } from './budget.js'
-import { createCache } from './cache.js'
+import { createCache, queryKey } from './cache.js'
 import { ExternalApiError } from './errors.js'
 import { currentScenario } from './scenario.js'
 
@@ -459,7 +459,7 @@ export function createGooglePlaces({
     const textQuery = String(query).trim().slice(0, 100)
     if (!textQuery) return []
     const radius = Math.min(50_000, Math.max(1, Math.round(biasMeters)))
-    const cacheKey = `text:${currentScenario()}:${fieldMask}:${round3(point.lat)},${round3(point.lng)}:${radius}:${textQuery.toLowerCase()}`
+    const cacheKey = `text:${currentScenario()}:${fieldMask}:${round3(point.lat)},${round3(point.lng)}:${radius}:${queryKey(textQuery)}`
     let partial = false
     const list = await textCache.getOrSet(cacheKey, () =>
       guarded(async () => {

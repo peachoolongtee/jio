@@ -173,7 +173,13 @@ watch(() => adding.value.query, (q) => {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(async () => {
     if (!adding.value.slot) return
-    adding.value.results = await planner.searchVenues(props.id, adding.value.slot.id, q)
+    try {
+      const results = await planner.searchVenues(props.id, adding.value.slot.id, q)
+      // Only the newest typing applies; an answer for older text is dropped.
+      if (adding.value.query === q) adding.value.results = results
+    } catch (e) {
+      error.value = e.message
+    }
   }, 150)
 })
 const addSlotFull = computed(() => {
@@ -397,8 +403,9 @@ async function confirm() {
   } catch (e) {
     error.value = e.message
     confirmOpen.value = false
+  } finally {
+    busy.value = false
   }
-  busy.value = false
 }
 </script>
 
