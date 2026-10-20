@@ -228,6 +228,7 @@ Commands are the scripts in the root `package.json`. Record real output here, wi
 | 2026-10-12 | `integration/after-pitch` with stage 1 merged in (`94d24ac`) | `pnpm --filter jio-frontend test`; `pnpm test`; `pnpm build`, exit codes read | 1112 passed, 71 files; 899 passed, 2 skipped; succeeded |
 | 2026-10-12 | `feat/sessions-stage-1-account` after the review's fixes | The same three, the frontend also with outbound calls blocked; a search of the built files for the development-only account tools | 1112 passed both times, nothing blocked; 899 passed, 2 skipped; succeeded; none found |
 | 2026-10-17 | `review/pr-160` (#160 merged with `dev`, then the review's fixes) | `pnpm test`, also with outbound calls blocked; `pnpm --filter jio-frontend test`; `pnpm build`, exit codes read | 1248 passed, 2 skipped, 40 files, both times, nothing blocked; 1829 passed, 111 files; succeeded |
+| 2026-10-20 | `feat/sessions-stage-3-integration` (stage 3, both halves, after review fixes) | `pnpm test`, the frontend suite, both also with outbound calls blocked; `pnpm build`; `apply_session_plan` test on the live project in a rolled-back transaction | 1453 passed, 2 skipped; 2019 passed; nothing blocked; succeeded; 76 of 76 steps passed, nothing left |
 
 Not yet verified: a real user's login token against `GET /api/me`, a Google photo, and anything end to end.
 
