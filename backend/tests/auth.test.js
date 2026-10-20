@@ -80,7 +80,7 @@ async function fakeSupabase(input, init = {}) {
 let server, base
 beforeAll(async () => {
   const supabase = createSupabase({ url: URL_, anonKey: ANON, serviceKey: SERVICE, fetchImpl: fakeSupabase })
-  server = createApp({ frontendOrigin: FRONTEND, supabase }).listen(0)
+  server = createApp({ frontendOrigin: FRONTEND, supabase }).listen(0, '127.0.0.1')
   await once(server, 'listening')
   base = `http://127.0.0.1:${server.address().port}`
 })
@@ -112,7 +112,7 @@ async function start(options = {}) {
     now: () => clock.ms,
     ...options,
   })
-  const own = createApp({ frontendOrigin: FRONTEND, supabase }).listen(0)
+  const own = createApp({ frontendOrigin: FRONTEND, supabase }).listen(0, '127.0.0.1')
   await once(own, 'listening')
   started.push(own)
   return { clock, base: `http://127.0.0.1:${own.address().port}` }
@@ -579,7 +579,7 @@ describe('createSupabase', () => {
 
 describe('without Supabase configured', () => {
   it('does not mount the routes that need a login', async () => {
-    const plain = createApp({ frontendOrigin: FRONTEND }).listen(0)
+    const plain = createApp({ frontendOrigin: FRONTEND }).listen(0, '127.0.0.1')
     await once(plain, 'listening')
     const res = await fetch(`http://127.0.0.1:${plain.address().port}/api/me`)
     expect(res.status).toBe(404)
