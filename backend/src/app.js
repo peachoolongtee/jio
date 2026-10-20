@@ -52,6 +52,10 @@ import { createWeather } from './services/weather.js'
 //   ownPlacesEnough - Google is asked about a food, drink, shop or activity category only when fewer than this many
 //                    of our own open places are near the meeting point. Defaults to 6 (ticket #149). Tests that
 //                    need Google asked pass Infinity.
+//   includePlannerDiagnostics - Keep the engine's `diagnostics` counters in planner answers. Defaults to
+//                    PLANNER_DIAGNOSTICS=1 (the backend's tests set it in vitest.config.js; NODE_ENV does not change it).
+//   roundPlannerMinutes - Round the minutes in planner answers to one decimal place. Defaults to true; it is
+//                    independent of the diagnostics switch. A test that needs the engine's raw minutes passes false.
 //   planRateLimit  - { windowMs, max } to limit how often one caller may use the planner routes, or leave
 //                    it out for no limit. index.js sets it outside stub mode.
 //   accountCheckRateLimit - { windowMs, max } for POST /api/accounts/email-check, which tells whether an email has an
@@ -82,6 +86,8 @@ export function createApp({
   accountCheckRateLimit = { windowMs: 60_000, max: 10 },
   routingDeadlineMs = undefined,
   ownPlacesEnough = undefined,
+  includePlannerDiagnostics = process.env.PLANNER_DIAGNOSTICS === '1',
+  roundPlannerMinutes = true,
   supabase = null,
   mount = () => {},
 }) {
@@ -130,6 +136,8 @@ export function createApp({
       allowSimulatedWeather: allowSimulatedWeather || stub,
       routingDeadlineMs,
       ownPlacesEnough,
+      includeDiagnostics: includePlannerDiagnostics,
+      roundMinutes: roundPlannerMinutes,
       limiter,
     }),
   )

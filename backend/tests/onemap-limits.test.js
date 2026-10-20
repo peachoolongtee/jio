@@ -134,7 +134,7 @@ function countingStubHttp() {
 
 const servers = []
 async function startApp(options) {
-  const server = createApp({ frontendOrigin: FRONTEND, ...options }).listen(0, '127.0.0.1')
+  const server = createApp({ frontendOrigin: FRONTEND, roundPlannerMinutes: false, ...options }).listen(0, '127.0.0.1')
   servers.push(server)
   await once(server, 'listening')
   return `http://127.0.0.1:${server.address().port}`

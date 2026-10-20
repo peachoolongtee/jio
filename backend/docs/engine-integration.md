@@ -100,6 +100,8 @@ Maxwell Food Centre is in the frontend list *and* is a CDC site. `mergeCuratedWi
 
 The last-stop rule needs "minutes to the MRT". Only the curated venues have it. `withEstimatedMrtWalk()` fills it in for the mock and CDC venues: distance to the nearest station in `areas.json`, at the frontend's walking speed (5 km/h, streets 25% longer than a straight line).
 
+`estimateTransitMinutes` in `graph.js` (an MRT-network fallback, with its own walking speed, now 5 km/h like the rest) is **not used at runtime**: only `tests/graph.test.js` calls it. The planner's own fallback when OneMap cannot route is `mockTravelMinutes` in `geo.js`. So the walking-speed change in `estimateTransitMinutes` moves no ranking.
+
 `areas.json` has only 37 of Singapore's stations, so the estimate can only be **longer** than the real walk. It may wrongly exclude a venue, but never wrongly include one. These venues are marked `mrtWalkEstimated: true`.
 
 Without this, last-stop food slots in strict mode came back empty 25 times out of 30 (pairs of our mock members at 12:00 and 18:30). With it, 4 out of 30.
@@ -150,7 +152,7 @@ Added so the frontend loses nothing when it switches to the API. Each Converge a
 
 ## 4. Bug fixed along the way
 
-- **Regret line said "would add 0 minutes"** (`scoring.js` `regretCounterfactual`). The gap was checked before rounding, so 0.3 minutes passed and then printed as 0. It now rounds first and hides gaps under one minute.
+- **Regret line noise** (`scoring.js` `regretCounterfactual`). The gap is rounded first and shown only when choosing the other place would add at least 3 minutes to the most affected member's trip.
 
 ## 5. The API
 
@@ -160,6 +162,8 @@ Added so the frontend loses nothing when it switches to the API. Each Converge a
 - `POST /api/converge`
 - `POST /api/roam`
 - `POST /api/search`
+- `POST /api/plan/converge` and `POST /api/plan/roam` are aliases for the build spec; the shorter `/api/converge` and `/api/roam` paths remain supported.
+- `GET /api/venues/search?q=...` is the build-spec search alias. It accepts optional `lat`, `lng`, `dateTime`, `category`, `durationMinutes` and `limit`; without coordinates it searches around central Singapore. The richer `POST /api/search` remains supported.
 
 Every request is checked by zod (`src/routes/plan-schemas.js`) before the engine runs:
 

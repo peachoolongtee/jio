@@ -10,6 +10,7 @@
 
 import { approxRegion } from './cdc-adapter.js';
 import { KIND_DEFAULTS } from './venue-adapter.js';
+import { isSingaporePoint } from './singapore.js';
 
 const ATTRIBUTE_KEYS = ['quiet', 'romantic', 'cozy', 'lively', 'privacy', 'workFriendly', 'celebration'];
 
@@ -179,6 +180,7 @@ const LESSONS_NAME = /\b(academy|school|tuition|coaching|enrichment|classes)\b/i
 function fromGooglePlace(place, dateTime, { searched = false } = {}) {
   const lat = place.location?.latitude, lng = place.location?.longitude;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (!isSingaporePoint({ lat, lng })) return null;
   if (place.businessStatus && place.businessStatus !== 'OPERATIONAL') return null;
   if (CLOSED_NAME.test(place.displayName?.text ?? '')) return null;
   const name = typeof place.displayName?.text === 'string' ? place.displayName.text.trim() : '';

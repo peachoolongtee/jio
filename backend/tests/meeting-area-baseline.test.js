@@ -49,7 +49,7 @@ const planData = loadPlanData()
 // How to call:
 //   const app = buildApp('stub')
 function buildApp(mode) {
-  const base = { frontendOrigin: FRONTEND, planData }
+  const base = { frontendOrigin: FRONTEND, roundPlannerMinutes: false, planData }
   const http = createHttp({ stub: true })
   switch (mode) {
     case 'off':

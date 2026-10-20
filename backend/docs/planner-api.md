@@ -2,7 +2,18 @@
 
 How the frontend asks the backend where to meet and which venues to suggest. The routes live in `backend/src/routes/plan.js`, the input checks in `backend/src/routes/plan-schemas.js`.
 
-Base URL: `VITE_API_BASE_URL` (locally `http://localhost:3000`). Every request and response is JSON. All four endpoints are `POST`.
+Base URL: `VITE_API_BASE_URL` (locally `http://localhost:3000`). Planner requests and responses are JSON. Ranking and slot search use `POST`; address search and the build-spec venue-search alias use `GET`.
+
+Coordinates are checked against the URA Master Plan planning-area land polygons plus a bounded central planning envelope, so outlying Johor and Batam points are rejected while central coastal points remain usable. `dateTime` must be a real `YYYY-MM-DDTHH:MM` calendar date in Singapore local time; weekday-specific Google opening hours and explicit closed-weekday data use its date.
+
+## What the public answer leaves out
+
+Two things are separate:
+
+- **Minutes are rounded to one decimal place, always.** Every `...Minutes` field (`worstMinutes`, `meanMinutes`, `travelMinutes`, `walkMinutes`) and every value in `travelByMember`, `returnByMember` and `times` is rounded: `45.468` is sent as `45.5`. Rounding does not depend on any setting.
+- **`diagnostics` is shown only with `PLANNER_DIAGNOSTICS=1`** in the server's environment (blank by default, see `backend/.env.example`). It holds the engine's own counters (`routingCalls`, `passedFilters`, `radiusUsed`, `rejectedCounts`, `extraRoutingCalls`) and is for debugging; a client must not read it. The backend's tests turn it on in `vitest.config.js`. `NODE_ENV` changes neither.
+
+In code, `createApp({ includePlannerDiagnostics, roundPlannerMinutes })` sets the two; a test that needs the engine's raw minutes passes `roundPlannerMinutes: false`. The sample answers below show the public shape, so they have no `diagnostics`.
 
 | Endpoint | Use it for |
 |---|---|
@@ -10,6 +21,8 @@ Base URL: `VITE_API_BASE_URL` (locally `http://localhost:3000`). Every request a
 | `POST /api/converge` | Once per itinerary slot: rank venues for the group around the meeting point. |
 | `POST /api/roam` | "What next?": rank venues near one person's current point. |
 | `POST /api/search` | Find a place by name to add as an option, and say whether it fits the slot. |
+| `POST /api/plan/converge`, `POST /api/plan/roam` | Build-spec aliases for the two ranking endpoints above. |
+| `GET /api/venues/search?q=...` | Build-spec search alias. Optional `lat`, `lng`, `dateTime`, `category`, `durationMinutes` and `limit`; defaults to central Singapore and the current Singapore date/time. |
 | `GET /api/places/search?q=` | Find an address, postal code or building with OneMap, for start and end points. |
 
 Travel times are real OneMap public transport times once the server has a OneMap account (`ONEMAP_EMAIL`, `ONEMAP_PASSWORD`), and the engine's estimate until then. Every answer says which it used: see [Travel times](#travel-times). Weather: see [Weather](#weather).
@@ -129,10 +142,11 @@ Response (real output for the request above):
   "worstMember": "Ian",
   "meanMinutes": 44.3,
   "travelByMember": { "ian": 45.5, "faith": 43.1 },
-  "approximate": false,
-  "diagnostics": { "routingCalls": 74, "activeMembers": ["ian", "faith"] }
+  "approximate": false
 }
 ```
+
+With `PLANNER_DIAGNOSTICS=1` the answer also carries `"diagnostics": { "routingCalls": 74, "activeMembers": ["ian", "faith"] }` (see [What the public answer leaves out](#what-the-public-answer-leaves-out)).
 
 Pass `centre` to `/api/converge`. `approximate: true` means some trips used the estimate, because OneMap could not answer them or because they were left out of the per-request cap or the shortlist. Say "about" in the UI. The answer also carries `travel` (see [Travel times](#travel-times)).
 
@@ -166,7 +180,7 @@ Two optional request fields add a `candidates` list to the answer: the chosen ar
 - **An included area's times are real when the cap has room and estimated otherwise.** With routing on, an included area is routed for every member when the 60-trip cap has room for it whole, after the chosen area and the runners-up; otherwise every member's time is the estimate. Its `approximate` says which: `false` for real times, `true` for estimates. With routing off, its times are estimates and its `approximate` is `false` (see the next point).
 - **`approximate` on a candidate is about that area alone**: true when at least one of its own trips used the estimate, because OneMap could not answer, or because the area did not fit the per-request cap. This is narrower than the top-level `approximate`, which is true when any area the ranking compared used an estimate. So `candidates[0].approximate` can be `false` while the top-level `approximate` is `true`, when the chosen area was routed for every member and a lower-ranked area was not. Say "about" for a candidate only when its own flag is true.
 - **`approximate` is false when routing is off, although every time is then an estimate.** The flag means "a trip fell back to the estimate", and with no OneMap service nothing falls back: the estimate is all there is. So do not read `approximate: false` as "real times". Read `travel.source`: `'estimate'` means every time in the answer, candidates included, is the engine's estimate, and `'onemap'` means at least one trip got a real time, with `approximate` then telling which areas fell back.
-- **`diagnostics`** gains `extraRoutingCalls` (only when candidates are asked for): the trips the engine asked about for areas outside the chosen area's ranking, that is included areas the station rule did not try, or, for another method, the areas tried for runners-up. `routingCalls` is unchanged.
+- **`diagnostics`** (shown only with `PLANNER_DIAGNOSTICS=1`) gains `extraRoutingCalls` (only when candidates are asked for): the trips the engine asked about for areas outside the chosen area's ranking, that is included areas the station rule did not try, or, for another method, the areas tried for runners-up. `routingCalls` is unchanged.
 - **`travel`** counts the extra areas' trips as well (`asked`, `routed`, `estimated`), so it can differ from the same request without the new fields.
 
 Errors are the route's usual `400 invalid_input`. An unknown or repeated area id names the entry in `issues`:
@@ -254,12 +268,11 @@ Response:
       "breakdown": { "worst": { "value": 75.2, "weight": 25, "contribution": 18.5 } },
       "venue": { "id": "v25", "name": "…", "category": "eat", "source": "mock" }
     }
-  ],
-  "diagnostics": { "passedFilters": 1446, "radiusUsed": 500 }
+  ]
 }
 ```
 
-`breakdown` and `venue` are shortened here; the real response has every factor and every venue field.
+`breakdown` and `venue` are shortened here; the real response has every factor and every venue field. With `PLANNER_DIAGNOSTICS=1` the answer also has `"diagnostics": { "passedFilters": 1446, "radiusUsed": 500 }`.
 
 What to show for each result:
 
@@ -337,7 +350,7 @@ Response (real output, without `members`):
 }
 ```
 
-Places that fit come first, then by walking time. `distanceKm` is rounded here. `unfit` says why a place can't be added. It uses the same words as `diagnostics.rejectedCounts`:
+Places that fit come first, then by walking time. `distanceKm` is rounded here. `unfit` says why a place can't be added. It uses the same words as `diagnostics.rejectedCounts` (a counter shown only with `PLANNER_DIAGNOSTICS=1`):
 
 | `unfit` value | Meaning |
 |---|---|
@@ -613,7 +626,7 @@ The counts always add up: `asked = routed + cached + walked + failed + estimated
 | `failed` | OneMap was asked and gave no time (an error, or no route), or the cache remembers "no route". The engine used its estimate. |
 | `estimated` | Never asked, so the engine used its estimate. Its venue or area did not fit the per-request cap (or the meeting-area shortlist), or OneMap was not available (the shared call budget was used up, routing was paused after repeated failures, the login failed), or this request waited its 8 seconds. |
 
-`approximate: true` on a result (or on the meeting area) means at least one of its trips used the estimate, whether it `failed` or was `estimated`. A result that is not approximate has real times for every trip. `diagnostics.routingCalls` is the engine's own count of the trips it asked about; `travel` is what was really fetched.
+`approximate: true` on a result (or on the meeting area) means at least one of its trips used the estimate, whether it `failed` or was `estimated`. A result that is not approximate has real times for every trip. `diagnostics.routingCalls` (with `PLANNER_DIAGNOSTICS=1`) is the engine's own count of the trips it asked about; `travel` is what was really fetched, and is always shown.
 
 How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 - The engine runs once to find the trips it needs. Those are fetched from OneMap, 6 at a time, and the engine runs again with the real times.
