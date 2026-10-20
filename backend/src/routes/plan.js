@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { ZodError } from 'zod'
-import { converge, hardFilterContext, meetingArea, meetingAreaPlan, resolveMembers, roam, searchVenues } from '../planner/engine.js'
+import { converge, hardFilterContext, resolveMembers, roam, searchVenues } from '../planner/engine.js'
 import { filterByConstraints } from '../planner/filters.js'
 import { fromGooglePlaces } from '../planner/google-adapter.js'
 import { centroid, fairnessWeights, haversineKm, minimaxCenter } from '../planner/geo.js'
@@ -16,8 +16,8 @@ import {
 import { createWeatherResolver, placeVenues } from '../planner/weather-window.js'
 import { OneMapUnavailableError } from '../services/budget.js'
 import { ExternalApiError } from '../services/errors.js'
-import { currentScenario } from '../services/scenario.js'
-import { estimateTravel, ROUTING_DEADLINE_MS, runWithRealTravel } from '../services/travel-times.js'
+import { createPlannerRuns, nowInSingapore } from '../services/planner-runs.js'
+import { ROUTING_DEADLINE_MS } from '../services/travel-times.js'
 import { MAX, makePlanSchemas, SINGAPORE_BOUNDS } from './plan-schemas.js'
 import { arrangeCandidates, freshCandidates } from '../planner/arrange.js'
 import { createItineraryAi } from '../services/itinerary-ai.js'
@@ -65,16 +65,6 @@ import { createItineraryAi } from '../services/itinerary-ai.js'
 //             result is marked `approximate`.
 //   estimate  the engine's own estimate: there is no OneMap service, or it has no account, or every call failed.
 // One request makes at most 60 OneMap route calls, for whole venues or areas only. The rest keep the estimate.
-
-// Singapore local time now, as the planner writes it: "2026-10-10T19:00".
-const nowInSingapore = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16)
-
-// With routing on, the "best MRT station" check tries only the 16 areas nearest the fairest point, not all 37:
-// 16 never missed the best area in 2,000 random groups (see docs/engine-integration.md), and it cuts the calls.
-const MEETING_CANDIDATES_WITH_ROUTING = 16
-
-// Of those, only the 5 whose estimated result is best get real routes. The others keep the estimate.
-const MEETING_AREAS_ROUTED = 5
 
 // What one ranking may spend on Google besides its nearby search, for the places in `currentOptionIds` that Google
 // has to be asked about (MAX.googleOptions of them are read from the request). Of those not already cached or
@@ -160,24 +150,13 @@ export function createPlanRouter({
   limiter = null,
   routingDeadlineMs = ROUTING_DEADLINE_MS,
   ownPlacesEnough = OWN_PLACES_ENOUGH,
+  // The shared engine runs (services/planner-runs.js). The session endpoints use the same ones; app.js builds one and passes it
+  // to both. Left out, this router builds its own.
+  runs = createPlannerRuns({ data, weatherResolver, onemap, routingDeadlineMs }),
 }) {
   const schemas = makePlanSchemas(data)
   const router = Router()
-
-  // Stub mode only (Playwright): the x-jio-scenario header picks whether routing fails. The weather scenario
-  // reaches the forecast through the HTTP helper, so it needs nothing here. Outside stub mode currentScenario()
-  // is always 'dry', so nothing changes.
-  const depsFor = () => (currentScenario() === 'routing-fail' ? { travelMinutes: () => null } : {})
-
-  // Works out which weather one request is scored against. Never throws because data.gov.sg is down.
-  //
-  // How to call:
-  //   const resolved = await resolveWeather(input) // { weatherCase, planData, forecast, weather, ... }
-  //
-  // `resolved` is also what placeVenues(resolved, venues) needs to put a venue added later in the request under the
-  // same weather (see readyGoogleVenues). Its `forecast` is the same shape for the area and the regional forecast, and
-  // undefined for a simulated forecast and for "no effect".
-  const resolveWeather = (input) => weatherResolver.resolve({ start: input.dateTime, weatherCase: input.weatherCase })
+  const { depsFor, resolveWeather, runWithTravel, meetingAreaWithRouting, meetingAreaTravelFor } = runs
 
   // The point a request ranks around: Roam's current point, Converge's given centre, or else the group's seed point,
   // worked out from the same functions and the same rule as the engine's converge() (its `seed` and
@@ -443,26 +422,6 @@ export function createPlanRouter({
     return { results: searchVenues({ ...input, alsoMatch }, { ...planData, venues }), google }
   }
 
-  // Runs the engine with real OneMap travel times when routing is on, and with the estimate otherwise.
-  //
-  // `options` go to runWithRealTravel: { maxCandidates, rankByEstimate } for the meeting area's shortlist. They may
-  // be a function of the request, for options that depend on what it asks for.
-  //
-  // How to call:
-  //   const { result, travel } = await runWithTravel(input, planData, converge)
-  async function runWithTravel(input, planData, run, options = {}) {
-    if (!onemap?.routingEnabled) {
-      return { result: run(input, planData, depsFor()), travel: estimateTravel() }
-    }
-    return runWithRealTravel({
-      ...(typeof options === 'function' ? options(input) : options),
-      onemap,
-      deadlineMs: routingDeadlineMs,
-      dateTime: input.dateTime ?? nowInSingapore(),
-      run: (deps) => run(input, planData, deps),
-    })
-  }
-
   // The API's names for how many options to look for, in the engine's words: minOptions is the radius search's
   // minResults, shortlistSize is the engine's pruneTo. Left out, the engine keeps its defaults (3 and 10).
   //
@@ -526,28 +485,6 @@ export function createPlanRouter({
   // The limiter, when there is one, runs before each planner route and no other.
   const guard = limiter ? [limiter] : []
 
-  // With routing on, the meeting area tries 16 candidate areas unless the request says otherwise. A method other
-  // than station tries them only to find runners-up, so only when the request asks for some.
-  //
-  // How to call:
-  //   const effective = withRoutingCandidates(input) // input, or input with maxCandidates: 16
-  const withRoutingCandidates = (input) =>
-    onemap?.routingEnabled && (input.method === 'station' || input.alternatives > 0) && !input.maxCandidates
-      ? { ...input, maxCandidates: MEETING_CANDIDATES_WITH_ROUTING }
-      : input
-  const meetingAreaWithRouting = (input, planData, deps) => meetingArea(withRoutingCandidates(input), planData, deps)
-
-  // The meeting area tries many areas, so only the best few by estimate get real routes (see travel-times.js).
-  // A request that asks for runners-up or names areas also routes the named ones after those, within the same cap.
-  //
-  // How to call:
-  //   runWithRealTravel({ ...meetingAreaTravelFor(input), onemap, dateTime, run })
-  const meetingAreaTravel = { rankByEstimate: true, maxCandidates: MEETING_AREAS_ROUTED }
-  const meetingAreaTravelFor = (input) => {
-    if (input.alternatives === undefined && input.include === undefined) return meetingAreaTravel
-    const { outside } = meetingAreaPlan(withRoutingCandidates(input), data)
-    return { ...meetingAreaTravel, namedAreas: { notShortlisted: outside, afterShortlist: input.include ?? [] } }
-  }
   router.post(
     '/meeting-area',
     ...guard,
