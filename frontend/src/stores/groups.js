@@ -26,17 +26,26 @@ export const useGroupsStore = defineStore('groups', () => {
   // so "empty" does not mean "never loaded".
   let peopleAsked = false
 
+  // Each load below clears its flag whether it worked or not, and still throws, so a screen can show the failure and offer a retry.
+  // How to call: await loadPeople()
   async function loadPeople() {
     peopleAsked = true
     loading.value.people = true
-    people.value = await api.listPeople()
-    loading.value.people = false
+    try {
+      people.value = await api.listPeople()
+    } finally {
+      loading.value.people = false
+    }
   }
 
+  // How to call: await loadLeaderboard()
   async function loadLeaderboard() {
     loading.value.leaderboard = true
-    leaderboard.value = await api.getLeaderboard()
-    loading.value.leaderboard = false
+    try {
+      leaderboard.value = await api.getLeaderboard()
+    } finally {
+      loading.value.leaderboard = false
+    }
   }
 
   async function loadSeason() {
@@ -48,12 +57,16 @@ export const useGroupsStore = defineStore('groups', () => {
     return profiles.value[id]
   }
 
+  // How to call: await loadRewards()
   async function loadRewards() {
     loading.value.rewards = true
-    const [list, mine] = await Promise.all([api.listRewards(), api.listRedemptions()])
-    rewards.value = list
-    redemptions.value = mine
-    loading.value.rewards = false
+    try {
+      const [list, mine] = await Promise.all([api.listRewards(), api.listRedemptions()])
+      rewards.value = list
+      redemptions.value = mine
+    } finally {
+      loading.value.rewards = false
+    }
   }
 
   async function setFriend(id, isFriend) {
@@ -92,11 +105,15 @@ export const useGroupsStore = defineStore('groups', () => {
     profiles.value = {}
     rewards.value = []
     redemptions.value = []
-    if (had.people) loadPeople().catch(() => {})
-    if (had.leaderboard) loadLeaderboard().catch(() => {})
-    if (had.season) loadSeason().catch(() => {})
-    if (had.rewards) loadRewards().catch(() => {})
+    if (had.people) quietly(loadPeople)
+    if (had.leaderboard) quietly(loadLeaderboard)
+    if (had.season) quietly(loadSeason)
+    if (had.rewards) quietly(loadRewards)
   }
+
+  // A refresh nobody is waiting for (a live update): a failure keeps what is shown and is not an unhandled rejection.
+  // How to call: quietly(loadPeople)
+  const quietly = (load) => load().catch(() => {})
 
   api.subscribe((event) => {
     if (currentUserId() !== owner) {
@@ -104,10 +121,10 @@ export const useGroupsStore = defineStore('groups', () => {
       forgetEverything()
     }
     if (['stats', 'reset', 'user', 'friends', 'people'].includes(event.type)) {
-      if (people.value.length || peopleAsked) loadPeople()
-      if (leaderboard.value.length) loadLeaderboard()
-      if (season.value) loadSeason()
-      if (rewards.value.length) loadRewards()
+      if (people.value.length || peopleAsked) quietly(loadPeople)
+      if (leaderboard.value.length) quietly(loadLeaderboard)
+      if (season.value) quietly(loadSeason)
+      if (rewards.value.length) quietly(loadRewards)
       reloadProfiles()
     }
     if (event.type === 'session' && Object.keys(profiles.value).length) reloadProfiles()

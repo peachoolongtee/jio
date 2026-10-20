@@ -59,7 +59,8 @@ const { onKeydown } = useFocusTrap(open, panel, { restoreOnUnmount: true })
 // Who is a friend, from the people list (loaded here if Home has not yet).
 const groups = useGroupsStore()
 const auth = useAuthStore()
-if (!groups.people.length) groups.loadPeople()
+// A failure only leaves the friend marks out; nothing waits on it.
+if (!groups.people.length) groups.loadPeople().catch(() => {})
 const isFriend = (id) => !!groups.people.find((p) => p.id === id)?.isFriend
 const adding = ref('')
 const inOuting = (id) => props.outing.includes(id)
