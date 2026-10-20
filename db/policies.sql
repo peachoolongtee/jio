@@ -292,7 +292,7 @@ revoke execute on function
   public.my_locating_session_ids(), public.member_minutes_ok(jsonb),
   public.is_session_host(uuid), public.invite_preview(text), public.join_session(text),
   public.my_invitations(), public.decline_invite(text), public.check_invite_insert(),
-  public.session_member_needs(uuid), public.session_travel_debt(uuid),
+  public.session_member_needs(uuid), public.session_travel_debt(uuid), public.apply_session_plan(uuid, bigint, text, jsonb),
   public.set_updated_at(), public.touch_member_preferences(),
   public.add_host_membership(), public.guard_session_changes()
   from public, anon, authenticated;
@@ -309,9 +309,10 @@ grant execute on function public.join_session(text), public.my_invitations(), pu
   to authenticated;
 
 -- Members' private planner needs and travel balances go to the server only, and so does the check that
--- session_spots.travel_minutes runs: only the server writes that table.
+-- session_spots.travel_minutes runs: only the server writes that table. So does apply_session_plan, the one function the
+-- server writes a session's plan through.
 grant execute on function public.session_member_needs(uuid), public.session_travel_debt(uuid),
-  public.member_minutes_ok(jsonb)
+  public.member_minutes_ok(jsonb), public.apply_session_plan(uuid, bigint, text, jsonb)
   to service_role;
 
 -- ── Live updates ────────────────────────────────────────────────────────
