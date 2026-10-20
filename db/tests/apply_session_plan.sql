@@ -1,8 +1,8 @@
 -- Test for the server's plan-writing function: apply_session_plan(), in db/migrations/20261020000000_jio_apply_session_plan.sql (or a
 -- fresh build of db/schema.sql and db/policies.sql). It needs slice b applied (the meeting-spot tables and sessions.plan_version).
 --
--- NOT YET RUN: this file was written without a database to run it on. Run it on the project first, in the transaction below,
--- and fix whatever it finds before the migration is applied for good.
+-- Run on the live project on 20 October 2026 by the lead's agent, with the function created inside the same transaction and
+-- everything rolled back: all 76 steps passed, and no function, user or session was left behind.
 --
 -- How to run: after the migration (or a fresh build), run this whole file as ONE batch, in the SQL editor
 -- or with   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/apply_session_plan.sql
@@ -12,7 +12,7 @@
 -- and stops the run (with the rollback that follows).
 --
 -- Expected error codes: 42501 = permission denied, 23514 = check constraint, 23505 = unique, 22023 = bad parameter value,
--- P0001 = a rule of the function (with a hint: area_pinned, needs_two_people, status_transition).
+-- P0001 = a rule of the function (with a hint: area_pinned, pin_without_confirm, host_member, needs_two_people, status_transition).
 
 begin;
 
@@ -177,6 +177,9 @@ declare
   stranger uuid := gen_random_uuid();
   s uuid := gen_random_uuid();         -- locating, version 7
   s2 uuid := gen_random_uuid();        -- inviting, the host alone
+  s3 uuid := gen_random_uuid();        -- voting, a pinned meeting at Bugis (the "changed means changed" and loaded_at steps)
+  s4 uuid := gen_random_uuid();        -- inviting, the host and g1 (the two-people check after the ops)
+  s5 uuid := gen_random_uuid();        -- locating, no meeting yet (a pin only with a confirm; the host stays)
   u uuid;
   tm jsonb;
   p jsonb;
@@ -357,12 +360,12 @@ begin
     format('select pg_temp.apply(%L, 17, ''voting'', %L::jsonb)', s, jsonb_set(p, '{session,meeting,method}', '"chosen"')::text), 'area_pinned');
   perform pg_temp.expect_hint(39, 'nor cleared',
     format('select pg_temp.apply(%L, 17, ''voting'', %L::jsonb)', s, '{"session":{"meeting":null}}'), 'area_pinned');
-  perform pg_temp.expect_text(40, 'the same area and method again is allowed',
-    format('select pg_temp.apply(%L, 17, ''voting'', %L::jsonb)', s, (p #- '{session,status}')::text), '18');
+  perform pg_temp.expect_text(40, 'the same area and method again is allowed, and changes nothing (the version stays)',
+    format('select pg_temp.apply(%L, 17, ''voting'', %L::jsonb)', s, (p #- '{session,status}')::text), '17');
   perform pg_temp.expect_text(41, 'and so is a write that does not touch the meeting area (it removes the one suggestion left)',
-    format('select pg_temp.apply(%L, 18, ''voting'', ''{"ops":[{"op":"clear_suggestions"}]}'')', s), '19');
+    format('select pg_temp.apply(%L, 17, ''voting'', ''{"ops":[{"op":"clear_suggestions"}]}'')', s), '18');
   perform pg_temp.expect_text(42, 'a late answer worked out while locating is dropped: the status no longer matches',
-    format('select pg_temp.apply(%L, 19, ''locating'', %L::jsonb)', s, '{"ops":[{"op":"clear_approvals"}]}'), 'null');
+    format('select pg_temp.apply(%L, 18, ''locating'', %L::jsonb)', s, '{"ops":[{"op":"clear_approvals"}]}'), 'null');
 
   -- ── Two people to start (leaving inviting) ──────────────────────────
   p := jsonb_build_object('session', jsonb_build_object('status', 'voting',
@@ -398,6 +401,133 @@ begin
   perform pg_temp.as_admin();
   perform pg_temp.expect_text(49, 'but brings the time they were worked out forward',
     format('select (computed_at = now())::text from public.session_spots where session_id = %L and area_id = ''bishan''', s2), 'true');
+
+  -- ── A change is a change: only a value that differs counts ──────────
+  -- s3 is voting, pinned at Bugis with figures of 10 and 20 minutes, worked out three hours ago.
+  perform pg_temp.as_admin();
+  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version, meeting_area_id, meeting_method,
+                               meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, meeting_computed_at)
+    values (s3, host, 'Pinned', current_date + 1, '10:00', '20:00', 'voting', 0, 'bugis', 'chosen', 10, 20, 2, false, now() - interval '3 hours');
+  insert into public.session_members (session_id, user_id, state) values (s3, g1, 'joined');
+  p := jsonb_build_object('session', jsonb_build_object('meeting', jsonb_build_object('area_id', 'bugis', 'method', 'chosen',
+    'max_minutes', 10.4, 'total_minutes', 19.6, 'count', 2, 'approximate', false, 'travel', jsonb_build_object(host::text, 10, g1::text, 10))));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(50, 'the same pinned meeting again (figures that round the same) answers the stored version',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L::jsonb)', s3, p::text), '0');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(51, 'and writes nothing, not even the time the meeting was worked out',
+    format('select plan_version::text || '' '' || (meeting_computed_at = now() - interval ''3 hours'')::text from public.sessions where id = %L', s3), '0 true');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(52, 'a meeting whose figure differs is written and raises the version',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L::jsonb)', s3, jsonb_set(p, '{session,meeting,max_minutes}', '11')::text), '1');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(53, 'with the new figure, and the time the meeting was worked out moves',
+    format('select meeting_max_minutes::text || '' '' || (meeting_computed_at = now())::text from public.sessions where id = %L', s3), '11 true');
+  p := jsonb_build_object('session', jsonb_build_object('banner', jsonb_build_object('text', 'Hello', 'at', 1, 'approvalsRemoved', true)));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(54, 'a new banner is written and raises the version',
+    format('select pg_temp.apply(%L, 1, ''voting'', %L::jsonb)', s3, p::text), '2');
+  perform pg_temp.expect_text(55, 'the same banner again changes nothing',
+    format('select pg_temp.apply(%L, 2, ''voting'', %L::jsonb)', s3, p::text), '2');
+  perform pg_temp.expect_text(56, 'clearing the banner is a change',
+    format('select pg_temp.apply(%L, 2, ''voting'', %L::jsonb)', s3, '{"session":{"banner":null}}'), '3');
+  perform pg_temp.expect_text(57, 'and clearing it again is not',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', s3, '{"session":{"banner":null}}'), '3');
+
+  -- ── The two-people check runs after the ops ─────────────────────────
+  -- s4 has the host and g1 joined. Opting g1 out and starting in one call would leave the host alone.
+  perform pg_temp.as_admin();
+  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version)
+    values (s4, host, 'Starting', current_date + 1, '10:00', '20:00', 'inviting', 0);
+  insert into public.session_members (session_id, user_id, state) values (s4, g1, 'joined');
+  p := jsonb_build_object('session', jsonb_build_object('status', 'voting',
+    'meeting', jsonb_build_object('area_id', 'bugis', 'method', 'chosen', 'max_minutes', 0, 'total_minutes', 0, 'count', 0, 'approximate', false, 'travel', '{}'::jsonb)));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(58, 'opting the only other member out while starting is refused: one person would remain',
+    format('select pg_temp.apply(%L, 0, ''inviting'', %L::jsonb)', s4,
+           (p || jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'opt_out', 'user_id', g1))))::text), 'needs_two_people');
+  perform pg_temp.expect_hint(59, 'so is removing them while starting',
+    format('select pg_temp.apply(%L, 0, ''inviting'', %L::jsonb)', s4,
+           (p || jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'remove_member', 'user_id', g1))))::text), 'needs_two_people');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(60, 'and nothing was written: g1 is still joined, the session still inviting at version 0',
+    format('select (select state from public.session_members where session_id = %L and user_id = %L) || '' '' || status || '' '' || plan_version'
+           || ' from public.sessions where id = %L', s4, g1, s4), 'joined inviting 0');
+  insert into public.session_members (session_id, user_id, state) values (s4, g2, 'joined');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(61, 'with two still joined after the ops it goes through',
+    format('select pg_temp.apply(%L, 0, ''inviting'', %L::jsonb)', s4,
+           (p || jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'opt_out', 'user_id', g2))))::text), '1');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(62, 'g2 is opted out and the session is voting',
+    format('select (select state from public.session_members where session_id = %L and user_id = %L) || '' '' || status'
+           || ' from public.sessions where id = %L', s4, g2, s4), 'opted_out voting');
+
+  -- ── A pin only with a confirm ───────────────────────────────────────
+  -- s5 is locating with no meeting. A pinned method ('voted' or 'chosen') comes only with the move to voting (steps 34 and 44),
+  -- or when the stored meeting already is that pin (step 40).
+  perform pg_temp.as_admin();
+  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version)
+    values (s5, host, 'Locating', current_date + 1, '10:00', '20:00', 'locating', 0);
+  p := jsonb_build_object('session', jsonb_build_object('meeting', jsonb_build_object('area_id', 'bugis', 'method', 'voted',
+    'max_minutes', 10, 'total_minutes', 20, 'count', 2, 'approximate', false, 'travel', '{}'::jsonb)));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(63, 'a voted meeting without the move to voting is refused',
+    format('select pg_temp.apply(%L, 0, ''locating'', %L::jsonb)', s5, p::text), 'pin_without_confirm');
+  perform pg_temp.expect_hint(64, 'so is a chosen one',
+    format('select pg_temp.apply(%L, 0, ''locating'', %L::jsonb)', s5, jsonb_set(p, '{session,meeting,method}', '"chosen"')::text), 'pin_without_confirm');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(65, 'and nothing was written',
+    format('select plan_version::text || '' '' || coalesce(meeting_method, ''none'') from public.sessions where id = %L', s5), '0 none');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(66, 'the planner''s own method needs no confirm',
+    format('select pg_temp.apply(%L, 0, ''locating'', %L::jsonb)', s5, jsonb_set(p, '{session,meeting,method}', '"fairest"')::text), '1');
+  perform pg_temp.expect_hint(67, 'and a stored planner method is not a pin: turning it into one without the move is refused',
+    format('select pg_temp.apply(%L, 1, ''locating'', %L::jsonb)', s5, jsonb_set(p, '{session,meeting,method}', '"chosen"')::text), 'pin_without_confirm');
+
+  -- ── The host stays ──────────────────────────────────────────────────
+  perform pg_temp.expect_hint(68, 'the function never opts the host out',
+    format('select pg_temp.apply(%L, 1, ''locating'', %L::jsonb)', s5, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'opt_out', 'user_id', host)))::text), 'host_member');
+  perform pg_temp.expect_hint(69, 'nor removes the host',
+    format('select pg_temp.apply(%L, 1, ''locating'', %L::jsonb)', s5, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'remove_member', 'user_id', host)))::text), 'host_member');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(70, 'and the host is still joined',
+    format('select state from public.session_members where session_id = %L and user_id = %L', s5, host), 'joined');
+
+  -- ── computed_at is when the inputs were loaded ──────────────────────
+  -- s3 is at version 3. Its spots were worked out two hours ago, except Orchard, which a later run wrote just now.
+  perform pg_temp.as_admin();
+  insert into public.session_spots (session_id, area_id, rank, worst_minutes, mean_minutes, travel_minutes, approximate, computed_at) values
+    (s3, 'bishan', 1, 30, 25, '{}', false, now() - interval '2 hours'),
+    (s3, 'bugis', 2, 32, 26, '{}', false, now() - interval '2 hours'),
+    (s3, 'orchard', 3, 35, 28, '{}', false, now());
+  p := jsonb_build_object('recomputed', true,
+    'loaded_at', to_char((now() - interval '1 hour') at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+    'spots', jsonb_build_array(
+      jsonb_build_object('area_id', 'bishan', 'rank', 1, 'worst_minutes', 31, 'mean_minutes', 25, 'travel_minutes', '{}'::jsonb, 'approximate', false),
+      jsonb_build_object('area_id', 'bugis', 'rank', 2, 'worst_minutes', 32, 'mean_minutes', 26, 'travel_minutes', '{}'::jsonb, 'approximate', false),
+      jsonb_build_object('area_id', 'orchard', 'rank', 3, 'worst_minutes', 35, 'mean_minutes', 28, 'travel_minutes', '{}'::jsonb, 'approximate', false)));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(71, 'a run that loaded its inputs an hour ago writes the repriced spot',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', s3, p::text), '4');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(72, 'with computed_at an hour ago, not now',
+    format('select (computed_at = now() - interval ''1 hour'')::text from public.session_spots where session_id = %L and area_id = ''bishan''', s3), 'true');
+  perform pg_temp.expect_text(73, 'the refresh brings the untouched older spot to that time, and never moves a newer one back',
+    format('select ((select computed_at from public.session_spots where session_id = %L and area_id = ''bugis'') = now() - interval ''1 hour'''
+           || ' and (select computed_at from public.session_spots where session_id = %L and area_id = ''orchard'') = now())::text', s3, s3), 'true');
+  update public.session_members set start_area_id = 'bedok' where session_id = s3 and user_id = g1;
+  perform pg_temp.expect_text(74, 'a member row changed after the inputs were loaded is newer than the spot, so the repair check still sees it',
+    format('select ((select updated_at from public.session_members where session_id = %L and user_id = %L)'
+           || ' > (select computed_at from public.session_spots where session_id = %L and area_id = ''bishan''))::text', s3, g1, s3), 'true');
+  p := jsonb_set(p, '{spots}', (p -> 'spots') || jsonb_build_array(
+    jsonb_build_object('area_id', 'jurong-east', 'rank', null, 'worst_minutes', 40, 'mean_minutes', 30, 'travel_minutes', '{}'::jsonb, 'approximate', false)));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(75, 'a new spot is written too',
+    format('select pg_temp.apply(%L, 4, ''voting'', %L::jsonb)', s3, p::text), '5');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(76, 'with computed_at an hour ago as well',
+    format('select (computed_at = now() - interval ''1 hour'')::text from public.session_spots where session_id = %L and area_id = ''jurong-east''', s3), 'true');
 
   raise notice 'ALL STEPS PASSED';
 end;

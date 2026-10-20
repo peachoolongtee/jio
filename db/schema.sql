@@ -932,8 +932,10 @@ $$;
 -- Every write the server makes to a session's plan, in one transaction (the meeting spots today; later stages add slots, options and
 -- stops). It locks the session row and writes NOTHING unless the version and the status the server loaded are still current, so
 -- a late answer never undoes the host's confirm. It also enforces the rules JavaScript must not be trusted with: only the host's
--- confirm or known place moves a status (inviting or locating to voting, with an area, and with two people when leaving inviting);
--- a pinned meeting area ('voted' or 'chosen') is never moved by a recompute; and the version rises only when something changed.
+-- confirm or known place moves a status (inviting or locating to voting, with an area), and leaving inviting needs two joined
+-- members after the patch's ops; a pinned meeting area ('voted' or 'chosen') is never moved by a recompute, and is set only with
+-- that confirm; the host is never opted out or removed; and the version rises, and anything is written, only when a value differs
+-- from the stored row. Spots get the time the server loaded its inputs (loaded_at) as their computed_at.
 -- Returns the version after the write, or null when the session moved on. The server only (the service key); a browser cannot call it.
 -- The patch is described in db/migrations/20261020000000_jio_apply_session_plan.sql.
 --   const { data } = await serviceClient.rpc('apply_session_plan', { sid, expected_version: 4, expected_status: 'locating', patch })
@@ -952,6 +954,9 @@ declare
   new_status text;
   lost_approvals boolean := false;
   banner_text text;
+  stamp timestamptz;
+  meeting_changed boolean := false;
+  banner_changed boolean := false;
 begin
   if patch is null or jsonb_typeof(patch) <> 'object' then
     raise exception 'The plan must be a JSON object.' using errcode = '22023';
@@ -965,7 +970,12 @@ begin
     return null;
   end if;
 
-  -- Rule 3: a pinned meeting area stays.
+  -- When the server loaded the members the spots are worked out from (before the planner ran), else now.
+  -- Never later than the database's own clock, so a server clock that runs fast cannot hide a later change.
+  stamp := least(coalesce(nullif(patch ->> 'loaded_at', '')::timestamptz, now()), now());
+  new_status := coalesce(sp ->> 'status', s.status);
+
+  -- Rule 4: a pinned meeting area stays.
   if sp ? 'meeting' and s.meeting_method in ('voted', 'chosen')
      and ((meeting ->> 'area_id') is distinct from s.meeting_area_id
           or (meeting ->> 'method') is distinct from s.meeting_method) then
@@ -974,25 +984,32 @@ begin
   end if;
 
   -- Rule 1: the only move is the host's confirm (or known place), from inviting or locating to voting, with an area.
-  new_status := coalesce(sp ->> 'status', s.status);
+  -- (The two-people check for leaving inviting comes after the ops below.)
   if new_status <> s.status then
     if not (s.status in ('inviting', 'locating') and new_status = 'voting')
        or coalesce(meeting ->> 'area_id', '') = '' then
       raise exception 'A session cannot go from % to % this way.', s.status, new_status
         using errcode = 'P0001', hint = 'status_transition';
     end if;
-    if s.status = 'inviting'
-       and (select count(*) from public.session_members m where m.session_id = sid and m.state = 'joined') < 2 then
-      raise exception 'A session needs at least two people before it can start.'
-        using errcode = 'P0001', hint = 'needs_two_people';
-    end if;
     changed := true;
   end if;
 
-  -- Members, suggestions and approvals, in the order given.
+  -- Rule 5: a pin only with a confirm. Setting 'voted' or 'chosen' needs the move to voting in this patch, or the same pin
+  -- (method and area) already stored.
+  if (meeting ->> 'method') in ('voted', 'chosen') and new_status = s.status
+     and not (s.meeting_method is not distinct from (meeting ->> 'method')
+              and s.meeting_area_id is not distinct from (meeting ->> 'area_id')) then
+    raise exception 'A meeting area is pinned only when the host confirms it.'
+      using errcode = 'P0001', hint = 'pin_without_confirm';
+  end if;
+
+  -- Members, suggestions and approvals, in the order given. Rule 6: the host is never opted out or removed here.
   for op in select * from jsonb_array_elements(coalesce(patch -> 'ops', '[]'::jsonb)) loop
     case op ->> 'op'
       when 'opt_out' then
+        if (op ->> 'user_id')::uuid = s.host_id then
+          raise exception 'The host cannot opt out.' using errcode = 'P0001', hint = 'host_member';
+        end if;
         update public.session_members m set state = 'opted_out'
         where m.session_id = sid and m.user_id = (op ->> 'user_id')::uuid and m.state = 'joined';
         get diagnostics hit = row_count;
@@ -1009,6 +1026,9 @@ begin
         get diagnostics hit = row_count;
         if hit > 0 then changed := true; end if;
       when 'remove_member' then
+        if (op ->> 'user_id')::uuid = s.host_id then
+          raise exception 'The host cannot be removed.' using errcode = 'P0001', hint = 'host_member';
+        end if;
         delete from public.session_members m where m.session_id = sid and m.user_id = (op ->> 'user_id')::uuid;
         get diagnostics hit = row_count;
         if hit > 0 then changed := true; end if;
@@ -1038,6 +1058,13 @@ begin
     end case;
   end loop;
 
+  -- Rule 2: leaving inviting needs two joined members, counted after the ops.
+  if s.status = 'inviting' and new_status <> s.status
+     and (select count(*) from public.session_members m where m.session_id = sid and m.state = 'joined') < 2 then
+    raise exception 'A session needs at least two people before it can start.'
+      using errcode = 'P0001', hint = 'needs_two_people';
+  end if;
+
   -- The spots, as a difference.
   if patch ? 'spots' then
     if jsonb_typeof(patch -> 'spots') <> 'array' then
@@ -1057,15 +1084,16 @@ begin
     get diagnostics hit = row_count;
     if hit > 0 then changed := true; end if;
 
-    -- A listed spot is written only if something about it changed, so its time of working out is left alone otherwise.
+    -- A listed spot is written only if something about it changed, so its time of working out is left alone otherwise. When it
+    -- is written, its time of working out is when the inputs were loaded (stamp), not when the write happens.
     for item in select * from jsonb_array_elements(patch -> 'spots') loop
-      insert into public.session_spots as x (session_id, area_id, rank, worst_minutes, mean_minutes, travel_minutes, approximate)
+      insert into public.session_spots as x (session_id, area_id, rank, worst_minutes, mean_minutes, travel_minutes, approximate, computed_at)
       values (sid, item ->> 'area_id', (item ->> 'rank')::integer, (item ->> 'worst_minutes')::numeric,
               (item ->> 'mean_minutes')::numeric, coalesce(item -> 'travel_minutes', '{}'::jsonb),
-              coalesce((item ->> 'approximate')::boolean, false))
+              coalesce((item ->> 'approximate')::boolean, false), stamp)
       on conflict (session_id, area_id) do update
         set rank = excluded.rank, worst_minutes = excluded.worst_minutes, mean_minutes = excluded.mean_minutes,
-            travel_minutes = excluded.travel_minutes, approximate = excluded.approximate, computed_at = now()
+            travel_minutes = excluded.travel_minutes, approximate = excluded.approximate, computed_at = stamp
         where (x.rank, x.worst_minutes, x.mean_minutes, x.travel_minutes, x.approximate)
               is distinct from (excluded.rank, excluded.worst_minutes, excluded.mean_minutes, excluded.travel_minutes, excluded.approximate);
       get diagnostics hit = row_count;
@@ -1073,10 +1101,11 @@ begin
     end loop;
 
     -- A run that worked the spots out again with the planner says so (`recomputed`): the list is now as current as any member's
-    -- row, even when no number moved, so the time of working out is brought forward on every spot. That is not a change: the
-    -- version stays. (A run that only kept the stored spots does not say it, so it never hides a start that was not priced.)
+    -- row, even when no number moved, so the time of working out is brought forward on every spot (to when the inputs were
+    -- loaded). That is not a change: the version stays. (A run that only kept the stored spots does not say it, so it never
+    -- hides a start that was not priced.)
     if coalesce((patch ->> 'recomputed')::boolean, false) then
-      update public.session_spots x set computed_at = now() where x.session_id = sid and x.computed_at < now();
+      update public.session_spots x set computed_at = stamp where x.session_id = sid and x.computed_at < stamp;
     end if;
 
     -- The group is told only when the deletion removed an approval.
@@ -1085,7 +1114,18 @@ begin
     end if;
   end if;
 
-  if sp <> '{}'::jsonb or banner_text is not null then
+  -- Rule 3: the session section is a change only where a value differs from the stored row. The meeting is compared as it would
+  -- be written, after rounding; the banner as stored.
+  if sp ? 'meeting' then
+    meeting_changed := (s.meeting_area_id, s.meeting_method, s.meeting_max_minutes, s.meeting_total_minutes, s.meeting_count, s.meeting_approximate)
+      is distinct from (meeting ->> 'area_id', meeting ->> 'method', round((meeting ->> 'max_minutes')::numeric)::integer,
+                        round((meeting ->> 'total_minutes')::numeric)::integer, round((meeting ->> 'count')::numeric)::integer,
+                        (meeting ->> 'approximate')::boolean);
+  end if;
+  if sp ? 'banner' then
+    banner_changed := s.banner is distinct from nullif(sp -> 'banner', 'null'::jsonb);
+  end if;
+  if meeting_changed or banner_changed or banner_text is not null then
     changed := true;
   end if;
   if not changed then
@@ -1103,17 +1143,17 @@ begin
 
   update public.sessions set
     status = new_status,
-    meeting_area_id = case when sp ? 'meeting' then meeting ->> 'area_id' else meeting_area_id end,
-    meeting_method = case when sp ? 'meeting' then meeting ->> 'method' else meeting_method end,
-    meeting_max_minutes = case when sp ? 'meeting' then round((meeting ->> 'max_minutes')::numeric)::integer else meeting_max_minutes end,
-    meeting_total_minutes = case when sp ? 'meeting' then round((meeting ->> 'total_minutes')::numeric)::integer else meeting_total_minutes end,
-    meeting_count = case when sp ? 'meeting' then round((meeting ->> 'count')::numeric)::integer else meeting_count end,
-    meeting_approximate = case when sp ? 'meeting' then (meeting ->> 'approximate')::boolean else meeting_approximate end,
-    meeting_computed_at = case when sp ? 'meeting' and meeting ->> 'area_id' is not null then now()
-                               when sp ? 'meeting' then null else meeting_computed_at end,
+    meeting_area_id = case when meeting_changed then meeting ->> 'area_id' else meeting_area_id end,
+    meeting_method = case when meeting_changed then meeting ->> 'method' else meeting_method end,
+    meeting_max_minutes = case when meeting_changed then round((meeting ->> 'max_minutes')::numeric)::integer else meeting_max_minutes end,
+    meeting_total_minutes = case when meeting_changed then round((meeting ->> 'total_minutes')::numeric)::integer else meeting_total_minutes end,
+    meeting_count = case when meeting_changed then round((meeting ->> 'count')::numeric)::integer else meeting_count end,
+    meeting_approximate = case when meeting_changed then (meeting ->> 'approximate')::boolean else meeting_approximate end,
+    meeting_computed_at = case when meeting_changed and meeting ->> 'area_id' is not null then now()
+                               when meeting_changed then null else meeting_computed_at end,
     banner = case
       when banner_text is not null then jsonb_build_object('text', banner_text, 'at', (extract(epoch from now()) * 1000)::bigint, 'approvalsRemoved', true)
-      when sp ? 'banner' then nullif(sp -> 'banner', 'null'::jsonb)
+      when banner_changed then nullif(sp -> 'banner', 'null'::jsonb)
       else banner end,
     plan_version = plan_version + 1
   where id = sid;
