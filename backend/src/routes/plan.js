@@ -161,7 +161,8 @@ export function createPlanRouter({
   limiter = null,
   routingDeadlineMs = ROUTING_DEADLINE_MS,
   ownPlacesEnough = OWN_PLACES_ENOUGH,
-  includeDiagnostics = process.env.NODE_ENV === 'test' || process.env.PLANNER_DIAGNOSTICS === '1',
+  includeDiagnostics = process.env.PLANNER_DIAGNOSTICS === '1',
+  roundMinutes = true,
 }) {
   const schemas = makePlanSchemas(data)
   const router = Router()
@@ -482,21 +483,21 @@ export function createPlanRouter({
   const invalid = (res, issues) =>
     res.status(400).json({ error: 'invalid_input', message: 'Some fields in the request are missing or not valid. See issues.', issues })
 
+  // The public shape of an answer. Minutes are rounded to one decimal place (unless `roundMinutes` is off, for a test that
+  // needs the engine's raw numbers), and `diagnostics` is left out unless `includeDiagnostics` is on. The two are separate.
+  // How to call: publicResponse({ travelByMember: { ian: 12.34 }, diagnostics: {} }) -> { travelByMember: { ian: 12.3 } }
   const timeMapKeys = new Set(['travelByMember', 'returnByMember', 'times'])
+  const round1 = (n) => Math.round(n * 10) / 10
   const publicResponse = (value, parentKey = '') => {
     if (Array.isArray(value)) return value.map((item) => publicResponse(item))
     if (value && typeof value === 'object') {
       return Object.fromEntries(Object.entries(value)
         .filter(([key]) => includeDiagnostics || key !== 'diagnostics')
         .map(([key, item]) => [key,
-          !includeDiagnostics && timeMapKeys.has(parentKey) && typeof item === 'number'
-            ? Math.round(item * 10) / 10
-            : publicResponse(item, key),
+          roundMinutes && timeMapKeys.has(parentKey) && typeof item === 'number' ? round1(item) : publicResponse(item, key),
         ]))
     }
-    if (!includeDiagnostics && typeof value === 'number' && (timeMapKeys.has(parentKey) || /minutes$/i.test(parentKey))) {
-      return Math.round(value * 10) / 10
-    }
+    if (roundMinutes && typeof value === 'number' && (timeMapKeys.has(parentKey) || /minutes$/i.test(parentKey))) return round1(value)
     return value
   }
   const answer = (res, body) => res.json(publicResponse(body))
@@ -580,6 +581,17 @@ export function createPlanRouter({
   router.post('/plan/converge', ...guard, convergeHandler)
   router.post('/plan/roam', ...guard, roamHandler)
 
+  // The query parameter a search-body field came from, so a 400 on GET /api/venues/search names what the caller sent
+  // (the query is rebuilt into a search body before it is checked).
+  // How to call: queryParameterOf('centre.lat') -> 'lat'
+  const queryParameterOf = (path) => {
+    const [first, second] = path.split('.')
+    if (first === 'query') return 'q'
+    if (first === 'centre') return second ?? 'lat'
+    if (first === 'categories') return 'category'
+    return first
+  }
+
   // Build-spec GET search alias. Optional coordinates and filters preserve the richer POST /api/search contract.
   router.get('/venues/search', ...guard, async (req, res, next) => {
     try {
@@ -594,7 +606,7 @@ export function createPlanRouter({
       })
       answer(res, await searchEverywhere(input, data))
     } catch (err) {
-      if (err instanceof ZodError) invalid(res, err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })))
+      if (err instanceof ZodError) invalid(res, err.issues.map((i) => ({ path: queryParameterOf(i.path.join('.')), message: i.message })))
       else next(err)
     }
   })

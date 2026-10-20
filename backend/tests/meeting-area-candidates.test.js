@@ -42,7 +42,7 @@ async function serve(app) {
 }
 
 // Routing off: no OneMap service, so every time is the engine's estimate.
-const routingOff = () => serve(createApp({ frontendOrigin: FRONTEND, planData, http: createHttp({ stub: true }) }))
+const routingOff = () => serve(createApp({ frontendOrigin: FRONTEND, roundPlannerMinutes: false, planData, http: createHttp({ stub: true }) }))
 
 // Routing on through the stub OneMap, counting the route calls that reach the HTTP layer.
 //
@@ -59,7 +59,7 @@ async function routingOn() {
     postJson: (url, body, options) => real.postJson(url, body, options),
   }
   const onemap = createOneMap({ http, email: 'a@example.org', password: 'not-a-real-password', stub: true })
-  const ask = await serve(createApp({ frontendOrigin: FRONTEND, planData, stub: true, http, onemap }))
+  const ask = await serve(createApp({ frontendOrigin: FRONTEND, roundPlannerMinutes: false, planData, stub: true, http, onemap }))
   return { ask, calls }
 }
 
@@ -76,7 +76,7 @@ async function routingOnRecording() {
       return 20
     },
   }
-  const ask = await serve(createApp({ frontendOrigin: FRONTEND, planData, http: createHttp({ stub: true }), onemap }))
+  const ask = await serve(createApp({ frontendOrigin: FRONTEND, roundPlannerMinutes: false, planData, http: createHttp({ stub: true }), onemap }))
   return { ask, routedAreas: () => [...new Set(routed)], tripCount: () => routed.length }
 }
 
@@ -620,7 +620,7 @@ describe('the order areas are routed in', () => {
 // ---------------------------------------------------------------- failure
 describe('when routing fails', () => {
   it('every candidate is flagged approximate and the answer is still given (stub scenario routing-fail)', async () => {
-    const ask = await serve(createApp({ frontendOrigin: FRONTEND, planData, stub: true }))
+    const ask = await serve(createApp({ frontendOrigin: FRONTEND, roundPlannerMinutes: false, planData, stub: true }))
     const { status, body } = await ask(
       { members: TRIO, alternatives: 2, include: ['tampines'], dateTime: WHEN },
       { [SCENARIO_HEADER]: 'routing-fail' },

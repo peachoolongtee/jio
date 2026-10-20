@@ -25,7 +25,7 @@ afterAll(() => Promise.all(servers.map((s) => new Promise((resolve) => s.close(r
 // Starts an app and returns a function that posts to its meeting-area route.
 //
 // How to call:
-//   const ask = await serve(createApp({ frontendOrigin: FRONTEND, planData, http, onemap }))
+//   const ask = await serve(createApp({ frontendOrigin: FRONTEND, roundPlannerMinutes: false, planData, http, onemap }))
 //   const { status, body } = await ask({ members, alternatives: 2 })
 async function serve(app) {
   const server = app.listen(0)
@@ -43,7 +43,7 @@ async function serve(app) {
 }
 
 // An app with no OneMap service: every time is the engine's estimate.
-const routingOff = () => serve(createApp({ frontendOrigin: FRONTEND, planData, http: createHttp({ stub: true }) }))
+const routingOff = () => serve(createApp({ frontendOrigin: FRONTEND, roundPlannerMinutes: false, planData, http: createHttp({ stub: true }) }))
 
 // An app whose OneMap is a double. `minutesFor(areaId, from, to)` is the time it answers for a trip to or from
 // that area. `log` has one area id per route call, in call order. The double has no cache and walks nobody.
@@ -60,7 +60,7 @@ async function routingOnWith(minutesFor) {
       return minutesFor(id, a, b)
     },
   }
-  const ask = await serve(createApp({ frontendOrigin: FRONTEND, planData, http: createHttp({ stub: true }), onemap }))
+  const ask = await serve(createApp({ frontendOrigin: FRONTEND, roundPlannerMinutes: false, planData, http: createHttp({ stub: true }), onemap }))
   return { ask, log }
 }
 

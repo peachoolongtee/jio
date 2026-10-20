@@ -86,11 +86,11 @@ describe('reported backend defects', () => {
     const response = await post('/api/converge', slot)
     expect(response.status).toBe(200)
     expect(response.body).not.toHaveProperty('diagnostics')
-    if (response.body.status === 'ok') {
-      for (const result of response.body.results) {
-        for (const minutes of [result.worstMinutes, result.meanMinutes, ...Object.values(result.travelByMember), ...Object.values(result.returnByMember)]) {
-          expect(minutes).toBeCloseTo(Math.round(minutes * 10) / 10, 8)
-        }
+    expect(response.body.status).toBe('ok')
+    expect(response.body.results.length).toBeGreaterThan(0)
+    for (const result of response.body.results) {
+      for (const minutes of [result.worstMinutes, result.meanMinutes, ...Object.values(result.travelByMember), ...Object.values(result.returnByMember)]) {
+        expect(minutes).toBeCloseTo(Math.round(minutes * 10) / 10, 8)
       }
     }
   })
