@@ -226,6 +226,8 @@ async function saveLocation(place) {
   }
 }
 
+// Run one change with the busy flag on; the flag is cleared whatever happens, and a failure is the screen's error line.
+// How to call: run(() => events.start(props.id), () => { dialogOpen.value = false })
 async function run(fn, after) {
   busy.value = true
   error.value = ''
@@ -234,8 +236,9 @@ async function run(fn, after) {
     if (after) after()
   } catch (e) {
     error.value = e.message
+  } finally {
+    busy.value = false
   }
-  busy.value = false
 }
 
 // Who the meeting area is waiting for. Only the host can carry on without someone, and never without themself.
