@@ -16,6 +16,7 @@ const planner = vi.hoisted(() => ({
   meetingArea: vi.fn(),
   rankSlot: vi.fn(),
   searchSlot: vi.fn(),
+  searchPeopleByUsername: vi.fn(async () => []),
   removeSessionMember: vi.fn(async (...args) => {
     server.calls.push(args)
     await server.effect?.(...args)
@@ -266,28 +267,36 @@ describe('the invite page', () => {
     expect(database.tables.invites.map((i) => i.revoked)).toEqual([true, false])
   })
 
-  it('finds a person by their exact username and invites them, and says so when nobody has it or the text is not a username', async () => {
-    const { view, database } = await invitePage()
+  it('finds people as the username is typed, invites one, and says so when nobody matches or the text is too short', async () => {
+    const { view, database, kim } = await invitePage()
+    // The server's side is tested in the backend; here it answers with Kim for the start of "kim" and nobody otherwise.
+    planner.searchPeopleByUsername.mockImplementation(async (q) => ('kim'.startsWith(q) ? [{ id: kim.user.id, name: 'Kim', username: 'kim', avatarUrl: '', metBefore: false }] : []))
     const box = () => view.all('input').find((i) => i.attrs.placeholder === 'for example sam_tan')
-    const find = async (text) => {
+    const type = (text) => {
       box().value = text
       box().dispatch('input')
-      await view.click(press(view, 'Find'))
     }
-    await find('ki')
-    await until(() => view.has('p[role=alert]'))
-    expect(view.text(view.one('p[role=alert]'))).toBe('Enter a full username: 3 to 20 lowercase letters, numbers or underscores.')
-    await find('nobody_here')
-    await until(() => view.text().includes('Nobody has that username.'))
-    await find('kim')
+    expect(view.text()).toContain('Type at least 3 letters of their username')
+    expect(press(view, 'Find')).toBeUndefined()
+    type('ki')
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(planner.searchPeopleByUsername).not.toHaveBeenCalled()
+    expect(view.text()).toContain('Type at least 3 letters of their username')
+    type('nob')
+    await until(() => view.text().includes("Nobody's username starts with that."))
+    type('kim')
     await until(() => view.text().includes('@kim'))
+    expect(planner.searchPeopleByUsername.mock.calls.map((c) => c[0])).toEqual(['nob', 'kim'])
+    expect(view.text()).toContain('1 person found')
+    // Nothing is invited by typing.
+    expect(database.tables.invites.filter((i) => i.invitee_id !== null)).toHaveLength(0)
     expect(press(view, 'Invite')).toBeTruthy()
     await view.click(press(view, 'Invite'))
     await until(() => view.text().includes('Kim is invited. They will see it on their Home screen.'))
     expect(database.tables.invites.filter((i) => i.invitee_id !== null)).toHaveLength(1)
     // The list shows Kim as invited, and she cannot be invited again.
     await until(() => view.text().includes('2 in this session'))
-    await find('kim')
+    type('kim')
     await until(() => view.text().includes('Already invited.'))
     expect(press(view, 'Invite')).toBeUndefined()
   })

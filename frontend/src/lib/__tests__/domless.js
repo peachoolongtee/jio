@@ -100,6 +100,20 @@ class Node_ {
   getRootNode() {
     return documentStub
   }
+  // The elements inside this one that match a simple selector (see `matches`), in page order, and the first of them.
+  querySelectorAll(selector) {
+    const found = []
+    walk(this, (n) => n !== this && matches(n, selector) && found.push(n))
+    return found
+  }
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] ?? null
+  }
+  // This element, or the nearest one above it, that matches a simple selector; null when none does.
+  closest(selector) {
+    for (let node = this; node; node = node.parent) if (matches(node, selector)) return node
+    return null
+  }
   // Run the handlers for an event, then its parents', as a browser does until a handler stops it.
   dispatch(name, extra = {}) {
     const event = { type: name, target: this, preventDefault() { this.defaultPrevented = true }, stopPropagation() { this.stopped = true }, ...extra }
