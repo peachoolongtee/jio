@@ -67,3 +67,21 @@ export function createCache({ ttlMs, maxItems = 5000, now = Date.now }) {
 
   return { get, set, getOrSet, size: () => items.size }
 }
+
+// What two searches must share to count as the same search: the text lower-cased, accents and full-width letters made plain,
+// curly quotes made straight, and every run of spaces one space. Only for a cache KEY: the search itself is still sent as typed.
+//
+// How to call:
+//   queryKey('  Teo   Heng ')  // 'teo heng'
+//   queryKey('CAFÉ')           // 'cafe'
+//   queryKey('Kreta Ayer People’s Theatre') === queryKey("kreta ayer people's theatre") // true
+export function queryKey(text) {
+  return String(text ?? '')
+    .normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
+    .replace(/[\u2018\u2019\u02bc]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .toLowerCase()
+    .replace(/\s+/gu, ' ')
+    .trim()
+}
