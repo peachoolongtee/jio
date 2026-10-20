@@ -36,7 +36,7 @@ afterAll(() => Promise.all(servers.map((s) => new Promise((resolve) => s.close(r
 // Starts an app on a free port and returns a way to call it.
 // How to call: const call = await start({ includePlannerDiagnostics: false }); await call.post('/api/roam', body)
 async function start(options = {}) {
-  const server = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }), ...options }).listen(0)
+  const server = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }), ...options }).listen(0, '127.0.0.1')
   servers.push(server)
   await once(server, 'listening')
   const base = `http://127.0.0.1:${server.address().port}`

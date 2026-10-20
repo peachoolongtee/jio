@@ -22,7 +22,7 @@ beforeAll(async () => {
     frontendOrigin: FRONTEND,
     http: createHttp({ stub: true }),
     includePlannerDiagnostics: false,
-  }).listen(0)
+  }).listen(0, '127.0.0.1')
   await once(server, 'listening')
   base = `http://127.0.0.1:${server.address().port}`
 })
