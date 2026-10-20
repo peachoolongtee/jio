@@ -78,7 +78,7 @@ describe('which venues the planner serves', () => {
 
   it('is what the app serves by default, with no invented place in an answer', async () => {
     loadWith('')
-    const server = createApp({ frontendOrigin: 'http://localhost:5173', http: createHttp({ stub: true }) }).listen(0)
+    const server = createApp({ frontendOrigin: 'http://localhost:5173', http: createHttp({ stub: true }) }).listen(0, '127.0.0.1')
     await once(server, 'listening')
     try {
       const res = await fetch(`http://127.0.0.1:${server.address().port}/api/converge`, {

@@ -24,11 +24,34 @@ const SESSION_ENDED = 'Your session has ended. Log in again.'
 const LOGIN_NEEDED = 'The planner needs you to be logged in. Log in and try again.'
 const AUTH_UNAVAILABLE = 'Jio cannot check your login right now. Try again in a moment.'
 
+// The planner checks coordinates against Singapore's land (backend/src/planner/singapore.js), which is tighter than the box the
+// browser checks (lib/planner/geo.js), so a place just over the border reaches the planner and comes back as a 400 whose issue
+// points at a coordinate. This is the sentence for it, the same one a place the browser refuses gets.
+const OUTSIDE_SINGAPORE = 'That place is outside Singapore. Pick an area instead.'
+
+// Is this 400 answer a coordinate the planner will not take (a path ending in lat or lng, and a message about the range)?
+// How to call: isOutsideSingapore({ error: 'invalid_input', issues: [{ path: 'current.lat', message: 'coordinates must be in Singapore' }] }) -> true
+function isOutsideSingapore(data) {
+  if (data?.error !== 'invalid_input' || !Array.isArray(data.issues)) return false
+  return data.issues.some(
+    (i) => /(^|\.)(lat|lng)$/.test(String(i?.path)) && /Singapore|^Number must be (greater|less) than/.test(String(i?.message)),
+  )
+}
+
 // What a failed request says. Screens show err.message, so say what went wrong in words a person can act on.
 // Developer text (commands, environment variable names, request details) is only for development builds;
 // `dev` is a parameter so both wordings can be tested.
+// Three failures are kept apart so the person knows what to do: the planner did not answer in time (a slow connection or
+// a busy server: waiting and trying again is right), it could not be reached at all (check the connection), and it
+// answered by refusing the request.
 // How to call: plannerErrorMessage(err, { dev: false }) -> 'Too many requests. Wait a few seconds and try again.'
 export function plannerErrorMessage(err, { dev = import.meta.env.DEV, baseURL = api.defaults.baseURL } = {}) {
+  // The request was sent and no answer came before the client's deadline (axios reports ECONNABORTED, or ETIMEDOUT when it
+  // is told to be exact). A request that was cancelled on purpose is not a timeout and falls through to the next case.
+  if (!err?.response && (err?.code === 'ECONNABORTED' || err?.code === 'ETIMEDOUT')) {
+    const base = 'The Jio planner is taking too long to answer. Try again in a moment.'
+    return dev && err.message ? `${base} (${err.message})` : base
+  }
   // No answer at all: the backend is not running, or it refused this page's address (CORS allows one
   // origin, FRONTEND_ORIGIN). The browser reports both the same way, so name both in development.
   if (!err?.response) {
@@ -45,10 +68,13 @@ export function plannerErrorMessage(err, { dev = import.meta.env.DEV, baseURL = 
   // by refreshing the token, which is a request that carried none.
   if (status === 503 && data?.error === 'auth_unavailable') return AUTH_UNAVAILABLE
   if (status === 401 && data?.error === 'unauthenticated') return LOGIN_NEEDED
+  if (status === 400 && isOutsideSingapore(data)) return OUTSIDE_SINGAPORE
   const issues = data?.issues?.map((i) => `${i.path}: ${i.message}`).join('; ')
   if (issues) return dev ? `The planner could not use this request (${issues}).` : 'The planner could not use this request. Try again.'
   // A 404 message names the route, which is developer text.
   if (status === 404 && !dev) return 'The planner had a problem. Try again.'
+  // A request the planner refused without saying why (a 400 or 422 with no message) is told apart from the planner failing.
+  if ((status === 400 || status === 422) && !data?.message) return 'The planner could not use this request. Try again.'
   return data?.message || 'The planner had a problem. Try again.'
 }
 

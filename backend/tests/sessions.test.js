@@ -146,7 +146,7 @@ async function start({ supabase = true, ...options } = {}) {
   }
   const real = createSupabase({ url: URL_, anonKey: 'anon-key', serviceKey: 'service-key', fetchImpl: jwks })
   const db = supabase ? { ...real, forUser: (token) => userClient(JSON.parse(Buffer.from(token.split('.')[1], 'base64url')).sub), service: serviceClient } : null
-  const server = createApp({ frontendOrigin: FRONTEND, supabase: db, ...options }).listen(0)
+  const server = createApp({ frontendOrigin: FRONTEND, supabase: db, ...options }).listen(0, '127.0.0.1')
   await once(server, 'listening')
   started.push(server)
   const base = `http://127.0.0.1:${server.address().port}`

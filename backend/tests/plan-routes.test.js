@@ -10,7 +10,7 @@ const FRONTEND = 'http://localhost:5173'
 let server, base, stubServer, stubBase
 
 const listen = async (app) => {
-  const s = app.listen(0)
+  const s = app.listen(0, '127.0.0.1')
   await once(s, 'listening')
   return [s, `http://127.0.0.1:${s.address().port}`]
 }

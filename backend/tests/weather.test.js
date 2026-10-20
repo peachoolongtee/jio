@@ -305,7 +305,7 @@ describe('the planner routes and the weather', () => {
 
   // Starts an app on a free port and returns a function that posts to it.
   const start = async (options) => {
-    const server = createApp({ frontendOrigin: FRONTEND, ...options }).listen(0)
+    const server = createApp({ frontendOrigin: FRONTEND, ...options }).listen(0, '127.0.0.1')
     servers.push(server)
     await once(server, 'listening')
     const base = `http://127.0.0.1:${server.address().port}`

@@ -325,9 +325,9 @@ function regretCounterfactual(rows, memberNames = {}) {
   const popular = [...rows].sort((a, b) => a.meanRaw - b.meanRaw)[0];
   if (popular.venue.id === rec.venue.id) return null;
   const worstId = Object.entries(popular.travelByMember).sort((a, b) => b[1] - a[1])[0][0];
-  // Rounded BEFORE the check, so a 0.3 minute gap is not shown as "would add 0 minutes".
+  // Rounded before the check; omit small differences that are not meaningful to the group.
   const extra = Math.round(popular.travelByMember[worstId] - rec.travelByMember[worstId]);
-  if (extra < 1) return null;
+  if (extra < 3) return null;
   const name = memberNames[worstId] ?? worstId;
   return {
     popularChoiceId: popular.venue.id, memberId: worstId, extraMinutes: extra,

@@ -44,7 +44,7 @@ afterEach(async () => {
 //   await t.check({ email: 'sam@example.com' })   // { status, body, headers }
 async function start({ supabase = true, ...options } = {}) {
   const db = supabase ? createSupabase({ url: URL_, anonKey: ANON, serviceKey: SERVICE, fetchImpl: fakeSupabase }) : null
-  const server = createApp({ frontendOrigin: FRONTEND, supabase: db, ...options }).listen(0)
+  const server = createApp({ frontendOrigin: FRONTEND, supabase: db, ...options }).listen(0, '127.0.0.1')
   await once(server, 'listening')
   started.push(server)
   const base = `http://127.0.0.1:${server.address().port}`
@@ -153,7 +153,7 @@ describe('POST /api/accounts/email-check', () => {
     const app = express()
     app.use(express.json())
     app.use('/api', createAccountsRouter({ supabase: createSupabase({ url: URL_, anonKey: ANON, serviceKey: SERVICE, fetchImpl: fakeSupabase }), timeoutMs: 50 }))
-    const server = app.listen(0)
+    const server = app.listen(0, '127.0.0.1')
     await once(server, 'listening')
     started.push(server)
     const res = await fetch(`http://127.0.0.1:${server.address().port}/api/accounts/email-check`, {

@@ -57,9 +57,9 @@ The frontend (`dev` branch) had its own planner in `frontend/src/lib/planner/`, 
 |---|---|---|---|
 | Fictional mock venues (**left out by default**: added only with `INCLUDE_FICTIONAL_VENUES=1`, which the tests set in `vitest.config.js`) | `src/db/mock/mock-data.json` | 0 by default, 36 when included | by hand |
 | The frontend team's real places | `src/db/mock/curated-venues.json` | 63 | `pnpm build:venues` |
-| OneMap's government lists (sport centres, attractions, museums, libraries, theatres, parks, hawker centres), added 9 Oct | `src/db/mock/onemap-places.json` | 418 of 483 saved (30 not somewhere a group can go, 16 duplicates, 19 already in a hand-made list; with the fictional venues in, 417 and 20) | `pnpm build:onemap-places` |
+| OneMap's government lists (sport centres, attractions, museums, libraries, theatres, parks, hawker centres), added 9 Oct | `src/db/mock/onemap-places.json` | 417 of 483 saved (30 not somewhere a group can go, 16 duplicates, 20 already in a hand-made list; with the fictional venues in, 416 and 21) | `pnpm build:onemap-places` |
 | CDC voucher food sites | `src/db/mock/cdc-venues.json` | 1,302 of 1,422 (8 replaced by the frontend's hawker centres, 112 by OneMap's; with the fictional venues in, 1,303 and 111) | `pnpm build:cdc` |
-| **Total** | | **1,783** by default (63 + 418 + 1,302); 1,819 with the 36 fictional venues | |
+| **Total** | | **1,782** by default (63 + 417 + 1,302); 1,818 with the 36 fictional venues | |
 
 The fictional venues and the sample visit history (`visitHistory`) are for tests and demos. A running server serves neither unless `INCLUDE_FICTIONAL_VENUES=1` is set in its environment; `NODE_ENV` does not change it. `loadPlanData({ includeFictional })` overrides the environment, and the backend's tests turn the switch on through `vitest.config.js`.
 
@@ -99,6 +99,8 @@ Maxwell Food Centre is in the frontend list *and* is a CDC site. `mergeCuratedWi
 ### Estimated MRT walk
 
 The last-stop rule needs "minutes to the MRT". Only the curated venues have it. `withEstimatedMrtWalk()` fills it in for the mock and CDC venues: distance to the nearest station in `areas.json`, at the frontend's walking speed (5 km/h, streets 25% longer than a straight line).
+
+`estimateTransitMinutes` in `graph.js` (an MRT-network fallback, with its own walking speed, now 5 km/h like the rest) is **not used at runtime**: only `tests/graph.test.js` calls it. The planner's own fallback when OneMap cannot route is `mockTravelMinutes` in `geo.js`. So the walking-speed change in `estimateTransitMinutes` moves no ranking.
 
 `areas.json` has only 37 of Singapore's stations, so the estimate can only be **longer** than the real walk. It may wrongly exclude a venue, but never wrongly include one. These venues are marked `mrtWalkEstimated: true`.
 
@@ -150,7 +152,7 @@ Added so the frontend loses nothing when it switches to the API. Each Converge a
 
 ## 4. Bug fixed along the way
 
-- **Regret line said "would add 0 minutes"** (`scoring.js` `regretCounterfactual`). The gap was checked before rounding, so 0.3 minutes passed and then printed as 0. It now rounds first and hides gaps under one minute.
+- **Regret line noise** (`scoring.js` `regretCounterfactual`). The gap is rounded first and shown only when choosing the other place would add at least 3 minutes to the most affected member's trip.
 
 ## 5. The API
 
@@ -160,6 +162,8 @@ Added so the frontend loses nothing when it switches to the API. Each Converge a
 - `POST /api/converge`
 - `POST /api/roam`
 - `POST /api/search`
+- `POST /api/plan/converge` and `POST /api/plan/roam` are aliases for the build spec; the shorter `/api/converge` and `/api/roam` paths remain supported.
+- `GET /api/venues/search?q=...` is the build-spec search alias. It accepts optional `lat`, `lng`, `dateTime`, `category`, `durationMinutes` and `limit`; without coordinates it searches around central Singapore. The richer `POST /api/search` remains supported.
 
 Every request is checked by zod (`src/routes/plan-schemas.js`) before the engine runs:
 

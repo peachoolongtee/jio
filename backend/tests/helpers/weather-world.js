@@ -103,7 +103,7 @@ export function makeWorld({ clock, area = 'dry', regional = (c) => regionalAnswe
  *   const post = await startApp(world, servers, { allowSimulatedWeather: true })
  */
 export async function startApp(world, servers, options = {}) {
-  const server = createApp({ frontendOrigin: 'http://localhost:5173', http: world.http, now: world.now, ...options }).listen(0)
+  const server = createApp({ frontendOrigin: 'http://localhost:5173', http: world.http, now: world.now, ...options }).listen(0, '127.0.0.1')
   servers.push(server)
   await once(server, 'listening')
   const base = `http://127.0.0.1:${server.address().port}`
