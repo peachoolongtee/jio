@@ -753,6 +753,16 @@ What the server does, and what the browser does:
 
 The spots are the areas a group chooses between while `locating`: up to three from the app (`rank` 1 to 3, the fairest first) and the ones members suggest (`rank` null), in `session_spots`, each with the longest trip, the mean and every located member's minutes (unrounded; the screens round them), `approximate` when a time is an estimate. `sessions.meeting_*` stay empty while locating; the host's confirm fills them.
 
+**The banner (`sessions.banner`).** One notice for the whole group, `null` or an object the server writes and the browser shows as it is, adding nothing to it:
+
+```json
+{ "text": "Faith's start location changed. Orchard is no longer on the list, so approvals for it were removed.", "at": 1792051200000, "approvalsRemoved": true }
+```
+
+`text` is the sentence; `at` is when it was written, in milliseconds since 1970 (the database's `now()`), so a newer banner always has a newer `at`; `approvalsRemoved` is `true`: this stage writes only this kind of banner, when a spot left the list and took approvals with it (from a start or end change, a suggestion or a withdrawal, opting out, leaving or being removed). A host's confirm or known place sets it back to `null`, and a write that removes no approval leaves the earlier banner as it was. Later stages add their own flags on the same object (the browser already reads `votesCleared` from it in voting). Dismissing is each person's own and is kept in their browser, stamped with `at` (the session's `planVersion` is the stamp only for a banner without an `at`); it never changes the row. `apply_session_plan` writes the shape (`db/tests/apply_session_plan.sql` step 10 checks it), and `frontend/src/lib/__tests__/sharedSessions.backend.test.js` checks that the browser shows what the server wrote.
+
+**The repair check.** A start can be saved in the database and the call to `POST .../meeting-area` never come (the page closed between the two). The browser sees the gap when a member row's `updated_at` is later than every spot's `computed_at`, and asks once, the first time a page reads the session. Any other change to a member row (their categories, how long they stay) looks the same, and a run for it changes no number. So a run that worked the spots out with the planner always brings every spot's `computed_at` forward, without raising `plan_version`: the server says so to `apply_session_plan` with `"recomputed": true` in the patch, and the gap is closed for every device. A run that only keeps the stored spots (a suggestion on a spot already listed) does not, because it has not priced anything.
+
 Errors common to all of them, all `{ "error": "<code>", "message": "..." }`: 400 `invalid_input` (a path id that is not a uuid, or a body with a missing, wrong or extra field; `issues` lists the fields), 401 `unauthenticated`, 503 `auth_unavailable`, 429 `rate_limited`, 404 `session_not_found`, 409 `plan_busy`, 500 `server_error` (a database that fails; the database's words are never sent). A status that does not fit is 409 `wrong_status`, or 409 `not_yet` for work the voting stage (stage 4) will do.
 
 ### POST /api/sessions/:id/meeting-area
@@ -761,7 +771,7 @@ Work the spots out again: after a start, an end or a late start was written, or 
 
 200 `{ "planVersion": 5, "meetingAreaId": null, "moved": false, "votesCleared": false, "skipped": ["<user id>"], "spots": 3, "approvalsRemoved": ["orchard"] }`. `meetingAreaId` is null while locating; `moved` and `votesCleared` are for voting (stage 4). `skipped` lists the joined members with no start the planner knows. With fewer than two members that have a start there are no spots (`spots: 0`). One engine run asks for the chosen area and two runners-up and for every suggested area (`include`, oldest first). The spots are written as a difference: listed areas are inserted or updated, unlisted ones deleted, and an approval goes with its spot. When a deleted spot took approvals with it, `sessions.banner` is set to `{ text, at, approvalsRemoved: true }` ("Faith's start location changed. Orchard is no longer on the list, so approvals for it were removed."); otherwise the banner is left alone.
 
-Errors: 403 `not_joined` (the caller opted out), 409 `not_yet` (voting), 409 `wrong_status` (confirmed, completed, cancelled).
+Errors: 403 `not_joined` (the caller opted out), 409 `not_yet` (voting), 409 `wrong_status` (confirmed, completed, cancelled). A browser that has just saved a start treats `not_yet` and `wrong_status` alike: the host has already moved on, the start stays saved (it only adds a travel time to the confirmed spot) and the person is not shown an error.
 
 ### PUT /api/sessions/:id/spots/mine
 
