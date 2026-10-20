@@ -401,20 +401,129 @@ let epoch = 0
 // How to call: if (onServer()) return remote.list()
 const onServer = () => sharedSessions.on && isReal() && !!auth.dataClient()
 
-// The server's side, built on the Supabase client and the Jio backend (leaving and removing).
+// The server's side, built on the Supabase client and the Jio backend (leaving and removing, the meeting spots, confirming, a
+// known place, opting out and rejoining).
 // How to call: await remote.list()
 const remote = createSessionsRemote({
   client: () => auth.dataClient(),
   me: () => currentUserId(),
-  backend: { removeMember: (sessionId, personId) => planner.removeSessionMember(sessionId, personId) },
+  backend: {
+    removeMember: (sessionId, personId) => planner.removeSessionMember(sessionId, personId),
+    refreshSpots: (sessionId, trigger) => planner.refreshSessionSpots(sessionId, trigger),
+    putSpot: (sessionId, areaId, here) => planner.putSessionSpot(sessionId, areaId, here),
+    deleteSpot: (sessionId) => planner.deleteSessionSpot(sessionId),
+    confirmSpot: (sessionId, areaId) => planner.confirmSessionSpot(sessionId, areaId),
+    knownPlace: (sessionId, areaId) => planner.putSessionKnownPlace(sessionId, areaId),
+    optOut: (sessionId) => planner.optOutOfSession(sessionId),
+    rejoin: (sessionId) => planner.rejoinSession(sessionId),
+  },
 })
 
-// A session read from the server, completed with the fields that belong to the later stages (where people start, the
-// meeting area, votes, the plan), all empty, so that summary() makes the same shape as for a local session.
+// The banners the signed-in person dismissed, by session: the stamp of the banner (its time, or the session's version when it
+// has none). The server's banner is the group's, so dismissing it is this person's alone: it is kept in this browser, under
+// the account, and a newer banner (another stamp) shows again.
+const dismissedBanners = new Map()
+// How to call: bannerStamp({ at: 1760000000000 }, 4) -> 1760000000000
+const bannerStamp = (banner, version) => banner.at ?? version
+// How to call: dismissedStamp('3b1f...') -> 1760000000000, or undefined
+function dismissedStamp(sessionId) {
+  const key = `${me()}:${sessionId}`
+  if (dismissedBanners.has(key)) return dismissedBanners.get(key)
+  const saved = parseOrNull(readRaw(`${STORAGE_KEY}:banners:${me()}`) ?? 'null')
+  return isObject(saved) ? saved[sessionId] : undefined
+}
+// How to call: rememberDismissed('3b1f...', 1760000000000)
+function rememberDismissed(sessionId, stamp) {
+  dismissedBanners.set(`${me()}:${sessionId}`, stamp)
+  const saved = parseOrNull(readRaw(`${STORAGE_KEY}:banners:${me()}`) ?? 'null')
+  try {
+    localStorage.setItem(`${STORAGE_KEY}:banners:${me()}`, JSON.stringify({ ...(isObject(saved) ? saved : {}), [sessionId]: stamp }))
+  } catch {
+    // Kept in memory for this visit.
+  }
+}
+
+// What the server held of the meeting spots and where people start, kept to areas this app knows (an area it does not know
+// would break every screen that names it), with the labels of other people's places replaced by their area's name.
+// How to call: knownSpots({ list: [...], approvals: {}, suggestions: {}, appMethod: 'fairest' })
+function knownSpots(spots) {
+  const list = spots.list.filter((spot) => areaById(spot.areaId))
+  const listed = new Set(list.map((spot) => spot.areaId))
+  const approvals = Object.fromEntries(Object.entries(spots.approvals).map(([id, areas]) => [id, areas.filter((a) => listed.has(a))]).filter(([, areas]) => areas.length))
+  const suggestions = Object.fromEntries(Object.entries(spots.suggestions).filter(([, s]) => areaById(s.areaId)))
+  return { list, approvals, suggestions, appMethod: spots.appMethod }
+}
+// How to call: knownLocations({ '7f3c...': { start: { areaId: 'bugis', label: '' }, end: null } })
+function knownLocations(locations) {
+  const known = (end) => (end && areaById(end.areaId) ? { areaId: end.areaId, label: end.label || areaById(end.areaId).name } : null)
+  return Object.fromEntries(Object.entries(locations).map(([id, loc]) => [id, { start: known(loc.start), end: known(loc.end) }]).filter(([, loc]) => loc.start || loc.end))
+}
+
+// The sessions this page has read once, and the gaps already asked the server to close (by session and the time of the change
+// that made them). See repairSpots.
+const opened = new Set()
+const repairs = new Set()
+// A start changed and the spots were never worked out again (the call to the server did not come, say the page closed between the
+// two writes): the session read says so in `spotsStale`. Only the first read of a session on this page looks, which is the person
+// opening it: a later read is a live update, and a change that another device is still working out is not a gap. Ask the server once
+// for each such gap, quietly, and read again when it has answered. The answer is never used.
+// How to call: repairSpots(read)
+function repairSpots(read) {
+  const first = !opened.has(read.id)
+  opened.add(read.id)
+  const key = `${read.id}:${read.spotsStale}`
+  if (!first || !read.spotsStale || repairs.has(key)) return
+  repairs.add(key)
+  const asked = epoch
+  remote
+    .refreshSpots(read.id, 'added')
+    .then(() => asked === epoch && broadcast({ type: 'session', sessionId: read.id }))
+    .catch(() => {})
+}
+
+// A session read from the server, completed with the fields that belong to the later stages (votes, the plan), all empty,
+// so that summary() makes the same shape as for a local session. Where people start, the meeting area, the spots and the
+// banner are the server's. The banner is hidden once this person dismissed it.
 // How to call: summary(fromServer(await remote.get(id)))
 function fromServer(row) {
   serverMembers.set(row.id, row.members.map((m) => m.id))
-  return { ...row, locations: {}, meeting: null, spots: emptySpots(), prefs: {}, deletedSlots: [], options: {}, votes: {}, plan: null, banner: null, replan: null, photos: [], radius: null }
+  const { spotsStale: _stale, banner: held, meeting, ...rest } = row
+  let banner = null
+  if (held && held.text) {
+    const stamp = bannerStamp(held, row.planVersion)
+    // While the group is choosing, the only thing a banner says is that approvals went with a spot that left the list.
+    if (dismissedStamp(row.id) !== stamp) banner = { ...held, at: stamp, ...(row.status === 'locating' ? { approvalsRemoved: true } : {}) }
+  }
+  return {
+    ...rest,
+    locations: knownLocations(row.locations),
+    meeting: meeting && areaById(meeting.areaId) ? meeting : null,
+    spots: knownSpots(row.spots),
+    prefs: {},
+    deletedSlots: [],
+    options: {},
+    votes: {},
+    plan: null,
+    banner,
+    replan: null,
+    photos: [],
+    radius: null,
+  }
+}
+
+// The newest read of each session of the server that has been handed out, so that a read which began earlier and answers
+// later (a live update, a list) never puts an old state over a new one, such as a session still locating over one the host
+// has confirmed. A read is older when it began before the newest one, or holds an older version of the plan.
+const newestRead = new Map()
+let readCount = 0
+// Hand out `make()` unless a newer read of the session has been handed out already, in which case that one stands.
+// How to call: return newest('3b1f...', ++readCount, 4, () => summary(fromServer(read)))
+function newest(sessionId, ticket, version, make) {
+  const have = newestRead.get(sessionId)
+  if (have && (ticket < have.ticket || version < have.version)) return clone(have.session)
+  const session = make()
+  newestRead.set(sessionId, { ticket, version, session: clone(session) })
+  return session
 }
 
 // Live updates for a real account's sessions. Screens that show sessions call watchSessions() when they appear and the
@@ -459,6 +568,9 @@ function openChannel() {
         serverMembers.delete(change.sessionId)
         broadcast({ type: 'session-gone', sessionId: change.sessionId })
       } else readSoon(change.sessionId)
+    } else if (change.kind === 'approval-deleted') {
+      // Like a deleted membership: it reaches everyone who listens, and only a session this account knows is read again.
+      if (serverMembers.has(change.sessionId)) readSoon(change.sessionId)
     } else if (change.kind === 'invitations') broadcast({ type: 'invitations' })
     else if (change.kind === 'resync') broadcast({ type: 'resync' })
   }
@@ -520,7 +632,7 @@ function warmPeople(ids) {
 
 function sessionById(id) {
   const session = db.sessions.find((s) => s.id === id)
-  if (!session && serverMembers.has(id)) throw new Error(SHARING_WORDS.startHeld)
+  if (!session && serverMembers.has(id)) throw new Error(SHARING_WORDS.comesNext)
   if (!session) throw Object.assign(new Error('This session does not exist.'), { code: 'not_found' })
   settleInvites(session)
   return session
@@ -1031,6 +1143,10 @@ function resetSessionState() {
   findingSpots.clear()
   // What was read from the server belongs to the last account, and so does the channel that listens for it.
   serverMembers.clear()
+  newestRead.clear()
+  opened.clear()
+  repairs.clear()
+  dismissedBanners.clear()
   epoch += 1
   closeChannel()
 }
@@ -1970,6 +2086,7 @@ export async function listSessions() {
   // A real account's sessions are the database's (the ones it is in), newest first.
   if (onServer()) {
     const asked = epoch
+    const ticket = ++readCount
     const read = await remote.list()
     // The account changed while the read was out: what it found belongs to nobody now. It is not kept, not shown, and no
     // person in it is read from their profile.
@@ -1979,7 +2096,8 @@ export async function listSessions() {
     const rows = read.map(fromServer)
     announceCoMembers()
     warmPeople(rows.flatMap((s) => s.members.map((m) => m.id)))
-    return rows.map((s) => summary(s, { warm: false }))
+    // A session read since this list began (a confirm, a live update) stands over what the list found of it.
+    return rows.map((s) => newest(s.id, ticket, s.planVersion, () => summary(s, { warm: false })))
   }
   await wait(DELAY.read)
   settleOutings()
@@ -1992,18 +2110,23 @@ export async function listSessions() {
 export async function getSession(id) {
   if (onServer()) {
     const asked = epoch
+    const ticket = ++readCount
     let read
     try {
       read = await remote.get(id)
     } catch (err) {
       // No longer a session this account is in: its people are no longer people it shares a session with.
-      if (err?.code === 'not_found' && asked === epoch) serverMembers.delete(id)
+      if (err?.code === 'not_found' && asked === epoch) {
+        serverMembers.delete(id)
+        newestRead.delete(id)
+      }
       throw err
     }
     // Read for the account before: not kept, not shown.
     if (asked !== epoch) throw Object.assign(new Error('That was read for another account.'), { code: 'stale' })
-    const session = summary(fromServer(read))
+    const session = newest(id, ticket, read.planVersion, () => summary(fromServer(read)))
     announceCoMembers()
+    repairSpots(read)
     return session
   }
   await wait(DELAY.read)
@@ -2127,8 +2250,11 @@ export async function inviteFriends(id, personIds, { pending = false, acceptAfte
 }
 
 export async function startSession(id) {
-  // Held for a session on the server until locations and the rest are on it too (see sessionsRemote.js).
-  if (onServer()) return remote.start(id)
+  // A session on the server starts with the host's own write: inviting to locating, with two people in (the database checks).
+  if (onServer()) {
+    await remote.start(id)
+    return afterServerWrite(id, 'session')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   if (activeIds(session).length < 2) throw new Error('A session needs at least 2 people.')
@@ -2138,8 +2264,70 @@ export async function startSession(id) {
   return touch(session, 'session')
 }
 
+// ── A real account's meeting spots are on the server ───────────────────────
+
+// Read a session of the server again after a write of this person's, tell the screens, and answer with it. The server's own
+// answer to the write is never put into the session: a late one could not undo a confirmation, because nothing of it is kept.
+// How to call: return afterServerWrite(id, 'spots')
+async function afterServerWrite(id, type) {
+  const session = await getSession(id)
+  broadcast({ type, sessionId: id })
+  return session
+}
+
+// How many changes are working the spots out right now, per session. getSession shows it as `findingSpots`.
+const findingCounts = new Map()
+// Say the spots are being worked out while `run` goes on, when there is anything to work out: someone else has shared a start
+// (what was last read says so), or the list is there already. A first start alone has no spots to wait for.
+// How to call: await whileFindingSpots('3b1f...', () => remote.suggest(id, 'bugis'))
+async function whileFindingSpots(id, run) {
+  const last = newestRead.get(id)?.session
+  const othersStarted = Object.entries(last?.locations || {}).some(([person, loc]) => person !== me() && loc.start)
+  const show = othersStarted || !!last?.spots?.list?.length
+  if (show) {
+    findingCounts.set(id, (findingCounts.get(id) || 0) + 1)
+    findingSpots.add(id)
+    broadcast({ type: 'pending', sessionId: id })
+  }
+  try {
+    return await run()
+  } finally {
+    if (show) {
+      const left = (findingCounts.get(id) || 1) - 1
+      if (left > 0) findingCounts.set(id, left)
+      else {
+        findingCounts.delete(id)
+        findingSpots.delete(id)
+      }
+    }
+  }
+}
+
+// A real account's own start or end: the area on its member row and the label of the exact place, written directly, then the
+// server works the spots out again. If the server cannot, this person's own change is taken back (the others' are not touched)
+// and they are told. If the group has moved on meanwhile (the host confirmed), what was saved stays: it only adds a travel time.
+// How to call: await setLocationOnServer('3b1f...', '7f3c...', 'start', { areaId: 'bugis', label: 'Bugis Junction' })
+async function setLocationOnServer(id, personId, which, place) {
+  requireMe(personId)
+  if (personId !== me()) throw new Error(SHARING_WORDS.notAllowed)
+  if (place && !areaById(place.areaId)) throw new Error('This area does not exist.')
+  await whileFindingSpots(id, async () => {
+    const before = await remote.setPlace(id, which, place ? { areaId: place.areaId, label: place.label || areaById(place.areaId).name } : null)
+    const trigger = which === 'end' ? 'end' : before.hadStart ? 'start' : 'added'
+    try {
+      await remote.refreshSpots(id, trigger)
+    } catch (err) {
+      if (err?.code === 'wrong_status') return
+      await remote.restorePlace(id, before)
+      throw err
+    }
+  })
+  return afterServerWrite(id, 'location')
+}
+
 // which: 'start' | 'end'. place: { areaId, label }. Only the area is ever shown to other people.
 export async function setLocation(id, personId, which, place) {
+  if (onServer()) return setLocationOnServer(id, personId, which, place)
   await wait(DELAY.write)
   requireMe(personId)
   const session = sessionById(id)
@@ -2159,6 +2347,10 @@ export async function setLocation(id, personId, which, place) {
 // trip), otherwise the meeting area as it is. Moves the session to Voting. For a particular spot, use confirmSpot.
 // How to call: await useMeetingArea('s1')
 export async function useMeetingArea(id) {
+  if (onServer()) {
+    await remote.confirm(id)
+    return afterServerWrite(id, 'session')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   if (!session.meeting) throw new Error('Everyone needs to share where they are starting first.')
@@ -2212,6 +2404,13 @@ async function settleOnSpot(session, spot) {
 // planner cannot answer (nothing is saved then).
 // How to call: await suggestSpot('s1', 'jonathan', 'bugis', { here: true })
 export async function suggestSpot(id, personId, areaId, { here = false } = {}) {
+  if (onServer()) {
+    requireMe(personId)
+    if (personId !== me()) throw new Error(SHARING_WORDS.notAllowed)
+    if (!areaById(areaId)) throw new Error(SHARING_WORDS.noArea)
+    await whileFindingSpots(id, () => remote.suggest(id, areaId, { here }))
+    return afterServerWrite(id, 'spots')
+  }
   await wait(DELAY.write)
   requireMe(personId)
   const session = sessionById(id)
@@ -2253,6 +2452,12 @@ export async function suggestSpot(id, personId, areaId, { here = false } = {}) {
 // approvals for it go with it. Does nothing (and writes nothing) when the person has no suggestion. No planner call.
 // How to call: await withdrawSpot('s1', 'jonathan')
 export async function withdrawSpot(id, personId) {
+  if (onServer()) {
+    requireMe(personId)
+    if (personId !== me()) throw new Error(SHARING_WORDS.notAllowed)
+    await remote.withdraw(id)
+    return afterServerWrite(id, 'spots')
+  }
   await wait(DELAY.write)
   requireMe(personId)
   const session = sessionById(id)
@@ -2270,6 +2475,12 @@ export async function withdrawSpot(id, personId) {
 // Throws if the spot is not on the list.
 // How to call: await approveSpot('s1', 'faith', 'bugis', true)
 export async function approveSpot(id, personId, areaId, on = true) {
+  if (onServer()) {
+    requireMe(personId)
+    if (personId !== me()) throw new Error(SHARING_WORDS.notAllowed)
+    await remote.approve(id, areaId, on)
+    return afterServerWrite(id, 'spots')
+  }
   await wait(DELAY.write)
   requireMe(personId)
   const session = sessionById(id)
@@ -2287,6 +2498,10 @@ export async function approveSpot(id, personId, areaId, on = true) {
 // Throws if the person is not the host, the group is not choosing where to meet, or the spot is not on the list.
 // How to call: await confirmSpot('s1', 'bugis')
 export async function confirmSpot(id, areaId) {
+  if (onServer()) {
+    await remote.confirm(id, areaId)
+    return afterServerWrite(id, 'session')
+  }
   await wait(DELAY.write)
   requireMe()
   const session = sessionById(id)
@@ -2305,6 +2520,11 @@ export async function confirmSpot(id, areaId) {
 // Throws if the person is not the host, the session is past locating, the area is unknown, or the planner cannot answer.
 // How to call: await setKnownPlace('s1', 'bugis')
 export async function setKnownPlace(id, areaId) {
+  if (onServer()) {
+    if (!areaById(areaId)) throw new Error(SHARING_WORDS.noArea)
+    await remote.knownPlace(id, areaId)
+    return afterServerWrite(id, 'session')
+  }
   await wait(DELAY.write)
   requireMe()
   const session = sessionById(id)
@@ -2327,7 +2547,16 @@ export async function setKnownPlace(id, areaId) {
   })
 }
 
+// A person steps out of a session. On the server that is the person themselves opting out (they keep their place and can
+// rejoin), or the host carrying on without someone, which takes that person out of the session (they can come back with a link).
+// How to call: await optOut('s1', 'faith')
 export async function optOut(id, personId) {
+  if (onServer()) {
+    const mine = requireMe(personId)
+    if (personId === mine) await remote.optOut(id)
+    else await remote.removeMember(id, personId)
+    return afterServerWrite(id, 'optout')
+  }
   await wait(DELAY.write)
   requireMe(personId)
   const session = sessionById(id)
@@ -2361,7 +2590,21 @@ export async function optOut(id, personId) {
   })
 }
 
+// Rejoin a session of the server after opting out, while the group has not moved on to voting.
+// How to call: await rejoinSession('3b1f...')
+export async function rejoinSession(id) {
+  needServer()
+  await remote.rejoin(id)
+  return afterServerWrite(id, 'session')
+}
+
 export async function dismissBanner(id) {
+  // The server's banner is the group's, so dismissing it is this person's alone and kept in this browser.
+  if (onServer()) {
+    const current = await getSession(id)
+    if (current.banner) rememberDismissed(id, current.banner.at)
+    return getSession(id)
+  }
   const session = sessionById(id)
   session.banner = null
   return touch(session, 'session')

@@ -1,14 +1,16 @@
 <script setup>
 // The session: people, locations and the meeting spot (the Locate step).
 //   Inviting  the people list with an Invite button. Below 2 people the main button is "Invite friends";
-//             from 2 people (including Ian) it is "Start session"
+//             from 2 people (including Ian) it is "Start session". In a shared session (one kept on the server) only the host
+//             starts it; a guest sees who it is waiting for and Leave session, and a refusal is said under the list
 //   Locating  Ian's start and end, then "Where to meet": the meeting spots (the app's three and each member's own
 //             suggestion) with everyone's travel time, "Works for me" on each, and a map with a pin for every spot.
 //             From two starts on the list opens; the host confirms a spot at any time ("Confirm <area>", the one
 //             main action; others see who they are waiting for) or sets a known place ("We already have a place").
 //             While the planner works the spots out, the list and the map say so.
 //             While some people have not set a start, a card lists them. The host can carry on without each one
-//             (after a confirmation); others only see who it is waiting for.
+//             (after a confirmation); others only see who it is waiting for. In a shared session that takes them out of it,
+//             the host can remove anyone from the people list, a guest can leave, and a person who opted out can rejoin.
 //   Voting+   the same page, settled: one card with the confirmed meeting spot, everyone's travel time to it in the
 //             people list (coloured, with a key; no votes ring and no status icons, which belong to the Vote step),
 //             and the map with the meeting pin and a line from each person's start. The other spots are gone. The
@@ -39,7 +41,6 @@ import SpotPins from '@/components/spots/SpotPins.vue'
 import { confirmedAreaId, myTripLine, settledView, shownFor, spotsToShow } from '@/components/spots/spotText.js'
 import NotFoundView from './NotFoundView.vue'
 import { watchSessions } from '@/lib/api.js'
-import { WORDS } from '@/lib/sessionsRemote.js'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
 import { directionsUrl } from '@/lib/maps.js'
 import { locateNext } from '@/lib/session.js'
@@ -241,6 +242,10 @@ async function run(fn, after) {
 // Who the meeting area is waiting for. Only the host can carry on without someone, and never without themself.
 const waiting = computed(() => (session.value ? waitingFor(session.value) : []).map((id) => ({ id, name: nameOf(id), me: id === auth.user?.id })))
 const isHost = computed(() => !!session.value && session.value.hostId === auth.user?.id)
+// The signed-in person opted out of this shared session: they keep their place in it and can come back.
+const optedOut = computed(() => !!session.value?.remote && (session.value.members || []).some((m) => m.id === auth.myId && m.state === 'opted_out'))
+// Come back after opting out. How to call: rejoin()
+const rejoin = () => run(() => events.rejoin(props.id))
 const skipOpen = ref(false)
 const skipTarget = ref(null)
 function askSkip(person) {
@@ -320,6 +325,7 @@ const startSession = () => run(() => events.start(props.id))
             </li>
           </ul>
         </div>
+        <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </section>
 
       <template v-else>
@@ -409,14 +415,27 @@ const startSession = () => run(() => events.start(props.id))
               </ul>
             </section>
 
+            <BannerNote v-if="optedOut && ['inviting', 'locating'].includes(status)" icon="info">
+              You opted out of this session, so your trips are not counted.
+              <template #actions><AppButton small variant="secondary" :disabled="busy" @click="rejoin">Rejoin</AppButton></template>
+            </BannerNote>
+
             <section class="section card" aria-label="People">
               <!-- Once the spot is confirmed this card is about the trips: no votes ring, no status icons. -->
               <ProgressDonut v-if="progress && !settled" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
-              <MemberList :session="peopleSession" :names="nameOf" :my-id="myId" :voters="voterIds" :statuses="!settled" />
+              <MemberList :session="peopleSession" :names="nameOf" :my-id="myId" :voters="voterIds" :statuses="!settled">
+                <!-- A shared session, while locating: the host can take anyone but themselves out of it. -->
+                <template #action="{ id, label, host, out }">
+                  <RemoveMember v-if="session.remote && choosing && isHost && !host && !out" :session-id="session.id" :person="{ id, name: label }" />
+                </template>
+              </MemberList>
               <p v-if="!choosing && hasMeetingTrips && !loading" class="travel-key" aria-label="Travel time colours">
                 <span v-for="t in TRAVEL_TONES" :key="t.id" class="travel-key__item"><span class="travel-key__dot" :class="`is-${t.id}`" />{{ t.label }}</span>
               </p>
             </section>
+
+            <!-- A guest of a shared session can leave while the group is choosing where to meet. -->
+            <div v-if="session.remote && choosing && !isHost" class="leave"><LeaveSession :session-id="session.id" /></div>
           </template>
           <template #map>
             <PlannerMap ref="mapRef" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" label="Meeting area map" @view="refreshPins" />
@@ -429,12 +448,14 @@ const startSession = () => run(() => events.start(props.id))
 
     <!-- No footer for a cancelled outing, or one that closed by itself with no plan (there is nothing to go on to). -->
     <footer v-if="status !== 'cancelled' && !(status === 'completed' && !session.plan)" class="screen__footer">
-      <!-- A session kept on the server stops at the lobby for now: starting it waits for the next update (WORDS.startHeld). -->
+      <!-- A shared session (one kept on the server) is started by its host; a guest waits, or leaves. -->
       <template v-if="status === 'inviting' && session.remote">
-        <p id="start-held" class="body-sm text-muted lobby__held">{{ WORDS.startHeld }}</p>
-        <AppButton v-if="isHost && active.length >= 2" next block disabled aria-describedby="start-held">Start session</AppButton>
+        <AppButton v-if="isHost && active.length >= 2" next block :disabled="busy" @click="startSession">Start session</AppButton>
         <AppButton v-else-if="isHost" block @click="inviteOpen = true">Invite friends</AppButton>
-        <LeaveSession v-else :session-id="session.id" />
+        <template v-else>
+          <p class="body-sm text-muted lobby__held">Waiting for {{ hostName }} to start the session.</p>
+          <LeaveSession :session-id="session.id" />
+        </template>
       </template>
       <AppButton v-else-if="status === 'inviting' && active.length < 2" block @click="inviteOpen = true">Invite friends</AppButton>
       <AppButton v-else-if="status === 'inviting'" next block :disabled="busy" @click="startSession">Start session</AppButton>
@@ -493,6 +514,7 @@ const startSession = () => run(() => events.start(props.id))
 .lobby__who { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; color: var(--ink); text-decoration: none; }
 @media (hover: hover) { .lobby__who:hover .title-sm { text-decoration: underline; } }
 .lobby__held { margin: 0; }
+.leave { display: flex; justify-content: center; }
 @media (min-width: 744px) { .lobby__held { margin-right: auto; max-width: 56ch; } }
 .lobby__tag { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: var(--rounded-full); color: var(--body); font: var(--text-caption); }
 .lobby__tag--host { border-color: color-mix(in srgb, var(--primary) 35%, var(--canvas)); color: var(--primary-active); }
