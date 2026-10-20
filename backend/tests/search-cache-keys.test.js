@@ -9,11 +9,11 @@ import { createOneMap } from '../src/services/onemap.js'
 
 const counted = () => {
   const http = createHttp({ stub: true })
-  const calls = { get: 0, post: 0 }
+  const calls = { get: 0, post: 0, urls: [], bodies: [] }
   const get = http.getJson.bind(http)
   const post = http.postJson.bind(http)
-  http.getJson = (...args) => { calls.get += 1; return get(...args) }
-  http.postJson = (...args) => { calls.post += 1; return post(...args) }
+  http.getJson = (...args) => { calls.get += 1; calls.urls.push(args[0]); return get(...args) }
+  http.postJson = (...args) => { calls.post += 1; calls.bodies.push(args[1]); return post(...args) }
   return { http, calls }
 }
 const CENTRE = { lat: 1.3521, lng: 103.8198 }
@@ -32,6 +32,22 @@ describe('queryKey', () => {
     expect(queryKey('bishan 1')).not.toBe(queryKey('bishan 11'))
     expect(queryKey('')).toBe('')
     expect(queryKey(null)).toBe('')
+  })
+
+  it('keeps words in other scripts apart when only a vowel sign or a voicing mark differs', () => {
+    expect(queryKey('கா')).not.toBe(queryKey('க')) // Tamil
+    expect(queryKey('が')).not.toBe(queryKey('か')) // Japanese
+    expect(queryKey('की')).not.toBe(queryKey('क')) // Devanagari
+    expect(queryKey('ที่')).not.toBe(queryKey('ที')) // Thai
+  })
+
+  it('still treats an accented Latin word as the plain one', () => {
+    expect(queryKey('Café')).toBe(queryKey('cafe'))
+    expect(queryKey('Crème Brûlée')).toBe(queryKey('creme brulee'))
+  })
+
+  it('leaves no stray mark after a capital I with a dot', () => {
+    expect(queryKey('İstanbul')).toBe(queryKey('istanbul'))
   })
 })
 
@@ -52,6 +68,22 @@ describe('the OneMap address search cache', () => {
     const onemap = createOneMap({ http, stub: true })
     await Promise.all(['Bishan MRT', 'bishan  mrt', 'BISHAN MRT'].map((q) => onemap.search(q)))
     expect(calls.get).toBe(1)
+  })
+})
+
+describe('the text sent out', () => {
+  it('is the search as typed, while only the key is made plain', async () => {
+    const typed = '  CAFÉ   Ｂｉｓｈａｎ  '
+    const one = counted()
+    await createOneMap({ http: one.http, stub: true }).search(typed)
+    expect(one.calls.urls).toHaveLength(1)
+    expect(one.calls.urls[0]).toContain(`searchVal=${encodeURIComponent(typed.trim())}`)
+    expect(queryKey(typed)).toBe('cafe bishan')
+
+    const two = counted()
+    await createGooglePlaces({ http: two.http, stub: true }).searchText(typed, CENTRE)
+    expect(two.calls.bodies).toHaveLength(1)
+    expect(two.calls.bodies[0].textQuery).toBe(typed.trim())
   })
 })
 

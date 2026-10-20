@@ -69,7 +69,8 @@ export function createCache({ ttlMs, maxItems = 5000, now = Date.now }) {
 }
 
 // What two searches must share to count as the same search: the text lower-cased, accents and full-width letters made plain,
-// curly quotes made straight, and every run of spaces one space. Only for a cache KEY: the search itself is still sent as typed.
+// curly quotes made straight, and every run of spaces one space. Only the combining accents of Latin letters (U+0300 to U+036F) are
+// dropped, so words in other scripts that differ by a vowel sign or a voicing mark stay different. Only for a cache KEY: the search itself is still sent as typed.
 //
 // How to call:
 //   queryKey('  Teo   Heng ')  // 'teo heng'
@@ -77,11 +78,12 @@ export function createCache({ ttlMs, maxItems = 5000, now = Date.now }) {
 //   queryKey('Kreta Ayer People’s Theatre') === queryKey("kreta ayer people's theatre") // true
 export function queryKey(text) {
   return String(text ?? '')
+    .toLowerCase() // First, so that a capital I with a dot leaves no stray mark behind
     .normalize('NFKD')
-    .replace(/\p{M}+/gu, '')
+    .replace(/[\u0300-\u036f]+/g, '') // Latin accents only: marks in Tamil, Thai, Devanagari and kana change the word
     .replace(/[\u2018\u2019\u02bc]/g, "'")
     .replace(/[\u201c\u201d]/g, '"')
-    .toLowerCase()
+    .toLowerCase() // Again, because some compatibility forms turn into capitals
     .replace(/\s+/gu, ' ')
     .trim()
 }
