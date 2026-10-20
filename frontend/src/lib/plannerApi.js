@@ -27,8 +27,17 @@ const AUTH_UNAVAILABLE = 'Jio cannot check your login right now. Try again in a 
 // What a failed request says. Screens show err.message, so say what went wrong in words a person can act on.
 // Developer text (commands, environment variable names, request details) is only for development builds;
 // `dev` is a parameter so both wordings can be tested.
+// Three failures are kept apart so the person knows what to do: the planner did not answer in time (a slow connection or
+// a busy server: waiting and trying again is right), it could not be reached at all (check the connection), and it
+// answered by refusing the request.
 // How to call: plannerErrorMessage(err, { dev: false }) -> 'Too many requests. Wait a few seconds and try again.'
 export function plannerErrorMessage(err, { dev = import.meta.env.DEV, baseURL = api.defaults.baseURL } = {}) {
+  // The request was sent and no answer came before the client's deadline (axios reports ECONNABORTED, or ETIMEDOUT when it
+  // is told to be exact). A request that was cancelled on purpose is not a timeout and falls through to the next case.
+  if (!err?.response && (err?.code === 'ECONNABORTED' || err?.code === 'ETIMEDOUT')) {
+    const base = 'The Jio planner is taking too long to answer. Try again in a moment.'
+    return dev && err.message ? `${base} (${err.message})` : base
+  }
   // No answer at all: the backend is not running, or it refused this page's address (CORS allows one
   // origin, FRONTEND_ORIGIN). The browser reports both the same way, so name both in development.
   if (!err?.response) {
@@ -49,6 +58,8 @@ export function plannerErrorMessage(err, { dev = import.meta.env.DEV, baseURL = 
   if (issues) return dev ? `The planner could not use this request (${issues}).` : 'The planner could not use this request. Try again.'
   // A 404 message names the route, which is developer text.
   if (status === 404 && !dev) return 'The planner had a problem. Try again.'
+  // A request the planner refused without saying why (a 400 or 422 with no message) is told apart from the planner failing.
+  if ((status === 400 || status === 422) && !data?.message) return 'The planner could not use this request. Try again.'
   return data?.message || 'The planner had a problem. Try again.'
 }
 
