@@ -760,6 +760,28 @@ Leave a shared session, or (as the host) remove a guest. Not a planner route: it
 
 The member's exact place goes with their row (a foreign key). The server then raises `sessions.plan_version` by one, which every remaining member hears as an update of the session row (Realtime), so their screens follow. The version is written only if it is still what the server read (`update ... where plan_version = <read>`), up to four tries, so another write that raised it meanwhile is never moved backwards. This is best effort: if it cannot be raised the answer is still 200, `planVersion` is the last version seen, and the others find out on their next read. Ids are compared without regard to the case of their letters.
 
+## GET /api/people/search?q=
+
+Find a person to invite by the start of their username. It feeds the invite field, which asks after a short pause as the person types. Not a planner route: it needs a login (`Authorization: Bearer <token>`, see `GET /api/me`) and Supabase to be set up; without them the route does not exist and answers 404.
+
+The server reads `profiles` with its own key and selects only the public columns (`id, username, display_name, avatar_url`), so the profiles rule can later be narrowed to the person and the people they share a session with (ticket #125) without this screen changing. Who the caller has "met" is read through the caller's own client, so the database's access rules decide it. It is asked after the matches are known and only about them (the first 50 matches by username), so the API's row cap on a read never cuts it. If that read fails the search still answers, in username order with `metBefore` false, and the failure is logged.
+
+`q` is the start of a username: trimmed, lower-cased, 3 to 20 characters from `a-z`, `0-9` and `_` (the same alphabet as `username_format` in `db/schema.sql`). It matches the start of a username only, never a display name and never the middle. `%`, `_` and `\` are escaped before the pattern is made (a plain `LIKE`, since usernames are lower case in the database and `q` is lower-cased), so `sam_` matches `sam_tan` and not `samuel`.
+
+```
+GET /api/people/search?q=sam_
+200 { "people": [ { "id": "7f3c...", "name": "Sam Tan", "username": "sam_tan", "avatarUrl": "", "metBefore": true } ] }
+```
+
+At most 5 people, in this order: the exact match, then people who share (or shared) a session with the caller, then the others; inside each group by username. The caller never appears. `name` is the display name, or the username when there is none. `avatarUrl` is the address the person set, or `""`: the frontend shows it only when this project's own storage serves it. Every answer, including a 400, 401 or 429, is `Cache-Control: no-store`.
+
+| Answer | When |
+|---|---|
+| 200 `{ "people": [...] }` | Always for a valid `q`; the list is empty when nobody matches. |
+| 400 `invalid_input` | `q` is missing, repeated, shorter than 3 or longer than 20 characters, or has a character outside `a-z`, `0-9`, `_`. |
+| 401 `unauthenticated`, 503 `auth_unavailable` | The login check, as for every route that needs one. |
+| 429 `rate_limited` | More than `PEOPLE_SEARCH_RATE_LIMIT_PER_MINUTE` (120) a minute from one person. |
+
 ## Limits
 
 Every list and number has an upper limit, so one request cannot keep the server busy. Going over any of them is a 400 naming the field.

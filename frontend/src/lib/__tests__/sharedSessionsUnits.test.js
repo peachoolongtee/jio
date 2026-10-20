@@ -3,7 +3,7 @@
 // no longer in, forgetting everything when the account changes). No network.
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { cleanUsername, createSessionsRemote, looksLikeToken, plain, WORDS } from '../sessionsRemote.js'
+import { createSessionsRemote, looksLikeToken, plain, WORDS } from '../sessionsRemote.js'
 import { OTHER, PROFILE, SESSION, boot, fakeSupabase } from './authFixture.js'
 import { createDatabase } from '../../components/dev/fakeDatabase.js'
 
@@ -48,12 +48,6 @@ describe('plain: a refusal as a sentence', () => {
 })
 
 describe('the checks on what a person types or opens', () => {
-  it('accepts only a complete username, lower-cased, with or without the at sign', () => {
-    expect(cleanUsername(' @Sam_Tan ')).toBe('sam_tan')
-    expect(cleanUsername('kim')).toBe('kim')
-    for (const bad of ['', 'ab', 'x'.repeat(21), 'sam tan', 'sam-tan', 'sam.tan', 'sam%', null, undefined]) expect(cleanUsername(bad)).toBe('')
-  })
-
   it('takes a link\'s token only in the shape the database makes', () => {
     expect(looksLikeToken('q'.repeat(43))).toBe(true)
     expect(looksLikeToken('abc_-DEF'.repeat(5))).toBe(true)

@@ -228,6 +228,25 @@ export async function removeSessionMember(sessionId, personId = 'me') {
   return data
 }
 
+// How long a search for people is waited for. Typing makes many of them, so a slow one is given up on sooner than a ranking.
+export const PEOPLE_SEARCH_TIMEOUT_MS = 6000
+
+// People whose username starts with `q` (3 to 20 of a-z, 0-9 and _; already cleaned), for the invite field. The server checks who
+// is asking, never lists the caller, and answers at most 5: [{ id, name, username, avatarUrl, metBefore }], possibly none
+// (backend/src/routes/people.js). Rejects in the client's usual way (an Error whose message a person can read), and with an
+// AbortError when `signal` aborts first, so the caller can tell a replaced search from a failed one.
+// How to call: await searchPeopleByUsername('sam_t', { signal: controller.signal })
+export async function searchPeopleByUsername(q, { signal } = {}) {
+  try {
+    const { data } = await api.get('/api/people/search', { params: { q }, timeout: PEOPLE_SEARCH_TIMEOUT_MS, signal })
+    if (!Array.isArray(data?.people)) throw new Error(notJsonMessage())
+    return data.people
+  } catch (err) {
+    if (signal?.aborted) throw Object.assign(new Error('The search was cancelled.'), { name: 'AbortError' })
+    throw err
+  }
+}
+
 // The weather the planner used for the last ranking: { source: 'live' | 'simulated' | 'unavailable', simulationIgnored? }.
 // The demo panel reads it to say when the server ignored the rain switch. Null until a ranking has come back.
 export const lastWeather = ref(null)

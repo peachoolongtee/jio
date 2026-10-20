@@ -326,7 +326,6 @@ describe('7. the invite functions, the people, long lists and the host\'s own in
       () => demo.api.getInviteLink('s1'),
       () => demo.api.makeInviteLink('s1'),
       () => demo.api.revokeInviteLink('s1'),
-      () => demo.api.findByUsername('kim'),
       () => demo.api.inviteByUsername('s1', 'darius'),
       () => demo.api.declineInvitation('q'.repeat(43)),
       () => demo.api.leaveSession('s1'),

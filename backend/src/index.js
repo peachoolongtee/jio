@@ -152,6 +152,18 @@ if (!Number.isInteger(sessionLimitPerMinute) || sessionLimitPerMinute <= 0) {
 }
 const sessionRateLimit = stub ? null : { windowMs: 60_000, max: sessionLimitPerMinute }
 
+// How many times one signed-in person may search for someone to invite each minute (GET /api/people/search). The invite
+// field asks after a short pause as the person types, so this is loose enough for a fast typist. Stub mode has no limit.
+//
+// How to change it:
+//   PEOPLE_SEARCH_RATE_LIMIT_PER_MINUTE=60
+const peopleSearchLimitPerMinute = Number(process.env.PEOPLE_SEARCH_RATE_LIMIT_PER_MINUTE || 120)
+if (!Number.isInteger(peopleSearchLimitPerMinute) || peopleSearchLimitPerMinute <= 0) {
+  console.error('PEOPLE_SEARCH_RATE_LIMIT_PER_MINUTE must be a whole number above 0.')
+  process.exit(1)
+}
+const peopleSearchRateLimit = stub ? null : { windowMs: 60_000, max: peopleSearchLimitPerMinute }
+
 // Supabase: token checks and database access. All three values are needed. With none of them the server
 // still runs outside production, but the routes that need a login are switched off. With only some of them
 // it refuses to start, because that is a mistake in the settings, not a choice.
@@ -179,7 +191,7 @@ const supabase =
       })
     : null
 
-createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader, linkRateLimit, supabase, allowSimulatedWeather, planRateLimit, sessionRateLimit }).listen(port, () => {
+createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader, linkRateLimit, supabase, allowSimulatedWeather, planRateLimit, sessionRateLimit, peopleSearchRateLimit }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
   if (stub) console.log('Stub mode is ON: external API calls are answered from fixtures.')
   else if (!onemap.routingEnabled) {

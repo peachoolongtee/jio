@@ -1357,3 +1357,27 @@ The lead asked for faithpho's #160 (ticket #149: Google places compete fairly) t
 - **Tests:** 28 more in the backend suite (1,220 to 1,248), in `google-fair-ranking.test.js`; the filter, cap-window and rating-share tests failed on the code before the fixes. One existing test (`weather-forecast-window.test.js`) compared Google's additions for stops 1 and 5 hours from the real clock, which the top-up rule makes depend on the time of day (at 16:00 it failed: our own places were enough for food at 17:00 and not at 21:00). It now always asks Google, as the other Google tests do.
 - **Run by the lead's agent before merging, exit codes read:** in the table in `CLAUDE.md`.
 - **Not done (needs the lead's key and word):** #149's before-and-after count with one real Google ranking. The card's review count ("★ 9.2 (512)") is not built.
+
+## Round 31: stage 2 proven, and everything not blocked (2026-10-20)
+
+**Stage 2 passed the lead's two-device check** on 20 October with real accounts on the live project (sign-up, create, invite link, join, seen live, leave and remove). #127 and #126 were closed. The lead said "allow and continue building the rest that isn't blocked now".
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Invite search as you type | frontend engineer | `feat/invite-search` | Matches on the start of a username from the third character, up to five, people you have met first, through a server route so the profiles rule can still be narrowed (#125, question 7); a search icon and a clear button in the field; no Find button |
+| Stage 3 on the server (#128) | backend implementer | `feat/sessions-stage-3` | #125's E1 (spots while locating), E19, E20, E2 (confirm a spot), E21 (known place), leaving and removing in any open status (E25); nothing applied to the live project |
+| Stage 3 in the browser (#128) | frontend engineer | `feat/sessions-stage-3-frontend` | Locations, the exact place, spots, suggestions, "Works for me", confirm and the known place for a real account through `sessionsRemote.js`, live on the other device |
+| Planner failures (#57) | frontend engineer | `fix/planner-failure-states` | The three screens that show "Not found" for any failure; a timeout told apart from an unreachable server; flags reset in `finally` |
+| Faith's #162 and #163 | read-only reviewer, then the lead's agent | `review/pr-162`, `review/pr-163` | Audit, fix, merge as before |
+| NICHOLE-ONG's #164 (saving a completed outing and travel history) and #165 (planner API defects, #68) | one read-only reviewer each, then the lead's agent | `review/pr-164`, `review/pr-165` | Audit, fix, merge as before; #164 overlaps stage 5 |
+
+**Found before delegating, on the live project (read only):** #164's two functions, `complete_session_with_stops` and `complete_session_with_travel`, were put on the live project by hand on or after 17 October; they are not in its migration list. Only the service key may run them. Both insert `stops.not_before_minute`, which the live `stops` table does not have (it is in the unapplied `20261011000300_jio_session_plan.sql`), so both fail when called; nothing calls them yet. The `session_travel_debt()` function the pull request says reads the ledger is not live either.
+
+### 31.1 Results so far (20 October)
+
+- **#57, planner failure states:** merged as #166; #57 closed. 26 new tests; frontend 1855, backend 1248, build, frontend with outbound calls blocked, run by the lead's agent.
+- **Faith's #163:** one fix (only Latin accents stripped from cache keys, so Tamil, Devanagari, Thai and Japanese searches stay distinct); merged as #167.
+- **Faith's #162:** fixes for a healthy Google refused after one old failure, a reason and lane refund of its own, theatres only for the street graft (the repair script reproduces the file byte for byte), and the venue counts: the "Chinatown Singapore: History & Culture" entry, renamed "Chinatown", now merges into Chinatown Heritage Centre and Food Street, so the pool is 1,782 (417 OneMap); a test pins the counts. Merged as #168; backend 1268, frontend 1855, build, after merging `dev`.
+- **NICHOLE-ONG's #165:** no blocker. Fixes: "outside Singapore" said in the browser for a refused coordinate; rounding and `diagnostics` on separate switches; a bounding box per polygon (243 ms to 10 ms per 1,000 far-edge checks); search 400s name the sent parameter; tests for 21 real edge places checked by hand, leap days and every route's public shape. Merged as #169; #68 closed; backend 1318, frontend 1858, build.
+- **NICHOLE-ONG's #164: held.** Blockers: with a session id the planner calls `session_travel_debt()`, which is not on the live project, so Locate would answer 500 for real accounts once stage 3 lands; any Supabase failure fails the planner; the completion endpoint lets any member post everyone's travel minutes and stops, so fairness history can be forged and never corrected. Audit posted; the work is to be folded into stage 5 (#130). The lead was asked whether to drop the two broken functions from the live project.
+- **Invite search:** reviewed (no security defect); fixes for "met before" being cut at Supabase's row cap, a failed "met before" read failing the search, `no-store` on every answer, `like` for `ilike`, and three tests that did not prove their names.

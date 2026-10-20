@@ -5,6 +5,7 @@ import { createAccountsRouter } from './routes/accounts.js'
 import { createMeRouter } from './routes/me.js'
 import { rateLimit } from './middleware/rate-limit.js'
 import { createLinksRouter } from './routes/links.js'
+import { createPeopleRouter } from './routes/people.js'
 import { createPlanRouter } from './routes/plan.js'
 import { createSessionsRouter } from './routes/sessions.js'
 import { createWeatherRouter } from './routes/weather.js'
@@ -65,6 +66,9 @@ import { createWeather } from './services/weather.js'
 //                    need a login (GET /api/me) are not mounted.
 //   sessionRateLimit - { windowMs, max } to limit how often one signed-in caller may leave a session or remove a guest
 //                    (DELETE /api/sessions/:id/members/:userId), or leave it out for no limit. index.js sets it outside stub mode.
+//   peopleSearchRateLimit - { windowMs, max } to limit how often one signed-in caller may search for people to invite
+//                    (GET /api/people/search, which a screen calls as the person types), or leave it out for no limit. index.js sets it
+//                    outside stub mode.
 //   mount          - A function that adds extra routes. They must go in before the "not found" handler,
 //                    so routes added to the returned app afterwards are never reached. Tests use this:
 //                      createApp({ frontendOrigin, mount: (app) => app.get('/probe', handler) })
@@ -83,6 +87,7 @@ export function createApp({
   allowSimulatedWeather = false,
   planRateLimit = null,
   sessionRateLimit = null,
+  peopleSearchRateLimit = null,
   accountCheckRateLimit = { windowMs: 60_000, max: 10 },
   routingDeadlineMs = undefined,
   ownPlacesEnough = undefined,
@@ -164,6 +169,9 @@ export function createApp({
   if (supabase) app.use('/api', createMeRouter({ supabase }))
   // Leaving a session, and the host removing a guest: /api/sessions/:id/members/:userId. Needs a login, then a limit per person.
   if (supabase) app.use('/api', createSessionsRouter({ supabase, limiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null }))
+
+  // Finding a person to invite by the start of their username: /api/people/search. Needs a login, then a limit per person.
+  if (supabase) app.use('/api', createPeopleRouter({ supabase, limiter: peopleSearchRateLimit ? rateLimit(peopleSearchRateLimit) : null }))
 
   // The email check for the sign-up screen. Always mounted: without Supabase it answers 503, never a guess.
   app.use(

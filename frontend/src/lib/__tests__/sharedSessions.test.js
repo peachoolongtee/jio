@@ -12,6 +12,7 @@ const planner = vi.hoisted(() => ({
   meetingArea: vi.fn(),
   rankSlot: vi.fn(),
   searchSlot: vi.fn(),
+  searchPeopleByUsername: vi.fn(async () => []),
   removeSessionMember: vi.fn(async (...args) => {
     server.calls.push(args)
     if (server.answer) return server.answer(...args)
@@ -376,20 +377,39 @@ describe('leaving and removing go through the Jio server', () => {
 })
 
 describe('invitations by username', () => {
-  it('finds only a complete, exact username, and invites the person who is found', async () => {
+  it('searches the server for people by the start of a username, and invites the person who is found', async () => {
     const w = world()
     const sam = await w.open(PROFILE)
     const kim = await w.open(OTHER)
     const { id } = await sam.api.createSession({ ...SESSION })
-    await expect(sam.api.findByUsername('ki')).rejects.toThrow('Enter a full username: 3 to 20 lowercase letters, numbers or underscores.')
-    expect(await sam.api.findByUsername('kim_')).toBeNull()
-    expect(await sam.api.findByUsername('nobody_here')).toBeNull()
-    const found = await sam.api.findByUsername(' @Kim ')
-    expect(found).toMatchObject({ id: kim.id, name: 'Kim', username: 'kim' })
-    const invited = await sam.api.inviteByUsername(id, found.id)
+    // Text that cannot start a username asks nobody.
+    for (const text of ['', 'ki', ' @k ', 'kim tan', 'kim.tan', 'k'.repeat(21)]) expect(await sam.api.searchPeople(text)).toEqual([])
+    expect(planner.searchPeopleByUsername).not.toHaveBeenCalled()
+    // The server is asked with the cleaned term, and its answer is the screen's person: a photo from elsewhere is not shown.
+    planner.searchPeopleByUsername.mockResolvedValueOnce([
+      { id: kim.id, name: 'Kim', username: 'kim', avatarUrl: 'https://tracker.example.test/p.png', metBefore: true },
+      { id: 'other', name: 'Kimberly', username: 'kimberly', avatarUrl: '', metBefore: false },
+    ])
+    const controller = new AbortController()
+    const found = await sam.api.searchPeople(' @Kim ', { signal: controller.signal })
+    expect(planner.searchPeopleByUsername).toHaveBeenCalledWith('kim', { signal: controller.signal })
+    expect(found).toEqual([
+      { id: kim.id, name: 'Kim', username: 'kim', avatarUrl: '', metBefore: true },
+      { id: 'other', name: 'Kimberly', username: 'kimberly', avatarUrl: '', metBefore: false },
+    ])
+    // No read of the profiles table from the browser.
+    expect(w.ops.filter((op) => op.table === 'profiles' && op.filters?.some((f) => f.col === 'username'))).toEqual([])
+    const invited = await sam.api.inviteByUsername(id, found[0].id)
     expect(invited.members.map((m) => [m.id, m.state])).toEqual([[sam.id, 'joined'], [kim.id, 'invited']])
     expect(invited.activeIds).toEqual([sam.id])
-    await expect(sam.api.inviteByUsername(id, found.id)).rejects.toThrow('You have already invited that person.')
+    await expect(sam.api.inviteByUsername(id, found[0].id)).rejects.toThrow('You have already invited that person.')
+  })
+
+  it('passes the server\'s failure on as its sentence', async () => {
+    const w = world()
+    const sam = await w.open(PROFILE)
+    planner.searchPeopleByUsername.mockRejectedValueOnce(new Error('Too many requests. Wait a few seconds and try again.'))
+    await expect(sam.api.searchPeople('kim')).rejects.toThrow('Too many requests. Wait a few seconds and try again.')
   })
 
   it('shows the invitation to the person invited, who can accept it or decline it, and sees nothing of the session before', async () => {
