@@ -343,7 +343,7 @@ begin
   perform pg_temp.as_admin();
   perform pg_temp.expect_text(35, 'the meeting area, the method and the status are set, and the notice is cleared',
     format('select status || '' '' || meeting_area_id || '' '' || meeting_method || '' '' || meeting_max_minutes || '' '' || meeting_total_minutes'
-           || '' '' || meeting_count || '' '' || coalesce(banner::text, ''no banner'') from public.sessions where id = %L', s),
+           || ' || '' '' || meeting_count || '' '' || coalesce(banner::text, ''no banner'') from public.sessions where id = %L', s),
     'voting bugis voted 32 51 2 no banner');
   perform pg_temp.expect_text(36, 'each joined member''s own minutes are written, rounded; a member without a time has none',
     format('select coalesce((select travel_minutes::text from public.session_members where session_id = %L and user_id = %L), ''none'')'
