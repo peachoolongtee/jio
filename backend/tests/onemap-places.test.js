@@ -532,24 +532,33 @@ test('plainName: a tourist-board tagline is cut, a name that really has a dash o
 });
 
 test('withStreet: a theatre address with only a block number gets its street from the description', () => {
-  assert.strictEqual(withStreet('3615, Singapore 159461', 'Jalan Bukit Merah Gateway Theatre'), '3615 Jalan Bukit Merah Gateway Theatre, Singapore 159461');
-  assert.strictEqual(withStreet('1A, Singapore 397688', 'Stadium Walk'), '1A Stadium Walk, Singapore 397688');
-  assert.strictEqual(withStreet('72-13, Singapore 239007', 'Mohamed Sultan Road'), '72-13 Mohamed Sultan Road, Singapore 239007');
+  assert.strictEqual(withStreet('3615, Singapore 159461', 'Jalan Bukit Merah Gateway Theatre', 'theatre'), '3615 Jalan Bukit Merah Gateway Theatre, Singapore 159461');
+  assert.strictEqual(withStreet('1A, Singapore 397688', 'Stadium Walk', 'theatre'), '1A Stadium Walk, Singapore 397688');
+  assert.strictEqual(withStreet('72-13, Singapore 239007', 'Mohamed Sultan Road', 'theatre'), '72-13 Mohamed Sultan Road, Singapore 239007');
   // Left alone: an address that already has a street, no description, a sentence, a link, an address that is not a bare block.
-  assert.strictEqual(withStreet('21 Canberra Link, Singapore 756973', 'Jalan Bukit Merah'), '21 Canberra Link, Singapore 756973');
-  assert.strictEqual(withStreet('3615, Singapore 159461', null), '3615, Singapore 159461');
-  assert.strictEqual(withStreet('3615, Singapore 159461', 'A lovely theatre for all kinds of shows.'), '3615, Singapore 159461');
-  assert.strictEqual(withStreet('3615, Singapore 159461', 'https://theatre.example.sg'), '3615, Singapore 159461');
-  assert.strictEqual(withStreet(null, 'Stadium Walk'), null);
+  assert.strictEqual(withStreet('21 Canberra Link, Singapore 756973', 'Jalan Bukit Merah', 'theatre'), '21 Canberra Link, Singapore 756973');
+  assert.strictEqual(withStreet('3615, Singapore 159461', null, 'theatre'), '3615, Singapore 159461');
+  assert.strictEqual(withStreet('3615, Singapore 159461', 'A lovely theatre for all kinds of shows.', 'theatre'), '3615, Singapore 159461');
+  assert.strictEqual(withStreet('3615, Singapore 159461', 'https://theatre.example.sg', 'theatre'), '3615, Singapore 159461');
+  assert.strictEqual(withStreet(null, 'Stadium Walk', 'theatre'), null);
 });
 
 test('repairSavedVenue applies both, and repairing twice changes nothing more', () => {
-  const venue = { id: 'x', name: 'Haw Par Villa: Singapore Theme Park', address: '3615, Singapore 159461', description: 'Jalan Bukit Merah Gateway Theatre', postalCode: '159461' };
+  const venue = { id: 'x', name: 'Haw Par Villa: Singapore Theme Park', kind: 'theatre', address: '3615, Singapore 159461', description: 'Jalan Bukit Merah Gateway Theatre', postalCode: '159461' };
   const once = repairSavedVenue(venue);
   assert.strictEqual(once.name, 'Haw Par Villa');
   assert.strictEqual(once.address, '3615 Jalan Bukit Merah Gateway Theatre, Singapore 159461');
   assert.strictEqual(once.area, once.address);
   assert.deepStrictEqual(repairSavedVenue(once), once);
+});
+
+test('a short description is made a street only for a theatre, whether a fresh row or a saved venue', () => {
+  const row = { NAME: 'Some Place', DESCRIPTION: 'Jalan Bukit Merah Gateway Theatre', ADDRESSBLOCKHOUSENUMBER: '3615', ADDRESSPOSTALCODE: '159461', LATITUDE: '1.2826', LONGTITUDE: '103.8452' };
+  assert.strictEqual(fromOneMapRow('theatre', row).address, '3615 Jalan Bukit Merah Gateway Theatre, Singapore 159461');
+  assert.strictEqual(fromOneMapRow('museum', row).address, '3615, Singapore 159461');
+  const saved = { id: 'x', name: 'Some Place', address: '3615, Singapore 159461', description: 'Jalan Bukit Merah Gateway Theatre', postalCode: '159461' };
+  assert.strictEqual(repairSavedVenue({ ...saved, kind: 'theatre' }).address, '3615 Jalan Bukit Merah Gateway Theatre, Singapore 159461');
+  assert.strictEqual(repairSavedVenue({ ...saved, kind: 'museum' }).address, '3615, Singapore 159461');
 });
 
 test('the saved file: no theatre address lacks a street, and no name carries a tagline', () => {

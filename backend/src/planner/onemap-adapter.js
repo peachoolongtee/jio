@@ -332,14 +332,17 @@ function plainName(name) {
 /**
  * The theatre theme gives only the block number in its address ("3615, Singapore 159461") and puts the street, and often
  * the building, in the description ("Jalan Bukit Merah Gateway Theatre"). An address with only a block number gets that text
- * as its street, like any other address: "3615 Jalan Bukit Merah Gateway Theatre, Singapore 159461". An address that
- * already has a street, or a description that is a sentence or a link, is left alone.
+ * as its street, like any other address: "3615 Jalan Bukit Merah Gateway Theatre, Singapore 159461". Only a theatre
+ * (`kind` is 'theatre') gets one: in other themes a short description is not a street. An address that already has a
+ * street, or a description that is a sentence or a link, is left alone.
  *
  * How to call:
- *   withStreet('3615, Singapore 159461', 'Jalan Bukit Merah Gateway Theatre') // '3615 Jalan Bukit Merah Gateway Theatre, Singapore 159461'
- *   withStreet('21 Canberra Link, Singapore 756973', 'anything')              // unchanged
+ *   withStreet('3615, Singapore 159461', 'Jalan Bukit Merah Gateway Theatre', 'theatre') // '3615 Jalan Bukit Merah Gateway Theatre, Singapore 159461'
+ *   withStreet('3615, Singapore 159461', 'Jalan Bukit Merah Gateway Theatre', 'museum')  // unchanged
+ *   withStreet('21 Canberra Link, Singapore 756973', 'anything', 'theatre')              // unchanged
  */
-function withStreet(address, description) {
+function withStreet(address, description, kind) {
+  if (kind !== 'theatre') return address;
   const m = /^(\d+[A-Za-z]?(?:-\d+)?),\s*(Singapore \d{6})$/.exec(String(address ?? ''));
   const text = String(description ?? '').trim();
   if (!m || text === '' || text.length > 70 || /[.!?]|https?:/i.test(text)) return address;
@@ -350,15 +353,15 @@ function withStreet(address, description) {
  * The address text and postal code of a theme row: "21 Canberra Link, Singapore 756973".
  *
  * How to call:
- *   addressOf({ ADDRESSBLOCKHOUSENUMBER: '21', ADDRESSSTREETNAME: 'Canberra Link', ADDRESSPOSTALCODE: '756973' })
+ *   addressOf({ ADDRESSBLOCKHOUSENUMBER: '21', ADDRESSSTREETNAME: 'Canberra Link', ADDRESSPOSTALCODE: '756973' }, 'theatre')
  *   // { address: '21 Canberra Link, Singapore 756973', postalCode: '756973' }
  */
-function addressOf(row) {
+function addressOf(row, kind) {
   const parts = [row.ADDRESSBLOCKHOUSENUMBER, row.ADDRESSSTREETNAME, row.ADDRESSBUILDINGNAME].filter(x => x && x !== 'NIL').map(fixText);
   const postal = postalCodeOf(row.ADDRESSPOSTALCODE);
   const text = parts.join(' ') || fixText(row.ADDRESS_MYENV) || null;
   const address = text ? (postal ? `${text}, Singapore ${postal}` : text) : null;
-  return { address: withStreet(address, descriptionOf(row.DESCRIPTION)), postalCode: postal };
+  return { address: withStreet(address, descriptionOf(row.DESCRIPTION), kind), postalCode: postal };
 }
 
 /**
@@ -413,7 +416,7 @@ function fromOneMapRow(themeName, row) {
 
   const d = DEFAULTS[theme.kind];
   const parsedHours = parseOpeningHoursText(row.OPENING_HOURS);
-  const { address, postalCode } = addressOf(row);
+  const { address, postalCode } = addressOf(row, theme.kind);
   const food = theme.category === 'eat';
   const photoUrl = https(row.PHOTOURL);
   return {
@@ -484,7 +487,7 @@ function fromOneMapTheme(themeName, rows) {
  */
 function repairSavedVenue(v) {
   const name = plainName(fixText(v.name));
-  const address = withStreet(repairAddress(v.address), descriptionOf(v.description));
+  const address = withStreet(repairAddress(v.address), descriptionOf(v.description), v.kind);
   const photoUrl = https(v.photoUrl);
   const repaired = {
     ...v,
