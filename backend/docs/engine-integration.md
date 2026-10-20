@@ -100,6 +100,8 @@ Maxwell Food Centre is in the frontend list *and* is a CDC site. `mergeCuratedWi
 
 The last-stop rule needs "minutes to the MRT". Only the curated venues have it. `withEstimatedMrtWalk()` fills it in for the mock and CDC venues: distance to the nearest station in `areas.json`, at the frontend's walking speed (5 km/h, streets 25% longer than a straight line).
 
+`estimateTransitMinutes` in `graph.js` (an MRT-network fallback, with its own walking speed, now 5 km/h like the rest) is **not used at runtime**: only `tests/graph.test.js` calls it. The planner's own fallback when OneMap cannot route is `mockTravelMinutes` in `geo.js`. So the walking-speed change in `estimateTransitMinutes` moves no ranking.
+
 `areas.json` has only 37 of Singapore's stations, so the estimate can only be **longer** than the real walk. It may wrongly exclude a venue, but never wrongly include one. These venues are marked `mrtWalkEstimated: true`.
 
 Without this, last-stop food slots in strict mode came back empty 25 times out of 30 (pairs of our mock members at 12:00 and 18:30). With it, 4 out of 30.

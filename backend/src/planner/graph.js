@@ -2,7 +2,8 @@
 // MRT stations are nodes and ride times are edge costs. Candidate venues in a multi-stop plan form layers.
 //
 // What is here, and what each is for:
-//   dijkstra / estimateTransitMinutes : shortest travel time through the MRT network (fallback when OneMap fails)
+//   dijkstra / estimateTransitMinutes : shortest travel time through the MRT network (not used at runtime: only its test
+//                                       calls estimateTransitMinutes; the planner's fallback is mockTravelMinutes in geo.js)
 //   orderGreedy / orderExact / twoOpt : best ORDER to visit several stops (greedy shown as the baseline to beat)
 //   planChain / chainGreedy           : pick one venue per stage (food -> activity -> food) with the lowest TOTAL cost
 //   clusterByDistance                 : group nearby venues (union-find) so results can be shown by area
