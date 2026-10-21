@@ -27,6 +27,33 @@ export const BALANCE = {
   gapWeight: 8, // Converge: the weight of the gap between people in a venue's score (beside `worst` at 25).
 };
 
+// Two minutes this close count as equal (floating point leaves dust in sums of weighted trips), so a tie falls through to the next key.
+const TIE = 1e-9;
+
+/**
+ * A comparator that looks at each key in turn and moves to the next only when the two are equal within TIE. A negative result
+ * means `x` comes first.
+ *
+ * How to call:
+ *   [...places].sort(byKeys(s => s.m.gap, s => s.m.mean))
+ */
+const byKeys = (...keys) => (x, y) => {
+  for (const key of keys) {
+    const d = key(x) - key(y);
+    if (Math.abs(d) > TIE) return d;
+  }
+  return 0;
+};
+
+/**
+ * The longest real trip a place may have and still be considered: within BALANCE.capFactor or BALANCE.capMinutes of the best
+ * longest real trip anywhere, whichever allows more.
+ *
+ * How to call:
+ *   capFor(40) // 54 (40 x 1.35; 40 + 10 = 50 is less)
+ */
+const capFor = bestRealLongest => Math.max(bestRealLongest * BALANCE.capFactor, bestRealLongest + BALANCE.capMinutes);
+
 /**
  * Each person's weight: 1 + past travel / scale, at most BALANCE.maxWeight. Someone who travelled MORE than their share weighs
  * more, so places nearer them win this time. No past travel (or a negative one) is 1.
@@ -79,17 +106,18 @@ function classify(entries, weights) {
   const scored = usable.map(e => ({ e, m: measure(e.j.travel, weights) }));
   if (scored.length === 0) return { allowed: [], capped: [], beyond: [], unusable: entries };
   const bestReal = Math.min(...scored.map(s => s.m.realLongest));
-  const allowedReal = Math.max(bestReal * BALANCE.capFactor, bestReal + BALANCE.capMinutes);
-  const inCap = scored.filter(s => s.m.realLongest <= allowedReal + 1e-9); // never empty: the best real longest trip qualifies
-  const baseline = inCap.reduce((b, s) => (s.m.longest - b.m.longest || s.m.mean - b.m.mean) < -1e-9 ? s : b);
+  const inCap = scored.filter(s => s.m.realLongest <= capFor(bestReal) + 1e-9); // never empty: the best real longest trip qualifies
+  const baseline = inCap.reduce((b, s) => byBaseline(s, b) < 0 ? s : b);
   const longestOk = baseline.m.longest + Math.max(baseline.m.longest * BALANCE.slack, BALANCE.slackMinutes);
   const meanOk = baseline.m.mean + Math.max(baseline.m.mean * BALANCE.avgSlack, BALANCE.avgSlackMinutes);
   const allowed = inCap.filter(s => s === baseline || (s.m.longest <= longestOk + 1e-9 && s.m.mean <= meanOk + 1e-9));
   return { allowed, capped: inCap.filter(s => !allowed.includes(s)), beyond: scored.filter(s => !inCap.includes(s)), unusable: entries.filter(e => !usable.includes(e)) };
 }
 
-const byGap = (x, y) => x.m.gap - y.m.gap || x.m.mean - y.m.mean || x.m.longest - y.m.longest; // equal: the order tried
-const byLongest = (x, y) => x.m.longest - y.m.longest || x.m.gap - y.m.gap || x.m.mean - y.m.mean;
+// Ties are decided within TIE, and a tie on every key keeps the order tried (the sorts are stable).
+const byGap = byKeys(x => x.m.gap, x => x.m.mean, x => x.m.longest);
+const byLongest = byKeys(x => x.m.longest, x => x.m.gap, x => x.m.mean);
+const byBaseline = byKeys(x => x.m.longest, x => x.m.mean); // today's pick: the shortest longest trip, then the lower average
 
 /**
  * The measured places in the order the balanced rule prefers them: the ones inside the cap and near the best first, smallest gap
@@ -122,7 +150,9 @@ export function pickBalanced(entries, weights) {
  * The labelled choices a group can pick between, from the places that were measured:
  *   shortest_longest_trip  today's rule: the place where the longest trip is shortest (then the lower average)
  *   most_balanced          the balanced rule above
- *   lowest_average         the lowest weighted average trip
+ *   lowest_average         the lowest average of everyone's real trips (the figure the answer shows as `meanMinutes`, past travel
+ *                          does not enter), among the places inside the same cap as the balanced pick: a place that is cheap
+ *                          on average because one person travels far is not offered
  * A place that wins more than one label comes once, with every label. Each choice says every person's trip, the longest, the
  * average and the gap between the longest and the shortest (real minutes).
  *
@@ -133,10 +163,11 @@ export function choicesOf(allEntries, members, weights, describe) {
   const entries = allEntries.filter(e => e.j.travel.every(t => Number.isFinite(t))); // a place with no usable trip cannot be offered
   if (entries.length === 0) return [];
   const real = e => measure(e.j.travel, e.j.travel.map(() => 1));
-  const pick = (cmp) => entries.reduce((b, e) => (cmp(e, b) < -1e-9 ? e : b));
-  const shortest = pick((x, y) => x.j.worst - y.j.worst || x.j.fairMean - y.j.fairMean);
+  const pick = (cmp, from = entries) => from.reduce((b, e) => (cmp(e, b) < 0 ? e : b));
+  const shortest = pick(byKeys(e => e.j.worst, e => e.j.fairMean));
   const balanced = pickBalanced(entries, weights);
-  const lowest = pick((x, y) => measure(x.j.travel, weights).mean - measure(y.j.travel, weights).mean || x.j.worst - y.j.worst);
+  const cap = capFor(Math.min(...entries.map(e => real(e).realLongest)));
+  const lowest = pick(byKeys(e => real(e).mean, e => e.j.worst), entries.filter(e => real(e).realLongest <= cap + 1e-9)); // never empty: the best real longest trip qualifies
   const labelled = [['shortest_longest_trip', shortest], ['most_balanced', balanced], ['lowest_average', lowest]];
   const out = [];
   for (const [label, entry] of labelled) {

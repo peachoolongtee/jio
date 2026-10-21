@@ -224,6 +224,7 @@ export function makePlanSchemas(data) {
       // counts a person's past travel (balance.js). Left out, the station rule is exactly what it was. Only with method 'station'.
       rule: z.enum(['longest', 'balanced']).optional(),
       // true adds `choices`: the shortest longest trip, the most balanced and the lowest average, each with everyone's trip.
+      // Only with method 'station': the choices are chosen among the areas the station rule compares.
       choices: z.boolean().optional(),
     })
     .refine(someoneLeft, NOBODY)
@@ -234,6 +235,10 @@ export function makePlanSchemas(data) {
     .refine((b) => b.rule !== 'balanced' || b.method === 'station', {
       message: "the balanced rule needs method 'station'",
       path: ['rule'],
+    })
+    .refine((b) => b.choices !== true || b.method === 'station', {
+      message: "choices needs method 'station'",
+      path: ['choices'],
     })
 
   // Search by name to add an option. Members are optional: send them to see diet and group-size reasons.

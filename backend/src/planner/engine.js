@@ -257,8 +257,16 @@ function converge(input, data, deps = {}) {
   const c = context(input, data, members);
   const rule = input.rule ?? 'longest';
   const bw = balanceWeights(members, input.fairnessScaleMinutes ?? 60);
-  // The balanced rule counts a person's past travel in the longest trip and adds the gap between people (balance.js).
-  const weights = { ...S.withRatingWeight(occasionWeights(baseWeights, c.profile), 'converge'), ...(rule === 'balanced' && { gap: BALANCE.gapWeight }) };
+  // The balanced rule adds the gap between people to a venue's score and counts a person's past travel as its own term, `debt`: the
+  // minutes the longest weighted trip adds to the longest real trip. `worst` and `gap` stay in real minutes, so a weight on a trip
+  // never pushes them past the ceiling (balance.js). `debt` weighs as `worst` does for each extra multiple of a trip, and is left out
+  // when nobody is owed anything.
+  const owed = rule === 'balanced' && bw.some(w => w > 1);
+  const weights = {
+    ...S.withRatingWeight(occasionWeights(baseWeights, c.profile), 'converge'),
+    ...(rule === 'balanced' && { gap: BALANCE.gapWeight }),
+  };
+  if (owed) weights.debt = (weights.worst ?? 0) * (BALANCE.maxWeight - 1);
 
   let rows = pruned.map(({ venue, distanceKm }) => {
     const fallbacksBefore = diagnostics.approximateLegs ?? 0;
@@ -288,12 +296,18 @@ function converge(input, data, deps = {}) {
   const ceiling = input.travelCeilingMinutes ?? 60;
   rows.forEach(r => {
     if (rule === 'balanced') {
-      const m = measure(members.map(mm => r.travelByMember[mm.id]), bw);
-      r.factors.worst = S.travelPenalty(m.longest, ceiling);
-      r.factors.gap = S.travelPenalty(m.gap, ceiling);
-      r.gapMinutes = Math.max(...Object.values(r.travelByMember)) - Math.min(...Object.values(r.travelByMember));
-    } else r.factors.worst = S.travelPenalty(r.worstMinutes, ceiling);
-    r.factors.mean = S.travelPenalty(r.meanFair, ceiling);
+      const trips = members.map(mm => r.travelByMember[mm.id]);
+      const weighted = measure(trips, bw), real = measure(trips, trips.map(() => 1));
+      r.factors.worst = S.travelPenalty(real.longest, ceiling);
+      r.factors.gap = S.travelPenalty(real.gap, ceiling);
+      // The most a weight can add to a trip is (maxWeight - 1) times it, so this ceiling keeps the term from saturating.
+      if (owed) r.factors.debt = S.travelPenalty(Math.max(0, weighted.longest - real.longest), ceiling * (BALANCE.maxWeight - 1));
+      r.factors.mean = S.travelPenalty(weighted.mean, ceiling);
+      r.gapMinutes = real.gap;
+    } else {
+      r.factors.worst = S.travelPenalty(r.worstMinutes, ceiling);
+      r.factors.mean = S.travelPenalty(r.meanFair, ceiling);
+    }
     r.factors.returnWorst = S.travelPenalty(Math.max(...r.back), ceiling);
     const { score, breakdown } = S.combine(r.factors, weights);
     r.score = score; r.breakdown = breakdown; r.weights = weights;
@@ -319,7 +333,7 @@ function converge(input, data, deps = {}) {
   // Every current option that still fits, in rank order, ranked among all scored venues. An id missing here no longer fits.
   const currentIds = new Set(input.currentOptionIds ?? []);
   const current = rows.map(toResult).filter(r => currentIds.has(r.venueId));
-  return { status: 'ok', centre, results, current, regret: S.regretCounterfactual(rows, names), notice: fewOptions(rs), diagnostics };
+  return { status: 'ok', centre, results, current, regret: S.regretCounterfactual(rows, names), notice: fewOptions(rs), ...(rule === 'balanced' && { rule }), diagnostics };
 }
 
 /**

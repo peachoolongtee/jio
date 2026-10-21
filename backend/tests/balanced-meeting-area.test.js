@@ -2,12 +2,16 @@
 // the cap on the longest trip, the labelled choices, and that a request without the new fields is answered exactly as before.
 // Travel times are crafted by hand, so each rule is checked on numbers a person can read. Nothing touches the network.
 import { once } from 'node:events'
+import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { loadPlanData } from '../src/db/venues.js'
 import { BALANCE, balanceWeights, choicesOf, measure, pickBalanced, rankBalanced } from '../src/planner/balance.js'
+import { measure as measureRule, pickChanges, randomGroups, SETTINGS } from '../scripts/measure-balanced-rule.js'
 import { converge, meetingArea } from '../src/planner/engine.js'
 import { isOpenAt } from '../src/planner/filters.js'
+import { travelPenalty } from '../src/planner/scoring.js'
+import { createHttp } from '../src/services/http.js'
 
 // ---------------------------------------------------------------- the pure rule
 describe('balanceWeights and measure', () => {
@@ -50,8 +54,12 @@ describe('pickBalanced', () => {
     expect(pickBalanced([base, entry('s', [30, 42])], ones(2)).a.id).toBe('p') // average 36: over
   })
 
-  it('picks the place near the people it was worth reaching: your Tanah Merah, Lakeside and Simei group, real minutes', () => {
-    // Real OneMap times for Aiyu and Ben (Tanah Merah), Chen (Lakeside) and Dina (Simei), 24 October 2026, 12:30.
+  it('refuses the swap that costs three people 7 minutes each to save one person 4, and takes Bugis when it is among the places (the Tanah Merah, Lakeside and Simei group)', () => {
+    // Where these numbers come from: minutes for Aiyu and Ben (Tanah Merah), Chen (Lakeside) and Dina (Simei), copied by the author of
+    // the balanced rule from OneMap routes for Saturday 24 October 2026, 12:30. That is a later day than this file was reviewed (21
+    // October), so they are routes OneMap planned ahead, not a journey anyone made. The Bugis and Paya Lebar rows are the figures in
+    // the planner docs' worked example (backend/docs/planner-api.md, "A worked example"); nothing in the repository records the
+    // routes they were taken from, and none of them can be asked for again offline. The test only needs them as fixed numbers.
     const seen = [entry('Somerset', [29, 35, 39, 34]), entry('Caldecott', [36, 42, 35, 40]), entry('Newton', [34, 40, 44, 38]), entry('Novena', [35, 41, 45, 40])]
     const w = ones(4)
     expect(pickBalanced(seen, w).a.id).toBe('Somerset') // not Caldecott: three people lose 7 minutes each to save Chen 4
@@ -59,6 +67,15 @@ describe('pickBalanced', () => {
     expect(pickBalanced(wider, w).a.id).toBe('Dhoby Ghaut')
     const withBugis = [...wider, entry('Bugis', [22, 28, 36, 27]), entry('Paya Lebar', [11, 18, 42, 16])]
     expect(pickBalanced(withBugis, w).a.id).toBe('Bugis') // best on the longest trip and the average
+  })
+
+  it('decides a tie within floating point dust by the next key, not by the dust', () => {
+    // Longest trips 40 and 40.000000000001: the same. The average decides, and q's is 25 against p's 30, so q is today's pick; p's
+    // average is then over q's by more than 10% or 3 minutes, so only q is left.
+    expect(pickBalanced([entry('p', [20, 40]), entry('q', [10, 40 + 1e-12])], ones(2)).a.id).toBe('q')
+    // Gaps of 20 and 19.9999999999999 are the same: the lower average (u, 30) goes first, not v (32), whose gap is smaller by dust.
+    const u = entry('u', [20, 40]), v = entry('v', [22, 41.9999999999999])
+    expect(rankBalanced([v, u], ones(2)).map((e) => e.a.id)).toEqual(['u', 'v'])
   })
 
   it("moves toward the person who travelled more last time, and is today's rule when nobody did", () => {
@@ -90,10 +107,32 @@ describe('choicesOf', () => {
     const out = choicesOf(places, members, ones(3), describe_)
     const by = Object.fromEntries(out.flatMap((c) => c.labels.map((l) => [l, c])))
     expect(by.shortest_longest_trip.area.id).toBe('bishan')
-    expect(by.lowest_average.area.id).toBe('tampines')
+    expect(by.lowest_average.area.id).toBe('toa') // 41 on average; tampines averages 35 but is outside the cap
     expect(by.most_balanced.area.id).toBe('bishan') // 45/50/44: gap 6; 33/38/52 (gap 19) is inside the slack but has the larger gap
     expect(by.shortest_longest_trip).toMatchObject({ worstMinutes: 50, gapMinutes: 6, travelByMember: { a: 45, b: 50, c: 44 } })
     expect(by.shortest_longest_trip.meanMinutes).toBeCloseTo(46.33, 1)
+  })
+
+  it('never offers, as the lowest average, a place outside the cap on the longest trip', () => {
+    // tampines: 6/11/89 averages 35.3, far below bishan's 46.3, but one person travels 89 against a best of 50 (cap 67.5).
+    const places = [entry('tampines', [6, 11, 89]), entry('bishan', [45, 50, 44])]
+    const out = choicesOf(places, members, ones(3), describe_)
+    expect(out.map((c) => c.area.id)).toEqual(['bishan'])
+    expect(out[0].labels).toEqual(['shortest_longest_trip', 'most_balanced', 'lowest_average'])
+    // Just inside the cap (67.5 at the longest, from a best of 50) it is offered.
+    expect(choicesOf([entry('inside', [5, 10, 67]), entry('bishan', [45, 50, 44])], members, ones(3), describe_).find((c) => c.labels.includes('lowest_average')).area.id).toBe('inside')
+  })
+
+  it('picks the lowest average on the raw mean the answer shows, whatever the weights from past travel', () => {
+    // Person a is owed 120 minutes (weight 3). Weighted, x averages 16.8 and y 19.8, so x would win; the answer shows raw means, 20 and 19.67.
+    const places = [entry('x', [12, 28, 20]), entry('y', [20, 19, 20])]
+    const owed = balanceWeights([{ travelDebtMinutes: 120 }, {}, {}])
+    expect(measure(places[0].j.travel, owed).mean).toBeLessThan(measure(places[1].j.travel, owed).mean) // the weighted mean prefers x...
+    const out = choicesOf(places, members, owed, describe_)
+    const lowest = out.find((c) => c.labels.includes('lowest_average'))
+    expect(lowest.area.id).toBe('y') // ...the label follows the mean that is shown
+    for (const c of out) expect(c.meanMinutes).toBeGreaterThanOrEqual(lowest.meanMinutes - 1e-9)
+    expect(lowest.meanMinutes).toBeCloseTo(59 / 3, 9)
   })
 
   it('gives a place that wins several labels once, with all of them, and nothing for no places', () => {
@@ -122,12 +161,26 @@ describe('meetingArea', () => {
     expect(out.area.id).toBe('caldecott') // the same longest trip as novena, and the lower average
     expect('rule' in out).toBe(false)
     expect('choices' in out).toBe(false)
-    expect(ask({ rule: 'longest' })).toEqual(out)
   })
 
   it("the balanced rule says so, and here keeps today's pick: the even place would cost the group 4.5 minutes on average", () => {
     const out = ask({ rule: 'balanced' })
     expect(out).toMatchObject({ rule: 'balanced', area: { id: 'caldecott' }, worstMinutes: 42, travelByMember: { m1: 42, m2: 32 } })
+  })
+
+  it('moves the pick with no past travel at all: the same longest trip and an average inside the slack, but a smaller gap', () => {
+    // p: 24/42 (average 33, gap 18); q: 30/42 (average 36, gap 12). Both have a longest trip of 42, and q's average is inside
+    // the 10% (3.3 minutes) allowed. The default rule keeps p (the lower average); the balanced rule takes q.
+    const table = { p: [24, 42], q: [30, 42], far: [60, 60] }
+    const areas = Object.keys(table).map((id, i) => ({ id, name: id, lat: 1.3 + i * 0.01, lng: 103.8 + i * 0.01 }))
+    const tm = (from, to) => table[areas.find((a) => a.lat === to.lat && a.lng === to.lng).id][from.lat === homes.m1.lat ? 0 : 1]
+    const plain = meetingArea({ members }, { areas }, { travelMinutes: tm })
+    const balanced = meetingArea({ members, rule: 'balanced', alternatives: 2 }, { areas }, { travelMinutes: tm })
+    expect(plain.area.id).toBe('p')
+    expect(balanced.area.id).toBe('q')
+    expect(balanced.worstMinutes).toBe(plain.worstMinutes) // the longest trip did not get worse
+    expect(balanced.meanMinutes - plain.meanMinutes).toBeLessThanOrEqual(3.3 + 1e-9)
+    expect(balanced.candidates.map((c) => c.area.id)).toEqual(['q', 'p', 'far']) // the chosen place first, then the other allowed one, then the rest
   })
 
   it('past travel moves the balanced choice toward the person who travelled more, and not the default one', () => {
@@ -192,6 +245,66 @@ describe('converge with the balanced rule', () => {
   })
 })
 
+describe('converge with the balanced rule and a debt', () => {
+  const planData = loadPlanData()
+  const dateTime = '2026-10-14T12:30'
+  const centre = { lat: 1.3504, lng: 103.8428 }
+  const base = planData.venues.find((v) => v.category === 'eat' && isOpenAt(v, dateTime))
+  const venue = (id, lat) => ({ ...base, id, name: id, lat, lng: centre.lng, area: id, postalCode: undefined, address: undefined, rating: null, ratingCount: null, source: 'curated' })
+  // Two alike venues. Person a is owed 600 minutes (weight 3): in v1 they travel 30, in v2 40, and b travels 10 in both. Weighted, a's
+  // trips are 90 and 120: both over the 60-minute ceiling, so a score on the weighted trip alone could not tell the two apart.
+  const venues = [venue('v1', centre.lat), venue('v2', centre.lat + 0.0004)]
+  const TRIPS = { v1: [30, 10], v2: [40, 10] }
+  const members = [{ id: 'a', home: { lat: 1.36, lng: 103.85 }, travelDebtMinutes: 600 }, { id: 'b', home: { lat: 1.33, lng: 103.84 } }]
+  const travelMinutes = (from, to) => {
+    const v = venues.find((x) => x.lat === to.lat)
+    return v ? TRIPS[v.id][from.lat === members[0].home.lat ? 0 : 1] : 30
+  }
+  const input = { members, occasion: 'casual_meal', dateTime, durationMinutes: 60, categories: ['eat'], centre, unknownPolicy: 'lenient', topN: 5 }
+  const run = (extra) => converge({ ...input, ...extra }, { ...planData, venues }, { travelMinutes })
+  const w = balanceWeights(members)
+
+  it('scores the longest trip and the gap in real minutes, and the debt as a term of its own that does not saturate', () => {
+    const out = run({ rule: 'balanced' })
+    expect(w).toEqual([BALANCE.maxWeight, 1])
+    const [first, second] = out.results
+    expect([first.venueId, second.venueId]).toEqual(['v1', 'v2']) // the owed person travels less in v1
+    expect(first.breakdown.worst.value).toBeCloseTo(travelPenalty(30, 60), 9)
+    expect(second.breakdown.worst.value).toBeCloseTo(travelPenalty(40, 60), 9) // real minutes: not both 100
+    expect(first.breakdown.gap.value).toBeCloseTo(travelPenalty(20, 60), 9)
+    expect(second.breakdown.gap.value).toBeCloseTo(travelPenalty(30, 60), 9)
+    // The debt: the longest weighted trip (90, 120) less the longest real trip (30, 40), against a ceiling of 60 x (3 - 1).
+    expect(first.breakdown.debt.value).toBeCloseTo(travelPenalty(60, 120), 9)
+    expect(second.breakdown.debt.value).toBeCloseTo(travelPenalty(80, 120), 9)
+    expect(second.breakdown.debt.value).toBeGreaterThan(first.breakdown.debt.value)
+    expect(first.breakdown.debt.weight).toBeCloseTo(first.breakdown.worst.weight * (BALANCE.maxWeight - 1), 9)
+  })
+
+  it('scores the average with the same capped weights as the longest trip', () => {
+    const out = run({ rule: 'balanced' })
+    for (const r of out.results) {
+      const trips = [r.travelByMember.a, r.travelByMember.b]
+      expect(r.breakdown.mean.value).toBeCloseTo(travelPenalty(measure(trips, w).mean, 60), 9)
+    }
+  })
+
+  it('has no debt term when nobody is owed anything, and says `rule` only when the rule is balanced', () => {
+    const even = members.map((m) => ({ ...m, travelDebtMinutes: 0 }))
+    const out = converge({ ...input, members: even, rule: 'balanced' }, { ...planData, venues }, { travelMinutes })
+    expect('debt' in out.results[0].breakdown).toBe(false)
+    expect(out.rule).toBe('balanced')
+    expect('rule' in run({})).toBe(false)
+    expect('rule' in run({ rule: 'longest' })).toBe(false)
+  })
+
+  it('leaves the default rule alone: no gap, no debt, the fairness-weighted mean', () => {
+    const out = run({})
+    expect(Object.keys(out.results[0].breakdown)).not.toContain('gap')
+    expect(Object.keys(out.results[0].breakdown)).not.toContain('debt')
+    expect(out.results[0].breakdown.worst.value).toBeCloseTo(travelPenalty(out.results[0].worstMinutes, 60), 9)
+  })
+})
+
 // ---------------------------------------------------------------- over HTTP
 describe('POST /api/meeting-area with the new fields', () => {
   let server
@@ -234,11 +347,94 @@ describe('POST /api/meeting-area with the new fields', () => {
     expect(other.body.issues[0].path).toBe('rule')
   })
 
+  it('refuses `choices: true` with any method but station, at the path `choices`, and accepts it with station and `choices: false` with any', async () => {
+    for (const method of ['weighted_centroid', 'centroid', 'minimax']) {
+      const res = await post({ members: group, choices: true, method })
+      expect(res.status, method).toBe(400)
+      expect(res.body.error).toBe('invalid_input')
+      expect(res.body.issues).toEqual([expect.objectContaining({ path: 'choices' })])
+      expect((await post({ members: group, choices: false, method })).status, method).toBe(200)
+    }
+    expect((await post({ members: group, choices: true, method: 'station' })).status).toBe(200)
+    expect((await post({ members: group, choices: true })).status).toBe(200)
+  })
+
+  it('echoes the rule in the converge answer when it is balanced, and not otherwise', async () => {
+    const slot = { members: group, occasion: 'casual_meal', dateTime: '2026-10-27T12:30', durationMinutes: 60, categories: ['eat'], unknownPolicy: 'lenient', topN: 2, centre: { lat: 1.3504, lng: 103.8428 } }
+    const call = async (extra) => (await fetch(`${base}/converge`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...slot, ...extra }) })).json()
+    const balanced = await call({ rule: 'balanced' })
+    expect(balanced.status).toBe('ok')
+    expect(balanced.rule).toBe('balanced')
+    expect(balanced.results.every((r) => typeof r.gapMinutes === 'number')).toBe(true)
+    expect('rule' in (await call({}))).toBe(false)
+  })
+
   it('takes a past-travel balance per member and still answers', async () => {
     const owed = group.map((m) => ({ ...m, travelDebtMinutes: m.id === 'b' ? 180 : 0 }))
     const out = await post({ members: owed, rule: 'balanced' })
     expect(out.status).toBe(200)
     expect(out.body.travelByMember.b).toBeLessThanOrEqual((await post({ members: group, rule: 'balanced' })).body.travelByMember.b)
+  })
+})
+
+// ---------------------------------------------------------------- off by default: the stored record of what the route answered before
+describe('a request with no `rule` is answered as it was before the rule existed', () => {
+  // tests/fixtures/meeting-area-baseline.json is the frozen record of the route's answers (see meeting-area-baseline.test.js). Here the
+  // same requests are sent again with no `rule`, and with `rule: 'longest'` named outright, and the body text must be the record's.
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures/meeting-area-baseline.json', import.meta.url), 'utf8'))
+  const planData = loadPlanData()
+  const appFor = (mode) => (mode === 'stub'
+    ? createApp({ frontendOrigin: 'http://localhost:5173', roundPlannerMinutes: false, planData, stub: true })
+    : createApp({ frontendOrigin: 'http://localhost:5173', roundPlannerMinutes: false, planData, http: createHttp({ stub: true }) }))
+  const cases = fixture.cases.filter((c) => ['off: station, three members', 'off: station, two members', 'off: travel debt breaks a station tie', 'on: station, three members, dateTime sent', 'on: station, two members'].includes(c.name))
+
+  it('has the cases it needs', () => {
+    expect(cases).toHaveLength(5)
+  })
+
+  // A fresh app for each request: the route cache of one would change the other's `travel` counts, as the baseline test explains.
+  const send = async (mode, request) => {
+    const server = appFor(mode).listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    try {
+      const res = await fetch(`http://127.0.0.1:${server.address().port}/api/meeting-area`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(request) })
+      return await res.text()
+    } finally {
+      await new Promise((resolve) => server.close(resolve))
+    }
+  }
+
+  for (const c of cases) {
+    it(`${c.name}: the same body, character for character, with no rule and with rule: longest`, async () => {
+      expect(await send(c.mode, c.request)).toBe(c.body)
+      expect(await send(c.mode, { ...c.request, rule: 'longest' })).toBe(c.body)
+    })
+  }
+})
+
+// ---------------------------------------------------------------- the script that measures the rule (the figures in the docs)
+describe('scripts/measure-balanced-rule.js', () => {
+  const data = loadPlanData()
+  const groups = randomGroups(30, 7)
+
+  it('makes the same groups every time, of 2 to 5 people', () => {
+    expect(randomGroups(30, 7)).toEqual(groups)
+    expect(groups.every((g) => g.length >= 2 && g.length <= 5)).toBe(true)
+  })
+
+  it('measures each setting, leaves the rule\'s settings as they were, and finds the balanced rule at least as even as the default', () => {
+    const before = { ...BALANCE }
+    const rows = measureRule(groups, data)
+    expect({ ...BALANCE }).toEqual(before)
+    expect(rows.map((r) => r.name)).toEqual(SETTINGS.map((s) => s.name))
+    expect(rows[1].gap).toBeLessThanOrEqual(rows[0].gap + 1e-9)
+    for (const r of rows) expect(r.longest).toBeGreaterThan(0)
+  })
+
+  it('counts the groups whose area changes with a past-travel balance: none under the default rule', () => {
+    const moved = pickChanges(groups.slice(0, 10), data, undefined, 240)
+    expect(moved.longest).toBe(0)
+    expect(moved.balanced).toBeGreaterThanOrEqual(0)
   })
 })
 
