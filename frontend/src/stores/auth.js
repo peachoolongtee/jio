@@ -95,6 +95,8 @@ export const useAuthStore = defineStore('auth', () => {
     // The name and home area are written to the account after sign-up; a failure arrives as an event (see subscribe).
     if (syncError) syncNotice.value = syncError
     draft.value = emptyDraft()
+    // The new account is asked its dietary needs once, in a popup over the first page (DietaryFirstAsk).
+    dietAsk.value = true
     return user.value
   }
 
@@ -170,22 +172,16 @@ export const useAuthStore = defineStore('auth', () => {
     syncNotice.value = syncError || ''
   }
 
-  // "Any dietary needs?" (DietaryFirstAsk, ticket #107): asked once, skippable, when the person first creates or joins an
-  // outing. True while it waits for an answer. A person who has set needs on their profile already is not asked.
+  // "Any dietary needs?" (DietaryFirstAsk, ticket #107): asked once, in a popup, right after an account is made, in place of a
+  // question in sign-up. True while it waits for an answer.
   const dietAsk = ref(false)
-  // How to call: auth.askDietOnce() (after an outing is created or joined)
-  function askDietOnce() {
-    const me = user.value
-    if (me && !me.dietAsked && !me.dietary?.length) dietAsk.value = true
-  }
-  // The answer: the needs picked, or none for "None, skip". Either way it is not asked again.
+  // The answer: the needs picked, saved on the profile, or none for "None, skip". Either way the popup closes for good.
   // How to call: await auth.answerDietAsk(['halal'])
   async function answerDietAsk(dietary = []) {
-    dietAsk.value = false
     try {
       if (dietary.length) await update({ dietary })
     } finally {
-      user.value = await api.noteDietAsked()
+      dietAsk.value = false
     }
   }
 
@@ -257,7 +253,6 @@ export const useAuthStore = defineStore('auth', () => {
     myId,
     sampleWorld,
     dietAsk,
-    askDietOnce,
     answerDietAsk,
     init,
     signUp,

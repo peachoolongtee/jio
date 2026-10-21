@@ -55,7 +55,7 @@ const showTabs = computed(() => showNav.value && route.meta.tabs === true)
       <RouterView />
     </div>
     <TabBar v-if="showTabs" class="app__tabs" />
-    <!-- "Any dietary needs?", once, after the first outing a person creates or joins. -->
+    <!-- "Any dietary needs?", once, right after the account is made. -->
     <DietaryFirstAsk v-if="auth.signedIn" />
     <component :is="DemoPanel" v-if="DemoPanel && auth.signedIn && route.meta.nav !== false" />
   </div>

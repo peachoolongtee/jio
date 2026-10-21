@@ -1,8 +1,8 @@
 <script setup>
-// "Any dietary needs?" (ticket #107): asked once, and skippable, the first time a person creates or joins an outing, in place
-// of a question in sign-up. It opens on whatever page the outing lands on, while auth.dietAsk is true (auth.askDietOnce). The
-// needs picked are saved on the profile, a standing private setting; "None, skip", the backdrop and Escape skip. Either way it
-// is not asked again, and the needs can still be changed on the profile and on the Vote page.
+// "Any dietary needs?" (ticket #107): asked once, in a popup, right after a person makes their account, in place of a question
+// in sign-up. It opens over the first page while auth.dietAsk is true (set by auth.signUp). The needs picked are saved on the
+// profile, the person's standing setting that each outing starts from; "None, skip", the backdrop and Escape skip. Either way it
+// is not asked again; the needs can still be changed on the profile, and for one outing on its Vote page.
 //   <DietaryFirstAsk />   (once, in the app frame)
 import { computed, ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
@@ -18,7 +18,7 @@ const busy = ref(false)
 // Starts empty each time it opens.
 watch(() => auth.dietAsk, (now) => { if (now) picked.value = [] })
 
-// The dialog stays up while the answer is saved.
+// The popup stays up while the answer is saved.
 const open = computed({
   get: () => auth.dietAsk || busy.value,
   set: (v) => { if (!v) answer([]) },
@@ -36,7 +36,7 @@ async function answer(needs) {
   try {
     await auth.answerDietAsk(cleanDietary(needs))
   } catch {
-    // Not saved: the profile page can still set them, and the question is not asked again.
+    // Not saved: the profile page can still set them.
   } finally {
     busy.value = false
   }

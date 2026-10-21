@@ -1,6 +1,6 @@
-// "Any dietary needs?" (ticket #107): not in sign-up, but asked once, and skippable, the first time a person creates or joins
-// an outing (auth.askDietOnce, components/event/DietaryFirstAsk.vue). The answer is saved on the profile; answered or skipped,
-// it is not asked again, and a person who already set needs on their profile is never asked.
+// "Any dietary needs?" (ticket #107): not a question in sign-up, but a popup asked once, right after the account is made
+// (auth.signUp, components/event/DietaryFirstAsk.vue). The answer is saved on the profile; answered or skipped, it closes for
+// good, and nothing else opens it.
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { loadApi } from './planFixture.js'
 import { mountScreen } from './domless.js'
@@ -8,59 +8,46 @@ import { mountScreen } from './domless.js'
 vi.setConfig({ testTimeout: 20000 })
 afterAll(() => vi.unstubAllGlobals())
 
-// A local account signed in as Ian, with `dietary` on the profile, and the auth and events stores over it.
-// How to call: const { auth, events, pinia } = await signedIn([])
-async function signedIn(dietary = []) {
-  const api = await loadApi()
-  await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2000-01-31', homeAreaId: 'tampines', dietary })
+// A local account's sign-up draft, filled in, with the auth and events stores. How to call: const { auth } = await fresh()
+async function fresh() {
+  await loadApi()
   const { createPinia, setActivePinia } = await import('pinia')
   const pinia = createPinia()
   setActivePinia(pinia)
   const { useAuthStore } = await import('@/stores/auth.js')
   const { useEventsStore } = await import('@/stores/events.js')
   const auth = useAuthStore()
-  auth.user = await api.getUser()
-  return { api, auth, events: useEventsStore(), pinia }
+  Object.assign(auth.draft, { email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2000-01-31', homeAreaId: 'tampines' })
+  return { auth, events: useEventsStore(), pinia }
 }
-const OUTING = { title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' }
 
-describe('the first outing asks for dietary needs once', () => {
-  it('asks when the first outing is created, saves the answer on the profile, and does not ask again', async () => {
-    const { auth, events } = await signedIn()
+describe('the dietary popup after sign-up', () => {
+  it('opens once the account is made, saves the answer on the profile, and does not open again', async () => {
+    const { auth, events } = await fresh()
     expect(auth.dietAsk).toBe(false)
-    await events.create(OUTING)
+    await auth.signUp()
     expect(auth.dietAsk).toBe(true)
     await auth.answerDietAsk(['halal'])
     expect(auth.dietAsk).toBe(false)
     expect(auth.user.dietary).toEqual(['halal'])
-    expect(auth.user.dietAsked).toBe(true)
-    await events.create(OUTING)
+    await events.create({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' })
     expect(auth.dietAsk).toBe(false)
   })
 
-  it('can be skipped, and is not asked again after a skip either', async () => {
-    const { auth, events } = await signedIn()
-    await events.startRoam({ areaId: 'bugis' })
-    expect(auth.dietAsk).toBe(true)
+  it('can be skipped, which leaves the profile with no needs', async () => {
+    const { auth } = await fresh()
+    await auth.signUp()
     await auth.answerDietAsk([])
+    expect(auth.dietAsk).toBe(false)
     expect(auth.user.dietary).toEqual([])
-    expect(auth.user.dietAsked).toBe(true)
-    await events.create(OUTING)
-    expect(auth.dietAsk).toBe(false)
   })
 
-  it('is not asked of someone who already set needs on their profile', async () => {
-    const { auth, events } = await signedIn(['vegan'])
-    await events.create(OUTING)
-    expect(auth.dietAsk).toBe(false)
-  })
-
-  it('is a dialog with the three needs, saved with Save and skipped with "None, skip"', async () => {
-    const { auth, events, pinia } = await signedIn()
+  it('is a popup with the three needs, saved with Save and skipped with "None, skip"', async () => {
+    const { auth, pinia } = await fresh()
     const { default: DietaryFirstAsk } = await import('@/components/event/DietaryFirstAsk.vue')
     const view = await mountScreen(DietaryFirstAsk, { plugins: [pinia] })
     expect(view.has('[data-testid="diet-first-ask"]')).toBe(false)
-    await events.create(OUTING)
+    await auth.signUp()
     await view.tick()
     expect(view.text('h2')).toBe('Any dietary needs?')
     const chip = (name) => view.all('button').find((b) => b.attrs['aria-pressed'] !== undefined && view.text(b) === name)
@@ -69,7 +56,7 @@ describe('the first outing asks for dietary needs once', () => {
     await view.click(chip('Vegetarian'))
     expect(view.text('[data-testid="diet-first-save"]')).toBe('Save')
     await view.click('[data-testid="diet-first-save"]')
-    await vi.waitFor(() => expect(auth.user.dietAsked).toBe(true))
+    await vi.waitFor(() => expect(auth.dietAsk).toBe(false))
     await view.tick()
     expect(auth.user.dietary).toEqual(['vegetarian'])
     expect(view.has('[data-testid="diet-first-ask"]')).toBe(false)

@@ -22,8 +22,8 @@ export function passwordChecks(password, realAccounts) {
 // Sign-up: one question per screen, with a back arrow and a progress bar.
 // Email, password with a live checklist, name, date of birth, username, profile photo (can be skipped), home area, suggested
 // friends (local accounts only: a real account has no sample friends, so its last question is the home area). It ends on
-// Home. Dietary needs are not asked here (ticket #107): the profile page has them, and the first outing a person creates or
-// joins asks once (DietaryFirstAsk).
+// Home. Dietary needs are not a question here (ticket #107): a popup asks once, right after the account is made
+// (DietaryFirstAsk), and they can be changed on the profile.
 // The answers live in the auth store's draft, so nothing is lost if the window is resized.
 // With real accounts the password goes to Supabase and is emptied afterwards, whatever happens: after a failed attempt
 // the screen goes back to the question the problem belongs to, keeps every other answer, and asks for the password again
