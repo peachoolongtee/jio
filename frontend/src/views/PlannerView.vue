@@ -48,7 +48,7 @@ import TextField from '@/components/ui/TextField.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
-import DietaryChips from '@/components/event/DietaryChips.vue'
+import DietaryChips, { dietChips } from '@/components/event/DietaryChips.vue'
 import { DIETARY_OPTIONS } from '@/lib/signupRules.js'
 import DietaryConfirm from '@/components/event/DietaryConfirm.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
@@ -119,7 +119,10 @@ watch(() => props.id, load)
 
 const session = computed(() => events.byId[props.id])
 const plan = computed(() => planner.plans[props.id])
-const loading = computed(() => planner.loading[props.id] && !plan.value?.slots?.length)
+// The grey placeholder rows: on the page's first load, and again while a change to the group's dietary needs picks the places
+// afresh (`refiltering`, under Dietary needs).
+const refiltering = ref(false)
+const loading = computed(() => refiltering.value || (planner.loading[props.id] && !plan.value?.slots?.length))
 const voting = computed(() => session.value?.status === 'voting')
 const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
@@ -242,6 +245,26 @@ const reachText = computed(() => radiusLabel(radius.value ?? 3000))
 // ── Dietary needs ──
 // The line under Eat, or '' when the group has no needs.
 const dietLine = computed(() => fitLine(plan.value?.dietary))
+// A change to the group's dietary filter picks the places again, so the list goes back to its placeholder rows, as on the first
+// load, and the sections rise in again when the new places are in. The rows stay at least this long, so a quick answer does
+// not flash.
+const REFILTER_MIN_MS = 450
+// How to call: await refilter(() => planner.setUnconfirmed(props.id, true))
+async function refilter(work) {
+  refiltering.value = true
+  const started = Date.now()
+  try {
+    return await work()
+  } finally {
+    const left = REFILTER_MIN_MS - (Date.now() - started)
+    if (left > 0) await new Promise((resolve) => setTimeout(resolve, left))
+    refiltering.value = false
+  }
+}
+// How to call: sameNeeds(['halal'], ['halal']) -> true
+const sameNeeds = (a = [], b = []) => a.length === b.length && a.every((n) => b.includes(n))
+// True when { mine, dropped } differs from what the outing already has. How to call: dietChanges({ mine: ['halal'], dropped: [] })
+const dietChanges = ({ mine, dropped }) => !sameNeeds(mine, plan.value?.myDietary) || !sameNeeds(dropped, plan.value?.dietDropped)
 // True while the group's choice of places runs (the same rule as the radius chips: clicks are ignored meanwhile).
 const settingDiet = ref(false)
 // Show the food places we could not confirm, or only the ones that fit.
@@ -251,7 +274,7 @@ async function showUnconfirmed(on) {
   settingDiet.value = true
   error.value = ''
   try {
-    await planner.setUnconfirmed(props.id, on)
+    await refilter(() => planner.setUnconfirmed(props.id, on))
   } catch (e) {
     error.value = e.message
   } finally {
@@ -279,19 +302,30 @@ watch(
 )
 // A need's name for its tag. How to call: needLabel('halal') -> 'Halal'
 const needLabel = (need) => DIETARY_OPTIONS.find((o) => o.value === need)?.label ?? need
+// The change being saved, { mine, dropped }, or null. The tags and chips show it at once, while the places load behind them.
+const pendingDiet = ref(null)
+// The person's own needs and the dropped ones as the page shows them: the change being saved, else the outing's.
+const shownMine = computed(() => pendingDiet.value?.mine ?? plan.value?.myDietary ?? [])
+const shownDropped = computed(() => pendingDiet.value?.dropped ?? plan.value?.dietDropped ?? [])
+// The tags under "Group dietary needs": the selected chips, in the chips' order.
+const shownNeeds = computed(() => (pendingDiet.value
+  ? dietChips({ mine: shownMine.value, others: plan.value?.othersDietary || [], dropped: shownDropped.value }).filter((c) => c.selected).map((c) => c.value)
+  : plan.value?.dietary || []))
 
 // A tap on the Vote page's dietary chips, saved at once: the person's own needs and the others' needs not to filter for.
 // How to call: await saveDiet({ mine: ['halal'], dropped: [] })
 async function saveDiet({ mine, dropped }) {
   if (dietBusy.value) return
   dietBusy.value = true
+  pendingDiet.value = { mine, dropped }
   error.value = ''
   try {
-    const answer = await planner.confirmDiet(props.id, mine, dropped)
+    const answer = await refilter(() => planner.confirmDiet(props.id, mine, dropped))
     if (answer?.syncError) error.value = answer.syncError
   } catch (e) {
     error.value = e.message
   } finally {
+    pendingDiet.value = null
     dietBusy.value = false
   }
 }
@@ -302,8 +336,15 @@ async function confirmDiet({ mine, dropped }) {
   if (dietBusy.value) return
   dietBusy.value = true
   dietError.value = ''
+  // A change closes the dialog at once and shows the list loading behind it; confirming the needs as they are just saves.
+  const changes = dietChanges({ mine, dropped })
+  if (changes) {
+    dietAnswered.add(props.id)
+    dietOpen.value = false
+    pendingDiet.value = { mine, dropped }
+  }
   try {
-    const answer = await planner.confirmDiet(props.id, mine, dropped)
+    const answer = await (changes ? refilter(() => planner.confirmDiet(props.id, mine, dropped)) : planner.confirmDiet(props.id, mine, dropped))
     dietAnswered.add(props.id)
     dietOpen.value = false
     // Saved here but not to the account: said under the votes, as the page says other failures.
@@ -312,6 +353,7 @@ async function confirmDiet({ mine, dropped }) {
     dietError.value = e.message
     dietOpen.value = true
   } finally {
+    pendingDiet.value = null
     dietBusy.value = false
   }
 }
@@ -627,10 +669,10 @@ async function confirm() {
         <div v-if="voting && plan?.myDietary" class="diet-edit" data-testid="diet-edit">
           <div class="diet-edit__mine">
             <span class="caption text-muted">Group dietary needs</span>
-            <InfoTag v-for="need in plan.dietary || []" :key="need" :tone="need === 'halal' ? 'halal' : 'veg'" data-testid="diet-mine">{{ needLabel(need) }}</InfoTag>
-            <span v-if="!plan.dietary?.length" class="caption" data-testid="diet-mine">None</span>
+            <InfoTag v-for="need in shownNeeds" :key="need" :tone="need === 'halal' ? 'halal' : 'veg'" data-testid="diet-mine">{{ needLabel(need) }}</InfoTag>
+            <span v-if="!shownNeeds.length" class="caption" data-testid="diet-mine">None</span>
           </div>
-          <DietaryChips :mine="plan.myDietary" :others="plan.othersDietary || []" :dropped="plan.dietDropped || []" :busy="dietBusy" @change="saveDiet" />
+          <DietaryChips :mine="shownMine" :others="plan.othersDietary || []" :dropped="shownDropped" :busy="dietBusy" @change="saveDiet" />
         </div>
 
         <SplitView v-model:view="view" label="Places">

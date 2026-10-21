@@ -73,7 +73,7 @@ function dropAsked() {
 </script>
 
 <template>
-  <div class="diet-chips" role="group" :aria-label="label" data-testid="diet-chips">
+  <div class="diet-chips" :class="{ 'is-busy': busy }" role="group" :aria-busy="busy ? 'true' : undefined" :aria-label="label" data-testid="diet-chips">
     <ChipButton v-for="chip in chips" :key="chip.value" check :selected="chip.selected" :disabled="busy" @click="toggle(chip)">
       {{ chip.label }}
     </ChipButton>
@@ -93,4 +93,6 @@ function dropAsked() {
 
 <style scoped>
 .diet-chips { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
+/* While a change is saved and the places load, every chip is off, the selected ones too. */
+.diet-chips.is-busy { opacity: 0.5; transition: opacity var(--motion-fast) var(--ease-out); }
 </style>
