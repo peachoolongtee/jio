@@ -2,9 +2,13 @@
 // Profiles, across the whole page.
 //   The top: a banner in the person's own colour (the same as their avatar and map pin), their avatar overlapping
 //   it, name, @username and home area, and a strip of three numbers (meetups, season rank, JioCoins). Someone else's
-//   also has "Add friend" / "Friends". Ian's own has no create button: the navbar has one.
-//   Then the meetup graph, and Ian's sessions or the other person's recent activity.
-//   Ian's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
+//   also has "Add friend" / "Friends" under the numbers (in the sample world only); the signed-in person's own has
+//   "Edit profile" there (/profile/edit), and nobody else's does. The signed-in person's own
+//   has no create button: the navbar has one.
+//   Then the meetup graph, and the signed-in person's sessions or the other person's recent activity. The signed-in
+//   person's own also lists Suggested people (anyone they are not friends with yet), each opening their profile, with
+//   "Add friend" in the sample world. These used to be on the invite page, which now shows friends only (ticket #121).
+//   The signed-in person's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
 //   the demo" note, because other people's profiles are hand-written.
 //   Signing out of a local account (one that lives only in this browser) erases everything saved here, so its dialog
 //   says so. Signing out of a real account keeps its meetups on this device and the dialog says that instead. A local
@@ -84,6 +88,19 @@ const ordinal = (n) => {
   const v = n % 100
   return n + (s[(v - 20) % 10] || s[v] || s[0])
 }
+// People the signed-in person could add, at most six.
+const suggested = computed(() => (isMe.value ? groups.suggested.slice(0, 6) : []))
+const adding = ref('')
+// How to call: addFriend('faith')
+async function addFriend(id) {
+  adding.value = id
+  try {
+    await groups.setFriend(id, true)
+  } finally {
+    adding.value = ''
+  }
+}
+
 const friendBusy = ref(false)
 async function toggleFriend() {
   friendBusy.value = true
@@ -149,6 +166,10 @@ async function signOut() {
                 <AppIcon :name="person.isFriend ? 'check' : 'plus'" />
                 {{ person.isFriend ? 'Friends' : 'Add friend' }}
               </AppButton>
+              <AppButton v-else-if="isMe" block variant="secondary" to="/profile/edit" data-testid="edit-profile">
+                <AppIcon name="edit" />
+                Edit profile
+              </AppButton>
             </div>
           </div>
         </div>
@@ -159,6 +180,27 @@ async function signOut() {
         <section class="card graph-card rise" style="--i: 1" aria-labelledby="graph-head">
           <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
           <MeetupGraph :history="person.history" :planned="person.planned" />
+        </section>
+
+        <!-- The signed-in person: people they could add, opening each one's profile. -->
+        <section v-if="suggested.length" class="section" aria-labelledby="suggested-head" data-testid="suggested-people">
+          <div class="section__head">
+            <h2 id="suggested-head" class="display-sm">Suggested</h2>
+          </div>
+          <ul class="suggested">
+            <li v-for="p in suggested" :key="p.id" class="suggested__row">
+              <RouterLink :to="`/people/${p.id}`" class="suggested__who">
+                <UserAvatar :name="p.name" :src="p.photo" :person="p.id" :size="44" />
+                <span class="stack suggested__text">
+                  <span class="title-sm truncate">{{ p.name }}</span>
+                  <span class="caption-sm text-muted truncate">@{{ p.username }}<template v-if="p.homeArea"> · {{ p.homeArea }}</template></span>
+                </span>
+              </RouterLink>
+              <AppButton v-if="auth.sampleWorld" small variant="secondary" :disabled="adding === p.id" :aria-label="`Add ${p.name} as a friend`" @click="addFriend(p.id)">
+                <AppIcon name="plus" :size="16" />Add friend
+              </AppButton>
+            </li>
+          </ul>
         </section>
 
         <!-- The signed-in person: their sessions, once they have some. -->
@@ -244,4 +286,9 @@ async function signOut() {
 .activity__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
 .activity__link { color: var(--ink); }
 .profile__loading { padding-top: var(--spacing-xl); }
+.suggested { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-xs) var(--spacing-lg); margin: 0; padding: 0; list-style: none; }
+@media (min-width: 744px) { .suggested { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.suggested__row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 68px; border-bottom: 1px solid var(--hairline-soft); }
+.suggested__who { display: flex; flex: 1; align-items: center; gap: var(--spacing-md); min-width: 0; color: var(--ink); text-decoration: none; }
+.suggested__text { min-width: 0; gap: 0; }
 </style>

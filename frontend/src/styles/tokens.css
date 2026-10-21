@@ -81,9 +81,10 @@
   --surface-card: #ffffff;
   --surface-soft: #f7f7f7; /* Quiet panels, banners, hover backgrounds. */
   --surface-strong: #f2f2f2; /* Circular icon buttons, category icon circles, photo plates, segmented tracks. */
-  --hairline: #dddddd; /* The default 1px border: cards, inputs, dividers. */
+  --hairline: #dddddd; /* The default 1px border: cards and dividers. Too light to outline a control. */
   --hairline-soft: #ebebeb; /* Lighter dividers between list rows. */
-  --border-strong: #c1c1c1; /* Outlines of unselected chips, disabled outlines. */
+  --border-strong: #c1c1c1; /* Decorative outlines: dashed empties, the sheet handle, disabled outlines. */
+  --border-control: #8a8a8a; /* The outline that marks a control: inputs, selects, unselected chips, the switch. 3.45:1 on white, the 3:1 WCAG asks of a control's edge. */
   --on-primary: #ffffff; /* Text on Rausch. */
   --on-dark: #ffffff; /* Text on ink. */
   --scrim: #000000; /* Modal backdrop. Render at 50% opacity. */
@@ -158,6 +159,16 @@
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* Quick start, soft landing. The default curve for everything that moves. */
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* A little overshoot: buttons letting go, chips popping on. */
   --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1); /* Sheets and dialogs arriving, like a native sheet. */
+}
+
+/* The bars' real heights: the bar plus the safe-area inset it grows by (the top bar under a status bar, the pill above the
+   home indicator). Anything that clears, clamps to or sticks under a bar uses these, not the two above. They are
+   registered as lengths so a script can read them in px (lib/bars.js); an unregistered one would read back as text. */
+@property --topbar-real-height { syntax: '<length>'; inherits: true; initial-value: 0px; }
+@property --tabbar-real-height { syntax: '<length>'; inherits: true; initial-value: 0px; }
+:root {
+  --topbar-real-height: calc(var(--topbar-height) + env(safe-area-inset-top, 0px));
+  --tabbar-real-height: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px));
 }
 
 @media (min-width: 744px) {

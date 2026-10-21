@@ -20,6 +20,11 @@ export const useEventsStore = defineStore('events', () => {
   // Photos by session, loaded with loadPhotos: a session summary carries only photoCount.
   const photos = ref({})
   const loaded = ref(false)
+  // A real account's open invitations by name (lib/api.js listInvitations), newest first, and whether they were asked for.
+  const invitations = ref([])
+  const invitationsLoaded = ref(false)
+  // Sessions the signed-in person is no longer in (they left, or the host removed them), by id. A screen on one shows that.
+  const gone = ref({})
   const seq = {}
   const itinerarySeq = {}
   const photoSeq = {}
@@ -42,6 +47,10 @@ export const useEventsStore = defineStore('events', () => {
   })
 
   function put(session) {
+    if (gone.value[session.id]) {
+      const { [session.id]: _back, ...rest } = gone.value
+      gone.value = rest
+    }
     byId.value = { ...byId.value, [session.id]: session }
     const i = sessions.value.findIndex((s) => s.id === session.id)
     if (i === -1) sessions.value = [session, ...sessions.value]
@@ -49,11 +58,66 @@ export const useEventsStore = defineStore('events', () => {
     return session
   }
 
+  // Only the newest read of the list applies, and none that began before the account changed (forgetSessions raises the count).
+  // How to call: await loadSessions()
+  let listSeq = 0
   async function loadSessions() {
-    sessions.value = await api.listSessions()
+    const ticket = ++listSeq
+    // The sessions held when the read began: one of them that the list no longer has is one the person has left or been taken
+    // out of (a session made after the read began is not counted).
+    const held = Object.keys(byId.value)
+    const list = await api.listSessions()
+    if (ticket !== listSeq) return
+    sessions.value = list
     byId.value = Object.fromEntries(sessions.value.map((s) => [s.id, s]))
     loaded.value = true
+    for (const id of held) if (!byId.value[id]) gone.value = { ...gone.value, [id]: true }
   }
+
+  // The invitations to this person that are still open. How to call: await loadInvitations()
+  let inviteSeq = 0
+  async function loadInvitations() {
+    const ticket = ++inviteSeq
+    const list = await api.listInvitations()
+    if (ticket !== inviteSeq) return
+    invitations.value = list
+    invitationsLoaded.value = true
+  }
+
+  // Take a session out of what the store holds and say the person is not in it any more. Only a session the store holds can be
+  // gone: for any other id, which the person was never in, nothing happens.
+  // How to call: dropSession('3b1f...')
+  function dropSession(id) {
+    if (!byId.value[id] && !sessions.value.some((s) => s.id === id)) return
+    markGone(id)
+  }
+  // How to call: markGone('3b1f...') (for a session that was held a moment ago)
+  function markGone(id) {
+    sessions.value = sessions.value.filter((s) => s.id !== id)
+    const { [id]: _was, ...rest } = byId.value
+    byId.value = rest
+    gone.value = { ...gone.value, [id]: true }
+  }
+
+  // The invitation is answered: accepting joins the session and puts it in the list; declining only removes the invitation.
+  // How to call: await acceptInvitation(invitation) -> the session joined
+  async function acceptInvitation(invitation) {
+    const { sessionId } = await api.joinWithLink(invitation.token)
+    invitations.value = invitations.value.filter((i) => i.token !== invitation.token)
+    return loadSession(sessionId)
+  }
+  // How to call: await declineInvitation(invitation)
+  async function declineInvitation(invitation) {
+    await api.declineInvitation(invitation.token)
+    invitations.value = invitations.value.filter((i) => i.token !== invitation.token)
+  }
+
+  // The signed-in person leaves a shared session, and the host removes a guest. How to call: await leave('3b1f...')
+  async function leave(id) {
+    await api.leaveSession(id)
+    dropSession(id)
+  }
+
 
   // Only the newest answer for a session is kept, so quick live updates never show older data.
   async function loadSession(id) {
@@ -83,7 +147,15 @@ export const useEventsStore = defineStore('events', () => {
 
   const act = (fn) => async (id, ...args) => put(await fn(id, ...args))
 
+  // The host removes a guest from a shared session, and invites a person by username (the session comes back with them as
+  // invited). How to call: await removeGuest('3b1f...', '7f3c...'), await inviteByUsername('3b1f...', '7f3c...')
+  const removeGuest = act(api.removeFromSession)
+  const inviteByUsername = act(api.inviteByUsername)
+
   const create = async (data) => put(await api.createSession(data))
+  // Home's "Already out? Find something nearby": a light meetup for today around one area, under way at once (lib/api.js
+  // startRoam). How to call: const session = await startRoam({ areaId: 'bugis' })
+  const startRoam = async (data) => put(await api.startRoam(data))
   // The host changes the title, day and times while the session is still inviting. How to call: update('s1', { title, date, start, end })
   const update = act(api.updateSession)
   // Invites from the app are pending until each friend accepts.
@@ -106,6 +178,8 @@ export const useEventsStore = defineStore('events', () => {
   const cancel = act(api.cancelSession)
   // The host carries on without a member who has not shared where they start (they opt out of this session).
   const optOut = act(api.optOut)
+  // A person who opted out of a shared session comes back (the server's rejoin). How to call: await rejoin('3b1f...')
+  const rejoin = act(api.rejoinSession)
   const dismissBanner = act(api.dismissBanner)
   const confirm = act(api.confirmPlan)
   const respondReplan = act(api.respondReplan)
@@ -231,6 +305,23 @@ export const useEventsStore = defineStore('events', () => {
     await loadItinerary(id)
   }
 
+  // The places of `category` (the stop's own when left out) that could take a confirmed stop's place:
+  // { stop, category, stopCount, options }. Asks the planner; nothing is saved. Only the host.
+  // How to call: const { stop, options } = await events.replaceChoices('s1', 'drink', 'activity')
+  const replaceChoices = (id, slotId, category) => api.replaceChoices(id, slotId, category)
+
+  // Put another place in a confirmed stop's place, as a place of `category` (the stop's own when left out), then reload
+  // the itinerary. `seenId` is the place the person saw in the stop: a stop that holds another by then is refused. The rain
+  // swap offered for the stop is forgotten, as it is after a swap. Rejects with the data layer's message when it cannot.
+  // How to call: await events.replaceStop('s1', 'drink', 'cdc_560160', 'activity', 'cdc_100001')
+  async function replaceStop(id, slotId, venueId, category, seenId) {
+    put(await api.replaceStop(id, slotId, venueId, category, seenId))
+    swapSeq[`${id}:${slotId}`] = (swapSeq[`${id}:${slotId}`] || 0) + 1
+    const { [slotId]: _done, ...rest } = rainSwaps.value[id] || {}
+    rainSwaps.value = { ...rainSwaps.value, [id]: rest }
+    await loadItinerary(id)
+  }
+
   // Forget everything kept for the sessions of the last account: the list, each session, its itinerary, its photos and the
   // suggested orders. Every account's first session is `s1`, so a kept `s1` would be shown as the next account's. Loads that
   // were still running for the last account find their ticket out of date and drop their answer.
@@ -238,11 +329,17 @@ export const useEventsStore = defineStore('events', () => {
   // How to call: forgetSessions({ list: true }) (when the signed-in person changes)
   function forgetSessions({ list = false } = {}) {
     for (const tickets of [seq, itinerarySeq, photoSeq, orderSeq]) for (const id of Object.keys(tickets)) tickets[id] += 1
+    // A read of the list or of the invitations still out belongs to the account before.
+    listSeq += 1
+    inviteSeq += 1
     for (const id of Object.keys(orderPending)) delete orderPending[id]
     if (list) {
       sessions.value = []
       byId.value = {}
       loaded.value = false
+      invitations.value = []
+      invitationsLoaded.value = false
+      gone.value = {}
     }
     for (const tickets of [checkSeq, swapSeq]) for (const key of Object.keys(tickets)) tickets[key] += 1
     itineraries.value = {}
@@ -254,16 +351,48 @@ export const useEventsStore = defineStore('events', () => {
   // Whose sessions the store holds. A change of person, with or without a sign-out between, empties it (see forgetSessions).
   let owner = currentUserId()
 
+  // The list read again for a live update that nobody awaits: a failure keeps what is shown and never becomes an unhandled
+  // rejection (the screens that need the list ask for it themselves and show their own failure).
+  // How to call: await refreshList()
+  const refreshList = () => loadSessions().catch(() => {})
+
   api.subscribe(async (event) => {
     if (currentUserId() !== owner) {
       owner = currentUserId()
       forgetSessions({ list: true })
-      if (!['reset', 'user', 'conditions', 'people'].includes(event.type)) await loadSessions()
+      if (!['reset', 'user', 'conditions', 'people'].includes(event.type)) await refreshList()
     }
     if (event.type === 'reset') {
       // A suggestion asked for before the reset belongs to data that is gone.
       forgetSessions()
-      await loadSessions()
+      await refreshList()
+      return
+    }
+    // The person is no longer in this session.
+    if (event.type === 'session-gone') {
+      dropSession(event.sessionId)
+      return
+    }
+    // The channel connected, or the tab came back into view: anything may have changed while nobody listened.
+    if (event.type === 'resync') {
+      // Every session the store holds is read again, not only the list: a page opened by its address, or by joining, is held
+      // without the list ever being loaded. One that is no longer there (the person left or was removed meanwhile) is gone.
+      const held = Object.keys(byId.value)
+      if (loaded.value) await loadSessions().catch(() => {})
+      await Promise.all(
+        held
+          .filter((id) => !loaded.value || !byId.value[id])
+          .map((id) =>
+            loadSession(id).catch((err) => {
+              if (err?.code === 'not_found') markGone(id)
+            }),
+          ),
+      )
+      if (invitationsLoaded.value) await loadInvitations().catch(() => {})
+      return
+    }
+    if (event.type === 'invitations') {
+      if (invitationsLoaded.value) await loadInvitations().catch(() => {})
       return
     }
     if (event.sessionId) {
@@ -271,18 +400,21 @@ export const useEventsStore = defineStore('events', () => {
         await loadSession(event.sessionId)
         if (itineraries.value[event.sessionId] !== undefined) await loadItinerary(event.sessionId)
         if (event.type === 'photos' && photos.value[event.sessionId] !== undefined) await loadPhotos(event.sessionId)
-      } catch {
-        // The session is not there any more (the person changed or signed out since the write): nothing to refresh, and no
-        // screen is waiting on this live update to report it to.
+      } catch (err) {
+        // A shared session the person is not in any more (they left, or the host removed them) is dropped, and a screen on
+        // it says so. Otherwise the session is not there any more (the person changed or signed out since the write):
+        // nothing to refresh, and no screen is waiting on this live update to report it to.
+        if (err?.code === 'not_found') dropSession(event.sessionId)
       }
     }
     // 'people': a real person's profile was read, so the names on every session may have changed.
-    if (event.type === 'user' || event.type === 'conditions' || event.type === 'people') await loadSessions()
+    if (event.type === 'user' || event.type === 'conditions' || event.type === 'people') await refreshList()
   })
 
   return {
-    sessions, byId, itineraries, photos, loaded, current, weatherChecks, rainSwaps,
+    sessions, byId, itineraries, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
+    loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, dropSession,
     loadSessions, loadSession, loadItinerary, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
-    create, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
+    create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
   }
 })

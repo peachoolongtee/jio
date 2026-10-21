@@ -5,13 +5,17 @@ import { createAccountsRouter } from './routes/accounts.js'
 import { createMeRouter } from './routes/me.js'
 import { rateLimit } from './middleware/rate-limit.js'
 import { createLinksRouter } from './routes/links.js'
+import { createPeopleRouter } from './routes/people.js'
 import { createPlanRouter } from './routes/plan.js'
+import { createSessionsRouter } from './routes/sessions.js'
 import { createWeatherRouter } from './routes/weather.js'
 import { createWeatherResolver } from './planner/weather-window.js'
 import { createHttp } from './services/http.js'
 import { createGooglePlaces } from './services/google-places.js'
 import { createItineraryAi } from './services/itinerary-ai.js'
 import { createOneMap } from './services/onemap.js'
+import { createPlannerRuns } from './services/planner-runs.js'
+import { createSessions } from './services/sessions.js'
 import { scenarioMiddleware } from './services/scenario.js'
 import { createWeather } from './services/weather.js'
 
@@ -27,7 +31,8 @@ import { createWeather } from './services/weather.js'
 //   frontendOrigin - The one origin CORS allows. Required, and never "*".
 //   stub           - true answers external API calls from fixtures.
 //   http           - The HTTP helper to share. Defaults to one built from `stub`.
-//   planData       - Venues and settings the planner reads. Defaults to loadPlanData() (mock + curated + CDC).
+//   planData       - Venues and settings the planner reads. Defaults to loadPlanData() (curated + OneMap + CDC;
+//                    fictional fixtures are included only with INCLUDE_FICTIONAL_VENUES=1, which the tests set).
 //   weather        - The weather service, from createWeather(). Defaults to one built on `http` and `now`.
 //   now            - Returns the time in milliseconds, for the weather: which forecast a stop is judged by depends on
 //                    how far away it is. Defaults to Date.now. Tests pass a fake clock.
@@ -47,6 +52,17 @@ import { createWeather } from './services/weather.js'
 //                    it from ALLOW_SIMULATED_WEATHER=1.
 //   routingDeadlineMs - The most time one planner request waits for OneMap routes in total. Defaults to 8
 //                    seconds. Tests shorten it.
+//   ownPlacesEnough - Google is asked about a food, drink, shop or activity category only when fewer than this many
+//                    of our own open places are near the meeting point. Defaults to 6 (ticket #149). Tests that
+//                    need Google asked pass Infinity.
+//   includePlannerDiagnostics - Keep the engine's `diagnostics` counters in planner answers. Defaults to
+//                    PLANNER_DIAGNOSTICS=1 (the backend's tests set it in vitest.config.js; NODE_ENV does not change it).
+//   roundPlannerMinutes - Round the minutes in planner answers to one decimal place. Defaults to true; it is
+//                    independent of the diagnostics switch. A test that needs the engine's raw minutes passes false.
+//   meetingFinalists - How many areas a meeting-area request routes with real OneMap times (the best by estimate). Default 5, at
+//                    most 12. index.js sets it from MEETING_FINALISTS.
+//   areaTimes      - A table of real minutes between the meeting areas (src/db/mock/area-times.json), or null. With it, the meeting area
+//                    ranks areas and fills in trips with a guess that knows the MRT. index.js loads it; tests leave it out.
 //   planRateLimit  - { windowMs, max } to limit how often one caller may use the planner routes, or leave
 //                    it out for no limit. index.js sets it outside stub mode.
 //   accountCheckRateLimit - { windowMs, max } for POST /api/accounts/email-check, which tells whether an email has an
@@ -54,6 +70,11 @@ import { createWeather } from './services/weather.js'
 //                    limit (only a test should).
 //   supabase       - The server's Supabase clients, from createSupabase(). Without it the routes that
 //                    need a login (GET /api/me) are not mounted.
+//   sessionRateLimit - { windowMs, max } to limit how often one signed-in caller may use the session endpoints (the meeting spots,
+//                    opting out, leaving, removing a guest), or leave it out for no limit. index.js sets it outside stub mode.
+//   peopleSearchRateLimit - { windowMs, max } to limit how often one signed-in caller may search for people to invite
+//                    (GET /api/people/search, which a screen calls as the person types), or leave it out for no limit. index.js sets it
+//                    outside stub mode.
 //   mount          - A function that adds extra routes. They must go in before the "not found" handler,
 //                    so routes added to the returned app afterwards are never reached. Tests use this:
 //                      createApp({ frontendOrigin, mount: (app) => app.get('/probe', handler) })
@@ -71,8 +92,15 @@ export function createApp({
   linkRateLimit = null,
   allowSimulatedWeather = false,
   planRateLimit = null,
+  sessionRateLimit = null,
+  peopleSearchRateLimit = null,
   accountCheckRateLimit = { windowMs: 60_000, max: 10 },
   routingDeadlineMs = undefined,
+  areaTimes = null,
+  meetingFinalists = undefined,
+  ownPlacesEnough = undefined,
+  includePlannerDiagnostics = process.env.PLANNER_DIAGNOSTICS === '1',
+  roundPlannerMinutes = true,
   supabase = null,
   mount = () => {},
 }) {
@@ -107,6 +135,9 @@ export function createApp({
   // and to the weather route count together, and a forecast failure is logged once a minute across both.
   const limiter = planRateLimit ? rateLimit(planRateLimit) : null
   const weatherResolver = createWeatherResolver({ data: planData, weather, now })
+  // The planner's engine runs with real travel times, shared by the planner routes and the session endpoints so both spend the
+  // same OneMap budget (services/planner-runs.js).
+  const runs = createPlannerRuns({ data: planData, weatherResolver, onemap, routingDeadlineMs, areaTimes, meetingFinalists })
 
   // Planner: /api/meeting-area, /api/converge, /api/roam, /api/search, /api/places/search, /api/itinerary/arrange.
   app.use(
@@ -120,7 +151,11 @@ export function createApp({
       ai: itineraryAi,
       allowSimulatedWeather: allowSimulatedWeather || stub,
       routingDeadlineMs,
+      ownPlacesEnough,
+      includeDiagnostics: includePlannerDiagnostics,
+      roundMinutes: roundPlannerMinutes,
       limiter,
+      runs,
     }),
   )
 
@@ -144,6 +179,15 @@ export function createApp({
   // Routes that need a login. The planner routes above do not check one yet: the frontend has to
   // start sending the session token first.
   if (supabase) app.use('/api', createMeRouter({ supabase }))
+  // Where a group meets, on the server: the meeting spots, a suggestion, the host's confirm and known place, opting out and
+  // rejoining, leaving and removing (/api/sessions/:id/...). Needs a login, then a limit per person.
+  if (supabase) {
+    const sessions = createSessions({ supabase, data: planData, runs, ...(routingDeadlineMs !== undefined && { routingDeadlineMs }) })
+    app.use('/api', createSessionsRouter({ supabase, sessions, limiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null }))
+  }
+
+  // Finding a person to invite by the start of their username: /api/people/search. Needs a login, then a limit per person.
+  if (supabase) app.use('/api', createPeopleRouter({ supabase, limiter: peopleSearchRateLimit ? rateLimit(peopleSearchRateLimit) : null }))
 
   // The email check for the sign-up screen. Always mounted: without Supabase it answers 503, never a guess.
   app.use(

@@ -44,7 +44,7 @@ const id = `switch-${useId()}`
   height: 28px;
   margin: 8px 0;
   padding: 0;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-control);
   border-radius: var(--rounded-full);
   background: var(--surface-strong);
   transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);

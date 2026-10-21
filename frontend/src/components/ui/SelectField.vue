@@ -17,6 +17,7 @@ const props = defineProps({
 
 const auto = useId()
 const fieldId = computed(() => props.id || `select-${auto}`)
+const helpId = computed(() => (props.error ? `${fieldId.value}-help` : undefined))
 const items = computed(() => props.options.map((opt) => (typeof opt === 'object' ? opt : { value: opt, label: String(opt) })))
 </script>
 
@@ -30,11 +31,12 @@ const items = computed(() => props.options.map((opt) => (typeof opt === 'object'
       class="field__input"
       :class="{ 'is-empty': model === '' }"
       :aria-invalid="error ? 'true' : undefined"
+      :aria-describedby="helpId"
     >
       <option v-if="placeholder" value="">{{ placeholder }}</option>
       <option v-for="opt in items" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
     </select>
-    <p v-if="error" class="field__error" role="alert">{{ error }}</p>
+    <p v-if="error" :id="helpId" class="field__error" role="alert">{{ error }}</p>
   </div>
 </template>
 
@@ -46,7 +48,7 @@ const items = computed(() => props.options.map((opt) => (typeof opt === 'object'
   height: 56px;
   margin: 0;
   padding: 14px 12px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--border-control);
   border-radius: var(--rounded-sm);
   background: var(--canvas);
   color: var(--ink);

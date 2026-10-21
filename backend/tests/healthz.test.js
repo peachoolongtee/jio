@@ -7,7 +7,7 @@ let server
 let base
 
 beforeAll(async () => {
-  server = createApp({ frontendOrigin: FRONTEND }).listen(0)
+  server = createApp({ frontendOrigin: FRONTEND }).listen(0, '127.0.0.1')
   await once(server, 'listening')
   base = `http://127.0.0.1:${server.address().port}`
 })

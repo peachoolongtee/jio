@@ -10,6 +10,7 @@
 
 import { approxRegion } from './cdc-adapter.js';
 import { KIND_DEFAULTS } from './venue-adapter.js';
+import { isSingaporePoint } from './singapore.js';
 
 const ATTRIBUTE_KEYS = ['quiet', 'romantic', 'cozy', 'lively', 'privacy', 'workFriendly', 'celebration'];
 
@@ -149,9 +150,10 @@ function weekdayOf(dateTime) {
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 }
 
-// A shop or an activity needs this many Google reviews: fewer usually means one small store, a private studio, or a
-// listing nobody visits. Food and drink have no minimum: a small hawker stall with few reviews is still a real meal.
-const MIN_REVIEWS = { shop: 50, activity: 30 };
+// A place found by the nearby search needs this many Google reviews: fewer usually means one small store, a private
+// studio, or a listing nobody visits, and one five-star review should not rank a place first (ticket #149). A place
+// someone searched for by name is exempt (see fromGooglePlace).
+const MIN_REVIEWS = { shop: 50, activity: 30, eat: 20, drink: 20 };
 
 // Google sometimes still marks a place open while its own name says it has shut ("... (No longer in operation)").
 const CLOSED_NAME = /no longer in operation|permanently closed|\bclosed down\b/i;
@@ -165,7 +167,7 @@ const LESSONS_NAME = /\b(academy|school|tuition|coaching|enrichment|classes)\b/i
 /**
  * One Google place -> one engine venue, for a visit on a given date-time (the hours are that day's).
  * Returns null for a place that has closed down (by Google's status or its own name), has no location, has no name, or
- * is a shop with fewer than 50 reviews, or an activity with fewer than 30 reviews, an advert for a name, or lessons.
+ * is a shop with fewer than 50 reviews, an activity with fewer than 30, food or drink with fewer than 20, an advert for a name, or lessons.
  * With `searched` (someone typed its name, or the group added it from a search), the review minimums do not apply: the
  * group asked for that place, so a small karaoke with few reviews is still theirs to pick.
  * A searched place that is not an outing (a bank, a clinic, a school, an advert for a name) is kept but comes back with
@@ -178,6 +180,7 @@ const LESSONS_NAME = /\b(academy|school|tuition|coaching|enrichment|classes)\b/i
 function fromGooglePlace(place, dateTime, { searched = false } = {}) {
   const lat = place.location?.latitude, lng = place.location?.longitude;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (!isSingaporePoint({ lat, lng })) return null;
   if (place.businessStatus && place.businessStatus !== 'OPERATIONAL') return null;
   if (CLOSED_NAME.test(place.displayName?.text ?? '')) return null;
   const name = typeof place.displayName?.text === 'string' ? place.displayName.text.trim() : '';

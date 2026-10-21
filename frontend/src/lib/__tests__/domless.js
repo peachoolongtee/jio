@@ -79,10 +79,13 @@ class Node_ {
   get id() {
     return this.attrs.id
   }
-  // A <select> lists its <option>s, which v-model reads to mark the chosen one (the sign-up screen's last question for a
-  // real account is a select).
+  // A <select>'s <option> elements, however deep, which Vue's v-model reads to mark the chosen one (the sign-up screen's
+  // last question for a real account is a select, and so are the edit-profile page's).
   get options() {
-    return this.children.filter((child) => child.tag === 'option')
+    if (this.tag !== 'select') return undefined
+    const found = []
+    walk(this, (n) => n !== this && n.kind === 'el' && n.tag === 'option' && found.push(n))
+    return found
   }
   addEventListener(name, fn) {
     ;(this.listeners[name] ||= []).push(fn)
@@ -96,6 +99,20 @@ class Node_ {
   // Vue's v-model asks where the input lives to learn whether it has focus.
   getRootNode() {
     return documentStub
+  }
+  // The elements inside this one that match a simple selector (see `matches`), in page order, and the first of them.
+  querySelectorAll(selector) {
+    const found = []
+    walk(this, (n) => n !== this && matches(n, selector) && found.push(n))
+    return found
+  }
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] ?? null
+  }
+  // This element, or the nearest one above it, that matches a simple selector; null when none does.
+  closest(selector) {
+    for (let node = this; node; node = node.parent) if (matches(node, selector)) return node
+    return null
   }
   // Run the handlers for an event, then its parents', as a browser does until a handler stops it.
   dispatch(name, extra = {}) {
@@ -119,6 +136,10 @@ class DocumentStub {
   querySelector() {
     return null
   }
+  // Listeners on the whole page (a click or key outside a popover) are taken and never called: nothing here clicks
+  // outside a component.
+  addEventListener() {}
+  removeEventListener() {}
 }
 class ShadowRootStub {}
 const documentStub = new DocumentStub()

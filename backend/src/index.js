@@ -7,6 +7,10 @@ import { createGooglePlaces, readGoogleSettings } from './services/google-places
 import { createItineraryAi, readItinerarySettings } from './services/itinerary-ai.js'
 import { setUpLinkReader } from './services/link-reader.js'
 import { createOneMap, readOneMapSettings } from './services/onemap.js'
+import { loadAreaTimes } from './db/area-times.js'
+import { loadPlanData } from './db/venues.js'
+import { areaTimesCoverage } from './planner/area-times.js'
+import { MEETING_FINALISTS_MAX } from './services/planner-runs.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
 const port = Number(process.env.PORT) || 3000
@@ -140,6 +144,31 @@ if (!Number.isInteger(plannerLimitPerMinute) || plannerLimitPerMinute <= 0) {
 }
 const planRateLimit = stub ? null : { windowMs: 60_000, max: plannerLimitPerMinute }
 
+// How many times one signed-in person may use the session endpoints each minute (/api/sessions/:id/...: work out the meeting
+// spots after a start changes, suggest a spot, confirm, opt out, leave). One change of start makes one call, and few people
+// make more than a handful a minute, so 60 is loose. Stub mode has no limit.
+//
+// How to change it:
+//   SESSION_RATE_LIMIT_PER_MINUTE=10
+const sessionLimitPerMinute = Number(process.env.SESSION_RATE_LIMIT_PER_MINUTE || 60)
+if (!Number.isInteger(sessionLimitPerMinute) || sessionLimitPerMinute <= 0) {
+  console.error('SESSION_RATE_LIMIT_PER_MINUTE must be a whole number above 0.')
+  process.exit(1)
+}
+const sessionRateLimit = stub ? null : { windowMs: 60_000, max: sessionLimitPerMinute }
+
+// How many times one signed-in person may search for someone to invite each minute (GET /api/people/search). The invite
+// field asks after a short pause as the person types, so this is loose enough for a fast typist. Stub mode has no limit.
+//
+// How to change it:
+//   PEOPLE_SEARCH_RATE_LIMIT_PER_MINUTE=60
+const peopleSearchLimitPerMinute = Number(process.env.PEOPLE_SEARCH_RATE_LIMIT_PER_MINUTE || 120)
+if (!Number.isInteger(peopleSearchLimitPerMinute) || peopleSearchLimitPerMinute <= 0) {
+  console.error('PEOPLE_SEARCH_RATE_LIMIT_PER_MINUTE must be a whole number above 0.')
+  process.exit(1)
+}
+const peopleSearchRateLimit = stub ? null : { windowMs: 60_000, max: peopleSearchLimitPerMinute }
+
 // Supabase: token checks and database access. All three values are needed. With none of them the server
 // still runs outside production, but the routes that need a login are switched off. With only some of them
 // it refuses to start, because that is a mistake in the settings, not a choice.
@@ -167,7 +196,21 @@ const supabase =
       })
     : null
 
-createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader, linkRateLimit, supabase, allowSimulatedWeather, planRateLimit }).listen(port, () => {
+// Real minutes between the meeting areas, taken from OneMap once (pnpm build:area-times). With it the planner ranks areas by a guess
+// that knows the MRT, not the straight line. Left out in stub mode, so the fixtures and the tests answer as they always did.
+const areaTimes = stub ? null : loadAreaTimes()
+
+// How many areas a meeting-area request routes with real OneMap times. Blank means 5. More is more accurate and uses more of
+// the shared OneMap budget: 8 is a good next step. At most 12; anything else is ignored with a warning.
+//
+// How to change it:
+//   MEETING_FINALISTS=8
+const finalistsText = (process.env.MEETING_FINALISTS ?? '').trim()
+const finalistsNumber = Number(finalistsText)
+const meetingFinalists = Number.isInteger(finalistsNumber) && finalistsNumber >= 1 && finalistsNumber <= MEETING_FINALISTS_MAX ? finalistsNumber : undefined
+if (finalistsText !== '' && meetingFinalists === undefined) console.warn(`MEETING_FINALISTS must be a whole number from 1 to ${MEETING_FINALISTS_MAX}, so the default is used.`)
+
+createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader, linkRateLimit, supabase, allowSimulatedWeather, planRateLimit, sessionRateLimit, peopleSearchRateLimit, areaTimes, meetingFinalists }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
   if (stub) console.log('Stub mode is ON: external API calls are answered from fixtures.')
   else if (!onemap.routingEnabled) {
@@ -183,6 +226,11 @@ createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader,
       )
     })
   }
+  if (!stub && areaTimes) {
+    const { found, expected } = areaTimesCoverage(loadPlanData().areas, areaTimes)
+    console.log(`Area travel times are ON: ${found} of ${expected} real times between the meeting areas rank them before routing.`)
+    if (found < expected) console.warn(`The area travel times cover only ${found} of ${expected} pairs (the areas changed since it was built): the rest use straight-line distance. Rebuild with pnpm build:area-times.`)
+  } else if (!stub) console.log('Area travel times are OFF: areas are ranked by straight-line distance. Build the table with pnpm build:area-times.')
   if (!stub && !places.enabled) console.log('Google Places is OFF: no Google restaurants or cafés. Set GOOGLE_MAPS_API_KEY in backend/.env.')
   else if (!stub) console.log(`Google Places is ON: at most ${googleSettings.callsPerMinute} Google calls a minute.`)
   if (!stub) {

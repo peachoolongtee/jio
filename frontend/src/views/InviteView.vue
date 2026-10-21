@@ -2,14 +2,17 @@
 // Step 2: invite friends, and the Invite step of the steps bar at any later time. The host picks friends from a list;
 // everyone on it already has the app. The back arrow goes to the Create form (title, day and times, filled in) for the
 // host, and Home for a guest. One card, one column at every size: the session and how many are in it, a search box, who
-// is already in (the host first, with a Host badge), then friends and suggested people to pick, and Send invites.
+// is already in (the host first, with a Host badge), then friends to pick, and Send invites. Friends only: suggested people
+// are on the profile page. The friends come in two groups (lib/hangouts.js): "Frequent hangouts", the people the signed-in
+// person has completed the most outings with, most first, then "All friends". Each name has its Jio streak beside it, the
+// number of outings together. With no outings together yet it is one plain list, "Friends".
 // After sending, the screen confirms each invite. Each friend shows as Invited until they accept (in the demo, on
 // their own a moment later).
 // Once the session has started the page still opens. The host can invite while the group is locating or voting (the data
 // layer allows it, and the header's Invite button already does), and when a confirmed plan is left with too few people.
 // Otherwise (a confirmed plan with enough people, a finished or cancelled session, or anyone but the host) the page lists
 // who is in and says why invites are closed, with no picker and no Send button (inviteAccess in lib/session.js).
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -21,8 +24,14 @@ import IllustrationBlob from '@/components/ui/IllustrationBlob.vue'
 import ListRow from '@/components/ui/ListRow.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
+import InviteByUsername from '@/components/group/InviteByUsername.vue'
+import RemoveMember from '@/components/group/RemoveMember.vue'
+import ShareLink from '@/components/group/ShareLink.vue'
 import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
+import { watchSessions } from '@/lib/api.js'
 import { inviteAccess } from '@/lib/session.js'
+import { visibleSessions } from '@/lib/sessionFilter.js'
+import { inviteGroups, outingsTogether, streakText } from '@/lib/hangouts.js'
 import { exitFor, goBackIfBehind, isBehind } from '@/lib/stepNav.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -41,9 +50,14 @@ const sent = ref([])
 const busy = ref(false)
 const error = ref('')
 
+// A shared session changes under this page (someone joins, the host's link is used): the list follows.
+let stopWatching = () => {}
 onMounted(async () => {
-  await Promise.all([events.loadSession(props.id).catch(() => null), groups.loadPeople()])
+  stopWatching = watchSessions()
+  // Every session is read too, for the streaks: the completed ones say who has been out with whom.
+  await Promise.all([events.loadSession(props.id).catch(() => null), groups.loadPeople(), events.loaded ? null : events.loadSessions().catch(() => null)])
 })
+onBeforeUnmount(() => stopWatching())
 
 const session = computed(() => events.byId[props.id])
 // Back: the step before this one (backFor). For the host that is the create form, with the title, day and times filled
@@ -75,13 +89,20 @@ const members = computed(() => {
     })
   return [...rows.filter((r) => r.host), ...rows.filter((r) => !r.host)]
 })
-const lists = computed(() => [
-  { id: 'friends', title: 'Friends', people: groups.friends.filter((p) => !inSession(p.id) && matches(p)) },
-  { id: 'more', title: 'Suggested', people: groups.suggested.filter((p) => !inSession(p.id) && matches(p)) },
-])
+// The sessions the lists show: the demo tour hides the saves of its story that are not selected, so the finished one does not
+// give the friends a streak at the checkpoints before it (lib/sessionFilter.js).
+const streaks = computed(() => outingsTogether(visibleSessions(events.sessions), auth.myId))
+const lists = computed(() => {
+  const { frequent, all } = inviteGroups(groups.friends.filter((p) => !inSession(p.id) && matches(p)), streaks.value)
+  if (!frequent.length) return [{ id: 'friends', title: 'Friends', people: all }]
+  return [
+    { id: 'frequent', title: 'Frequent hangouts', people: frequent },
+    { id: 'friends', title: 'All friends', people: all },
+  ]
+})
 const noMatches = computed(() => query.value.trim() && lists.value.every((l) => !l.people.length))
 const initial = computed(() => (session.value?.title.trim()[0] || 'J').toUpperCase())
-const available = computed(() => groups.people.filter((p) => !inSession(p.id)))
+const available = computed(() => groups.friends.filter((p) => !inSession(p.id)))
 const allPicked = computed(() => available.value.length > 0 && available.value.every((p) => picked.value.includes(p.id)))
 
 function toggle(personId) {
@@ -130,6 +151,43 @@ function done() {
 
     <div v-if="!session" class="screen__body">
       <SkeletonRow v-for="n in 4" :key="n" avatar />
+    </div>
+
+    <!-- A shared session: invite with a link or a username. The list shows who is in, and the host can remove a guest. -->
+    <div v-else-if="session.remote" class="screen__body">
+      <BannerNote v-if="!access.open" icon="info">{{ access.text }}</BannerNote>
+      <section class="invite card" aria-labelledby="invite-in">
+        <header class="invite__session">
+          <span class="invite__badge" aria-hidden="true">{{ initial }}</span>
+          <div class="stack">
+            <span class="title-md">{{ session.title }}</span>
+            <span class="invite__count caption text-muted"><AppIcon name="people" :size="16" />{{ members.length }} in this session</span>
+          </div>
+        </header>
+        <template v-if="access.open">
+          <hr class="invite__rule" />
+          <ShareLink :session-id="session.id" :title="session.title" />
+          <hr class="invite__rule" />
+          <InviteByUsername :session="session" />
+        </template>
+        <hr class="invite__rule" />
+        <section class="invite__group" aria-labelledby="invite-in">
+          <h2 id="invite-in" class="caption text-muted">In this session</h2>
+          <ul class="invite__list">
+            <li v-for="person in members" :key="person.id" class="invite__row">
+              <UserAvatar :name="person.name" :person="person.id" :size="44" />
+              <span class="invite__who">
+                <span class="title-sm truncate">{{ person.name }}<template v-if="person.me"> (you)</template></span>
+                <span class="caption-sm text-muted truncate"><template v-if="person.username">@{{ person.username }}</template><template v-if="person.username && person.homeArea"> · </template>{{ person.homeArea }}</span>
+              </span>
+              <span v-if="person.host" class="invite__tag invite__tag--host"><AppIcon name="crown" :size="14" />Host</span>
+              <span v-else-if="isInvited(person.id)" class="invite__tag invite__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
+              <span v-else class="invite__tag"><AppIcon name="check" :size="14" />Joined</span>
+              <RemoveMember v-if="mine && !person.host && !isInvited(person.id)" :session-id="session.id" :person="person" />
+            </li>
+          </ul>
+        </section>
+      </section>
     </div>
 
     <!-- After sending: each friend was invited. -->
@@ -215,7 +273,7 @@ function done() {
           </ul>
         </section>
 
-        <EmptyState v-if="!groups.people.length && !groups.loading.people" title="No friends to invite" />
+        <EmptyState v-if="!groups.friends.length && !groups.loading.people" title="No friends to invite" />
         <p v-else-if="noMatches" class="body-sm text-muted">Nobody matches “{{ query.trim() }}”.</p>
         <section v-for="list in lists" v-show="list.people.length" :key="list.id" class="invite__group" :aria-labelledby="`invite-${list.id}`">
           <h3 :id="`invite-${list.id}`" class="caption text-muted">{{ list.title }}</h3>
@@ -223,7 +281,12 @@ function done() {
             <li v-for="person in list.people" :key="person.id" class="invite__row" :class="{ 'is-picked': picked.includes(person.id) }">
               <UserAvatar :name="person.name" :person="person.id" :size="44" />
               <span class="invite__who">
-                <span class="title-sm truncate">{{ person.name }}</span>
+                <span class="invite__name">
+                  <span class="title-sm truncate">{{ person.name }}</span>
+                  <span v-if="person.streak" class="invite__streak caption-sm tnum" :title="`Jio streak: ${streakText(person.streak)}`" data-testid="jio-streak">
+                    <AppIcon name="sparkle" :size="12" /><span class="sr-only">Jio streak: {{ streakText(person.streak) }}</span><span aria-hidden="true">{{ person.streak }}</span>
+                  </span>
+                </span>
                 <span class="caption-sm text-muted truncate">@{{ person.username }} · {{ person.homeArea }}</span>
               </span>
               <ChipButton check :selected="picked.includes(person.id)" :aria-label="`Invite ${person.name}`" @click="toggle(person.id)">
@@ -236,7 +299,10 @@ function done() {
       </section>
     </div>
 
-    <footer v-if="session && access.open" class="screen__footer">
+    <footer v-if="session?.remote" class="screen__footer">
+      <AppButton next block @click="done">Done</AppButton>
+    </footer>
+    <footer v-else-if="session && access.open" class="screen__footer">
       <AppButton v-if="sent.length" next block @click="done">Done</AppButton>
       <template v-else>
         <span class="caption text-muted invite__picked" aria-live="polite">{{ picked.length }} selected</span>
@@ -268,6 +334,9 @@ function done() {
 .invite__row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 68px; padding: var(--spacing-sm) var(--spacing-sm); border-radius: var(--rounded-sm); transition: background-color var(--motion-fast) var(--ease-out); }
 .invite__row.is-picked { background: color-mix(in srgb, var(--primary) 6%, var(--canvas)); }
 .invite__who { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.invite__name { display: flex; align-items: center; gap: var(--spacing-xs); min-width: 0; }
+/* The Jio streak: a small count of outings together beside the name, in the brand's soft tint. */
+.invite__streak { flex-shrink: 0; display: inline-flex; align-items: center; gap: 2px; height: 20px; padding: 0 6px; border-radius: var(--rounded-full); background: color-mix(in srgb, var(--primary) 10%, var(--canvas)); color: var(--primary-active); font-weight: 600; }
 /* Who is already in: a quiet outlined tag, the host's with a Rausch crown. */
 .invite__tag { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: var(--rounded-full); color: var(--body); font: var(--text-caption); }
 .invite__tag--pending { border-style: dashed; color: var(--muted); }

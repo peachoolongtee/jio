@@ -10,6 +10,7 @@ import { converge, roam, meetingArea } from '../src/planner/engine.js';
 import { filterByConstraints } from '../src/planner/filters.js';
 import { haversineKm, centroid, fairnessWeights, minimaxCenter } from '../src/planner/geo.js';
 import * as S from '../src/planner/scoring.js';
+import { buildingKey } from '../src/planner/diversity.js';
 import * as P from '../src/planner/postranking.js';
 
 // ---------------------------------------------------------------- seeded random mock data
@@ -178,8 +179,17 @@ test('roam: 200 random points, results sorted, inside 3 km, no NaN', () => {
   for (let i = 0; i < 200; i++) {
     const input = { current: sgPoint(), members: Array.from({ length: int(1, 6) }, (_, j) => mockMember(j)), occasion: pick(OCCASIONS), dateTime: randomTime(), unknownPolicy: pick(['strict', 'lenient']) };
     const out = roam(input, realData);
-    out.results.forEach((r, j) => {
-      if (j) assert.ok(r.score >= out.results[j - 1].score, `roam#${i}: not sorted`);
+    // Sorted by score, except that a second place in a building already shown moves below the others (#149): the
+    // places that keep their spot are sorted, so are the ones moved, and every moved one comes after every kept one.
+    const seen = new Set(), kept = [], moved = [];
+    out.results.forEach(r => {
+      const b = buildingKey(r.venue), k = b === null ? null : `${r.venue.category}|${b}`;
+      if (k !== null && seen.has(k)) moved.push(r);
+      else { if (k !== null) seen.add(k); kept.push(r); }
+    });
+    [kept, moved].forEach(list => list.forEach((r, j) => { if (j) assert.ok(r.score >= list[j - 1].score, `roam#${i}: not sorted`); }));
+    if (kept.length && moved.length) assert.ok(out.results.indexOf(moved[0]) > out.results.indexOf(kept[kept.length - 1]), `roam#${i}: a moved place ranks above a kept one`);
+    out.results.forEach(r => {
       assert.ok(r.distanceKm <= 3 + 1e-9, `roam#${i}: beyond 3 km`);
       assert.ok(Number.isFinite(r.score), `roam#${i}: score ${r.score}`);
     });

@@ -2,7 +2,8 @@
 // MRT stations are nodes and ride times are edge costs. Candidate venues in a multi-stop plan form layers.
 //
 // What is here, and what each is for:
-//   dijkstra / estimateTransitMinutes : shortest travel time through the MRT network (fallback when OneMap fails)
+//   dijkstra / estimateTransitMinutes : shortest travel time through the MRT network (not used at runtime: only its test
+//                                       calls estimateTransitMinutes; the planner's fallback is mockTravelMinutes in geo.js)
 //   orderGreedy / orderExact / twoOpt : best ORDER to visit several stops (greedy shown as the baseline to beat)
 //   planChain / chainGreedy           : pick one venue per stage (food -> activity -> food) with the lowest TOTAL cost
 //   clusterByDistance                 : group nearby venues (union-find) so results can be shown by area
@@ -112,7 +113,7 @@ function rideMinutes(graph, fromStation, toStation) {
  * walk from the nearest station to the destination. Compared against just walking. Label as "approximate" in the UI.
  * @param net { graph, stations: {name: [lat, lng]} }
  */
-function estimateTransitMinutes(from, to, net, { walkKmh = 4.5, waitMinutes = 5, detour = 1.3 } = {}) {
+function estimateTransitMinutes(from, to, net, { walkKmh = 5, waitMinutes = 5, detour = 1.3 } = {}) {
   const walk = km => (km * detour * 60) / walkKmh;
   const nearest = p => Object.entries(net.stations)
     .map(([name, [lat, lng]]) => ({ name, km: haversineKm(p, { lat, lng }) }))

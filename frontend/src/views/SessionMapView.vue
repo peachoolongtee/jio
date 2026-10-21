@@ -4,9 +4,11 @@
 //   - A pin for the meeting area. No one's start is shown.
 //   - Tapping a pin opens a small card with the stop's name, time and price tier.
 // It is a mobile screen; on desktop the itinerary already shows the map, and this is its expanded view.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import CategoryIcon from '@/components/ui/CategoryIcon.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import PriceTier from '@/components/ui/PriceTier.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
@@ -18,17 +20,30 @@ import { useEventsStore } from '@/stores/events.js'
 const props = defineProps({ id: { type: String, required: true } })
 
 const events = useEventsStore()
+// The session does not exist, or the person is not in it (the data layer's `not_found`), and why the map could not load it at
+// all (no connection, the planner slow or down) with a Retry. The two are different pages: only the first is "not found".
 const missing = ref(false)
+const loadError = ref('')
 const selected = ref('')
 
-onMounted(async () => {
+// Only the newest load speaks, so a slow answer for a map already left never changes what the person sees.
+let loadTicket = 0
+// How to call: load() (on mount, when the id changes, and from Retry)
+async function load() {
+  const ticket = ++loadTicket
+  missing.value = false
+  loadError.value = ''
   try {
     await events.loadSession(props.id)
     await events.loadItinerary(props.id)
-  } catch {
-    missing.value = true
+  } catch (err) {
+    if (ticket !== loadTicket) return
+    if (err?.code === 'not_found') missing.value = true
+    else loadError.value = err?.message || 'The map could not be loaded.'
   }
-})
+}
+onMounted(load)
+watch(() => props.id, load)
 
 const session = computed(() => events.byId[props.id])
 const itinerary = computed(() => events.itineraries[props.id])
@@ -43,6 +58,14 @@ const card = computed(() => {
 
 <template>
   <NotFoundView v-if="missing" />
+  <main v-else-if="loadError" class="screen" data-testid="map-load-error">
+    <div class="screen__body" style="padding-top: var(--spacing-xl)">
+      <EmptyState title="Could not load the map" :text="loadError" role="alert">
+        <AppButton variant="secondary" @click="load">Retry</AppButton>
+        <AppButton variant="tertiary" :to="`/sessions/${id}/itinerary`">Back to the itinerary</AppButton>
+      </EmptyState>
+    </div>
+  </main>
   <main v-else class="full-map">
     <PlannerMap class="full-map__map" :places="places" :area="area" route fit-to="places" zoom-position="bottomright" :selected="selected" label="Plan map" @select="selected = $event" />
 
@@ -81,11 +104,18 @@ const card = computed(() => {
 <style scoped>
 .full-map { position: fixed; inset: 0; z-index: 1; background: var(--surface-strong); }
 .full-map__map { position: absolute; inset: 0; }
-.full-map__bar { position: absolute; top: var(--spacing-md); left: var(--spacing-md); right: var(--spacing-md); z-index: 1100; display: flex; align-items: center; gap: var(--spacing-sm); pointer-events: none; }
+/* Leaflet's own controls (the zoom buttons and the attribution) sit in corner boxes at the edge of the map, which runs under
+   the notch and the home indicator; the boxes move in by the insets, and the controls keep their 10px margin inside. */
+.full-map__map :deep(.leaflet-top) { top: env(safe-area-inset-top, 0px); }
+.full-map__map :deep(.leaflet-bottom) { bottom: env(safe-area-inset-bottom, 0px); }
+.full-map__map :deep(.leaflet-left) { left: env(safe-area-inset-left, 0px); }
+.full-map__map :deep(.leaflet-right) { right: env(safe-area-inset-right, 0px); }
+/* The map runs under a notch and the home indicator; the controls on it stay inside the safe area. */
+.full-map__bar { position: absolute; top: calc(var(--spacing-md) + env(safe-area-inset-top, 0px)); left: calc(var(--spacing-md) + env(safe-area-inset-left, 0px)); right: calc(var(--spacing-md) + env(safe-area-inset-right, 0px)); z-index: 1100; display: flex; align-items: center; gap: var(--spacing-sm); pointer-events: none; }
 .full-map__bar > * { pointer-events: auto; box-shadow: var(--shadow-float); }
 .full-map__bar :deep(.icon-btn) { background: var(--canvas); }
 .full-map__title { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; min-height: var(--tap-min); padding: 0 var(--spacing-base); border-radius: var(--rounded-full); background: var(--canvas); }
-.full-map__legend { position: absolute; left: var(--spacing-md); right: 64px; bottom: var(--spacing-xl); z-index: 1100; display: flex; gap: var(--spacing-sm); overflow-x: auto; scrollbar-width: none; }
+.full-map__legend { position: absolute; left: calc(var(--spacing-md) + env(safe-area-inset-left, 0px)); right: calc(64px + env(safe-area-inset-right, 0px)); bottom: calc(var(--spacing-xl) + env(safe-area-inset-bottom, 0px)); z-index: 1100; display: flex; gap: var(--spacing-sm); overflow-x: auto; scrollbar-width: none; }
 .full-map__stop { display: inline-flex; align-items: center; gap: var(--spacing-sm); max-width: 240px; min-height: var(--tap-min); padding: 0 var(--spacing-base) 0 var(--spacing-xs); border: 0; border-radius: var(--rounded-full); background: var(--canvas); box-shadow: var(--shadow-float); color: var(--ink); }
 @media (hover: hover) { .full-map__stop:hover { background: var(--surface-soft); } }
 .full-map__num { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--rounded-full); background: var(--ink); color: var(--on-dark); font: var(--text-caption); }
@@ -94,6 +124,6 @@ const card = computed(() => {
 .full-map__num--drink { background: var(--cat-drink-fg); }
 .full-map__num--shop { background: var(--cat-shop-fg); }
 .full-map__num--activity { background: var(--cat-activity-fg); }
-.full-map__card { position: absolute; left: var(--spacing-md); right: 64px; bottom: var(--spacing-xl); z-index: 1100; display: flex; align-items: flex-start; gap: var(--spacing-md); max-width: var(--dialog-max-width); margin: 0 auto; padding: var(--spacing-base); border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); }
+.full-map__card { position: absolute; left: calc(var(--spacing-md) + env(safe-area-inset-left, 0px)); right: calc(64px + env(safe-area-inset-right, 0px)); bottom: calc(var(--spacing-xl) + env(safe-area-inset-bottom, 0px)); z-index: 1100; display: flex; align-items: flex-start; gap: var(--spacing-md); max-width: var(--dialog-max-width); margin: 0 auto; padding: var(--spacing-base); border-radius: var(--rounded-lg); background: var(--canvas); box-shadow: var(--shadow-float); }
 .full-map__card-text { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-xs); }
 </style>

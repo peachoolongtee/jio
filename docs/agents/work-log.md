@@ -1234,3 +1234,177 @@ The lead said: "apply and land staging since the pitch is over", "off the email 
 - **27.6:** built on `feat/weather-on-screen` by a frontend-engineer subagent, merged with `dev` (two conflicts, both sides kept). Run by the lead on that state: frontend 1449, backend 1163 and 2 skipped, build. Seen by the lead: its screenshot of the itinerary on its day with rain simulated (the simulated banner, the host's Swap and Keep, "Indoor" and "Outdoor, showers"). Different from the ticket: 24-hour times; Home's rain around the outings' meeting areas, not every forecast area; with a simulated forecast every stop counts as still to come. Merged as #144 (`d0e66c2`).
 - **Not verified by anyone:** a real sign-up, login or reset link; the real forecast in a browser; the link reader against any real service; two devices.
 - **Arrived during the round, not looked at:** two pull requests from darryl5942 into `main` (an itinerary change and an edit-profile page), each showing about 25,000 added lines because `main` is far behind `dev`.
+
+## Round 28: two pull requests from darryl5942 audited (2026-10-13)
+
+The lead moved the work to his PC and said to pull, read the handoff of 13 October and carry on from the map. First on the handoff's list: darryl5942's two pull requests into `main`, an itinerary change (peachoolongtee/jio#141, branch `itinerary-replace`) and an edit-profile page (peachoolongtee/jio#142, branch `user-profile`). Each forked from `dev` at `adee7e8` and touches only `frontend/`: 7 files and 887 added lines, and 16 files and 1,257 added lines. They share `lib/api.js` and the tests' `domless.js`. `dev` has 56 commits they do not.
+
+Baseline on `dev` at `16d4d08`, run by the lead agent on the PC, exit codes read: frontend 1,448 passed and 1 failed, 86 files (with `VITE_API_BASE_URL` blank); backend 1,162 passed, 1 failed, 2 skipped, 37 files (Google forced off); build succeeded. Both failures are this machine's line endings, not the code: `identityScan.test.js` does not strip a comment from a line that ends in a carriage return, and the saved-places test compares bytes with a file git checked out with CRLF. `realAccountData.test.js` timed out in a hook on the first run and passed alone.
+
+| # | Role | Scope | May change | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| 28.1 | Code reviewer, read-only | #141: replacing a stop of a confirmed itinerary | Nothing | Each finding with a file, a scenario and a fix | **Completed** |
+| 28.2 | Code reviewer, read-only | #142: the edit-profile page, the photo, the password tab and the change to the password rule's hints | Nothing | The same | **Completed** |
+| 28.3 | Lead | Merge each branch with `dev` locally, run the frontend suite and the build, also with outbound calls blocked | Local branches only; nothing pushed | Real output, exit codes read | **Completed** |
+| 28.4 | Implementer | Fix what the reviews find, on integration branches (`dev` plus the branch plus fixes): `feat/itinerary-replace-integration` and `feat/user-profile-integration`, each in its own temporary checkout | Those branches, uncommitted | Every finding fixed with a test | **Completed** |
+
+### 28.1 Review of #141, replacing a stop
+
+- **Verdict:** merge after fixes. Nothing is half-written, nothing is written to a session that is over, no privacy leak, the save's shape is unchanged, one planner request per action.
+- **Significant, three:**
+  - The page says "It keeps its time, and the rest of the plan stays as it is", and the code drops the stop's earliest start and resets both travel legs. With a suggested order confirmed, a replaced Eat stop held at 12:00 starts at about 11:38, and a stop added from Roam can land in the past. The lead read `replaceStop` and confirmed it.
+  - The cards are given the sample person as "me" (`:me="HOST_ID"`), which `dev` no longer has in that file; git merges it with no conflict.
+  - Anyone in the session can replace a stop, while `dev`'s rain swap, which does the same job, is for the host only and keeps more in step (the options, the dismissed rain warning, a check that the stop has not changed).
+- **Smaller:** up to ten red buttons on one screen; a footer button that overflows on a phone for a long place name; no "Try again" when the planner fails on opening; the page is drawn as the Vote step with "Back to Home"; three of its tests cannot fail; the swap icon used for Replace beside the rain flow's "Swap".
+- **Merging with `dev`:** conflicts in four files (`SuggestionCard.vue`, `lib/api.js`, `stores/events.js`, `PlannerView.vue`).
+- **The lead agent's defaults for the fixes, for the lead to confirm:** replacing a stop is for the host only, like the rain swap; one piece of code changes a confirmed stop's place for both; the replaced stop keeps its start and the page says later stops may move.
+
+### 28.2 Review of #142, the edit-profile page
+
+- **Verdict:** merge after fixes. The password change is sound: the current password is checked by a fresh sign-in, nothing changes when it is wrong, other sessions are ended afterwards, and the password is kept nowhere. The route is private. Writes go only to columns a person may change. The photo is redrawn to a small picture, which drops any location data, and is never uploaded.
+- **Breaks on `dev`, two, both seen by the lead in a test run of the merged branch:** "Edit profile" appears on someone else's profile for a real account; the page uses the sample person's id for the avatar's colour.
+- **Significant, three:** Save sends every field whether it changed or not, so a tab opened before another device set a dietary need erases it when only the name is edited; after a failed write to Supabase the Save button is disabled and nothing can try again, and the edit is replaced by the account's older values at the next start; the current-password check is in the page, not in Supabase, so it can be skipped from the browser's developer tools on an unlocked device (true on `dev` today too; closing it is a dashboard setting).
+- **Smaller:** white text on the brand red for "Add photo"; a picture that fails while being drawn gives no message; a mismatch between the two new passwords empties the current password too; focus is lost after a failed attempt; no username field for a password manager; reset-flow words if the session ends mid-change.
+- **The password rule after this pull request:** what a password must contain is unchanged from the audit of 13 October (8 or more characters, the four kinds, any symbol, at most 72 bytes, no space at either end). The pull request takes the sixth part off the checklist on sign-up, reset and the new tab, and shows it under the field only when it is broken. The three screens agree with each other and with the code. The words say "72 characters" where the code counts bytes.
+- **Its edits to four existing test files** follow that one change of display and weaken nothing else.
+- **Merging with `dev`, by the lead:** one conflict, in the tests' `domless.js`, where both sides added the same getter; the pull request's fuller one was kept. On the merged branch before any fix: frontend 1,489 passed and 3 failed (the two above and this machine's line-ending failure); the build succeeded.
+
+### 28.3 and 28.4 The fixes, and what the lead ran and saw
+
+Both fixing agents stopped once at their turn limit with no report and were resumed.
+
+**#142, edit profile** (`feat/user-profile-integration`: `dev`, the merge, and fixes in nine files)
+
+- **Fixed, all thirteen findings**, each with a test; the agent undid each source file in turn and saw its tests fail, though several fixes share `EditProfileView.vue` and could only be seen failing together.
+- **Run by the lead after the fixes, exit codes read:** frontend 1,511 passed and 1 failed (this machine's line-ending failure, which also fails on `dev` here), the same with outbound calls blocked and no call attempted; the build succeeded.
+- **Read by the lead:** the patch that sends only the fields that changed, and the current-password check, which now confirms the account that signed in is the same person and puts the old session back when it is not.
+- **Seen by the lead in a browser** (the demo account, a local one, at 320 px): "Edit profile" on my own profile and not on Darius's; the page fits; "Add photo" is outlined, not red; Save is disabled until something changes; the Password tab shows only "This account lives only in this browser and has no password to change."; no console errors.
+- **Changed from the teammate's design, for the lead to know:** a mismatch between the two new passwords keeps what was typed; the second field is labelled "Type it again" and the message is "The two passwords do not match.", as on the reset page; after a save that did not reach the account the page says "Saved on this device, but not to your account. Press Save details to try again." and the button stays usable; a picture over 15 MB is refused.
+- **Not seen by anyone:** the password tab for a real account, a photo being chosen, the failed-save line, anything against the real project.
+
+**#141, replacing a stop** (`feat/itinerary-replace-integration`: `dev`, the merge with four conflicts resolved, and fixes)
+
+- **The merge:** both sides kept. The card keeps `dev`'s `foot` slot, which now passes the voters' line and whether the place leads; the pull request's `action` slot is gone.
+- **Fixed, all ten findings.** One private function, `changeStopPlace`, now changes a confirmed stop's place for both the rain swap and Replace: the host only; refused when the stop no longer holds the place the caller saw or has moved; ranked for the day the itinerary uses; the stop never starts earlier than the time it was checked for; the options, the kept ranking detail and the dismissed rain warning stay in step. `replaceStop` takes the place the page saw as a fifth argument.
+- **The rain swap changed with it, by the agent's choice:** it now also resets the travel to and from the stop to the default, clears the AI's note and holds the stop's start. No test of `dev`'s failed.
+- **Run by the lead, exit codes read:** frontend 1,505 passed and 1 failed (the same line-ending failure), the same with outbound calls blocked and no call attempted; the build succeeded; no conflict marker left; no existing test of `dev`'s changed (`planFixture.js` gained three helpers).
+- **Seen by the lead in a browser** (the showcase's confirmed "Chinatown makan crawl", stub backend, 375 px): Replace on each stop in edit mode; the replace page lights Itinerary and its arrow is "Back to Itinerary"; "This stop keeps its start, and the rest of the plan stays as it is. Later stops may move with the travel time."; "Use this place" is a secondary button; the footer is "Keep this stop"; no overflow; choosing Capitol Theatre returned to the itinerary with the stop still at 20:09 and the next stop unmoved; no console errors.
+- **Found and left:** the browser tab's title on the replace page is still "Vote".
+- **Not seen by anyone:** a member's view of the page, "Try again" after a planner failure, the rain flow after the change, widths other than 375 px.
+- **Defaults taken by the lead agent, awaiting the lead:** replacing a stop is for the host only; a replace into another kind of stop takes the old place out of the options without adding the new one.
+
+### 28.5 Committed, posted and sent to `dev`
+
+The lead said: "commit no co author lines same as usual and post as a comment and merge dev".
+
+- **Committed** on each integration branch as the merge and one commit of fixes, with no co-author line. On the itinerary branch the merge commit carries the fixes that sit in the four conflicted files, because the conflicts were resolved and fixed in one pass.
+- **Posted:** the audit of each pull request as a comment on it (#141 and #142).
+- **Pull requests into `dev`:** peachoolongtee/jio#147 for edit profile, and one for replacing a stop from `feat/itinerary-replace-integration`, which also carries this log.
+- **Both together, run by the lead before either merged, exit codes read:** frontend 1,568 passed and 1 failed (the line-ending failure), 89 files; the build succeeded. The two branches merge with each other without a conflict.
+- **Left alone:** the base of #141 and #142, which is still `main`.
+
+## Round 28: sessions on the server, stage 2, a shared session (2026-10-16)
+
+The lead split the open work among the team (posted on the map), gave the Google ranking fix to faithpho (#149), took every recommendation on the server design's eight questions (#125), and asked for stage 2. Darryl's two pull requests went into `dev` first as #147 and #148, after the lead's agent ran every suite on each merged with `dev` (1569 frontend at the end, 1163 backend, build, the frontend with outbound calls blocked).
+
+| # | Role | Scope | Status |
+|---|---|---|---|
+| 28.1 | Frontend | Stage 2 (#127): sessions as database rows for a real account; invite by link and by username; `/join/:token`; both lobbies live; leave and remove through a new server route; a real session held at the lobby | **Completed** |
+| 28.2 | Lead | Run the stage's exact reads and writes on the live project as three throwaway accounts, in one statement that rolls back | **Completed**, 26 of 26 |
+| 28.3 | Code reviewer, read-only | Stage 2 | **Completed**: no blockers, four significant |
+| 28.4 | Frontend | Fix the review's findings (the same agent as 28.1) | **Completed** |
+
+- **28.1:** `frontend/src/lib/sessionsRemote.js` holds the remote functions; `lib/api.js` chooses local or remote per function by account, so the demo account, the showcase and the tour are unchanged. `DELETE /api/sessions/:id/members/:userId` (`me` or a uuid) behind the login check with its own limit. The development stand-in grew a database (`components/dev/fakeDatabase.js`) modelled on `db/schema.sql` and `db/policies.sql`. No migration was needed: the live publication already carries `sessions`, `session_members` and `invites`.
+- **28.2, on the live project:** the host created a session and its host row appeared; made one link (a second refused); a signed-out caller got only the preview; a second person saw nothing before joining, joined, read the session and both members, read no invite rows, and could not rename, cancel, make a link or delete a member row; the host renamed, found a third person by exact username and invited them; that person saw the invitation and not the session, and declined; the revoked link previewed nothing and refused joining; the host cancelled. Afterwards 1 account, 1 profile, no sessions, members or invites, and none of the test accounts.
+- **28.3:** the access rules and the route held. Significant: the Realtime channel would likely die on an ordinary page change (realtime-js reuses a channel that is still leaving; the stand-in did not model it); a resync did not refresh the open session page; an unfiltered delete event made every client read sessions it could not see and could mark a foreign session "gone"; a read in flight across an account switch could fill the next account's screens. Also: a read-then-write `plan_version` bump, and leaving allowed after a start.
+- **28.4:** all fixed, each with a test shown to fail without its fix: a topic per channel and a short grace before closing; every open session re-read on resync; deletes ignored for sessions the account does not know; an epoch and store tickets across account switches; a conditional retrying `plan_version` bump; the route only for `inviting` sessions, ids compared in lower case; "not found" only for a missing session; the link, username, decline and leave functions refuse for a demo or local account; the host hears declines, expiries and revokes live; the stand-in now dedupes channels by topic, runs triggers before the row check, answers 22P02 for a non-uuid and fails a RETURNING the caller cannot read.
+- **Run by the lead after the fixes, exit codes read:** frontend 1705 passed; backend 1185 passed and 2 skipped; build; both suites with outbound calls blocked, nothing attempted; none of the development-only tools in the built files.
+- **The builder's browser walk:** 17 steps with three accounts and a signed-out visitor in separate contexts sharing one stand-in database, at 1280, 375 and 320 px, including moving between screens mid-way; no errors, no overflow. Seen by the lead: the step list and results files, not screenshots.
+- **Not verified by anyone:** the live Realtime in a browser (including the `created_by` and `invitee_id` filters), two real devices, a real login token against the new route.
+- **Left for stage 3, recorded in `DESIGN.md`:** the held start is enforced only in the app; a removed guest can rejoin with the same link but cannot be invited by username again; a stage 1 real account's old local-only sessions are hidden.
+
+## Round 29: four teammates' pull requests reconciled (2026-10-17)
+
+The lead asked for the new pull requests to be reconciled. Open then: NICHOLE-ONG's #151 (invented venues, #54), darius-soh's #152 (#120, #121, #122, #98), oj0nathan's #153 (accessibility, #62) and #154 (layout, #63). Each was merged with `dev` on its own integration branch (`review/pr-<n>`), checked by the lead's agent, reviewed by a read-only reviewer, fixed by an agent, checked again, and merged into `dev` in the order #151, #154, #153, #152.
+
+**GitHub Actions has started no job since 16 October 10:18:** "recent account payments have failed or your spending limit needs to be increased". Every red CI mark since then is billing, not code; the lead agent's local runs were the only gate. The lead was told.
+
+| Pull request | Review | Fixed | Run by the lead's agent before merging, exit codes read | Merged as |
+|---|---|---|---|---|
+| #151 | No blockers. No test for any claim; a `rating` weight accepted and ignored; the pool switched on by `NODE_ENV=test`; "today" frozen at first load; stale docs | All; 17 new tests through `loadPlanData`, 13 fail on the old `dev` | backend 1202 (one shared-port failure, passed on rerun), also with `NODE_ENV=development` and with outbound calls blocked; frontend 1705; build | #155 |
+| #154 | Blocker: a sheet dragged closed reopened pushed down. Map controls, hover cards, toast and demo button ignored the insets; Home scrolled by them; a 12 px drag target | All; one source for the bars' real heights; the landscape-map sentence corrected after measuring | frontend 1721; backend; build; frontend with outbound calls blocked | #156 |
+| #153 | Significant: keyboard users could Tab to one Vote chip per slot. Untested directive wiring; a disabled chosen chip could strand a group; standing banners announced as alerts; `SelectField` error not tied to its field | All; Vote chips are toggles; 24 tests of the directive's wiring. One conflict with #156 in the toast, both kept | frontend 1766; backend; build; frontend with outbound calls blocked | #157 |
+| #152 | Required: a one-person "Already out?" outing paid JioCoins without limit; Home did not settle outings that ended elsewhere; the tour's hidden saves leaked into streaks. Advised: a read saved over a newer tab's save; demo "today" outings finished by themselves | All, plus the radius chips in a named chip row with one Tab stop, a notice when a radius change clears votes, tomorrow preset after 23:00, a closed outing taking no photos | frontend 1829; backend; build; frontend with outbound calls blocked | #158 |
+
+- **Tickets closed as done:** #54, #98, #120, #121, #122. #62 and #63 stay open for the checks a person must make (a keyboard and screen reader; a real phone with screenshots).
+- **Taking ratings out of the score (#151)** overlaps the Google ranking ticket #149, whose review-weighted ratings are now moot unless the lead wants ratings back; the lead was asked.
+- **Known and left:** in the demo, instant invite acceptance still lets a person pair with a sample friend to earn coins (the points are a labelled demo); anti-repeat's `groupId` is caller-supplied until real history exists.
+- **Not verified by anyone:** any of the four on a real phone, keyboard or screen reader.
+
+## Round 30: Faith's Google ranking pull request reconciled (2026-10-17)
+
+The lead asked for faithpho's #160 (ticket #149: Google places compete fairly) to be reconciled like the four before it. It was merged with `dev` on `review/pr-160` without conflicts, run by the lead's agent, reviewed by a read-only reviewer, fixed by an implementer agent, checked again, and merged into `dev`.
+
+**Ratings are back in the score, by the lead's agreement of 16 October on #149.** #151 had taken them out a day later; #160 puts in the review-weighted rating `(20 × 4.0 + reviews × stars) ÷ (20 + reviews)`, with no rating or no review count counting as 4.0, and rewrote #151's "rating never counts" tests to the new rule. The reviewer checked that they were updated, not weakened, and that a `rating` weight in a request is still a 400.
+
+| Review finding | Fixed |
+|---|---|
+| Significant: the count of our own places before asking Google used only category, distance and opening hours, so Google was skipped when diet, a last stop's near-MRT rule, closed weekdays, NEA closures, budget, duration or capacity left too few | The route counts with the engine's own hard filters (`hardFilterContext` in `engine.js`, used by Converge, Roam and the route) |
+| Significant: "2 Google in the top 5" was "2 in the top `topN`", and the app asks for 10 | A fixed window, `GOOGLE_CAP_WINDOW = 5` |
+| Significant: the rating's fixed weight of 8 swamped a caller's own small weights (8 of 9 with `{ worst: 1 }`) | `withRatingWeight` scales it to the weights in use, so its share stays about 8% |
+| Minor: the pre-score's distance-to-fit ratio moved for every request; the "Rated … from … reviews" reason was cut by the two-tag limit and lowercase; docs said cards show a review count (not built) and that the invented venues count as 4.0 (they carry counts); a wrong worked example | All |
+
+- **Tests:** 28 more in the backend suite (1,220 to 1,248), in `google-fair-ranking.test.js`; the filter, cap-window and rating-share tests failed on the code before the fixes. One existing test (`weather-forecast-window.test.js`) compared Google's additions for stops 1 and 5 hours from the real clock, which the top-up rule makes depend on the time of day (at 16:00 it failed: our own places were enough for food at 17:00 and not at 21:00). It now always asks Google, as the other Google tests do.
+- **Run by the lead's agent before merging, exit codes read:** in the table in `CLAUDE.md`.
+- **Not done (needs the lead's key and word):** #149's before-and-after count with one real Google ranking. The card's review count ("★ 9.2 (512)") is not built.
+
+## Round 31: stage 2 proven, and everything not blocked (2026-10-20)
+
+**Stage 2 passed the lead's two-device check** on 20 October with real accounts on the live project (sign-up, create, invite link, join, seen live, leave and remove). #127 and #126 were closed. The lead said "allow and continue building the rest that isn't blocked now".
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Invite search as you type | frontend engineer | `feat/invite-search` | Matches on the start of a username from the third character, up to five, people you have met first, through a server route so the profiles rule can still be narrowed (#125, question 7); a search icon and a clear button in the field; no Find button |
+| Stage 3 on the server (#128) | backend implementer | `feat/sessions-stage-3` | #125's E1 (spots while locating), E19, E20, E2 (confirm a spot), E21 (known place), leaving and removing in any open status (E25); nothing applied to the live project |
+| Stage 3 in the browser (#128) | frontend engineer | `feat/sessions-stage-3-frontend` | Locations, the exact place, spots, suggestions, "Works for me", confirm and the known place for a real account through `sessionsRemote.js`, live on the other device |
+| Planner failures (#57) | frontend engineer | `fix/planner-failure-states` | The three screens that show "Not found" for any failure; a timeout told apart from an unreachable server; flags reset in `finally` |
+| Faith's #162 and #163 | read-only reviewer, then the lead's agent | `review/pr-162`, `review/pr-163` | Audit, fix, merge as before |
+| NICHOLE-ONG's #164 (saving a completed outing and travel history) and #165 (planner API defects, #68) | one read-only reviewer each, then the lead's agent | `review/pr-164`, `review/pr-165` | Audit, fix, merge as before; #164 overlaps stage 5 |
+
+**Found before delegating, on the live project (read only):** #164's two functions, `complete_session_with_stops` and `complete_session_with_travel`, were put on the live project by hand on or after 17 October; they are not in its migration list. Only the service key may run them. Both insert `stops.not_before_minute`, which the live `stops` table does not have (it is in the unapplied `20261011000300_jio_session_plan.sql`), so both fail when called; nothing calls them yet. The `session_travel_debt()` function the pull request says reads the ledger is not live either.
+
+### 31.1 Results so far (20 October)
+
+- **#57, planner failure states:** merged as #166; #57 closed. 26 new tests; frontend 1855, backend 1248, build, frontend with outbound calls blocked, run by the lead's agent.
+- **Faith's #163:** one fix (only Latin accents stripped from cache keys, so Tamil, Devanagari, Thai and Japanese searches stay distinct); merged as #167.
+- **Faith's #162:** fixes for a healthy Google refused after one old failure, a reason and lane refund of its own, theatres only for the street graft (the repair script reproduces the file byte for byte), and the venue counts: the "Chinatown Singapore: History & Culture" entry, renamed "Chinatown", now merges into Chinatown Heritage Centre and Food Street, so the pool is 1,782 (417 OneMap); a test pins the counts. Merged as #168; backend 1268, frontend 1855, build, after merging `dev`.
+- **NICHOLE-ONG's #165:** no blocker. Fixes: "outside Singapore" said in the browser for a refused coordinate; rounding and `diagnostics` on separate switches; a bounding box per polygon (243 ms to 10 ms per 1,000 far-edge checks); search 400s name the sent parameter; tests for 21 real edge places checked by hand, leap days and every route's public shape. Merged as #169; #68 closed; backend 1318, frontend 1858, build.
+- **NICHOLE-ONG's #164: held.** Blockers: with a session id the planner calls `session_travel_debt()`, which is not on the live project, so Locate would answer 500 for real accounts once stage 3 lands; any Supabase failure fails the planner; the completion endpoint lets any member post everyone's travel minutes and stops, so fairness history can be forged and never corrected. Audit posted; the work is to be folded into stage 5 (#130). The lead was asked whether to drop the two broken functions from the live project.
+- **Invite search:** reviewed (no security defect); fixes for "met before" being cut at Supabase's row cap, a failed "met before" read failing the search, `no-store` on every answer, `like` for `ilike`, and three tests that did not prove their names.
+
+### 31.2 Stage 3 (#128): locations and meeting spots on the server (20 October)
+
+- **Built** by two agents in parallel: the server half (`feat/sessions-stage-3`: E1, E19, E20, E2 as confirm, E21, E10, E11, E25 in locating, a shared planner runner, a per-session queue, and `apply_session_plan`) and the browser half (`feat/sessions-stage-3-frontend`: locations, spots, suggestions, "Works for me", confirm and the known place for a real account, live on the other device). An integration agent merged both with `dev` (conflicts with #169's public answer, #161's own-places count, #170 and #168, all kept) and reconciled the contract (a late location update after a confirm answers `not_yet` or `wrong_status` and keeps the start; one banner shape; the repair check settles through `recomputed`).
+- **Reviewed** by two read-only reviewers: no blocker. Server: a session id's letter case defeated the queue, the function counted any session section as a change, the stamp was the write time, and the function did not itself stop a host's removal, a pin without a confirm or a start left with one person. Browser: a failed save could undo a newer one, a refused suggestion left "Updating travel times" up, and "Continue without" removed a person for good and could leave the host alone. All fixed by two agents; the lead's agent capped `loaded_at` at the database's clock and hid Remove beside a name when one person would remain.
+- **The function on the live project:** the 49-step test was run inside a rolled-back transaction (a missing quote in step 35 found and fixed), then the tightened function's 76 steps; both passed and left nothing. Applied at the lead's word ("apply") as migration `jio_apply_session_plan`, checksum-guarded against the file (md5 773b44e3…); afterwards only `service_role` may execute it, a signed-in and an anonymous call are refused 42501, and the project still held 3 accounts and 1 session.
+- **Run by the lead's agent before merging, exit codes read:** backend 1453 passed, 2 skipped, also with outbound calls blocked; frontend 2019 passed, also with outbound calls blocked; build; no stand-in code in the built files.
+- **Not verified:** two real people on two devices (the lead's check). **Left for a decision:** a person the host removed can rejoin through an open invite link.
+
+### 31.3 The hand-applied completion functions dropped (21 October)
+
+- **What:** `complete_session_with_stops` and `complete_session_with_travel`, put on the live project by hand from NICHOLE-ONG's held #164 on or after 17 October. They were never in the migration list. Both inserted `stops.not_before_minute`, which the live `stops` table lacks, so neither could run. Both took the stops and every member's minutes from the browser, against the design (#80 E14, #125 slice d: host only, the server computes the ledger from stored rows).
+- **Checked first:** no dependents in `pg_depend`, no triggers, and no caller in `dev`.
+- **Done at the lead's word** ("drop the broken functions"): migration `jio_drop_unreviewed_completion` (`db/migrations/20261021000000_jio_drop_unreviewed_completion.sql`), checksum-guarded against the file. Afterwards neither function exists, and `apply_session_plan` is still present. The live migration list now has eight entries.
+- **What comes back, and where:** finishing an outing, the travel ledger and history in recommendations are rebuilt to the design in stage 5 (#130). Reused from #164: the membership check through the caller's own client, and the locked, retry-safe shape of the function. Changed from #164: host only; the ledger computed by the server (minutes in from the stored `session_members.travel_minutes`, minutes home routed); stops written by the server's own confirm, not sent at completion; history loading that never fails a planner request and starts from the caller's own sessions. The audit is on #164, with a note of the drop.
+
+### 31.4 Faith's #172 and #173 reconciled (21 October)
+
+- **#172**, real transit times between the 37 areas (a saved OneMap table) for the meeting-area shortlist. **#173**, an optional balanced rule and labelled choices. The two merged cleanly with `dev` and with each other, so both were fixed on one branch, `review/pr-172-173`.
+- **Reviews**, one read-only reviewer each.
+  - #172: two significant findings. The OneMap terms were unread. The known-place pricing ignored the table, so it disagreed with the spot list. Minor: same-area trips priced above neighbouring areas; a jump in the estimate for exact addresses; the builder stuck on routes OneMap cannot find; more finalists starving members' named areas; stale docs.
+  - #173: no blocker; requests without the new fields answer as before. Minor: `lowest_average` labelled on a weighted mean but showing the raw one; `choices` accepted off the station method; ties decided by floating-point noise; converge's weighted trips saturating the penalty; two wrong doc figures; unreproducible measurements.
+  - All were fixed by an implementer agent, including a script that reproduces the balanced rule's measurements.
+- **OneMap terms**, read by an agent on 21 October:
+  - Clause 3(a) licenses SLA data "for any usage". Clause 3(b)(i) forbids storing it "except as expressly permitted" by 3(a). The Open Data Licence does not clearly cover OneMap. The Developer Agreement was not read.
+  - The lead decided to keep both saved OneMap files (`area-times.json` and `onemap-places.json`) under five conditions recorded in `backend/docs/external-apis.md`: non-commercial; repository private; credit with the access date; minutes and place fields only, no raw responses; delete both if OneMap asks or the licence ends.
+- **Run by the lead's agent before merging, exit codes read:** backend 1547 passed, 2 skipped, also with outbound calls blocked (none attempted); frontend 2019 passed; build succeeded. (The outbound-call guard had been deleted from the scratch folder; it was recreated, and checked to refuse example.com, before this run.)

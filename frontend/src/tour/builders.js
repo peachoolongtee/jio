@@ -149,7 +149,8 @@ export async function buildSessions(specs, { now, makePhotos, onProgress = () =>
     try {
       const day = format(addDays(now, spec.day), 'yyyy-MM-dd')
       const { start = '12:00', end = '20:00' } = spec.window ? todayWindow(now) : spec
-      entry.id = (await api.createSession({ title: spec.title, date: day, start, end, hostId: spec.hostId })).id
+      // keepOpen: a demo session's window is fixed when it is loaded, so its end time must never finish it by itself.
+      entry.id = (await api.createSession({ title: spec.title, date: day, start, end, hostId: spec.hostId, keepOpen: true })).id
     } catch (error) {
       entry.error = error
     }

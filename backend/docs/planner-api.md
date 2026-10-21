@@ -2,7 +2,18 @@
 
 How the frontend asks the backend where to meet and which venues to suggest. The routes live in `backend/src/routes/plan.js`, the input checks in `backend/src/routes/plan-schemas.js`.
 
-Base URL: `VITE_API_BASE_URL` (locally `http://localhost:3000`). Every request and response is JSON. All four endpoints are `POST`.
+Base URL: `VITE_API_BASE_URL` (locally `http://localhost:3000`). Planner requests and responses are JSON. Ranking and slot search use `POST`; address search and the build-spec venue-search alias use `GET`.
+
+Coordinates are checked against the URA Master Plan planning-area land polygons plus a bounded central planning envelope, so outlying Johor and Batam points are rejected while central coastal points remain usable. `dateTime` must be a real `YYYY-MM-DDTHH:MM` calendar date in Singapore local time; weekday-specific Google opening hours and explicit closed-weekday data use its date.
+
+## What the public answer leaves out
+
+Two things are separate:
+
+- **Minutes are rounded to one decimal place, always.** Every `...Minutes` field (`worstMinutes`, `meanMinutes`, `travelMinutes`, `walkMinutes`) and every value in `travelByMember`, `returnByMember` and `times` is rounded: `45.468` is sent as `45.5`. Rounding does not depend on any setting.
+- **`diagnostics` is shown only with `PLANNER_DIAGNOSTICS=1`** in the server's environment (blank by default, see `backend/.env.example`). It holds the engine's own counters (`routingCalls`, `passedFilters`, `radiusUsed`, `rejectedCounts`, `extraRoutingCalls`) and is for debugging; a client must not read it. The backend's tests turn it on in `vitest.config.js`. `NODE_ENV` changes neither.
+
+In code, `createApp({ includePlannerDiagnostics, roundPlannerMinutes })` sets the two; a test that needs the engine's raw minutes passes `roundPlannerMinutes: false`. The sample answers below show the public shape, so they have no `diagnostics`.
 
 | Endpoint | Use it for |
 |---|---|
@@ -10,6 +21,8 @@ Base URL: `VITE_API_BASE_URL` (locally `http://localhost:3000`). Every request a
 | `POST /api/converge` | Once per itinerary slot: rank venues for the group around the meeting point. |
 | `POST /api/roam` | "What next?": rank venues near one person's current point. |
 | `POST /api/search` | Find a place by name to add as an option, and say whether it fits the slot. |
+| `POST /api/plan/converge`, `POST /api/plan/roam` | Build-spec aliases for the two ranking endpoints above. |
+| `GET /api/venues/search?q=...` | Build-spec search alias. Optional `lat`, `lng`, `dateTime`, `category`, `durationMinutes` and `limit`; defaults to central Singapore and the current Singapore date/time. |
 | `GET /api/places/search?q=` | Find an address, postal code or building with OneMap, for start and end points. |
 
 Travel times are real OneMap public transport times once the server has a OneMap account (`ONEMAP_EMAIL`, `ONEMAP_PASSWORD`), and the engine's estimate until then. Every answer says which it used: see [Travel times](#travel-times). Weather: see [Weather](#weather).
@@ -129,10 +142,11 @@ Response (real output for the request above):
   "worstMember": "Ian",
   "meanMinutes": 44.3,
   "travelByMember": { "ian": 45.5, "faith": 43.1 },
-  "approximate": false,
-  "diagnostics": { "routingCalls": 74, "activeMembers": ["ian", "faith"] }
+  "approximate": false
 }
 ```
+
+With `PLANNER_DIAGNOSTICS=1` the answer also carries `"diagnostics": { "routingCalls": 74, "activeMembers": ["ian", "faith"] }` (see [What the public answer leaves out](#what-the-public-answer-leaves-out)).
 
 Pass `centre` to `/api/converge`. `approximate: true` means some trips used the estimate, because OneMap could not answer them or because they were left out of the per-request cap or the shortlist. Say "about" in the UI. The answer also carries `travel` (see [Travel times](#travel-times)).
 
@@ -166,7 +180,7 @@ Two optional request fields add a `candidates` list to the answer: the chosen ar
 - **An included area's times are real when the cap has room and estimated otherwise.** With routing on, an included area is routed for every member when the 60-trip cap has room for it whole, after the chosen area and the runners-up; otherwise every member's time is the estimate. Its `approximate` says which: `false` for real times, `true` for estimates. With routing off, its times are estimates and its `approximate` is `false` (see the next point).
 - **`approximate` on a candidate is about that area alone**: true when at least one of its own trips used the estimate, because OneMap could not answer, or because the area did not fit the per-request cap. This is narrower than the top-level `approximate`, which is true when any area the ranking compared used an estimate. So `candidates[0].approximate` can be `false` while the top-level `approximate` is `true`, when the chosen area was routed for every member and a lower-ranked area was not. Say "about" for a candidate only when its own flag is true.
 - **`approximate` is false when routing is off, although every time is then an estimate.** The flag means "a trip fell back to the estimate", and with no OneMap service nothing falls back: the estimate is all there is. So do not read `approximate: false` as "real times". Read `travel.source`: `'estimate'` means every time in the answer, candidates included, is the engine's estimate, and `'onemap'` means at least one trip got a real time, with `approximate` then telling which areas fell back.
-- **`diagnostics`** gains `extraRoutingCalls` (only when candidates are asked for): the trips the engine asked about for areas outside the chosen area's ranking, that is included areas the station rule did not try, or, for another method, the areas tried for runners-up. `routingCalls` is unchanged.
+- **`diagnostics`** (shown only with `PLANNER_DIAGNOSTICS=1`) gains `extraRoutingCalls` (only when candidates are asked for): the trips the engine asked about for areas outside the chosen area's ranking, that is included areas the station rule did not try, or, for another method, the areas tried for runners-up. `routingCalls` is unchanged.
 - **`travel`** counts the extra areas' trips as well (`asked`, `routed`, `estimated`), so it can differ from the same request without the new fields.
 
 Errors are the route's usual `400 invalid_input`. An unknown or repeated area id names the entry in `issues`:
@@ -180,6 +194,61 @@ Errors are the route's usual `400 invalid_input`. An unknown or repeated area id
 ```
 
 A repeat says `each area can be included once` at the path of the later entry. `alternatives` that is negative, above 3 or not a whole number is an issue on `alternatives`; more than 8 ids is an issue on `include`. An id must match exactly, in lower case, as in `areas.json`.
+
+### A fairer choice: `rule: "balanced"` and `choices`
+
+Added 19 October 2026. Both are optional. A request without them is answered exactly as before: the default rule is unchanged, and no `rule` or `choices` appears in the answer.
+
+**Why.** The default rule picks the area where the *longest* trip is shortest. It looks at the gap between people, or at anyone's past travel, only when two areas have exactly the same longest trip, which with real minutes almost never happens. So a group where one person travels 41 minutes and another 18 gets no help from the gap, and a person's past travel changes nothing. `pnpm measure:balanced-rule` measures it: with one person of each group owed 240 minutes, the default rule's area changed in 0 of 100 random groups (see "What it changes, measured", below).
+
+| Field | Meaning |
+|---|---|
+| `rule` | `longest` (default, today's rule) or `balanced`. Only with `method: "station"` (the default method): any other method with `balanced` answers 400 at `rule`. |
+| `choices` | `true` adds `choices`: the places a group can pick between, each labelled (below). Works with either rule, but only with `method: "station"`: with any other method `choices: true` answers 400 at `choices` (`choices: false` is always accepted). |
+
+**The balanced rule** starts from today's pick and moves away from it only when that costs the group nothing. Over the same areas the station rule compares (the same real routes, and no more calls):
+
+1. **Past travel counts.** Each member's trip is multiplied by `1 + travelDebtMinutes / 60`, at most 3. Someone who travelled more than their share last time counts more, so the point moves toward them. With no balance every weight is 1. (The 60 is fixed for the API: the engine's `fairnessScaleMinutes` is not a request field.)
+2. **A hard cap.** Only areas whose longest real trip is within 35% (or 10 minutes) of the best longest trip anywhere are considered. Past travel and the gap can never make someone travel far just to even things out.
+3. **Only a swap that costs nothing.** Today's pick (the shortest longest weighted trip) is the baseline. Another area is considered only if its longest weighted trip is within 5% (at least 2 minutes) of the baseline's **and** its weighted average trip is within 10% (at least 3 minutes) of the baseline's.
+4. **Smallest gap.** Of those, take the one with the smallest gap between the longest and shortest weighted trip; then the lower weighted average; then the lower longest trip. The baseline is always among them, so the rule never picks an area whose longest weighted trip is more than 5% (at least 2 minutes) over the baseline's, nor whose weighted average is more than 10% (at least 3 minutes) over it. Two numbers closer than a billionth of a minute count as equal, and the tie goes to the next key.
+
+The answer has `rule: "balanced"`, and `candidates` (when asked for) list the chosen area first, then the other allowed areas, then the rest. Each trip is still in real minutes.
+
+**`choices`.** Each choice has `labels`, the `area`, `worstMinutes`, `meanMinutes`, `gapMinutes` and `travelByMember`, all in real minutes (past travel does not enter any figure shown). A place that wins several labels comes once.
+
+| Label | The place |
+|---|---|
+| `shortest_longest_trip` | where the longest trip is shortest (then the lower fairness-weighted average): today's rule |
+| `most_balanced` | the balanced rule's pick |
+| `lowest_average` | with the lowest average of everyone's real trips (`meanMinutes`), among the places inside the same cap as the balanced rule (longest real trip within 35% or 10 minutes of the best). A place that is cheap on average only because one person travels far is not offered |
+
+**On `/api/converge`.** `rule: "balanced"` is accepted there too, and the answer says `rule: "balanced"`. It changes how venues are scored, not which venues are asked about. `worst` and `gap` are scored on real minutes, as in the default rule, and each result has `gapMinutes` (the longest real trip less the shortest). The weights from past travel are a term of their own, `debt`, in the `breakdown`: the longest weighted trip less the longest real trip, against a ceiling of 60 x 2 minutes, so a heavy weight cannot push every venue to the same penalty. `debt` weighs twice what `worst` does, and is left out when nobody is owed anything. `gap` weighs 8 beside `worst` at 25. `mean` is the weighted average trip, with the same capped weights as the meeting area (at most 3). Unlike the meeting area there is no hard cap on the longest trip: venues are ranked by their score, and the travel ceiling (`travelCeilingMinutes`, 60) and the other factors decide.
+
+**A worked example, with OneMap times** (Aiyu and Ben in Tanah Merah, Chen in Lakeside, Dina in Simei; Saturday 24 October 2026, 12:30; minutes for each person in that order). The figures were copied by hand from the author's runs against OneMap, which cannot be repeated offline and are not recorded anywhere else in the repository; the tests use them as fixed numbers.
+
+| Area | Trips | Longest | Gap | Average |
+|---|---|---|---|---|
+| Paya Lebar (the map's midpoint) | 11 / 18 / 42 / 16 | 42 | 31 | 22 |
+| Bugis | 22 / 28 / 36 / 27 | **36** | 14 | 28 |
+| Dhoby Ghaut | 28 / 34 / 38 / 32 | 38 | 10 | 33 |
+| Somerset (the station rule's pick) | 29 / 35 / 39 / 34 | 39 | 10 | 34 |
+| Caldecott | 36 / 42 / 35 / 40 | 42 | 7 | 38 |
+
+A first version of this rule picked Caldecott: its gap is smaller (7 against 10) but three people lose about 7 minutes each to save one person 4, and the average rises by 4. The rule above refuses that swap (the longest trip is over 39 + 2, and the average is over 34 + 3.4), keeps Somerset among these, picks Dhoby Ghaut when it is on the list, and Bugis when that is. `tests/balanced-meeting-area.test.js` has these numbers.
+
+**What it changes, measured.** `pnpm measure:balanced-rule` (`scripts/measure-balanced-rule.js`) makes no network call. It runs 400 random groups of 2 to 5 people (seed 7, homes anywhere on the island, no past travel) through the meeting area with the engine's own straight-line estimate. Real OneMap times differ. Its output, 21 October 2026:
+
+| Rule | Longest trip | Average gap between people | Average trip |
+|---|---|---|---|
+| default (`longest`) | 43.0 min | 17.0 min | 35.4 min |
+| `balanced` (the setting: longest within 5%, average within 10%) | 43.2 | 15.9 | 35.9 |
+| `balanced`, longest within 10%, average within 10% | 43.6 | 15.5 | 36.1 |
+| `balanced`, longest within 10%/4 min, average within 20%/5 min | 44.0 | 14.8 | 36.8 |
+
+With `--table` the same groups use the area table's guess (34.5 / 15.4 / 27.9 for the default, 34.8 / 14.7 / 28.2 for the setting). The figures this document gave before (35.3 to 35.5 minutes, gap 14.5 to 13.7) came from a one-off measurement whose generator was not kept; they were replaced with these, which anyone can reproduce. The setting shrinks the gap by about 1.1 minutes on average (0.7 with the table) and adds 0.2 to 0.3 minutes to the longest trip. It matters most when several areas are close on the longest trip and the average, and when someone is owed travel: with one person in each of 100 groups owed 240 minutes, the default rule changed its area in 0 groups and the balanced rule in 87 (86 with the table). A loose version shrinks the gap more but starts trading the group's time for evenness, which is the Caldecott problem above. **The larger limit is the list of areas that get real routes, not this rule:** in the example Bugis (longest 36) was never routed, because the straight-line estimate that shortlists areas ranked it 18th of 37. See the shortlist, below.
+
+**The shortlist.** With OneMap routing on and no area table, a request narrows to the 16 areas nearest the fairest point and gives real routes to the 5 whose straight-line estimate is best. With the table, the 16 are the ones with the shortest guessed longest trip. In the example, that shortlist never reached Bugis (longest 36). A better first estimate is what would reach it: see [The table of real times between areas](#the-table-of-real-times-between-areas).
 
 ## POST /api/converge
 
@@ -212,11 +281,12 @@ Request (one slot; the response below is real output for these two members with 
 | `lastStop` | no | The frontend's last-stop rule: only venues within `lastStopMrtWalkMinutes` (default 10) of an MRT, and the longest trip home counts toward the score. |
 | `unknownPolicy` | no | `strict` (default): a venue with no data on a diet need, step-free access or sockets is left out. `lenient`: it is kept, and `dietUnknown` says what we don't know. |
 | `groupConstraints` | no | `step_free`, `sockets`, `quiet`, `indoor_only`, `max_price_pp:N`, `near_mrt:N`. |
-| `weights` | no | Override scoring weights, all 0 or more. Keys: `worst`, `mean`, `returnWorst`, `occasion`, `preference`, `rating`, `weather`, `price`, `cdc`, `antiRepeat`, `crowd`. `crowd` has no weight by default, so it doesn't change the ranking unless you send one. |
+| `weights` | no | Override scoring weights, all 0 or more. Keys: `worst`, `mean`, `returnWorst`, `occasion`, `preference`, `weather`, `price`, `cdc`, `antiRepeat`, `crowd`. `crowd` has no weight by default, so it doesn't change the ranking unless you send one. **There is no `rating` weight a caller can send**: the rating always counts (as far as its reviews, see "Things to know" below) with a weight the server sets and scales to the weights in use, so a request that sends `weights.rating` is refused with the usual 400 (`invalid_input`, path `weights.rating`). Venues carry `rating` and `ratingCount` for display. (Roam takes the same keys except `worst`, `mean` and `returnWorst`, plus `distance`.) |
 | `weatherCase` | no | `clear`, `rain`, `rain_east`: a simulated forecast. Used only when the server allows it; otherwise ignored. See [Weather](#weather). |
 | `currentOptionIds` | no | The options the group is already voting on. Each one that passes the hard filters and is within 3 km is always scored, even past the shortlist (a place added by search, or swapped in for rain), and comes back in `current`. A rain swap never suggests one of these. |
 | `radiusMeters` | no | The search radius the group chose, 100 to 3000. Only places inside it are suggested or kept in `current`. Without it, the search widens on its own (500 m, 1, 2, then 3 km). Search takes the same limit as `maxKm`. |
-| `optedOut`, `overrides`, `excludeVenueIds`, `groupId`, `topN`, `seed`, `travelCeilingMinutes` | no | As in the engine (`backend/src/planner/engine.js`). |
+| `groupId` | no | Names the group whose visit history anti-repeat looks at. Without it anti-repeat is 0 for every venue. See [Known limits](#known-limits). |
+| `optedOut`, `overrides`, `excludeVenueIds`, `topN`, `seed`, `travelCeilingMinutes` | no | As in the engine (`backend/src/planner/engine.js`). |
 | `minOptions` | no | Keep widening the search (500 m, 1 km, 2 km, 3 km) until at least this many places fit. Default **3**, max 30. Ignored when `radiusMeters` is sent. |
 | `shortlistSize` | no | How many places are fully scored, with travel times. Default **10**, max 30. The answer has at most this many `results` (and at most `topN`). Each one costs a OneMap route per member and trip. |
 
@@ -253,12 +323,11 @@ Response:
       "breakdown": { "worst": { "value": 75.2, "weight": 25, "contribution": 18.5 } },
       "venue": { "id": "v25", "name": "…", "category": "eat", "source": "mock" }
     }
-  ],
-  "diagnostics": { "passedFilters": 1446, "radiusUsed": 500 }
+  ]
 }
 ```
 
-`breakdown` and `venue` are shortened here; the real response has every factor and every venue field.
+`breakdown` and `venue` are shortened here; the real response has every factor and every venue field. With `PLANNER_DIAGNOSTICS=1` the answer also has `"diagnostics": { "passedFilters": 1446, "radiusUsed": 500 }`.
 
 What to show for each result:
 
@@ -269,7 +338,7 @@ What to show for each result:
 | `dietUnknown` | Diet needs we have *no* data on (lenient mode only). Say "halal status not known". |
 | `crowd` | `quiet`, `moderate`, `busy` or `unknown`. Always label it as an estimate ("Busy · est."). |
 | `walkMinutes` | Walk from the meeting point (Converge) or the current point (Roam). Same formula as the frontend's `walkMinutes`. |
-| `reasons` | Up to two tags, same ones and same order as the frontend: "Indoor" (when it rains), "Easy trip home" (last stop, everyone home within 35 min), "Near MRT", "Quiet at 12:30", "Short walk", "Hidden gem", "Budget friendly" (under $10, and only when the price is known: a venue with `dataQuality.priceAssumed` never gets it, whatever its source. That is every OneMap and CDC place, and a Google place with no price level). |
+| `reasons` | Up to two tags, same ones and same order as the frontend: "Indoor" (when it rains), "Easy trip home" (last stop, everyone home within 35 min), "Near MRT", "Quiet at 12:30", "Rated 4.6 from 512 reviews" (only with at least 50 reviews and a weighted rating of 4.2 or more; a low rating is never a reason), "Short walk", "Hidden gem", "Budget friendly" (under $10, and only when the price is known: a venue with `dataQuality.priceAssumed` never gets it, whatever its source. That is every OneMap and CDC place, and a Google place with no price level). |
 | `warnings` | `["rain"]` when rain is likely (risk 0.6 or more) at an open-air or exposed venue. |
 | `swap` | With a rain warning: `{ "venueId", "name" }` of an indoor alternative that is not already shown or in `currentOptionIds`, or `null` if none is within 3 km. |
 | `approximate` | At least one travel time is an estimate: routing failed for it, or its venue did not fit the per-request cap on OneMap calls. |
@@ -336,7 +405,7 @@ Response (real output, without `members`):
 }
 ```
 
-Places that fit come first, then by walking time. `distanceKm` is rounded here. `unfit` says why a place can't be added. It uses the same words as `diagnostics.rejectedCounts`:
+Places that fit come first, then by walking time. `distanceKm` is rounded here. `unfit` says why a place can't be added. It uses the same words as `diagnostics.rejectedCounts` (a counter shown only with `PLANNER_DIAGNOSTICS=1`):
 
 | `unfit` value | Meaning |
 |---|---|
@@ -561,14 +630,16 @@ With `GOOGLE_MAPS_API_KEY` set, `/api/converge` and `/api/roam` add up to 20 of 
 |---|---|
 | `google` | `added` places came from Google (places the venue list already had were skipped) |
 | `off` | The server has no Google key |
-| `not_needed` | The request asked for no category Google is used for |
+| `not_needed` | Google was not asked. `reason: 'enough_own_places'` when we already know at least 6 open places of every category asked, near the meeting point; with no `reason`, the request asked for no category Google is used for |
 | `unavailable` | Google couldn't be used: it failed or timed out, the server's Google call budget for the minute is used up, or Google is paused after repeated failures. The answer uses the other venues |
+
+`skipped` is there when Google was asked about some categories and not others: the categories we know at least 6 open places of near the meeting point (`["eat"]`). Google tops up, it does not flood: it is asked only about the categories where we know fewer than 6, and at most 2 of the first 5 places of a category are Google's, whatever `topN` is (Google's other places come below ours until position 6; nothing is dropped). "Known" means the places the planner itself would keep for this request: our saved and curated places inside the search circle that pass the same hard filters the ranking uses (dietary needs, `groupConstraints`, a `lastStop`'s near-MRT rule, closed weekdays and cleaning closures, `durationMinutes`, group size, `excludeVenueIds`, and being open at the time asked).
 
 `missing` is there only when the server has a Google key and it is not empty. It lists the option ids `google_...` in `currentOptionIds` that could not be looked up this time, so the screen can show those options as "can't be checked right now" instead of dropping them without a word. A place is missing when Google answered 404 for it (remembered for 5 minutes), the look-up failed, was too slow, or was over this request's limit, the id is not a Google place id, or the place is not an outing (`not_an_outing`). It is "this time" only: the same id may be found by the next request.
 
 **How many Google calls this makes.** A ranking makes at most one nearby search, and looks up at most 3 of the Google places in `currentOptionIds` (at most 2 at a time; only the first 6 Google ids are read). A place looked up in the last 10 minutes, or answered 404 for in the last 5, costs no call. The nearby search and the look-ups run together, and everything Google adds waits at most 3.25 seconds (one call timeout of 3 s plus 250 ms); past that the ranking goes on without it. Every Google call, searches, look-ups and photos together, is counted against one budget for the whole server: `GOOGLE_CALLS_PER_MINUTE` (default 60), with at most 4 calls running at once. A call over the budget is not made, and the answer says `unavailable`. A search is cached for 10 minutes, and its radius is rounded up to 500, 1000, 2000 or 3000 m before it is asked or cached (so `radiusMeters: 1001` and `2000` share one search; the circle always covers what was asked). A Google call waits at most 3 seconds. After 3 failures in a row (a timeout, a network error, a 4xx or 5xx, or an answer that cannot be read) Google is skipped for 60 seconds, and one success closes the pause again. A failure is logged at most once a minute per reason. An answer where `places` is not a list is a failure and is never cached; a single unreadable place in a list is skipped.
 
-A Google venue has `source: 'google'`, `googlePlaceId`, a real `rating` and `ratingCount`, `address`, and that **day of the week's** `openingHours`. It may also have `photo: { name, credit, credits }`:
+A Google venue has `source: 'google'`, `googlePlaceId`, a real `rating` and `ratingCount` (a food or drink place found by the nearby search needs at least 20 reviews to be added, a shop 50, an activity 30; a place someone searched for by name is exempt), `address`, and that **day of the week's** `openingHours`. It may also have `photo: { name, credit, credits }`:
 
 - Show the photo with `GET /api/places/photo?name=<photo.name>&maxWidth=400`. It redirects to the image, and the key never reaches the browser.
   - `maxWidth` is rounded to a whole number and up to 200, 400, 800 or 1600 (400 when left out), so there are four sizes of each photo.
@@ -610,7 +681,7 @@ The counts always add up: `asked = routed + cached + walked + failed + estimated
 | `failed` | OneMap was asked and gave no time (an error, or no route), or the cache remembers "no route". The engine used its estimate. |
 | `estimated` | Never asked, so the engine used its estimate. Its venue or area did not fit the per-request cap (or the meeting-area shortlist), or OneMap was not available (the shared call budget was used up, routing was paused after repeated failures, the login failed), or this request waited its 8 seconds. |
 
-`approximate: true` on a result (or on the meeting area) means at least one of its trips used the estimate, whether it `failed` or was `estimated`. A result that is not approximate has real times for every trip. `diagnostics.routingCalls` is the engine's own count of the trips it asked about; `travel` is what was really fetched.
+`approximate: true` on a result (or on the meeting area) means at least one of its trips used the estimate, whether it `failed` or was `estimated`. A result that is not approximate has real times for every trip. `diagnostics.routingCalls` (with `PLANNER_DIAGNOSTICS=1`) is the engine's own count of the trips it asked about; `travel` is what was really fetched, and is always shown.
 
 How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 - The engine runs once to find the trips it needs. Those are fetched from OneMap, 6 at a time, and the engine runs again with the real times.
@@ -629,7 +700,25 @@ How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 - The way back is taken to be as long as the way there, so one route serves both. Most members end where they started, so this halves the calls.
 - Times are for the start of the slot's hour. Routes are cached for 6 hours, by points rounded to about 110 m.
 - The OneMap login token lasts 3 days. The server gets a new one an hour before it runs out.
-- With routing on, the meeting area tries the 16 areas nearest the fairest point, unless `maxCandidates` is sent. 16 never missed the best area in 2,000 random groups. `/api/meeting-area` also accepts `dateTime`, for when the group sets off; without it, the server uses the time now.
+- With routing on, the meeting area tries 16 areas, unless `maxCandidates` is sent. Without the area table (below) they are the 16 nearest the fairest point on the map, and 16 never missed the best area in 2,000 random groups. That measurement was made without the table. With the table they are the 16 whose guessed longest trip (from the table, plus a short hop at each end) is shortest, which has not been measured the same way. `/api/meeting-area` also accepts `dateTime`, for when the group sets off; without it, the server uses the time now.
+
+### The table of real times between areas
+
+Added 21 October 2026. With OneMap routing on, a meeting-area request first guesses every area's trips, narrows to 16 areas and gives real routes to the 5 best guesses. The guess used to be the straight line between two points, which ignores the MRT: for a real group (two people in Tanah Merah, one in Lakeside, one in Simei) Bugis had the best real longest trip (36 minutes) and the best average (28), but the straight line ranked it 18th of 37, so it was never routed, and the answer was Somerset (39 and 34).
+
+`src/db/mock/area-times.json` holds **real public transport minutes between every pair of the 37 areas**, taken from OneMap once with `pnpm build:area-times` (about 666 calls, paced at 50 a minute; stop the running server first: the account allows 300 a minute for everyone and the server may use 240; it saves as it goes and carries on where it stopped). With it, the guess for any two points is the shortest, over the three areas nearest each end, of the real time between those areas plus a short hop at each end (`planner/area-times.js`). A member of a session starts on an area's centre, so for a session it is exactly the table's time. A trip inside one area is the least of the straight line, the two hops and the area's shortest trip to a neighbour, so it is never longer than leaving the area. A point has no distance limit (the hop just grows), so there is no jump where "near an area" ends. And:
+
+- the 16 candidate areas are the 16 with the shortest guessed longest trip (then the lower mean), not the 16 nearest the fairest point on the map. The "never missed the best area in 2,000 random groups" figure belongs to the old way and was measured without the table;
+- the 5 that get real routes are the best by that guess;
+- trips that get no real route (and every trip, when OneMap is off or over its budget) use the same guess instead of the straight line.
+
+`MEETING_FINALISTS` (1 to 12, default 5) raises the number of areas that get real routes: more use more of the OneMap budget the whole team shares (a request still routes at most 60 trips, whole areas only). **The trade-off:** with 6 members, 12 finalists would take 72 trips, so the 60 are used up by ten finalists and the areas a request names in `include` (or that members suggest in a session) would get only estimates. So the first 5 finalists are routed first, then the named areas, then the other finalists with what is left. With the default 5 nothing changes, and naming areas never changes the chosen area. With more than 5, a request that names areas can route fewer of the extra finalists than one that does not, so when the 60 trips run out the chosen area can differ between the two; that is the price of the named areas getting real times.
+
+Nothing changes without the file: `index.js` loads it when it exists (and not in stub mode), and says "Area travel times are ON" at start-up. A request is answered the same way, with the same fields; only which areas get real routes, and the estimate behind unrouted ones, differ. `/api/converge` and `/api/roam` keep the straight-line estimate for venues.
+
+The table carries a credit to OneMap (`_meta.credit`): check OneMap's terms before reusing the times elsewhere. A value that cannot be a time (negative, over 6 hours, not a number) is not used and the straight line answers for that pair; at start-up the server says how many of the areas' pairs the table covers, and warns when it covers fewer (the areas changed since it was built: rebuild). `tests/area-times.test.js` fails when the saved table does not cover every pair of the current areas.
+
+The times are for one moment (a Tuesday at 12:30, in `_meta.dateTime`): they rank areas, they do not show the evening rush, and a request's real routes still use its own time. Rebuild when the lines or the areas change (a new MRT line opens, an area is added), with `pnpm build:area-times -- --date <a date-time>`; the script starts a fresh table when the moment changes. It refuses a pace above 120 calls a minute and a date that is not `YYYY-MM-DDTHH:MM`. A trip OneMap says it cannot route (400, 404 or 422) is listed under `_meta.missing` and not asked for again; any other failure waits a minute and tries again. When the areas change, a rebuild drops the pairs of areas that are gone and keeps the rest. `--help` says all of this. Where the data came from and the conditions it is kept under are in [external-apis.md](external-apis.md#saved-onemap-data-and-its-terms).
 
 ## GET /api/places/search
 
@@ -722,6 +811,124 @@ or `{ "status": "no_other_order", "message", "blockers" }` when no other order f
 | `mrtWalk` | 0 to 120 minutes |
 | `startAt`, `endAt`, a stop's `start` | `startAt` 0 to 1439; `endAt` and `start` 0 to 2880 (minutes after midnight, over 1440 for past midnight) |
 
+## Session endpoints: where a group meets (`/api/sessions/:id/...`)
+
+Not planner routes. They work on a shared session in Supabase, so they need a login (`Authorization: Bearer <token>`, see `GET /api/me`) and Supabase to be set up; without them none of these routes exists and each answers 404. Every one runs the login check, then a limit of `SESSION_RATE_LIMIT_PER_MINUTE` (60) a minute per signed-in person (429 `rate_limited` with `Retry-After`), then checks the caller as the user: a session the caller is not in answers 404 `session_not_found`, the same as one that does not exist. `:id` is the session's id; ids are compared without regard to the case of their letters.
+
+What the server does, and what the browser does:
+
+- **The browser writes directly**, under the database's rules (`db/policies.sql`): a member's own start and end area (`session_members.start_area_id`, `end_area_id`), their exact place (`session_member_places`, which only they and the server can read), and "Works for me" (`spot_approvals`: insert or delete one's own row, for a spot that is listed, while the session is `locating` and the member has joined). The server only reads these. After a start or end changes, the browser calls `POST .../meeting-area`.
+- **The server writes everything else**, with the service key, through one database function, `apply_session_plan` (`db/migrations/20261020000000_jio_apply_session_plan.sql`). It locks the session row and writes nothing unless the session's `plan_version` and `status` are still what the server loaded, so an answer worked out while the group was locating is never put over a session the host has since confirmed, and a confirmed meeting area is never moved by a recompute. It raises `plan_version` by one when it writes anything (so the other devices, which watch the session row, refetch), and not when the write would change nothing, so repeating a request leaves the database as it was.
+  What the function enforces itself, so that no mistake in the server's code can break it (each refusal is an error `P0001` with a hint, which the server turns into a 409):
+  1. **Status.** A status moves only from `inviting` or `locating` to `voting`, in the same patch that gives a meeting area (`status_transition`). Starting, cancelling and the later stages' moves are not made here.
+  2. **Two people.** Leaving `inviting` needs two joined members counted *after* the patch's member operations, so a patch that opts someone out or removes them and starts the session in one call is refused when fewer than two remain (`needs_two_people`).
+  3. **Changed means changed.** In the `session` section a value counts as a change only where it differs from the stored row: the status, each `meeting` column as it would be written after rounding, the area, the method and the banner. The same pinned meeting or the same banner again answers the stored `plan_version` and writes nothing, not even `meeting_computed_at`. A write of the spots, members or suggestions that changes nothing is no change either.
+  4. **A pin stays.** While `meeting_method` is `voted` or `chosen`, a patch cannot change the area or the method (`area_pinned`).
+  5. **A pin only with a confirm.** A patch whose `meeting.method` is `voted` or `chosen` is accepted only when the same patch moves the status from `inviting` or `locating` to `voting`, or when that method and area are already stored (`pin_without_confirm`). The planner's own methods (`same`, `fairest`, `centre`) need no confirm.
+  6. **The host stays.** `remove_member` and `opt_out` naming the session's host are refused (`host_member`).
+  7. **When a spot was worked out.** A patch may carry `loaded_at`, an ISO time: when the server read the members, taken before the planner ran. A written spot gets that as its `computed_at` (without it, the time of the write), and `"recomputed": true` brings the spots that are older to it. A member row saved while the planner ran therefore stays newer than the spots, and the repair check below still asks for a run.
+- **Travel times come from the centres of areas**, never from an exact place: a member's start is the centre of their start area. A spot's minutes therefore say nothing about where in the area anyone is, and the server never reads `session_member_places`. No answer carries a label or a coordinate.
+- **Only saved places and areas.** Nothing here asks Google. Every area id is checked against the planner's list before anything is planned (422 `unknown_area`).
+- **OneMap is the shared budget.** The routes use the same engine runs as the planner routes (`services/planner-runs.js`): at most 60 route calls for one request, whole areas only, the rest estimated and flagged `approximate`, and the server-wide budget of `ONEMAP_CALLS_PER_MINUTE`.
+- **A line per session.** A session's writes run one at a time, and at most one run waits. A request that arrives while one runs is served by the next run, which loads the session afresh; a run that only recomputed and finds another waiting does not write, and its callers are answered by the waiting run. A run that finds the session moved on loads again and does its work again, up to three times, then answers 409 `plan_busy` with `Retry-After: 1`. The session id is lower-cased once, so a session has one line however its id is written. A run that would only recompute and finds a run already waiting hands its jobs over before it asks the planner, so it spends no OneMap calls; one that finds a run waiting only after the planner has finished does not write. Every call a run makes to the database has a deadline of 8 seconds: past it the run fails with 503 `unavailable` and `Retry-After: 2`, and the next run in the line goes on. A 503 does not say whether the write happened (the call may still finish), so a caller that wants to know reads the session again.
+
+The spots are the areas a group chooses between while `locating`: up to three from the app (`rank` 1 to 3, the fairest first) and the ones members suggest (`rank` null), in `session_spots`, each with the longest trip, the mean and every located member's minutes (unrounded; the screens round them), `approximate` when a time is an estimate. `sessions.meeting_*` stay empty while locating; the host's confirm fills them.
+
+**The banner (`sessions.banner`).** One notice for the whole group, `null` or an object the server writes and the browser shows as it is, adding nothing to it:
+
+```json
+{ "text": "Faith's start location changed. Orchard is no longer on the list, so approvals for it were removed.", "at": 1792051200000, "approvalsRemoved": true }
+```
+
+`text` is the sentence; `at` is when it was written, in milliseconds since 1970 (the database's `now()`), so a newer banner always has a newer `at`; `approvalsRemoved` is `true`: this stage writes only this kind of banner, when a spot left the list and took approvals with it (from a start or end change, a suggestion or a withdrawal, opting out, leaving or being removed). When several requests share one run, the sentence before the lost spots names the request that took the spot away (the withdrawal, the replaced suggestion, the person who left or opted out); with none to blame it says only "The list of spots changed.", never one person's start change for something else's doing. A host's confirm or known place sets it back to `null`, and a write that removes no approval leaves the earlier banner as it was. Later stages add their own flags on the same object (the browser already reads `votesCleared` from it in voting). Dismissing is each person's own and is kept in their browser, stamped with `at` (the session's `planVersion` is the stamp only for a banner without an `at`); it never changes the row. `apply_session_plan` writes the shape (`db/tests/apply_session_plan.sql` step 10 checks it), and `frontend/src/lib/__tests__/sharedSessions.backend.test.js` checks that the browser shows what the server wrote.
+
+**The repair check.** A start can be saved in the database and the call to `POST .../meeting-area` never come (the page closed between the two). The browser sees the gap when a member row's `updated_at` is later than every spot's `computed_at`, and asks once, the first time a page reads the session. Any other change to a member row (their categories, how long they stay) looks the same, and a run for it changes no number. So a run that worked the spots out with the planner always brings every spot's `computed_at` forward, without raising `plan_version`: the server says so to `apply_session_plan` with `"recomputed": true` in the patch, and the gap is closed for every device. The time written is the one the server read the members at (`loaded_at`, before the planner ran), not the time the planner finished, so a start saved while the planner worked still looks unpriced and is priced by the next run. A run that only keeps the stored spots (a suggestion on a spot already listed) does not, because it has not priced anything.
+
+Errors common to all of them, all `{ "error": "<code>", "message": "..." }`: 400 `invalid_input` (a path id that is not a uuid, or a body with a missing, wrong or extra field; `issues` lists the fields), 401 `unauthenticated`, 503 `auth_unavailable`, 503 `unavailable` (the database did not answer in 8 seconds; `Retry-After: 2`), 429 `rate_limited`, 404 `session_not_found`, 409 `plan_busy`, 500 `server_error` (a database that fails; the database's words are never sent). A status that does not fit is 409 `wrong_status`, or 409 `not_yet` for work the voting stage (stage 4) will do.
+
+### POST /api/sessions/:id/meeting-area
+
+Work the spots out again: after a start, an end or a late start was written, or when someone joined. Body `{ "trigger": "start" | "end" | "added" }` (optional; it only words the notice). Joined members only; status `inviting` or `locating`.
+
+200 `{ "planVersion": 5, "meetingAreaId": null, "moved": false, "votesCleared": false, "skipped": ["<user id>"], "spots": 3, "approvalsRemoved": ["orchard"] }`. `meetingAreaId` is null while locating; `moved` and `votesCleared` are for voting (stage 4). `skipped` lists the joined members with no start the planner knows. With fewer than two members that have a start there are no spots (`spots: 0`). One engine run asks for the chosen area and two runners-up and for every suggested area (`include`, oldest first). The spots are written as a difference: listed areas are inserted or updated, unlisted ones deleted, and an approval goes with its spot. When a deleted spot took approvals with it, `sessions.banner` is set to `{ text, at, approvalsRemoved: true }` ("Faith's start location changed. Orchard is no longer on the list, so approvals for it were removed."); otherwise the banner is left alone.
+
+Errors: 403 `not_joined` (the caller opted out), 409 `not_yet` (voting), 409 `wrong_status` (confirmed, completed, cancelled). A browser that has just saved a start treats `not_yet` and `wrong_status` alike: the host has already moved on, the start stays saved (it only adds a travel time to the confirmed spot) and the person is not shown an error.
+
+### PUT /api/sessions/:id/spots/mine
+
+The caller suggests a spot, replacing their earlier suggestion. Body `{ "areaId": "bugis", "here": true }` (`areaId` 1 to 60 characters; `here`, optional, labels it "we are here already"). Joined members only; status `locating`.
+
+200 `{ "planVersion": 6, "spots": 4, "approvalsRemoved": [] }`. The planner is asked only when the area is not already listed; an area the app already lists just gets the suggestion, which keeps it listed if the app's three change. The old suggestion's spot leaves the list unless it is the app's or another member's, with its approvals (and the banner above).
+
+Errors: 403 `not_joined`, 409 `wrong_status` (not locating), 409 `no_spots` (a new area needs two starts), 409 `too_many_spots` (a ninth different area; the same area as another member's does not count), 422 `unknown_area`, 422 `area_not_priced` (the planner could not work out times to it; nothing is saved).
+
+### DELETE /api/sessions/:id/spots/mine
+
+The caller takes their suggestion back. No body, no planner run. 200 `{ "planVersion": 7 }`; with no suggestion to take back it does nothing and writes nothing. Errors: 403 `not_joined`, 409 `wrong_status`.
+
+### POST /api/sessions/:id/voting
+
+The host confirms a spot. Body `{ "areaId": "bugis" }`, or none for the preselected spot: the one with the most "Works for me" among joined members, a tie going to the shorter longest trip (compared before rounding), then to the list's order (the app's by rank, then the members' by who suggested first). No planner run: the meeting area is written from the spot's stored figures (`meeting_max_minutes` and `meeting_total_minutes` from the rounded minutes, `meeting_count`, `meeting_approximate`, and each joined member's `session_members.travel_minutes`), `sessions.banner` is cleared and the status becomes `voting`. The spots stay as the record. `meeting_method` is `voted` when anyone approved the spot, `same` or `fairest` when nobody did and it is the app's first spot (`same` when every located member starts in one place), and `chosen` otherwise.
+
+200 `{ "planVersion": 8, "status": "voting", "meetingAreaId": "bugis", "method": "voted", "slotCount": 0 }`. **The slots and the places to vote on are the voting stage's (stage 4): this writes the meeting area and the status only**, so `slotCount` is the number of slots that exist (0 until that stage builds them, and a voting session shows no places to vote on until then). Confirming the same spot again answers the same 200 and writes nothing.
+
+Errors: 403 `host_only`, 403 `not_joined`, 404 `spot_not_found` (not on the list), 409 `no_spots` (nothing listed), 409 `wrong_status` (not locating, and not already confirmed for that spot), 422 `unknown_area`.
+
+### PUT /api/sessions/:id/known-place
+
+The host sets the meeting area straight away because the group has already decided. Body `{ "areaId": "bugis" }`. Status `inviting` or `locating`, with at least two joined members. The list becomes that one area (`rank` null), suggestions and approvals are cleared, the meeting area is written with method `chosen` (pinned: a later change of start moves the times, never the area), and the status becomes `voting`. One planner run prices the area for the members who have shared a start (at most one route call per member); with none, the times are zero. Slots are stage 4's, as above.
+
+200 `{ "planVersion": 9, "status": "voting" }`. Setting the same place again answers the same 200 and writes nothing. Errors: 403 `host_only`, 403 `not_joined`, 409 `needs_two_people`, 409 `wrong_status`, 422 `unknown_area`.
+
+### POST /api/sessions/:id/opt-out and POST /api/sessions/:id/rejoin
+
+A guest steps out, and comes back. No body. Opting out keeps the member's row, deletes their approvals and suggestion, and works the spots out without them. Rejoining works them out with the member again (a member who is already in still gets the spots worked out, in case an earlier call was lost). Status `inviting` or `locating`.
+
+200 `{ "planVersion": 10, "state": "opted_out" }` and `{ "planVersion": 11, "state": "joined" }`. Opting out when already out does nothing. Errors: 403 `host_cannot_opt_out`, 409 `not_yet` (voting and confirmed: those need the voting stage), 409 `wrong_status` (completed, cancelled).
+
+## DELETE /api/sessions/:id/members/:userId
+
+Leave a shared session, or (as the host) remove a guest. `:userId` is `me` (the caller leaves) or a person's id (the host removes them). No body. A browser cannot delete a member row itself (the database gives a signed-in user no delete on `session_members`), so the server does it.
+
+| Answer | When |
+|---|---|
+| 200 `{ "planVersion": 3, "left": true }` | The caller left. |
+| 200 `{ "planVersion": 3, "removed": true }` | The host removed a guest. |
+| 400 `invalid_input` | `:id` or `:userId` is not a uuid (or `me`). |
+| 401 `unauthenticated`, 503 `auth_unavailable` | The login check, as for every route that needs one. |
+| 403 `host_cannot_leave` | The host asked to leave, or someone asked to remove the host. They cancel the session instead. |
+| 403 `host_only` | A guest asked to remove someone else. |
+| 404 `session_not_found` | No such session, or the caller is not in it (the same answer, so a stranger learns nothing). |
+| 404 `member_not_found` | The person is not in the session (or went a moment ago). |
+| 409 `session_closed` | The session is completed or cancelled. |
+| 409 `session_started` | The session is in `voting` or `confirmed`: taking a person's votes, options and place in the plan with them is the voting stage's work, so for now it is refused. `inviting` and `locating` are allowed. |
+| 409 `plan_busy` | The session changed again three times while this was worked out. |
+| 429 `rate_limited` | More than `SESSION_RATE_LIMIT_PER_MINUTE` (60) a minute from one person. |
+
+The member's row goes, and with it their exact place, approvals and suggestion (foreign keys); then the spots are worked out without them, in the same transaction, and `sessions.plan_version` goes up (which every remaining member hears as an update of the session row). If approvals went with a spot that dropped off the list, the banner says so ("Jonathan left. Orchard is no longer on the list, so approvals for it were removed.").
+
+## GET /api/people/search?q=
+
+Find a person to invite by the start of their username. It feeds the invite field, which asks after a short pause as the person types. Not a planner route: it needs a login (`Authorization: Bearer <token>`, see `GET /api/me`) and Supabase to be set up; without them the route does not exist and answers 404.
+
+The server reads `profiles` with its own key and selects only the public columns (`id, username, display_name, avatar_url`), so the profiles rule can later be narrowed to the person and the people they share a session with (ticket #125) without this screen changing. Who the caller has "met" is read through the caller's own client, so the database's access rules decide it. It is asked after the matches are known and only about them (the first 50 matches by username), so the API's row cap on a read never cuts it. If that read fails the search still answers, in username order with `metBefore` false, and the failure is logged.
+
+`q` is the start of a username: trimmed, lower-cased, 3 to 20 characters from `a-z`, `0-9` and `_` (the same alphabet as `username_format` in `db/schema.sql`). It matches the start of a username only, never a display name and never the middle. `%`, `_` and `\` are escaped before the pattern is made (a plain `LIKE`, since usernames are lower case in the database and `q` is lower-cased), so `sam_` matches `sam_tan` and not `samuel`.
+
+```
+GET /api/people/search?q=sam_
+200 { "people": [ { "id": "7f3c...", "name": "Sam Tan", "username": "sam_tan", "avatarUrl": "", "metBefore": true } ] }
+```
+
+At most 5 people, in this order: the exact match, then people who share (or shared) a session with the caller, then the others; inside each group by username. The caller never appears. `name` is the display name, or the username when there is none. `avatarUrl` is the address the person set, or `""`: the frontend shows it only when this project's own storage serves it. Every answer, including a 400, 401 or 429, is `Cache-Control: no-store`.
+
+| Answer | When |
+|---|---|
+| 200 `{ "people": [...] }` | Always for a valid `q`; the list is empty when nobody matches. |
+| 400 `invalid_input` | `q` is missing, repeated, shorter than 3 or longer than 20 characters, or has a character outside `a-z`, `0-9`, `_`. |
+| 401 `unauthenticated`, 503 `auth_unavailable` | The login check, as for every route that needs one. |
+| 429 `rate_limited` | More than `PEOPLE_SEARCH_RATE_LIMIT_PER_MINUTE` (120) a minute from one person. |
+
 ## Limits
 
 Every list and number has an upper limit, so one request cannot keep the server busy. Going over any of them is a 400 naming the field.
@@ -735,6 +942,8 @@ Every list and number has an upper limit, so one request cannot keep the server 
 | `categories` | 4 (repeats are removed) |
 | `alternatives` (meeting area) | 3 |
 | `include` (meeting area) | 8 area ids, each a known area, none repeated |
+| `areaId` (session endpoints) | 60 characters, a known area |
+| different areas members may suggest in one session | 8 |
 | `cuisineLikes`, `cuisineDislikes` | 20 each per member |
 | any id, name or label | 80 characters |
 | `stops` of `/api/itinerary/arrange` | 8, of which at most 6 are not food (see that route's table) |
@@ -743,6 +952,15 @@ Every list and number has an upper limit, so one request cannot keep the server 
 | `budgetMaxPerPerson` | 10000 |
 | `max_price_pp:N` | 5 digits |
 | `near_mrt:N` | 3 digits |
+
+## Known limits
+
+Things that are true today and that the team should know. None of them is fixed here.
+
+- **`groupId` comes from the caller.** Anti-repeat uses the visit history of the group the request names, and `groupId` is a free-text field the caller supplies. That is harmless while there is no real visit history (a default server holds none: the sample visits are served only with `INCLUDE_FICTIONAL_VENUES=1`). Once real history exists, the group must come from the signed-in session on the server, not from the request, or anyone could read which places another group visited by guessing its id (the ranking and its "somewhere new for the group" and "the group went here recently" lines would show it).
+- **Saved sessions that hold invented venues.** The 36 fictional venues are no longer in the planner's pool. A session saved in a browser before this change can still hold their ids, and the screens keep showing them. But a voting session drops such an option, and the votes on it, on its next re-rank; no rain swap is offered for such a stop; and replacing a stop with one is refused.
+- **A rating counts as far as its reviews** (ticket #149, agreed with the lead on 16 October 2026). A venue is scored on `(20 × 4.0 + reviews × stars) ÷ (20 + reviews)`: one review at 5.0 becomes 4.05, 500 at 4.6 stays 4.58. A place with no rating, or a rating with no review count, counts as 4.0, the average. That is the curated, OneMap and CDC places (none has a review count). The invented places of `mock-data.json` (served only with `INCLUDE_FICTIONAL_VENUES=1`) do have a count, so they are scored on their ratings; Google's places always do. It is a `rating` factor in `breakdown`, and it is used in the engine's first cut of candidates too. Its weight is 8 under the default weights and scales with the weights in use (8 ÷ the total of the engine's default weights × the total of the weights sent), so it has the same share of the score (about 8%) whatever a request sends, and `weights` cannot switch it off. It is not a weight a caller can send (the API still answers 400 for `rating`). `reasons` may carry `Rated 4.6 from 512 reviews` for a place with at least 50 reviews and a weighted rating of 4.2 or more; a lower rating is never shown as a reason. It comes ahead of "Short walk" and "Hidden gem". Showing the review count on a card beside the score is planned, not built: nothing in the frontend reads `ratingCount` yet.
+- **One place per building, per category.** Of the places at one address (a postal code, else a street number and street; unit numbers are ignored; every source) only the best-scored is placed in order; the others move below the places at other buildings, and are still listed after them. A place whose building cannot be told counts as its own building.
 
 ## Testing from Playwright (stub mode)
 

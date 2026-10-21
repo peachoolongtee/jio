@@ -6,14 +6,28 @@
 //   The plan is made from the categories people voted in, laid out in the session window.
 //   Step 7  "Confirm plan" once at least 2 people have voted.
 // The list and the map show the same places, and the map has a key to the categories of the places on it.
+// Search within (ticket #122): while voting, a row of radius chips under the filter (Auto, 100 m to 3 km). The map draws the
+// radius as a ring round the meeting area, and the places follow it: places outside drop out with their votes, and each
+// category tops up again (lib/api.js setRadius). A category with too few places inside offers "Widen to ...".
 // Weather: a card keeps its small rain mark (SuggestionCard), and one muted line under the list says where the forecast came
 // from (WeatherSource); a simulated forecast also shows a banner at the top.
+// A shared session (one kept on the server, session.remote) reaches this page once the host has confirmed the meeting spot, and stops
+// here for now: the page says voting with friends comes next, names the confirmed spot, and offers the way back to the people. It loads
+// no plan, shows no places and no "Confirm plan".
 // Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
 // shows the message and the rest of the page stays usable.
+// Replace (/sessions/:id/plan?replace=<slot>, from Replace on the itinerary of a confirmed plan): the page shows the one
+// stop being replaced, a row of categories (Eat, Drink, Shop, Activity; the stop's own to start), and the places of the
+// chosen category that fit the stop's time, the ones the group voted on first, each with "Use this place". Choosing a
+// place of another category turns the stop into that category, at the same time. Choosing one puts it in the
+// itinerary and goes back there; "Keep this stop" goes back without a change. Nobody votes again and the plan stays confirmed.
+// Only the host may replace a stop (anyone else sees a sentence saying so and the way back). The header lights Itinerary
+// and goes back to it, as on the photos and the map. Only a list of the category the tabs show is ever on the page.
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import AvatarStack from '@/components/ui/AvatarStack.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
 import CategoryIcon from '@/components/ui/CategoryIcon.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
@@ -44,14 +58,17 @@ import { walkFromText } from '@/lib/cardText.js'
 import { usePlaceDetail } from '@/lib/usePlaceDetail.js'
 import { confetti } from '@/lib/confetti.js'
 import { mealWindow, MEAL_WINDOWS } from '@/lib/planner/timeOfDay.js'
+import { isBehind } from '@/lib/stepNav.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 import { usePlannerStore } from '@/stores/planner.js'
+import { vRadioGroup } from '@/lib/radioGroup.js'
 
 const props = defineProps({ id: { type: String, required: true } })
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const events = useEventsStore()
 const groups = useGroupsStore()
@@ -82,6 +99,8 @@ async function load() {
     else loadError.value = e.message
     return
   }
+  // A shared session has no plan on the server yet: nothing to ask for.
+  if (events.byId[props.id]?.remote) return
   try {
     await Promise.all([groups.loadPeople(), planner.loadConditions()])
     await planner.loadPlan(props.id)
@@ -97,6 +116,11 @@ const session = computed(() => events.byId[props.id])
 const plan = computed(() => planner.plans[props.id])
 const loading = computed(() => planner.loading[props.id] && !plan.value?.slots?.length)
 const voting = computed(() => session.value?.status === 'voting')
+// What a shared session's stop here says: the confirmed meeting spot, and that choosing places is the next thing to come.
+const nextText = computed(() => {
+  const spot = session.value?.area?.name
+  return `${spot ? `${spot} is confirmed as the meeting spot. ` : ''}Choosing places together, and the plan, are not ready yet. They come in the next update.`
+})
 const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
 // Who a card's review line may quote: the other people in this outing (`outingIds`, below), then the signed-in person's friends.
@@ -159,7 +183,13 @@ watch(() => adding.value.query, (q) => {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(async () => {
     if (!adding.value.slot) return
-    adding.value.results = await planner.searchVenues(props.id, adding.value.slot.id, q)
+    try {
+      const results = await planner.searchVenues(props.id, adding.value.slot.id, q)
+      // Only the newest typing applies; an answer for older text is dropped.
+      if (adding.value.query === q) adding.value.results = results
+    } catch (e) {
+      error.value = e.message
+    }
   }, 150)
 })
 const addSlotFull = computed(() => {
@@ -184,12 +214,40 @@ async function add(result) {
   }
 }
 
+// ── Search radius ──
+// The choices, in metres; null is Auto (the planner starts at 500 m and looks further out until 3 places fit).
+const RADII = [null, 100, 250, 500, 1000, 2000, 3000]
+// How to call: radiusLabel(1000) -> '1 km'
+const radiusLabel = (m) => (m == null ? 'Auto' : m >= 1000 ? `${m / 1000} km` : `${m} m`)
+const radius = computed(() => plan.value?.radius ?? null)
+// True while a change runs. The chips are `disabled` in ChipButton's sense: aria-disabled, still focusable, clicks ignored (a
+// natively disabled button would lose keyboard focus and throw the person out to the page). The row is one Tab stop and the
+// arrow keys choose, as the Show chips do (v-radio-group).
+const settingRadius = ref(false)
+// How to call: await setRadius(1000)
+async function setRadius(metres) {
+  if (metres === radius.value || settingRadius.value) return
+  settingRadius.value = true
+  error.value = ''
+  try {
+    await planner.setRadius(props.id, metres)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    settingRadius.value = false
+  }
+}
+// The smallest choice that reaches `km`, for "Widen to ...". How to call: radiusFor(1.4) -> 2000
+const radiusFor = (km) => RADII.find((m) => m != null && m >= km * 1000) ?? null
+// How far the places may be, in words: the chosen radius, or the planner's own limit of 3 km under Auto.
+const reachText = computed(() => radiusLabel(radius.value ?? 3000))
+
 // Why a slot has nothing, in words.
 function emptyText(slot) {
   const e = slot.empty
   // The nearest distance may be missing, so the sentence about it is optional.
   const nearest = e?.nearestKm != null ? ` The nearest is ${e.nearestKm.toFixed(1)} km away.` : ''
-  if (e?.reason === 'outside_max_radius') return `Nothing that fits is within 3 km.${nearest}`
+  if (e?.reason === 'outside_max_radius') return `Nothing that fits is within ${reachText.value}.${nearest}`
   return 'Jio found no place that is open and fits this time.'
 }
 
@@ -201,6 +259,113 @@ const mapPlaces = computed(() =>
 )
 const selectedEntry = computed(() => mapOptions.value.find(({ option }) => option.id === selected.value) || null)
 const selectedOption = computed(() => selectedEntry.value?.option || null)
+
+// ── Replace one stop of a confirmed plan ──
+// The slot of the stop being replaced, from ?replace=. Only a confirmed plan has stops to replace; any other session
+// shows the voting page as usual.
+const replacing = computed(() => (typeof route.query.replace === 'string' ? route.query.replace : ''))
+const replaceMode = computed(() => !!replacing.value && session.value?.status === 'confirmed')
+// Only the host replaces a stop (the data layer refuses anyone else): a member proposes a stop for the host to add instead.
+const isHost = computed(() => !!session.value && session.value.hostId === auth.myId)
+// The stop being replaced ({ slotId, category, venue, time, duration }), kept apart from the list so a failed request
+// does not take it off the page. The last answer ({ category, options }), whether one is being asked for, why it failed,
+// and the place being saved.
+const stop = ref(null)
+const choices = ref(null)
+const choicesLoading = ref(false)
+const replaceError = ref('')
+const choosing = ref('')
+// The category the places are of: '' for the stop's own until another is picked.
+const replaceCategory = ref('')
+const shownCategory = computed(() => replaceCategory.value || stop.value?.category || '')
+// Picking another category than the stop's turns the stop into it.
+const changesCategory = computed(() => !!stop.value && shownCategory.value !== stop.value.category)
+// Only a list of the category the tabs show is ever on the page: an answer for another one (an older request) is not.
+const currentChoices = computed(() => (choices.value && choices.value.category === shownCategory.value ? choices.value : null))
+// What a screen reader hears while places load; the grey placeholder rows say nothing themselves.
+const loadingSaid = computed(() => {
+  if (replaceMode.value) return choicesLoading.value && !currentChoices.value ? 'Finding other places' : ''
+  if (loading.value) return 'Finding places'
+  return loadingMore.value ? 'Finding more places' : ''
+})
+// Each request is numbered, so an older answer that arrives late (after a quick change of category) is dropped.
+let choicesTicket = 0
+
+// Ask for the places of the shown category that could take the stop's place.
+// How to call: await loadChoices()
+async function loadChoices() {
+  if (!replaceMode.value || !isHost.value) return
+  const ticket = ++choicesTicket
+  const wanted = replaceCategory.value
+  choicesLoading.value = true
+  try {
+    const answer = await events.replaceChoices(props.id, replacing.value, wanted || undefined)
+    if (ticket !== choicesTicket) return
+    // An answer for another category than the one asked for is not shown as if it were.
+    if (wanted && answer.category !== wanted) throw new Error('The places could not be loaded. Reload the page and try again.')
+    stop.value = answer.stop
+    choices.value = answer
+  } catch (e) {
+    if (ticket !== choicesTicket) return
+    replaceError.value = e.message
+  } finally {
+    if (ticket === choicesTicket) choicesLoading.value = false
+  }
+}
+watch([replaceMode, replacing, isHost], () => {
+  replaceError.value = ''
+  replaceCategory.value = ''
+  stop.value = null
+  choices.value = null
+  loadChoices()
+}, { immediate: true })
+
+// Ask again for the places after a failure, with the error taken off the page.
+// How to call: retryChoices()
+function retryChoices() {
+  replaceError.value = ''
+  loadChoices()
+}
+
+// Show the places of another category (or the stop's own again).
+// How to call: pickCategory('activity')
+function pickCategory(category) {
+  // The category that is shown is pressed again only to ask again, after its places could not be loaded.
+  if ((category === shownCategory.value && currentChoices.value) || choosing.value) return
+  replaceCategory.value = category
+  replaceError.value = ''
+  selected.value = ''
+  loadChoices()
+}
+
+// Back to the itinerary: Back when it is the page behind this one, so the history has no repeat.
+// How to call: backToItinerary()
+function backToItinerary() {
+  const to = `/sessions/${props.id}/itinerary`
+  if (isBehind(to)) router.back()
+  else router.replace(to)
+}
+
+// Put the chosen place in the stop's place and go back. When it no longer fits, say so and ask again.
+// How to call: await choose(option)
+async function choose(option) {
+  // Only a place on the list shown now, for the category the tabs show.
+  if (choosing.value || !currentChoices.value?.options.some((o) => o.id === option.id)) return
+  choosing.value = option.id
+  replaceError.value = ''
+  try {
+    // The place the person saw in the stop goes with it, so a stop that was changed meanwhile is refused.
+    await events.replaceStop(props.id, replacing.value, option.id, shownCategory.value || undefined, stop.value?.venue.id)
+    backToItinerary()
+  } catch (e) {
+    replaceError.value = e.message
+    await loadChoices()
+  } finally {
+    choosing.value = ''
+  }
+}
+
+const replacePlaces = computed(() => (currentChoices.value?.options || []).map((o) => ({ id: o.id, name: o.venue.name, lat: o.venue.lat, lng: o.venue.lng, category: o.venue.category })))
 
 // ── Confirm ──
 // The plan the votes make: each voted category at its time, with the place that has the most votes there.
@@ -248,8 +413,9 @@ async function confirm() {
   } catch (e) {
     error.value = e.message
     confirmOpen.value = false
+  } finally {
+    busy.value = false
   }
-  busy.value = false
 }
 </script>
 
@@ -259,6 +425,7 @@ async function confirm() {
     <SessionHeader :session="session" />
 
     <div class="screen__body">
+      <p class="sr-only" role="status">{{ loadingSaid }}</p>
       <SessionNotices :session="session" />
       <BannerNote v-if="planError" tone="error" icon="warning" role="alert" data-testid="plan-error">
         {{ planError }}
@@ -269,23 +436,121 @@ async function confirm() {
 
       <WeatherSource v-if="plan?.weather && session.meeting" :block="plan.weather" banner />
 
-      <div v-if="!session.meeting || ['inviting', 'locating'].includes(session.status)" class="empty-wrap">
+      <div v-if="session.remote && session.meeting" class="empty-wrap" data-testid="voting-next">
+        <EmptyState title="Voting with friends comes next" :text="nextText">
+          <AppButton variant="secondary" :to="`/sessions/${id}`">Back to the people</AppButton>
+        </EmptyState>
+      </div>
+
+      <div v-else-if="!session.meeting || ['inviting', 'locating'].includes(session.status)" class="empty-wrap">
         <EmptyState title="No meeting area yet">
           <AppButton variant="secondary" :to="`/sessions/${id}`">People</AppButton>
         </EmptyState>
       </div>
+
+      <template v-else-if="replaceMode">
+        <section class="replace" aria-labelledby="replace-head" data-testid="replace-view">
+          <span class="caption text-muted">Replacing</span>
+          <div class="replace__now">
+            <CategoryIcon v-if="stop" :category="stop.category" :size="32" />
+            <div class="stack">
+              <h2 id="replace-head" class="title-md">{{ stop?.venue.name || 'This stop' }}</h2>
+              <span v-if="stop" class="caption-sm text-muted">{{ CATEGORY_LABELS[stop.category] }} at {{ stop.time }} · {{ stop.duration }} min</span>
+            </div>
+          </div>
+          <p v-if="isHost" class="body-sm text-muted">Choose another place for this stop, or something else to do instead. This stop keeps its start, and the rest of the plan stays as it is. Later stops may move with the travel time.</p>
+        </section>
+
+        <EmptyState v-if="!isHost" title="Only the host can replace a stop" text="You can propose a place for the host to add once the outing is under way." data-testid="replace-host-only" />
+        <template v-else>
+
+        <!-- What to do instead: the stop's own category to start, or another one. -->
+        <div class="filter scroll-x" role="radiogroup" v-radio-group aria-label="What to do instead" data-testid="replace-categories">
+          <ChipButton
+            v-for="c in CATEGORIES"
+            :key="c"
+            radio
+            :selected="shownCategory === c"
+            :disabled="!!choosing || !stop"
+            :data-testid="`replace-cat-${c}`"
+            @click="pickCategory(c)"
+          >
+            <template #leading><CategoryIcon :category="c" :size="24" /></template>
+            {{ CATEGORY_LABELS[c] }}
+          </ChipButton>
+        </div>
+        <p v-if="changesCategory" class="body-sm replace__change" data-testid="replace-change">
+          <AppIcon name="arrow-right" :size="16" />This stop becomes {{ CATEGORY_LABELS[shownCategory] }} instead of {{ CATEGORY_LABELS[stop.category] }}, at {{ stop.time }}.
+        </p>
+        <div v-if="replaceError" class="replace__error">
+          <p class="body-sm text-error" role="alert" data-testid="replace-error">{{ replaceError }}</p>
+          <AppButton small variant="secondary" :disabled="choicesLoading || !!choosing" data-testid="replace-retry" @click="retryChoices">Try again</AppButton>
+        </div>
+
+        <SplitView v-model:view="view" label="Places">
+          <template #list>
+            <div v-if="choicesLoading && !currentChoices" class="stack gap-md" data-testid="replace-loading">
+              <SkeletonRow v-for="n in 3" :key="n" avatar :lines="3" />
+            </div>
+            <EmptyState
+              v-else-if="currentChoices && !currentChoices.options.length"
+              :title="changesCategory ? `No ${CATEGORY_LABELS[shownCategory]} places fit` : 'Nothing else fits'"
+              :text="`No other ${CATEGORY_LABELS[shownCategory]} place nearby is open at ${stop.time}. Try another category, keep this stop${currentChoices.stopCount > 1 ? ', or delete it from the itinerary' : ''}.`"
+            />
+            <div v-else-if="currentChoices" class="slot__options" data-testid="replace-options">
+              <SuggestionCard
+                v-for="option in currentChoices.options"
+                :key="option.id"
+                :option="option"
+                closed
+                :selected="selected === option.id"
+                :outing="outingIds"
+                :friends="friendIds"
+                :stop="stop ? { start: stop.start, duration: stop.duration } : null"
+                :group-size="active.length"
+                :me="auth.myId"
+                @open="openReviews"
+              >
+                <!-- No vote here: who voted for the place, and the one button. -->
+                <template #foot="{ votedText }">
+                  <span class="replace__count">
+                    <AvatarStack v-if="option.voters.length" :people="option.voters" :size="20" :max="4" />
+                    <span class="caption">{{ votedText }}</span>
+                  </span>
+                  <AppButton variant="secondary" small :disabled="!!choosing" :aria-label="`Use ${option.venue.name} instead`" @click="choose(option)">{{ choosing === option.id ? 'Saving' : 'Use this place' }}</AppButton>
+                </template>
+              </SuggestionCard>
+            </div>
+          </template>
+
+          <template #map>
+            <PlannerMap :area="session.area" :places="replacePlaces" :selected="selected" label="Places map" @select="selected = $event" />
+            <CategoryKey :categories="replacePlaces.map((p) => p.category)" />
+          </template>
+        </SplitView>
+        </template>
+      </template>
 
       <template v-else>
         <ProgressDonut compact title="Votes" :people="donutPeople" done-label="Voted" />
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
         <!-- One filter for the list and the map. -->
-        <div class="filter scroll-x" role="radiogroup" aria-label="Show">
+        <div class="filter scroll-x" role="radiogroup" v-radio-group aria-label="Show">
           <ChipButton radio :selected="!filter" @click="filter = ''">All</ChipButton>
           <ChipButton v-for="c in CATEGORIES" :key="c" radio :selected="filter === c" :aria-label="`${CATEGORY_LABELS[c]}, ${countOf(c)} places`" @click="filter = c">
             <template #leading><CategoryIcon :category="c" :size="24" /></template>
             {{ CATEGORY_LABELS[c] }}<span class="filter__count tnum">{{ countOf(c) }}</span>
           </ChipButton>
+        </div>
+
+        <!-- How far from the meeting area places may be. The map shows it as a ring. -->
+        <div v-if="voting && slots.length" class="radius" data-testid="radius">
+          <span id="radius-label" class="caption text-muted">Search within</span>
+          <div class="filter scroll-x" role="radiogroup" v-radio-group aria-labelledby="radius-label">
+            <ChipButton v-for="m in RADII" :key="m ?? 'auto'" radio :selected="radius === m" :disabled="settingRadius" @click="setRadius(m)">{{ radiusLabel(m) }}</ChipButton>
+          </div>
+          <span class="caption-sm text-muted" aria-live="polite">{{ radius == null ? 'Auto starts at 500 m and looks further out until 3 places fit.' : `Only places within ${radiusLabel(radius)} of ${session.area.name}.` }}</span>
         </div>
 
         <SplitView v-model:view="view" label="Places">
@@ -301,9 +566,13 @@ async function confirm() {
                 <h2 :id="`slot-${slot.id}`" class="title-md">{{ CATEGORY_LABELS[slot.category] }}</h2>
               </header>
 
-              <p v-if="!slot.options.length" class="body-sm text-muted">{{ emptyText(slot) }}</p>
+              <template v-if="!slot.options.length">
+                <p class="body-sm text-muted">{{ emptyText(slot) }}</p>
+                <AppButton v-if="voting && radius && slot.empty?.widenToKm && radiusFor(slot.empty.widenToKm)" variant="secondary" small :disabled="settingRadius" @click="setRadius(radiusFor(slot.empty.widenToKm))">Widen to {{ radiusLabel(radiusFor(slot.empty.widenToKm)) }}</AppButton>
+              </template>
               <template v-else>
-                <div class="slot__options" role="radiogroup" :aria-labelledby="`slot-${slot.id}`">
+                <!-- A group, not a radiogroup: each card holds several controls, and every Vote chip has to be a Tab stop of its own. -->
+                <div class="slot__options" role="group" :aria-labelledby="`slot-${slot.id}`">
                   <SuggestionCard
                     v-for="option in slot.options"
                     :key="option.id"
@@ -323,18 +592,22 @@ async function confirm() {
                     @open="openReviews"
                   />
                 </div>
+                <p v-if="voting && radius && slot.few" class="few-line">
+                  <span class="caption-sm text-muted">Only {{ slot.few.found }} {{ slot.few.found === 1 ? 'place fits' : 'places fit' }} within {{ radiusLabel(radius) }}.</span>
+                  <AppButton v-if="slot.few.widenToKm && radiusFor(slot.few.widenToKm)" variant="tertiary" underline small :disabled="settingRadius" @click="setRadius(radiusFor(slot.few.widenToKm))">Widen to {{ radiusLabel(radiusFor(slot.few.widenToKm)) }}</AppButton>
+                </p>
                 <div v-if="voting && slot.options.length < 6" class="slot__more">
                   <AppButton variant="tertiary" underline small :disabled="!slot.canAddMore || loadingMore === slot.id" @click="more(slot)">More places</AppButton>
                   <AppButton variant="tertiary" underline small @click="openAdd(slot)">Search</AppButton>
                 </div>
               </template>
             </section>
-            <p v-if="!loading && slots.length && emptyLabels.length" class="body-sm text-muted">No {{ listJoin(emptyLabels) }} places within 3 km of {{ session.area.name }} yet.</p>
+            <p v-if="!loading && slots.length && emptyLabels.length" class="body-sm text-muted">No {{ listJoin(emptyLabels) }} places within {{ reachText }} of {{ session.area.name }} yet.</p>
             <WeatherSource v-if="!loading && slots.length && plan?.weather" :block="plan.weather" />
           </template>
 
           <template #map>
-            <PlannerMap :area="session.area" :places="mapPlaces" :selected="selected" label="Places map" @select="selected = $event" />
+            <PlannerMap :area="session.area" :places="mapPlaces" :radius="voting ? radius || 0 : 0" :selected="selected" label="Places map" @select="selected = $event" />
             <CategoryKey :categories="mapPlaces.map((p) => p.category)" />
             <div v-if="selectedOption" class="pin-card" role="dialog" :aria-label="selectedOption.venue.name">
               <div class="row between gap-sm">
@@ -350,7 +623,7 @@ async function confirm() {
               </div>
               <div class="row between">
                 <span class="caption">{{ selectedOption.votes }} {{ selectedOption.votes === 1 ? 'vote' : 'votes' }}</span>
-                <ChipButton v-if="voting" radio check :selected="selectedEntry.slot.myVote === selectedOption.id" @click="vote(selectedEntry.slot, selectedOption)">
+                <ChipButton v-if="voting" check :selected="selectedEntry.slot.myVote === selectedOption.id" @click="vote(selectedEntry.slot, selectedOption)">
                   {{ selectedEntry.slot.myVote === selectedOption.id ? 'Voted' : 'Vote' }}
                 </ChipButton>
               </div>
@@ -360,7 +633,10 @@ async function confirm() {
       </template>
     </div>
 
-    <footer v-if="voting && session.meeting" class="screen__footer">
+    <footer v-if="replaceMode" class="screen__footer">
+      <AppButton block variant="secondary" :disabled="!!choosing" data-testid="keep-stop" @click="backToItinerary">{{ stop && isHost ? 'Keep this stop' : 'Back to the itinerary' }}</AppButton>
+    </footer>
+    <footer v-else-if="voting && session.meeting && !session.remote" class="screen__footer">
       <AppButton block :disabled="!canConfirm" @click="confirmOpen = true">
         {{ canConfirm ? 'Confirm plan' : 'Needs 2 voters' }}
       </AppButton>
@@ -425,11 +701,15 @@ async function confirm() {
         </template>
       </BannerNote>
       <SkeletonRow v-for="n in 4" v-else :key="n" avatar />
+      <p class="sr-only" role="status">{{ loadError ? '' : 'Loading the session' }}</p>
     </div>
   </main>
 </template>
 
 <style scoped>
+/* Search within: a label, the chips, and one line on what the choice means. */
+.radius { display: flex; flex-direction: column; gap: var(--spacing-xs); }
+.few-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); margin: 0; }
 /* The filter: one row of chips, scrolling sideways on a phone. */
 .filter { display: flex; gap: var(--spacing-sm); }
 .filter__count { margin-left: var(--spacing-xs); opacity: 0.6; }
@@ -440,6 +720,15 @@ async function confirm() {
 .slot__options { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .slot__more { display: flex; gap: var(--spacing-base); }
 .empty-wrap { padding-top: var(--spacing-lg); }
+/* Replace: the stop being replaced, above the places that could take its place. */
+.replace { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-base); border-radius: var(--rounded-md); background: var(--surface-soft); }
+.replace p, .replace h2 { margin: 0; }
+.replace__now { display: flex; align-items: center; gap: var(--spacing-md); min-width: 0; }
+.replace__count { display: inline-flex; align-items: center; gap: var(--spacing-sm); min-width: 0; }
+.replace__error { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); }
+.replace__error p { margin: 0; min-width: 0; }
+.replace__change { display: flex; align-items: flex-start; gap: var(--spacing-xs); margin: 0; color: var(--ink); }
+.replace__change :deep(svg) { flex-shrink: 0; margin-top: 2px; }
 .pin-card { position: absolute; left: var(--spacing-sm); right: var(--spacing-sm); bottom: var(--spacing-xl); z-index: 600; display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md) var(--spacing-md) var(--spacing-sm) var(--spacing-base); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); }
 .pin-card__photo { flex-shrink: 0; width: 56px; height: 56px; object-fit: cover; border-radius: var(--rounded-sm); }
 .pin-card__name { flex: 1 1 0; min-width: 0; }

@@ -6,8 +6,10 @@
 //   - Between stops: a visible Walk / MRT / Car switch, each with its own time. It moves every later stop.
 //     Two stops in the same building just say so.
 //   - On desktop the timeline is as tall as the map beside it, with the stops spread out.
-//   - In edit mode (the pencil toggle in the header; confirmed plans only) each stop has a delete button (two stops
-//     or more) and a drag handle, with a confirm dialog for delete. Focus lands on the next stop after a delete.
+//   - In edit mode (the pencil toggle in the header; confirmed plans only) each stop has a Replace button, a delete
+//     button (two stops or more) and a drag handle, with a confirm dialog for delete. Focus lands on the next stop after
+//     a delete. Replace is the host's, like the rain swap: it opens the plan page for that one stop (/sessions/:id/plan?replace=<slot>),
+//     with the other places that fit it; choosing one puts it in and comes back here.
 //     Outside edit mode the stops carry no controls.
 //   - The end point, and each person's trip home (folded away; anyone over 60 minutes is flagged above).
 //   - In edit mode, drag a stop by its handle (or focus the handle and use the arrow keys) to rearrange the day. Times follow;
@@ -22,6 +24,8 @@
 //   - While the plan is under way (roamOpen in lib/session.js: a confirmed plan on its day) a "What next?" button under the
 //     stops opens the Roam page, and the places members proposed there appear under the stops as proposed stops
 //     (ProposedStops). It is a secondary button: the footer's "Finish outing" stays the page's one main action.
+//   - A plan with no stops (a light meetup started from Home, before anything is added) says "No stops yet" in place of
+//     the timeline.
 //   - Travel and trip-home times are estimates from distance, so they read "about" or "est.".
 //   - Weather (a confirmed plan): a mark on each stop (Dry, Cloudy, Showers, Thundery showers, Not known; "Indoor" for an indoor
 //     stop when rain is likely; "Outdoor, showers" for an exposed stop, in the warning tone) and one muted line under the stops
@@ -30,7 +34,7 @@
 //     the page is left, paused while hidden, one at a time, a failure keeps the last answer), and shows a rain banner for
 //     everyone, with "Swap to <indoor place>?" for the host (RainBanners). A simulated forecast adds a banner at the top.
 import { coins } from '@/lib/currency.js'
-import { itineraryAction, roamOpen } from '@/lib/session.js'
+import { NO_COINS, earnsCoins, itineraryAction, roamOpen } from '@/lib/session.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -73,7 +77,10 @@ const events = useEventsStore()
 const auth = useAuthStore()
 const planner = usePlannerStore()
 
+// The session does not exist, or the person is not in it (the data layer's `not_found`), and why the page could not load it at
+// all (no connection, the planner slow or down) with a Retry. The two are different pages: only the first is "not found".
 const missing = ref(false)
+const loadError = ref('')
 const editing = ref(false)
 const endOpen = ref(false)
 const replanOpen = ref(false)
@@ -104,13 +111,20 @@ function dismissConfirmed() {
   clearConfirmedFlag()
 }
 
+// Only the newest load speaks, so a slow answer for a page already left never changes what the person sees.
+let loadTicket = 0
+// How to call: load() (on mount, when the id changes, and from Retry)
 async function load() {
+  const ticket = ++loadTicket
   missing.value = false
+  loadError.value = ''
   try {
     await events.loadSession(props.id)
     await events.loadItinerary(props.id)
-  } catch {
-    missing.value = true
+  } catch (err) {
+    if (ticket !== loadTicket) return
+    if (err?.code === 'not_found') missing.value = true
+    else loadError.value = err?.message || 'The plan could not be loaded.'
   }
 }
 onMounted(() => {
@@ -126,6 +140,10 @@ const itinerary = computed(() => events.itineraries[props.id])
 const status = computed(() => session.value?.status)
 const confirmed = computed(() => status.value === 'confirmed')
 const today = computed(() => confirmed.value && session.value?.isToday)
+// Does finishing pay? An outing of one person does not (lib/session.js earnsCoins), and the dialog and the toast say so.
+const earns = computed(() => earnsCoins(session.value?.activeIds.length ?? 0))
+// The toast after "Finish outing": what was paid, or why nothing was.
+const toastText = computed(() => (session.value?.paid === false ? `Completed · ${NO_COINS.toast}` : `Completed · +${coins(POINTS_PER_MEETUP)} to spend on sample café vouchers`))
 // 'finish', 'save' or null: the footer's button.
 const footer = computed(() => (session.value ? itineraryAction(session.value) : null))
 // Under way: people can ask "What next?" and propose places.
@@ -139,6 +157,12 @@ const lateText = computed(() => (lastStop.value ? lateLine(lastStop.value.end, s
 // A confirmed plan with two or more stops can be rearranged, and a stop deleted, while editing.
 const canMove = computed(() => confirmed.value && (itinerary.value?.stops.length || 0) > 1)
 const canEdit = computed(() => canMove.value && editing.value)
+// Any stop of a confirmed plan can be replaced by the host while editing, even when it is the only one. Anyone else proposes a stop instead.
+const canReplace = computed(() => confirmed.value && editing.value && session.value?.hostId === auth.myId)
+
+// Open the plan page for one stop, to choose another place for it.
+// How to call: replaceStop(stop)
+const replaceStop = (stop) => router.push({ path: `/sessions/${props.id}/plan`, query: { replace: stop.slotId } })
 
 // ── Weather ──
 // The marks and the line come from the plan (kept when it was confirmed) until the check on the day has an answer; the check's
@@ -283,6 +307,13 @@ async function endPlan() {
 
 <template>
   <NotFoundView v-if="missing" />
+  <main v-else-if="loadError" class="screen" data-testid="plan-load-error">
+    <div class="screen__body" style="padding-top: var(--spacing-xl)">
+      <EmptyState title="Could not load this plan" :text="loadError" role="alert">
+        <AppButton variant="secondary" @click="load">Retry</AppButton>
+      </EmptyState>
+    </div>
+  </main>
   <main v-else-if="session" class="screen" data-testid="event-view">
     <SessionHeader :session="session" :title="today ? 'Today\'s plan' : ''">
       <template v-if="session.plan" #actions>
@@ -313,7 +344,7 @@ async function endPlan() {
             <IconButton label="Dismiss" class="celebrate__close" @click="dismissConfirmed"><AppIcon name="close" :size="16" /></IconButton>
           </section>
         </Transition>
-        <BannerNote v-if="status === 'completed'" icon="trophy">
+        <BannerNote v-if="status === 'completed' && session.paid !== false" icon="trophy">
           Completed · +{{ POINTS_PER_MEETUP }} points each to spend on sample café vouchers
           <template #actions>
             <AppButton small variant="secondary" to="/rewards">Rewards</AppButton>
@@ -349,7 +380,9 @@ async function endPlan() {
               <SkeletonRow v-for="n in 3" :key="n" avatar />
             </div>
             <template v-else>
-              <div ref="timeline" class="timeline card" tabindex="-1">
+              <!-- A light meetup (Roam from Home) starts with no stops: it says so, and "What next?" below is the way in. -->
+              <EmptyState v-if="!itinerary.stops.length" title="No stops yet" text="Find something nearby with What next?, then add it to the plan." data-testid="no-stops" />
+              <div v-else ref="timeline" class="timeline card" tabindex="-1">
                 <SortableList
                   :items="itinerary.stops"
                   :item-key="(s) => s.slotId"
@@ -383,8 +416,9 @@ async function endPlan() {
                       :mark="markOf(stop)"
                       :lifted="lifted || selected === stop.venue.id"
                     >
-                      <template v-if="canEdit" #actions>
-                        <IconButton outline :label="`Delete stop: ${stop.venue.name}`" @click="removing = i"><AppIcon name="trash" /></IconButton>
+                      <template v-if="canReplace || canEdit" #actions>
+                        <IconButton v-if="canReplace" outline :label="`Replace stop: ${stop.venue.name}`" :data-testid="`replace-${stop.slotId}`" @click="replaceStop(stop)"><AppIcon name="search" /></IconButton>
+                        <IconButton v-if="canEdit" outline :label="`Delete stop: ${stop.venue.name}`" @click="removing = i"><AppIcon name="trash" /></IconButton>
                       </template>
                       <template v-if="canEdit" #handle>
                         <button v-bind="handle" class="drag-handle"><AppIcon name="grip" /></button>
@@ -450,7 +484,8 @@ async function endPlan() {
 
     <ModalDialog v-model:open="endOpen" title="Finish outing?">
       <template #content>
-        <p class="body-md">+<CoinBadge :amount="POINTS_PER_MEETUP" /> each for {{ session.activeIds.length }} people, to spend on sample café vouchers</p>
+        <p v-if="earns" class="body-md" data-testid="earns-coins">+<CoinBadge :amount="POINTS_PER_MEETUP" /> each for {{ session.activeIds.length }} people, to spend on sample café vouchers</p>
+        <p v-else class="body-md" data-testid="no-coins">{{ NO_COINS.before }}</p>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
       <AppButton block :disabled="busy" @click="endPlan">Finish outing</AppButton>
@@ -471,10 +506,11 @@ async function endPlan() {
       <AppButton block :disabled="busy" @click="replan">Re-plan</AppButton>
     </ModalDialog>
 
-    <ToastMessage v-model:show="toast" :text="`Completed · +${coins(POINTS_PER_MEETUP)} to spend on sample café vouchers`" :offset="120" />
+    <ToastMessage v-model:show="toast" :text="toastText" :offset="120" />
   </main>
   <main v-else class="screen" data-testid="event-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
+      <p class="sr-only" role="status">Loading the plan</p>
       <SkeletonRow v-for="n in 4" :key="n" avatar />
     </div>
   </main>

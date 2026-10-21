@@ -73,15 +73,22 @@ describe('the password rule on screen', () => {
 
   it('draws that rule on the password question and lets a password through only when every part is met', async () => {
     const { view, store } = await setUp(fakeSupabase(), { step: 1, password: 'abc1!x' })
-    expect(view.all('.checklist__item')).toHaveLength(6)
+    // Five parts are drawn; the sixth (length and spaces at the ends) is only said when it is broken.
+    expect(view.all('.checklist__item')).toHaveLength(5)
     expect(view.all('.checklist__hint').map((h) => view.text(h))).toEqual([
       'Any character that is not a letter, number or space, like - _ ? ! @ #',
-      'Accented letters and emoji take more room. Control characters are not allowed.',
     ])
     expect(view.one('input[autocomplete=new-password]')).toBeTruthy()
     await view.click(mainButton(view))
     expect(store.draft.step).toBe(1)
+    // A space at the start breaks the part that is not drawn: it is said under the field, and the step waits.
+    view.type('input[autocomplete=new-password]', ' Abc1!xyz')
+    await view.click(mainButton(view))
+    expect(view.text()).toContain('Use 72 characters or fewer, with no space at the start or end and no control characters.')
+    expect(store.draft.step).toBe(1)
     view.type('input[autocomplete=new-password]', 'Abc1!xyz')
+    await view.tick()
+    expect(view.text()).not.toContain('Use 72 characters or fewer, with no space at the start or end and no control characters.')
     await view.click(mainButton(view))
     await until(() => store.draft.step === 2)
   })

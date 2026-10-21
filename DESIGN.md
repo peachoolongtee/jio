@@ -19,6 +19,7 @@ colors:
   hairline: "#dddddd"
   hairline-soft: "#ebebeb"
   border-strong: "#c1c1c1"
+  border-control: "#8a8a8a"
   on-primary: "#ffffff"
   on-dark: "#ffffff"
   scrim: "#000000"
@@ -319,9 +320,10 @@ These carry information on maps, keys, stripes and avatars. None of them is used
 | `--canvas` | `#ffffff` | The page, cards, sheets, dialogs. |
 | `--surface-soft` | `#f7f7f7` | Banners, hover backgrounds, the Home map band. |
 | `--surface-strong` | `#f2f2f2` | Icon-button circles, photo plates, neutral tags, empty progress blocks. |
-| `--hairline` | `#dddddd` | The default 1px border. |
+| `--hairline` | `#dddddd` | The default 1px border of cards and dividers. Too light (1.36:1) to outline a control. |
 | `--hairline-soft` | `#ebebeb` | Lighter dividers; the progress bar's track. |
-| `--border-strong` | `#c1c1c1` | The outline of an unselected chip, the switch, the sheet handle. |
+| `--border-strong` | `#c1c1c1` | Decorative outlines: dashed empties, the next button, the sheet handle, disabled outlines. |
+| `--border-control` | `#8a8a8a` | The edge that marks a control: text fields, selects, unselected chips, the switch. 3.45:1 on white, for WCAG's 3:1 (issue #62). |
 | `--on-primary` | `#ffffff` | Text and icons on the red. |
 | `--on-dark` | `#ffffff` | Text on ink and on the photo viewer. |
 | `--scrim` | `#000000` | The backdrop behind sheets and dialogs, drawn at 50% opacity. |
@@ -420,7 +422,7 @@ Values written as plain pixels where no token matches include 6px, 10px, 14px, 2
 
 `frontend/src/App.vue` renders `.app > .app__main` and, on top-level screens, `TabBar`. A screen is top-level when its route has `meta.tabs: true` and the user is signed in: Home (`/`), Sessions (`/sessions`), Leaderboard, Rewards and Profile (`frontend/src/router/index.js`). Every other screen has its own back arrow and no tab bar.
 
-`.app__main` is a column at least `100dvh` tall with `overflow-x: clip`, so a full-width band never scrolls sideways. `html` has `scrollbar-gutter: stable`. On top-level screens `.app__main` is padded by `--topbar-height` at the top and by `--tabbar-height` plus `env(safe-area-inset-bottom)` at the bottom.
+`.app__main` is a column at least `100dvh` tall with `overflow-x: clip`, so a full-width band never scrolls sideways. `html` has `scrollbar-gutter: stable`. On top-level screens `.app__main` is padded by `--topbar-real-height` at the top and by `--tabbar-real-height` at the bottom (the bar plus the safe-area inset it grows by; see Safe areas). The page runs edge to edge under a phone's notch and home indicator (`viewport-fit=cover` in `frontend/index.html`); see Safe areas.
 
 A screen is built from classes in `app.css`:
 
@@ -455,6 +457,8 @@ A screen is built from classes in `app.css`:
 | `--side-panel-width` | 420px | `BottomSheet` with `side` on desktop. |
 | `--tabbar-height` | 88px; 0px from 744px | Room kept for the phone pill. |
 | `--topbar-height` | 0px; 72px from 744px | Room kept for the top bar. |
+| `--topbar-real-height` | `--topbar-height` + `env(safe-area-inset-top)` | The top bar's real height. Use it, not the line above, wherever something clears, clamps to or sticks under the top bar. Registered with `@property` as a length, so a script reads it in px (`frontend/src/lib/bars.js`). |
+| `--tabbar-real-height` | `--tabbar-height` + `env(safe-area-inset-bottom)` | The same for the phone pill: its height, its gap and the home indicator's inset. |
 | `--tap-min` | 44px | The smallest tap target. |
 
 ### Navigation and the width at which it switches
@@ -477,11 +481,17 @@ One-off widths used by a single component: 379px, 399px and 399.98px (`TabBar`, 
 
 ### How screens stack on phones
 
-Everything is one column. A list and its map are shown one at a time with a List / Map switch (`SplitView`). Overlays rise from the bottom as sheets. The main action is a full-width button in the sticky footer. The photo and controls of a `StopCard` drop under its text at 480px and below. Layout changes are done in CSS, so resizing the window keeps a screen's state.
+Everything is one column. A list and its map are shown one at a time with a List / Map switch (`SplitView`). Under 1128px the map is `max(240px, min(72dvh, 100dvh - 160px))` tall, so on a phone on its side (about 375px high) it is 240px: the formula's `100dvh - 160px` is only 215px there, and the 240px floor wins. Measured at 812x375 and 667x375, the map scrolled into view ends 24px above the top of the 64px footer (85px with a 21px bottom inset), but the page's header and the List / Map switch sit above the map, so the map and the button are not both in view before the page is scrolled. Overlays rise from the bottom as sheets and can be dragged down by the handle or header to close: let go past 96px, or flick, and the sheet closes; otherwise it springs back. A sheet that was dragged closed opens again at rest. The handle's grab area is 44px tall: for a sheet with no header it grows upward over the backdrop, so nothing inside the sheet moves. On a screen in landscape under 500px tall, the sticky footer's padding drops to 8px above and below, so it is 64px tall instead of 88px. The main action is a full-width button in the sticky footer. The photo and controls of a `StopCard` drop under its text at 480px and below. Layout changes are done in CSS, so resizing the window keeps a screen's state.
 
 ### Safe areas
 
-`env(safe-area-inset-bottom)` is added in three places: the bottom padding of `.app__main`, the phone pill's position in `TabBar`, and the floating camera button in `PhotosView`. No rule reads the top, left or right insets.
+`frontend/index.html` sets `viewport-fit=cover`, so the page draws under the notch and home indicator, and the insets are not zero on those phones. Where they are read (issue #63):
+
+- **Sides:** `.app` is padded by `env(safe-area-inset-left)` and `-right`, for a notch on a phone on its side. The top bar keeps its content at least 16px inside them.
+- **Top:** `.app__main` is padded by `env(safe-area-inset-top)`, and the top bar grows by it, for an app added to the home screen. In Safari's own window the top inset is 0.
+- **Bottom:** `.app__main` on top-level screens, the phone pill in `TabBar`, the sticky `.screen__footer`, the body or footer of a `BottomSheet`, the floating camera button in `PhotosView`, the development-only Demo button, and `ToastMessage` (its `offset` is measured from the inset).
+- **One source for the bars' height:** `--topbar-real-height` and `--tabbar-real-height` (tokens.css) include the insets. `.app__main`, the top bar's own height, Home's full-height band, the sticky tops on Home and Edit profile, the Demo button and the hover cards' clamp in `MeetupPins` and `SpotPins` (through `barHeights()` in `lib/bars.js`) all read them.
+- **The full-screen map** (`SessionMapView`) runs under every inset; its back bar, stop list and place card stay inside them, and so do Leaflet's own corner boxes (the zoom buttons and the attribution), moved in by the insets with `:deep(.leaflet-*)` rules.
 
 ### Stacking order
 
@@ -552,7 +562,7 @@ Corners are soft everywhere. Controls that hold one word or one icon are fully r
 
 Radii written as plain pixels: 5px (`SegmentedProgress` blocks), 6px (`MeetupGraph` view switch), 10px (the photo strip in `EventView`), 3px and 2px (small swatches and pegs).
 
-Borders are 1px `--hairline` by default. A stronger 1px `--border-strong` outline marks anything tappable that is not filled (an unselected chip, the switch, the next button). Two inset stripes are drawn with `box-shadow`: a 4px stripe in the category colour on the left edge of `SuggestionCard`, and a 3px error-red stripe on the left of an error `BannerNote`.
+Borders are 1px `--hairline` by default. A stronger 1px `--border-control` outline marks a control that is not filled (a text field, a select, an unselected chip, the switch); `--border-strong` is for decoration (a dashed empty, the next button, the sheet handle). Two inset stripes are drawn with `box-shadow`: a 4px stripe in the category colour on the left edge of `SuggestionCard`, and a 3px error-red stripe on the left of an error `BannerNote`.
 
 The recurring silhouettes are the map pin (`PinButton`, a teardrop drawn in a `0 0 100 128` box with its tip at the bottom centre), the crown (in `JioLogo`, `CoinBadge` and the `crown` icon) and the circle.
 
@@ -576,7 +586,7 @@ Every component file opens with a comment that shows how to call it. Paths are u
 
 | Component | What it is for | Props | States | Use it when; otherwise |
 |---|---|---|---|---|
-| `ui/TextField.vue` | A labelled text input, 56px tall. | `label` (required), `hideLabel`, `hint`, `error`, `multiline`, `id`. `v-model`. Other attributes go to the input. Slot `trailing`. | Focus (border grows to 2px ink, padding shrinks 1px), invalid (error-red border and message with `role="alert"`), disabled. | Any typed value. |
+| `ui/TextField.vue` | A labelled text input, 56px tall. | `label` (required), `hideLabel`, `hint`, `error`, `multiline`, `id`. `v-model`. Other attributes go to the input. Slots `leading` (a decorative 16px icon at the start; the text starts at 42px) and `trailing` (a control at the end that the caller places and makes room for). | Focus (border grows to 2px ink, padding shrinks 1px), invalid (error-red border and message with `role="alert"`), disabled. | Any typed value. |
 | `ui/SelectField.vue` | A labelled dropdown that matches `TextField`. | `label`, `options` (required), `placeholder`, `error`, `id`. `v-model`. | Focus, empty (muted text), invalid. | A choice from a long list. For a short set use chips. |
 | `ui/ToggleSwitch.vue` | An on/off switch, 48 by 28px, with its label on the left. Ink when on. | `label` (required), `hint`, `disabled`. `v-model`. | Off, on, hover, disabled. | A setting that takes effect at once. |
 | `ui/RangeSlider.vue` | A labelled slider with its value written at the right. Ink track, white thumb. | `label` (required), `min` (0), `max` (100), `step` (1), `format`. `v-model`. | Hover (ink thumb border), focus. | A number within bounds, such as budget or distance. |
@@ -740,6 +750,7 @@ A global rule in `app.css` covers every CSS animation and transition under `pref
 | `chip-pop` | `ChipButton` | 320ms `--ease-spring` | A chip is selected. | `animation: none`. |
 | `live` | `CountdownChip` | 1.6s ease-in-out, endless | A session is happening now. | Not applied (`no-preference` query). |
 | `skeleton-pulse` | `SkeletonRow` | 1.2s ease-in-out, endless | A list is loading. | Global rule only. |
+| `byname-spin` | `InviteByUsername` | 800ms linear, endless | The invite field is waiting for, or asking about, a username. | Global rule only (a still ring). |
 | `loading` | `PhotosView` | 1.1s ease-in-out, alternating | A thumbnail is uploading. | Global rule only. |
 | `page-loading-spin` | `PageLoading` | 0.8s linear, endless; the card fades in over `--motion-fast` | Confirming the meeting spot on Locate has run for 600 ms; it then stays at least 400 ms (`lib/pageLoading.js`). | Slowed to 2.4s a turn, not stopped, so it still says the page is working. |
 | `sgmap-draw` | `SingaporeMap` | 1.4s `--ease-out`, delayed 0.2s plus 0.2s per route | The map mounts. | Routes are drawn at once. |
@@ -819,8 +830,9 @@ No template contains an exclamation mark, an emoji or an upper-case label.
 - **Focus.** `:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }` applies to every control (`app.css`). Components that draw their own keep the 2px ink line: `ChipButton` puts it on the pill, not the larger tap area; `PinButton` turns the pin's white stroke to a 4px ink stroke; `HeroButton` and `RadialTimePicker` use rings made with `box-shadow`; `TextField` and `SelectField` thicken the border to 2px ink.
 - **The focus trap.** `useFocusTrap(open, panel, { restoreOnUnmount })` in `frontend/src/lib/useFocusTrap.js` moves focus into a panel when it opens, keeps Tab and Shift+Tab inside it, and returns focus to the control that opened it. A composable is a function that a Vue component calls to share behaviour. It is used by `BottomSheet`, `ModalDialog`, `PopoverPanel` and `PlaceDetail`. `PhotoViewer` keeps focus inside itself with its own code. Each of the five closes on Escape.
 - **Dialog roles.** `BottomSheet`, `ModalDialog` and `PlaceDetail` have `role="dialog"`, `aria-modal="true"` and `aria-labelledby`. `PopoverPanel` has `role="dialog"` without `aria-modal`.
-- **Labels.** `IconButton` requires `label` and sets it as both `aria-label` and `title`. `TextField` and `SelectField` require `label` and tie hints and errors to the input with `aria-describedby`; errors have `role="alert"`. Tabs carry `aria-current="page"`. `ChipButton` sets `aria-pressed`, or `role="radio"` with `aria-checked`. `ToggleSwitch` has `role="switch"`. `ProgressBar` and `SegmentedProgress` have `role="progressbar"`. `CoinBadge` reads as "500 JioCoins". Decoration (`SingaporeMap`, `GridPulse`, the enter-game cover, confetti) is hidden with `aria-hidden`.
-- **Keyboard.** `SortableList` moves an item with the arrow keys from its handle. `HoldButton` works with Space or Enter held, and with a single activation from assistive technology. `CalendarPicker` moves between days with the arrow keys. Map pins in `PlannerMap` take focus and select on Enter. `MeetupGraph` is one focusable element that reads out the day the arrow keys land on. `AuthView` moves focus to each new question's heading.
+- **Announcements.** An error `BannerNote` is `role="alert"`, the other tones `role="status"`; an error that is a standing state of the screen, not an answer to something just done ("Session cancelled", "Not enough people" in `SessionNotices`), passes `role="status"` so it is not read out as an alert each time the screen loads. `ToastMessage` keeps its `role="status"` region on the page, so the first toast is heard. Placeholder rows are hidden from screen readers; the planner says "Finding places" in a hidden status line instead, as Roam does. Map pins for places are named with their stop number and category ("Stop 1, Eat: Maxwell Food Centre").
+- **Labels.** `IconButton` requires `label` and sets it as both `aria-label` and `title`. `TextField` and `SelectField` require `label` and tie hints and errors to the input with `aria-describedby`; errors have `role="alert"`. Tabs carry `aria-current="page"`. `ChipButton` sets `aria-pressed`, or `role="radio"` with `aria-checked` when it is one choice in a set of chips (`radio`). A Vote chip is a toggle (`aria-pressed`, named "Vote for {place}" in either state), because it sits in a card among other buttons. `ToggleSwitch` has `role="switch"`. `ProgressBar` and `SegmentedProgress` have `role="progressbar"`. `CoinBadge` reads as "500 JioCoins". Decoration (`SingaporeMap`, `GridPulse`, the enter-game cover, confetti) is hidden with `aria-hidden`.
+- **Keyboard.** A set of radio chips or poll bars is one Tab stop (a row of chips only, never a group of cards: a `radiogroup` around cards that hold other controls would leave all but one Vote chip out of the Tab order, so a slot's options are a labelled `role="group"` and every Vote chip is a Tab stop of its own): `v-radio-group` (`frontend/src/lib/radioGroup.js`) on the `radiogroup` moves between its choices with the arrow keys, Home and End, skipping disabled ones. Filters choose as focus moves; vote sets (`{ follow: false }`) only move focus, and Space or Enter votes. A disabled `ChipButton` is `aria-disabled`, not `disabled`, so it keeps focus while a request runs, and a chosen one keeps its fill. `SortableList` moves an item with the arrow keys from its handle. `HoldButton` works with Space or Enter held, and with a single activation from assistive technology. `CalendarPicker` moves between days with the arrow keys. Map pins in `PlannerMap` take focus and select on Enter. `MeetupGraph` is one focusable element that reads out the day the arrow keys land on. `AuthView` moves focus to each new question's heading.
 - **Target size.** `--tap-min` is 44px. Shapes that look smaller reach it by padding: a 32px chip in a 44px button, a 28px switch with a pseudo-element that extends it. The exceptions are under Known Conflicts.
 - **Touch.** Links and buttons have `-webkit-tap-highlight-color: transparent` and `touch-action: manipulation`. Hover styles sit inside `@media (hover: hover)`, and nothing is revealed by hover alone: the next button is filled from the start on touch screens, and `RadialTimePicker` opens on tap.
 - **Reduced motion.** See Motion: one global rule, plus a check in every script that animates except the `HoldButton` fill.
@@ -836,7 +848,7 @@ On 10 Oct 2026, after this document was written from commit `65567bb`, nine defe
 - At 480px and below, `LeaderboardRankings` puts the amount under the name, and `LeaderboardCard` wraps its season picker under the title.
 - `LeaderboardView` keeps the season picker mounted while a past season loads, and shows an error with "Try again" if it fails.
 - `SessionNotices` shows a "votes were cleared" banner while voting.
-- `GroupDetailView` has a "Waiting for N people" card; the host can continue without someone, behind a confirmation dialog.
+- `GroupDetailView` has a "Waiting for N people" card; the host can continue without someone (in a shared session: remove them), behind a confirmation dialog.
 - An account made through the sign-up form starts with no meetups, JioCoins or rank. Only the one-click demo account (`demo: true`) carries the sample history.
 
 No token, colour or copy rule changed.
@@ -1002,7 +1014,7 @@ Asked for by the lead: "show the reviews like the sample reviews on the home pag
 | Piece | What it is | Where |
 |---|---|---|
 | The review line | Each `SuggestionCard` carries one line under its reasons: a 24px avatar, the reviewer's name, the start of their sample review in quotation marks cut to one line, and a quiet "Sample" `InfoTag`. It is its own 44px button, apart from the vote chip and the swap button, and adds one line to the card. It quotes someone in the outing first, then a friend; with neither it reads "N sample reviews". Its name for a screen reader says "sample review". | `event/SuggestionCard.vue`; `pickReview` and `cardLine` in `lib/reviewPick.js` |
-| The score | The place's score sits at the top right of the card's name, as a `RatingBadge` (a star and a score out of 10 with one decimal), as on Home's cards and in the detail. A place whose source gives no score shows none, so some cards have it and some do not. | `event/SuggestionCard.vue` |
+| The score | The place's score sits at the top right of the card's name, as a `RatingBadge` (a star and a score out of 10 with one decimal), as on Home's cards and in the detail. A place whose source gives no score shows none, so some cards have it and some do not. A place with a review count shows it beside the score ("★ 9.2 (512)", ticket #149); a sample place's score shows as before. The count is not built yet. | `event/SuggestionCard.vue` |
 | The detail over Vote | Pressing the line opens `PlaceDetail` over the Vote page, built from the option, with no planner request. Reviews are ordered people in this outing, then friends, then everyone else; an outing member is tagged "In this outing" where a friend is tagged "Friend". "Sample reviews" and "Sample data for the demo" stay. "Navigate" is there, as on Home. Escape, the backdrop and its Back button close it and focus returns to the line; the browser's Back does not close it. | `views/PlannerView.vue`; `outing` on `event/PlaceDetail.vue`; `orderReviews` in `lib/reviewPick.js` |
 | The words | `reviewKind(venue)` picks the text set: the place's own kind, then its cuisine, then its category; where a kind and a category disagree about food, the category wins. New sets: theatre, games, bowling and a general activity set. Home's 63 places keep the reviews they had. | `lib/mock/reviews.js` |
 
@@ -1023,6 +1035,38 @@ Taken by the lead from a list of suggestions. The repeated stock photos stay, at
 `SpotList` still knows how to draw a confirmed list (its rows, "Confirmed", no controls); no screen uses that state now.
 
 Not built, suggested to the lead for after the pitch: the person's own trip and a "Directions" button on the meeting spot card; one bar per person on a shared scale, with the longest trip stated, so the fairness is seen; a line saying how the spot was chosen, with the other spots behind a disclosure; the start and end card shrunk once settled; the top navigation kept on session pages at desktop width.
+
+### Walkthrough items and Roam from Home, 17 Oct 2026 (branch `feat/darius-walkthrough-items`)
+
+Tickets #120, #121, #122 and #98. Nothing here adds a colour or a token, and no white text was added on `--primary`.
+
+| Piece | Where | What it is |
+|---|---|---|
+| Overdue banner | `LandingView` | A `BannerNote` (tone `warning`, clock icon) under the invitations for each outing past its end time with no confirmed plan: "{title} has passed its end time without a confirmed plan. It closes by itself on {day, time}." with a small secondary "Open outing". A confirmed outing gets none: it finishes by itself (`dueEnding` in `lib/session.js`, `settleOutings` in `lib/api.js`). |
+| Closed notice | `SessionNotices` | An info `BannerNote` (clock icon) on an outing that closed by itself two days after its end with no plan. Its session page has no footer, and its card opens the session page, not an empty itinerary (`sessionPath`). |
+| Frequent hangouts | `InviteView` | Friends only. "Frequent hangouts" (up to five, most outings together first) above "All friends"; with no history, one list headed "Friends". The Jio streak sits beside the name: a 20px pill, `--primary-active` on a 10% `--primary` tint, sparkle icon and the count, with "Jio streak: N outings together" for screen readers (`lib/hangouts.js`). |
+| Suggested people | `ProfileView` | On your own profile only, between the graph and Sessions: up to six rows (44px avatar, name, @username and area) in one column, two from 744px, each opening the profile, with a small secondary "Add friend" in the sample world. Moved here from the invite page. |
+| Search within | `PlannerView` | While voting: a "Search within" caption, radio chips (Auto, 100 m, 250 m, 500 m, 1 km, 2 km, 3 km) under the category filter, and one muted line on what the choice means. The map's dashed ring follows it. A category with too few places inside says "Only N places fit within X." with "Widen to Y". |
+| Create form times | `CreateEventView` | A new session starts at the next round hour and ends three hours later (`defaultTimes`). |
+| One create button | `GroupsView` | The page header's Create pill and the empty state's button are gone: the navigation's Create (top bar or tab bar) is the one on the page, as on the profile. |
+| "Already out?" row | `components/home/RoamFromHome.vue` | Under the meetups on Home (local accounts). The start row's box with a hairline outline, a 44px `--surface-strong` badge with the locate icon, "Already out?" over "Find something nearby", and a chevron. It opens `LocationSheet` ("Where are you?", with "Use current location" and the home area), then starts a light meetup and opens its Roam list. |
+| No stops yet | `EventView` | A light meetup's itinerary before anything is added shows an `EmptyState` in place of the timeline, with "What next?" below it as usual. |
+
+Changes made in the review of the pull request, before it merged:
+
+| Piece | Where | What it is |
+|---|---|---|
+| No coins for one | `EventView`, `SessionNotices` | An outing pays JioCoins only when at least two people are in it (`earnsCoins`, `lib/session.js`), light or not; otherwise "Already out?" could be repeated for coins. The Finish outing dialog says "Outings with friends earn JioCoins. This one is just you, so it earns none." in place of the +10 line; the toast after says "Completed · No JioCoins for an outing of one. Outings with friends earn them."; and a finished outing of one (by hand or by itself) carries an info `BannerNote`, "This outing was just you, so it earned no JioCoins. Outings with friends earn them.", in place of the trophy banner. |
+| Home settles on open | `LandingView` | Home reads the list again when it opens if an outing's end has passed (the store may already be loaded), as well as when the clock crosses an end time while it is open. |
+| One read, never an old save | `lib/api.js` | Settling is a write made by a read. It takes up a newer save from another tab first (`adoptNewerSave`) and settles on top of it, so a stale tab cannot save over a voucher or a balance. Opening one outing by its address settles too, and "Finish outing" on an outing that already finished says "This outing has already finished." |
+| Demo sessions stay as built | `tour/builders.js` | Sessions made by the showcase and the tour are made with `keepOpen`, so the clock never finishes or closes them (their "today" window is fixed when they load), and Home shows no overdue banner for them. |
+| Invite streaks follow the tour | `InviteView` | The Jio streaks are counted from the sessions the lists show (`visibleSessions`), so the tour's final, completed save does not give the friends a streak at the earlier checkpoints. |
+| Radius chips stay focusable | `PlannerView`, `ChipButton` | The chip row is a `role="radiogroup"` named by "Search within", with `v-radio-group` (one Tab stop, arrow keys choose, as the Show chips). While a radius change runs the chips are `aria-disabled` (ChipButton's `disabled`: faded, still focusable, clicks ignored), so keyboard focus is not thrown to the page. |
+| Votes cleared by the radius | `lib/api.js setRadius`, `SessionNotices` | Any member may still change the radius. When it drops votes, the voting page shows the usual dismissible votes-cleared `BannerNote`: "Votes for places outside the new ring were cleared." (Auto: "Votes for places that no longer fit were cleared."). |
+| Late-night create form | `CreateEventView` | After 23:00 the default start is 00:00, so the day starts as tomorrow (`defaultDate`); an end that has already passed today is refused under the end time, "That time has already passed today." |
+| Closed outings take no photos | `lib/api.js addPhoto`, `PhotosView` | An outing that closed by itself has no plan, so photos stay shut for it. |
+
+Time. An outing's end time, the auto-finish and the overdue banner all use the browser's time zone, as the rest of the app's date code does (`date-fns` on local times). They do not use Singapore time; for a person in Singapore the two are the same.
 
 ## Known Conflicts
 
@@ -1075,6 +1119,28 @@ This pull request edited `frontend/src/styles/README.md` in two places: the hex 
 27. `DesignSystemView` (`/design-system`) does not show `GridPulse`, `PopoverPanel`, `CoinBadge`, `PinButton`, `HeroButton`, `HoldButton`, `CalendarPicker`, `RadialTimePicker`, `SingaporeMap`, the three Leaderboard components, `SessionSteps` or `SampleNote`.
 28. `PlaceDetail` switches to its panel layout at 768px; every other tablet rule uses 744px.
 29. `EventView` says "points" in one banner where the rest of the app says "JioCoins".
+
+### Shared sessions, 16 Oct 2026 (branch `feat/sessions-stage-2-shared`)
+
+A real account's sessions are rows in Supabase (ticket 127). Nothing in the design language changed; these are the screens and pieces that appeared, all built from the tables above. The demo account and local accounts keep every screen as it was.
+
+- **`/join/:token` (`JoinView`)** is a form-width screen like the login: the logo, one `<h1 class="display-xl">` with the session's title, "{host} invited you to" above it, the day and times below. It is public (`meta: { nav: false, public: true }`). Signed out, the footer has `Sign up to join` (a `next` button) and a tertiary `I have an account. Log in`, both carrying `?next=/join/<token>`; the sign-up and login screens keep that address on their links and go back to it. Signed in, it has one `next` button, `Join session`. A link that does not work shows `EmptyState` "This link no longer works" with the one sentence that names every reason (the database answers them all alike on purpose). Failures to load say "Could not load this invitation" with `Retry`; "You are already in {title}" has `Open session`.
+- **The lobby (`GroupDetailView`, inviting)** now marks "(you)" on the signed-in person's own row only (it used to mark the host). (Stage 2 held `Start session` disabled under a sentence; stage 3 lifted that, see "Shared sessions, locating" below.) A guest has a tertiary `Leave session`; the host has a 44px `IconButton` "Remove {name}" on each guest's row. Both ask a `ModalDialog` question first ("Leave this session?" with `Stay`, "Remove {name}?" with `Keep {name}`). A session called off before it started shows the same list under the "Session cancelled" note.
+- **`ShareLink`** (invite page, and compact in the Invite popover) is a labelled read-only field with the whole address, "It works until Fri 23 Oct, 19:02.", `Copy link`, `Share` (only where the browser has a share sheet) and a tertiary `Turn off link` that asks "Turn off this link?". `InviteByUsername` is a search field: `TextField` (label "Search by username", hidden) with a magnifier in its `leading` slot, which a 16px ring spinner (`byname-spin`) replaces while it looks, and a 44px round clear (x) button in `trailing` once there is text ("Clear search"; it returns focus to the field). There is no Find button. From the third character, 250 ms after the last key, up to five people whose username starts with the text appear (the exact match, then people the host has been in a session with, then by username; the server's `GET /api/people/search`, never the host themselves). Each is a 68px row with the avatar, name, @username and `Invite` (named "Invite {name}"), or "Already invited." / "Already in this session.". States: under three letters the field's hint says "Type at least 3 letters of their username"; while a newer search is waiting the old list stays at 60% and cannot be pressed; none found is "Nobody's username starts with that."; a failed search shows its sentence and `Try again`; an invitation that fails shows its sentence as an alert and keeps the list; an invitation sent clears the field, says "{name} is invited. They will see it on their Home screen." and puts focus back in the field. A visually hidden `role="status"` line says "N people found" or the failure. Keyboard: a plain list of rows with buttons, not a combobox, because a row holds a button and a sentence; Enter or the down arrow in the field moves to the first `Invite`, the up and down arrows move between the buttons, and Enter in the field invites nobody. Under reduced motion the spinner is a still ring. Copying says "Link copied." to screen readers.
+- **`InvitationList`** ("Invitations", `display-sm`) is a grid of cards on Home and Sessions with `Join` and `Decline`, each with the invitation's title in its accessible name. Home's band shows a pill link, "You have an invitation", that jumps to it, because the list sits below a full-height map for a person with no meetup.
+- **Known and left for stage 3.** The held start is enforced only in the app (a host could still start a session through the database directly; the leave and remove route refuses any session that is no longer inviting, for now). A guest who was removed can rejoin with the same link, but cannot be invited by username a second time ("You have already invited that person."). A real account's old local-only sessions, made before sessions moved to the server, are hidden, not carried over.
+- **Known limits.** The join page cannot tell a person whether the link expired, was turned off or belongs to a session under way: `invite_preview` and `join_session` return the same answer for all of them. The Invite popover leaves out `Turn off link`, because the question it opens would sit outside the popover and close it.
+
+### Shared sessions, locating, 20 Oct 2026 (branch `feat/sessions-stage-3-frontend`)
+
+A real account's session now goes on from the lobby to the Locate step, kept in Supabase and worked out by the Jio server (ticket 128). The screens are the ones the local mode already has (`GroupDetailView`, `SpotList`, `SpotConfirm`); only these pieces are new or changed, all built from components above. The demo account and local accounts are untouched.
+
+- **Start session (lobby).** The host's `Start session` (`next`) works from two joined people. A refusal is one `body-sm text-error` line (`role="alert"`) under the list, in the database's own words ("A session needs at least two people before it can start."), and the button stays for another try. A guest sees "Waiting for {host} to start the session." beside the tertiary `Leave session`; there is no Start for a guest. The held-start sentence of stage 2 is gone.
+- **Locate (locating).** The same page as the local mode. While a save is out the list says so in the way it already does (placeholder rows when the list is empty, "Updating travel times…" over a list that is there); with one start in there is nothing to wait for, so nothing is shown. A save that the server turns away (an answer with its code: busy, the group has moved on, not allowed) puts the person's own change back, and only where the database still holds what this save wrote, and says why in the `text-error` line under their route, in plain words. A save the server did not answer (a timeout, no connection, a server failure) keeps the start, because the server may have done its work: a `BannerNote` (info, dismissible) under their route says "Your start is saved. The travel times may take a moment to appear." and no error line is shown. Two quick changes to the same end run one after the other. When any call that shows "Updating travel times…" fails, the notice goes off with it. "Works for me" does not need the server, so it works when the planner is down. The group sees each person's start as the area's name; the exact place is the owner's own line on their route and nobody else's.
+- **People list, locating.** The host has the 44px `IconButton` "Remove {name}" on every other joined person's row (it was only in the lobby); the same question ("Remove {name}?" with `Keep {name}`) and the same words. In a shared session the "Waiting for" card has a secondary small button "Remove {name}" (it was "Continue without {name}", which hid that the person is taken out for good) with the same question and the same words as the icon button: "{name} is removed from this session and it disappears from their list. If they joined with an invite link that still works, they can rejoin with it. Someone invited by username cannot." (`components/group/removeCopy.js`, read by `RemoveMember` and the card). It is not offered when removing would leave fewer than two joined people, and the card's sentence then does not mention it. A session of this browser keeps "Continue without {name}", which only opts the person out. A guest has a tertiary `Leave session` under the people card, with the same question as in the lobby. `MemberList` gained a slot, `action`, for this.
+- **Opted out.** A person who opted out of a shared session sees a `BannerNote` (info) "You opted out of this session, so your trips are not counted." with a secondary small `Rejoin`, above the people card, while the session is inviting or locating.
+- **The banner.** The server's note that "Works for me" marks went with a spot that left the list is the group's, and `Dismiss` hides it for that person alone, in this browser; a later note shows again.
+- **Vote (voting).** A shared session stops here for now. The page shows `EmptyState` "Voting with friends comes next" with "{Spot} is confirmed as the meeting spot. Choosing places together, and the plan, are not ready yet. They come in the next update.", and a secondary `Back to the people`. It loads no plan, lists no places and has no `Confirm plan`. Home's chip for such a meetup reads "Open meetup" (a done chip), not "Vote".
 
 ## Building a New Screen
 

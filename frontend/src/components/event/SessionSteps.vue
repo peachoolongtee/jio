@@ -13,8 +13,9 @@ const STEPS = [
   { key: 'itinerary', label: 'Itinerary', page: '/itinerary' },
 ]
 const ORDER = ['inviting', 'locating', 'voting', 'confirmed']
-// The pages that belong to the Itinerary step without being it: they go back to it.
-const ITINERARY_PAGES = ['/photos', '/map', '/roam']
+// The pages that belong to the Itinerary step without being it: they go back to it. '/replace' is the plan page opened to
+// replace one stop of a confirmed plan (tailOf), which belongs to the Itinerary and not to Vote.
+const ITINERARY_PAGES = ['/photos', '/map', '/roam', '/replace']
 
 // The last step the session reached: 0 is Create, so a session that exists has always passed it. A cancelled one
 // stops where it was called off.
@@ -61,10 +62,14 @@ export function stepsFor(session, path, mine = true) {
   }))
 }
 
-// The path after /sessions/:id: '' for the session page, '/plan', '/invite'... Null with no session.
+// The path after /sessions/:id: '' for the session page, '/plan', '/invite'... Null with no session. A query on `path` is
+// read only for one thing: the plan page of a confirmed session opened with ?replace= is '/replace', not '/plan'.
 // How to call: tailOf({ id: 's1' }, '/sessions/s1/plan') -> '/plan'
+//              tailOf({ id: 's1', status: 'confirmed' }, '/sessions/s1/plan?replace=eat') -> '/replace'
 function tailOf(session, path) {
-  return session ? path.replace(`/sessions/${session.id}`, '') : null
+  if (!session) return null
+  const tail = path.split(/[?#]/)[0].replace(`/sessions/${session.id}`, '')
+  return tail === '/plan' && session.status === 'confirmed' && /[?&]replace=/.test(path) ? '/replace' : tail
 }
 
 // Where the button at the top left goes from the page at `path`. From a session's own pages (the session page, Vote and
@@ -121,7 +126,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const root = ref(null)
 
-const steps = computed(() => stepsFor(props.session, route.path, props.session?.hostId === auth.myId))
+const steps = computed(() => stepsFor(props.session, route.fullPath, props.session?.hostId === auth.myId))
 // The Create and Invite screens are one stop in the browser's history (leaving either for the other replaces it), so
 // Back from either goes to where the person came from, never to an empty create form.
 const swapsHistory = computed(() => route.path.endsWith('/invite') || route.path.endsWith('/edit'))

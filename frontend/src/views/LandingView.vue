@@ -21,6 +21,11 @@
 // Tapping a place opens it (?place=id): its card grows into PlaceDetail and shrinks back on close. If the place
 // cannot be loaded, PlaceDetail says so (or, for a link to a place that is not there, a note appears on Home).
 // A failed load of the meetups or of the nearby places shows a message with a Retry button, never a skeleton for ever.
+// An outing past its end time with no confirmed plan gets a banner that says when it closes by itself (lib/session.js
+// overdueOuting). A confirmed one finishes by itself: when its end time passes while Home is open, the list is read again,
+// which completes it (lib/api.js settleOutings).
+// "Already out? Find something nearby" (RoamFromHome) sits under the meetups, or alone under the band when there are none,
+// for a local account: it starts a light meetup around one area and opens its Roam list (ticket #98).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { format } from 'date-fns'
@@ -38,16 +43,19 @@ import UserAvatar from '@/components/ui/UserAvatar.vue'
 import PlaceCard from '@/components/event/PlaceCard.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import WeatherSource from '@/components/weather/WeatherSource.vue'
+import InvitationList from '@/components/event/InvitationList.vue'
 import SessionCard from '@/components/event/SessionCard.vue'
 import MeetupDetail from '@/components/home/MeetupDetail.vue'
 import MeetupList from '@/components/home/MeetupList.vue'
 import MeetupPins from '@/components/home/MeetupPins.vue'
+import RoamFromHome from '@/components/home/RoamFromHome.vue'
 import * as api from '@/lib/api.js'
 import { enterGame } from '@/lib/enterGame.js'
 import { activeMeetups, dayLabel, pinName, pinsFor, routesFor, selectMeetup } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useHomeRain } from '@/lib/useHomeRain.js'
+import { dueEnding, overdueOuting, sessionPath } from '@/lib/session.js'
 import { useNow } from '@/lib/useNow.js'
 import { canViewTransition, withViewTransition } from '@/lib/viewTransition.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -95,8 +103,13 @@ async function loadHome() {
     loadError.value = true
   }
 }
+// Shared sessions change while Home is open (someone joins, a session is called off, an invitation arrives).
+let stopWatching = () => {}
+onBeforeUnmount(() => stopWatching())
 onMounted(() => {
-  loadHome()
+  stopWatching = api.watchSessions()
+  // Outings whose end time passed while Home was not on screen are settled now, not only when the clock next crosses one.
+  loadHome().then(settleDue)
   // The demo's "Simulate rain" switch, which decides what the rain below asks for.
   planner.loadConditions().catch(() => {})
 })
@@ -116,6 +129,31 @@ const selected = computed(() => selectMeetup(meetups.value, route.query.meetup))
 const past = computed(() => sessions.value.filter((s) => !meetups.value.includes(s)).slice(0, 3))
 const hasFinished = computed(() => sessions.value.length > meetups.value.length)
 const area = computed(() => selected.value?.area || null)
+// The person's home area, a quick choice for "Already out?".
+const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAreaId, name: auth.user.homeAreaName } : null))
+
+// Outings past their end time that have not been completed, each with when it closes by itself. A confirmed one is left
+// out: it is finishing (below).
+const overdue = computed(() =>
+  meetups.value.flatMap((s) => {
+    const late = overdueOuting(s, now.value)
+    return late && !dueEnding(s, now.value) ? [{ session: s, closes: format(late.closesAt, 'EEE d MMM, HH:mm') }] : []
+  }),
+)
+// A confirmed outing whose end time has passed: reading the list again finishes it and pays its coins (lib/api.js settleOutings).
+// Run when Home opens, since the store may already be loaded with an outing that ended while the person was on another page
+// (nothing then changes for the watcher below to notice), and again whenever the clock crosses an end time while Home is open.
+// How to call: settleDue() (the clock is read again, as the shared one may be older than the page)
+function settleDue() {
+  const at = new Date()
+  if (sessions.value.some((s) => dueEnding(s, at))) return events.loadSessions().catch(() => {})
+}
+watch(
+  () => meetups.value.some((s) => dueEnding(s, now.value)),
+  (due) => {
+    if (due) settleDue()
+  },
+)
 
 // Selecting by pin or by row is the same thing: put the id in the address (replacing the entry, so Back does not
 // step through selections) and keep any other part of the address, such as an open place.
@@ -371,6 +409,10 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <p class="caption text-muted">{{ today }}</p>
         <h1 id="home-hello" class="hello"><span class="hello__hi">Hi,</span> <span class="hello__name">{{ auth.user?.name }}</span></h1>
         <p class="body-md home__blurb">{{ blurb }}</p>
+        <!-- An invitation waiting for an answer: the list is lower down the page, so the band says so and links to it. -->
+        <RouterLink v-if="events.invitations.length" :to="{ query: route.query, hash: '#invitations' }" class="home__invites" data-testid="home-invites">
+          <AppIcon name="user-plus" :size="16" />{{ events.invitations.length === 1 ? 'You have an invitation' : `You have ${events.invitations.length} invitations` }}
+        </RouterLink>
         <!-- Rain within two hours: the map's layer in words, so it does not depend on seeing the map. -->
         <div v-if="rain.view.value" class="home__rain" data-testid="home-rain">
           <p class="home__rain-line caption" role="status"><AppIcon name="rain" :size="16" />{{ rain.view.value.text }}</p>
@@ -393,6 +435,11 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
     </section>
 
     <div class="screen__body home__body">
+      <InvitationList />
+      <BannerNote v-for="o in overdue" :key="o.session.id" tone="warning" icon="clock" data-testid="home-overdue">
+        {{ o.session.title }} has passed its end time without a confirmed plan. It closes by itself on {{ o.closes }}.
+        <template #actions><AppButton variant="secondary" small :to="sessionPath(o.session)">Open outing</AppButton></template>
+      </BannerNote>
       <BannerNote v-if="missingPlace" tone="warning" icon="warning" dismissible @dismiss="missingPlace = false">That place could not be found.</BannerNote>
       <!-- No meetup going: the ones before. Nothing at all until there is one. -->
       <section v-if="events.loaded && !hasMeetups && past.length" class="section rise" aria-labelledby="home-meetups">
@@ -422,6 +469,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         </template>
       </div>
       <p class="sr-only" role="status">{{ announce }}</p>
+      <RoamFromHome v-if="events.loaded && auth.sampleWorld" class="rise home__roam" :home="homeArea" />
 
       <!-- A midpoint: places around it, nearest first. -->
       <section v-if="area" class="section rise" aria-labelledby="home-places">
@@ -484,6 +532,8 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 .hero::before { content: ""; position: absolute; inset: 0 auto 0 50%; width: 100vw; transform: translateX(-50%); background: linear-gradient(to bottom, var(--surface-soft) 75%, var(--canvas)); }
 .hero__hello { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xs); padding: 0 var(--gutter); }
 .home__blurb { max-width: 460px; margin: 0; color: var(--body); }
+.home__invites { display: inline-flex; align-items: center; justify-content: center; gap: var(--spacing-xs); min-height: var(--tap-min); padding: var(--spacing-xxs) var(--spacing-base); text-align: center; border: 1px solid var(--ink); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font: var(--text-button-sm); text-decoration: none; }
+@media (hover: hover) { .home__invites:hover { background: var(--surface-soft); } }
 /* Rain within two hours, in words: a line with its icon, and the forecast's source under it. */
 .home__rain { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xxs); max-width: 460px; }
 .home__rain-line { display: inline-flex; align-items: center; justify-content: center; gap: var(--spacing-xs); margin: 0; color: var(--ink); font-weight: 600; }
@@ -547,7 +597,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 }
 /* No midpoint yet: the band fills the screen under the top bar (above the tab bar on phones), the stage takes all
    the room under the greeting, and the map runs edge to edge, fading only at the very edges. */
-.hero--full { min-height: calc(100dvh - var(--topbar-height) - var(--tabbar-height)); margin-bottom: 0; }
+.hero--full { min-height: calc(100dvh - var(--topbar-real-height) - var(--tabbar-real-height)); margin-bottom: 0; }
 .hero--full .hero__stage { flex: 1 1 auto; height: auto; min-height: 420px; }
 .hero--full .hero__map { --edge: radial-gradient(ellipse 72% 72% at 50% 50%, #000 70%, transparent 100%); width: 100vw; }
 /* On a phone the map is drawn small, so its dots are drawn a little bigger to keep the island's shape clear. */
@@ -563,7 +613,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 @media (min-width: 744px) {
   .home__meetups:not(.is-split) > * { max-width: var(--form-max-width); }
   .home__meetups.is-split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
-  .home__meetups.is-split > :first-child { position: sticky; top: calc(var(--topbar-height) + var(--spacing-base)); }
+  .home__meetups.is-split > :first-child { position: sticky; top: calc(var(--topbar-real-height) + var(--spacing-base)); }
 }
 .home__headtext { min-width: 0; }
 

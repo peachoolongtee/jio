@@ -4,6 +4,7 @@
 // and their status as an icon
 // (Joined, Location submitted, Voted, Opted out; the name is the icon's label). Others' locations are the area name only.
 //   <MemberList :session="session" :names="nameOf" :voters="voterIds" :my-id="auth.myId" />
+// A row can carry an action after its status: the slot `action` is given { id, label (the name), host, out } (the host's Remove button).
 // `statuses` off leaves the icons out, for a page where a person's status is not the point (Locate once the spot is confirmed).
 import { computed } from 'vue'
 import AppIcon from '../ui/AppIcon.vue'
@@ -47,6 +48,7 @@ const TONE = { Joined: 'wait', 'Location submitted': 'done', Voted: 'done', 'Opt
       <span v-if="statuses" class="member__status" :class="`is-${TONE[row.status]}`" role="img" :aria-label="row.status" :title="row.status">
         <AppIcon :name="ICON[row.status]" :size="14" />
       </span>
+      <slot name="action" :id="row.id" :label="row.name" :host="row.host" :out="row.out" />
     </li>
   </ul>
 </template>

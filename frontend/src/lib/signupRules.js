@@ -53,7 +53,9 @@ function passwordBytes(text) {
 }
 
 // Each part of the password rule, for a live checklist.
-// `hint` is a line to show under the label. How to call: passwordRules('Abc1!xyz') -> [{ label: '8 or more characters', ok: true }, ...]
+// `hint` is a line to show under the label. A rule with `hidden` is still part of the rule but is not drawn on the
+// checklist (see shownRules): almost nobody breaks it, so instead its `problem` is shown under the field when it is broken
+// (see hiddenProblem). How to call: passwordRules('Abc1!xyz') -> [{ label: '8 or more characters', ok: true }, ...]
 export function passwordRules(password) {
   const text = password || ''
   return [
@@ -65,10 +67,21 @@ export function passwordRules(password) {
     {
       label: `No more than ${PASSWORD_MAX} characters, and no space at the start or end`,
       hint: 'Accented letters and emoji take more room. Control characters are not allowed.',
+      hidden: true,
+      problem: `Use ${PASSWORD_MAX} characters or fewer, with no space at the start or end and no control characters.`,
       ok: text.length > 0 && passwordBytes(text) <= PASSWORD_MAX && !/^\s|\s$/.test(text) && !CONTROL.test(text),
     },
   ]
 }
+
+// The rules a checklist draws: every rule but the hidden ones.
+// How to call: shownRules(passwordRules('Abc1!xyz')) -> the first five
+export const shownRules = (rules) => rules.filter((rule) => !rule.hidden)
+
+// What to say under the password field when a hidden rule is broken, or ''. Nothing is said for an empty password.
+// The password is passed as well as its rules, because the rules alone cannot tell an empty password from a broken one.
+// How to call: hiddenProblem(passwordRules(' Abc1!xyz'), ' Abc1!xyz') -> 'Use 72 characters or fewer, with no space at the start or end ...'
+export const hiddenProblem = (rules, password) => (password ? rules.find((rule) => rule.hidden && !rule.ok)?.problem || '' : '')
 
 // How to call: validatePassword('Abc1!xyz') -> ''
 export function validatePassword(password) {

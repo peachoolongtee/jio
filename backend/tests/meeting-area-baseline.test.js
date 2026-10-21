@@ -49,7 +49,7 @@ const planData = loadPlanData()
 // How to call:
 //   const app = buildApp('stub')
 function buildApp(mode) {
-  const base = { frontendOrigin: FRONTEND, planData }
+  const base = { frontendOrigin: FRONTEND, roundPlannerMinutes: false, planData }
   const http = createHttp({ stub: true })
   switch (mode) {
     case 'off':
@@ -100,7 +100,7 @@ function buildApp(mode) {
 // How to call:
 //   const { status, body } = await ask({ mode: 'stub', headers: {}, request: { members } })
 async function ask({ mode, headers = {}, request, raw }) {
-  const server = buildApp(mode).listen(0)
+  const server = buildApp(mode).listen(0, '127.0.0.1')
   await once(server, 'listening')
   try {
     const res = await fetch(`http://127.0.0.1:${server.address().port}/api/meeting-area`, {

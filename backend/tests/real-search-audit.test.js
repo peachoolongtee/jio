@@ -113,7 +113,7 @@ afterEach(() => Promise.all(servers.splice(0).map((s) => new Promise((resolve) =
 
 // A running planner app. Returns get(path) and post(path, body).
 async function startApp(deps = {}) {
-  const app = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }), ...deps })
+  const app = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }), ownPlacesEnough: Infinity, ...deps })
   const server = app.listen(0, '127.0.0.1')
   await once(server, 'listening')
   servers.push(server)

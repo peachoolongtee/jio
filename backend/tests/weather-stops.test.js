@@ -203,7 +203,7 @@ describe('POST /api/weather/stops', () => {
 
     it('answers 404 in the flat error shape for a GET', async () => {
       const w = world()
-      const server = (await import('../src/app.js')).createApp({ frontendOrigin: 'http://localhost:5173', http: w.http, now: w.now }).listen(0)
+      const server = (await import('../src/app.js')).createApp({ frontendOrigin: 'http://localhost:5173', http: w.http, now: w.now }).listen(0, '127.0.0.1')
       servers.push(server)
       await new Promise((resolve) => server.once('listening', resolve))
       const res = await fetch(`http://127.0.0.1:${server.address().port}/api/weather/stops`)

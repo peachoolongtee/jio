@@ -1,14 +1,16 @@
 <script setup>
 // The session: people, locations and the meeting spot (the Locate step).
 //   Inviting  the people list with an Invite button. Below 2 people the main button is "Invite friends";
-//             from 2 people (including Ian) it is "Start session"
+//             from 2 people (including Ian) it is "Start session". In a shared session (one kept on the server) only the host
+//             starts it; a guest sees who it is waiting for and Leave session, and a refusal is said under the list
 //   Locating  Ian's start and end, then "Where to meet": the meeting spots (the app's three and each member's own
 //             suggestion) with everyone's travel time, "Works for me" on each, and a map with a pin for every spot.
 //             From two starts on the list opens; the host confirms a spot at any time ("Confirm <area>", the one
 //             main action; others see who they are waiting for) or sets a known place ("We already have a place").
 //             While the planner works the spots out, the list and the map say so.
 //             While some people have not set a start, a card lists them. The host can carry on without each one
-//             (after a confirmation); others only see who it is waiting for.
+//             (after a confirmation); others only see who it is waiting for. In a shared session that takes them out of it,
+//             the host can remove anyone from the people list, a guest can leave, and a person who opted out can rejoin.
 //   Voting+   the same page, settled: one card with the confirmed meeting spot, everyone's travel time to it in the
 //             people list (coloured, with a key; no votes ring and no status icons, which belong to the Vote step),
 //             and the map with the meeting pin and a line from each person's start. The other spots are gone. The
@@ -21,12 +23,16 @@ import UserAvatar from '@/components/ui/UserAvatar.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
 import SegmentedProgress from '@/components/ui/SegmentedProgress.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import InviteDialog from '@/components/group/InviteDialog.vue'
+import LeaveSession from '@/components/group/LeaveSession.vue'
+import RemoveMember from '@/components/group/RemoveMember.vue'
+import { removeText, removeTitle } from '@/components/group/removeCopy.js'
 import LocationSheet from '@/components/group/LocationSheet.vue'
 import MemberList from '@/components/group/MemberList.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
@@ -35,6 +41,7 @@ import SpotList from '@/components/spots/SpotList.vue'
 import SpotPins from '@/components/spots/SpotPins.vue'
 import { confirmedAreaId, myTripLine, settledView, shownFor, spotsToShow } from '@/components/spots/spotText.js'
 import NotFoundView from './NotFoundView.vue'
+import { watchSessions } from '@/lib/api.js'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
 import { directionsUrl } from '@/lib/maps.js'
 import { locateNext } from '@/lib/session.js'
@@ -49,9 +56,14 @@ const auth = useAuthStore()
 const events = useEventsStore()
 const groups = useGroupsStore()
 
+// The session does not exist, or the person is not in it (the data layer's `not_found`), and why the page could not load it at
+// all (no connection, the server down) with a Retry. The two are different pages: only the first is "not found".
 const missing = ref(false)
+const loadError = ref('')
 const busy = ref(false)
 const error = ref('')
+// A quiet notice, not a failure: the person's start is saved but the spots have not been worked out yet.
+const note = ref('')
 const sheet = ref({ open: false, which: 'start' })
 const view = ref('list')
 const mapRef = ref(null)
@@ -61,16 +73,32 @@ const picked = ref('')
 
 async function load() {
   missing.value = false
+  loadError.value = ''
   try {
     await Promise.all([events.loadSession(props.id), groups.loadPeople()])
-  } catch {
-    missing.value = true
+  } catch (err) {
+    if (err?.code === 'not_found') missing.value = true
+    else loadError.value = err?.message || 'The session could not be loaded.'
   }
 }
-onMounted(load)
+// A shared session changes under this page (someone joins or leaves, the host renames it or calls it off): it is read again
+// as it happens. Stops when the page is left.
+let stopWatching = () => {}
+onMounted(() => {
+  stopWatching = watchSessions()
+  load()
+})
+onBeforeUnmount(() => stopWatching())
 watch(() => props.id, () => { picked.value = ''; load() })
 
 const session = computed(() => events.byId[props.id])
+// A session that arrives (the person was added, a live update, a retry) ends any "not found" or failed load.
+watch(session, (found) => {
+  if (found) {
+    missing.value = false
+    loadError.value = ''
+  }
+})
 const status = computed(() => session.value?.status)
 const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
@@ -83,11 +111,13 @@ const lobby = computed(() =>
     .filter((m) => ['joined', 'invited'].includes(m.state))
     .map((m) => {
       const p = m.id === auth.myId ? { username: auth.user?.username, homeArea: auth.user?.homeAreaName } : groups.people.find((x) => x.id === m.id) || {}
-      return { id: m.id, name: nameOf(m.id), host: m.role === 'host', joined: m.state === 'joined', username: p.username || '', homeArea: p.homeArea || '' }
+      return { id: m.id, name: nameOf(m.id), host: m.role === 'host', me: m.id === auth.myId, joined: m.state === 'joined', username: p.username || '', homeArea: p.homeArea || '' }
     }),
 )
 const lobbyRing = computed(() => lobby.value.map((p) => ({ name: p.name, done: p.joined })))
 const inviteOpen = ref(false)
+// The people list of a session that is still inviting, or of a shared one that was cancelled before it started.
+const lobbyShown = computed(() => status.value === 'inviting' || (status.value === 'cancelled' && !!session.value?.remote))
 
 const myLoc = computed(() => session.value?.locations?.[auth.myId] || { start: null, end: null })
 const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAreaId, name: auth.user.homeAreaName } : null))
@@ -191,15 +221,21 @@ function openSheet(which) {
   sheet.value = { open: true, which }
 }
 
+// Save the person's start or end. A start that is saved while the server could not be reached to work the spots out is a notice, not
+// an error: it stays, and the times follow. How to call: await saveLocation({ areaId: 'bugis', label: 'Bugis Junction' })
 async function saveLocation(place) {
   error.value = ''
+  note.value = ''
   try {
     await events.setMyLocation(props.id, sheet.value.which, place)
   } catch (e) {
-    error.value = e.message
+    if (e.code === 'saved_not_priced') note.value = e.message
+    else error.value = e.message
   }
 }
 
+// Run one change with the busy flag on; the flag is cleared whatever happens, and a failure is the screen's error line.
+// How to call: run(() => events.start(props.id), () => { dialogOpen.value = false })
 async function run(fn, after) {
   busy.value = true
   error.value = ''
@@ -208,13 +244,18 @@ async function run(fn, after) {
     if (after) after()
   } catch (e) {
     error.value = e.message
+  } finally {
+    busy.value = false
   }
-  busy.value = false
 }
 
 // Who the meeting area is waiting for. Only the host can carry on without someone, and never without themself.
 const waiting = computed(() => (session.value ? waitingFor(session.value) : []).map((id) => ({ id, name: nameOf(id), me: id === auth.user?.id })))
 const isHost = computed(() => !!session.value && session.value.hostId === auth.user?.id)
+// The signed-in person opted out of this shared session: they keep their place in it and can come back.
+const optedOut = computed(() => !!session.value?.remote && (session.value.members || []).some((m) => m.id === auth.myId && m.state === 'opted_out'))
+// Come back after opting out. How to call: rejoin()
+const rejoin = () => run(() => events.rejoin(props.id))
 const skipOpen = ref(false)
 const skipTarget = ref(null)
 function askSkip(person) {
@@ -223,6 +264,11 @@ function askSkip(person) {
   skipOpen.value = true
 }
 const continueWithout = () => run(() => events.optOut(props.id, skipTarget.value.id), () => { skipOpen.value = false })
+// In a shared session the host's button takes the person out for good (they are removed, not opted out), so it says "Remove" and
+// is not offered when it would leave fewer than two people in. In a session of this browser it is the reversible "Continue without".
+const sharedSession = computed(() => !!session.value?.remote)
+const canSkip = computed(() => isHost.value && (!sharedSession.value || (session.value.activeIds || []).length > 2))
+const skipLabel = (name) => (sharedSession.value ? `Remove ${name}` : `Continue without ${name}`)
 
 const hostName = computed(() => nameOf(session.value?.hostId) || 'the host')
 // The meeting spots changed what the people card shows: while choosing, their trips are to each spot, not to a meeting
@@ -269,12 +315,13 @@ const startSession = () => run(() => events.start(props.id))
       <SessionNotices :session="session" />
       <BannerNote v-if="approvalsBanner" icon="info" dismissible @dismiss="dismissBanner">{{ approvalsBanner.text }}</BannerNote>
 
-      <!-- Inviting: who is in, whether the session can start, and Start session below. -->
-      <section v-if="status === 'inviting'" class="card lobby" aria-labelledby="lobby-head">
+      <!-- Inviting: who is in, whether the session can start, and Start session below. A shared session that was called off
+           while it was still inviting shows the same list, read-only, under the "Session cancelled" note. -->
+      <section v-if="lobbyShown" class="card lobby" aria-labelledby="lobby-head">
         <header class="lobby__head">
           <h2 id="lobby-head" class="sr-only">Who is in</h2>
           <ProgressDonut compact title="Joined" :people="lobbyRing" done-label="Joined" />
-          <AppButton variant="secondary" small @click="inviteOpen = true"><AppIcon name="user-plus" :size="16" />Invite</AppButton>
+          <AppButton v-if="status === 'inviting'" variant="secondary" small @click="inviteOpen = true"><AppIcon name="user-plus" :size="16" />Invite</AppButton>
         </header>
 
         <div class="lobby__group">
@@ -282,16 +329,18 @@ const startSession = () => run(() => events.start(props.id))
           <ul class="lobby__list">
             <li v-for="(person, i) in lobby" :key="person.id" class="lobby__row rise" :class="{ 'is-pending': !person.joined }" :style="{ '--i': i }">
               <UserAvatar :name="person.name" :person="person.id" :size="44" />
-              <RouterLink :to="person.host ? '/profile' : `/people/${person.id}`" class="lobby__who">
-                <span class="title-sm truncate">{{ person.name }}<template v-if="person.host"> (you)</template></span>
+              <RouterLink :to="person.me ? '/profile' : `/people/${person.id}`" class="lobby__who">
+                <span class="title-sm truncate">{{ person.name }}<template v-if="person.me"> (you)</template></span>
                 <span class="caption-sm text-muted truncate"><template v-if="person.username">@{{ person.username }}</template><template v-if="person.username && person.homeArea"> · </template>{{ person.homeArea }}</span>
               </RouterLink>
               <span v-if="person.host" class="lobby__tag lobby__tag--host"><AppIcon name="crown" :size="14" />Host</span>
               <span v-else-if="person.joined" class="lobby__tag"><AppIcon name="check" :size="14" />Joined</span>
               <span v-else class="lobby__tag lobby__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
+              <RemoveMember v-if="session.remote && status === 'inviting' && isHost && person.joined && !person.host" :session-id="session.id" :person="person" />
             </li>
           </ul>
         </div>
+        <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </section>
 
       <template v-else>
@@ -328,6 +377,7 @@ const startSession = () => run(() => events.start(props.id))
         </div>
 
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
+        <BannerNote v-if="note" icon="info" dismissible @dismiss="note = ''">{{ note }}</BannerNote>
 
         <SplitView v-model:view="view" label="Meeting area">
           <template #list>
@@ -370,25 +420,38 @@ const startSession = () => run(() => events.start(props.id))
             <!-- Locating, and the meeting area is waiting for people who have not set a start. -->
             <section v-if="waiting.length && !loading" class="section card" aria-labelledby="waiting-head">
               <h2 id="waiting-head" class="title-md">Waiting for {{ waiting.length }} {{ waiting.length === 1 ? 'person' : 'people' }}</h2>
-              <p class="body-sm text-muted">Their trips are counted once they share where they start.<template v-if="isHost"> If someone is not going to, you can carry on without them.</template></p>
+              <p class="body-sm text-muted">Their trips are counted once they share where they start.<template v-if="canSkip"> If someone is not going to, you can {{ sharedSession ? 'remove them' : 'carry on without them' }}.</template></p>
               <ul class="waiting" aria-label="People who have not set a start">
                 <li v-for="person in waiting" :key="person.id" class="waiting__row">
                   <UserAvatar :name="person.name" :person="person.id" :size="36" />
                   <span class="title-sm truncate waiting__name">{{ person.me ? 'You' : person.name }}</span>
                   <span v-if="person.me" class="caption-sm text-muted">Add where you are starting, above</span>
-                  <AppButton v-else-if="isHost" small variant="secondary" :disabled="busy" @click="askSkip(person)">Continue without {{ person.name }}</AppButton>
+                  <AppButton v-else-if="canSkip" small variant="secondary" :disabled="busy" @click="askSkip(person)">{{ skipLabel(person.name) }}</AppButton>
                 </li>
               </ul>
             </section>
 
+            <BannerNote v-if="optedOut && ['inviting', 'locating'].includes(status)" icon="info">
+              You opted out of this session, so your trips are not counted.
+              <template #actions><AppButton small variant="secondary" :disabled="busy" @click="rejoin">Rejoin</AppButton></template>
+            </BannerNote>
+
             <section class="section card" aria-label="People">
               <!-- Once the spot is confirmed this card is about the trips: no votes ring, no status icons. -->
               <ProgressDonut v-if="progress && !settled" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
-              <MemberList :session="peopleSession" :names="nameOf" :my-id="myId" :voters="voterIds" :statuses="!settled" />
+              <MemberList :session="peopleSession" :names="nameOf" :my-id="myId" :voters="voterIds" :statuses="!settled">
+                <!-- A shared session, while locating: the host can take anyone but themselves out of it. -->
+                <template #action="{ id, label, host, out }">
+                  <RemoveMember v-if="session.remote && choosing && isHost && !host && !out && (session.activeIds || []).length > 2" :session-id="session.id" :person="{ id, name: label }" />
+                </template>
+              </MemberList>
               <p v-if="!choosing && hasMeetingTrips && !loading" class="travel-key" aria-label="Travel time colours">
                 <span v-for="t in TRAVEL_TONES" :key="t.id" class="travel-key__item"><span class="travel-key__dot" :class="`is-${t.id}`" />{{ t.label }}</span>
               </p>
             </section>
+
+            <!-- A guest of a shared session can leave while the group is choosing where to meet. -->
+            <div v-if="session.remote && choosing && !isHost" class="leave"><LeaveSession :session-id="session.id" /></div>
           </template>
           <template #map>
             <PlannerMap ref="mapRef" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" label="Meeting area map" @view="refreshPins" />
@@ -399,8 +462,18 @@ const startSession = () => run(() => events.start(props.id))
       </template>
     </div>
 
-    <footer v-if="status !== 'cancelled'" class="screen__footer">
-      <AppButton v-if="status === 'inviting' && active.length < 2" block @click="inviteOpen = true">Invite friends</AppButton>
+    <!-- No footer for a cancelled outing, or one that closed by itself with no plan (there is nothing to go on to). -->
+    <footer v-if="status !== 'cancelled' && !(status === 'completed' && !session.plan)" class="screen__footer">
+      <!-- A shared session (one kept on the server) is started by its host; a guest waits, or leaves. -->
+      <template v-if="status === 'inviting' && session.remote">
+        <AppButton v-if="isHost && active.length >= 2" next block :disabled="busy" @click="startSession">Start session</AppButton>
+        <AppButton v-else-if="isHost" block @click="inviteOpen = true">Invite friends</AppButton>
+        <template v-else>
+          <p class="body-sm text-muted lobby__held">Waiting for {{ hostName }} to start the session.</p>
+          <LeaveSession :session-id="session.id" />
+        </template>
+      </template>
+      <AppButton v-else-if="status === 'inviting' && active.length < 2" block @click="inviteOpen = true">Invite friends</AppButton>
       <AppButton v-else-if="status === 'inviting'" next block :disabled="busy" @click="startSession">Start session</AppButton>
       <SpotConfirm
         v-else-if="status === 'locating'"
@@ -415,12 +488,31 @@ const startSession = () => run(() => events.start(props.id))
     </footer>
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
-    <ModalDialog v-model:open="skipOpen" :title="`Continue without ${skipTarget?.name || 'them'}?`" text="They leave this session, and the meeting point is worked out from the people who have shared where they start. This cannot be undone.">
+    <ModalDialog
+      v-model:open="skipOpen"
+      :title="sharedSession ? removeTitle(skipTarget?.name) : `Continue without ${skipTarget?.name || 'them'}?`"
+      :text="sharedSession ? removeText(skipTarget?.name) : 'They leave this session, and the meeting point is worked out from the people who have shared where they start. This cannot be undone.'"
+    >
       <template #content><p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p></template>
-      <AppButton block variant="secondary" @click="skipOpen = false">Keep waiting</AppButton>
-      <AppButton block variant="danger" :disabled="busy" @click="continueWithout">Continue without {{ skipTarget?.name }}</AppButton>
+      <AppButton block variant="secondary" @click="skipOpen = false">{{ sharedSession ? `Keep ${skipTarget?.name || 'them'}` : 'Keep waiting' }}</AppButton>
+      <AppButton block variant="danger" :disabled="busy" @click="continueWithout">{{ skipLabel(skipTarget?.name) }}</AppButton>
     </ModalDialog>
     <LocationSheet v-model:open="sheet.open" :which="sheet.which" :home="homeArea" @select="saveLocation" />
+  </main>
+  <!-- The person is not in this shared session any more: they left, or the host took them out. -->
+  <main v-else-if="events.gone[props.id]" class="screen" data-testid="session-gone">
+    <div class="screen__body" style="padding-top: var(--spacing-xl)">
+      <EmptyState title="You are not in this session any more" text="You left it, or the host took you out of it.">
+        <AppButton to="/">Back to Home</AppButton>
+      </EmptyState>
+    </div>
+  </main>
+  <main v-else-if="loadError" class="screen" data-testid="session-load-error">
+    <div class="screen__body" style="padding-top: var(--spacing-xl)">
+      <EmptyState title="Could not load this session" :text="loadError" role="alert">
+        <AppButton variant="secondary" @click="load">Retry</AppButton>
+      </EmptyState>
+    </div>
   </main>
   <main v-else class="screen" data-testid="group-detail-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
@@ -441,6 +533,9 @@ const startSession = () => run(() => events.start(props.id))
 .lobby__row + .lobby__row { border-top: 1px solid var(--hairline-soft); }
 .lobby__who { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; color: var(--ink); text-decoration: none; }
 @media (hover: hover) { .lobby__who:hover .title-sm { text-decoration: underline; } }
+.lobby__held { margin: 0; }
+.leave { display: flex; justify-content: center; }
+@media (min-width: 744px) { .lobby__held { margin-right: auto; max-width: 56ch; } }
 .lobby__tag { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: var(--rounded-full); color: var(--body); font: var(--text-caption); }
 .lobby__tag--host { border-color: color-mix(in srgb, var(--primary) 35%, var(--canvas)); color: var(--primary-active); }
 /* Invited, not joined yet: a dashed tag and a faded row, until they accept. */

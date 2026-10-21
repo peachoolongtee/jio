@@ -1,5 +1,5 @@
 import { createCallBudget } from './budget.js'
-import { createCache } from './cache.js'
+import { createCache, queryKey } from './cache.js'
 import { ExternalApiError } from './errors.js'
 import { currentScenario } from './scenario.js'
 
@@ -15,7 +15,9 @@ import { currentScenario } from './scenario.js'
 //     a new billed search by changing the radius by one metre.
 //   - One budget for every Google call, searches, look-ups and photos together: GOOGLE_CALLS_PER_MINUTE a minute (60 by
 //     default) and at most 4 in flight. A call over the budget fails at once; the planner answers without Google.
-//   - Three failures in a row pause Google for a minute (a circuit breaker), and a call waits at most 3 seconds.
+//   - Three failures in a row pause Google for a minute (a circuit breaker), and a call waits at most 3 seconds. A call that
+//     queued for a slot for a second or more is not started when the last completed call failed ('waited_too_long'), so a hung
+//     Google does not give every queued call a timeout of its own; a call refused before any request is not charged to a lane.
 //   - The link reader (services/link-reader.js) does not draw on the whole budget: it uses lane(), a view that may spend at most
 //     a third of GOOGLE_CALLS_PER_MINUTE a minute (a count of its paid calls over the last minute, so cache hits are free), so
 //     it can never starve the planner.
@@ -38,6 +40,9 @@ export const GOOGLE_MAX_IN_FLIGHT = 4
 export const GOOGLE_TIMEOUT_MS = 3000 // Shorter than the HTTP helper's 10 seconds, which would hold a planner request up.
 export const GOOGLE_FAILURES_TO_OPEN = 3 // Failed calls in a row that open the circuit.
 export const GOOGLE_CIRCUIT_OPEN_MS = 60 * 1000 // How long Google is skipped once the circuit opens.
+// A call that waited this long for a slot, while the last completed call failed, is not started: a hung Google would otherwise make
+// the fifth and later requests of a burst wait for a slot (one timeout) and then spend a timeout of their own.
+export const GOOGLE_STALE_WAIT_MS = 1000
 export const PHOTO_MISS_MS = 5 * 60 * 1000 // A photo Google says does not exist is not asked for again for this long.
 export const PLACE_MISS_MS = 5 * 60 * 1000 // A place Google says does not exist (404) is not asked for again for this long.
 export const PLACE_CACHE_MS = 10 * 60 * 1000 // How long a search or a place look-up is kept. Other parts of the server keep Google content no longer than this.
@@ -104,6 +109,7 @@ const IMAGE_HOSTS = ['googleusercontent.com', 'ggpht.com']
 const FALLBACK_TEXT = {
   budget_empty: 'the Google call budget for this minute is used up',
   circuit_open: 'Google failed several calls in a row, so it is skipped for a short while',
+  waited_too_long: 'Google failed its last call and this one waited a long time for its turn, so it is skipped',
   bad_response: 'Google answered with something the planner cannot read',
   upstream_error: 'Google answered with an error or did not answer',
 }
@@ -116,6 +122,7 @@ const round3 = (x) => Math.round(x * 1000) / 1000
 // `reason` is one of:
 //   budget_empty  the call budget for this minute is used up
 //   circuit_open  three calls in a row failed, so Google is paused for a while
+//   waited_too_long  the last completed call failed and this one queued for a slot for a second or more, so it was not started
 //   bad_response  Google answered 200 with something unreadable (a places list that is not a list, a photo link
 //                 that is not a Google image address)
 //
@@ -255,7 +262,7 @@ export function createGooglePlaces({
     service: 'Google',
     unavailable: (reason, message, details) => new GoogleUnavailableError(reason, message, details),
   })
-  const circuit = { failures: 0, openUntil: 0, probing: false }
+  const circuit = { failures: 0, openUntil: 0, probing: false, lastFailed: false } // lastFailed: the last completed call was a counted failure.
   const lastWarned = new Map() // reason -> time of the last log line
   const headers = (fieldMask) => ({ 'X-Goog-Api-Key': key || 'stub', ...(fieldMask && { 'X-Goog-FieldMask': fieldMask }) })
 
@@ -283,14 +290,22 @@ export function createGooglePlaces({
   // does not exist). It neither counts toward the circuit nor is logged.
   //
   // `lane` (see lane() below) is a part of the budget that one kind of caller is held to. It is charged only here, where a
-  // paid call is about to be made, so an answer from a cache costs it nothing.
+  // paid call is about to be made, so an answer from a cache costs it nothing. A call refused before it made any request
+  // (the circuit, a long wait, an empty budget) gives the charge back.
   //
   // How to call (inside this file):
   //   const body = await guarded(() => http.getJson(url, { headers: headers(), timeoutMs }))
   async function guarded(fn, { benign = () => false, lane = null } = {}) {
     let probe = false
+    let charged = null // What the lane returned when it was charged, for giving the charge back.
+    let requested = false // True once the call was handed to the HTTP helper.
     // Refuses while the circuit is open. Once the pause is over, lets exactly one call through as a probe.
+    const queuedAt = now()
     const claim = () => {
+      // Waited a long time for a slot and the last completed call failed: Google is probably down, so do not start another timeout.
+      if (!probe && circuit.lastFailed && now() - queuedAt >= GOOGLE_STALE_WAIT_MS) {
+        throw new GoogleUnavailableError('waited_too_long', 'Google failed its last call and this call waited a long time for its turn')
+      }
       if (probe || circuit.failures < GOOGLE_FAILURES_TO_OPEN) return
       if (now() < circuit.openUntil || circuit.probing) {
         throw new GoogleUnavailableError('circuit_open', 'Google is paused after repeated failures')
@@ -300,18 +315,23 @@ export function createGooglePlaces({
     }
     try {
       claim()
-      lane?.spend()
+      charged = lane?.spend() ?? null
       return await budget.run(
         async () => {
+          requested = true
           try {
             const result = await fn()
             circuit.failures = 0
+            circuit.lastFailed = false
             return result
           } catch (err) {
             if (err instanceof ExternalApiError && !benign(err)) {
+              circuit.lastFailed = true
               circuit.failures += 1
               // After the pause one more failure opens it again straight away, so a still-sick Google is probed by one call.
               if (circuit.failures >= GOOGLE_FAILURES_TO_OPEN) circuit.openUntil = now() + GOOGLE_CIRCUIT_OPEN_MS
+            } else {
+              circuit.lastFailed = false // Completed without a counted failure: a benign 404 shows Google is answering.
             }
             throw err
           }
@@ -319,6 +339,7 @@ export function createGooglePlaces({
         { guard: claim },
       )
     } catch (err) {
+      if (charged !== null && !requested) lane.refund(charged)
       if (err instanceof ExternalApiError && !benign(err)) reportFailure(err)
       throw err
     } finally {
@@ -438,7 +459,7 @@ export function createGooglePlaces({
     const textQuery = String(query).trim().slice(0, 100)
     if (!textQuery) return []
     const radius = Math.min(50_000, Math.max(1, Math.round(biasMeters)))
-    const cacheKey = `text:${currentScenario()}:${fieldMask}:${round3(point.lat)},${round3(point.lng)}:${radius}:${textQuery.toLowerCase()}`
+    const cacheKey = `text:${currentScenario()}:${fieldMask}:${round3(point.lat)},${round3(point.lng)}:${radius}:${queryKey(textQuery)}`
     let partial = false
     const list = await textCache.getOrSet(cacheKey, () =>
       guarded(async () => {
@@ -532,13 +553,21 @@ export function createGooglePlaces({
       return spent.length
     }
     const own = {
+      // Charges one paid call and returns the charge, to give back with refund() if the call is refused before it is made.
       spend() {
         if (used() >= max) {
           throw new GoogleUnavailableError('budget_empty', 'the Google calls set aside for this part of the app are used up for this minute', {
             retryAfterSeconds: Math.max(1, Math.ceil((spent[0] + LANE_WINDOW_MS - now()) / 1000)),
           })
         }
-        spent.push(now())
+        const at = now()
+        spent.push(at)
+        return at
+      },
+      // Gives back a charge from spend(). Does nothing when the charge has already left the window.
+      refund(at) {
+        const i = spent.lastIndexOf(at)
+        if (i !== -1) spent.splice(i, 1)
       },
     }
     return {

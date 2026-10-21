@@ -24,11 +24,34 @@ const SESSION_ENDED = 'Your session has ended. Log in again.'
 const LOGIN_NEEDED = 'The planner needs you to be logged in. Log in and try again.'
 const AUTH_UNAVAILABLE = 'Jio cannot check your login right now. Try again in a moment.'
 
+// The planner checks coordinates against Singapore's land (backend/src/planner/singapore.js), which is tighter than the box the
+// browser checks (lib/planner/geo.js), so a place just over the border reaches the planner and comes back as a 400 whose issue
+// points at a coordinate. This is the sentence for it, the same one a place the browser refuses gets.
+const OUTSIDE_SINGAPORE = 'That place is outside Singapore. Pick an area instead.'
+
+// Is this 400 answer a coordinate the planner will not take (a path ending in lat or lng, and a message about the range)?
+// How to call: isOutsideSingapore({ error: 'invalid_input', issues: [{ path: 'current.lat', message: 'coordinates must be in Singapore' }] }) -> true
+function isOutsideSingapore(data) {
+  if (data?.error !== 'invalid_input' || !Array.isArray(data.issues)) return false
+  return data.issues.some(
+    (i) => /(^|\.)(lat|lng)$/.test(String(i?.path)) && /Singapore|^Number must be (greater|less) than/.test(String(i?.message)),
+  )
+}
+
 // What a failed request says. Screens show err.message, so say what went wrong in words a person can act on.
 // Developer text (commands, environment variable names, request details) is only for development builds;
 // `dev` is a parameter so both wordings can be tested.
+// Three failures are kept apart so the person knows what to do: the planner did not answer in time (a slow connection or
+// a busy server: waiting and trying again is right), it could not be reached at all (check the connection), and it
+// answered by refusing the request.
 // How to call: plannerErrorMessage(err, { dev: false }) -> 'Too many requests. Wait a few seconds and try again.'
 export function plannerErrorMessage(err, { dev = import.meta.env.DEV, baseURL = api.defaults.baseURL } = {}) {
+  // The request was sent and no answer came before the client's deadline (axios reports ECONNABORTED, or ETIMEDOUT when it
+  // is told to be exact). A request that was cancelled on purpose is not a timeout and falls through to the next case.
+  if (!err?.response && (err?.code === 'ECONNABORTED' || err?.code === 'ETIMEDOUT')) {
+    const base = 'The Jio planner is taking too long to answer. Try again in a moment.'
+    return dev && err.message ? `${base} (${err.message})` : base
+  }
   // No answer at all: the backend is not running, or it refused this page's address (CORS allows one
   // origin, FRONTEND_ORIGIN). The browser reports both the same way, so name both in development.
   if (!err?.response) {
@@ -45,10 +68,13 @@ export function plannerErrorMessage(err, { dev = import.meta.env.DEV, baseURL = 
   // by refreshing the token, which is a request that carried none.
   if (status === 503 && data?.error === 'auth_unavailable') return AUTH_UNAVAILABLE
   if (status === 401 && data?.error === 'unauthenticated') return LOGIN_NEEDED
+  if (status === 400 && isOutsideSingapore(data)) return OUTSIDE_SINGAPORE
   const issues = data?.issues?.map((i) => `${i.path}: ${i.message}`).join('; ')
   if (issues) return dev ? `The planner could not use this request (${issues}).` : 'The planner could not use this request. Try again.'
   // A 404 message names the route, which is developer text.
   if (status === 404 && !dev) return 'The planner had a problem. Try again.'
+  // A request the planner refused without saying why (a 400 or 422 with no message) is told apart from the planner failing.
+  if ((status === 400 || status === 422) && !data?.message) return 'The planner could not use this request. Try again.'
   return data?.message || 'The planner had a problem. Try again.'
 }
 
@@ -174,7 +200,9 @@ api.interceptors.response.use(
       }
       throw new Error(SESSION_ENDED)
     }
-    throw new Error(plannerErrorMessage(err))
+    // The server's own code for a refusal (backend/src/routes/sessions.js sends one), so a caller can word it for the person.
+    const code = err?.response?.data?.error
+    throw Object.assign(new Error(plannerErrorMessage(err)), typeof code === 'string' ? { code, status: err.response.status } : {})
   },
 )
 
@@ -188,6 +216,97 @@ export async function emailRegistered(email) {
   const { data } = await api.post('/api/accounts/email-check', { email: String(email || '').trim() }, { timeout: 5000 })
   if (typeof data?.registered !== 'boolean') throw new Error('The planner sent an answer Jio could not read. Try again later.')
   return data.registered
+}
+
+// A member leaves a session, or the host removes a guest (`personId` is 'me' for leaving, or the guest's user id). The server
+// checks who is asking and who may do what (backend/src/routes/sessions.js) and answers { planVersion, left } or
+// { planVersion, removed }. A refusal arrives as an Error whose `code` is one of session_not_found, host_cannot_leave,
+// host_only, session_closed, member_not_found.
+// How to call: await removeSessionMember('3b1f...', 'me')
+export async function removeSessionMember(sessionId, personId = 'me') {
+  const { data } = await api.delete(`/api/sessions/${encodeURIComponent(sessionId)}/members/${encodeURIComponent(personId)}`, { timeout: 8000 })
+  return data
+}
+
+// How long a search for people is waited for. Typing makes many of them, so a slow one is given up on sooner than a ranking.
+export const PEOPLE_SEARCH_TIMEOUT_MS = 6000
+
+// People whose username starts with `q` (3 to 20 of a-z, 0-9 and _; already cleaned), for the invite field. The server checks who
+// is asking, never lists the caller, and answers at most 5: [{ id, name, username, avatarUrl, metBefore }], possibly none
+// (backend/src/routes/people.js). Rejects in the client's usual way (an Error whose message a person can read), and with an
+// AbortError when `signal` aborts first, so the caller can tell a replaced search from a failed one.
+// How to call: await searchPeopleByUsername('sam_t', { signal: controller.signal })
+export async function searchPeopleByUsername(q, { signal } = {}) {
+  try {
+    const { data } = await api.get('/api/people/search', { params: { q }, timeout: PEOPLE_SEARCH_TIMEOUT_MS, signal })
+    if (!Array.isArray(data?.people)) throw new Error(notJsonMessage())
+    return data.people
+  } catch (err) {
+    if (signal?.aborted) throw Object.assign(new Error('The search was cancelled.'), { name: 'AbortError' })
+    throw err
+  }
+}
+
+// How long a call about a session's meeting spots is waited for. The server may route trips with OneMap for up to 8 seconds before it
+// answers, so this is longer than a ranking's wait.
+export const SESSION_TIMEOUT_MS = 20000
+
+// The path of one of a session's routes. How to call: sessionPath('3b1f...', '/spots/mine') -> '/api/sessions/3b1f.../spots/mine'
+const sessionPath = (sessionId, tail) => `/api/sessions/${encodeURIComponent(sessionId)}${tail}`
+
+// Have the server work out a session's meeting spots again, after the person's start or end changed (E1 of the sessions design).
+// `trigger` is 'start', 'end' or 'added' (a first start). The server writes the spots; the answer only says what it did and is
+// never put into the screens: the session is read again afterwards.
+// Resolves { planVersion, meetingAreaId, moved, votesCleared, skipped }. A refusal is an Error whose `code` is one of
+// session_not_found, not_joined, not_yet (the group is voting), wrong_status, plan_busy.
+// How to call: await refreshSessionSpots('3b1f...', 'start')
+export async function refreshSessionSpots(sessionId, trigger) {
+  const { data } = await api.post(sessionPath(sessionId, '/meeting-area'), trigger ? { trigger } : {}, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The person suggests an area for the group to meet in (E19), replacing their earlier suggestion. `here` marks it "we are here
+// already". Resolves { planVersion, spots, approvalsRemoved }. Refusals: wrong_status, no_spots, too_many_spots, unknown_area,
+// area_not_priced.
+// How to call: await putSessionSpot('3b1f...', 'bugis', true)
+export async function putSessionSpot(sessionId, areaId, here = false) {
+  const { data } = await api.put(sessionPath(sessionId, '/spots/mine'), { areaId, here }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The person takes their suggestion back (E20). Resolves { planVersion }; with nothing to withdraw it is a no-op.
+// How to call: await deleteSessionSpot('3b1f...')
+export async function deleteSessionSpot(sessionId) {
+  const { data } = await api.delete(sessionPath(sessionId, '/spots/mine'), { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The host confirms a meeting spot (E2): the session moves from locating to voting. Without `areaId` the server takes the spot most
+// people said works for them. Resolves { planVersion, status, meetingAreaId, method, slotCount }. Refusals: host_only,
+// wrong_status, spot_not_found, no_spots.
+// How to call: await confirmSessionSpot('3b1f...', 'bugis')
+export async function confirmSessionSpot(sessionId, areaId) {
+  const { data } = await api.post(sessionPath(sessionId, '/voting'), areaId ? { areaId } : {}, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The host names the place the group already knows (E21), from inviting or locating. Resolves { planVersion, status }. Refusals:
+// host_only, wrong_status, needs_two_people, unknown_area.
+// How to call: await putSessionKnownPlace('3b1f...', 'bugis')
+export async function putSessionKnownPlace(sessionId, areaId) {
+  const { data } = await api.put(sessionPath(sessionId, '/known-place'), { areaId }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The person opts out of a session but keeps their place in it (E10), and comes back (E11). Both resolve { planVersion, state }.
+// How to call: await optOutOfSession('3b1f...'); await rejoinSession('3b1f...')
+export async function optOutOfSession(sessionId) {
+  const { data } = await api.post(sessionPath(sessionId, '/opt-out'), {}, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+export async function rejoinSession(sessionId) {
+  const { data } = await api.post(sessionPath(sessionId, '/rejoin'), {}, { timeout: SESSION_TIMEOUT_MS })
+  return data
 }
 
 // The weather the planner used for the last ranking: { source: 'live' | 'simulated' | 'unavailable', simulationIgnored? }.

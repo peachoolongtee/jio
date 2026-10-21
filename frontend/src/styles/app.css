@@ -57,10 +57,12 @@ svg { display: block; flex-shrink: 0; }
 .truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── App frame and screen layout ──────────────────────────── */
-/* The frame: the screen, with room for the tab bar on top-level screens: at the bottom on mobile, at the top from tablet up. */
-.app { min-height: 100dvh; background: var(--canvas); }
-.app__main { display: flex; flex-direction: column; min-width: 0; min-height: 100dvh; overflow-x: clip; } /* clip: a full-bleed band (Home's map) never scrolls sideways; sticky still works. */
-.app.has-tabs .app__main { padding-top: var(--topbar-height); padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px)); }
+/* The frame: the screen, with room for the tab bar on top-level screens: at the bottom on mobile, at the top from tablet up.
+   The page runs under a phone's notch and home indicator (viewport-fit=cover in index.html), so the frame keeps its
+   content out of the safe-area insets: the sides for a notch in landscape, the top for an app added to the home screen. */
+.app { min-height: 100dvh; padding-right: env(safe-area-inset-right, 0px); padding-left: env(safe-area-inset-left, 0px); background: var(--canvas); }
+.app__main { display: flex; flex-direction: column; min-width: 0; min-height: 100dvh; padding-top: env(safe-area-inset-top, 0px); overflow-x: clip; } /* clip: a full-bleed band (Home's map) never scrolls sideways; sticky still works. */
+.app.has-tabs .app__main { padding-top: var(--topbar-real-height); padding-bottom: var(--tabbar-real-height); }
 
 /* A screen is a column: header, a body, and an optional footer that stays in view.
    On wide windows it sits in a centred column no wider than --content-max-width. */
@@ -73,7 +75,7 @@ svg { display: block; flex-shrink: 0; }
 .screen__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); min-height: var(--tap-min); }
 .screen__titles { display: flex; flex-direction: column; gap: var(--spacing-xs); min-width: 0; }
 .screen__body { flex: 1 1 auto; display: flex; flex-direction: column; gap: var(--spacing-lg); padding: 0 var(--gutter) var(--spacing-lg); }
-.screen__footer { position: sticky; bottom: 0; z-index: 5; flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base) var(--gutter) var(--spacing-lg); background: var(--canvas); }
+.screen__footer { position: sticky; bottom: 0; z-index: 5; flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-base) var(--gutter) calc(var(--spacing-lg) + env(safe-area-inset-bottom, 0px)); background: var(--canvas); }
 /* From tablet up the main action sits at the end of the content, right-aligned at a normal width,
    not stretched across the window. Phones keep the full-width button, where the thumb is. */
 @media (min-width: 744px) {
@@ -82,6 +84,10 @@ svg { display: block; flex-shrink: 0; }
 }
 @media (min-width: 1128px) {
   .screen__header { padding-top: var(--spacing-xl); }
+}
+/* A phone on its side has about 375px of height: the footer slims down so the page above it keeps the room. */
+@media (orientation: landscape) and (max-height: 499.98px) {
+  .screen__footer { padding-top: var(--spacing-sm); padding-bottom: calc(var(--spacing-sm) + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* Section heading row: a heading and an optional action or count on the right. */

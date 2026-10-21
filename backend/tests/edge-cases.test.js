@@ -86,12 +86,13 @@ test('prune computes occasion fit for venues without a precomputed value instead
   assert.strictEqual(out.results[0].venueId, 'B');
 });
 
-// ---------------- 6. regret line rounding (found while writing the API docs)
-test('regret line: a gap under one minute is not shown as "would add 0 minutes"', () => {
+// ---------------- 6. regret line ignores differences too small to matter
+test('regret line: shows only rounded differences of at least three minutes', () => {
   const row = (id, ian, mean) => ({ venue: { id, name: id }, travelByMember: { ian }, meanRaw: mean });
   assert.strictEqual(S.regretCounterfactual([row('rec', 45.1, 40), row('popular', 45.4, 30)], { ian: 'Ian' }), null);
-  const r = S.regretCounterfactual([row('rec', 45, 40), row('popular', 46, 30)], { ian: 'Ian' });
-  assert.strictEqual(r.text, "Picking popular instead would add 1 minute to Ian's journey.");
+  assert.strictEqual(S.regretCounterfactual([row('rec', 45, 40), row('popular', 47, 30)], { ian: 'Ian' }), null);
+  const r = S.regretCounterfactual([row('rec', 45, 40), row('popular', 48, 30)], { ian: 'Ian' });
+  assert.strictEqual(r.text, "Picking popular instead would add 3 minutes to Ian's journey.");
 });
 
 // ---------------- 7. member with a start but no home or end (found in a live API smoke test)

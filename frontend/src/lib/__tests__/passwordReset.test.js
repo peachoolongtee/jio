@@ -302,7 +302,7 @@ describe('the new-password screen', () => {
   it('holds the button until the password meets the rule, and asks for the same password twice', async () => {
     const t = await setUp({ signedIn: true, link: 'event' })
     const view = await draw(t, '/reset-password', 'ResetPasswordView')
-    expect(view.all('.checklist__item')).toHaveLength(6)
+    expect(view.all('.checklist__item')).toHaveLength(5)
     view.type('#reset-password', 'n3wsecret!')
     view.type('#reset-confirm', 'n3wsecret!')
     await view.tick()
@@ -314,7 +314,7 @@ describe('the new-password screen', () => {
     expect(t.fake.state.passwordUpdates).toEqual([])
   })
 
-  it('ticks off the same six parts as the sign-up page, in the same words', async () => {
+  it('ticks off the same five parts as the sign-up page, in the same words', async () => {
     const t = await setUp({ signedIn: true, link: 'event' })
     const view = await draw(t, '/reset-password', 'ResetPasswordView')
     expect(view.all('.body-sm').filter((el) => (el.parent?.attrs.class || '').includes('checklist__text')).map((label) => view.text(label))).toEqual([
@@ -323,16 +323,28 @@ describe('the new-password screen', () => {
       'A lowercase letter',
       'A number',
       'A symbol',
-      'No more than 72 characters, and no space at the start or end',
     ])
     expect(view.all('.checklist__hint').map((hint) => view.text(hint))).toEqual([
       'Any character that is not a letter, number or space, like - _ ? ! @ #',
-      'Accented letters and emoji take more room. Control characters are not allowed.',
     ])
     expect(view.all('.checklist__item').filter((el) => (el.attrs.class || '').includes('is-ok'))).toHaveLength(0)
     view.type('#reset-password', 'Zx9-qL_mW?4k')
     await view.tick()
-    expect(view.all('.checklist__item').filter((el) => (el.attrs.class || '').includes('is-ok'))).toHaveLength(6)
+    expect(view.all('.checklist__item').filter((el) => (el.attrs.class || '').includes('is-ok'))).toHaveLength(5)
+  })
+
+  it('says under the field when the part not on the checklist is broken, and holds the button', async () => {
+    const t = await setUp({ signedIn: true, link: 'event' })
+    const view = await draw(t, '/reset-password', 'ResetPasswordView')
+    expect(view.text()).not.toContain('Use 72 characters or fewer, with no space at the start or end and no control characters.')
+    view.type('#reset-password', ' N3wSecret!')
+    view.type('#reset-confirm', ' N3wSecret!')
+    await view.tick()
+    expect(view.text()).toContain('Use 72 characters or fewer, with no space at the start or end and no control characters.')
+    expect(mainButton(view).disabled).toBe(true)
+    view.type('#reset-password', 'N3wSecret!')
+    await view.tick()
+    expect(view.text()).not.toContain('Use 72 characters or fewer, with no space at the start or end and no control characters.')
   })
 
   it('saves the new password, says so, ends the reset and signs out the account\'s other sessions', async () => {

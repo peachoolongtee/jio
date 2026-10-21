@@ -14,7 +14,9 @@
     "build:cdc": "node scripts/build-cdc.js",
     "build:venues": "node scripts/build-venues.js",
     "build:onemap-places": "node scripts/build-onemap-places.js",
-    "repair:onemap-places": "node scripts/build-onemap-places.js --repair"
+    "repair:onemap-places": "node scripts/build-onemap-places.js --repair",
+    "build:area-times": "node --env-file=.env scripts/build-area-times.js",
+    "measure:balanced-rule": "node scripts/measure-balanced-rule.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
