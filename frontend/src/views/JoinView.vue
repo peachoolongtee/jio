@@ -90,7 +90,6 @@ async function join() {
   try {
     const { sessionId, already } = await api.joinWithLink(props.token)
     if (!already) {
-      auth.askDietOnce()
       await router.replace(`/sessions/${sessionId}`)
       return
     }

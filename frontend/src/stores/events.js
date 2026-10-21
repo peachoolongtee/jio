@@ -3,7 +3,6 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '@/lib/api.js'
 import { currentUserId } from '@/lib/currentUser.js'
-import { useAuthStore } from '@/stores/auth.js'
 import { moveItem } from '@/lib/planner/itinerary.js'
 
 // Who a session in Locating is waiting for: the people in it who have not set where they start. The meeting area
@@ -58,13 +57,6 @@ export const useEventsStore = defineStore('events', () => {
     return session
   }
 
-  // Passes an outing just created or joined on, and asks for the person's dietary needs if it is their first.
-  // How to call: return asked(put(session))
-  function asked(session) {
-    useAuthStore().askDietOnce()
-    return session
-  }
-
   // Only the newest read of the list applies, and none that began before the account changed (forgetSessions raises the count).
   // How to call: await loadSessions()
   let listSeq = 0
@@ -111,7 +103,7 @@ export const useEventsStore = defineStore('events', () => {
   async function acceptInvitation(invitation) {
     const { sessionId } = await api.joinWithLink(invitation.token)
     invitations.value = invitations.value.filter((i) => i.token !== invitation.token)
-    return asked(await loadSession(sessionId))
+    return loadSession(sessionId)
   }
   // How to call: await declineInvitation(invitation)
   async function declineInvitation(invitation) {
@@ -159,11 +151,10 @@ export const useEventsStore = defineStore('events', () => {
   const removeGuest = act(api.removeFromSession)
   const inviteByUsername = act(api.inviteByUsername)
 
-  // Creating or joining an outing asks for the person's dietary needs the first time (auth.askDietOnce, ticket #107).
-  const create = async (data) => asked(put(await api.createSession(data)))
+  const create = async (data) => put(await api.createSession(data))
   // Home's "Already out? Find something nearby": a light meetup for today around one area, under way at once (lib/api.js
   // startRoam). How to call: const session = await startRoam({ areaId: 'bugis' })
-  const startRoam = async (data) => asked(put(await api.startRoam(data)))
+  const startRoam = async (data) => put(await api.startRoam(data))
   // The host changes the title, day and times while the session is still inviting. How to call: update('s1', { title, date, start, end })
   const update = act(api.updateSession)
   // Invites from the app are pending until each friend accepts.
