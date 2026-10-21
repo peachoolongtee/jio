@@ -177,6 +177,9 @@ export function makePlanSchemas(data) {
       // The group's chosen search radius around the centre. Without it the search widens on its own up to 3 km.
       radiusMeters: z.number().int().min(100).max(3000).optional(),
       weights: weightsFor(CONVERGE_FACTORS),
+      // 'balanced' counts a person's past travel in the longest trip and adds the gap between people to a venue's score
+      // (balance.js). Left out, the ranking is exactly what it was.
+      rule: z.enum(['longest', 'balanced']).optional(),
     })
     .refine(someoneLeft, NOBODY)
     .refine((b) => b.seed !== 'minimax' || b.centre || b.members.length <= 12, {
@@ -217,11 +220,20 @@ export function makePlanSchemas(data) {
       alternatives: z.number().int().min(0).max(MAX.alternatives).optional(),
       // Areas to evaluate whatever their rank. Each must be an area id the planner knows, and each only once.
       include: includedAreas.optional(),
+      // 'balanced' chooses the place with the smallest gap between people among those whose longest trip is close to the best, and
+      // counts a person's past travel (balance.js). Left out, the station rule is exactly what it was. Only with method 'station'.
+      rule: z.enum(['longest', 'balanced']).optional(),
+      // true adds `choices`: the shortest longest trip, the most balanced and the lowest average, each with everyone's trip.
+      choices: z.boolean().optional(),
     })
     .refine(someoneLeft, NOBODY)
     .refine((b) => b.method !== 'minimax' || b.members.length <= 12, {
       message: 'minimax supports up to 12 people',
       path: ['method'],
+    })
+    .refine((b) => b.rule !== 'balanced' || b.method === 'station', {
+      message: "the balanced rule needs method 'station'",
+      path: ['rule'],
     })
 
   // Search by name to add an option. Members are optional: send them to see diet and group-size reasons.
