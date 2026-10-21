@@ -170,6 +170,25 @@ export const useAuthStore = defineStore('auth', () => {
     syncNotice.value = syncError || ''
   }
 
+  // "Any dietary needs?" (DietaryFirstAsk, ticket #107): asked once, skippable, when the person first creates or joins an
+  // outing. True while it waits for an answer. A person who has set needs on their profile already is not asked.
+  const dietAsk = ref(false)
+  // How to call: auth.askDietOnce() (after an outing is created or joined)
+  function askDietOnce() {
+    const me = user.value
+    if (me && !me.dietAsked && !me.dietary?.length) dietAsk.value = true
+  }
+  // The answer: the needs picked, or none for "None, skip". Either way it is not asked again.
+  // How to call: await auth.answerDietAsk(['halal'])
+  async function answerDietAsk(dietary = []) {
+    dietAsk.value = false
+    try {
+      if (dietary.length) await update({ dietary })
+    } finally {
+      user.value = await api.noteDietAsked()
+    }
+  }
+
   // Signs the person out here whatever goes wrong, with one exception: a real account whose session could not be ended
   // on this browser (lib/auth.js says so with code 'sign_out_failed') stays signed in and this rejects, so the screen can
   // say so. Telling the app "signed out" while the session is still stored would bring the person back after a reload.
@@ -185,6 +204,7 @@ export const useAuthStore = defineStore('auth', () => {
     recovering.value = false
     pendingConfirmation.value = null
     syncNotice.value = ''
+    dietAsk.value = false
     draft.value = emptyDraft()
   }
 
@@ -236,6 +256,9 @@ export const useAuthStore = defineStore('auth', () => {
     signedIn,
     myId,
     sampleWorld,
+    dietAsk,
+    askDietOnce,
+    answerDietAsk,
     init,
     signUp,
     signIn,

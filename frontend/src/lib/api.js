@@ -1588,6 +1588,17 @@ export async function changeOwnPassword({ current, next }) {
   }
 }
 
+// The first outing a person creates or joins asks once for their dietary needs ("Any dietary needs?", DietaryFirstAsk, ticket
+// #107). This notes that it was asked, whether answered or skipped, in this browser's save of the account. It is a reminder not
+// to ask again, not a need, so it is never written to Supabase.
+// How to call: await noteDietAsked()
+export async function noteDietAsked() {
+  if (!db.user || db.user.dietAsked) return account()
+  db.user = { ...db.user, dietAsked: true }
+  emit({ type: 'user' })
+  return account()
+}
+
 // What a signed-in person may change on a real account: the name, photo, home area, date of birth and dietary needs. The username
 // and email are not editable.
 const REAL_EDITABLE = ['name', 'photo', 'homeAreaId', 'dob', 'dietary']
