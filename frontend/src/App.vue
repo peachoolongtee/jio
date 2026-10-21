@@ -9,6 +9,7 @@ import JioLogo from '@/components/ui/JioLogo.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SyncNotice from '@/components/ui/SyncNotice.vue'
 import TabBar from '@/components/ui/TabBar.vue'
+import DietaryFirstAsk from '@/components/event/DietaryFirstAsk.vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { TOUR_BUILT } from '@/lib/tourFlag.js'
 
@@ -54,6 +55,8 @@ const showTabs = computed(() => showNav.value && route.meta.tabs === true)
       <RouterView />
     </div>
     <TabBar v-if="showTabs" class="app__tabs" />
+    <!-- "Any dietary needs?", once, after the first outing a person creates or joins. -->
+    <DietaryFirstAsk v-if="auth.signedIn" />
     <component :is="DemoPanel" v-if="DemoPanel && auth.signedIn && route.meta.nav !== false" />
   </div>
 </template>
