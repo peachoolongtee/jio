@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createSupabase } from '../src/db/supabase.js'
 import { loadPlanData } from '../src/db/venues.js'
+import { mockTravelMinutes } from '../src/planner/geo.js'
 import { createHttp } from '../src/services/http.js'
 import { createOneMap } from '../src/services/onemap.js'
 import { createPlannerRuns } from '../src/services/planner-runs.js'
@@ -431,6 +432,48 @@ describe('what a run does before it pays, and when the database does not answer'
     await Promise.all([first, second])
     expect(world.session_spots.filter((s) => s.rank !== null).map((s) => s.area_id)).not.toEqual(ranked) // the scenario really changes the list
     expect(sessionRow().banner.text).toMatch(/^The list of spots changed\. .* no longer on the list/)
+  })
+})
+
+describe('the table of times between areas: spots and a known place price a trip the same way', () => {
+  const areas = loadPlanData().areas
+  // Every trip takes 90 minutes, except those to or from Bugis: 5. The straight line says nothing like either.
+  const minutes = {}
+  for (const a of areas) for (const b of areas) if (a.id < b.id) minutes[`${a.id}|${b.id}`] = a.id === 'bugis' || b.id === 'bugis' ? 5 : 90
+  const areaTimes = { _meta: { areas: areas.map((a) => a.id), dateTime: 'x' }, minutes }
+  const timesTo = (areaId) => world.session_spots.find((r) => r.area_id === areaId)?.travel_minutes
+  const straightLine = (from, to) => mockTravelMinutes(areas.find((a) => a.id === from), areas.find((a) => a.id === to))
+
+  it('with no OneMap, the spot list and the known place use the table\'s time for the same trip', async () => {
+    const [host, guest] = fillSession(2) // starts: tiong-bahru and outram-park
+    const t = await startSessionApp(world, { areaTimes })
+    stopped.push(t.stop)
+    expect((await t.call('POST', `/api/sessions/${SESSION}/meeting-area`, {}, HOST)).status).toBe(200)
+    expect(timesTo('bugis')).toEqual({ [host]: 5, [guest]: 5 }) // the table says so
+    const listed = timesTo('bugis')
+    world.session_spots.length = 0
+    expect((await t.call('PUT', `/api/sessions/${SESSION}/known-place`, { areaId: 'bugis' }, HOST)).status).toBe(200)
+    expect(timesTo('bugis')).toEqual(listed) // not the straight line's figure, about 24 and 20
+    expect(straightLine('tiong-bahru', 'bugis')).toBeGreaterThan(15)
+  })
+
+  it('a known place where OneMap has no route falls back to the table\'s time, flagged approximate, not the straight line', async () => {
+    const [host, guest] = fillSession(2)
+    const onemap = { routingEnabled: true, routeMinutes: async () => null } // "no route" for every trip
+    const t = await startSessionApp(world, { areaTimes, onemap })
+    stopped.push(t.stop)
+    expect((await t.call('PUT', `/api/sessions/${SESSION}/known-place`, { areaId: 'orchard' }, HOST)).status).toBe(200)
+    expect(timesTo('orchard')).toEqual({ [host]: 90, [guest]: 90 })
+    expect(world.session_spots[0].approximate).toBe(true)
+    expect(straightLine('tiong-bahru', 'orchard')).toBeLessThan(40)
+  })
+
+  it('without a table both still use the straight line, as before', async () => {
+    const [host] = fillSession(2)
+    const t = await startSessionApp(world)
+    stopped.push(t.stop)
+    expect((await t.call('PUT', `/api/sessions/${SESSION}/known-place`, { areaId: 'bugis' }, HOST)).status).toBe(200)
+    expect(timesTo('bugis')[host]).toBeCloseTo(straightLine('tiong-bahru', 'bugis'), 9)
   })
 })
 
