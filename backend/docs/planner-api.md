@@ -195,6 +195,51 @@ Errors are the route's usual `400 invalid_input`. An unknown or repeated area id
 
 A repeat says `each area can be included once` at the path of the later entry. `alternatives` that is negative, above 3 or not a whole number is an issue on `alternatives`; more than 8 ids is an issue on `include`. An id must match exactly, in lower case, as in `areas.json`.
 
+### A fairer choice: `rule: "balanced"` and `choices`
+
+Added 19 October 2026. Both are optional. A request without them is answered exactly as before: the default rule is unchanged, and no `rule` or `choices` appears in the answer.
+
+**Why.** The default rule picks the area where the *longest* trip is shortest. It looks at the gap between people, or at anyone's past travel, only when two areas have exactly the same longest trip, which with real minutes almost never happens. So a group where one person travels 41 minutes and another 18 gets no help from the gap, and a person's past travel changes nothing (a test with a 240-minute balance changed the chosen area in 0 of 6 pairs).
+
+| Field | Meaning |
+|---|---|
+| `rule` | `longest` (default, today's rule) or `balanced`. Only with `method: "station"` (the default method): any other method with `balanced` answers 400 at `rule`. |
+| `choices` | `true` adds `choices`: the places a group can pick between, each labelled. Works with either rule. |
+
+**The balanced rule** starts from today's pick and moves away from it only when that costs the group nothing. Over the same areas the station rule compares (the same real routes, and no more calls):
+
+1. **Past travel counts.** Each member's trip is multiplied by `1 + travelDebtMinutes / 60`, at most 3. Someone who travelled more than their share last time counts more, so the point moves toward them. With no balance every weight is 1. (The 60 is fixed for the API: the engine's `fairnessScaleMinutes` is not a request field.)
+2. **A hard cap.** Only areas whose longest real trip is within 35% (or 10 minutes) of the best longest trip anywhere are considered. Past travel and the gap can never make someone travel far just to even things out.
+3. **Only a swap that costs nothing.** Today's pick (the shortest longest weighted trip) is the baseline. Another area is considered only if its longest weighted trip is within 5% (at least 2 minutes) of the baseline's **and** its weighted average trip is within 10% (at least 3 minutes) of the baseline's.
+4. **Smallest gap.** Of those, take the one with the smallest gap between the longest and shortest weighted trip; then the lower weighted average; then the lower longest trip. The baseline is always among them, so the rule never does worse than today's on the longest trip by more than that little, and never on the average.
+
+The answer has `rule: "balanced"`, and `candidates` (when asked for) list the chosen area first, then the other allowed areas, then the rest. Each trip is still in real minutes.
+
+**A worked example, with real OneMap times** (Aiyu and Ben in Tanah Merah, Chen in Lakeside, Dina in Simei; Saturday 12:30; minutes for each person in that order):
+
+| Area | Trips | Longest | Gap | Average |
+|---|---|---|---|---|
+| Paya Lebar (the map's midpoint) | 11 / 18 / 42 / 16 | 42 | 30 | 22 |
+| Bugis | 22 / 28 / 36 / 27 | **36** | 14 | 28 |
+| Dhoby Ghaut | 28 / 34 / 38 / 32 | 38 | 10 | 33 |
+| Somerset (the station rule's pick) | 29 / 35 / 39 / 34 | 39 | 10 | 34 |
+| Caldecott | 36 / 42 / 35 / 40 | 42 | 7 | 38 |
+
+A first version of this rule picked Caldecott: its gap is smaller (7 against 10) but three people lose about 7 minutes each to save one person 4, and the average rises by 4. The rule above refuses that swap (the longest trip is over 39 + 2, and the average is over 34 + 3.4), keeps Somerset among these, picks Dhoby Ghaut when it is on the list, and Bugis when that is. `tests/balanced-meeting-area.test.js` has these numbers.
+
+**What it changes, measured** (400 random groups of 2 to 5 people, the engine's own estimates, no past travel; real OneMap times differ):
+
+| Rule | Longest trip | Average gap between people | Average trip |
+|---|---|---|---|
+| default (`longest`) | 35.3 min | 14.5 min | 28.9 min |
+| `balanced` (the setting: longest within 5%, average within 10%) | 35.5 | 13.7 | 29.3 |
+| `balanced`, longest within 10%, average within 10% | 35.7 | 13.5 | 29.5 |
+| `balanced`, longest within 10%/4 min, average within 20%/5 min | 36.2 | 12.7 | 30.2 |
+
+So the setting shrinks the gap only a little (0.8 minutes on average) and costs almost nothing. It matters most when several areas are close on the longest trip and the average, and when someone is owed travel. A loose version shrinks the gap more but starts trading the group's time for evenness, which is the Caldecott problem above. **The larger limit is the list of areas that get real routes, not this rule:** in the example Bugis (longest 36) was never routed, because the straight-line estimate that shortlists areas ranked it 18th of 37. See the shortlist, below.
+
+**The shortlist.** With OneMap routing on, a request narrows to the 16 areas nearest the fairest point and gives real routes to the 5 whose straight-line estimate is best. In the example, that shortlist never reached Bugis (longest 36). A better first estimate is what would reach it: see [The table of real times between areas](#the-table-of-real-times-between-areas).
+
 ## POST /api/converge
 
 Request (one slot; the response below is real output for these two members with `"unknownPolicy": "lenient"` and `"topN": 2`):

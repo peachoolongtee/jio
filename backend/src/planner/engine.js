@@ -8,6 +8,7 @@ import { centroid, fairnessWeights, minimaxCenter, radiusSearch, mockTravelMinut
 import { filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds } from './filters.js';
 import * as S from './scoring.js';
 import { diversify } from './diversity.js';
+import { BALANCE, balanceWeights, choicesOf, measure, pickBalanced, rankBalanced } from './balance.js';
 
 /** Apply per-plan overrides (start/end) and drop members who opted out. Default start and end = home.
  *  With no home, end = start: the API accepts a member with only a start point. */
@@ -254,7 +255,10 @@ function converge(input, data, deps = {}) {
   );
   diagnostics.routingCalls = pruned.length * members.length * 2;
   const c = context(input, data, members);
-  const weights = S.withRatingWeight(occasionWeights(baseWeights, c.profile), 'converge');
+  const rule = input.rule ?? 'longest';
+  const bw = balanceWeights(members, input.fairnessScaleMinutes ?? 60);
+  // The balanced rule counts a person's past travel in the longest trip and adds the gap between people (balance.js).
+  const weights = { ...S.withRatingWeight(occasionWeights(baseWeights, c.profile), 'converge'), ...(rule === 'balanced' && { gap: BALANCE.gapWeight }) };
 
   let rows = pruned.map(({ venue, distanceKm }) => {
     const fallbacksBefore = diagnostics.approximateLegs ?? 0;
@@ -283,7 +287,12 @@ function converge(input, data, deps = {}) {
   // 6. score. Travel is an absolute penalty against a ceiling (default 60 min), not stretched across candidates.
   const ceiling = input.travelCeilingMinutes ?? 60;
   rows.forEach(r => {
-    r.factors.worst = S.travelPenalty(r.worstMinutes, ceiling);
+    if (rule === 'balanced') {
+      const m = measure(members.map(mm => r.travelByMember[mm.id]), bw);
+      r.factors.worst = S.travelPenalty(m.longest, ceiling);
+      r.factors.gap = S.travelPenalty(m.gap, ceiling);
+      r.gapMinutes = Math.max(...Object.values(r.travelByMember)) - Math.min(...Object.values(r.travelByMember));
+    } else r.factors.worst = S.travelPenalty(r.worstMinutes, ceiling);
     r.factors.mean = S.travelPenalty(r.meanFair, ceiling);
     r.factors.returnWorst = S.travelPenalty(Math.max(...r.back), ceiling);
     const { score, breakdown } = S.combine(r.factors, weights);
@@ -301,6 +310,7 @@ function converge(input, data, deps = {}) {
     rank: i + 1, venueId: r.venue.id, name: r.venue.name, venue: r.venue, score: r.score,
     worstMinutes: r.worstMinutes, worstMember: names[r.worstMemberId], meanMinutes: r.meanRaw,
     travelByMember: r.travelByMember, returnByMember: r.returnByMember, distanceFromCentreKm: r.distanceKm,
+    ...(rule === 'balanced' && { gapMinutes: r.gapMinutes }),
     breakdown: r.breakdown, explanation: S.explain(r, label), verify: needsVerification(r.venue, members),
     approximate: r.approximate, dietUnknown: unknownDietNeeds(r.venue, members),
     ...optionLabels(r, centre, c, swap, input.lastStop ? Math.max(...r.back) : null),
@@ -452,6 +462,8 @@ function meetingArea(input, data, deps = {}) {
   const starts = members.map(m => m.start);
   const fw = fairnessWeights(members, input.fairnessScaleMinutes ?? 60);
   const wSum = fw.reduce((a, b) => a + b, 0);
+  const rule = input.rule ?? 'longest'; // 'balanced': see balance.js. Left out, the station rule is exactly what it always was.
+  const bw = balanceWeights(members, input.fairnessScaleMinutes ?? 60);
   const nearestArea = p => data.areas.reduce((best, a) => (haversineKm(p, a) < haversineKm(p, best) ? a : best));
 
   const diagnostics = { routingCalls: 0 };
@@ -480,6 +492,7 @@ function meetingArea(input, data, deps = {}) {
       evaluated.push({ a, j });
       if (!best || j.worst < best.j.worst || (j.worst === best.j.worst && j.fairMean < best.j.fairMean)) best = { a, j };
     }
+    if (rule === 'balanced') best = pickBalanced(evaluated, bw) ?? best; // the balanced rule chooses among the same measured areas; none comparable: today's pick
     area = best.a;
     centre = { lat: area.lat, lng: area.lng };
   } else {
@@ -510,10 +523,10 @@ function meetingArea(input, data, deps = {}) {
       source,
     });
     const byStationRule = (x, y) => x.j.worst - y.j.worst || x.j.fairMean - y.j.fairMean; // a tie keeps the order tried
+    const inOrder = rule === 'balanced' ? rankBalanced(evaluated, bw) : [...evaluated].sort(byStationRule);
     candidateList = [
       row(area, best.j, 'ranked'),
-      ...[...evaluated]
-        .sort(byStationRule)
+      ...inOrder
         .filter(e => e.a.id !== area.id)
         .slice(0, input.alternatives ?? 0)
         .map(e => row(e.a, e.j, 'ranked')),
@@ -541,7 +554,11 @@ function meetingArea(input, data, deps = {}) {
     meanMinutes: travel.reduce((a, b) => a + b, 0) / travel.length,
     travelByMember: Object.fromEntries(members.map((m, i) => [m.id, travel[i]])),
     approximate: (diagnostics.approximateLegs ?? 0) > 0,
+    ...(rule === 'balanced' && { rule }),
     ...(candidateList && { candidates: candidateList }),
+    ...(input.choices && evaluated.length > 0 && {
+      choices: choicesOf(evaluated, members, bw, (a, j) => ({ area: { id: a.id, name: a.name, lat: a.lat, lng: a.lng }, approximate: j.approximate })),
+    }),
     diagnostics: { ...diagnostics, activeMembers: members.map(m => m.id) },
   };
 }
