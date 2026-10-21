@@ -35,6 +35,7 @@ import RemoveMember from '@/components/group/RemoveMember.vue'
 import { removeText, removeTitle } from '@/components/group/removeCopy.js'
 import LocationSheet from '@/components/group/LocationSheet.vue'
 import MemberList from '@/components/group/MemberList.vue'
+import MapLoading from '@/components/map/MapLoading.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import SpotConfirm from '@/components/spots/SpotConfirm.vue'
 import SpotList from '@/components/spots/SpotList.vue'
@@ -457,6 +458,8 @@ const startSession = () => run(() => events.start(props.id))
             <PlannerMap ref="mapRef" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" label="Meeting area map" @view="refreshPins" />
             <SpotPins v-if="!settled && spotList.length" ref="pinsRef" :spots="spotList" :selected-id="shown || ''" :confirmed-id="confirmedId" :project="projectPoint" :names="nameOf" :my-id="myId" @select="picked = $event" />
             <div v-if="loading" class="map-wait map-wait--finding title-sm" role="status">Finding the meeting point… {{ Math.round(loadPct) }}%</div>
+            <!-- Confirming the meeting spot, once it has taken 600 ms: a spinner over the map only. -->
+            <MapLoading />
           </template>
         </SplitView>
       </template>

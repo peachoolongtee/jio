@@ -162,7 +162,7 @@ export const useEventsStore = defineStore('events', () => {
   const invite = act((id, personIds) => api.inviteFriends(id, personIds, { pending: true }))
   const start = act(api.startSession)
   const setMyLocation = (id, which, place) => act(api.setLocation)(id, currentUserId(), which, place)
-  // Confirming the meeting spot shows the app-wide spinner while it runs (lib/pageLoading.js): it sets the spot and then
+  // Confirming the meeting spot shows the spinner over the Locate map while it runs (lib/pageLoading.js): it sets the spot and then
   // ranks the places for the vote, which can take some seconds. The three ways to confirm: take the meeting area,
   // confirm a spot, or name a place the group already has.
   // How to call: confirming(api.confirmSpot)
