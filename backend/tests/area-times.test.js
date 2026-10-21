@@ -8,10 +8,10 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { loadAreaTimes } from '../src/db/area-times.js'
 import { loadPlanData } from '../src/db/venues.js'
-import { ACCESS_MINUTES_PER_KM, createAreaEstimator, isAreaTimes, MAX_ACCESS_KM, pairKey } from '../src/planner/area-times.js'
+import { ACCESS_MINUTES_PER_KM, areaTimesCoverage, createAreaEstimator, isAreaTimes, MAX_ACCESS_KM, MAX_PLAUSIBLE_MINUTES, pairKey } from '../src/planner/area-times.js'
 import { meetingArea } from '../src/planner/engine.js'
 import { mockTravelMinutes } from '../src/planner/geo.js'
-import { buildAreaTimes, nextTuesdayNoon } from '../scripts/build-area-times.js'
+import { buildAreaTimes, CREDIT, MAX_PER_MINUTE, nextTuesdayNoon, readFlags } from '../scripts/build-area-times.js'
 import { createHttp } from '../src/services/http.js'
 import { createPlannerRuns } from '../src/services/planner-runs.js'
 
@@ -201,6 +201,125 @@ describe('the meeting area ranks and fills in with the table', () => {
   it("does not change the engine's answer when no guess is given", () => {
     expect(meetingArea({ members }, data).area.id).toBe(meetingArea({ members }, data, {}).area.id)
     expect(bugis).toBeDefined()
+  })
+})
+
+// ---------------------------------------------------------------- a table that cannot be trusted
+describe('a table with values that cannot be times', () => {
+  const t = { _meta: { areas: ['a', 'b', 'c', 'd'] } }
+  const pointA = { lat: AREAS[0].lat, lng: AREAS[0].lng }
+  const pointB = { lat: AREAS[1].lat, lng: AREAS[1].lng }
+  const straight = mockTravelMinutes(pointA, pointB)
+
+  it('is not a table when it is a list, or holds a list', () => {
+    expect(isAreaTimes([])).toBe(false)
+    expect(isAreaTimes({ ...t, minutes: [1, 2, 3] })).toBe(false)
+    expect(isAreaTimes({ ...t, minutes: { 'a|b': 5 } })).toBe(true)
+  })
+
+  it('uses the straight line for a pair holding a negative, huge, missing or non-number value', () => {
+    for (const bad of [-50, MAX_PLAUSIBLE_MINUTES + 1, 1e9, NaN, Infinity, '20', null, true, {}, []]) {
+      const estimate = createAreaEstimator({ areas: AREAS, table: { ...t, minutes: { 'a|b': bad } } })
+      expect(estimate(pointA, pointB), String(bad)).toBe(straight)
+    }
+    const fine = createAreaEstimator({ areas: AREAS, table: { ...t, minutes: { 'a|b': 0 } } })
+    expect(fine(pointA, pointB)).toBe(0) // zero is a time (the same station)
+  })
+
+  it('says how many of the current areas\' pairs the table covers', () => {
+    expect(areaTimesCoverage(AREAS, { ...t, minutes: { 'a|b': 5, 'a|c': 6 } })).toEqual({ found: 2, expected: 6 })
+    expect(areaTimesCoverage(AREAS, { ...t, minutes: { 'a|b': -1, 'a|c': 'x' } })).toEqual({ found: 0, expected: 6 })
+    expect(areaTimesCoverage([...AREAS, { id: 'e', lat: 1.5, lng: 103.9 }], { ...t, minutes: {} }).expected).toBe(10)
+  })
+})
+
+describe('the saved table in the repository', () => {
+  const planData = loadPlanData()
+  const saved = loadAreaTimes()
+
+  it('exists, is a table, and covers every pair of the planner\'s current areas (rebuild it when the areas change)', () => {
+    expect(saved).not.toBeNull()
+    const { found, expected } = areaTimesCoverage(planData.areas, saved)
+    expect(found).toBe(expected)
+  })
+
+  it('holds only believable times, in no more pairs than the areas make, and says who made them', () => {
+    const values = Object.values(saved.minutes)
+    expect(values.every((v) => typeof v === 'number' && v >= 0 && v <= MAX_PLAUSIBLE_MINUTES)).toBe(true)
+    expect(values.length).toBeLessThanOrEqual((planData.areas.length * (planData.areas.length - 1)) / 2)
+    expect(saved._meta.credit).toBe(CREDIT)
+    expect(saved._meta.credit).toMatch(/OneMap/)
+    expect(saved._meta.dateTime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
+  })
+
+  it('stores one value for each pair, under its sorted key', () => {
+    expect('bugis|tampines' in saved.minutes).toBe(true)
+    expect('tampines|bugis' in saved.minutes).toBe(false)
+  })
+})
+
+describe('the builder\'s flags', () => {
+  const now = new Date('2026-10-21T00:00:00Z')
+
+  it('has sensible defaults', () => {
+    expect(readFlags([], now)).toEqual({ perMinute: 60, dateTime: '2026-10-27T12:30', limit: Infinity, out: undefined })
+    expect(readFlags(['--per-minute', '40', '--date', '2026-11-03T08:00', '--limit', '5', '--out', '/tmp/x.json'], now)).toEqual({ perMinute: 40, dateTime: '2026-11-03T08:00', limit: 5, out: '/tmp/x.json' })
+  })
+
+  it('refuses a pace that could hurt the shared OneMap account, and anything that is not a number', () => {
+    for (const bad of ['0', '-5', String(MAX_PER_MINUTE + 1), '1000', '1.5', 'fast', 'NaN', '']) expect(() => readFlags(['--per-minute', bad], now), bad).toThrow(/per-minute/)
+    expect(() => readFlags(['--per-minute', String(MAX_PER_MINUTE)], now)).not.toThrow()
+  })
+
+  it('refuses a date that is not a Singapore date-time, and a limit that is not a whole number', () => {
+    for (const bad of ['tomorrow', '2026-10-27', '2026-10-27 12:30', '2026-13-45T25:61', '../../etc/passwd']) expect(() => readFlags(['--date', bad], now), bad).toThrow(/date/)
+    for (const bad of ['0', '-1', '2.5', 'many']) expect(() => readFlags(['--limit', bad], now), bad).toThrow(/limit/)
+  })
+
+  it('credits OneMap in a table it builds', async () => {
+    const file = path.join(tmp(), 'table.json')
+    const table = await buildAreaTimes({ areas: AREAS, route: async () => 10, dateTime: '2026-10-27T12:30', file, log: () => {}, wait: async () => {} })
+    expect(table._meta.credit).toBe(CREDIT)
+  })
+})
+
+describe('what the table does not touch', () => {
+  const data = loadPlanData()
+  const table = loadAreaTimes()
+  const members = [
+    { id: 'ian', name: 'Ian', home: { lat: 1.3541, lng: 103.9446 } },
+    { id: 'faith', name: 'Faith', home: { lat: 1.315, lng: 103.765 } },
+  ]
+  const servers = []
+  afterAll(() => Promise.all(servers.map((s) => new Promise((resolve) => s.close(resolve)))))
+
+  // Answers the same request on two apps, one with the table and one without, with OneMap doubles that answer the same way.
+  const bothWays = async (path, body) => {
+    const answers = []
+    for (const areaTimes of [null, table]) {
+      const onemap = { routingEnabled: true, routeMinutes: async (a, b) => 10 + Math.round(Math.abs(a.lat - b.lat) * 400 + Math.abs(a.lng - b.lng) * 300) }
+      const server = createApp({ frontendOrigin: 'http://localhost:5173', planData: data, http: createHttp({ stub: true }), onemap, areaTimes }).listen(0, '127.0.0.1')
+      servers.push(server)
+      await once(server, 'listening')
+      const res = await fetch(`http://127.0.0.1:${server.address().port}/api${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      answers.push(await res.json())
+    }
+    return answers
+  }
+
+  it('answers /api/converge and /api/roam exactly as it does without the table', async () => {
+    const slot = { members, occasion: 'casual_meal', dateTime: '2026-10-27T12:30', durationMinutes: 60, categories: ['eat'], unknownPolicy: 'lenient', topN: 5 }
+    const [without, withTable] = await bothWays('/converge', { ...slot, centre: { lat: 1.3504, lng: 103.8428 } })
+    expect(without.status).toBe('ok')
+    expect(withTable).toEqual(without)
+    const [roamWithout, roamWith] = await bothWays('/roam', { ...slot, current: { lat: 1.3504, lng: 103.8428 } })
+    expect(roamWith).toEqual(roamWithout)
+  })
+
+  it('answers with the same fields for the meeting area, only the areas it picked may differ', async () => {
+    const [without, withTable] = await bothWays('/meeting-area', { members, dateTime: '2026-10-27T12:30', alternatives: 2 })
+    expect(Object.keys(withTable).sort()).toEqual(Object.keys(without).sort())
+    expect(withTable.candidates).toHaveLength(without.candidates.length)
   })
 })
 

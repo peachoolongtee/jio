@@ -25,20 +25,46 @@ export const ACCESS_MINUTES_PER_KM = (1.35 * 60) / 22;
 export const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
 /**
- * Whether a saved table can be used: the shape build-area-times.js writes.
+ * Whether a saved table can be used: the shape build-area-times.js writes. A list is not a table.
  *
  * How to call:
  *   isAreaTimes(JSON.parse(text)) // true
  */
 export const isAreaTimes = table =>
-  table !== null && typeof table === 'object' && table.minutes !== null && typeof table.minutes === 'object' && Array.isArray(table._meta?.areas);
+  table !== null && typeof table === 'object' && !Array.isArray(table)
+  && table.minutes !== null && typeof table.minutes === 'object' && !Array.isArray(table.minutes)
+  && Array.isArray(table._meta?.areas);
+
+// A time in the table that can be believed: a number from 0 to 6 hours. Anything else (a corrupt file, a hand edit) is not used, and
+// the straight line answers for that pair instead.
+export const MAX_PLAUSIBLE_MINUTES = 360;
+const plausible = minutes => typeof minutes === 'number' && Number.isFinite(minutes) && minutes >= 0 && minutes <= MAX_PLAUSIBLE_MINUTES;
+
+/**
+ * How much of the table the planner's current areas can use: { found, expected }. A table built before an area was added or
+ * renamed covers fewer pairs than it should, and the planner quietly uses the straight line for the rest, so start-up says so.
+ *
+ * How to call:
+ *   const { found, expected } = areaTimesCoverage(data.areas, table) // { found: 666, expected: 666 }
+ */
+export function areaTimesCoverage(areas, table) {
+  let found = 0, expected = 0;
+  for (let i = 0; i < areas.length; i++) {
+    for (let j = i + 1; j < areas.length; j++) {
+      expected += 1;
+      if (plausible(table.minutes[pairKey(areas[i].id, areas[j].id)])) found += 1;
+    }
+  }
+  return { found, expected };
+}
 
 /**
  * Makes the estimate from the planner's areas and a table of real times between them. Returns `estimateMinutes(a, b)` for two
  * points { lat, lng }, which is also what `mockTravelMinutes` is: a drop-in for it.
  *   - two points nearest the same area: the straight-line estimate (the table has nothing finer than an area);
  *   - otherwise: the real time between their nearest areas, plus a short hop at each end;
- *   - a pair the table lacks (no route was found), or a point far from every area: the straight-line estimate.
+ *   - a pair the table lacks (no route was found) or holds a value that cannot be a time, or a point far from every area: the
+ *     straight-line estimate.
  *
  * How to call:
  *   const estimate = createAreaEstimator({ areas, table: loadedTable })
@@ -58,7 +84,7 @@ export function createAreaEstimator({ areas, table }) {
     const from = nearest(a), to = nearest(b);
     if (from.km > MAX_ACCESS_KM || to.km > MAX_ACCESS_KM || from.area.id === to.area.id) return mockTravelMinutes(a, b);
     const between = table.minutes[pairKey(from.area.id, to.area.id)];
-    if (!Number.isFinite(between)) return mockTravelMinutes(a, b);
+    if (!plausible(between)) return mockTravelMinutes(a, b);
     return from.km * ACCESS_MINUTES_PER_KM + between + to.km * ACCESS_MINUTES_PER_KM;
   };
 }

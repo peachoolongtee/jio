@@ -661,7 +661,9 @@ Added 21 October 2026. With OneMap routing on, a meeting-area request first gues
 
 Nothing changes without the file: `index.js` loads it when it exists (and not in stub mode), and says "Area travel times are ON" at start-up. A request is answered the same way, with the same fields; only which areas get real routes, and the estimate behind unrouted ones, differ. `/api/converge` and `/api/roam` keep the straight-line estimate for venues.
 
-The times are for one moment (a Tuesday at 12:30, in `_meta.dateTime`): they rank areas, they do not show the evening rush, and a request's real routes still use its own time. Rebuild when the lines change (a new MRT line opens), with `pnpm build:area-times -- --date <a date-time>`; the script starts a fresh table when the moment changes.
+The table carries a credit to OneMap (`_meta.credit`): check OneMap's terms before reusing the times elsewhere. A value that cannot be a time (negative, over 6 hours, not a number) is not used and the straight line answers for that pair; at start-up the server says how many of the areas' pairs the table covers, and warns when it covers fewer (the areas changed since it was built: rebuild). `tests/area-times.test.js` fails when the saved table does not cover every pair of the current areas.
+
+The times are for one moment (a Tuesday at 12:30, in `_meta.dateTime`): they rank areas, they do not show the evening rush, and a request's real routes still use its own time. Rebuild when the lines or the areas change (a new MRT line opens, an area is added), with `pnpm build:area-times -- --date <a date-time>`; the script starts a fresh table when the moment changes. It refuses a pace above 120 calls a minute and a date that is not `YYYY-MM-DDTHH:MM`.
 
 ## GET /api/places/search
 

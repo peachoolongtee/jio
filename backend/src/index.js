@@ -8,6 +8,8 @@ import { createItineraryAi, readItinerarySettings } from './services/itinerary-a
 import { setUpLinkReader } from './services/link-reader.js'
 import { createOneMap, readOneMapSettings } from './services/onemap.js'
 import { loadAreaTimes } from './db/area-times.js'
+import { loadPlanData } from './db/venues.js'
+import { areaTimesCoverage } from './planner/area-times.js'
 import { MEETING_FINALISTS_MAX } from './services/planner-runs.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -224,7 +226,11 @@ createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader,
       )
     })
   }
-  if (!stub) console.log(areaTimes ? `Area travel times are ON: ${Object.keys(areaTimes.minutes).length} real times between the meeting areas rank them before routing.` : 'Area travel times are OFF: areas are ranked by straight-line distance. Build the table with pnpm build:area-times.')
+  if (!stub && areaTimes) {
+    const { found, expected } = areaTimesCoverage(loadPlanData().areas, areaTimes)
+    console.log(`Area travel times are ON: ${found} of ${expected} real times between the meeting areas rank them before routing.`)
+    if (found < expected) console.warn(`The area travel times cover only ${found} of ${expected} pairs (the areas changed since it was built): the rest use straight-line distance. Rebuild with pnpm build:area-times.`)
+  } else if (!stub) console.log('Area travel times are OFF: areas are ranked by straight-line distance. Build the table with pnpm build:area-times.')
   if (!stub && !places.enabled) console.log('Google Places is OFF: no Google restaurants or cafés. Set GOOGLE_MAPS_API_KEY in backend/.env.')
   else if (!stub) console.log(`Google Places is ON: at most ${googleSettings.callsPerMinute} Google calls a minute.`)
   if (!stub) {

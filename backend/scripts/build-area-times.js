@@ -36,6 +36,9 @@ export function nextTuesdayNoon(from = new Date()) {
   return `${d.toISOString().slice(0, 10)}T12:30`
 }
 
+// Who made the times, written into the table.
+export const CREDIT = "Travel times from the OneMap routing service, Singapore Land Authority (https://www.onemap.gov.sg). Check OneMap's terms before reusing them."
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // Reads a saved table, or an empty one.
@@ -75,7 +78,7 @@ export async function buildAreaTimes({
   const previous = readTable(file)
   const table = previous && previous._meta?.dateTime === dateTime
     ? previous
-    : { _meta: { source: 'OneMap routing, public transport', dateTime, areas: areas.map((a) => a.id), builtAt: null, missing: [] }, minutes: {} }
+    : { _meta: { source: 'OneMap routing, public transport', dateTime, areas: areas.map((a) => a.id), builtAt: null, credit: CREDIT, missing: [] }, minutes: {} }
   const pairs = []
   for (let i = 0; i < areas.length; i++) for (let j = i + 1; j < areas.length; j++) pairs.push([areas[i], areas[j]])
   const todo = pairs.filter(([a, b]) => !(pairKey(a.id, b.id) in table.minutes) && !table._meta.missing.includes(pairKey(a.id, b.id)))
@@ -112,9 +115,23 @@ export async function buildAreaTimes({
 }
 
 // ---------------------------------------------------------------- the command
-const flag = (name, fallback) => {
-  const i = process.argv.indexOf(`--${name}`)
-  return i >= 0 ? process.argv[i + 1] : fallback
+// The most calls a minute the script may make, whatever it is asked: the OneMap account is shared by the whole team (300 a minute),
+// and the server and other people's tests use it too.
+export const MAX_PER_MINUTE = 120
+
+// Reads the command's flags, or throws an Error that says which one is wrong.
+//
+// How to call:
+//   readFlags(['--per-minute', '40', '--date', '2026-10-27T12:30']) // { perMinute: 40, dateTime: '2026-10-27T12:30', limit: Infinity, out: undefined }
+export function readFlags(argv, now = new Date()) {
+  const get = (name) => { const i = argv.indexOf(`--${name}`); return i >= 0 ? argv[i + 1] : undefined }
+  const perMinute = get('per-minute') === undefined ? 60 : Number(get('per-minute'))
+  if (!Number.isInteger(perMinute) || perMinute < 1 || perMinute > MAX_PER_MINUTE) throw new Error(`--per-minute must be a whole number from 1 to ${MAX_PER_MINUTE}.`)
+  const dateTime = get('date') ?? nextTuesdayNoon(now)
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(dateTime) || Number.isNaN(Date.parse(`${dateTime}:00Z`))) throw new Error('--date must look like 2026-10-27T12:30 (Singapore time).')
+  const limit = get('limit') === undefined ? Infinity : Number(get('limit'))
+  if (limit !== Infinity && (!Number.isInteger(limit) || limit < 1)) throw new Error('--limit must be a whole number of 1 or more.')
+  return { perMinute, dateTime, limit, out: get('out') }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -124,15 +141,22 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.error('Set ONEMAP_EMAIL and ONEMAP_PASSWORD (node --env-file=.env scripts/build-area-times.js).')
     process.exit(1)
   }
-  const perMinute = Number(flag('per-minute', 60))
+  let flags
+  try {
+    flags = readFlags(process.argv.slice(2))
+  } catch (err) {
+    console.error(err.message)
+    process.exit(1)
+  }
+  const { perMinute, dateTime, limit, out } = flags
   const onemap = createOneMap({ http: createHttp(), email, password, callsPerMinute: Math.max(perMinute * 2, 30) })
   const areas = loadPlanData().areas
   await buildAreaTimes({
     areas,
-    route: (a, b, dateTime) => onemap.routeMinutes(a, b, dateTime),
-    dateTime: flag('date', nextTuesdayNoon()),
-    file: flag('out', DEFAULT_OUT),
+    route: (a, b, when) => onemap.routeMinutes(a, b, when),
+    dateTime,
+    file: out ?? DEFAULT_OUT,
     perMinute,
-    limit: Number(flag('limit', Infinity)),
+    limit,
   })
 }
