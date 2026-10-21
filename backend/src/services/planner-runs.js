@@ -1,3 +1,4 @@
+import { createAreaEstimator } from '../planner/area-times.js'
 import { meetingArea, meetingAreaPlan } from '../planner/engine.js'
 import { currentScenario } from './scenario.js'
 import { estimateTravel, ROUTING_DEADLINE_MS, runWithRealTravel } from './travel-times.js'
@@ -20,8 +21,11 @@ export const nowInSingapore = () => new Date(Date.now() + 8 * 3600 * 1000).toISO
 // 16 never missed the best area in 2,000 random groups (see docs/engine-integration.md), and it cuts the calls.
 export const MEETING_CANDIDATES_WITH_ROUTING = 16
 
-// Of those, only the 5 whose estimated result is best get real routes. The others keep the estimate.
+// Of those, only the 5 whose estimated result is best get real routes. The others keep the estimate. A server may raise it
+// (MEETING_FINALISTS, at most 12): more finalists with real times make the choice more accurate and use more OneMap calls, which
+// are a shared budget. A request still routes at most MAX_ROUTED_TRIPS_PER_REQUEST trips, whole areas only.
 export const MEETING_AREAS_ROUTED = 5
+export const MEETING_FINALISTS_MAX = 12
 
 // Builds the shared runs for one set of plan data and one OneMap service.
 //
@@ -30,6 +34,9 @@ export const MEETING_AREAS_ROUTED = 5
 //   weatherResolver   - From createWeatherResolver(); decides which forecast a request is scored against.
 //   onemap            - From createOneMap(), or null: then every time is the engine's estimate.
 //   routingDeadlineMs - The most time one request waits for OneMap routes in total.
+//   meetingFinalists  - How many areas a meeting-area request routes with real times. Default 5, at most 12 (MEETING_FINALISTS).
+//   areaTimes         - A table of real minutes between the areas (scripts/build-area-times.js), or null. With it, the meeting area
+//                       ranks and fills in trips with a guess that knows the MRT, not the straight line (planner/area-times.js).
 //
 // What you get back:
 //   depsFor()                       Engine deps for a request that makes no OneMap call (the stub scenario can fail routing).
@@ -42,7 +49,16 @@ export const MEETING_AREAS_ROUTED = 5
 //   withRoutingCandidates(input)    The meeting-area input with the 16-area shortlist when routing is on.
 //   meetingAreaWithRouting          The engine's meetingArea() with that shortlist, shaped for runWithTravel.
 //   meetingAreaTravelFor(input)     The travel options of a meeting-area request (which areas get real routes).
-export function createPlannerRuns({ data, weatherResolver, onemap = null, routingDeadlineMs = ROUTING_DEADLINE_MS }) {
+export function createPlannerRuns({
+  data,
+  weatherResolver,
+  onemap = null,
+  routingDeadlineMs = ROUTING_DEADLINE_MS,
+  areaTimes = null,
+  meetingFinalists = MEETING_AREAS_ROUTED,
+}) {
+  // The guess for trips that get no real route, and for ranking the areas. Null: the straight line, as it always was.
+  const estimate = areaTimes ? createAreaEstimator({ areas: data.areas, table: areaTimes }) : null
   // Stub mode only (Playwright): the x-jio-scenario header picks whether routing fails. The weather scenario
   // reaches the forecast through the HTTP helper, so it needs nothing here. Outside stub mode currentScenario()
   // is always 'dry', so nothing changes.
@@ -71,13 +87,14 @@ export function createPlannerRuns({ data, weatherResolver, onemap = null, routin
   //   const { result, travel } = await runWithTravel(input, planData, converge)
   async function runWithTravel(input, planData, run, options = {}) {
     if (!onemap?.routingEnabled) {
-      return { result: run(input, planData, depsFor()), travel: estimateTravel() }
+      return { result: run(input, planData, { ...depsFor(), ...(estimate && { estimateMinutes: estimate }) }), travel: estimateTravel() }
     }
     const given = typeof options === 'function' ? options(input) : options
     return runWithRealTravel({
       ...given,
       onemap,
       deadlineMs: given.deadlineMs ?? routingDeadlineMs,
+      ...(estimate && { estimate }),
       dateTime: input.dateTime ?? nowInSingapore(),
       run: (deps) => run(input, planData, deps),
     })
@@ -99,10 +116,10 @@ export function createPlannerRuns({ data, weatherResolver, onemap = null, routin
   //
   // How to call:
   //   runWithRealTravel({ ...meetingAreaTravelFor(input), onemap, dateTime, run })
-  const meetingAreaTravel = { rankByEstimate: true, maxCandidates: MEETING_AREAS_ROUTED }
+  const meetingAreaTravel = { rankByEstimate: true, maxCandidates: Math.min(MEETING_FINALISTS_MAX, Math.max(1, meetingFinalists)) }
   const meetingAreaTravelFor = (input) => {
     if (input.alternatives === undefined && input.include === undefined) return meetingAreaTravel
-    const { outside } = meetingAreaPlan(withRoutingCandidates(input), data)
+    const { outside } = meetingAreaPlan(withRoutingCandidates(input), data, estimate)
     return { ...meetingAreaTravel, namedAreas: { notShortlisted: outside, afterShortlist: input.include ?? [] } }
   }
 

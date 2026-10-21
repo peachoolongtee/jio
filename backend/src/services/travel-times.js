@@ -116,6 +116,8 @@ function routingOrderWithNamedAreas(candidates, { shortlistSize, notShortlisted 
 //                     ranking (the head and the shortlist, as for a request that names nothing), and
 //                     `includedTravelMinutes`, which also answers the trips of the named areas that were routed.
 //   deadlineMs      - The most time to wait for OneMap in total. Default ROUTING_DEADLINE_MS.
+//   estimate        - A function (a, b) => minutes that guesses a trip: to rank the candidates and to fill in the trips with no real
+//                     route. Default: the straight line. See planner/area-times.js.
 //   concurrency     - How many of this request's trips are in flight at once. Default 6. The shared budget in
 //                     services/onemap.js caps the whole server at 6 as well.
 export async function runWithRealTravel({
@@ -128,17 +130,22 @@ export async function runWithRealTravel({
   namedAreas = null,
   deadlineMs = ROUTING_DEADLINE_MS,
   concurrency = 6,
+  estimate = null,
 }) {
+  // `estimate(a, b)` guesses the minutes of a trip, to rank the candidates and to fill in the trips that get no real route. Left out,
+  // the straight-line guess is used (the engine's own). It is handed on to the engine as `estimateMinutes`.
+  const guess = estimate ?? mockTravelMinutes
+  const withGuess = (deps) => (estimate ? { ...deps, estimateMinutes: estimate } : deps)
   if (!onemap?.routingEnabled) {
-    return { result: run({}), travel: estimateTravel() }
+    return { result: run(withGuess({})), travel: estimateTravel() }
   }
 
   // 1. Which trips does the engine need, and which candidate does each belong to?
   const trips = new Map() // trip key -> { a, b }
   const candidates = new Map() // candidate key -> { order, tripKeys (first seen here), estimates (every call) }
-  run({
+  run(withGuess({
     travelMinutes: (a, b) => {
-      const estimate = mockTravelMinutes(a, b)
+      const estimate = guess(a, b)
       const ck = candidateKey(a, b)
       let candidate = candidates.get(ck)
       if (!candidate) {
@@ -153,7 +160,7 @@ export async function runWithRealTravel({
       }
       return estimate
     },
-  })
+  }))
 
   // 2. Choose whole candidates, in priority order, until the next one would pass the cap.
   let ordered = [...candidates.values()]
@@ -254,11 +261,11 @@ export async function runWithRealTravel({
   const answers = new Map(minutes)
   const readFrom = (map) => (a, b) => map.get(tripKey(a, b)) ?? null
   const result = namesAreas
-    ? run({
+    ? run(withGuess({
         travelMinutes: readFrom(new Map([...answers].filter(([key]) => rankingTrips.has(key)))),
         includedTravelMinutes: readFrom(answers),
-      })
-    : run({ travelMinutes: readFrom(answers) })
+      }))
+    : run(withGuess({ travelMinutes: readFrom(answers) }))
 
   const counts = { routed: 0, cached: 0, walked: 0, failed: 0, estimated: 0 }
   for (const key of trips.keys()) counts[outcome.get(key) ?? 'estimated'] += 1
