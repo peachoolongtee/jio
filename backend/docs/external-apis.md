@@ -133,6 +133,29 @@ The OneMap account is shared by the whole server and allows 300 calls a minute i
 - **What's a guess:** OneMap gives no price, rating or diet, and most themes give no hours. Those are typical values for the kind of place, labelled in `dataQuality` (`hoursAssumed`, `priceAssumed`…). Tourist attractions with hours in OneMap use those, and keep the original text in `openingHoursText`. **A guessed price is not shown as a fact:** any venue with `priceAssumed` (OneMap, Google and CDC alike, by the lead's decision of 11 October 2026) gets no "Budget friendly" tag and no "within budget" sentence. The `max_price_pp` filter and the price part of the score still use the typical price, as before.
 - **Credit (required wherever this data is shown):** the Singapore Open Data Licence asks for an attribution. Use this wording, with the access date from `_meta.onemap.fetchedAt` (it is in `data._meta.onemap.attribution` ready to show): *"Contains information from OneMap themes, Singapore Land Authority, and from "Dates of Hawker Centres Closure", National Environment Agency, accessed 2026-10-09 from OneMap and data.gov.sg, made available under the terms of the Singapore Open Data Licence version 1.0 (https://data.gov.sg/open-data-licence)."* Tourist attraction photos carry their own `photoCredit`, which is shown under the photo.
 
+### Saved OneMap data and its terms
+
+Two files in the repository hold data taken from OneMap and saved: `backend/src/db/mock/area-times.json` (public transport minutes between the 37 meeting areas, from OneMap's routing service, accessed 21 October 2026, `pnpm build:area-times`) and `backend/src/db/mock/onemap-places.json` (the government place lists from OneMap's themes, accessed 9 October 2026, `pnpm build:onemap-places`). **This records what the terms say and what the project does. It does not decide whether saving the data is allowed; that is open and is the lead's.**
+
+**What the terms say.** Read on 21 October 2026 by the lead's agent, at https://www.onemap.gov.sg/legal/termsofuse.html:
+
+- Clause 3(a) licenses SLA Data (the Singapore Land Authority's data) "for any usage", and the licence can be revoked.
+- Clause 3(b)(i) prohibits storing, downloading, archiving or combining SLA Data "except as expressly permitted in Clause 3(a)". "SLA Data" includes data compilations, so a saved table of times or a saved list of places may count. Whether 3(a)'s "any usage" expressly permits saving is the open question.
+- Clause 6(c) requires destroying all copies of the data when the licence ends.
+- Clause 3(b)(ii) forbids removing SLA's notices or logos.
+- The Singapore Open Data Licence (the one the weather and hawker closure data are under) does not clearly cover OneMap's data. The credit for the saved places names it; that wording is right for NEA's closure dates, and is not a statement that OneMap's data is under that licence.
+- The OneMap Developer Agreement, which governs the account and its API, was **not read**.
+
+**The conditions the project keeps, until the question is settled:**
+
+1. **Non-commercial.** Jio is a graded student project. If it were ever to earn money or be offered to the public, this has to be looked at again first.
+2. **The repository stays private.** The files are not published. (CLAUDE.md already asks for this for another reason, an old database password in the history.)
+3. **A credit with the access date wherever the data is shown or used.** `area-times.json` carries it in `_meta.credit` (names OneMap and the Singapore Land Authority, links https://www.onemap.gov.sg, says "accessed 2026-10-21"). `onemap-places.json` carries its access date in `_meta.fetchedAt`, and `data._meta.onemap.attribution` has the wording to show (see "OneMap themes and hawker closures"). Do not strip either.
+4. **A derived summary, not raw responses.** `area-times.json` holds minutes for each pair of areas, not OneMap's routes, steps, geometry or any response body. `onemap-places.json` holds the fields the planner uses from each place, converted by the adapter. Nothing else from OneMap is written to a file; tests use invented fixtures.
+5. **Deletion if OneMap asks or the licence ends.** Both files are deleted, and the code falls back: without `area-times.json` the planner uses the straight-line estimate (the start-up line says "Area travel times are OFF"); without `onemap-places.json` it uses the hand-made, CDC and Google venues (`loadPlanData` logs a warning). The tests that expect the saved files (for example, that `area-times.json` covers every pair of areas) would need changing with them. Clause 6(c) means every copy, including old commits on any machine that has cloned the repository.
+
+A change to any of these (a public repository, a deployed demo that serves the data, a commercial use) should go to the lead before it happens.
+
 ### Google Places (New)
 
 - **Calls:**

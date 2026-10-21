@@ -59,6 +59,10 @@ import { createWeather } from './services/weather.js'
 //                    PLANNER_DIAGNOSTICS=1 (the backend's tests set it in vitest.config.js; NODE_ENV does not change it).
 //   roundPlannerMinutes - Round the minutes in planner answers to one decimal place. Defaults to true; it is
 //                    independent of the diagnostics switch. A test that needs the engine's raw minutes passes false.
+//   meetingFinalists - How many areas a meeting-area request routes with real OneMap times (the best by estimate). Default 5, at
+//                    most 12. index.js sets it from MEETING_FINALISTS.
+//   areaTimes      - A table of real minutes between the meeting areas (src/db/mock/area-times.json), or null. With it, the meeting area
+//                    ranks areas and fills in trips with a guess that knows the MRT. index.js loads it; tests leave it out.
 //   planRateLimit  - { windowMs, max } to limit how often one caller may use the planner routes, or leave
 //                    it out for no limit. index.js sets it outside stub mode.
 //   accountCheckRateLimit - { windowMs, max } for POST /api/accounts/email-check, which tells whether an email has an
@@ -92,6 +96,8 @@ export function createApp({
   peopleSearchRateLimit = null,
   accountCheckRateLimit = { windowMs: 60_000, max: 10 },
   routingDeadlineMs = undefined,
+  areaTimes = null,
+  meetingFinalists = undefined,
   ownPlacesEnough = undefined,
   includePlannerDiagnostics = process.env.PLANNER_DIAGNOSTICS === '1',
   roundPlannerMinutes = true,
@@ -131,7 +137,7 @@ export function createApp({
   const weatherResolver = createWeatherResolver({ data: planData, weather, now })
   // The planner's engine runs with real travel times, shared by the planner routes and the session endpoints so both spend the
   // same OneMap budget (services/planner-runs.js).
-  const runs = createPlannerRuns({ data: planData, weatherResolver, onemap, routingDeadlineMs })
+  const runs = createPlannerRuns({ data: planData, weatherResolver, onemap, routingDeadlineMs, areaTimes, meetingFinalists })
 
   // Planner: /api/meeting-area, /api/converge, /api/roam, /api/search, /api/places/search, /api/itinerary/arrange.
   app.use(

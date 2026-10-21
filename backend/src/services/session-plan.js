@@ -245,14 +245,16 @@ export function describeChange(kind, name) {
 
 // The engine's work for pricing one area, for a host's "we already have a place". It asks the engine's travel function for each
 // member's trip from their start to the area centre, and falls back to the estimate (marking the result approximate) where there
-// is no real time, exactly as the engine does. The area carries an `id` and the starts do not, so the travel-time layer
-// (services/travel-times.js) sees one candidate: all of this area's trips, routed together or not at all.
+// is no real time, exactly as the engine does. The estimate is the one the travel layer hands in (`deps.estimateMinutes`, the table
+// of times between areas when the server has one), so a known place and a listed spot price the same trip the same way.
+// The area carries an `id` and the starts do not, so the travel-time layer (services/travel-times.js) sees one candidate: all of this area's trips, routed together or not at all.
 //
 // How to call (through the shared runs, so the OneMap cap and budget apply):
 //   await runs.runWithTravel({ members, area: { id, lat, lng } }, data, priceAreaRun)
 //   // result: { travelByMember: { <user id>: minutes }, approximate: false }
 export function priceAreaRun(input, _data, deps = {}) {
-  const ask = deps.travelMinutes ?? mockTravelMinutes
+  const estimate = deps.estimateMinutes ?? mockTravelMinutes
+  const ask = deps.travelMinutes ?? estimate
   let approximate = false
   const travelByMember = {}
   for (const m of input.members) {
@@ -260,7 +262,7 @@ export function priceAreaRun(input, _data, deps = {}) {
     if (Number.isFinite(minutes) && minutes >= 0) travelByMember[m.id] = minutes
     else {
       approximate = true
-      travelByMember[m.id] = mockTravelMinutes(m.start, input.area)
+      travelByMember[m.id] = estimate(m.start, input.area)
     }
   }
   return { travelByMember, approximate }
