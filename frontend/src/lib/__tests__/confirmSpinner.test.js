@@ -14,6 +14,9 @@ afterEach(() => vi.unstubAllGlobals())
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const PROFILE = { email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2000-01-31', homeAreaId: 'tampines' }
+// A week from today, so the outing is never closed for being two days past its end with no plan (#120). The clock is real here:
+// the spinner times itself with Date.now.
+const NEXT_WEEK = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
 // A session in Locating where both people have a start, so the meeting area is worked out; then the events store and the
 // spinner, from the same fresh copy of the code.
@@ -21,7 +24,7 @@ const PROFILE = { email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '
 async function locating() {
   const api = await loadApi()
   await api.signUp(PROFILE)
-  const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' })
+  const { id } = await api.createSession({ title: 'Saturday', date: NEXT_WEEK, start: '12:00', end: '20:00' })
   await api.inviteFriends(id, ['jonathan'])
   await api.startSession(id)
   await api.setLocation(id, 'ian', 'start', { areaId: 'tampines' })
