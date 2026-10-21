@@ -2,8 +2,8 @@
 // "Confirm dietary needs" (ticket #107): asked of each person once per outing, when it reaches voting, on the Vote page. It
 // opens with the outing's needs already selected, so the group's needs are in front of everyone before they vote. The chips
 // are DietaryChips: a need someone else has is selected with no name, and taking it off asks first ("Unselect halal?"). The
-// person's own needs are saved on their profile (a standing setting) and rank their outings again. Closing it any other way
-// confirms it as it is.
+// person's own picks are for this outing only (kept on the outing; the profile, their standing setting, is left as it is) and
+// rank its places again. Closing it any other way confirms it as it is.
 //   <DietaryConfirm v-model:open="open" :mine="plan.myDietary" :others="plan.othersDietary" :dropped="plan.dietDropped" @confirm="confirm" />
 import { computed, ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
@@ -61,7 +61,7 @@ function confirm() {
 </script>
 
 <template>
-  <ModalDialog v-model:open="open" :title="title" text="Food places will fit these needs. Yours are saved on your profile and stay private: the group sees which needs places fit, never whose." @close="confirm">
+  <ModalDialog v-model:open="open" :title="title" text="Food places for this outing will fit these needs. Your picks are for this outing only, and stay private: the group sees which needs places fit, never whose." @close="confirm">
     <template #content>
       <div data-testid="diet-confirm">
         <DietaryChips :mine="picked" :others="others" :dropped="droppedNow" :busy="busy" @change="keep" />

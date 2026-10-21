@@ -15,7 +15,7 @@
 // that fit halal and vegetarian"), with no names and no count. Food places are filtered strictly; when fewer than 3 fit, a
 // line says so and offers "Show places we couldn't confirm", each then labelled on its card. "Only places that fit" goes back.
 // Each person is asked once per outing, when it reaches voting, to "Confirm dietary needs" (DietaryConfirm), with the outing's
-// needs already selected; theirs are saved on their profile. While voting, "Dietary needs" under the radius holds the same
+// needs already selected; their picks are for this outing only, and the profile is left as it is. While voting, "Dietary needs" under the radius holds the same
 // chips (DietaryChips), saved at each tap, so the needs can be changed at any time.
 // Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
 // shows the message and the rest of the page stays usable.

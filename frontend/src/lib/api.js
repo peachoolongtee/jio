@@ -594,18 +594,24 @@ function rankingMembers(session) {
 // and for halal it also keeps bars out of drink stops (the planner's rule). The group sees which needs the places fit,
 // never whose they are.
 
-// A person's dietary needs, as far as this browser may know them. The signed-in person's come from their profile. Anyone
-// else's are private (only the server may read them), so the only others known here are the sample friends'; a real
-// friend counts as having none until sessions are on the server (ticket #80).
-// How to call: dietaryOf('faith') -> ['halal']
-function dietaryOf(id) {
+// A person's dietary needs, as far as this browser may know them, for one outing when `session` is given. What the person
+// picked for that outing ("Confirm dietary needs" or the Vote page's chips, kept in `session.dietMine`) comes first and is
+// for that outing only; otherwise the signed-in person's come from their profile. Anyone else's are private (only the server
+// may read them), so the only others known here are the sample friends'; a real friend counts as having none until sessions
+// are on the server (ticket #80).
+// How to call: dietaryOf('faith') -> ['halal'], dietaryOf('ian', session) -> ['vegan']
+function dietaryOf(id, session) {
+  const picked = session?.dietMine?.[id]
+  if (picked) return cleanDietary(picked)
   if (id === me()) return cleanDietary(db.user?.dietary)
   return cleanDietary(SAMPLE_DIETARY[id])
 }
+// Each active member's needs for this outing. How to call: membersDietary(session, ['ian', 'faith']) -> ['halal']
+const membersDietary = (session, ids) => ids.flatMap((id) => dietaryOf(id, session))
 
 // The needs the group's places are filtered for: every active member's together, each once, in the app's order.
 // How to call: groupNeeds(session) -> ['halal', 'vegetarian']
-const groupNeeds = (session) => cleanDietary(activeIds(session).flatMap(dietaryOf)).filter((need) => !droppedNeeds(session).includes(need))
+const groupNeeds = (session) => cleanDietary(membersDietary(session, activeIds(session))).filter((need) => !droppedNeeds(session).includes(need))
 
 // The needs someone in the outing has that the group chose not to filter for ("Confirm dietary needs", after a warning that
 // someone needs it). Anyone in the outing may drop one or bring it back. How to call: droppedNeeds(session) -> ['halal']
@@ -613,7 +619,7 @@ const droppedNeeds = (session) => cleanDietary(session.dietDropped)
 
 // The needs of everyone in the outing but the signed-in person, together and without names: the ones they cannot take off.
 // How to call: othersNeeds(session) -> ['halal']
-const othersNeeds = (session) => cleanDietary(activeIds(session).filter((id) => id !== me()).flatMap(dietaryOf))
+const othersNeeds = (session) => cleanDietary(membersDietary(session, activeIds(session).filter((id) => id !== me())))
 
 // The members as the planner gets them, with the group's needs on the first one only. The planner filters by every need
 // in the group whoever holds it, so this changes nothing in the ranking, and a need is never tied to the person who has
@@ -637,7 +643,7 @@ export async function outingDietary(id) {
     return { dietary: cleanDietary(answer.dietary), others: cleanDietary(answer.others), mine, dropped: [] }
   }
   const session = sessionById(id)
-  return { dietary: groupNeeds(session), others: othersNeeds(session), mine: dietaryOf(me()), dropped: droppedNeeds(session) }
+  return { dietary: groupNeeds(session), others: othersNeeds(session), mine: dietaryOf(me(), session), dropped: droppedNeeds(session) }
 }
 
 // Are places of this category being filtered strictly for the group's needs? Only food is (a drink stop is not a meal), and
@@ -1586,17 +1592,6 @@ export async function changeOwnPassword({ current, next }) {
   } finally {
     acting -= 1
   }
-}
-
-// The first outing a person creates or joins asks once for their dietary needs ("Any dietary needs?", DietaryFirstAsk, ticket
-// #107). This notes that it was asked, whether answered or skipped, in this browser's save of the account. It is a reminder not
-// to ask again, not a need, so it is never written to Supabase.
-// How to call: await noteDietAsked()
-export async function noteDietAsked() {
-  if (!db.user || db.user.dietAsked) return account()
-  db.user = { ...db.user, dietAsked: true }
-  emit({ type: 'user' })
-  return account()
 }
 
 // What a signed-in person may change on a real account: the name, photo, home area, date of birth and dietary needs. The username
@@ -2630,14 +2625,13 @@ export async function setRadius(id, metres) {
   })
 }
 
-// "Confirm dietary needs", asked once per outing of each person when it reaches voting (DietaryConfirm on the Vote page). The
-// person confirms their own needs, which are a standing setting on their profile: a change is saved there (and to the account),
-// and every outing they are voting in is ranked again for it (refilterForDiet). The others' needs are not theirs to change.
-// The need is saved before the outing is marked confirmed, so the plan the screen reads next already has it.
-// `dropped` (optional): the needs someone else in the outing has that the group should not filter for, after the dialog warned
-// the person; a need nobody else has is ignored here (taking off one's own is a change of profile). Left out, the outing keeps
-// what it had. A change ranks the outing's places again; places that no longer fit go with their votes, and a banner says
-// the places changed, without naming anyone.
+// "Confirm dietary needs", asked once per outing of each person when it reaches voting (DietaryConfirm on the Vote page), and
+// the Vote page's chips. The person confirms their own needs for this outing only: they are kept on the outing
+// (`session.dietMine`), and the profile, the person's standing setting, is left as it is. The others' needs are not theirs to
+// change. `dropped` (optional): the needs someone else in the outing has that the group should not filter for, after the
+// dialog warned the person; a need nobody else has is ignored here. Left out, the outing keeps what it had. A change ranks the
+// outing's places again; places that no longer fit go with their votes, and a banner says the places changed, without naming
+// anyone.
 // How to call: await confirmDiet('s1', ['vegan'], ['halal'])
 export async function confirmDiet(id, dietary, dropped) {
   await wait(DELAY.write)
@@ -2645,16 +2639,16 @@ export async function confirmDiet(id, dietary, dropped) {
   requireMe()
   if (!activeIds(session).includes(me())) throw new Error('Only people in this session can do that.')
   const next = cleanDietary(dietary)
-  let syncError = ''
-  if (next.join() !== cleanDietary(db.user?.dietary).join()) ({ syncError } = await updateUser({ dietary: next }))
+  const mineChanged = next.join() !== dietaryOf(me(), session).join()
   const wantDropped = dropped === undefined ? droppedNeeds(session) : cleanDietary(dropped).filter((need) => othersNeeds(session).includes(need))
-  const answer = wantDropped.join() === droppedNeeds(session).join()
+  return !mineChanged && wantDropped.join() === droppedNeeds(session).join()
     ? (() => {
         session.dietChecked = { ...(session.dietChecked || {}), [me()]: true }
         return touch(session, 'diet')
       })()
-    : await orUndo(session, async () => {
+    : orUndo(session, async () => {
         const voted = voteCount(session)
+        if (mineChanged) session.dietMine = { ...(session.dietMine || {}), [me()]: next }
         session.dietDropped = wantDropped
         session.dietChecked = { ...(session.dietChecked || {}), [me()]: true }
         await syncOptions(session, { fresh: true })
@@ -2662,7 +2656,6 @@ export async function confirmDiet(id, dietary, dropped) {
         session.banner = { text: `The group's dietary needs changed, so places were ranked again.${cleared}`, at: Date.now(), votesCleared: true, byDiet: true }
         return touch(session, 'diet')
       })
-  return syncError ? { ...answer, syncError } : answer
 }
 
 // Show the food places we could not confirm for the group's dietary needs (on), or only the ones that fit (off). Asked for when
@@ -2902,7 +2895,7 @@ export async function getPlan(id) {
     unconfirmed: !!session.unconfirmed,
     // For "Confirm dietary needs" (DietaryConfirm): the signed-in person's own needs, the needs of the others in the outing
     // together (no names), and whether the signed-in person has confirmed them for this outing.
-    myDietary: dietaryOf(me()),
+    myDietary: dietaryOf(me(), session),
     othersDietary: othersNeeds(session),
     // The others' needs the group chose not to filter for (they stay in othersDietary, shown unselected).
     dietDropped: droppedNeeds(session),

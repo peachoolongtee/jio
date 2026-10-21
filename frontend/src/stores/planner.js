@@ -63,7 +63,7 @@ export const usePlannerStore = defineStore('planner', () => {
   }
   // How to call: await planner.setUnconfirmed(id, true)
   const setUnconfirmed = (id, on) => afterReload(id, api.setUnconfirmed(id, on))
-  // Confirm the signed-in person's dietary needs for this outing (and save a change on their profile), and which of the
+  // Confirm the signed-in person's dietary needs for this outing only (the profile is left as it is), and which of the
   // others' needs the group should not filter for.
   // How to call: await planner.confirmDiet(id, ['halal'], [])
   const confirmDiet = (id, dietary, dropped) => afterReload(id, api.confirmDiet(id, dietary, dropped))

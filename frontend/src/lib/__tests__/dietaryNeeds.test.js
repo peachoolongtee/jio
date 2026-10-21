@@ -249,14 +249,18 @@ describe('"Confirm dietary needs" on an outing', () => {
     expect((await api.getPlan(other)).dietChecked).toBe(false)
   })
 
-  it('saves a change of the person’s own needs on their profile and ranks the outing again', async () => {
+  it('keeps a change of the person’s own needs to this outing, leaves the profile, and ranks the outing again', async () => {
     const { api, id } = await voting(['jonathan'])
     planner.rankSlot.mockClear()
     await api.confirmDiet(id, ['halal'])
-    await api.whenRefiltered()
-    expect((await api.getUser()).dietary).toEqual(['halal'])
+    expect((await api.getUser()).dietary).toEqual([])
     expect((await api.getPlan(id)).dietary).toEqual(['halal'])
+    expect((await api.getPlan(id)).myDietary).toEqual(['halal'])
     expect(callsFor('eat').at(-1).unknownPolicy).toBe('strict')
+    // A later change of profile does not undo what the person picked for this outing.
+    await api.updateUser({ dietary: ['vegan'] })
+    await api.whenRefiltered()
+    expect((await api.getPlan(id)).dietary).toEqual(['halal'])
   })
 })
 
@@ -331,7 +335,8 @@ describe('under stress', () => {
     for (const [slotId, byPerson] of Object.entries(s.votes)) for (const venue of Object.values(byPerson)) expect(s.options[slotId]).toContain(venue)
     expect(plan.unconfirmed).toBe(!!s.unconfirmed)
     expect(plan.dietChecked).toBe(true)
-    expect(plan.myDietary).toEqual((await api.getUser()).dietary)
+    // The person's picks for this outing, once made, else their profile's.
+    expect(plan.myDietary).toEqual(s.dietMine?.ian ?? (await api.getUser()).dietary)
     // The group's needs are the sample friends' and the signed-in person's own, less what the group dropped; a dropped need is
     // always one someone else has, and the chips the page draws say the same as the needs the places are filtered for.
     expect(plan.othersDietary).toEqual(['halal', 'vegetarian'])
