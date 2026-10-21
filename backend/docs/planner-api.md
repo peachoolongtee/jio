@@ -199,27 +199,37 @@ A repeat says `each area can be included once` at the path of the later entry. `
 
 Added 19 October 2026. Both are optional. A request without them is answered exactly as before: the default rule is unchanged, and no `rule` or `choices` appears in the answer.
 
-**Why.** The default rule picks the area where the *longest* trip is shortest. It looks at the gap between people, or at anyone's past travel, only when two areas have exactly the same longest trip, which with real minutes almost never happens. So a group where one person travels 41 minutes and another 18 gets no help from the gap, and a person's past travel changes nothing (a test with a 240-minute balance changed the chosen area in 0 of 6 pairs).
+**Why.** The default rule picks the area where the *longest* trip is shortest. It looks at the gap between people, or at anyone's past travel, only when two areas have exactly the same longest trip, which with real minutes almost never happens. So a group where one person travels 41 minutes and another 18 gets no help from the gap, and a person's past travel changes nothing. `pnpm measure:balanced-rule` measures it: with one person of each group owed 240 minutes, the default rule's area changed in 0 of 100 random groups (see "What it changes, measured", below).
 
 | Field | Meaning |
 |---|---|
 | `rule` | `longest` (default, today's rule) or `balanced`. Only with `method: "station"` (the default method): any other method with `balanced` answers 400 at `rule`. |
-| `choices` | `true` adds `choices`: the places a group can pick between, each labelled. Works with either rule. |
+| `choices` | `true` adds `choices`: the places a group can pick between, each labelled (below). Works with either rule, but only with `method: "station"`: with any other method `choices: true` answers 400 at `choices` (`choices: false` is always accepted). |
 
 **The balanced rule** starts from today's pick and moves away from it only when that costs the group nothing. Over the same areas the station rule compares (the same real routes, and no more calls):
 
 1. **Past travel counts.** Each member's trip is multiplied by `1 + travelDebtMinutes / 60`, at most 3. Someone who travelled more than their share last time counts more, so the point moves toward them. With no balance every weight is 1. (The 60 is fixed for the API: the engine's `fairnessScaleMinutes` is not a request field.)
 2. **A hard cap.** Only areas whose longest real trip is within 35% (or 10 minutes) of the best longest trip anywhere are considered. Past travel and the gap can never make someone travel far just to even things out.
 3. **Only a swap that costs nothing.** Today's pick (the shortest longest weighted trip) is the baseline. Another area is considered only if its longest weighted trip is within 5% (at least 2 minutes) of the baseline's **and** its weighted average trip is within 10% (at least 3 minutes) of the baseline's.
-4. **Smallest gap.** Of those, take the one with the smallest gap between the longest and shortest weighted trip; then the lower weighted average; then the lower longest trip. The baseline is always among them, so the rule never does worse than today's on the longest trip by more than that little, and never on the average.
+4. **Smallest gap.** Of those, take the one with the smallest gap between the longest and shortest weighted trip; then the lower weighted average; then the lower longest trip. The baseline is always among them, so the rule never picks an area whose longest weighted trip is more than 5% (at least 2 minutes) over the baseline's, nor whose weighted average is more than 10% (at least 3 minutes) over it. Two numbers closer than a billionth of a minute count as equal, and the tie goes to the next key.
 
 The answer has `rule: "balanced"`, and `candidates` (when asked for) list the chosen area first, then the other allowed areas, then the rest. Each trip is still in real minutes.
 
-**A worked example, with real OneMap times** (Aiyu and Ben in Tanah Merah, Chen in Lakeside, Dina in Simei; Saturday 12:30; minutes for each person in that order):
+**`choices`.** Each choice has `labels`, the `area`, `worstMinutes`, `meanMinutes`, `gapMinutes` and `travelByMember`, all in real minutes (past travel does not enter any figure shown). A place that wins several labels comes once.
+
+| Label | The place |
+|---|---|
+| `shortest_longest_trip` | where the longest trip is shortest (then the lower fairness-weighted average): today's rule |
+| `most_balanced` | the balanced rule's pick |
+| `lowest_average` | with the lowest average of everyone's real trips (`meanMinutes`), among the places inside the same cap as the balanced rule (longest real trip within 35% or 10 minutes of the best). A place that is cheap on average only because one person travels far is not offered |
+
+**On `/api/converge`.** `rule: "balanced"` is accepted there too, and the answer says `rule: "balanced"`. It changes how venues are scored, not which venues are asked about. `worst` and `gap` are scored on real minutes, as in the default rule, and each result has `gapMinutes` (the longest real trip less the shortest). The weights from past travel are a term of their own, `debt`, in the `breakdown`: the longest weighted trip less the longest real trip, against a ceiling of 60 x 2 minutes, so a heavy weight cannot push every venue to the same penalty. `debt` weighs twice what `worst` does, and is left out when nobody is owed anything. `gap` weighs 8 beside `worst` at 25. `mean` is the weighted average trip, with the same capped weights as the meeting area (at most 3). Unlike the meeting area there is no hard cap on the longest trip: venues are ranked by their score, and the travel ceiling (`travelCeilingMinutes`, 60) and the other factors decide.
+
+**A worked example, with OneMap times** (Aiyu and Ben in Tanah Merah, Chen in Lakeside, Dina in Simei; Saturday 24 October 2026, 12:30; minutes for each person in that order). The figures were copied by hand from the author's runs against OneMap, which cannot be repeated offline and are not recorded anywhere else in the repository; the tests use them as fixed numbers.
 
 | Area | Trips | Longest | Gap | Average |
 |---|---|---|---|---|
-| Paya Lebar (the map's midpoint) | 11 / 18 / 42 / 16 | 42 | 30 | 22 |
+| Paya Lebar (the map's midpoint) | 11 / 18 / 42 / 16 | 42 | 31 | 22 |
 | Bugis | 22 / 28 / 36 / 27 | **36** | 14 | 28 |
 | Dhoby Ghaut | 28 / 34 / 38 / 32 | 38 | 10 | 33 |
 | Somerset (the station rule's pick) | 29 / 35 / 39 / 34 | 39 | 10 | 34 |
@@ -227,18 +237,18 @@ The answer has `rule: "balanced"`, and `candidates` (when asked for) list the ch
 
 A first version of this rule picked Caldecott: its gap is smaller (7 against 10) but three people lose about 7 minutes each to save one person 4, and the average rises by 4. The rule above refuses that swap (the longest trip is over 39 + 2, and the average is over 34 + 3.4), keeps Somerset among these, picks Dhoby Ghaut when it is on the list, and Bugis when that is. `tests/balanced-meeting-area.test.js` has these numbers.
 
-**What it changes, measured** (400 random groups of 2 to 5 people, the engine's own estimates, no past travel; real OneMap times differ):
+**What it changes, measured.** `pnpm measure:balanced-rule` (`scripts/measure-balanced-rule.js`) makes no network call. It runs 400 random groups of 2 to 5 people (seed 7, homes anywhere on the island, no past travel) through the meeting area with the engine's own straight-line estimate. Real OneMap times differ. Its output, 21 October 2026:
 
 | Rule | Longest trip | Average gap between people | Average trip |
 |---|---|---|---|
-| default (`longest`) | 35.3 min | 14.5 min | 28.9 min |
-| `balanced` (the setting: longest within 5%, average within 10%) | 35.5 | 13.7 | 29.3 |
-| `balanced`, longest within 10%, average within 10% | 35.7 | 13.5 | 29.5 |
-| `balanced`, longest within 10%/4 min, average within 20%/5 min | 36.2 | 12.7 | 30.2 |
+| default (`longest`) | 43.0 min | 17.0 min | 35.4 min |
+| `balanced` (the setting: longest within 5%, average within 10%) | 43.2 | 15.9 | 35.9 |
+| `balanced`, longest within 10%, average within 10% | 43.6 | 15.5 | 36.1 |
+| `balanced`, longest within 10%/4 min, average within 20%/5 min | 44.0 | 14.8 | 36.8 |
 
-So the setting shrinks the gap only a little (0.8 minutes on average) and costs almost nothing. It matters most when several areas are close on the longest trip and the average, and when someone is owed travel. A loose version shrinks the gap more but starts trading the group's time for evenness, which is the Caldecott problem above. **The larger limit is the list of areas that get real routes, not this rule:** in the example Bugis (longest 36) was never routed, because the straight-line estimate that shortlists areas ranked it 18th of 37. See the shortlist, below.
+With `--table` the same groups use the area table's guess (34.5 / 15.4 / 27.9 for the default, 34.8 / 14.7 / 28.2 for the setting). The figures this document gave before (35.3 to 35.5 minutes, gap 14.5 to 13.7) came from a one-off measurement whose generator was not kept; they were replaced with these, which anyone can reproduce. The setting shrinks the gap by about 1.1 minutes on average (0.7 with the table) and adds 0.2 to 0.3 minutes to the longest trip. It matters most when several areas are close on the longest trip and the average, and when someone is owed travel: with one person in each of 100 groups owed 240 minutes, the default rule changed its area in 0 groups and the balanced rule in 87 (86 with the table). A loose version shrinks the gap more but starts trading the group's time for evenness, which is the Caldecott problem above. **The larger limit is the list of areas that get real routes, not this rule:** in the example Bugis (longest 36) was never routed, because the straight-line estimate that shortlists areas ranked it 18th of 37. See the shortlist, below.
 
-**The shortlist.** With OneMap routing on, a request narrows to the 16 areas nearest the fairest point and gives real routes to the 5 whose straight-line estimate is best. In the example, that shortlist never reached Bugis (longest 36). A better first estimate is what would reach it: see [The table of real times between areas](#the-table-of-real-times-between-areas).
+**The shortlist.** With OneMap routing on and no area table, a request narrows to the 16 areas nearest the fairest point and gives real routes to the 5 whose straight-line estimate is best. With the table, the 16 are the ones with the shortest guessed longest trip. In the example, that shortlist never reached Bugis (longest 36). A better first estimate is what would reach it: see [The table of real times between areas](#the-table-of-real-times-between-areas).
 
 ## POST /api/converge
 
@@ -690,25 +700,25 @@ How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 - The way back is taken to be as long as the way there, so one route serves both. Most members end where they started, so this halves the calls.
 - Times are for the start of the slot's hour. Routes are cached for 6 hours, by points rounded to about 110 m.
 - The OneMap login token lasts 3 days. The server gets a new one an hour before it runs out.
-- With routing on, the meeting area tries the 16 areas nearest the fairest point, unless `maxCandidates` is sent. 16 never missed the best area in 2,000 random groups. `/api/meeting-area` also accepts `dateTime`, for when the group sets off; without it, the server uses the time now.
+- With routing on, the meeting area tries 16 areas, unless `maxCandidates` is sent. Without the area table (below) they are the 16 nearest the fairest point on the map, and 16 never missed the best area in 2,000 random groups. That measurement was made without the table. With the table they are the 16 whose guessed longest trip (from the table, plus a short hop at each end) is shortest, which has not been measured the same way. `/api/meeting-area` also accepts `dateTime`, for when the group sets off; without it, the server uses the time now.
 
 ### The table of real times between areas
 
 Added 21 October 2026. With OneMap routing on, a meeting-area request first guesses every area's trips, narrows to 16 areas and gives real routes to the 5 best guesses. The guess used to be the straight line between two points, which ignores the MRT: for a real group (two people in Tanah Merah, one in Lakeside, one in Simei) Bugis had the best real longest trip (36 minutes) and the best average (28), but the straight line ranked it 18th of 37, so it was never routed, and the answer was Somerset (39 and 34).
 
-`src/db/mock/area-times.json` holds **real public transport minutes between every pair of the 37 areas**, taken from OneMap once with `pnpm build:area-times` (about 666 calls, paced at 50 a minute; it saves as it goes and carries on where it stopped). With it, the guess for any two points is the real time between their nearest areas plus a short hop at each end (`planner/area-times.js`), and:
+`src/db/mock/area-times.json` holds **real public transport minutes between every pair of the 37 areas**, taken from OneMap once with `pnpm build:area-times` (about 666 calls, paced at 50 a minute; stop the running server first: the account allows 300 a minute for everyone and the server may use 240; it saves as it goes and carries on where it stopped). With it, the guess for any two points is the shortest, over the three areas nearest each end, of the real time between those areas plus a short hop at each end (`planner/area-times.js`). A member of a session starts on an area's centre, so for a session it is exactly the table's time. A trip inside one area is the least of the straight line, the two hops and the area's shortest trip to a neighbour, so it is never longer than leaving the area. A point has no distance limit (the hop just grows), so there is no jump where "near an area" ends. And:
 
-- the 16 candidate areas are the 16 with the shortest guessed longest trip, not the 16 nearest the fairest point on the map;
+- the 16 candidate areas are the 16 with the shortest guessed longest trip (then the lower mean), not the 16 nearest the fairest point on the map. The "never missed the best area in 2,000 random groups" figure belongs to the old way and was measured without the table;
 - the 5 that get real routes are the best by that guess;
 - trips that get no real route (and every trip, when OneMap is off or over its budget) use the same guess instead of the straight line.
 
-`MEETING_FINALISTS` (1 to 12, default 5) raises the number of areas that get real routes: more use more of the OneMap budget the whole team shares (a request still routes at most 60 trips, whole areas only).
+`MEETING_FINALISTS` (1 to 12, default 5) raises the number of areas that get real routes: more use more of the OneMap budget the whole team shares (a request still routes at most 60 trips, whole areas only). **The trade-off:** with 6 members, 12 finalists would take 72 trips, so the 60 are used up by ten finalists and the areas a request names in `include` (or that members suggest in a session) would get only estimates. So the first 5 finalists are routed first, then the named areas, then the other finalists with what is left. With the default 5 nothing changes, and naming areas never changes the chosen area. With more than 5, a request that names areas can route fewer of the extra finalists than one that does not, so when the 60 trips run out the chosen area can differ between the two; that is the price of the named areas getting real times.
 
 Nothing changes without the file: `index.js` loads it when it exists (and not in stub mode), and says "Area travel times are ON" at start-up. A request is answered the same way, with the same fields; only which areas get real routes, and the estimate behind unrouted ones, differ. `/api/converge` and `/api/roam` keep the straight-line estimate for venues.
 
 The table carries a credit to OneMap (`_meta.credit`): check OneMap's terms before reusing the times elsewhere. A value that cannot be a time (negative, over 6 hours, not a number) is not used and the straight line answers for that pair; at start-up the server says how many of the areas' pairs the table covers, and warns when it covers fewer (the areas changed since it was built: rebuild). `tests/area-times.test.js` fails when the saved table does not cover every pair of the current areas.
 
-The times are for one moment (a Tuesday at 12:30, in `_meta.dateTime`): they rank areas, they do not show the evening rush, and a request's real routes still use its own time. Rebuild when the lines or the areas change (a new MRT line opens, an area is added), with `pnpm build:area-times -- --date <a date-time>`; the script starts a fresh table when the moment changes. It refuses a pace above 120 calls a minute and a date that is not `YYYY-MM-DDTHH:MM`.
+The times are for one moment (a Tuesday at 12:30, in `_meta.dateTime`): they rank areas, they do not show the evening rush, and a request's real routes still use its own time. Rebuild when the lines or the areas change (a new MRT line opens, an area is added), with `pnpm build:area-times -- --date <a date-time>`; the script starts a fresh table when the moment changes. It refuses a pace above 120 calls a minute and a date that is not `YYYY-MM-DDTHH:MM`. A trip OneMap says it cannot route (400, 404 or 422) is listed under `_meta.missing` and not asked for again; any other failure waits a minute and tries again. When the areas change, a rebuild drops the pairs of areas that are gone and keeps the rest. `--help` says all of this. Where the data came from and the conditions it is kept under are in [external-apis.md](external-apis.md#saved-onemap-data-and-its-terms).
 
 ## GET /api/places/search
 
