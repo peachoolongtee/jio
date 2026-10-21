@@ -42,7 +42,7 @@
    "harbourfront"
   ],
   "builtAt": "2026-10-21T03:22:58.111Z",
-  "credit": "Travel times from the OneMap routing service, Singapore Land Authority (https://www.onemap.gov.sg). Check OneMap's terms before reusing them.",
+  "credit": "Travel times from the OneMap routing service, Singapore Land Authority (https://www.onemap.gov.sg), accessed 2026-10-21. A derived summary in minutes, for non-commercial use; see backend/docs/external-apis.md.",
   "missing": [],
   "pairs": 666
  },
