@@ -48,11 +48,11 @@ const occasionFitOf = (venue, occasion, profile) => venue.occasionFit?.[occasion
  * Instead of crashing, fall back to the straight-line estimate and count the leg, so the UI can label
  * the result "approximate".
  */
-function routedMinutes(tm, from, to, diagnostics) {
+function routedMinutes(tm, from, to, diagnostics, estimate = mockTravelMinutes) {
   const minutes = tm(from, to);
   if (Number.isFinite(minutes) && minutes >= 0) return minutes;
   diagnostics.approximateLegs = (diagnostics.approximateLegs ?? 0) + 1;
-  return mockTravelMinutes(from, to);
+  return estimate(from, to);
 }
 
 /** Penalties that do not depend on travel time. */
@@ -366,12 +366,25 @@ function roam(input, data, deps = {}) {
 
 /**
  * The areas the station rule compares: those nearest the fairest point, at most input.maxCandidates of them
- * (all of them by default).
+ * (all of them by default). With `estimate`, a guess at a trip (planner/area-times.js), those with the shortest estimated
+ * longest trip instead.
  *
  * How to call:
  *   const tried = areasToTry(input, data, members.map(m => m.start));
  */
-function areasToTry(input, data, starts) {
+function areasToTry(input, data, starts, estimate = null) {
+  if (estimate) {
+    // With a guess at the trips (planner/area-times.js), the areas nearest in TIME come first, not the nearest on the map.
+    const key = area => {
+      const trips = starts.map(start => estimate(start, area));
+      return [Math.max(...trips), trips.reduce((a, b) => a + b, 0) / trips.length];
+    };
+    return data.areas
+      .map((area, order) => ({ area, order, k: key(area) }))
+      .sort((x, y) => x.k[0] - y.k[0] || x.k[1] - y.k[1] || x.order - y.order)
+      .slice(0, input.maxCandidates ?? data.areas.length)
+      .map(x => x.area);
+  }
   const fairest = starts.length <= 12 ? minimaxCenter(starts).center : centroid(starts);
   return [...data.areas]
     .sort((a, b) => haversineKm(fairest, a) - haversineKm(fairest, b))
@@ -387,11 +400,11 @@ function areasToTry(input, data, starts) {
  * How to call:
  *   const { tried, outside } = meetingAreaPlan(input, data); // outside: ['bishan'] when bishan is included but not tried
  */
-function meetingAreaPlan(input, data) {
+function meetingAreaPlan(input, data, estimate = null) {
   const members = resolveMembers(input.members, input.overrides, input.optedOut);
   if (members.length === 0) return { tried: [], outside: [] };
   const ranks = (input.method ?? 'station') === 'station' || (input.alternatives ?? 0) > 0;
-  const tried = ranks ? areasToTry(input, data, members.map(m => m.start)).map(a => a.id) : [];
+  const tried = ranks ? areasToTry(input, data, members.map(m => m.start), estimate).map(a => a.id) : [];
   return { tried, outside: (input.include ?? []).filter(id => !tried.includes(id)) };
 }
 
@@ -430,7 +443,8 @@ function meetingAreaPlan(input, data) {
  *   meetingArea({ members, alternatives: 2, include: ['bishan'] }, data, { travelMinutes: ranking, includedTravelMinutes: all })
  */
 function meetingArea(input, data, deps = {}) {
-  const tm = deps.travelMinutes ?? mockTravelMinutes;
+  const estimate = deps.estimateMinutes ?? mockTravelMinutes; // a better guess than the straight line, when the caller has one (planner/area-times.js)
+  const tm = deps.travelMinutes ?? estimate;
   const members = resolveMembers(input.members, input.overrides, input.optedOut);
   if (members.length === 0) throw new Error('meetingArea: no active members');
   if (!data.areas?.length) throw new Error('meetingArea: data.areas is empty');
@@ -446,7 +460,7 @@ function meetingArea(input, data, deps = {}) {
   // used the estimate.
   const journeys = (point, diag = diagnostics, ask = tm) => {
     const fallbacksBefore = diag.approximateLegs ?? 0;
-    const travel = members.map(m => routedMinutes(ask, m.start, point, diag));
+    const travel = members.map(m => routedMinutes(ask, m.start, point, diag, estimate));
     diag.routingCalls += travel.length;
     return {
       travel, worst: Math.max(...travel), fairMean: travel.reduce((s, t, i) => s + fw[i] * t, 0) / wSum,
@@ -460,7 +474,7 @@ function meetingArea(input, data, deps = {}) {
 
   let area, centre, best;
   if (method === 'station') {
-    const candidates = areasToTry(input, data, starts);
+    const candidates = areasToTry(input, data, starts, deps.estimateMinutes);
     for (const a of candidates) {
       const j = journeys(a);
       evaluated.push({ a, j });
@@ -478,7 +492,7 @@ function meetingArea(input, data, deps = {}) {
     area = nearestArea(centre);
     best = { j: journeys(centre) };
     // The runners-up of another method are the station rule's, so the areas it would try are measured too.
-    if ((input.alternatives ?? 0) > 0) evaluated.push(...areasToTry(input, data, starts).map(measuredAside));
+    if ((input.alternatives ?? 0) > 0) evaluated.push(...areasToTry(input, data, starts, deps.estimateMinutes).map(measuredAside));
   }
 
   const { travel, worst } = best.j;

@@ -647,6 +647,24 @@ How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 - The OneMap login token lasts 3 days. The server gets a new one an hour before it runs out.
 - With routing on, the meeting area tries the 16 areas nearest the fairest point, unless `maxCandidates` is sent. 16 never missed the best area in 2,000 random groups. `/api/meeting-area` also accepts `dateTime`, for when the group sets off; without it, the server uses the time now.
 
+### The table of real times between areas
+
+Added 21 October 2026. With OneMap routing on, a meeting-area request first guesses every area's trips, narrows to 16 areas and gives real routes to the 5 best guesses. The guess used to be the straight line between two points, which ignores the MRT: for a real group (two people in Tanah Merah, one in Lakeside, one in Simei) Bugis had the best real longest trip (36 minutes) and the best average (28), but the straight line ranked it 18th of 37, so it was never routed, and the answer was Somerset (39 and 34).
+
+`src/db/mock/area-times.json` holds **real public transport minutes between every pair of the 37 areas**, taken from OneMap once with `pnpm build:area-times` (about 666 calls, paced at 50 a minute; it saves as it goes and carries on where it stopped). With it, the guess for any two points is the real time between their nearest areas plus a short hop at each end (`planner/area-times.js`), and:
+
+- the 16 candidate areas are the 16 with the shortest guessed longest trip, not the 16 nearest the fairest point on the map;
+- the 5 that get real routes are the best by that guess;
+- trips that get no real route (and every trip, when OneMap is off or over its budget) use the same guess instead of the straight line.
+
+`MEETING_FINALISTS` (1 to 12, default 5) raises the number of areas that get real routes: more use more of the OneMap budget the whole team shares (a request still routes at most 60 trips, whole areas only).
+
+Nothing changes without the file: `index.js` loads it when it exists (and not in stub mode), and says "Area travel times are ON" at start-up. A request is answered the same way, with the same fields; only which areas get real routes, and the estimate behind unrouted ones, differ. `/api/converge` and `/api/roam` keep the straight-line estimate for venues.
+
+The table carries a credit to OneMap (`_meta.credit`): check OneMap's terms before reusing the times elsewhere. A value that cannot be a time (negative, over 6 hours, not a number) is not used and the straight line answers for that pair; at start-up the server says how many of the areas' pairs the table covers, and warns when it covers fewer (the areas changed since it was built: rebuild). `tests/area-times.test.js` fails when the saved table does not cover every pair of the current areas.
+
+The times are for one moment (a Tuesday at 12:30, in `_meta.dateTime`): they rank areas, they do not show the evening rush, and a request's real routes still use its own time. Rebuild when the lines or the areas change (a new MRT line opens, an area is added), with `pnpm build:area-times -- --date <a date-time>`; the script starts a fresh table when the moment changes. It refuses a pace above 120 calls a minute and a date that is not `YYYY-MM-DDTHH:MM`.
+
 ## GET /api/places/search
 
 `GET /api/places/search?q=520201` → `{ "results": [{ "name", "address", "postal", "lat", "lng", "source" }] }`, at most 10. `source` is `"onemap"` or `"google"`. `postal` is a string, or `null` when the place has none, whichever the source.
