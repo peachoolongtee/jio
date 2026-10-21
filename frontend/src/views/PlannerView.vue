@@ -15,8 +15,12 @@
 // that fit halal and vegetarian"), with no names and no count. Food places are filtered strictly; when fewer than 3 fit, a
 // line says so and offers "Show places we couldn't confirm", each then labelled on its card. "Only places that fit" goes back.
 // Each person is asked once per outing, when it reaches voting, to "Confirm dietary needs" (DietaryConfirm), with the outing's
-// needs already selected; their picks are for this outing only, and the profile is left as it is. While voting, "Dietary needs" under the radius holds the same
-// chips (DietaryChips), saved at each tap, so the needs can be changed at any time.
+// needs already selected; their picks are for this outing only, and the profile is left as it is. While voting, "Group dietary
+// needs" under the radius holds the same chips (DietaryChips), saved at each tap, so the needs can be changed at any time. A
+// shared session loads no plan, so none of this shows there yet.
+// A shared session (one kept on the server, session.remote) reaches this page once the host has confirmed the meeting spot, and stops
+// here for now: the page says voting with friends comes next, names the confirmed spot, and offers the way back to the people. It loads
+// no plan, shows no places and no "Confirm plan".
 // Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
 // shows the message and the rest of the page stays usable.
 // Replace (/sessions/:id/plan?replace=<slot>, from Replace on the itinerary of a confirmed plan): the page shows the one
@@ -106,6 +110,8 @@ async function load() {
     else loadError.value = e.message
     return
   }
+  // A shared session has no plan on the server yet: nothing to ask for.
+  if (events.byId[props.id]?.remote) return
   try {
     await Promise.all([groups.loadPeople(), planner.loadConditions()])
     await planner.loadPlan(props.id)
@@ -124,6 +130,11 @@ const plan = computed(() => planner.plans[props.id])
 const refiltering = ref(false)
 const loading = computed(() => refiltering.value || (planner.loading[props.id] && !plan.value?.slots?.length))
 const voting = computed(() => session.value?.status === 'voting')
+// What a shared session's stop here says: the confirmed meeting spot, and that choosing places is the next thing to come.
+const nextText = computed(() => {
+  const spot = session.value?.area?.name
+  return `${spot ? `${spot} is confirmed as the meeting spot. ` : ''}Choosing places together, and the plan, are not ready yet. They come in the next update.`
+})
 const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
 // Who a card's review line may quote: the other people in this outing (`outingIds`, below), then the signed-in person's friends.
@@ -188,7 +199,13 @@ watch(() => adding.value.query, (q) => {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(async () => {
     if (!adding.value.slot) return
-    adding.value.results = await planner.searchVenues(props.id, adding.value.slot.id, q)
+    try {
+      const results = await planner.searchVenues(props.id, adding.value.slot.id, q)
+      // Only the newest typing applies; an answer for older text is dropped.
+      if (adding.value.query === q) adding.value.results = results
+    } catch (e) {
+      error.value = e.message
+    }
   }, 150)
 })
 const addSlotFull = computed(() => {
@@ -530,8 +547,9 @@ async function confirm() {
   } catch (e) {
     error.value = e.message
     confirmOpen.value = false
+  } finally {
+    busy.value = false
   }
-  busy.value = false
 }
 </script>
 
@@ -552,7 +570,13 @@ async function confirm() {
 
       <WeatherSource v-if="plan?.weather && session.meeting" :block="plan.weather" banner />
 
-      <div v-if="!session.meeting || ['inviting', 'locating'].includes(session.status)" class="empty-wrap">
+      <div v-if="session.remote && session.meeting" class="empty-wrap" data-testid="voting-next">
+        <EmptyState title="Voting with friends comes next" :text="nextText">
+          <AppButton variant="secondary" :to="`/sessions/${id}`">Back to the people</AppButton>
+        </EmptyState>
+      </div>
+
+      <div v-else-if="!session.meeting || ['inviting', 'locating'].includes(session.status)" class="empty-wrap">
         <EmptyState title="No meeting area yet">
           <AppButton variant="secondary" :to="`/sessions/${id}`">People</AppButton>
         </EmptyState>
@@ -764,7 +788,7 @@ async function confirm() {
     <footer v-if="replaceMode" class="screen__footer">
       <AppButton block variant="secondary" :disabled="!!choosing" data-testid="keep-stop" @click="backToItinerary">{{ stop && isHost ? 'Keep this stop' : 'Back to the itinerary' }}</AppButton>
     </footer>
-    <footer v-else-if="voting && session.meeting" class="screen__footer">
+    <footer v-else-if="voting && session.meeting && !session.remote" class="screen__footer">
       <AppButton block :disabled="!canConfirm" @click="confirmOpen = true">
         {{ canConfirm ? 'Confirm plan' : 'Needs 2 voters' }}
       </AppButton>

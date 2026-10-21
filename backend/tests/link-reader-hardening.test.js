@@ -64,7 +64,7 @@ afterEach(() => {
 describe('the link reader is off unless LINK_READER=1', () => {
   const unknown = async (base) => (await fetch(`${base}/api/nothing/here`)).json()
   const serve = async (options) => {
-    const server = createApp({ frontendOrigin: FRONTEND, ...options }).listen(0)
+    const server = createApp({ frontendOrigin: FRONTEND, ...options }).listen(0, '127.0.0.1')
     await once(server, 'listening')
     return { server, base: `http://127.0.0.1:${server.address().port}` }
   }
@@ -364,7 +364,7 @@ describe('only the AI service failing pauses the reader', () => {
 describe('one caller is held to a few reads and refreshes a minute', () => {
   const fakeReader = () => ({ enabled: true, capabilities: () => ({ enabled: true }), read: vi.fn(async () => ({ status: 'ok' })), refresh: vi.fn(async () => ({ google: 'google', places: [] })) })
   const serve = async (reader, options) => {
-    const server = createApp({ frontendOrigin: FRONTEND, stub: true, linkReader: reader, ...options }).listen(0)
+    const server = createApp({ frontendOrigin: FRONTEND, stub: true, linkReader: reader, ...options }).listen(0, '127.0.0.1')
     await once(server, 'listening')
     const base = `http://127.0.0.1:${server.address().port}/api`
     const post = (path, body) => fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
@@ -531,7 +531,7 @@ describe('a link on a supported site that names no post is a 400, never a 500', 
   it('answers 400 not_a_link over HTTP', async () => {
     const http = createHttp({ stub: true })
     const linkReader = createLinkReader({ http, places: createGooglePlaces({ http, stub: true }), geminiKey: 'stub-key', youtubeKey: 'stub-key' })
-    const server = createApp({ frontendOrigin: FRONTEND, stub: true, http, linkReader }).listen(0)
+    const server = createApp({ frontendOrigin: FRONTEND, stub: true, http, linkReader }).listen(0, '127.0.0.1')
     await once(server, 'listening')
     try {
       for (const url of ['https://www.youtube.com/', 'https://youtu.be/', 'https://www.tiktok.com/@a/video/99999999999999999999999']) {

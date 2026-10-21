@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { ZodError } from 'zod'
-import { converge, hardFilterContext, meetingArea, meetingAreaPlan, resolveMembers, roam, searchVenues } from '../planner/engine.js'
+import { converge, hardFilterContext, resolveMembers, roam, searchVenues } from '../planner/engine.js'
 import { filterByConstraints } from '../planner/filters.js'
 import { fromGooglePlaces } from '../planner/google-adapter.js'
 import { centroid, fairnessWeights, haversineKm, minimaxCenter } from '../planner/geo.js'
@@ -16,9 +16,10 @@ import {
 import { createWeatherResolver, placeVenues } from '../planner/weather-window.js'
 import { OneMapUnavailableError } from '../services/budget.js'
 import { ExternalApiError } from '../services/errors.js'
-import { currentScenario } from '../services/scenario.js'
-import { estimateTravel, ROUTING_DEADLINE_MS, runWithRealTravel } from '../services/travel-times.js'
-import { MAX, makePlanSchemas, SINGAPORE_BOUNDS } from './plan-schemas.js'
+import { createPlannerRuns, nowInSingapore } from '../services/planner-runs.js'
+import { ROUTING_DEADLINE_MS } from '../services/travel-times.js'
+import { MAX, makePlanSchemas } from './plan-schemas.js'
+import { isSingaporePoint } from '../planner/singapore.js'
 import { arrangeCandidates, freshCandidates } from '../planner/arrange.js'
 import { createItineraryAi } from '../services/itinerary-ai.js'
 
@@ -65,16 +66,6 @@ import { createItineraryAi } from '../services/itinerary-ai.js'
 //             result is marked `approximate`.
 //   estimate  the engine's own estimate: there is no OneMap service, or it has no account, or every call failed.
 // One request makes at most 60 OneMap route calls, for whole venues or areas only. The rest keep the estimate.
-
-// Singapore local time now, as the planner writes it: "2026-10-10T19:00".
-const nowInSingapore = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16)
-
-// With routing on, the "best MRT station" check tries only the 16 areas nearest the fairest point, not all 37:
-// 16 never missed the best area in 2,000 random groups (see docs/engine-integration.md), and it cuts the calls.
-const MEETING_CANDIDATES_WITH_ROUTING = 16
-
-// Of those, only the 5 whose estimated result is best get real routes. The others keep the estimate.
-const MEETING_AREAS_ROUTED = 5
 
 // What one ranking may spend on Google besides its nearby search, for the places in `currentOptionIds` that Google
 // has to be asked about (MAX.googleOptions of them are read from the request). Of those not already cached or
@@ -160,24 +151,15 @@ export function createPlanRouter({
   limiter = null,
   routingDeadlineMs = ROUTING_DEADLINE_MS,
   ownPlacesEnough = OWN_PLACES_ENOUGH,
+  includeDiagnostics = process.env.PLANNER_DIAGNOSTICS === '1',
+  roundMinutes = true,
+  // The shared engine runs (services/planner-runs.js). The session endpoints use the same ones; app.js builds one and passes it
+  // to both. Left out, this router builds its own.
+  runs = createPlannerRuns({ data, weatherResolver, onemap, routingDeadlineMs }),
 }) {
   const schemas = makePlanSchemas(data)
   const router = Router()
-
-  // Stub mode only (Playwright): the x-jio-scenario header picks whether routing fails. The weather scenario
-  // reaches the forecast through the HTTP helper, so it needs nothing here. Outside stub mode currentScenario()
-  // is always 'dry', so nothing changes.
-  const depsFor = () => (currentScenario() === 'routing-fail' ? { travelMinutes: () => null } : {})
-
-  // Works out which weather one request is scored against. Never throws because data.gov.sg is down.
-  //
-  // How to call:
-  //   const resolved = await resolveWeather(input) // { weatherCase, planData, forecast, weather, ... }
-  //
-  // `resolved` is also what placeVenues(resolved, venues) needs to put a venue added later in the request under the
-  // same weather (see readyGoogleVenues). Its `forecast` is the same shape for the area and the regional forecast, and
-  // undefined for a simulated forecast and for "no effect".
-  const resolveWeather = (input) => weatherResolver.resolve({ start: input.dateTime, weatherCase: input.weatherCase })
+  const { depsFor, resolveWeather, runWithTravel, meetingAreaWithRouting, meetingAreaTravelFor } = runs
 
   // The point a request ranks around: Roam's current point, Converge's given centre, or else the group's seed point,
   // worked out from the same functions and the same rule as the engine's converge() (its `seed` and
@@ -344,8 +326,7 @@ export function createPlanRouter({
     const name = typeof p?.displayName?.text === 'string' ? p.displayName.text.trim() : ''
     if (name === '' || /^\d+$/.test(name)) return null
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-    const { lat: la, lng: lo } = SINGAPORE_BOUNDS
-    if (lat < la.min || lat > la.max || lng < lo.min || lng > lo.max) return null
+    if (!isSingaporePoint({ lat, lng })) return null
     const address = typeof p.formattedAddress === 'string' ? p.formattedAddress : ''
     return { name, address, postal: address.match(/Singapore (\d{6})/)?.[1] ?? null, lat, lng, source: 'google' }
   }
@@ -443,26 +424,6 @@ export function createPlanRouter({
     return { results: searchVenues({ ...input, alsoMatch }, { ...planData, venues }), google }
   }
 
-  // Runs the engine with real OneMap travel times when routing is on, and with the estimate otherwise.
-  //
-  // `options` go to runWithRealTravel: { maxCandidates, rankByEstimate } for the meeting area's shortlist. They may
-  // be a function of the request, for options that depend on what it asks for.
-  //
-  // How to call:
-  //   const { result, travel } = await runWithTravel(input, planData, converge)
-  async function runWithTravel(input, planData, run, options = {}) {
-    if (!onemap?.routingEnabled) {
-      return { result: run(input, planData, depsFor()), travel: estimateTravel() }
-    }
-    return runWithRealTravel({
-      ...(typeof options === 'function' ? options(input) : options),
-      onemap,
-      deadlineMs: routingDeadlineMs,
-      dateTime: input.dateTime ?? nowInSingapore(),
-      run: (deps) => run(input, planData, deps),
-    })
-  }
-
   // The API's names for how many options to look for, in the engine's words: minOptions is the radius search's
   // minResults, shortlistSize is the engine's pruneTo. Left out, the engine keeps its defaults (3 and 10).
   //
@@ -481,6 +442,25 @@ export function createPlanRouter({
   const invalid = (res, issues) =>
     res.status(400).json({ error: 'invalid_input', message: 'Some fields in the request are missing or not valid. See issues.', issues })
 
+  // The public shape of an answer. Minutes are rounded to one decimal place (unless `roundMinutes` is off, for a test that
+  // needs the engine's raw numbers), and `diagnostics` is left out unless `includeDiagnostics` is on. The two are separate.
+  // How to call: publicResponse({ travelByMember: { ian: 12.34 }, diagnostics: {} }) -> { travelByMember: { ian: 12.3 } }
+  const timeMapKeys = new Set(['travelByMember', 'returnByMember', 'times'])
+  const round1 = (n) => Math.round(n * 10) / 10
+  const publicResponse = (value, parentKey = '') => {
+    if (Array.isArray(value)) return value.map((item) => publicResponse(item))
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value)
+        .filter(([key]) => includeDiagnostics || key !== 'diagnostics')
+        .map(([key, item]) => [key,
+          roundMinutes && timeMapKeys.has(parentKey) && typeof item === 'number' ? round1(item) : publicResponse(item, key),
+        ]))
+    }
+    if (roundMinutes && typeof value === 'number' && (timeMapKeys.has(parentKey) || /minutes$/i.test(parentKey))) return round1(value)
+    return value
+  }
+  const answer = (res, body) => res.json(publicResponse(body))
+
   // Wraps a handler: checks the body, runs the engine, answers 400 with the field errors on bad input.
   // With `usesWeather` it also resolves the weather first and adds `weather` to the answer.
   // With `usesTravel` it runs the engine with real OneMap travel times when it can, and adds `travel`.
@@ -493,11 +473,11 @@ export function createPlanRouter({
       const input = schema.parse(req.body ?? {})
       if (!usesWeather) {
         if (!usesTravel) {
-          res.json(await run(input, data, depsFor()))
+          answer(res, await run(input, data, depsFor()))
           return
         }
         const { result, travel } = await runWithTravel(input, data, run, travelOptions)
-        res.json({ ...result, travel })
+        answer(res, { ...result, travel })
         return
       }
       // A simulated forecast the server does not allow is dropped, and the answer says so.
@@ -508,7 +488,7 @@ export function createPlanRouter({
       const { result, travel } = usesTravel
         ? await runWithTravel(withOptionCounts({ ...input, weatherCase }), planData, run, travelOptions)
         : { result: await run(withOptionCounts({ ...input, weatherCase }), planData, depsFor()) }
-      res.json({
+      answer(res, {
         ...result,
         ...(travel && { travel }),
         google,
@@ -526,36 +506,47 @@ export function createPlanRouter({
   // The limiter, when there is one, runs before each planner route and no other.
   const guard = limiter ? [limiter] : []
 
-  // With routing on, the meeting area tries 16 candidate areas unless the request says otherwise. A method other
-  // than station tries them only to find runners-up, so only when the request asks for some.
-  //
-  // How to call:
-  //   const effective = withRoutingCandidates(input) // input, or input with maxCandidates: 16
-  const withRoutingCandidates = (input) =>
-    onemap?.routingEnabled && (input.method === 'station' || input.alternatives > 0) && !input.maxCandidates
-      ? { ...input, maxCandidates: MEETING_CANDIDATES_WITH_ROUTING }
-      : input
-  const meetingAreaWithRouting = (input, planData, deps) => meetingArea(withRoutingCandidates(input), planData, deps)
+  const meetingAreaHandler = handle(schemas.meetingArea, meetingAreaWithRouting, { usesTravel: true, travelOptions: meetingAreaTravelFor })
+  const convergeHandler = handle(schemas.converge, converge, { usesWeather: true, usesTravel: true })
+  const roamHandler = handle(schemas.roam, roam, { usesWeather: true, usesTravel: true })
+  const searchHandler = handle(schemas.search, searchEverywhere)
+  router.post('/meeting-area', ...guard, meetingAreaHandler)
+  router.post('/converge', ...guard, convergeHandler)
+  router.post('/roam', ...guard, roamHandler)
+  router.post('/search', ...guard, searchHandler)
+  // Build-spec paths; the shorter /api/converge and /api/roam paths remain supported for the current frontend.
+  router.post('/plan/converge', ...guard, convergeHandler)
+  router.post('/plan/roam', ...guard, roamHandler)
 
-  // The meeting area tries many areas, so only the best few by estimate get real routes (see travel-times.js).
-  // A request that asks for runners-up or names areas also routes the named ones after those, within the same cap.
-  //
-  // How to call:
-  //   runWithRealTravel({ ...meetingAreaTravelFor(input), onemap, dateTime, run })
-  const meetingAreaTravel = { rankByEstimate: true, maxCandidates: MEETING_AREAS_ROUTED }
-  const meetingAreaTravelFor = (input) => {
-    if (input.alternatives === undefined && input.include === undefined) return meetingAreaTravel
-    const { outside } = meetingAreaPlan(withRoutingCandidates(input), data)
-    return { ...meetingAreaTravel, namedAreas: { notShortlisted: outside, afterShortlist: input.include ?? [] } }
+  // The query parameter a search-body field came from, so a 400 on GET /api/venues/search names what the caller sent
+  // (the query is rebuilt into a search body before it is checked).
+  // How to call: queryParameterOf('centre.lat') -> 'lat'
+  const queryParameterOf = (path) => {
+    const [first, second] = path.split('.')
+    if (first === 'query') return 'q'
+    if (first === 'centre') return second ?? 'lat'
+    if (first === 'categories') return 'category'
+    return first
   }
-  router.post(
-    '/meeting-area',
-    ...guard,
-    handle(schemas.meetingArea, meetingAreaWithRouting, { usesTravel: true, travelOptions: meetingAreaTravelFor }),
-  )
-  router.post('/converge', ...guard, handle(schemas.converge, converge, { usesWeather: true, usesTravel: true }))
-  router.post('/roam', ...guard, handle(schemas.roam, roam, { usesWeather: true, usesTravel: true }))
-  router.post('/search', ...guard, handle(schemas.search, searchEverywhere))
+
+  // Build-spec GET search alias. Optional coordinates and filters preserve the richer POST /api/search contract.
+  router.get('/venues/search', ...guard, async (req, res, next) => {
+    try {
+      const query = schemas.venuesSearchQuery.parse(req.query)
+      const input = schemas.search.parse({
+        query: query.q,
+        centre: query.lat === undefined ? SINGAPORE_CENTRE : { lat: query.lat, lng: query.lng },
+        dateTime: query.dateTime ?? nowInSingapore(),
+        ...(query.category ? { categories: [query.category] } : {}),
+        ...(query.durationMinutes !== undefined ? { durationMinutes: query.durationMinutes } : {}),
+        ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      })
+      answer(res, await searchEverywhere(input, data))
+    } catch (err) {
+      if (err instanceof ZodError) invalid(res, err.issues.map((i) => ({ path: queryParameterOf(i.path.join('.')), message: i.message })))
+      else next(err)
+    }
+  })
 
   // A new order for a confirmed itinerary. Food stops keep their place, so meals stay at meal times; the other
   // stops are put in the order the AI (Gemini or Claude) finds nicest among the orders that keep every place open

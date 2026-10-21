@@ -1,6 +1,7 @@
 // The frontend's side of the planner: what an error says, and what a ranking request carries.
+import { AxiosError } from 'axios'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, lastWeather, meetingArea, plannerErrorMessage, rankSlot, toCardVenue } from '../plannerApi.js'
+import { api, lastWeather, meetingArea, plannerErrorMessage, rankSlot, roamNearby, toCardVenue } from '../plannerApi.js'
 
 const HUB = { lat: 1.35, lng: 103.85 }
 const SLOT = { start: 900, time: '15:00', duration: 90, category: 'eat' }
@@ -31,6 +32,25 @@ describe('plannerErrorMessage', () => {
     expect(plannerErrorMessage(err, { dev: false })).toBe('The planner could not use this request. Try again.')
   })
 
+  it('says a place is outside Singapore when the planner refuses a coordinate, in any build', () => {
+    const outside = (path, message = 'coordinates must be in Singapore') => ({
+      response: { status: 400, data: { error: 'invalid_input', message: 'Some fields are not valid.', issues: [{ path, message }] } },
+    })
+    const sentence = 'That place is outside Singapore. Pick an area instead.'
+    for (const dev of [true, false]) {
+      expect(plannerErrorMessage(outside('current.lat'), { dev })).toBe(sentence)
+      expect(plannerErrorMessage(outside('members.0.home.lng'), { dev })).toBe(sentence)
+      expect(plannerErrorMessage(outside('lat', 'Number must be less than or equal to 1.5'), { dev })).toBe(sentence)
+    }
+  })
+
+  it('keeps the general sentence for other 400 answers, even one that mentions a coordinate field', () => {
+    const missing = { response: { status: 400, data: { error: 'invalid_input', issues: [{ path: 'current.lat', message: 'Required' }] } } }
+    expect(plannerErrorMessage(missing, { dev: false })).toBe('The planner could not use this request. Try again.')
+    const elsewhere = { response: { status: 400, data: { error: 'invalid_input', issues: [{ path: 'dateTime', message: 'must be in Singapore time' }] } } }
+    expect(plannerErrorMessage(elsewhere, { dev: false })).toBe('The planner could not use this request. Try again.')
+  })
+
   it('uses the server message, and hides a route name in production', () => {
     const server = { response: { status: 500, data: { message: 'Something went wrong on the server.' } } }
     expect(plannerErrorMessage(server, { dev: false })).toBe('Something went wrong on the server.')
@@ -38,6 +58,55 @@ describe('plannerErrorMessage', () => {
     expect(plannerErrorMessage(missing, { dev: true })).toBe('There is no POST /api/x here.')
     expect(plannerErrorMessage(missing, { dev: false })).toBe('The planner had a problem. Try again.')
     expect(plannerErrorMessage({ response: { status: 502, data: {} } }, { dev: false })).toBe('The planner had a problem. Try again.')
+  })
+})
+
+describe('plannerErrorMessage: slow, unreachable and refused', () => {
+  const timeout = { code: 'ECONNABORTED', message: 'timeout of 15000ms exceeded' }
+  const SLOW = 'The Jio planner is taking too long to answer. Try again in a moment.'
+  const DOWN = 'Cannot reach the Jio planner right now. Check your connection and try again.'
+
+  it('says a request that ran out of time is slow, not unreachable, in any build', () => {
+    expect(plannerErrorMessage(timeout, { dev: false })).toBe(SLOW)
+    expect(plannerErrorMessage({ ...timeout, code: 'ETIMEDOUT' }, { dev: false })).toBe(SLOW)
+    expect(plannerErrorMessage(timeout, { dev: false })).not.toBe(plannerErrorMessage({}, { dev: false }))
+  })
+
+  it('adds the request detail to a timeout only in development', () => {
+    expect(plannerErrorMessage(timeout, { dev: true })).toBe(`${SLOW} (timeout of 15000ms exceeded)`)
+    expect(plannerErrorMessage(timeout, { dev: false })).not.toContain('15000')
+  })
+
+  it('still says unreachable when no answer came and it was not a timeout', () => {
+    expect(plannerErrorMessage({ code: 'ERR_NETWORK', message: 'Network Error' }, { dev: false })).toBe(DOWN)
+    expect(plannerErrorMessage(undefined, { dev: false })).toBe(DOWN)
+  })
+
+  it('says a refused request with no reason is a request the planner could not use, not a planner failure', () => {
+    for (const status of [400, 422]) {
+      expect(plannerErrorMessage({ response: { status, data: {} } }, { dev: false })).toBe('The planner could not use this request. Try again.')
+    }
+    expect(plannerErrorMessage({ response: { status: 500, data: {} } }, { dev: false })).toBe('The planner had a problem. Try again.')
+    expect(plannerErrorMessage({ response: { status: 400, data: { message: 'Pick a date first.' } } }, { dev: false })).toBe('Pick a date first.')
+  })
+
+  it('reaches the screens as the Error message when the real client times out, and when nothing answers', async () => {
+    const adapter = api.defaults.adapter
+    try {
+      api.defaults.adapter = async (config) => {
+        throw new AxiosError('timeout of 15000ms exceeded', 'ECONNABORTED', config)
+      }
+      const slow = await meetingArea({ members: [] }).catch((e) => e)
+      expect(slow.message).toContain('taking too long to answer')
+      api.defaults.adapter = async (config) => {
+        throw new AxiosError('Network Error', 'ERR_NETWORK', config)
+      }
+      const down = await meetingArea({ members: [] }).catch((e) => e)
+      expect(down.message).toContain('Cannot reach the Jio planner')
+      expect(down.message).not.toBe(slow.message)
+    } finally {
+      api.defaults.adapter = adapter
+    }
   })
 })
 
@@ -113,5 +182,32 @@ describe('toCardVenue', () => {
   it('maps the backend fields to what the cards read', () => {
     const v = toCardVenue({ id: 'v', avgPricePerPerson: 12, setting: 'outdoor', nearestMrt: 'Bishan', mrtWalkMinutes: 5, rating: null, openingHours: [['09:00', '17:00']], cdcAccepted: true })
     expect(v).toMatchObject({ price: 12, indoor: false, mrt: 'Bishan', mrtWalk: 5, rating: null, hours: ['09:00-17:00'], tags: ['cdc'] })
+  })
+})
+
+describe('roamNearby, a place just over the border', () => {
+  const realAdapter = api.defaults.adapter
+  afterEach(() => {
+    api.defaults.adapter = realAdapter
+  })
+
+  it('reads the planner 400 for a point in Johor as a sentence about Singapore, not "try again"', async () => {
+    // The browser's own box lets Johor Bahru through; the planner's land check does not (backend/src/planner/singapore.js).
+    const refusal = {
+      error: 'invalid_input',
+      message: 'Some fields in the request are missing or not valid. See issues.',
+      issues: [{ path: 'current.lat', message: 'coordinates must be in Singapore' }],
+    }
+    api.defaults.adapter = async (config) => {
+      throw new AxiosError('Request failed with status code 400', 'ERR_BAD_REQUEST', config, null, {
+        status: 400, statusText: 'Bad Request', data: refusal, headers: {}, config,
+      })
+    }
+    const ask = { members: [], current: { lat: 1.463, lng: 103.765 }, date: '2026-10-20', time: '19:00', minutes: 60 }
+    await expect(roamNearby(ask)).rejects.toMatchObject({
+      message: 'That place is outside Singapore. Pick an area instead.',
+      code: 'invalid_input',
+      status: 400,
+    })
   })
 })

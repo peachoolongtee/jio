@@ -11,7 +11,7 @@ let server, base
 
 beforeAll(async () => {
   // Requests that pass validation reach the planner, which reads the forecast. Answer it from fixtures.
-  server = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }) }).listen(0)
+  server = createApp({ frontendOrigin: FRONTEND, http: createHttp({ stub: true }) }).listen(0, '127.0.0.1')
   await once(server, 'listening')
   base = `http://127.0.0.1:${server.address().port}`
 })
@@ -192,7 +192,7 @@ describe('errors are always JSON', () => {
         a.get('/probe', () => {
           throw new ExternalApiError('onemap answered 401', { service: 'onemap', status: 401, url: 'https://onemap.test/route' })
         }),
-    }).listen(0)
+    }).listen(0, '127.0.0.1')
     await once(app, 'listening')
     try {
       const res = await fetch(`http://127.0.0.1:${app.address().port}/probe`)

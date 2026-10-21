@@ -93,11 +93,11 @@ export const usePlannerStore = defineStore('planner', () => {
     if (event.type === 'reset') {
       plans.value = {}
       errors.value = {}
-      loadConditions()
+      loadConditions().catch(() => {})
       return
     }
     if (event.type === 'conditions') {
-      loadConditions()
+      loadConditions().catch(() => {})
       for (const id of Object.keys(plans.value)) reload(id)
       return
     }

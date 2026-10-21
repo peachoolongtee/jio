@@ -130,7 +130,7 @@ function cleanName(name) {
     for (const [re, word] of ABBREVIATIONS) s = s.replace(re, word);
     s = titleCase(s);
   }
-  return s;
+  return plainName(s);
 }
 
 /**
@@ -302,18 +302,66 @@ function postalCodeOf(raw) {
   return code === '000000' ? null : code;
 }
 
+// A tourist-board name carries a tagline: "Sri Mariamman Temple: Hindu Temple in Singapore", "Gillman Barracks – YourSingapore".
+// What follows the colon or dash is cut only when it is plainly a tagline (it names Singapore, or is a stock phrase), so a
+// name that really has a dash or a colon in it stays whole.
+const TAGLINE_TAIL = /singapore|attractions?\b|things to do|history (?:&|and) culture|\blandmark\b|theme park|leisure/i;
+
+/**
+ * A place's name without the tourist board's tagline.
+ *
+ * How to call:
+ *   plainName('Sri Mariamman Temple: Hindu Temple in Singapore')   // 'Sri Mariamman Temple'
+ *   plainName('Gillman Barracks – YourSingapore')                  // 'Gillman Barracks'
+ *   plainName('Peranakan Museum Singapore: History & Culture')     // 'Peranakan Museum'
+ *   plainName('National Museum of Singapore')                      // unchanged: Singapore is part of the name
+ *   plainName('Indian National Army (INA) Monument in Singapore')  // 'Indian National Army (INA) Monument'
+ *   plainName('Raffles Statue – Sir Stamford Raffles Landing Site') // unchanged: nothing there is a tagline
+ */
+function plainName(name) {
+  let s = String(name ?? '').trim();
+  const cut = /^(.*?)\s*(?::|\s[-–—]\s|[-–—]\s)\s*(.+)$/.exec(s);
+  const tagline = cut && cut[1].length >= 3 && TAGLINE_TAIL.test(cut[2]);
+  if (tagline) s = cut[1].replace(/(?<!\bof),?\s+Singapore$/i, ''); // "Peranakan Museum Singapore: History & Culture"
+  // Without a tagline, only ", Singapore" and " in Singapore" go: "National Gallery Singapore" and "National Museum of
+  // Singapore" are the places' own names.
+  s = s.replace(/,?\s+in Singapore$/i, '').replace(/,\s*Singapore$/i, '');
+  return s.trim() || String(name ?? '').trim();
+}
+
+/**
+ * The theatre theme gives only the block number in its address ("3615, Singapore 159461") and puts the street, and often
+ * the building, in the description ("Jalan Bukit Merah Gateway Theatre"). An address with only a block number gets that text
+ * as its street, like any other address: "3615 Jalan Bukit Merah Gateway Theatre, Singapore 159461". Only a theatre
+ * (`kind` is 'theatre') gets one: in other themes a short description is not a street. An address that already has a
+ * street, or a description that is a sentence or a link, is left alone.
+ *
+ * How to call:
+ *   withStreet('3615, Singapore 159461', 'Jalan Bukit Merah Gateway Theatre', 'theatre') // '3615 Jalan Bukit Merah Gateway Theatre, Singapore 159461'
+ *   withStreet('3615, Singapore 159461', 'Jalan Bukit Merah Gateway Theatre', 'museum')  // unchanged
+ *   withStreet('21 Canberra Link, Singapore 756973', 'anything', 'theatre')              // unchanged
+ */
+function withStreet(address, description, kind) {
+  if (kind !== 'theatre') return address;
+  const m = /^(\d+[A-Za-z]?(?:-\d+)?),\s*(Singapore \d{6})$/.exec(String(address ?? ''));
+  const text = String(description ?? '').trim();
+  if (!m || text === '' || text.length > 70 || /[.!?]|https?:/i.test(text)) return address;
+  return `${m[1]} ${text}, ${m[2]}`;
+}
+
 /**
  * The address text and postal code of a theme row: "21 Canberra Link, Singapore 756973".
  *
  * How to call:
- *   addressOf({ ADDRESSBLOCKHOUSENUMBER: '21', ADDRESSSTREETNAME: 'Canberra Link', ADDRESSPOSTALCODE: '756973' })
+ *   addressOf({ ADDRESSBLOCKHOUSENUMBER: '21', ADDRESSSTREETNAME: 'Canberra Link', ADDRESSPOSTALCODE: '756973' }, 'theatre')
  *   // { address: '21 Canberra Link, Singapore 756973', postalCode: '756973' }
  */
-function addressOf(row) {
+function addressOf(row, kind) {
   const parts = [row.ADDRESSBLOCKHOUSENUMBER, row.ADDRESSSTREETNAME, row.ADDRESSBUILDINGNAME].filter(x => x && x !== 'NIL').map(fixText);
   const postal = postalCodeOf(row.ADDRESSPOSTALCODE);
   const text = parts.join(' ') || fixText(row.ADDRESS_MYENV) || null;
-  return { address: text ? (postal ? `${text}, Singapore ${postal}` : text) : null, postalCode: postal };
+  const address = text ? (postal ? `${text}, Singapore ${postal}` : text) : null;
+  return { address: withStreet(address, descriptionOf(row.DESCRIPTION), kind), postalCode: postal };
 }
 
 /**
@@ -368,7 +416,7 @@ function fromOneMapRow(themeName, row) {
 
   const d = DEFAULTS[theme.kind];
   const parsedHours = parseOpeningHoursText(row.OPENING_HOURS);
-  const { address, postalCode } = addressOf(row);
+  const { address, postalCode } = addressOf(row, theme.kind);
   const food = theme.category === 'eat';
   const photoUrl = https(row.PHOTOURL);
   return {
@@ -431,14 +479,15 @@ function fromOneMapTheme(themeName, rows) {
  * A saved venue with the text, links and addresses of a fixed build: the same functions the adapter now applies to a
  * fresh row, applied to the saved values. Nothing else changes (the id, the order of the fields, the numbers). What
  * cannot be repaired: a raw value the build already dropped (a description that was only a link is gone; an address
- * with no street cannot get one back), and a character replaced by U+FFFD that is not an apostrophe.
+ * with no street cannot get one back, except a theatre's, whose street is in its description), and a character replaced
+ * by U+FFFD that is not an apostrophe.
  *
  * How to call:
  *   const repaired = repairSavedVenue(savedVenue)
  */
 function repairSavedVenue(v) {
-  const name = fixText(v.name);
-  const address = repairAddress(v.address);
+  const name = plainName(fixText(v.name));
+  const address = withStreet(repairAddress(v.address), descriptionOf(v.description), v.kind);
   const photoUrl = https(v.photoUrl);
   const repaired = {
     ...v,
@@ -593,6 +642,6 @@ function dedupeOneMapVenues(venues) {
 
 export {
   THEMES, THEME_NAMES, fromOneMapRow, fromOneMapTheme, parseOpeningHoursText, cleanName, isRealPark, fixText,
-  https, stripContacts, freeText, postalCodeOf, repairAddress, descriptionOf, repairSavedVenue,
+  https, stripContacts, freeText, postalCodeOf, repairAddress, descriptionOf, repairSavedVenue, plainName, withStreet,
   closedWeekdaysOf, isByAppointmentOnly, notInPoolBecause, hawkerDisplayName, preparePool, isSamePlace, dedupeOneMapVenues,
 };

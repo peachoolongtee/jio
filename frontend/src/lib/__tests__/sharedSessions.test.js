@@ -12,6 +12,7 @@ const planner = vi.hoisted(() => ({
   meetingArea: vi.fn(),
   rankSlot: vi.fn(),
   searchSlot: vi.fn(),
+  searchPeopleByUsername: vi.fn(async () => []),
   removeSessionMember: vi.fn(async (...args) => {
     server.calls.push(args)
     if (server.answer) return server.answer(...args)
@@ -119,17 +120,22 @@ describe('a real account\'s session is a row in the database', () => {
     await expect(sam.api.updateSession(id, { ...SESSION, title: 'Back' })).rejects.toThrow('A cancelled session cannot be changed.')
   })
 
-  it('holds Start session with one plain sentence and changes nothing', async () => {
+  it('lets only the host start it, with two people in, and then it is locating for everyone', async () => {
     const w = world()
     const sam = await w.open(PROFILE)
     const kim = await w.open(OTHER)
     const { id } = await sam.api.createSession({ ...SESSION })
-    await kim.api.joinWithLink((await sam.api.makeInviteLink(id)).token)
-    await expect(sam.api.startSession(id)).rejects.toThrow('Sharing where you start from, and everything after it, comes in the next update, so a session cannot be started yet.')
-    expect((await sam.api.getSession(id)).status).toBe('inviting')
+    // One person alone cannot start it: the database's own sentence says so.
+    await expect(sam.api.startSession(id)).rejects.toThrow('A session needs at least two people before it can start.')
     expect(w.database.tables.sessions[0].status).toBe('inviting')
-    // The later steps of a shared session are not reachable by the local layer either.
-    await expect(sam.api.setLocation(id, sam.id, 'start', { areaId: 'tampines' })).rejects.toThrow('comes in the next update')
+    await kim.api.joinWithLink((await sam.api.makeInviteLink(id)).token)
+    // A guest has no say in starting it.
+    await expect(kim.api.startSession(id)).rejects.toThrow('Only the host can start a session.')
+    expect(w.database.tables.sessions[0].status).toBe('inviting')
+    const started = await sam.api.startSession(id)
+    expect(started.status).toBe('locating')
+    expect(w.database.tables.sessions[0].status).toBe('locating')
+    expect((await kim.api.getSession(id)).status).toBe('locating')
   })
 
   it('never reads another member\'s exact place or touches a table outside this stage', async () => {
@@ -370,7 +376,10 @@ describe('leaving and removing go through the Jio server', () => {
     refuse('member_not_found')
     await expect(sam.api.removeFromSession(id, 'someone')).rejects.toThrow('That person is not in this session any more.')
     refuse('session_started')
-    await expect(sam.api.leaveSession(id)).rejects.toThrow('People can only leave or be removed before the session starts, for now.')
+    await expect(sam.api.leaveSession(id)).rejects.toThrow("You can't leave once voting has started; ask the host to cancel.")
+    await expect(sam.api.removeFromSession(id, 'someone')).rejects.toThrow("You can't remove someone once voting has started; cancel the session instead.")
+    refuse('not_yet')
+    await expect(sam.api.leaveSession(id)).rejects.toThrow("That isn't possible once voting has started.")
     // Anything else keeps the server's own sentence (no connection, over the limit).
     refuse(undefined, 'Too many requests. Wait a few seconds and try again.')
     await expect(sam.api.leaveSession(id)).rejects.toThrow('Too many requests. Wait a few seconds and try again.')
@@ -378,20 +387,39 @@ describe('leaving and removing go through the Jio server', () => {
 })
 
 describe('invitations by username', () => {
-  it('finds only a complete, exact username, and invites the person who is found', async () => {
+  it('searches the server for people by the start of a username, and invites the person who is found', async () => {
     const w = world()
     const sam = await w.open(PROFILE)
     const kim = await w.open(OTHER)
     const { id } = await sam.api.createSession({ ...SESSION })
-    await expect(sam.api.findByUsername('ki')).rejects.toThrow('Enter a full username: 3 to 20 lowercase letters, numbers or underscores.')
-    expect(await sam.api.findByUsername('kim_')).toBeNull()
-    expect(await sam.api.findByUsername('nobody_here')).toBeNull()
-    const found = await sam.api.findByUsername(' @Kim ')
-    expect(found).toMatchObject({ id: kim.id, name: 'Kim', username: 'kim' })
-    const invited = await sam.api.inviteByUsername(id, found.id)
+    // Text that cannot start a username asks nobody.
+    for (const text of ['', 'ki', ' @k ', 'kim tan', 'kim.tan', 'k'.repeat(21)]) expect(await sam.api.searchPeople(text)).toEqual([])
+    expect(planner.searchPeopleByUsername).not.toHaveBeenCalled()
+    // The server is asked with the cleaned term, and its answer is the screen's person: a photo from elsewhere is not shown.
+    planner.searchPeopleByUsername.mockResolvedValueOnce([
+      { id: kim.id, name: 'Kim', username: 'kim', avatarUrl: 'https://tracker.example.test/p.png', metBefore: true },
+      { id: 'other', name: 'Kimberly', username: 'kimberly', avatarUrl: '', metBefore: false },
+    ])
+    const controller = new AbortController()
+    const found = await sam.api.searchPeople(' @Kim ', { signal: controller.signal })
+    expect(planner.searchPeopleByUsername).toHaveBeenCalledWith('kim', { signal: controller.signal })
+    expect(found).toEqual([
+      { id: kim.id, name: 'Kim', username: 'kim', avatarUrl: '', metBefore: true },
+      { id: 'other', name: 'Kimberly', username: 'kimberly', avatarUrl: '', metBefore: false },
+    ])
+    // No read of the profiles table from the browser.
+    expect(w.ops.filter((op) => op.table === 'profiles' && op.filters?.some((f) => f.col === 'username'))).toEqual([])
+    const invited = await sam.api.inviteByUsername(id, found[0].id)
     expect(invited.members.map((m) => [m.id, m.state])).toEqual([[sam.id, 'joined'], [kim.id, 'invited']])
     expect(invited.activeIds).toEqual([sam.id])
-    await expect(sam.api.inviteByUsername(id, found.id)).rejects.toThrow('You have already invited that person.')
+    await expect(sam.api.inviteByUsername(id, found[0].id)).rejects.toThrow('You have already invited that person.')
+  })
+
+  it('passes the server\'s failure on as its sentence', async () => {
+    const w = world()
+    const sam = await w.open(PROFILE)
+    planner.searchPeopleByUsername.mockRejectedValueOnce(new Error('Too many requests. Wait a few seconds and try again.'))
+    await expect(sam.api.searchPeople('kim')).rejects.toThrow('Too many requests. Wait a few seconds and try again.')
   })
 
   it('shows the invitation to the person invited, who can accept it or decline it, and sees nothing of the session before', async () => {

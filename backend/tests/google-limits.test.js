@@ -14,6 +14,7 @@ import {
   GOOGLE_CIRCUIT_OPEN_MS,
   GOOGLE_FAILURES_TO_OPEN,
   GOOGLE_MAX_IN_FLIGHT,
+  GOOGLE_STALE_WAIT_MS,
   GOOGLE_TIMEOUT_MS,
   GoogleUnavailableError,
   PHOTO_MISS_MS,
@@ -326,6 +327,94 @@ describe('Google circuit and timeout', () => {
     await h.converge(point(7))
     expect(Date.now() - before).toBeLessThan(500)
     expect(h.nearbyCalls()).toHaveLength(fetched)
+  })
+
+  it('a call that waited a long time for a slot while Google was failing is not started', async () => {
+    // Four calls hang and fill every slot; a fifth waits. When the first hung call fails (one failure: the circuit is not
+    // open yet) the fifth gets its slot, but it waited a whole timeout, so it is refused and makes no request of its own.
+    const clock = makeClock()
+    const hung = []
+    const http = {
+      postJson: vi.fn(() => new Promise((_, reject) => hung.push(() => reject(new ExternalApiError('google timed out', { service: 'google', status: null, url: 'u' }))))),
+      getJson: vi.fn(),
+    }
+    const places = createGooglePlaces({ http, apiKey: KEY, now: clock.now, callsPerMinute: 1000 })
+    const calls = Array.from({ length: GOOGLE_MAX_IN_FLIGHT + 1 }, (_, i) => places.nearby(point(i), { categories: ['eat'] }).then(() => 'ok', (err) => err))
+    await vi.waitFor(() => expect(http.postJson).toHaveBeenCalledTimes(GOOGLE_MAX_IN_FLIGHT))
+    clock.advance(GOOGLE_STALE_WAIT_MS + 2000)
+    hung[0]()
+    const fifth = await calls[GOOGLE_MAX_IN_FLIGHT]
+    expect(fifth).toBeInstanceOf(GoogleUnavailableError)
+    expect(fifth.reason).toBe('waited_too_long') // not 'circuit_open': the circuit is not open after one failure
+    expect(http.postJson).toHaveBeenCalledTimes(GOOGLE_MAX_IN_FLIGHT) // the fifth never made a request
+    hung.slice(1).forEach((fail) => fail())
+    await Promise.all(calls)
+  })
+
+  it('a call that waited just as long while Google was healthy still goes ahead', async () => {
+    const clock = makeClock()
+    const finish = []
+    const http = {
+      postJson: vi.fn(() => new Promise((resolve) => finish.push(() => resolve({ places: [] })))),
+      getJson: vi.fn(),
+    }
+    const places = createGooglePlaces({ http, apiKey: KEY, now: clock.now, callsPerMinute: 1000 })
+    const calls = Array.from({ length: GOOGLE_MAX_IN_FLIGHT + 1 }, (_, i) => places.nearby(point(i), { categories: ['eat'] }))
+    await vi.waitFor(() => expect(http.postJson).toHaveBeenCalledTimes(GOOGLE_MAX_IN_FLIGHT))
+    clock.advance(GOOGLE_STALE_WAIT_MS + 2000)
+    finish[0]() // a success: no failure to be suspicious of
+    await vi.waitFor(() => expect(http.postJson).toHaveBeenCalledTimes(GOOGLE_MAX_IN_FLIGHT + 1))
+    finish.slice(1).forEach((done) => done())
+    await Promise.all(calls)
+  })
+
+  it('one old failure and then a slow 404 do not make a long-queued call refuse: only the last completed call counts', async () => {
+    const clock = makeClock()
+    const finish = []
+    const http = {
+      postJson: vi.fn()
+        .mockRejectedValueOnce(new ExternalApiError('google timed out', { service: 'google', status: null, url: 'u' }))
+        .mockResolvedValue({ places: [] }),
+      getJson: vi.fn(() => new Promise((_, reject) => finish.push(() => reject(new ExternalApiError('no such place', { service: 'google', status: 404, url: 'u' }))))),
+    }
+    const places = createGooglePlaces({ http, apiKey: KEY, now: clock.now, callsPerMinute: 1000 })
+    await places.nearby(point(0), { categories: ['eat'] }).catch(() => {}) // one failure: the last completed call failed
+    const lookups = Array.from({ length: GOOGLE_MAX_IN_FLIGHT }, (_, i) => places.details(`ChIJslow${i}`))
+    await vi.waitFor(() => expect(http.getJson).toHaveBeenCalledTimes(GOOGLE_MAX_IN_FLIGHT))
+    const queued = places.nearby(point(1), { categories: ['eat'] }) // waits for a slot behind the four look-ups
+    clock.advance(GOOGLE_STALE_WAIT_MS + 2000)
+    finish[0]() // a slow 404: it completes, and shows Google is answering
+    await expect(queued).resolves.toBeDefined()
+    expect(http.postJson).toHaveBeenCalledTimes(2) // the queued call made its request
+    finish.slice(1).forEach((done) => done())
+    await Promise.all(lookups)
+  })
+
+  it('a lane is given its charge back for a call refused after a long wait, and the log names that reason', async () => {
+    const clock = makeClock()
+    const warn = vi.fn()
+    const hung = []
+    const http = {
+      postJson: vi.fn(() => new Promise((_, reject) => hung.push(() => reject(new ExternalApiError('google timed out', { service: 'google', status: null, url: 'u' }))))),
+      getJson: vi.fn(),
+    }
+    const places = createGooglePlaces({ http, apiKey: KEY, now: clock.now, callsPerMinute: 1000, warn })
+    const lane = places.lane()
+    const filling = Array.from({ length: GOOGLE_MAX_IN_FLIGHT }, (_, i) => places.nearby(point(i), { categories: ['eat'] }).then(() => 'ok', (err) => err))
+    await vi.waitFor(() => expect(http.postJson).toHaveBeenCalledTimes(GOOGLE_MAX_IN_FLIGHT))
+    const laned = lane.searchText('Teo Heng', { lat: 1.3, lng: 103.8 }).then(() => 'ok', (err) => err)
+    expect(lane.allowance.used()).toBe(1) // charged when it set off, before it queued
+    clock.advance(GOOGLE_STALE_WAIT_MS + 2000)
+    hung[0]()
+    const refused = await laned
+    expect(refused).toBeInstanceOf(GoogleUnavailableError)
+    expect(refused.reason).toBe('waited_too_long')
+    expect(http.postJson).toHaveBeenCalledTimes(GOOGLE_MAX_IN_FLIGHT) // it never made a request
+    expect(lane.allowance.used()).toBe(0) // and was not charged for one
+    expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toContain('waited_too_long')
+    expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).not.toContain('failed several calls in a row')
+    hung.slice(1).forEach((fail) => fail())
+    await Promise.all(filling)
   })
 
   it('asks the HTTP helper for a 3 second wait, and the helper takes a wait per call', async () => {

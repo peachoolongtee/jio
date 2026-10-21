@@ -172,6 +172,8 @@ export const useEventsStore = defineStore('events', () => {
   const cancel = act(api.cancelSession)
   // The host carries on without a member who has not shared where they start (they opt out of this session).
   const optOut = act(api.optOut)
+  // A person who opted out of a shared session comes back (the server's rejoin). How to call: await rejoin('3b1f...')
+  const rejoin = act(api.rejoinSession)
   const dismissBanner = act(api.dismissBanner)
   const confirm = act(api.confirmPlan)
   const respondReplan = act(api.respondReplan)
@@ -343,16 +345,21 @@ export const useEventsStore = defineStore('events', () => {
   // Whose sessions the store holds. A change of person, with or without a sign-out between, empties it (see forgetSessions).
   let owner = currentUserId()
 
+  // The list read again for a live update that nobody awaits: a failure keeps what is shown and never becomes an unhandled
+  // rejection (the screens that need the list ask for it themselves and show their own failure).
+  // How to call: await refreshList()
+  const refreshList = () => loadSessions().catch(() => {})
+
   api.subscribe(async (event) => {
     if (currentUserId() !== owner) {
       owner = currentUserId()
       forgetSessions({ list: true })
-      if (!['reset', 'user', 'conditions', 'people'].includes(event.type)) await loadSessions()
+      if (!['reset', 'user', 'conditions', 'people'].includes(event.type)) await refreshList()
     }
     if (event.type === 'reset') {
       // A suggestion asked for before the reset belongs to data that is gone.
       forgetSessions()
-      await loadSessions()
+      await refreshList()
       return
     }
     // The person is no longer in this session.
@@ -395,13 +402,13 @@ export const useEventsStore = defineStore('events', () => {
       }
     }
     // 'people': a real person's profile was read, so the names on every session may have changed.
-    if (event.type === 'user' || event.type === 'conditions' || event.type === 'people') await loadSessions()
+    if (event.type === 'user' || event.type === 'conditions' || event.type === 'people') await refreshList()
   })
 
   return {
     sessions, byId, itineraries, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
     loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, dropSession,
     loadSessions, loadSession, loadItinerary, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
-    create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
+    create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
   }
 })

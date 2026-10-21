@@ -92,7 +92,7 @@ describe('a place someone searched for', () => {
 describe('POST /api/search and adding a searched place', () => {
   let server, base
   beforeAll(async () => {
-    server = createApp({ frontendOrigin: 'http://localhost:5173', stub: true }).listen(0)
+    server = createApp({ frontendOrigin: 'http://localhost:5173', stub: true }).listen(0, '127.0.0.1')
     await once(server, 'listening')
     base = `http://127.0.0.1:${server.address().port}`
   })
@@ -140,7 +140,7 @@ describe('POST /api/search and adding a searched place', () => {
     })
     const places = { enabled: true, nearby: async () => [], searchText, details: async () => null, photoUrl: async () => null }
     const onemap = { routingEnabled: false, search: vi.fn(async () => [{ name: 'X', address: 'Y', postal: '238859', lat: ORCHARD.lat, lng: ORCHARD.lng }]) }
-    const app = createApp({ frontendOrigin: 'http://localhost:5173', http: createHttp({ stub: true }), places, onemap }).listen(0)
+    const app = createApp({ frontendOrigin: 'http://localhost:5173', http: createHttp({ stub: true }), places, onemap }).listen(0, '127.0.0.1')
     await once(app, 'listening')
     try {
       const res = await fetch(`http://127.0.0.1:${app.address().port}/api/search`, {
@@ -161,7 +161,7 @@ describe('POST /api/search and adding a searched place', () => {
 
 describe('GET /api/places/search (start and end points, meeting spots)', () => {
   const start = async (deps) => {
-    const app = createApp({ frontendOrigin: 'http://localhost:5173', http: createHttp({ stub: true }), ...deps }).listen(0)
+    const app = createApp({ frontendOrigin: 'http://localhost:5173', http: createHttp({ stub: true }), ...deps }).listen(0, '127.0.0.1')
     await once(app, 'listening')
     const get = async (q) => {
       const res = await fetch(`http://127.0.0.1:${app.address().port}/api/places/search?q=${encodeURIComponent(q)}`)
