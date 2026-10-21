@@ -35,7 +35,12 @@ export const BALANCE = {
  *   balanceWeights([{ travelDebtMinutes: 0 }, { travelDebtMinutes: 60 }, { travelDebtMinutes: 600 }]) // [1, 2, 3]
  */
 export function balanceWeights(members, scaleMinutes = 60) {
-  return members.map(m => Math.min(BALANCE.maxWeight, 1 + Math.max(0, m.travelDebtMinutes ?? 0) / scaleMinutes));
+  // A scale that is not a positive number would make the weights meaningless (negative, or NaN that poisons every comparison).
+  const scale = Number.isFinite(scaleMinutes) && scaleMinutes > 0 ? scaleMinutes : 60;
+  return members.map(m => {
+    const debt = typeof m.travelDebtMinutes === 'number' && Number.isFinite(m.travelDebtMinutes) ? m.travelDebtMinutes : 0;
+    return Math.min(BALANCE.maxWeight, 1 + Math.max(0, debt) / scale);
+  });
 }
 
 /**
@@ -48,13 +53,14 @@ export function balanceWeights(members, scaleMinutes = 60) {
  *   measure([18, 41, 41], [1, 1, 1]) // { burdens: [18, 41, 41], longest: 41, gap: 23, mean: 33.33, realLongest: 41 }
  */
 export function measure(travel, weights) {
-  const burdens = travel.map((t, i) => t * weights[i]);
-  const wSum = weights.reduce((a, b) => a + b, 0);
+  const w = travel.map((_, i) => weights[i] ?? 1); // a person with no weight counts once
+  const burdens = travel.map((t, i) => t * w[i]);
+  const wSum = w.reduce((a, b) => a + b, 0);
   return {
     burdens,
     longest: Math.max(...burdens),
     gap: Math.max(...burdens) - Math.min(...burdens),
-    mean: travel.reduce((s, t, i) => s + weights[i] * t, 0) / wSum,
+    mean: travel.reduce((s, t, i) => s + w[i] * t, 0) / wSum,
     realLongest: Math.max(...travel),
   };
 }
@@ -68,7 +74,10 @@ export function measure(travel, weights) {
 // average. The cap is on the longest REAL trip, against the best real longest trip anywhere: a hard limit, so past travel and
 // the gap can move the choice only among places that keep everyone's trip reasonable.
 function classify(entries, weights) {
-  const scored = entries.map(e => ({ e, m: measure(e.j.travel, weights) }));
+  // A place with a trip that is not a number cannot be compared: it is left out (never chosen, listed last).
+  const usable = entries.filter(e => e.j.travel.every(t => Number.isFinite(t)));
+  const scored = usable.map(e => ({ e, m: measure(e.j.travel, weights) }));
+  if (scored.length === 0) return { allowed: [], capped: [], beyond: [], unusable: entries };
   const bestReal = Math.min(...scored.map(s => s.m.realLongest));
   const allowedReal = Math.max(bestReal * BALANCE.capFactor, bestReal + BALANCE.capMinutes);
   const inCap = scored.filter(s => s.m.realLongest <= allowedReal + 1e-9); // never empty: the best real longest trip qualifies
@@ -76,7 +85,7 @@ function classify(entries, weights) {
   const longestOk = baseline.m.longest + Math.max(baseline.m.longest * BALANCE.slack, BALANCE.slackMinutes);
   const meanOk = baseline.m.mean + Math.max(baseline.m.mean * BALANCE.avgSlack, BALANCE.avgSlackMinutes);
   const allowed = inCap.filter(s => s === baseline || (s.m.longest <= longestOk + 1e-9 && s.m.mean <= meanOk + 1e-9));
-  return { allowed, capped: inCap.filter(s => !allowed.includes(s)), beyond: scored.filter(s => !inCap.includes(s)) };
+  return { allowed, capped: inCap.filter(s => !allowed.includes(s)), beyond: scored.filter(s => !inCap.includes(s)), unusable: entries.filter(e => !usable.includes(e)) };
 }
 
 const byGap = (x, y) => x.m.gap - y.m.gap || x.m.mean - y.m.mean || x.m.longest - y.m.longest; // equal: the order tried
@@ -93,8 +102,8 @@ const byLongest = (x, y) => x.m.longest - y.m.longest || x.m.gap - y.m.gap || x.
  */
 export function rankBalanced(entries, weights) {
   if (entries.length === 0) return [];
-  const { allowed, capped, beyond } = classify(entries, weights);
-  return [...[...allowed].sort(byGap), ...[...capped].sort(byLongest), ...[...beyond].sort(byLongest)].map(s => s.e);
+  const { allowed, capped, beyond, unusable } = classify(entries, weights);
+  return [...[...allowed].sort(byGap), ...[...capped].sort(byLongest), ...[...beyond].sort(byLongest)].map(s => s.e).concat(unusable);
 }
 
 /**
@@ -105,7 +114,8 @@ export function rankBalanced(entries, weights) {
  *   pickBalanced(evaluated, balanceWeights(members)) // the { a, j } of the chosen area
  */
 export function pickBalanced(entries, weights) {
-  return rankBalanced(entries, weights)[0] ?? null;
+  const first = rankBalanced(entries, weights)[0] ?? null;
+  return first && first.j.travel.every(t => Number.isFinite(t)) ? first : null; // null: nothing could be compared
 }
 
 /**
@@ -119,7 +129,8 @@ export function pickBalanced(entries, weights) {
  * How to call:
  *   choicesOf(evaluated, members, balanceWeights(members), (a, j) => ({ area: {...}, approximate: j.approximate }))
  */
-export function choicesOf(entries, members, weights, describe) {
+export function choicesOf(allEntries, members, weights, describe) {
+  const entries = allEntries.filter(e => e.j.travel.every(t => Number.isFinite(t))); // a place with no usable trip cannot be offered
   if (entries.length === 0) return [];
   const real = e => measure(e.j.travel, e.j.travel.map(() => 1));
   const pick = (cmp) => entries.reduce((b, e) => (cmp(e, b) < -1e-9 ? e : b));
@@ -129,6 +140,7 @@ export function choicesOf(entries, members, weights, describe) {
   const labelled = [['shortest_longest_trip', shortest], ['most_balanced', balanced], ['lowest_average', lowest]];
   const out = [];
   for (const [label, entry] of labelled) {
+    if (!entry) continue;
     const have = out.find(c => c.entry === entry);
     if (have) { have.labels.push(label); continue; }
     out.push({ entry, labels: [label] });

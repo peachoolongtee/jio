@@ -208,7 +208,7 @@ Added 19 October 2026. Both are optional. A request without them is answered exa
 
 **The balanced rule** starts from today's pick and moves away from it only when that costs the group nothing. Over the same areas the station rule compares (the same real routes, and no more calls):
 
-1. **Past travel counts.** Each member's trip is multiplied by `1 + travelDebtMinutes / 60`, at most 3. Someone who travelled more than their share last time counts more, so the point moves toward them. With no balance every weight is 1. (`fairnessScaleMinutes` changes the 60.)
+1. **Past travel counts.** Each member's trip is multiplied by `1 + travelDebtMinutes / 60`, at most 3. Someone who travelled more than their share last time counts more, so the point moves toward them. With no balance every weight is 1. (The 60 is fixed for the API: the engine's `fairnessScaleMinutes` is not a request field.)
 2. **A hard cap.** Only areas whose longest real trip is within 35% (or 10 minutes) of the best longest trip anywhere are considered. Past travel and the gap can never make someone travel far just to even things out.
 3. **Only a swap that costs nothing.** Today's pick (the shortest longest weighted trip) is the baseline. Another area is considered only if its longest weighted trip is within 5% (at least 2 minutes) of the baseline's **and** its weighted average trip is within 10% (at least 3 minutes) of the baseline's.
 4. **Smallest gap.** Of those, take the one with the smallest gap between the longest and shortest weighted trip; then the lower weighted average; then the lower longest trip. The baseline is always among them, so the rule never does worse than today's on the longest trip by more than that little, and never on the average.

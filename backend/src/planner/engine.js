@@ -478,7 +478,7 @@ function meetingArea(input, data, deps = {}) {
       evaluated.push({ a, j });
       if (!best || j.worst < best.j.worst || (j.worst === best.j.worst && j.fairMean < best.j.fairMean)) best = { a, j };
     }
-    if (rule === 'balanced') best = pickBalanced(evaluated, bw); // the balanced rule chooses among the same measured areas
+    if (rule === 'balanced') best = pickBalanced(evaluated, bw) ?? best; // the balanced rule chooses among the same measured areas; none comparable: today's pick
     area = best.a;
     centre = { lat: area.lat, lng: area.lng };
   } else {

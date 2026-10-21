@@ -269,3 +269,39 @@ describe('the cap on the longest trip', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------- odd input, for callers that skip the request schema
+describe('the rule on odd input', () => {
+  it('uses a scale of 60 when it is not a positive number, and ignores a balance that is not a number', () => {
+    for (const scale of [0, -60, NaN, Infinity, undefined]) expect(balanceWeights([{ travelDebtMinutes: 30 }], scale)).toEqual([1.5])
+    expect(balanceWeights([{ travelDebtMinutes: NaN }, { travelDebtMinutes: '50' }, { travelDebtMinutes: Infinity }, {}])).toEqual([1, 1, 1, 1])
+  })
+
+  it('counts a person with no weight once, and never returns NaN', () => {
+    expect(measure([10, 20, 30], [1, 1])).toMatchObject({ longest: 30, gap: 20, mean: 20, realLongest: 30 })
+  })
+
+  it('leaves out a place with a trip that is not a number, and says nothing could be compared when none can', () => {
+    const bad = entry('bad', [10, NaN])
+    expect(pickBalanced([bad, entry('ok', [20, 20])], ones(2)).a.id).toBe('ok')
+    expect(rankBalanced([bad, entry('ok', [20, 20])], ones(2)).map((e) => e.a.id)).toEqual(['ok', 'bad']) // listed last
+    expect(pickBalanced([bad], ones(2))).toBeNull()
+    expect(choicesOf([bad], [{ id: 'a' }, { id: 'b' }], ones(2), (a) => ({ area: { id: a.id } }))).toEqual([])
+  })
+
+  it('never throws for any mix of places, weights and group sizes', () => {
+    let seed = 3
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296)
+    for (let g = 0; g < 300; g++) {
+      const people = 1 + Math.floor(rnd() * 8)
+      const options = Array.from({ length: Math.floor(rnd() * 14) }, (_, i) => entry(`a${i}`, Array.from({ length: people }, () => (rnd() < 0.05 ? NaN : rnd() < 0.1 ? 0 : Math.floor(rnd() * 120)))))
+      const weights = balanceWeights(Array.from({ length: people }, () => ({ travelDebtMinutes: rnd() < 0.3 ? NaN : Math.floor(rnd() * 900) - 100 })), rnd() < 0.2 ? -1 : 60)
+      expect(() => rankBalanced(options, weights)).not.toThrow()
+      expect(() => choicesOf(options, Array.from({ length: people }, (_, i) => ({ id: `m${i}` })), weights, (a) => ({ area: { id: a.id } }))).not.toThrow()
+      const ranked = rankBalanced(options, weights)
+      expect(ranked).toHaveLength(options.length)
+      const first = pickBalanced(options, weights)
+      if (first) expect(first.j.travel.every(Number.isFinite)).toBe(true)
+    }
+  })
+})
