@@ -56,10 +56,14 @@ export const estimateTravel = () => ({ source: 'estimate', asked: 0, routed: 0, 
 // Because 1 and 2 are what a request without `include` would route, the ranking sees the same times with or
 // without it. Step 3 is returned apart (`named`) because its real times are for the named areas' own entries only:
 // the caller must never let the ranking read them.
+// A server may ask for more finalists than the default (MEETING_FINALISTS), and then the shortlist can fill the whole cap and
+// leave the named areas, which are what people asked for, with nothing. `protectedShortlist` is how many shortlist areas keep their
+// place ahead of the named ones (the default number of finalists); the finalists after them come after the named areas, so they
+// get only what is left. `order` is that sequence. With no more finalists than that, it is the shortlist and then the named areas.
 //
 // How to call (inside this file):
-//   const { ranked, named } = routingOrderWithNamedAreas(candidates, { shortlistSize: 5, notShortlisted: ['bishan'], afterShortlist: ['bishan'] })
-function routingOrderWithNamedAreas(candidates, { shortlistSize, notShortlisted = [], afterShortlist = [] }) {
+//   const { ranked, named, order } = routingOrderWithNamedAreas(candidates, { shortlistSize: 12, protectedShortlist: 5, notShortlisted: ['bishan'], afterShortlist: ['bishan'] })
+function routingOrderWithNamedAreas(candidates, { shortlistSize, protectedShortlist = shortlistSize, notShortlisted = [], afterShortlist = [] }) {
   // The same order as the shortlist in runWithRealTravel: longest trip, then mean, then the order the engine asked.
   const worst = (c) => Math.max(...c.estimates)
   const mean = (c) => c.estimates.reduce((s, x) => s + x, 0) / c.estimates.length
@@ -79,7 +83,9 @@ function routingOrderWithNamedAreas(candidates, { shortlistSize, notShortlisted 
       later.push(candidates.get(key))
     }
   }
-  return { ranked: [...head, ...shortlist].map(([, candidate]) => candidate), named: later }
+  const ranked = [...head, ...shortlist].map(([, candidate]) => candidate)
+  const protectedCount = head.length + Math.min(protectedShortlist, shortlist.length)
+  return { ranked, named: later, order: [...ranked.slice(0, protectedCount), ...later, ...ranked.slice(protectedCount)] }
 }
 
 // Runs `run(deps)` with real travel times when OneMap routing is on, and once with the estimate when it is off.
@@ -111,7 +117,9 @@ function routingOrderWithNamedAreas(candidates, { shortlistSize, notShortlisted 
 //   rankByEstimate  - Order candidates by their estimated result (longest trip, then mean) instead of the order
 //                     the engine asked about them. For the meeting area, where the engine tries every area.
 //   namedAreas      - For a meeting-area request that asks for runners-up or names areas: { notShortlisted, afterShortlist },
-//                     two lists of area ids. See routingOrderWithNamedAreas below. Used with rankByEstimate only.
+//                     two lists of area ids, and optionally `protectedShortlist`, how many of the `maxCandidates` best areas are routed before
+//                     the named ones (the rest are routed after them, with what is left). See routingOrderWithNamedAreas. Used with
+//                     rankByEstimate only.
 //                     The real run is then given two functions: `travelMinutes`, which answers only the trips of the
 //                     ranking (the head and the shortlist, as for a request that names nothing), and
 //                     `includedTravelMinutes`, which also answers the trips of the named areas that were routed.
@@ -173,9 +181,10 @@ export async function runWithRealTravel({
   // A request that names areas replaces the order above with one that also reaches them (same cap, same loop below).
   // `named` comes after `ranked`, so the ranked areas have first call on the cap.
   let named = []
+  let order = ordered // the sequence in which candidates are routed
   const namesAreas = rankByEstimate && namedAreas !== null
   if (namesAreas) {
-    ;({ ranked: ordered, named } = routingOrderWithNamedAreas(candidates, { ...namedAreas, shortlistSize: maxCandidates }))
+    ;({ ranked: ordered, named, order } = routingOrderWithNamedAreas(candidates, { ...namedAreas, shortlistSize: maxCandidates }))
   }
   const rankingTrips = new Set() // trip keys of the candidates the ranking may read
 
@@ -183,8 +192,10 @@ export async function runWithRealTravel({
   const minutes = new Map() // trip key -> minutes, for the trips that have a OneMap (or walking) time
   const toFetch = []
   let spent = 0
-  let full = false
-  for (const candidate of [...ordered, ...named]) {
+  let full = false // a ranked candidate did not fit: no later one that needs calls is tried
+  let namedFull = false // a named one did not fit: no later named one that needs calls is tried (the ranked ones are not held back)
+  for (const candidate of order) {
+    const isNamed = named.includes(candidate)
     const looked = candidate.tripKeys.map((key) => {
       const { a, b } = trips.get(key)
       // A OneMap service without peekRoute (a test double) cannot tell, so every trip counts as a call.
@@ -194,12 +205,13 @@ export async function runWithRealTravel({
     // A candidate that needs calls must fit whole. Once one did not, no later one that needs calls is tried:
     // that would rank a lower candidate on real times while a better one has estimates. Candidates that need
     // no calls at all (everything cached or walked) are free, so they are always taken.
-    if (cost > 0 && (full || spent + cost > maxTrips)) {
-      full = true
+    if (cost > 0 && (full || (isNamed && namedFull) || spent + cost > maxTrips)) {
+      if (isNamed) namedFull = true
+      else full = true
       continue
     }
     spent += cost
-    if (!named.includes(candidate)) candidate.tripKeys.forEach((key) => rankingTrips.add(key))
+    if (!isNamed) candidate.tripKeys.forEach((key) => rankingTrips.add(key))
     for (const [key, plan] of looked) {
       if (plan.kind === 'call') toFetch.push(key)
       else if (plan.kind === 'walk') {

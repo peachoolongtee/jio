@@ -17,13 +17,16 @@ import { estimateTravel, ROUTING_DEADLINE_MS, runWithRealTravel } from './travel
 //   nowInSingapore() // '2026-10-10T19:00'
 export const nowInSingapore = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16)
 
-// With routing on, the "best MRT station" check tries only the 16 areas nearest the fairest point, not all 37:
-// 16 never missed the best area in 2,000 random groups (see docs/engine-integration.md), and it cuts the calls.
+// With routing on, the "best MRT station" check tries only 16 areas, not all 37. Without the table of times between areas they are
+// the 16 nearest the fairest point: those never missed the best area in 2,000 random groups (see docs/engine-integration.md), a
+// measurement made without the table. With it they are the 16 with the shortest guessed longest trip, which has not been measured
+// the same way. It cuts the calls.
 export const MEETING_CANDIDATES_WITH_ROUTING = 16
 
 // Of those, only the 5 whose estimated result is best get real routes. The others keep the estimate. A server may raise it
 // (MEETING_FINALISTS, at most 12): more finalists with real times make the choice more accurate and use more OneMap calls, which
-// are a shared budget. A request still routes at most MAX_ROUTED_TRIPS_PER_REQUEST trips, whole areas only.
+// are a shared budget. A request still routes at most MAX_ROUTED_TRIPS_PER_REQUEST trips, whole areas only. The areas a request
+// names are routed after the first MEETING_AREAS_ROUTED finalists and before the extra ones, so extra finalists never starve them.
 export const MEETING_AREAS_ROUTED = 5
 export const MEETING_FINALISTS_MAX = 12
 
@@ -120,7 +123,7 @@ export function createPlannerRuns({
   const meetingAreaTravelFor = (input) => {
     if (input.alternatives === undefined && input.include === undefined) return meetingAreaTravel
     const { outside } = meetingAreaPlan(withRoutingCandidates(input), data, estimate)
-    return { ...meetingAreaTravel, namedAreas: { notShortlisted: outside, afterShortlist: input.include ?? [] } }
+    return { ...meetingAreaTravel, namedAreas: { notShortlisted: outside, afterShortlist: input.include ?? [], protectedShortlist: MEETING_AREAS_ROUTED } }
   }
 
   return { depsFor, resolveWeather, runWithTravel, withRoutingCandidates, meetingAreaWithRouting, meetingAreaTravelFor }
