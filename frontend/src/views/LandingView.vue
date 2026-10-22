@@ -28,7 +28,7 @@
 // for a local account: it starts a light meetup around one area and opens its Roam list (ticket #98).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { format } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
@@ -55,7 +55,7 @@ import { activeMeetups, dayLabel, pinName, pinsFor, routesFor, selectMeetup } fr
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useHomeRain } from '@/lib/useHomeRain.js'
-import { dueEnding, overdueOuting, sessionPath } from '@/lib/session.js'
+import { dueEnding, overdueOuting, sessionPath, singaporeDate, singaporeDayTime } from '@/lib/session.js'
 import { useNow } from '@/lib/useNow.js'
 import { canViewTransition, withViewTransition } from '@/lib/viewTransition.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -89,7 +89,7 @@ const shown = ref(PAGE)
 const emptyFilters = () => ({ touristy: false, hidden: false, cdc: false, food: false, cafe: false, budget: BUDGET.max, distance: DISTANCE.max })
 // What the list shows, and what the sheet is editing. "Show places" copies one to the other.
 const filters = ref(emptyFilters())
-const today = format(new Date(), 'EEEE d MMMM')
+const today = format(parseISO(singaporeDate()), 'EEEE d MMMM')
 const editing = ref(emptyFilters())
 
 // How to call: loadHome() (on mount, and from Retry)
@@ -137,7 +137,7 @@ const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAre
 const overdue = computed(() =>
   meetups.value.flatMap((s) => {
     const late = overdueOuting(s, now.value)
-    return late && !dueEnding(s, now.value) ? [{ session: s, closes: format(late.closesAt, 'EEE d MMM, HH:mm') }] : []
+    return late && !dueEnding(s, now.value) ? [{ session: s, closes: singaporeDayTime(late.closesAt) }] : []
   }),
 )
 // A confirmed outing whose end time has passed: reading the list again finishes it and pays its coins (lib/api.js settleOutings).

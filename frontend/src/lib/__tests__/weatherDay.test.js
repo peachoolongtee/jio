@@ -46,7 +46,7 @@ let saved = null
 async function build() {
   if (saved) return saved
   vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(new Date('2026-10-10T10:00:00'))
+  vi.setSystemTime(new Date('2026-10-10T10:00:00+08:00'))
   const api = await loadApi()
   await api.signUp(PROFILE)
   const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' })
@@ -68,7 +68,7 @@ async function build() {
 async function open(edit = (text) => text) {
   const { text, id } = await build()
   vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(new Date('2026-10-10T10:00:00'))
+  vi.setSystemTime(new Date('2026-10-10T10:00:00+08:00'))
   return { api: await loadApi({ data: { [STORAGE_KEY]: edit(text) } }), id }
 }
 const stripWeather = (text) => {
@@ -135,7 +135,7 @@ describe('what a confirmed plan keeps of the weather', () => {
 describe('the voting page\'s forecast', () => {
   it('has the planner\'s block for the list while the group votes', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+    vi.setSystemTime(new Date('2026-10-09T10:00:00+08:00'))
     const api = await loadApi()
     await api.signUp(PROFILE)
     const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' })
@@ -178,7 +178,7 @@ describe('the check on the day', () => {
   it('asks for the day it is when the demo says it is the session day, and for the simulated rain when that is on', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     const { api, id } = await open()
-    vi.setSystemTime(new Date('2026-10-14T10:00:00'))
+    vi.setSystemTime(new Date('2026-10-14T10:00:00+08:00'))
     await api.setConditions({ sessionDay: true, rain: true })
     await api.checkStopWeather(id)
     const { stops, conditions } = planner.stopsWeather.mock.calls[0][0]
@@ -269,7 +269,7 @@ describe('the host\'s swap on a confirmed plan', () => {
 
   it('still swaps an option while the group votes, as it always did', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+    vi.setSystemTime(new Date('2026-10-09T10:00:00+08:00'))
     const api = await loadApi()
     await api.signUp(PROFILE)
     const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' })

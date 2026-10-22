@@ -2,7 +2,7 @@
 // backend's results turned into rows with the nearest area, the 8 row cap, no call for a short query, the fallback when
 // the backend is down, cancellation, and that a stored location gains nothing but the area and its own label.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { loadApi, stubPlanner } from './planFixture.js'
+import { loadApi, stubPlanner, tomorrow } from './planFixture.js'
 import { toSpotRows } from '../placeSearch.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), searchAddresses: vi.fn() }))
@@ -194,7 +194,7 @@ describe('what a stored location carries', () => {
 
   async function startedSession() {
     await api.signUp(PROFILE)
-    const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' })
+    const { id } = await api.createSession({ title: 'Saturday', date: tomorrow(), start: '12:00', end: '20:00' })
     await api.inviteFriends(id, ['jonathan'])
     await api.startSession(id)
     return id

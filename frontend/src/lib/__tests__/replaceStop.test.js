@@ -2,11 +2,11 @@
 // swap itself), then the itinerary's Replace button and the voting page's replace mode drawn for real (domless.js) on a
 // stand-in planner (planFixture.js).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { format } from 'date-fns'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { VENUES } from '../mock/venues.js'
 import { STORAGE_KEY, loadApi, loadConfirmed, loadOrdered, orderedSave, stubPlanner } from './planFixture.js'
 import { mountScreen, until } from './domless.js'
+import { singaporeDate } from '../session.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), arrangeItinerary: vi.fn(), lastWeather: { value: null } }))
 vi.mock('../plannerApi.js', () => planner)
@@ -23,7 +23,7 @@ beforeEach(() => {
   // The sessions here are dated Saturday 10 October 2026. A read after a session's end time finishes it (lib/api.js
   // settleOutings), so the clock is held the day before, as in the other data-layer tests. Only Date is faked.
   vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+  vi.setSystemTime(new Date('2026-10-09T10:00:00+08:00'))
 })
 afterEach(() => {
   mounted.splice(0).forEach((view) => view.unmount())
@@ -766,9 +766,9 @@ describe('the weather of the places that could replace a stop (data layer)', () 
     await api.setConditions({ sessionDay: true })
     planner.rankSlot.mockClear()
     await api.replaceChoices(id, eat.slotId)
-    expect(planner.rankSlot.mock.calls[0][0].date).toBe(format(new Date(), 'yyyy-MM-dd'))
+    expect(planner.rankSlot.mock.calls[0][0].date).toBe(singaporeDate())
     await api.replaceStop(id, eat.slotId, options[0].id)
-    expect(planner.rankSlot.mock.calls.at(-1)[0].date).toBe(format(new Date(), 'yyyy-MM-dd'))
+    expect(planner.rankSlot.mock.calls.at(-1)[0].date).toBe(singaporeDate())
   })
 })
 

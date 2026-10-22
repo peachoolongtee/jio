@@ -8,7 +8,7 @@ vi.mock('../plannerApi.js', () => planner)
 
 beforeAll(async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+  vi.setSystemTime(new Date('2026-10-09T10:00:00+08:00'))
   stubPlanner(planner)
   await confirmedSave()
 })

@@ -20,7 +20,7 @@ beforeAll(() => {
 })
 beforeEach(() => {
   stubPlanner(planner)
-  at('2026-10-17T14:20:00')
+  at('2026-10-17T14:20:00+08:00')
 })
 afterEach(() => {
   mounted.splice(0).forEach((view) => view.unmount())
@@ -92,7 +92,7 @@ describe('finishing an outing of one person', () => {
     const t = await setUp()
     const { id } = await t.api.startRoam({ areaId: 'bugis' })
     await t.api.inviteFriends(id, ['faith'])
-    at('2026-10-17T14:30:00')
+    at('2026-10-17T14:30:00+08:00')
     const view = await draw(t, `/sessions/${id}/itinerary`, 'EventView', { id })
     await until(() => !!press(view, 'Finish outing'))
     await view.click(press(view, 'Finish outing'))
@@ -191,7 +191,7 @@ describe('the create form late at night', () => {
   const next = (view) => view.all('button').find((b) => view.text(b).includes('Next'))
 
   it('has tomorrow as the day at 23:30, so a title is all that is left to choose', async () => {
-    at('2026-10-17T23:30:00')
+    at('2026-10-17T23:30:00+08:00')
     const view = await form()
     expect(next(view).disabled).toBe(true)
     view.type('input', 'Late supper')
@@ -200,7 +200,7 @@ describe('the create form late at night', () => {
   })
 
   it('holds Next when 23:59 would otherwise produce a zero-length session', async () => {
-    at('2026-10-17T23:30:00')
+    at('2026-10-17T23:30:00+08:00')
     const view = await form()
     view.type('input', 'Late supper')
     const start = view.all('.tp__input')[0]
@@ -224,6 +224,22 @@ describe('the create form late at night', () => {
     await view.tick()
     expect(view.text()).toContain('That start time has already passed today.')
     expect(next(view).disabled).toBe(true)
+    // The sentence is the start time's own note, not the end time's.
+    const [startInput, endInput] = view.all('.tp__input')
+    const note = view.all('p[role="alert"]').find((p) => view.text(p) === 'That start time has already passed today.')
+    expect(startInput.attrs['aria-describedby']).toBe(note.attrs.id)
+    expect(startInput.attrs['aria-invalid']).toBe('true')
+    expect(endInput.attrs['aria-invalid']).toBeUndefined()
+  })
+
+  it('reads the clock in Singapore, not in the browser\'s zone: at 00:30 on the 18th there the 17th has gone and the form starts at 01:00', async () => {
+    at('2026-10-17T16:30:00Z')
+    const view = await form()
+    expect(view.all('.tp__input')[0].value).toBe('01:00')
+    view.type('input', 'Supper')
+    await view.tick()
+    // At 00:30 no day is preset (only 23:00 to midnight presets tomorrow), so Next waits for one.
+    expect(next(view).disabled).toBe(true)
   })
 
   it('leaves the day to be chosen at 14:20, as before', async () => {
@@ -233,3 +249,45 @@ describe('the create form late at night', () => {
     expect(next(view).disabled).toBe(true)
   })
 })
+
+describe('editing a session whose start has passed', () => {
+  // A session made at 14:20 for 15:00 to 18:00 that day; then it is 16:00 and the start has passed, with the session still inviting.
+  async function editForm() {
+    const t = await setUp()
+    const { id } = await t.api.createSession({ title: 'Saturday', date: '2026-10-17', start: '15:00', end: '18:00' })
+    at('2026-10-17T16:00:00+08:00')
+    const view = await draw(t, `/sessions/${id}/edit`, 'CreateEventView', { id })
+    await until(() => view.has('input') && view.all('input')[0].value === 'Saturday')
+    return { ...t, id, view }
+  }
+  const next = (view) => view.all('button').find((b) => view.text(b).includes('Next'))
+
+  it('lets the title change alone, with no complaint about the start that has passed', async () => {
+    const { view, api, id, router } = await editForm()
+    expect(view.text()).not.toContain('has already passed today')
+    expect(next(view).disabled).toBe(false)
+    view.type('input', 'Saturday tea')
+    await view.tick()
+    await view.click(next(view))
+    await until(() => router.currentRoute.value.path === `/sessions/${id}/invite`)
+    expect(await api.getSession(id)).toMatchObject({ title: 'Saturday tea', date: '2026-10-17', start: '15:00', end: '18:00' })
+  })
+
+  it('still refuses a new start that has passed, under the start time', async () => {
+    const { view } = await editForm()
+    const start = view.all('.tp__input')[0]
+    start.value = '15:30'
+    start.dispatch('input')
+    start.dispatch('blur')
+    await view.tick()
+    expect(view.text()).toContain('That start time has already passed today.')
+    expect(next(view).disabled).toBe(true)
+    start.value = '16:30'
+    start.dispatch('input')
+    start.dispatch('blur')
+    await view.tick()
+    expect(view.text()).not.toContain('has already passed today')
+    expect(next(view).disabled).toBe(false)
+  })
+})
+

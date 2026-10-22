@@ -7,8 +7,9 @@
 // on today), hostId, build }. build() does what a group does after the session is made; `at('voting')` names the step it is on,
 // for the message if it stops there.
 //   const { made, failed } = await buildSessions(SPECS, { now, makePhotos, onProgress })
-import { addDays, format } from 'date-fns'
+import { addDays, format, parseISO } from 'date-fns'
 import * as api from '@/lib/api.js'
+import { singaporeDate, singaporeMinutes } from '@/lib/session.js'
 
 export const DAY = 24 * 60 * 60 * 1000
 // How long an invite a spec leaves pending stays pending. A read after this accepts it, as in the demo.
@@ -23,9 +24,10 @@ const clock = (minutes) => `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)
 
 // The times of a session that is on today: it started half an hour ago (to the quarter hour) and runs six hours, so "Live
 // now" shows between 07:30 and 17:30, and "Starts in" or "Ended" outside that. Never past 23:45, never before 07:00.
-// How to call: todayWindow(new Date('2026-10-10T14:20:00')) -> { start: '13:45', end: '19:45' }
+// The time is read on Singapore's clock, as every session time is.
+// How to call: todayWindow(new Date('2026-10-10T14:20:00+08:00')) -> { start: '13:45', end: '19:45' }
 export function todayWindow(now) {
-  const minutes = now.getHours() * 60 + now.getMinutes()
+  const minutes = singaporeMinutes(now)
   const start = Math.min(Math.max(Math.floor((minutes - 30) / 15) * 15, 7 * 60), 17 * 60)
   return { start: clock(start), end: clock(Math.min(start + 6 * 60, 23 * 60 + 45)) }
 }
@@ -147,7 +149,7 @@ export async function buildSessions(specs, { now, makePhotos, onProgress = () =>
     const entry = { spec, id: '', step: 'create', error: null }
     made.push(entry)
     try {
-      const day = format(addDays(now, spec.day), 'yyyy-MM-dd')
+      const day = format(addDays(parseISO(singaporeDate(now)), spec.day), 'yyyy-MM-dd')
       const { start = '12:00', end = '20:00' } = spec.window ? todayWindow(now) : spec
       // keepOpen: a demo session's window is fixed when it is loaded, so its end time must never finish it by itself.
       entry.id = (await api.createSession({ title: spec.title, date: day, start, end, hostId: spec.hostId, keepOpen: true })).id

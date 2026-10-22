@@ -71,7 +71,7 @@ beforeEach(() => {
   // The signed-in person is the sample person Ian, as for the demo account.
   useAuthStore().user = { id: 'ian', name: 'Ian', username: 'ian', local: true }
   vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+  vi.setSystemTime(new Date('2026-10-09T10:00:00+08:00'))
   events.byId = { s1: session() }
   vi.spyOn(events, 'loadSession').mockResolvedValue(session())
   for (const name of ['proposeMyStop', 'resolveProposal']) vi.spyOn(events, name).mockResolvedValue({})
@@ -681,7 +681,7 @@ describe('the host is told before adding a stop that would end after the session
   })
 
   it('counts from now when the plan ended hours ago', async () => {
-    vi.setSystemTime(new Date('2026-10-09T21:00:00'))
+    vi.setSystemTime(new Date('2026-10-09T21:00:00+08:00'))
     const page = mount(ProposedStops, { session: session({ proposals, end: '21:30' }), myId: 'ian', itinerary: itinerary(600) }, [pinia])
     await flush()
     // Added at 21:00 it would end at 22:00 at the soonest.

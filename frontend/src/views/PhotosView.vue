@@ -24,7 +24,7 @@ import SessionNotices from '@/components/event/SessionNotices.vue'
 import NotFoundView from './NotFoundView.vue'
 import { PHOTOS_MAX } from '@/lib/api.js'
 import { compressImage } from '@/lib/image.js'
-import { sessionPath } from '@/lib/session.js'
+import { sessionPath, singaporeDate, singaporeMinutes } from '@/lib/session.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -79,9 +79,8 @@ const ordered = computed(() => [...(loaded.value || [])].reverse())
 const full = computed(() => ordered.value.length >= PHOTOS_MAX)
 const contributors = computed(() => [...new Map(ordered.value.map((p) => [p.personId, { id: p.personId, name: p.name }])).values()])
 
-const time = (at) => new Date(at).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: false })
-
-const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+// Singapore's clock, as the session's own times are.
+const time = (at) => new Date(at).toLocaleTimeString('en-SG', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', hour12: false })
 
 // The stop that was on when the photo was posted, if it was posted on the day of the session
 // (or today, while the demo treats today as the session day).
@@ -89,10 +88,10 @@ function placeOf(photo) {
   const stops = events.itineraries[props.id]?.stops
   if (!stops?.length || !session.value) return ''
   const at = new Date(photo.at)
-  const day = dayKey(at)
-  const onTheDay = day === session.value.date || (session.value.isToday && day === dayKey(new Date()))
+  const day = singaporeDate(at)
+  const onTheDay = day === session.value.date || (session.value.isToday && day === singaporeDate())
   if (!onTheDay) return ''
-  const minute = at.getHours() * 60 + at.getMinutes()
+  const minute = singaporeMinutes(at)
   const stop = stops.find((s, k) => minute >= s.start && minute < (stops[k + 1]?.start ?? s.end))
   return stop?.venue.name || ''
 }

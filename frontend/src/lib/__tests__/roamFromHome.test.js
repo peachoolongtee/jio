@@ -15,7 +15,7 @@ beforeAll(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
 })
 beforeEach(() => {
-  vi.setSystemTime(new Date('2026-10-17T14:20:00'))
+  vi.setSystemTime(new Date('2026-10-17T14:20:00+08:00'))
   stubPlanner(planner)
   planner.roamNearby.mockReset().mockResolvedValue({ places: VENUES.slice(0, 3).map(card), empty: null, widened: false, weather: null })
 })
@@ -69,6 +69,20 @@ describe('a light meetup from Home', () => {
     expect(itinerary.stops[0]).toMatchObject({ start: 14 * 60 + 20, end: 15 * 60 + 20 })
   })
 
+  // Singapore's clock, not the browser's: at 16:30 UTC on the 17th it is 00:30 on the 18th in Singapore, so the meetup is for the 18th,
+  // the list is ranked for 00:30 that day, and a place accepted from it starts at 00:30, in any time zone the tests run in.
+  it('reads the day and the time on Singapore\'s clock: the date, the list\'s time and the first stop', async () => {
+    vi.setSystemTime(new Date('2026-10-17T16:30:00Z'))
+    const api = await signedIn()
+    const s = await api.startRoam({ areaId: 'bugis' })
+    expect(s).toMatchObject({ date: '2026-10-18', start: '00:30', end: '03:30', isToday: true })
+    const { places } = await api.roamNearby(s.id)
+    expect(planner.roamNearby.mock.calls[0][0]).toMatchObject({ date: '2026-10-18', time: '00:30' })
+    const proposed = await api.proposeStop(s.id, 'ian', places[0].id)
+    await api.resolveProposal(s.id, proposed.proposals[0].id, true)
+    expect((await api.getItinerary(s.id)).stops[0]).toMatchObject({ start: 30, end: 90 })
+  })
+
   it('is not paused with one person, and the host may invite friends to it', async () => {
     const api = await signedIn()
     const s = await api.startRoam({ areaId: 'bugis' })
@@ -81,11 +95,11 @@ describe('a light meetup from Home', () => {
   })
 
   it('ends by 23:59 late at night, and finishes by itself once that end has passed', async () => {
-    vi.setSystemTime(new Date('2026-10-17T22:30:00'))
+    vi.setSystemTime(new Date('2026-10-17T22:30:00+08:00'))
     const api = await signedIn()
     const s = await api.startRoam({ areaId: 'bugis' })
     expect([s.start, s.end]).toEqual(['22:30', '23:59'])
-    vi.setSystemTime(new Date('2026-10-18T00:01:00'))
+    vi.setSystemTime(new Date('2026-10-18T00:01:00+08:00'))
     const [after] = await api.listSessions()
     expect(after).toMatchObject({ id: s.id, status: 'completed', endedBy: 'auto' })
   })

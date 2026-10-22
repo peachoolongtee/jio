@@ -3,7 +3,8 @@
 // against the real Express app started in this process, with its outside calls stubbed. Set SHOWCASE_TABLE=1 to print
 // what Home shows for each session.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { addDays, format } from 'date-fns'
+import { addDays, format, parseISO } from 'date-fns'
+import { singaporeDate } from '@/lib/session.js'
 import { createApp } from '../../../../../backend/src/app.js'
 import { createHttp } from '../../../../../backend/src/services/http.js'
 import { STORAGE_KEY, loadApi } from '../../../lib/__tests__/planFixture.js'
@@ -12,7 +13,7 @@ import { distanceKm } from '../../../lib/planner/index.js'
 import { waitingFor } from '../../../stores/events.js'
 import { DEMO_ACCOUNT } from '../demoAccount.js'
 
-const NOW = new Date('2026-10-10T14:20:00')
+const NOW = new Date('2026-10-10T14:20:00+08:00')
 const stubPhotos = async (kinds, count) => Array.from({ length: count }, (_, i) => `data:image/jpeg;base64,AAAA${i}`)
 
 beforeAll(() => {
@@ -67,7 +68,8 @@ async function expectEveryState(api) {
     expect(session.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(session.hostId).toBeTruthy()
   }
-  const dateAt = (days) => format(addDays(NOW, days), 'yyyy-MM-dd')
+  // The date `days` from now in Singapore, where a session's day is counted.
+  const dateAt = (days) => format(addDays(parseISO(singaporeDate(NOW)), days), 'yyyy-MM-dd')
 
   // 1. just created: nobody invited
   expect(s.fresh).toMatchObject({ status: 'inviting', hostId: 'ian', activeIds: ['ian'], date: dateAt(14) })

@@ -23,6 +23,7 @@ import InfoTag from '../ui/InfoTag.vue'
 import PriceTier from '../ui/PriceTier.vue'
 import { placeImage } from '@/lib/placeImages.js'
 import { ROAM_WORDS, proposedRows } from '@/lib/roam.js'
+import { singaporeMinutes } from '@/lib/session.js'
 import { useNow } from '@/lib/useNow.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -46,7 +47,7 @@ const now = useNow()
 const rows = computed(() =>
   proposedRows(props.session, props.myId, {
     lastStop: props.itinerary?.stops?.at(-1) || null,
-    nowMinutes: now.value.getHours() * 60 + now.value.getMinutes(),
+    nowMinutes: singaporeMinutes(now.value),
   }),
 )
 const isHost = computed(() => props.session.hostId === props.myId)

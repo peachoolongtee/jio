@@ -17,14 +17,14 @@ const pointsOf = (storage, id) => stored(storage).stats[id]?.points ?? 0
 
 beforeAll(async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
-  at('2026-10-09T10:00:00')
+  at('2026-10-09T10:00:00+08:00')
   stubPlanner(planner)
   // The confirmed save is Saturday 10 October 2026, 12:00 to 20:00, for Ian and Jonathan.
   await confirmedSave()
 })
 beforeEach(() => {
   stubPlanner(planner)
-  at('2026-10-09T10:00:00')
+  at('2026-10-09T10:00:00+08:00')
 })
 afterAll(() => {
   vi.useRealTimers()
@@ -45,7 +45,7 @@ describe('an outing of one person earns no coins', () => {
   })
 
   it('pays nothing for "Finish outing" on "Already out?", however often it is repeated, and says why', async () => {
-    at('2026-10-17T14:20:00')
+    at('2026-10-17T14:20:00+08:00')
     const api = await signedIn()
     const before = { ...stored(api.storage).stats.ian }
     for (let i = 0; i < 3; i++) {
@@ -57,23 +57,23 @@ describe('an outing of one person earns no coins', () => {
   })
 
   it('pays nothing when it finishes by itself once its window ends', async () => {
-    at('2026-10-17T14:20:00')
+    at('2026-10-17T14:20:00+08:00')
     const api = await signedIn()
     const { id } = await api.startRoam({ areaId: 'bugis' })
     const before = { ...stored(api.storage).stats.ian }
-    at('2026-10-17T17:21:00')
+    at('2026-10-17T17:21:00+08:00')
     const [s] = await api.listSessions()
     expect(s).toMatchObject({ id, status: 'completed', endedBy: 'auto', paid: false })
     expect(stored(api.storage).stats.ian).toEqual(before)
   })
 
   it('still pays everyone when two people are in it, light or not', async () => {
-    at('2026-10-17T14:20:00')
+    at('2026-10-17T14:20:00+08:00')
     const api = await signedIn()
     const { id } = await api.startRoam({ areaId: 'bugis' })
     await api.inviteFriends(id, ['faith'])
     // The friend accepts a moment after being asked, as in the demo: a read after that moment (settleInvites) counts her in.
-    at('2026-10-17T15:00:00')
+    at('2026-10-17T15:00:00+08:00')
     const before = pointsOf(api.storage, 'ian')
     const done = await api.endPlan(id)
     expect(done).toMatchObject({ status: 'completed', paid: true })
@@ -108,11 +108,11 @@ describe('a read never saves an old state over another tab\'s newer save', () =>
 
   it('keeps a voucher redeemed in tab A when tab B, opened before it, reads after the end time', async () => {
     const { a, b, storage } = await twoTabs(richIan)
-    at('2026-10-10T19:00:00')
+    at('2026-10-10T19:00:00+08:00')
     await a.redeemReward('r-nylon')
     expect(stored(storage).redemptions).toHaveLength(1)
     expect(pointsOf(storage, 'ian')).toBe(440)
-    at('2026-10-10T20:30:00')
+    at('2026-10-10T20:30:00+08:00')
     // Tab B still holds ian at 500 points, no voucher, a confirmed outing past its end.
     const [s] = await b.listSessions()
     expect(s).toMatchObject({ status: 'completed', endedBy: 'auto' })
@@ -124,7 +124,7 @@ describe('a read never saves an old state over another tab\'s newer save', () =>
 
   it('does not pay twice when tab A already finished the outing and redeemed after it', async () => {
     const { a, b, storage } = await twoTabs(richIan)
-    at('2026-10-10T20:30:00')
+    at('2026-10-10T20:30:00+08:00')
     await a.listSessions()
     await a.redeemReward('r-nylon')
     const afterA = stored(storage)
@@ -137,7 +137,7 @@ describe('a read never saves an old state over another tab\'s newer save', () =>
   it('writes nothing when the stored save cannot be read, and the read still answers', async () => {
     const { b, storage } = await twoTabs()
     storage.store[STORAGE_KEY] = '{not a save'
-    at('2026-10-10T20:30:00')
+    at('2026-10-10T20:30:00+08:00')
     const writes = storage.writes
     const list = await b.listSessions()
     expect(list).toHaveLength(1)
@@ -150,7 +150,7 @@ describe('an outing opened by its address after its end time is finished', () =>
   it('shows it completed, paid once, and refuses a second "Finish outing" in plain words', async () => {
     const { api, id } = await loadConfirmed()
     const before = pointsOf(api.storage, 'ian')
-    at('2026-10-10T20:05:00')
+    at('2026-10-10T20:05:00+08:00')
     const session = await api.getSession(id)
     expect(session).toMatchObject({ status: 'completed', endedBy: 'auto', paid: true })
     expect(pointsOf(api.storage, 'ian')).toBe(before + POINTS_PER_MEETUP)
@@ -171,14 +171,14 @@ describe('a closed outing takes no photos', () => {
     const { id } = await api.createSession({ title: 'Never planned', date: '2026-10-10', start: '12:00', end: '20:00' })
     await api.inviteFriends(id, ['jonathan'])
     await api.startSession(id)
-    at('2026-10-12T20:01:00')
+    at('2026-10-12T20:01:00+08:00')
     const [closed] = await api.listSessions()
     expect(closed).toMatchObject({ status: 'completed', endedBy: 'closed' })
     await expect(api.addPhoto(id, 'ian', 'data:image/jpeg;base64,AAAA')).rejects.toThrow('This outing closed without a plan, so it has no photos.')
 
-    at('2026-10-09T10:00:00')
+    at('2026-10-09T10:00:00+08:00')
     const done = await loadConfirmed()
-    at('2026-10-10T21:00:00')
+    at('2026-10-10T21:00:00+08:00')
     await done.api.listSessions()
     await expect(done.api.addPhoto(done.id, 'ian', 'data:image/jpeg;base64,AAAA')).resolves.toBeTruthy()
   })
@@ -188,7 +188,7 @@ describe('demo sessions are never finished by the clock', () => {
   const keepOpenSession = { status: 'confirmed', date: '2026-10-10', end: '20:00', keepOpen: true }
 
   it('leaves a keepOpen session alone for the rules, and out of the overdue reminder', () => {
-    const late = new Date('2026-12-31T23:00:00')
+    const late = new Date('2026-12-31T23:00:00+08:00')
     expect(dueEnding(keepOpenSession, late)).toBeNull()
     expect(dueEnding({ ...keepOpenSession, status: 'voting' }, late)).toBeNull()
     expect(overdueOuting({ ...keepOpenSession, status: 'voting' }, late)).toBeNull()
@@ -200,7 +200,7 @@ describe('demo sessions are never finished by the clock', () => {
     const { id } = await api.createSession({ title: 'Demo', date: '2026-10-10', start: '12:00', end: '20:00', keepOpen: true })
     await api.inviteFriends(id, ['jonathan'])
     await api.startSession(id)
-    at('2026-10-20T10:00:00')
+    at('2026-10-20T10:00:00+08:00')
     const [s] = await api.listSessions()
     expect(s).toMatchObject({ id, status: 'locating', keepOpen: true })
   })
@@ -254,17 +254,17 @@ describe('the create form late at night', () => {
   const clock = (iso) => new Date(iso)
 
   it('presets tomorrow when the default start is after midnight, and nothing otherwise', () => {
-    expect(defaultTimes(clock('2026-10-17T23:30:00'))).toEqual({ start: '00:00', end: '03:00' })
-    expect(defaultDate(clock('2026-10-17T23:30:00'))).toBe('2026-10-18')
-    expect(defaultDate(clock('2026-10-17T23:00:00'))).toBe('2026-10-18')
-    expect(defaultDate(clock('2026-10-31T23:59:00'))).toBe('2026-11-01')
-    expect(defaultDate(clock('2026-10-17T22:59:00'))).toBe('')
-    expect(defaultDate(clock('2026-10-17T14:20:00'))).toBe('')
-    expect(defaultDate(clock('2026-10-17T00:10:00'))).toBe('')
+    expect(defaultTimes(clock('2026-10-17T23:30:00+08:00'))).toEqual({ start: '00:00', end: '03:00' })
+    expect(defaultDate(clock('2026-10-17T23:30:00+08:00'))).toBe('2026-10-18')
+    expect(defaultDate(clock('2026-10-17T23:00:00+08:00'))).toBe('2026-10-18')
+    expect(defaultDate(clock('2026-10-31T23:59:00+08:00'))).toBe('2026-11-01')
+    expect(defaultDate(clock('2026-10-17T22:59:00+08:00'))).toBe('')
+    expect(defaultDate(clock('2026-10-17T14:20:00+08:00'))).toBe('')
+    expect(defaultDate(clock('2026-10-17T00:10:00+08:00'))).toBe('')
   })
 
   it('refuses an end that has already passed today, never one on a later day', () => {
-    const now = clock('2026-10-17T23:30:00')
+    const now = clock('2026-10-17T23:30:00+08:00')
     expect(endHasPassed('2026-10-17', '03:00', now)).toBe(true)
     expect(endHasPassed('2026-10-17', '23:30', now)).toBe(true)
     expect(endHasPassed('2026-10-17', '23:31', now)).toBe(false)
