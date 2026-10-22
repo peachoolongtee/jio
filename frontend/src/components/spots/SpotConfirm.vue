@@ -5,8 +5,10 @@
 //                @error="error = $event" />
 // selectedId: the area the host has selected in the list (or the one most people chose). It moves the session to Voting; the
 // screen sees the status change and takes the host on, so there is no event for it.
-// Emits error (a message from the data layer; nothing was saved). While it saves the button says so (aria-busy) but stays
-// enabled, so the keyboard focus stays on it if the save fails; a second press is ignored.
+// Emits error (a message from the data layer; nothing was saved). While it saves, here or in the list's "Meet at …" (one flag in the
+// events store, `confirming`), the button reads "Confirming…" and says so (aria-busy) but stays enabled, so the keyboard focus stays
+// on it if the save fails; a press while any confirm is running is ignored. The words are on the button itself, so they show on a phone
+// where the map, and its spinner, are out of view.
 import { computed, ref } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
@@ -25,12 +27,14 @@ const emit = defineEmits(['error'])
 const events = useEventsStore()
 const working = ref(false)
 const spot = computed(() => (props.session.spots?.list || []).find((s) => s.areaId === props.selectedId) || null)
-const label = computed(() => (props.disabled ? 'Finding the meeting point…' : spot.value ? `Confirm ${spot.value.area.name}` : 'Confirm a spot'))
+// A confirm is running, started here or by the list's "Meet at …".
+const saving = computed(() => working.value || events.confirming)
+const label = computed(() => (props.disabled ? 'Finding the meeting point…' : saving.value ? 'Confirming…' : spot.value ? `Confirm ${spot.value.area.name}` : 'Confirm a spot'))
 
 // Settle on the selected spot. The host may do this before anyone has said which spots work for them.
 // How to call: confirm()
 async function confirm() {
-  if (!spot.value || working.value) return
+  if (!spot.value || saving.value) return
   working.value = true
   emit('error', '')
   try {
@@ -43,7 +47,7 @@ async function confirm() {
 </script>
 
 <template>
-  <AppButton v-if="isHost" next block :disabled="!spot || disabled" :aria-busy="working ? 'true' : undefined" @click="confirm"><span class="confirm__label">{{ label }}</span></AppButton>
+  <AppButton v-if="isHost" next block :disabled="!spot || disabled" :aria-busy="saving ? 'true' : undefined" @click="confirm"><span class="confirm__label">{{ label }}</span></AppButton>
   <p v-else class="confirm__wait body-md"><AppIcon name="clock" :size="18" />Waiting for {{ hostName }} to confirm</p>
 </template>
 

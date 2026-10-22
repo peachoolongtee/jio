@@ -153,6 +153,30 @@ describe('the Locate step, for the host', () => {
     expect(view.text()).toContain(`${first.area.name} is confirmed. Press Choose places to carry on.`)
   })
 
+  // On a phone or tablet the page opens on the List, and the map pane (with the spinner) is hidden by CSS, so the busy state has to
+  // be on the button the host pressed. The test has no layout; it checks that the list is the open view and the words are on the button.
+  it('says Confirming… on the button and to a screen reader while the server works, in the list view, where the map is hidden', async () => {
+    const { w, sam, id } = await locating()
+    const { view } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
+    await until(() => view.text().includes('Where to meet'))
+    const first = (await sam.api.getSession(id)).spots.list[0]
+    expect(view.has('.split--list')).toBe(true)
+    let release
+    w.server.after.confirm = () => new Promise((resolve) => (release = resolve))
+    await view.click(press(view, `Confirm ${first.area.name}`))
+    await until(() => view.text().includes('Confirming…'))
+    const busy = press(view, 'Confirming…')
+    expect(busy.attrs['aria-busy']).toBe('true')
+    expect(busy.disabled).toBe(false)
+    expect(view.all('p[role=status]').some((p) => view.text(p) === 'Confirming the meeting spot…')).toBe(true)
+    // The list's own controls are held too, so nothing changes under the confirm.
+    expect(view.all('button').filter((b) => view.text(b).includes('Works for me')).every((b) => b.attrs['aria-busy'] === 'true')).toBe(true)
+    release()
+    await until(() => w.database.tables.sessions[0].status === 'voting')
+    await until(() => view.text().includes(`${first.area.name} is confirmed. Press Choose places to carry on.`))
+    expect(view.text()).not.toContain('Confirming')
+  })
+
   it('says what failed under the list and keeps Confirm for another try', async () => {
     const { w, sam, kim, id } = await locating()
     const { view } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
