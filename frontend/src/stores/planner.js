@@ -1,8 +1,10 @@
 // Step 6: categories and timing, suggestions and votes, plus the demo weather conditions.
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, toRaw } from 'vue'
 import * as api from '@/lib/api.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { currentUserId } from '@/lib/currentUser.js'
+import { withMyVote } from '@/lib/planVotes.js'
 
 // Changes that cannot alter what the planner would rank: photos, and the itinerary (order, travel modes, deleted stops).
 const KEEPS_RANKING = new Set(['photos', 'plan'])
@@ -48,7 +50,29 @@ export const usePlannerStore = defineStore('planner', () => {
   const addMore = (id, slotId) => api.addMoreOptions(id, slotId)
   const addOption = (id, slotId, venueId) => api.addOption(id, slotId, venueId)
   const swapOption = (id, slotId, fromId, toId) => api.swapOption(id, slotId, fromId, toId)
-  const vote = (id, slotId, venueId) => api.vote(id, slotId, currentUserId(), venueId)
+  // The answers of the server that prove it changed nothing: a vote refused for these reasons was not saved, so what was shown for it is
+  // taken back. Any other failure (no connection, a timeout, a server error) says nothing about whether it was saved.
+  const REFUSED = new Set(['wrong_status', 'not_joined', 'slot_not_found', 'option_not_found', 'session_not_found'])
+
+  // One vote. In a shared session the person's own vote shows at once, before the database has answered (the plan is read again when it
+  // has); if the database refuses it the plan goes back to what it was, but only if nothing has replaced it meanwhile. A failure that does
+  // not prove the vote was not saved leaves what is shown and reads the plan again to find out. A local session waits for its own answer.
+  // How to call: await vote('3b1f...', '9a2c...', 'v25')
+  async function vote(id, slotId, venueId) {
+    const before = toRaw(plans.value[id])
+    if (!before?.remote) return api.vote(id, slotId, currentUserId(), venueId)
+    const shown = withMyVote(before, slotId, venueId, currentUserId(), myName())
+    if (shown !== before) plans.value = { ...plans.value, [id]: shown }
+    try {
+      return await api.vote(id, slotId, currentUserId(), venueId)
+    } catch (err) {
+      if (REFUSED.has(err?.code) && toRaw(plans.value[id]) === shown) plans.value = { ...plans.value, [id]: before }
+      reload(id)
+      throw err
+    }
+  }
+  // The signed-in person's own name, for their vote on the card until the plan is read again. How to call: myName() -> 'Sam'
+  const myName = () => useAuthStore().user?.name ?? ''
   const searchVenues = (id, slotId, query) => api.searchVenuesForSlot(id, slotId, query)
   const setRadius = (id, metres) => api.setRadius(id, metres)
   // Show the food places we could not confirm for the group's dietary needs, or only the ones that fit.
@@ -94,6 +118,11 @@ export const usePlannerStore = defineStore('planner', () => {
       plans.value = {}
       errors.value = {}
       loadConditions().catch(() => {})
+      return
+    }
+    // The channel of a shared session connected, or the tab came back into view: what happened while nobody listened is read again.
+    if (event.type === 'resync') {
+      for (const id of Object.keys(plans.value)) reload(id)
       return
     }
     if (event.type === 'conditions') {

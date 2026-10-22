@@ -17,10 +17,12 @@
 // Each person is asked once per outing, when it reaches voting, to "Confirm dietary needs" (DietaryConfirm), with the outing's
 // needs already selected; their picks are for this outing only, and the profile is left as it is. While voting, "Group dietary
 // needs" under the radius holds the same chips (DietaryChips), saved at each tap, so the needs can be changed at any time. A
-// shared session loads no plan, so none of this shows there yet.
-// A shared session (one kept on the server, session.remote) reaches this page once the host has confirmed the meeting spot, and stops
-// here for now: the page says voting with friends comes next, names the confirmed spot, and offers the way back to the people. It loads
-// no plan, shows no places and no "Confirm plan".
+// shared session shows none of this yet: its places are chosen by the server, which already filters them by the group's needs.
+// A shared session (one kept on the server, session.remote) reaches this page once the host has confirmed the meeting spot. It shows the
+// places the server offered for each category, read from the database (a reload asks the planner nothing), and the votes of everyone
+// in it, which arrive live. A person's own vote shows at once and is taken back if the database refuses it. Only the host changes how
+// far to search; the others see the radius as a line. The group cannot confirm the plan together yet: where "Confirm plan" is, the page
+// says that comes in the next update, and offers the way back to the people. A person who opted out sees that, can rejoin, and cannot vote.
 // Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
 // shows the message and the rest of the page stays usable.
 // Replace (/sessions/:id/plan?replace=<slot>, from Replace on the itinerary of a confirmed plan): the page shows the one
@@ -30,7 +32,7 @@
 // itinerary and goes back there; "Keep this stop" goes back without a change. Nobody votes again and the plan stays confirmed.
 // Only the host may replace a stop (anyone else sees a sentence saying so and the way back). The header lights Itinerary
 // and goes back to it, as on the photos and the map. Only a list of the category the tabs show is ever on the page.
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -60,6 +62,7 @@ import WeatherSource from '@/components/weather/WeatherSource.vue'
 import CategoryKey from '@/components/map/CategoryKey.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
+import { watchSessions } from '@/lib/api.js'
 import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { distanceText } from '@/lib/planner/format.js'
 import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, votedRows } from '@/lib/confirmOrder.js'
@@ -110,8 +113,6 @@ async function load() {
     else loadError.value = e.message
     return
   }
-  // A shared session has no plan on the server yet: nothing to ask for.
-  if (events.byId[props.id]?.remote) return
   try {
     await Promise.all([groups.loadPeople(), planner.loadConditions()])
     await planner.loadPlan(props.id)
@@ -120,7 +121,13 @@ async function load() {
   }
 }
 const planError = computed(() => loadError.value || planner.errors?.[props.id] || '')
-onMounted(load)
+// A shared session's votes and places arrive live while this page is open (a no-op for the demo and local accounts).
+let stopWatching = () => {}
+onMounted(() => {
+  stopWatching = watchSessions()
+  load()
+})
+onBeforeUnmount(() => stopWatching())
 watch(() => props.id, load)
 
 const session = computed(() => events.byId[props.id])
@@ -130,11 +137,23 @@ const plan = computed(() => planner.plans[props.id])
 const refiltering = ref(false)
 const loading = computed(() => refiltering.value || (planner.loading[props.id] && !plan.value?.slots?.length))
 const voting = computed(() => session.value?.status === 'voting')
-// What a shared session's stop here says: the confirmed meeting spot, and that choosing places is the next thing to come.
-const nextText = computed(() => {
-  const spot = session.value?.area?.name
-  return `${spot ? `${spot} is confirmed as the meeting spot. ` : ''}Choosing places together, and the plan, are not ready yet. They come in the next update.`
-})
+// A shared session is one kept on the server. Its host is the one who changes the radius; a person who opted out sees the page and
+// does not vote (the database would refuse it).
+const shared = computed(() => !!session.value?.remote)
+const optedOut = computed(() => shared.value && (session.value.members || []).some((m) => m.id === auth.myId && m.state === 'opted_out'))
+const rejoining = ref(false)
+// Come back after opting out. How to call: rejoin()
+async function rejoin() {
+  rejoining.value = true
+  error.value = ''
+  try {
+    await events.rejoin(props.id)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    rejoining.value = false
+  }
+}
 const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const active = computed(() => session.value?.activeIds || [])
 // Who a card's review line may quote: the other people in this outing (`outingIds`, below), then the signed-in person's friends.
@@ -401,6 +420,9 @@ const replacing = computed(() => (typeof route.query.replace === 'string' ? rout
 const replaceMode = computed(() => !!replacing.value && session.value?.status === 'confirmed')
 // Only the host replaces a stop (the data layer refuses anyone else): a member proposes a stop for the host to add instead.
 const isHost = computed(() => !!session.value && session.value.hostId === auth.myId)
+// Who changes how far to search: anyone in a session of this browser; only the host in a shared one (the server's rule).
+const canSetRadius = computed(() => !shared.value || isHost.value)
+const hostName = computed(() => nameOf(session.value?.hostId) || 'the host')
 // The stop being replaced ({ slotId, category, venue, time, duration }), kept apart from the list so a failed request
 // does not take it off the page. The last answer ({ category, options }), whether one is being asked for, why it failed,
 // and the place being saved.
@@ -570,13 +592,12 @@ async function confirm() {
 
       <WeatherSource v-if="plan?.weather && session.meeting" :block="plan.weather" banner />
 
-      <div v-if="session.remote && session.meeting" class="empty-wrap" data-testid="voting-next">
-        <EmptyState title="Voting with friends comes next" :text="nextText">
-          <AppButton variant="secondary" :to="`/sessions/${id}`">Back to the people</AppButton>
-        </EmptyState>
-      </div>
+      <BannerNote v-if="optedOut && ['voting'].includes(session.status)" icon="info" data-testid="opted-out">
+        You opted out of this session, so you can't vote and your trips are not counted.
+        <template #actions><AppButton small variant="secondary" :disabled="rejoining" @click="rejoin">Rejoin</AppButton></template>
+      </BannerNote>
 
-      <div v-else-if="!session.meeting || ['inviting', 'locating'].includes(session.status)" class="empty-wrap">
+      <div v-if="!session.meeting || ['inviting', 'locating'].includes(session.status)" class="empty-wrap">
         <EmptyState title="No meeting area yet">
           <AppButton variant="secondary" :to="`/sessions/${id}`">People</AppButton>
         </EmptyState>
@@ -679,7 +700,11 @@ async function confirm() {
         </div>
 
         <!-- How far from the meeting area places may be. The map shows it as a ring. -->
-        <div v-if="voting && slots.length" class="radius" data-testid="radius">
+        <div v-if="voting && slots.length && !canSetRadius" class="radius" data-testid="radius-readonly">
+          <span class="caption text-muted">Search within</span>
+          <span class="body-sm">{{ radius == null ? 'Auto' : radiusLabel(radius) }} of {{ session.area.name }}, set by {{ hostName }}.</span>
+        </div>
+        <div v-else-if="voting && slots.length" class="radius" data-testid="radius">
           <span id="radius-label" class="caption text-muted">Search within</span>
           <div class="filter scroll-x" role="radiogroup" v-radio-group aria-labelledby="radius-label">
             <ChipButton v-for="m in RADII" :key="m ?? 'auto'" radio :selected="radius === m" :disabled="settingRadius" @click="setRadius(m)">{{ radiusLabel(m) }}</ChipButton>
@@ -720,7 +745,7 @@ async function confirm() {
 
               <template v-if="!slot.options.length">
                 <p class="body-sm text-muted">{{ emptyText(slot) }}</p>
-                <AppButton v-if="voting && radius && slot.empty?.widenToKm && radiusFor(slot.empty.widenToKm)" variant="secondary" small :disabled="settingRadius" @click="setRadius(radiusFor(slot.empty.widenToKm))">Widen to {{ radiusLabel(radiusFor(slot.empty.widenToKm)) }}</AppButton>
+                <AppButton v-if="voting && canSetRadius && radius && slot.empty?.widenToKm && radiusFor(slot.empty.widenToKm)" variant="secondary" small :disabled="settingRadius" @click="setRadius(radiusFor(slot.empty.widenToKm))">Widen to {{ radiusLabel(radiusFor(slot.empty.widenToKm)) }}</AppButton>
               </template>
               <template v-else>
                 <!-- A group, not a radiogroup: each card holds several controls, and every Vote chip has to be a Tab stop of its own. -->
@@ -732,7 +757,7 @@ async function confirm() {
                     :leading="slot.leader === option.id"
                     :behind="!!slot.leader && slot.leader !== option.id"
                     :mine="slot.myVote === option.id"
-                    :closed="!voting"
+                    :closed="!voting || optedOut"
                     :selected="selected === option.id"
                     :outing="outingIds"
                     :friends="friendIds"
@@ -746,9 +771,9 @@ async function confirm() {
                 </div>
                 <p v-if="voting && radius && slot.few" class="few-line">
                   <span class="caption-sm text-muted">Only {{ slot.few.found }} {{ slot.few.found === 1 ? 'place fits' : 'places fit' }} within {{ radiusLabel(radius) }}.</span>
-                  <AppButton v-if="slot.few.widenToKm && radiusFor(slot.few.widenToKm)" variant="tertiary" underline small :disabled="settingRadius" @click="setRadius(radiusFor(slot.few.widenToKm))">Widen to {{ radiusLabel(radiusFor(slot.few.widenToKm)) }}</AppButton>
+                  <AppButton v-if="canSetRadius && slot.few.widenToKm && radiusFor(slot.few.widenToKm)" variant="tertiary" underline small :disabled="settingRadius" @click="setRadius(radiusFor(slot.few.widenToKm))">Widen to {{ radiusLabel(radiusFor(slot.few.widenToKm)) }}</AppButton>
                 </p>
-                <div v-if="voting && slot.options.length < 6" class="slot__more">
+                <div v-if="voting && !optedOut && slot.options.length < 6" class="slot__more">
                   <AppButton variant="tertiary" underline small :disabled="!slot.canAddMore || loadingMore === slot.id" @click="more(slot)">More places</AppButton>
                   <AppButton variant="tertiary" underline small @click="openAdd(slot)">Search</AppButton>
                 </div>
@@ -775,7 +800,7 @@ async function confirm() {
               </div>
               <div class="row between">
                 <span class="caption">{{ selectedOption.votes }} {{ selectedOption.votes === 1 ? 'vote' : 'votes' }}</span>
-                <ChipButton v-if="voting" check :selected="selectedEntry.slot.myVote === selectedOption.id" @click="vote(selectedEntry.slot, selectedOption)">
+                <ChipButton v-if="voting && !optedOut" check :selected="selectedEntry.slot.myVote === selectedOption.id" @click="vote(selectedEntry.slot, selectedOption)">
                   {{ selectedEntry.slot.myVote === selectedOption.id ? 'Voted' : 'Vote' }}
                 </ChipButton>
               </div>
@@ -788,10 +813,15 @@ async function confirm() {
     <footer v-if="replaceMode" class="screen__footer">
       <AppButton block variant="secondary" :disabled="!!choosing" data-testid="keep-stop" @click="backToItinerary">{{ stop && isHost ? 'Keep this stop' : 'Back to the itinerary' }}</AppButton>
     </footer>
-    <footer v-else-if="voting && session.meeting && !session.remote" class="screen__footer">
+    <footer v-else-if="voting && session.meeting && !shared" class="screen__footer">
       <AppButton block :disabled="!canConfirm" @click="confirmOpen = true">
         {{ canConfirm ? 'Confirm plan' : 'Needs 2 voters' }}
       </AppButton>
+    </footer>
+    <!-- A shared session votes for real but cannot confirm the plan together yet: this is where the button will be. -->
+    <footer v-else-if="voting && session.meeting && shared" class="screen__footer" data-testid="confirm-next">
+      <p class="caption text-muted confirm-next">Confirming the plan with friends comes in the next update.</p>
+      <AppButton block variant="secondary" :to="`/sessions/${id}`">Back to the people</AppButton>
     </footer>
     <footer v-else-if="['confirmed', 'completed'].includes(session.status)" class="screen__footer">
       <AppButton next block :to="`/sessions/${id}/itinerary`">Itinerary</AppButton>
@@ -878,6 +908,7 @@ async function confirm() {
 .slot__options { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .slot__more { display: flex; gap: var(--spacing-base); }
 .empty-wrap { padding-top: var(--spacing-lg); }
+.confirm-next { margin: 0 0 var(--spacing-sm); text-align: center; }
 /* Replace: the stop being replaced, above the places that could take its place. */
 .replace { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-base); border-radius: var(--rounded-md); background: var(--surface-soft); }
 .replace p, .replace h2 { margin: 0; }

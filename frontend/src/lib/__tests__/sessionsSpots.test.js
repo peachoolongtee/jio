@@ -499,9 +499,12 @@ describe('opting out, rejoining, leaving and removing', () => {
   it('does not let the host opt out, and a person opting out of a finished session is told', async () => {
     const { sam, kim, id } = await locating({ places: true })
     await expect(sam.api.optOut(id, sam.id)).rejects.toMatchObject({ message: 'The host cannot opt out.', code: 'host_cannot_opt_out' })
+    // Voting is open to opting out and rejoining from stage 4 (the person's votes go with them); a session that is over is not.
     await sam.api.useMeetingArea(id)
-    await expect(kim.api.optOut(id, kim.id)).rejects.toThrow('This session has ended.')
+    await expect(kim.api.optOut(id, kim.id)).resolves.toMatchObject({ status: 'voting' })
     await expect(kim.api.rejoinSession(id)).resolves.toBeTruthy()
+    await sam.api.cancelSession(id)
+    await expect(kim.api.optOut(id, kim.id)).rejects.toThrow('This session has ended.')
   })
 
   it('has the host carry on without someone by taking them out of the session', async () => {
@@ -683,9 +686,14 @@ describe('what Home says for a shared session', () => {
     expect(nextStepFor(await kim.api.getSession(id), kim.id)).toMatchObject({ label: 'Waiting for the host', tone: 'wait' })
   })
 
-  it('does not ask anyone to vote while voting with friends is not ready', async () => {
-    const { sam, kim, id } = await locating({ places: true })
+  it('asks everyone to vote once the spot is confirmed, and then to wait for the others', async () => {
+    const { w, sam, kim, id } = await locating({ places: true })
     await sam.api.useMeetingArea(id)
-    for (const person of [sam, kim]) expect(nextStepFor(await person.api.getSession(id), person.id)).toMatchObject({ label: 'Open meetup', tone: 'done' })
+    for (const person of [sam, kim]) expect(nextStepFor(await person.api.getSession(id), person.id)).toMatchObject({ label: 'Vote', tone: 'action', to: `/sessions/${id}/plan` })
+    const [slot] = (await sam.api.getPlan(id)).slots
+    await sam.api.vote(id, slot.id, sam.id, slot.options[0].id)
+    expect(nextStepFor(await sam.api.getSession(id), sam.id)).toMatchObject({ label: 'Waiting for others', tone: 'wait' })
+    expect(nextStepFor(await kim.api.getSession(id), kim.id)).toMatchObject({ label: 'Vote', tone: 'action' })
+    expect(w.database.tables.votes).toHaveLength(1)
   })
 })

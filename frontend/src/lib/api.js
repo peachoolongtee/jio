@@ -17,13 +17,14 @@ import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
 import { dueEnding, earnsCoins, itineraryAction } from './session.js'
-import { combineWeather, stateOf, venueSetting } from './weatherText.js'
+import { combineWeather, stateOf, venueSetting, weatherFrom } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
 import { bindCurrentUser, currentUserId } from './currentUser.js'
 import { createPeopleSource, isUuid, personFromRow } from './peopleSource.js'
 import { isSearchable, rankPeople, searchTerm } from './peopleSearch.js'
 import { WORDS as SHARING_WORDS, createSessionsRemote } from './sessionsRemote.js'
+import { tallyOptions } from './planVotes.js'
 import { isLegacyRealSave, remapLegacySave } from './legacySave.js'
 import { cleanDietary } from './signupRules.js'
 import { localAccountsAllowed, projectOrigin } from './supabase.js'
@@ -417,8 +418,27 @@ const remote = createSessionsRemote({
     knownPlace: (sessionId, areaId) => planner.putSessionKnownPlace(sessionId, areaId),
     optOut: (sessionId) => planner.optOutOfSession(sessionId),
     rejoin: (sessionId) => planner.rejoinSession(sessionId),
+    syncPlan: (sessionId) => planner.syncSessionPlan(sessionId),
+    setRadius: (sessionId, metres) => planner.putSessionRadius(sessionId, metres),
+    deleteSlot: (sessionId, slotId) => planner.deleteSessionSlot(sessionId, slotId),
+    restoreSlots: (sessionId) => planner.restoreSessionSlots(sessionId),
+    addOption: (sessionId, slotId, venueId) => planner.addSessionOption(sessionId, slotId, venueId),
+    moreOptions: (sessionId, slotId, have) => planner.moreSessionOptions(sessionId, slotId, have),
+    swapOption: (sessionId, slotId, fromId, toId) => planner.swapSessionOption(sessionId, slotId, fromId, toId),
+    searchSlot: (sessionId, slotId, q) => planner.searchSessionSlot(sessionId, slotId, q),
+    venues: (ids) => planner.venuesByIds(ids),
   },
 })
+
+// The slot of each place being voted on that this account has read, by slot id, so a live change to a vote (which names a slot, not
+// a session) is read as a change to the session it belongs to. A slot nobody here has read is ignored: the change that creates it
+// raises the session's version, which is heard on its own.
+const slotSessions = new Map()
+// The places the server has described, by id, for the cards. A place is the same for everyone and does not change in a session, so
+// it is asked for once and kept for the visit; it is not account data and is not kept across a reload.
+const serverVenues = new Map()
+// The names of places found by a search this visit, by id, to word a refusal with the place's name.
+const searchedNames = new Map()
 
 // The banners the signed-in person dismissed, by session: the stamp of the banner (its time, or the session's version when it
 // has none). The server's banner is the group's, so dismissing it is this person's alone: it is kept in this browser, under
@@ -490,7 +510,11 @@ function repairSpots(read) {
 // How to call: summary(fromServer(await remote.get(id)))
 function fromServer(row) {
   serverMembers.set(row.id, row.members.map((m) => m.id))
-  const { spotsStale: _stale, banner: held, meeting, ...rest } = row
+  for (const [slotId, sessionId] of [...slotSessions]) if (sessionId === row.id) slotSessions.delete(slotId)
+  for (const slot of row.slotRows || []) slotSessions.set(slot.id, row.id)
+  // The places as the server keeps them are for getPlan, which reads them afresh; the session carries the slots (summary leaves them
+  // out of what it hands the screens) and what the other screens read: the votes and the count of places in each slot.
+  const { spotsStale: _stale, banner: held, meeting, optionRows: _options, ...rest } = row
   let banner = null
   if (held && held.text) {
     const stamp = bannerStamp(held, row.planVersion)
@@ -503,15 +527,10 @@ function fromServer(row) {
     locations: knownLocations(row.locations),
     meeting: meeting && areaById(meeting.areaId) ? meeting : null,
     spots: knownSpots(row.spots),
-    prefs: {},
-    deletedSlots: [],
-    options: {},
-    votes: {},
     plan: null,
     banner,
     replan: null,
     photos: [],
-    radius: null,
   }
 }
 
@@ -521,6 +540,9 @@ function fromServer(row) {
 // one. The version comes first: a read that began earlier but holds a newer version is newer (a member's own start changes no
 // version, so at the same version only the order the reads began in tells which is newer).
 const newestRead = new Map()
+// The same for the Vote page's plan (getPlan): the newest plan handed out for each session, with the version it was read at and the
+// ticket of the read. A vote does not raise the version, so at one version the read that began last is the newest.
+const newestPlanRead = new Map()
 let readCount = 0
 // Hand out `make()` unless a newer read of the session has been handed out already, in which case that one stands.
 // How to call: return newest('3b1f...', ++readCount, 4, () => summary(fromServer(read)))
@@ -574,6 +596,11 @@ function openChannel() {
         serverMembers.delete(change.sessionId)
         broadcast({ type: 'session-gone', sessionId: change.sessionId })
       } else readSoon(change.sessionId)
+    } else if (change.kind === 'vote') {
+      // A vote names a slot. Only a slot of a session this account has read is read again; the votes of anyone else's sessions
+      // reach this browser as deletes only (they carry no session, and cannot be filtered) and are ignored.
+      const sessionId = slotSessions.get(change.slotId)
+      if (sessionId) readSoon(sessionId)
     } else if (change.kind === 'approval-deleted') {
       // Like a deleted membership: it reaches everyone who listens, and only a session this account knows is read again.
       if (serverMembers.has(change.sessionId)) readSoon(change.sessionId)
@@ -1044,6 +1071,12 @@ function slotsOf(session) {
   })
 }
 
+// The plan forming in a shared session: the categories (slots) someone voted in, at the times the server gave them.
+// How to call: votedSlotsOf(session) -> [{ id, category, start, time, duration, picks }]
+function votedSlotsOf(session) {
+  return (session.slotRows || []).filter((slot) => !slot.deleted && Object.keys(session.votes?.[slot.id] || {}).length)
+}
+
 // The plan the votes make: only the categories someone voted in, laid out back to back in the session window.
 function planSlotsOf(session) {
   const prefs = activePrefs(session)
@@ -1233,7 +1266,9 @@ function resetSessionState() {
   findingSpots.clear()
   // What was read from the server belongs to the last account, and so does the channel that listens for it.
   serverMembers.clear()
+  slotSessions.clear()
   newestRead.clear()
+  newestPlanRead.clear()
   opened.clear()
   repairs.clear()
   dismissedBanners.clear()
@@ -2144,10 +2179,10 @@ function spotsView(session) {
 // A session as the screens read it. Photos are big (data URLs), so a session carries only their count:
 // getPhotos has the pictures.
 function summary(session, { warm = true } = {}) {
-  // The plan forming so far: the categories with votes, at their times.
-  const slots = session.status === 'voting' && session.meeting ? planSlotsOf(session) : []
+  // The plan forming so far: the categories with votes, at their times. A shared session's slots are the server's own.
+  const slots = session.status === 'voting' && session.meeting ? (session.remote ? votedSlotsOf(session) : planSlotsOf(session)) : []
   const area = session.meeting ? areaById(session.meeting.areaId) : null
-  const { photos, confirmedRanking, ...rest } = session
+  const { photos, confirmedRanking, slotRows: _slotRows, ...rest } = session
   // A real person in the session is read from their profile; until then they show as "Someone".
   if (warm) warmPeople(session.members.map((m) => m.id))
   return {
@@ -2188,6 +2223,7 @@ export async function listSessions() {
     if (asked !== epoch) return []
     // The list is every session the account is in, so it also says which it has left or been taken out of.
     serverMembers.clear()
+    slotSessions.clear()
     const rows = read.map(fromServer)
     announceCoMembers()
     warmPeople(rows.flatMap((s) => s.members.map((m) => m.id)))
@@ -2892,7 +2928,31 @@ export async function removeFromSession(id, personId) {
 
 // ── Step 6: categories, timing, suggestions and votes ──────────────────────
 
+// The person's own picks for the plan (stage 4): written to their member row, then the server works the slots and places out again. If
+// the server turns the request away (a 4xx with its code: it did nothing), the picks go back, only where the row still holds what this
+// call wrote; if it did not answer, the picks stay, because the server may have worked from them, and the person is told so.
+// How to call: await setPreferences('3b1f...', 'self', { categories: ['eat', 'drink'], until: 1020 })
+const PICKS_SAVED = 'Your choices are saved. The places may take a moment to update.'
+
 export async function setPreferences(id, personId, prefs) {
+  if (onServer()) {
+    requireMe(personId)
+    if (personId !== me()) throw new Error(SHARING_WORDS.notAllowed)
+    const before = await remote.setPrefs(id, prefs)
+    let unsynced = false
+    try {
+      await remote.syncPlan(id)
+    } catch (err) {
+      if (refusedByServer(err)) {
+        await remote.restorePrefs(id, before)
+        throw err
+      }
+      unsynced = true
+    }
+    const session = await afterServerWrite(id, 'prefs')
+    if (unsynced) throw Object.assign(new Error(PICKS_SAVED), { code: 'saved_not_synced', session })
+    return session
+  }
   await wait(DELAY.write)
   requireMe(personId)
   const session = sessionById(id)
@@ -2905,6 +2965,10 @@ export async function setPreferences(id, personId, prefs) {
 }
 
 export async function deleteSlot(id, slotId) {
+  if (onServer()) {
+    await remote.removeSlot(id, slotId)
+    return afterServerWrite(id, 'slots')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   return orUndo(session, async () => {
@@ -2917,6 +2981,10 @@ export async function deleteSlot(id, slotId) {
 }
 
 export async function restoreSlots(id) {
+  if (onServer()) {
+    await remote.restoreSlots(id)
+    return afterServerWrite(id, 'slots')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   return orUndo(session, async () => {
@@ -2932,6 +3000,11 @@ export async function restoreSlots(id) {
 // the next change; a banner about the meeting area moving is left alone.
 // How to call: await setRadius('s1', 1000)
 export async function setRadius(id, metres) {
+  if (onServer()) {
+    if (metres != null && !(metres >= 100 && metres <= 3000)) throw new Error('Pick a radius from 100 m to 3 km.')
+    await remote.setRadius(id, metres ?? null)
+    return afterServerWrite(id, 'options')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   if (metres != null && !(metres >= 100 && metres <= 3000)) throw new Error('Pick a radius from 100 m to 3 km.')
@@ -3035,7 +3108,23 @@ export const whenRefiltered = () => refiltering
 // How many votes a session holds. How to call: voteCount(session) -> 4
 const voteCount = (session) => Object.values(session.votes || {}).reduce((sum, byPerson) => sum + Object.keys(byPerson).length, 0)
 
+// How many places a slot of a shared session shows, as last read: what the server is told so that asking again after a lost answer does
+// not add places twice. From the newest plan handed out, else the newest session read, else read afresh.
+// How to call: await optionsShown('3b1f...', '9a2c...') -> 3
+async function optionsShown(id, slotId) {
+  const plan = newestPlanRead.get(id)?.plan
+  const slot = plan?.slots?.find((s) => s.id === slotId)
+  if (slot) return slot.options.length
+  const held = newestRead.get(id)?.session?.options?.[slotId]
+  if (held) return held.length
+  return ((await remote.readPlan(id)).options[slotId] || []).length
+}
+
 export async function addMoreOptions(id, slotId) {
+  if (onServer()) {
+    await remote.moreOptions(id, slotId, await optionsShown(id, slotId))
+    return afterServerWrite(id, 'options')
+  }
   await wait(DELAY.plan)
   const session = sessionById(id)
   const slots = slotsOf(session)
@@ -3047,6 +3136,13 @@ export async function addMoreOptions(id, slotId) {
 
 // Search places to add to a slot. Each result says whether it fits, and why not.
 export async function searchVenuesForSlot(id, slotId, query) {
+  if (onServer()) {
+    const q = query.trim()
+    if (!q) return []
+    const results = await remote.searchSlot(id, slotId, q)
+    for (const r of results) searchedNames.set(r.id, r.name)
+    return results
+  }
   const session = sessionById(id)
   const slots = slotsOf(session)
   const slot = slots.find((s) => s.id === slotId)
@@ -3066,6 +3162,16 @@ export async function searchVenuesForSlot(id, slotId, query) {
 }
 
 export async function addOption(id, slotId, venueId) {
+  if (onServer()) {
+    try {
+      await remote.addOption(id, slotId, venueId)
+    } catch (err) {
+      // The refusal names the place, as the local one does.
+      if (err?.code === 'venue_does_not_fit') throw Object.assign(new Error(`${searchedNames.get(venueId) || serverVenues.get(venueId)?.name || 'This place'} does not fit this slot.`), { code: err.code, status: err.status })
+      throw err
+    }
+    return afterServerWrite(id, 'options')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   const slots = slotsOf(session)
@@ -3085,6 +3191,10 @@ export async function addOption(id, slotId, venueId) {
 // and asking again after the stop is already the indoor place changes nothing (the indoor swap is made once).
 // How to call: await swapOption('s1', 'activity', 'east-coast-park', 'toa-payoh-library')
 export async function swapOption(id, slotId, fromId, toId) {
+  if (onServer()) {
+    await remote.swapOption(id, slotId, fromId, toId)
+    return afterServerWrite(id, 'options')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   if (session.status === 'confirmed' && session.plan?.stops.some((s) => s.slotId === slotId)) return swapPlannedStop(session, slotId, fromId, toId)
@@ -3097,6 +3207,15 @@ export async function swapOption(id, slotId, fromId, toId) {
 // One vote per person per category. Voting for another place in it moves the vote; voting for the same place
 // again takes it back (a category nobody votes in stays out of the plan).
 export async function vote(id, slotId, personId, venueId) {
+  // A shared session: the person's own write to the votes table, with no request to the planner. Resolves with the place they have voted
+  // for in this slot afterwards (or null). The screens hear of it as a change to the session, and read it again.
+  if (onServer()) {
+    requireMe(personId)
+    if (personId !== me()) throw new Error(SHARING_WORDS.notAllowed)
+    const myVote = await remote.castVote(id, slotId, venueId)
+    broadcast({ type: 'vote', sessionId: id })
+    return { id, slotId, myVote }
+  }
   await wait(DELAY.write)
   requireMe(personId)
   const session = sessionById(id)
@@ -3140,9 +3259,124 @@ function storedOptions(session, slot, area) {
   return found
 }
 
+// Hand out `make()` unless a newer plan of the session has been handed out already, in which case that one stands: a plan whose read began
+// earlier and answers later (a live update, a reload) never goes over a newer one. A plan is older when it holds an older version of
+// the session, or, at the same version (a vote raises none), began before the newest one.
+// How to call: return newestPlan('3b1f...', ++readCount, 4, () => buildPlan(read))
+function newestPlan(sessionId, ticket, version, make) {
+  const have = newestPlanRead.get(sessionId)
+  if (have && (version < have.version || (version === have.version && ticket < have.ticket))) return clone(have.plan)
+  const plan = make()
+  newestPlanRead.set(sessionId, { ticket: Math.max(ticket, have?.ticket ?? 0), version, plan: clone(plan) })
+  return plan
+}
+
+// The places of some options as the cards read them, asked for from the server once each. A place the server does not know is left
+// out of the answer, and so out of the page. Rejects with the sentence for a failure, which the page shows with a retry.
+// How to call: await ensureVenues(['v25', 'cdc_570511'])
+async function ensureVenues(ids) {
+  const missing = [...new Set(ids)].filter((venueId) => !serverVenues.has(venueId))
+  if (!missing.length) return
+  for (const venue of await remote.venues(missing)) serverVenues.set(venue.id, venue)
+}
+
+// A shared session's plan for the Vote page, in the shape the local getPlan makes. Read from the database (the slots, the places offered in
+// each with what the planner said of them, and the votes) and from the server's description of each place; it asks the planner nothing,
+// so it can be read as often as a vote or a live update asks, and a reload shows the same places as before. The weather, the notice about
+// few places and the reason a slot is empty are what the server stored with the slot when it ranked it.
+// How to call: await planFromServer('3b1f...')
+async function planFromServer(id) {
+  const asked = epoch
+  const ticket = ++readCount
+  const read = await remote.readPlan(id)
+  // The slots of a session this page reads are the slots a live vote may name.
+  for (const [slotId, sessionId] of [...slotSessions]) if (sessionId === id) slotSessions.delete(slotId)
+  for (const slot of read.slotRows) slotSessions.set(slot.id, id)
+  await ensureVenues(Object.values(read.optionRows).flatMap((rows) => rows.map((r) => r.venueId)))
+  if (asked !== epoch) throw Object.assign(new Error('That was read for another account.'), { code: 'stale' })
+  return newestPlan(id, ticket, read.version, () => planView(read))
+}
+
+// How to call: planView(await remote.readPlan('3b1f...'))
+function planView(read) {
+  const area = read.meetingAreaId ? areaById(read.meetingAreaId) : null
+  const ids = read.joined
+  const startOf = P.toMinutes(read.start)
+  const endOf = P.toMinutes(read.end)
+  if (!area || !['voting', 'confirmed', 'completed'].includes(read.status)) {
+    return { remote: true, slots: [], voters: [], prefs: clone(read.prefs), counts: P.categoryCounts(read.prefs), stayUntil: null }
+  }
+  const settled = read.status !== 'voting'
+  const slots = read.slotRows.filter((slot) => !slot.deleted).map((slot) => {
+    const details = slot.details || {}
+    const shown = (read.optionRows[slot.id] || []).flatMap((row) => {
+      const venue = serverVenues.get(row.venueId)
+      if (!venue) return []
+      const d = row.details || {}
+      const weather = weatherFrom(d.weather, details.weather)
+      return [{
+        id: row.venueId,
+        venue: clone(venue),
+        score: row.score ?? 0,
+        rank: row.rank,
+        walk: d.walk ?? d.walkMinutes ?? P.walkMinutes(area, venue),
+        // As the crow flies from the meeting area, for the card ("180 m").
+        distanceM: Math.round(P.distanceKm(area, venue) * 1000),
+        reasons: d.reasons ?? [],
+        warnings: d.warnings ?? [],
+        swap: d.swap ? { id: d.swap.id ?? d.swap.venueId, name: d.swap.name } : null,
+        explanation: d.explanation ?? '',
+        dietUnknown: d.dietUnknown ?? [],
+        verify: d.verify ?? [],
+        approximate: !!d.approximate,
+        ...(weather ? { weather } : {}),
+      }]
+    })
+    // The planner's score is a penalty: lowest first is best first. A place with no score yet (just added) comes after the scored ones.
+    shown.sort((a, b) => a.score - b.score || (a.rank ?? 1e9) - (b.rank ?? 1e9))
+    // Only people who are in the session count: a vote of someone who has since gone is not one.
+    const votes = Object.fromEntries(Object.entries(read.votes[slot.id] || {}).filter(([person]) => ids.includes(person)))
+    const empty = details.empty
+    const notice = details.notice
+    return {
+      id: slot.id,
+      category: slot.category,
+      start: slot.start,
+      time: slot.time,
+      duration: slot.duration,
+      picks: slot.picks,
+      isLast: slot.isLast,
+      ...tallyOptions({ options: shown, votes, nameOf, me: me() }),
+      canAddMore: !settled && shown.length < P.OPTIONS_MAX && details.moreAvailable !== false,
+      widened: !!notice,
+      // Why the slot has no places: { reason, nearestKm, widenToKm } from the planner, or null.
+      empty: empty ? { reason: empty.reason, nearestKm: empty.nearestKm ?? empty.hints?.nearestKm ?? null, widenToKm: empty.widenToKm ?? empty.hints?.widenToKm ?? null } : null,
+      // Fewer than 3 places fit inside the search radius: { found, widenToKm }, or null.
+      few: notice?.type === 'few_options' ? { found: notice.found, widenToKm: notice.widenToKm } : null,
+    }
+  })
+  const forecast = combineWeather(read.slotRows.filter((slot) => !slot.deleted).map((slot) => slot.details?.weather))
+  return {
+    remote: true,
+    area: { ...area },
+    radius: read.radius ?? null,
+    ...(forecast ? { weather: forecast } : {}),
+    slots,
+    voters: P.voters(read.votes, ids),
+    prefs: clone(read.prefs),
+    counts: P.categoryCounts(read.prefs),
+    stayUntil: P.groupStayUntil(read.prefs, endOf),
+    deletedSlots: [...read.deletedSlots],
+    stayOptions: P.stayOptions(startOf, endOf),
+    // The stops the votes so far would make: { category, time, duration } in order, at the times the server gave the slots.
+    planned: slots.filter((slot) => slot.totalVotes > 0).map((slot) => ({ category: slot.category, start: slot.start, time: slot.time, duration: slot.duration })),
+  }
+}
+
 // Everything the voting screen needs, ranked with the current weather. Once the plan is confirmed the stored
 // options are returned as they were: only a session in Voting asks the planner.
 export async function getPlan(id) {
+  if (onServer()) return planFromServer(id)
   await wait(DELAY.plan)
   const session = sessionById(id)
   const ids = activeIds(session)
