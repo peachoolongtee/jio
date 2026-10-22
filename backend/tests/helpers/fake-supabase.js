@@ -55,6 +55,9 @@ const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestion
 //   hangApply           true: apply_session_plan never answers (a database that hung)
 //   hangReads           true: the service key's reads never answer
 //   hooks.beforeRead    ({ table }) => void, run before each read by the service key: to play a request that arrives while a run loads
+//   profile_private     [{ id, dietary, home_area_id, budget_max_per_person, needs_step_free }]: the private rows that
+//                       session_member_needs reads (no client may read them as a table)
+//   failNeeds           true: session_member_needs fails as a database error
 //
 // How to call:
 //   const world = createWorld()
@@ -451,6 +454,22 @@ function query(world, table, who) {
   return builder
 }
 
+// session_member_needs(sid), as db/schema.sql defines it: one row per joined member of the session (an opted-out member has
+// none), with their private fields. Only the service key may call it.
+//
+// How to call:
+//   return memberNeeds(world, null, { sid: SESSION })
+function memberNeeds(world, who, { sid }) {
+  if (who !== null) return { data: null, error: dbError('42501', 'permission denied for function session_member_needs') }
+  if (world.failNeeds) return { data: null, error: dbError('XX000', 'boom') }
+  const rows = world.session_members
+    .filter((m) => m.session_id === sid && m.state === 'joined')
+    .map((m) => (world.profile_private || []).find((p) => p.id === m.user_id))
+    .filter(Boolean)
+    .map((p) => ({ user_id: p.id, home_area_id: p.home_area_id, dietary: p.dietary, budget_max_per_person: p.budget_max_per_person, needs_step_free: p.needs_step_free }))
+  return { data: rows, error: null }
+}
+
 // One client over the world. `who` is a lower-case user id, or null for the service key.
 //
 // How to call:
@@ -463,6 +482,7 @@ function clientOver(world, who) {
     },
     async rpc(name, args) {
       world.calls.push({ rpc: name, kind: 'rpc', who })
+      if (name === 'session_member_needs') return memberNeeds(world, who, args)
       if (name !== 'apply_session_plan') return { data: null, error: dbError('42883', `no function ${name}`) }
       if (who !== null) return { data: null, error: dbError('42501', 'permission denied for function apply_session_plan') }
       if (world.hangApply) return new Promise(() => {})

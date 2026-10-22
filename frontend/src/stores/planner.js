@@ -51,6 +51,22 @@ export const usePlannerStore = defineStore('planner', () => {
   const vote = (id, slotId, venueId) => api.vote(id, slotId, currentUserId(), venueId)
   const searchVenues = (id, slotId, query) => api.searchVenuesForSlot(id, slotId, query)
   const setRadius = (id, metres) => api.setRadius(id, metres)
+  // Show the food places we could not confirm for the group's dietary needs, or only the ones that fit.
+  // Both dietary changes resolve once this page's plan holds the places picked again (a change of the person's own needs picks
+  // them in the background, which whenRefiltered waits for), so a screen that shows them loading can stop exactly when they
+  // are in. How to call: await afterReload(id, api.setUnconfirmed(id, true))
+  async function afterReload(id, change) {
+    const answer = await change
+    await api.whenRefiltered()
+    await reload(id)
+    return answer
+  }
+  // How to call: await planner.setUnconfirmed(id, true)
+  const setUnconfirmed = (id, on) => afterReload(id, api.setUnconfirmed(id, on))
+  // Confirm the signed-in person's dietary needs for this outing only (the profile is left as it is), and which of the
+  // others' needs the group should not filter for.
+  // How to call: await planner.confirmDiet(id, ['halal'], [])
+  const confirmDiet = (id, dietary, dropped) => afterReload(id, api.confirmDiet(id, dietary, dropped))
 
   // A live reload that fails has nowhere to throw to: the failure is in errors[id].
   const reload = (id) => loadPlan(id, { quiet: true }).catch(() => {})
@@ -85,9 +101,15 @@ export const usePlannerStore = defineStore('planner', () => {
       for (const id of Object.keys(plans.value)) reload(id)
       return
     }
+    // The signed-in person's profile changed: a dietary need changes what every plan shows and ranks, even when no place
+    // dropped out (and then no session event follows).
+    if (event.type === 'user') {
+      for (const id of Object.keys(plans.value)) reload(id)
+      return
+    }
     if (KEEPS_RANKING.has(event.type)) return
     if (event.sessionId && plans.value[event.sessionId]) reload(event.sessionId)
   })
 
-  return { plans, loading, errors, conditions, loadPlan, loadConditions, setCondition, setMyPreferences, deleteSlot, restoreSlots, addMore, addOption, swapOption, vote, searchVenues, setRadius }
+  return { plans, loading, errors, conditions, loadPlan, loadConditions, setCondition, setMyPreferences, deleteSlot, restoreSlots, addMore, addOption, swapOption, vote, searchVenues, setRadius, setUnconfirmed, confirmDiet }
 })

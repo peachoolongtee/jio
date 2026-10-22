@@ -228,6 +228,18 @@ export async function removeSessionMember(sessionId, personId = 'me') {
   return data
 }
 
+// An outing's dietary needs, together and without names (GET /api/sessions/:id/dietary, ticket #107): `dietary` is every
+// joined member's needs, `others` everyone's but the signed-in person's. Only the server can read a member's needs, so this
+// is how "Confirm dietary needs" learns a real friend's. Needs a login; a refusal arrives as an Error with the server's `code`
+// (session_not_found, invalid_input). Anything but two lists of known needs is an error, never a guess.
+// How to call: await sessionDietary('3b1f...') -> { dietary: ['halal', 'vegan'], others: ['halal'] }
+export async function sessionDietary(sessionId) {
+  const { data } = await api.get(`/api/sessions/${encodeURIComponent(sessionId)}/dietary`, { timeout: 8000 })
+  const known = (list) => Array.isArray(list) && list.every((n) => ['halal', 'vegetarian', 'vegan'].includes(n))
+  if (!known(data?.dietary) || !known(data?.others)) throw new Error(notJsonMessage())
+  return { dietary: data.dietary, others: data.others }
+}
+
 // How long a search for people is waited for. Typing makes many of them, so a slow one is given up on sooner than a ranking.
 export const PEOPLE_SEARCH_TIMEOUT_MS = 6000
 
@@ -316,11 +328,19 @@ export const lastWeather = ref(null)
 // The backend has no occasion picker yet, so every session is a catch-up.
 export const DEFAULT_OCCASION = 'catch_up'
 
-// The places the frontend has no diet data for would all be hidden by 'strict', so suggestions are 'lenient'
-// and each option says which diet needs are unknown (dietUnknown).
+// What the planner does with a place it has no data on (a dietary need, step-free access, the walk to the MRT): 'strict' leaves
+// it out, 'lenient' keeps it and each option says which dietary needs are unknown (dietUnknown). The caller decides, because it
+// knows the group's needs and whether the group asked to see the places we could not confirm (lib/api.js dietPolicy). Left
+// out, a request is 'lenient', as it always was. A group's dietary needs are strict on their own (`dietPolicy`, same two words),
+// so they never make the walk to the MRT, step-free access or sockets strict as well.
 const UNKNOWN_POLICY = 'lenient'
 
-// The backend's "does not fit" words, in the words the search sheet already knows.
+// The policy for dietary needs only, left out of a request when the caller gives none (then the planner follows `unknownPolicy`).
+// How to call: dietField('strict') -> { dietPolicy: 'strict' }
+const dietField = (dietPolicy) => (dietPolicy ? { dietPolicy } : {})
+
+// The backend's "does not fit" words, in the words the search sheet already knows. A dietary reason ('diet:halal') is 'diet',
+// with the need kept apart.
 const UNFIT_WORDS = { meal_period: 'meal', near_mrt: 'mrt' }
 
 const point = ({ lat, lng }) => ({ lat, lng })
@@ -391,7 +411,8 @@ export async function meetingArea({ members, routing = true, alternatives, inclu
 // weather: what the planner used, { source: 'live' | 'simulated' | 'unavailable', simulationIgnored? }.
 // The weather case is only sent while the demo rain switch is on; otherwise the planner uses the live forecast.
 // few: { found, widenToKm } when fewer than 3 places fit inside the search radius.
-export async function rankSlot({ members, centre, date, slot, lastStop, currentOptionIds = [], conditions = {}, radiusMeters, topN }) {
+// unknownPolicy: 'strict' or 'lenient' (see UNKNOWN_POLICY); dietPolicy: the same for the group's dietary needs alone.
+export async function rankSlot({ members, centre, date, slot, lastStop, currentOptionIds = [], conditions = {}, radiusMeters, topN, unknownPolicy = UNKNOWN_POLICY, dietPolicy }) {
   const { data } = await api.post('/api/converge', {
     members,
     occasion: DEFAULT_OCCASION,
@@ -402,7 +423,8 @@ export async function rankSlot({ members, centre, date, slot, lastStop, currentO
     lastStop,
     currentOptionIds,
     ...(conditions.rain ? { weatherCase: 'rain' } : {}),
-    unknownPolicy: UNKNOWN_POLICY,
+    unknownPolicy,
+    ...dietField(dietPolicy),
     radiusMeters,
     topN,
   })
@@ -436,10 +458,11 @@ function toRoamPlace(r, block = null) {
 //   current:   { lat, lng } where the group is
 //   date, time: when the stop would start, "YYYY-MM-DD" and "HH:MM"; minutes: how long it would last
 //   categories: any of eat, drink, shop, activity. Left out, the planner uses eat, drink and activity.
+//   unknownPolicy: 'strict' or 'lenient' (see UNKNOWN_POLICY); dietPolicy: the same for the group's dietary needs alone.
 // Returns { places (best first, each as a voting-page card plus id, travelMinutes, distanceKm, distanceM), empty (the
 // planner's answer when nothing fits, else null), widened, weather }.
 // How to call: await roamNearby({ members: [{ id: 'ian' }], current: { lat: 1.35, lng: 103.85 }, date: '2026-10-11', time: '15:00', minutes: 60 })
-export async function roamNearby({ members, current, date, time, minutes, categories, conditions = {}, topN }) {
+export async function roamNearby({ members, current, date, time, minutes, categories, conditions = {}, topN, unknownPolicy = UNKNOWN_POLICY, dietPolicy }) {
   const { data } = await api.post(
     '/api/roam',
     {
@@ -450,7 +473,8 @@ export async function roamNearby({ members, current, date, time, minutes, catego
       ...(categories?.length ? { categories } : {}),
       current: point(current),
       ...(conditions.rain ? { weatherCase: 'rain' } : {}),
-      unknownPolicy: UNKNOWN_POLICY,
+      unknownPolicy,
+      ...dietField(dietPolicy),
       topN,
     },
     { timeout: ROAM_TIMEOUT_MS },
@@ -495,8 +519,11 @@ export async function arrangeItinerary({ stops, startAt, endAt, shown = [], rain
   return data
 }
 
-// Find places by name for a slot. Each says whether it fits, and the first reason it does not.
-export async function searchSlot({ query, members, centre, date, slot, lastStop, maxKm }) {
+// Find places by name for a slot. Each says whether it fits, and the first reason it does not. A place that fails a dietary
+// need says 'diet', with the need in `need`; one that fits says which needs it only likely meets (`verify`) or has no data on
+// (`dietUnknown`), as a ranked option does.
+// How to call: await searchSlot({ query: 'market', members, centre, date: '2026-10-17', slot, lastStop: false, dietPolicy: 'strict' })
+export async function searchSlot({ query, members, centre, date, slot, lastStop, maxKm, unknownPolicy = UNKNOWN_POLICY, dietPolicy }) {
   const { data } = await api.post('/api/search', {
     query,
     centre: point(centre),
@@ -505,12 +532,24 @@ export async function searchSlot({ query, members, centre, date, slot, lastStop,
     categories: [slot.category],
     lastStop,
     members,
-    unknownPolicy: UNKNOWN_POLICY,
+    unknownPolicy,
+    ...dietField(dietPolicy),
     maxKm,
   })
   return data.results.map((r) => {
     const reason = r.unfit[0] || ''
-    return { id: r.venueId, name: r.name, area: r.area, category: r.category, walk: r.walkMinutes, unfit: UNFIT_WORDS[reason] || reason }
+    const diet = reason.startsWith('diet:')
+    return {
+      id: r.venueId,
+      name: r.name,
+      area: r.area,
+      category: r.category,
+      walk: r.walkMinutes,
+      unfit: diet ? 'diet' : UNFIT_WORDS[reason] || reason,
+      ...(diet ? { need: reason.slice(5) } : {}),
+      verify: r.verify || [],
+      dietUnknown: r.dietUnknown || [],
+    }
   })
 }
 

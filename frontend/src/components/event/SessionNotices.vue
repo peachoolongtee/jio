@@ -1,6 +1,7 @@
 <script>
-// The banner to show while voting: only the one that says the meeting area moved and the votes for places were
-// cleared (the data layer marks it votesCleared). The other re-calculation banners stay out of the way.
+// The banner to show while voting: only the one that says places changed under the group and votes may have gone with them
+// (the data layer marks it votesCleared): the meeting area moved, the radius changed, or a dietary need changed (byDiet,
+// which never says whose). The other re-calculation banners stay out of the way.
 // How to call: votesClearedBanner({ status: 'voting', banner: { text, votesCleared: true } }) -> the banner
 export function votesClearedBanner(session) {
   return session.status === 'voting' && session.banner?.votesCleared ? session.banner : null
