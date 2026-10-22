@@ -16,14 +16,29 @@ import { sessionSchemas } from './session-schemas.js'
 //   POST   /api/sessions/:id/rejoin                                   the caller comes back
 //   DELETE /api/sessions/:id/members/me                               the caller leaves
 //   DELETE /api/sessions/:id/members/:userId                          the host removes a guest
+//   POST   /api/sessions/:id/plan/sync                                work the slots and their places out again (after picks changed)
+//   PUT    /api/sessions/:id/radius           { radiusMeters }        the host sets how far places are offered (100 to 3000, or null)
+//   DELETE /api/sessions/:id/slots/:slotId                            the host removes a slot
+//   POST   /api/sessions/:id/slots/restore    { slotId? }             the host brings back a slot, or every removed slot
+//   POST   /api/sessions/:id/slots/:slotId/options            { venueId }      a member adds a place
+//   POST   /api/sessions/:id/slots/:slotId/options/more       { have }         more suggestions
+//   POST   /api/sessions/:id/slots/:slotId/options/:venueId/swap { toVenueId } swap one place for another
+//   GET    /api/sessions/:id/slots/:slotId/venue-search?q=                     search the saved places for a slot
 //
 // Answers (200, JSON):
 //   meeting-area   { planVersion, meetingAreaId: null, moved: false, votesCleared: false, skipped: [userId], spots: n, approvalsRemoved: [areaId] }
 //   spots/mine PUT { planVersion, spots: n, approvalsRemoved: [areaId] }       DELETE { planVersion }
-//   voting         { planVersion, status: 'voting', meetingAreaId, method, slotCount }
+//   meeting-area   while voting: meetingAreaId is the area (null when paused), moved and votesCleared say what happened to it
+//   voting         { planVersion, status: 'voting', meetingAreaId, method, slotCount }   (the slots and their places are made in the same write)
 //   known-place    { planVersion, status: 'voting' }
 //   opt-out        { planVersion, state: 'opted_out' }        rejoin { planVersion, state: 'joined' }
 //   members/me     { planVersion, left: true }                members/:userId { planVersion, removed: true }
+//   plan/sync      { planVersion, changed }                   radius { planVersion, radiusMeters }
+//   slots/:id DELETE { planVersion }                          slots/restore { planVersion, restored: [slotId] }
+//   options POST   201 { planVersion, added: true }, or 200 { planVersion, added: false } when the place is already there
+//   options/more   { planVersion, added: [venueId] }          swap { planVersion, swapped }
+//   venue-search   { results: [{ venueId, name, area, category, source, matchedStall, walkMinutes, distanceKm, fits, unfit, added }] }
+// A member's own vote is written by the browser directly (votes, under the database's rules); the server only reads it.
 // Approvals ("Works for me") and a member's own start and end are written by the browser directly, under the database's rules;
 // the server only reads them. No answer carries a label or a coordinate.
 //
@@ -31,10 +46,11 @@ import { sessionSchemas } from './session-schemas.js'
 //   400 invalid_input (a path id that is not a uuid, a body that is wrong; `issues` lists the fields)
 //   401 unauthenticated, 503 auth_unavailable (from the login check), 429 rate_limited
 //   403 not_joined, host_only, host_cannot_leave, host_cannot_opt_out
-//   404 session_not_found (also for a session the caller is not in), member_not_found, spot_not_found
-//   409 wrong_status, not_yet (work of a later stage), session_closed and session_started (leave and remove), no_spots,
-//       too_many_spots, needs_two_people, area_pinned, plan_busy (with Retry-After: 1)
-//   422 unknown_area, area_not_priced
+//   404 session_not_found (also for a session the caller is not in), member_not_found, spot_not_found, slot_not_found, venue_not_found,
+//       option_not_found
+//   409 wrong_status, not_yet (work of a later stage: a confirmed plan), session_closed and session_started (leave and remove), no_spots,
+//       too_many_spots, needs_two_people, area_pinned, no_meeting_area (voting is paused), slot_full, plan_busy (with Retry-After: 1)
+//   422 unknown_area, area_not_priced, venue_does_not_fit
 //   500 server_error (a database that fails)
 //
 // How to mount it (app.js does this when Supabase is configured):
@@ -61,11 +77,12 @@ export function createSessionsRouter({ supabase, sessions, limiter = null }) {
   //
   // How to call:
   //   router.post('/sessions/:id/opt-out', ...guard, handle((who) => sessions.optOut(who)))
-  const handle = (run) => async (req, res, next) => {
+  const handle = (run, statusOf = () => 200) => async (req, res, next) => {
     try {
       const id = sessionSchemas.sessionId.safeParse(req.params.id)
       if (!id.success) return refuse(res, 400, 'invalid_input', 'The session id is not valid.')
-      res.json(await run({ client: req.supabase, id: id.data, userId: req.user.id }, req))
+      const body = await run({ client: req.supabase, id: id.data, userId: req.user.id }, req)
+      res.status(statusOf(body)).json(body)
     } catch (err) {
       if (err instanceof ZodError) {
         refuse(res, 400, 'invalid_input', 'Some fields in the request are missing or not valid. See issues.', {
@@ -110,6 +127,53 @@ export function createSessionsRouter({ supabase, sessions, limiter = null }) {
   router.post('/sessions/:id/rejoin', ...guard, handle((who, req) => {
     sessionSchemas.nothing.parse(req.body ?? {})
     return sessions.rejoin(who)
+  }))
+
+  router.post('/sessions/:id/plan/sync', ...guard, handle((who, req) => {
+    sessionSchemas.nothing.parse(req.body ?? {})
+    return sessions.syncPlan(who)
+  }))
+
+  router.put('/sessions/:id/radius', ...guard, handle((who, req) => {
+    const { radiusMeters } = sessionSchemas.radius.parse(req.body ?? {})
+    return sessions.setRadius({ ...who, radiusMeters })
+  }))
+
+  // Declared before the routes with a :slotId, so "restore" is never read as one.
+  router.post('/sessions/:id/slots/restore', ...guard, handle((who, req) => {
+    const { slotId } = sessionSchemas.restoreSlots.parse(req.body ?? {})
+    return sessions.restoreSlots({ ...who, slotId })
+  }))
+
+  router.delete('/sessions/:id/slots/:slotId', ...guard, handle((who, req) => {
+    sessionSchemas.nothing.parse(req.body ?? {})
+    return sessions.deleteSlot({ ...who, slotId: sessionSchemas.slotId.parse(req.params.slotId) })
+  }))
+
+  // Adding a place answers 201 when it was added and 200 when it was already there.
+  router.post('/sessions/:id/slots/:slotId/options', ...guard, handle((who, req) => {
+    const { venueId } = sessionSchemas.addOption.parse(req.body ?? {})
+    return sessions.addOption({ ...who, slotId: sessionSchemas.slotId.parse(req.params.slotId), venueId })
+  }, (body) => (body.added ? 201 : 200)))
+
+  router.post('/sessions/:id/slots/:slotId/options/more', ...guard, handle((who, req) => {
+    const { have } = sessionSchemas.moreOptions.parse(req.body ?? {})
+    return sessions.addMoreOptions({ ...who, slotId: sessionSchemas.slotId.parse(req.params.slotId), have })
+  }))
+
+  router.post('/sessions/:id/slots/:slotId/options/:venueId/swap', ...guard, handle((who, req) => {
+    const { toVenueId } = sessionSchemas.swapOption.parse(req.body ?? {})
+    return sessions.swapOption({
+      ...who,
+      slotId: sessionSchemas.slotId.parse(req.params.slotId),
+      fromId: sessionSchemas.venueId.parse(req.params.venueId),
+      toId: toVenueId,
+    })
+  }))
+
+  router.get('/sessions/:id/slots/:slotId/venue-search', ...guard, handle((who, req) => {
+    const { q } = sessionSchemas.venueSearch.parse(req.query ?? {})
+    return sessions.searchSlot({ ...who, slotId: sessionSchemas.slotId.parse(req.params.slotId), query: q })
   }))
 
   router.delete('/sessions/:id/members/:userId', ...guard, async (req, res, next) => {

@@ -1,13 +1,15 @@
-import { generateKeyPairSync, sign } from 'node:crypto'
+import { generateKeyPairSync, randomUUID, sign } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 
 // A stand-in for Supabase, for the session tests. Nothing here touches the network.
 //
 // The database is a `world` of arrays, one per table. Two kinds of client read it:
 //   - a user's client (`forUser`) sees only what the access rules in db/policies.sql let that person see, and can write only
-//     what a browser may write directly: "Works for me" (spot_approvals), a member's own start and end area, their own exact place;
+//     what a browser may write directly: "Works for me" (spot_approvals), a member's own start and end area and picks, their own
+//     exact place, and their own vote (votes);
 //   - the service client (`service`) sees everything, is the only one that may call apply_session_plan, and records every request.
-// `applySessionPlan` below is a JavaScript twin of the SQL function in db/migrations/20261020000000_jio_apply_session_plan.sql.
+// `applySessionPlan` below is a JavaScript twin of the SQL function in db/migrations/20261020000000_jio_apply_session_plan.sql (stage 3)
+// as extended by db/migrations/20261022000000_jio_apply_session_plan_slots.sql (stage 4: slots, options, votes, the radius).
 // It is a second implementation of the same rules, so the real function must still be tested on the live project
 // (db/tests/apply_session_plan.sql); the point of the twin is that the server's code can be tested offline.
 //
@@ -45,7 +47,7 @@ export async function jwksFetch(input) {
   return new Response('{}', { status: 404 })
 }
 
-const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'profiles', 'session_member_places']
+const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'slot_options', 'votes', 'profiles', 'profile_private', 'session_member_places']
 
 // An empty database. `calls` records every request: { table | rpc, kind, who } with who = the user id, or null for the service key.
 // Fields a test may set:
@@ -55,11 +57,12 @@ const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestion
 //   hangApply           true: apply_session_plan never answers (a database that hung)
 //   hangReads           true: the service key's reads never answer
 //   hooks.beforeRead    ({ table }) => void, run before each read by the service key: to play a request that arrives while a run loads
+//   failNeeds           true: session_member_needs() fails as a database error
 //
 // How to call:
 //   const world = createWorld()
 export function createWorld() {
-  const world = { calls: [], hooks: {}, staleApply: 0, failApply: false, hangApply: false, hangReads: false, t: Date.parse('2026-10-20T08:00:00Z') }
+  const world = { calls: [], hooks: {}, staleApply: 0, failApply: false, failNeeds: false, hangApply: false, hangReads: false, t: Date.parse('2026-10-20T08:00:00Z') }
   for (const table of TABLES) world[table] = []
   return world
 }
@@ -105,6 +108,31 @@ function checkSpot(row) {
   }
 }
 
+// The database's own checks on a slot and on an option (db/schema.sql), so a row the server should never write is caught here.
+//
+// How to call:
+//   checkSlot({ category: 'eat', start_minute: 720, duration_minutes: 90, picks: 2, details: {} })
+//   checkOption(world, { venue_id: 'a', source: 'planner' })
+function checkSlot(row) {
+  const bad = (why, code = '23514') => {
+    throw dbError(code, `slots check failed: ${why}`)
+  }
+  if (!['eat', 'drink', 'shop', 'activity'].includes(row.category)) bad('category')
+  if (!Number.isInteger(row.start_minute)) bad('start_minute is null or not a whole number', '23502')
+  if (!Number.isInteger(row.duration_minutes)) bad('duration_minutes is null or not a whole number', '23502')
+  if (row.start_minute < 0 || row.start_minute > 1439) bad('start_minute')
+  if (row.duration_minutes < 1 || row.duration_minutes > 720) bad('duration_minutes')
+  if (row.details === null || typeof row.details !== 'object' || Array.isArray(row.details) || Buffer.byteLength(JSON.stringify(row.details)) > 4000) bad('details')
+}
+function checkOption(world, row) {
+  const bad = (why, code = '23514') => {
+    throw dbError(code, `slot_options check failed: ${why}`)
+  }
+  if (typeof row.venue_id !== 'string' || row.venue_id.length < 1 || row.venue_id.length > 80) bad('venue_id')
+  if (!['planner', 'member'].includes(row.source)) bad('source')
+  if (row.added_by && !world.profiles.some((p) => sameValue(p.id, row.added_by))) bad('added_by is not a profile', '23503')
+}
+
 // A JavaScript twin of apply_session_plan(sid, expected_version, expected_status, patch). Returns the new version, null when the
 // session moved on, or the current version when nothing changed. Throws a database error object for the rules and the checks.
 //
@@ -121,7 +149,17 @@ export function applySessionPlan(world, { sid, expected_version: expectedVersion
   if (!session || Number(session.plan_version) !== Number(expectedVersion) || session.status !== expectedStatus) return null
 
   // Everything below is undone if a rule or a check fails, as a transaction would be.
-  const snapshot = structuredClone({ sessions: world.sessions, session_members: world.session_members, session_member_places: world.session_member_places, session_spots: world.session_spots, spot_suggestions: world.spot_suggestions, spot_approvals: world.spot_approvals })
+  const snapshot = structuredClone({
+    sessions: world.sessions,
+    session_members: world.session_members,
+    session_member_places: world.session_member_places,
+    session_spots: world.session_spots,
+    spot_suggestions: world.spot_suggestions,
+    spot_approvals: world.spot_approvals,
+    slots: world.slots,
+    slot_options: world.slot_options,
+    votes: world.votes,
+  })
   try {
     return apply(world, session, patch)
   } catch (err) {
@@ -138,8 +176,9 @@ const roundOrNull = (value) => (value === undefined || value === null ? null : M
 
 // The body of the twin, run on a session already locked and found current. It enforces the same rules in the same order as the SQL:
 // a pinned meeting stays; a status moves only from inviting or locating to voting with an area; a pin comes only with that move (or
-// when the same pin is stored); the host is never opted out or removed; leaving inviting needs two joined members after the ops;
-// and the version rises only when a value differs from the stored row.
+// when the same pin is stored); slots, options and their votes are written only in a voting session (rule 7); the host is never
+// opted out or removed; leaving inviting needs two joined members after the ops; and the version rises only when a value differs
+// from the stored row.
 //
 // How to call (applySessionPlan does this):
 //   const version = apply(world, session, patch)
@@ -172,6 +211,10 @@ function apply(world, session, patch) {
   if (['voted', 'chosen'].includes(meeting?.method) && !moving && !(session.meeting_method === meeting.method && (session.meeting_area_id ?? null) === (meeting.area_id ?? null))) {
     throw dbError('P0001', 'A meeting area is pinned only when the host confirms it.', 'pin_without_confirm')
   }
+  // Rule 7: slots and options are written only while the session is voting (after this patch).
+  if (has(patch, 'slots') && newStatus !== 'voting') {
+    throw dbError('P0001', 'Slots and options are written only while the session is voting.', 'slots_status')
+  }
 
   const dropApprovals = (test) => {
     const before = world.spot_approvals.length
@@ -182,6 +225,23 @@ function apply(world, session, patch) {
     const before = world.spot_suggestions.length
     world.spot_suggestions = world.spot_suggestions.filter((g) => !(g.session_id === sid && test(g)))
     return before !== world.spot_suggestions.length
+  }
+
+  const slotsOfSession = () => world.slots.filter((x) => x.session_id === sid)
+  // Votes of this session's slots, removed where `test` says so. Answers whether any went.
+  const dropVotes = (test) => {
+    const mine = new Set(slotsOfSession().map((x) => x.id))
+    const before = world.votes.length
+    world.votes = world.votes.filter((v) => !(mine.has(v.slot_id) && test(v)))
+    return before !== world.votes.length
+  }
+  // Options of a slot, removed where `test` says so; the votes for a removed option go with it (the foreign key). Answers whether any went.
+  const dropOptions = (slotId, test) => {
+    const gone = world.slot_options.filter((o) => o.slot_id === slotId && test(o))
+    if (gone.length === 0) return false
+    world.slot_options = world.slot_options.filter((o) => !gone.includes(o))
+    world.votes = world.votes.filter((v) => !(v.slot_id === slotId && gone.some((o) => o.venue_id === v.venue_id)))
+    return true
   }
 
   for (const op of patch.ops ?? []) {
@@ -198,6 +258,7 @@ function apply(world, session, patch) {
       }
       changed = dropApprovals((a) => a.user_id === user) || changed
       changed = dropSuggestions((g) => g.user_id === user) || changed
+      changed = dropVotes((v) => sameValue(v.user_id, user)) || changed
     } else if (op.op === 'rejoin') {
       if (member?.state === 'opted_out') {
         member.state = 'joined'
@@ -211,6 +272,7 @@ function apply(world, session, patch) {
         dropSuggestions((g) => g.user_id === user)
         changed = true
       }
+      changed = dropVotes((v) => sameValue(v.user_id, user)) || changed
     } else if (op.op === 'suggest') {
       if (!member) throw dbError('23503', 'spot_suggestions: the member is not in the session')
       const here = op.here ?? false
@@ -228,6 +290,28 @@ function apply(world, session, patch) {
       changed = dropApprovals(() => true) || changed
     } else if (op.op === 'clear_suggestions') {
       changed = dropSuggestions(() => true) || changed
+    } else if (op.op === 'clear_votes') {
+      if (session.status !== 'voting') throw dbError('P0001', 'Votes are cleared only while the session is voting.', 'slots_status')
+      changed = dropVotes(() => true) || changed
+    } else if (op.op === 'swap_option') {
+      if (session.status !== 'voting') throw dbError('P0001', 'An option is swapped only while the session is voting.', 'slots_status')
+      const slot = slotsOfSession().find((x) => x.category === op.category)
+      if (!slot) throw dbError('P0001', `This session has no ${op.category} slot.`, 'slot_missing')
+      if (world.slot_options.some((o) => o.slot_id === slot.id && o.venue_id === op.to)) {
+        // The other place is already an option: the votes move to it and this one goes.
+        const moved = world.votes.filter((v) => v.slot_id === slot.id && v.venue_id === op.from)
+        for (const v of moved) v.venue_id = op.to
+        changed = moved.length > 0 || changed
+        changed = dropOptions(slot.id, (o) => o.venue_id === op.from) || changed
+      } else {
+        // In place: the votes follow the option (on update cascade).
+        const option = world.slot_options.find((o) => o.slot_id === slot.id && o.venue_id === op.from)
+        if (option) {
+          option.venue_id = op.to
+          for (const v of world.votes.filter((row) => row.slot_id === slot.id && row.venue_id === op.from)) v.venue_id = op.to
+          changed = true
+        }
+      }
     } else {
       throw dbError('22023', `Unknown operation ${op.op}.`)
     }
@@ -284,12 +368,96 @@ function apply(world, session, patch) {
     if (lostApprovals) bannerText = patch.banner_text || 'Some spots are no longer on the list, so approvals for them were removed.'
   }
 
+  // The slots and their options, as a difference. A kept option keeps its votes; a dropped one takes them.
+  if (has(patch, 'slots')) {
+    if (!Array.isArray(patch.slots)) throw dbError('22023', 'The slots must be a JSON list.')
+    for (const item of patch.slots) {
+      if (item === null || typeof item !== 'object' || Array.isArray(item)) throw dbError('22023', 'Each slot must be a JSON object.')
+      if (item.remove === true) {
+        const gone = slotsOfSession().find((x) => x.category === item.category)
+        if (gone) {
+          dropOptions(gone.id, () => true)
+          world.slots = world.slots.filter((x) => x !== gone)
+          changed = true
+        }
+        continue
+      }
+      let slot = slotsOfSession().find((x) => x.category === item.category)
+      if (!slot) {
+        slot = {
+          id: randomUUID(),
+          session_id: sid,
+          category: item.category,
+          start_minute: item.start_minute ?? null,
+          duration_minutes: item.duration_minutes ?? null,
+          picks: item.picks ?? 0,
+          is_last: item.is_last ?? false,
+          deleted: item.deleted ?? false,
+          details: item.details ?? {},
+        }
+        checkSlot(slot)
+        world.slots.push(slot)
+        changed = true
+      } else {
+        const next = {
+          ...slot,
+          start_minute: item.start_minute ?? slot.start_minute,
+          duration_minutes: item.duration_minutes ?? slot.duration_minutes,
+          picks: item.picks ?? slot.picks,
+          is_last: item.is_last ?? slot.is_last,
+          deleted: item.deleted ?? slot.deleted,
+          details: has(item, 'details') ? item.details : slot.details,
+        }
+        checkSlot(next)
+        if (!isDeepStrictEqual(next, slot)) {
+          Object.assign(slot, next)
+          changed = true
+        }
+      }
+      if (slot.deleted) {
+        changed = dropOptions(slot.id, () => true) || changed
+      } else if (has(item, 'options')) {
+        if (!Array.isArray(item.options)) throw dbError('22023', 'The options of a slot must be a JSON list.')
+        const listed = new Set(item.options.map((o) => o.venue_id))
+        changed = dropOptions(slot.id, (o) => !listed.has(o.venue_id)) || changed
+        for (const opt of item.options) {
+          const next = { slot_id: slot.id, venue_id: opt.venue_id, rank: opt.rank ?? null, score: opt.score ?? null, source: opt.source ?? 'planner', added_by: opt.added_by ?? null, details: opt.details ?? {} }
+          checkOption(world, next)
+          const existing = world.slot_options.find((o) => o.slot_id === slot.id && o.venue_id === opt.venue_id)
+          if (!existing) {
+            world.slot_options.push({ ...next, created_at: tick(world) })
+            changed = true
+          } else if (!isDeepStrictEqual([existing.rank, existing.score, existing.details], [next.rank, next.score, next.details])) {
+            Object.assign(existing, { rank: next.rank, score: next.score, details: next.details })
+            changed = true
+          }
+        }
+      }
+    }
+    // Votes belong to the person, not to their membership: those of anyone who is not a joined member go now.
+    changed = dropVotes((v) => !world.session_members.some((m) => m.session_id === sid && sameValue(m.user_id, v.user_id) && m.state === 'joined')) || changed
+  }
+
   // Rule 3: the session section is a change only where a value differs from the stored row (the meeting as it would be written).
   const nextMeeting = [meeting?.area_id ?? null, meeting?.method ?? null, roundOrNull(meeting?.max_minutes), roundOrNull(meeting?.total_minutes), roundOrNull(meeting?.count), meeting?.approximate ?? null]
   const storedMeeting = [session.meeting_area_id, session.meeting_method, session.meeting_max_minutes, session.meeting_total_minutes, session.meeting_count, session.meeting_approximate].map((v) => v ?? null)
   const meetingChanged = has(sp, 'meeting') && !isDeepStrictEqual(storedMeeting, nextMeeting)
-  const bannerChanged = has(sp, 'banner') && !isDeepStrictEqual(session.banner ?? null, sp.banner ?? null)
-  if (meetingChanged || bannerChanged || bannerText !== null) changed = true
+  // A banner sent without its time is stamped with the database's clock when written, and differs from the stored one only apart from it.
+  const stamped = has(sp, 'banner') && sp.banner !== null && typeof sp.banner === 'object' && !has(sp.banner, 'at')
+  const storedBanner = session.banner ?? null
+  const bannerChanged = has(sp, 'banner') && !isDeepStrictEqual(stamped && storedBanner ? (({ at: _at, ...rest }) => rest)(storedBanner) : storedBanner, sp.banner ?? null)
+  // A joined member whose stored minutes differ from the new ones counts as a change (when they have stored minutes at all).
+  const travelChanged =
+    has(sp, 'meeting') && meeting && typeof meeting === 'object' && !!meeting.travel &&
+    world.session_members.some((m) => {
+      if (m.session_id !== sid || m.state !== 'joined' || m.travel_minutes === null || m.travel_minutes === undefined) return false
+      return (has(meeting.travel, m.user_id) ? Math.round(meeting.travel[m.user_id]) : null) !== m.travel_minutes
+    })
+  const radiusChanged = has(sp, 'radius_meters') && (session.radius_meters ?? null) !== (sp.radius_meters ?? null)
+  if (has(sp, 'radius_meters') && sp.radius_meters !== null && !(Number.isInteger(sp.radius_meters) && sp.radius_meters >= 100 && sp.radius_meters <= 3000) && radiusChanged) {
+    throw dbError('23514', 'sessions check failed: radius_meters')
+  }
+  if (meetingChanged || travelChanged || bannerChanged || radiusChanged || bannerText !== null) changed = true
   if (!changed) return Number(session.plan_version)
 
   if (has(sp, 'meeting') && meeting && typeof meeting === 'object' && meeting.travel) {
@@ -298,6 +466,7 @@ function apply(world, session, patch) {
     }
   }
   session.status = newStatus
+  if (radiusChanged) session.radius_meters = sp.radius_meters ?? null
   if (meetingChanged) {
     session.meeting_area_id = meeting?.area_id ?? null
     session.meeting_method = meeting?.method ?? null
@@ -308,7 +477,10 @@ function apply(world, session, patch) {
     session.meeting_computed_at = meeting?.area_id ? tick(world) : null
   }
   if (bannerText !== null) session.banner = { text: bannerText, at: world.t, approvalsRemoved: true }
-  else if (bannerChanged) session.banner = sp.banner ?? null
+  else if (bannerChanged && stamped) {
+    tick(world)
+    session.banner = { ...sp.banner, at: world.t }
+  } else if (bannerChanged) session.banner = sp.banner ?? null
   session.plan_version = Number(session.plan_version) + 1
   return session.plan_version
 }
@@ -322,6 +494,12 @@ function canSee(world, table, row, who) {
   if (table === 'sessions') return row.host_id === who || isMember(world, who, row.id)
   if (table === 'profiles') return true
   if (table === 'session_member_places') return row.user_id === who
+  if (table === 'profile_private') return row.id === who
+  // Options and votes belong to a slot, and a slot to a session: a member of the session reads them (my_slot_ids()).
+  if (table === 'slot_options' || table === 'votes') {
+    const slot = world.slots.find((x) => x.id === row.slot_id)
+    return !!slot && isMember(world, who, slot.session_id)
+  }
   return isMember(world, who, row.session_id)
 }
 
@@ -347,6 +525,17 @@ function query(world, table, who) {
       if (kind === 'delete' && row.user_id !== who) return denied
       if (!(mine?.state === 'joined' && session?.status === 'locating')) return denied
       if (kind === 'insert' && !world.session_spots.some((s) => s.session_id === row.session_id && s.area_id === row.area_id)) return dbError('23503', 'spot_approvals: the spot is not listed')
+      return null
+    }
+    if (table === 'votes') {
+      // db/policies.sql: a person casts, changes and withdraws only their own vote, in a slot they may vote in right now (my_votable_slot_ids():
+      // joined, the session voting, the slot not removed), and only for a place that is an option of the slot (the foreign key).
+      const slot = world.slots.find((x) => x.id === row.slot_id)
+      const voting = world.sessions.find((s) => s.id === slot?.session_id)
+      const member = world.session_members.find((m) => m.session_id === slot?.session_id && m.user_id === who)
+      if (row.user_id !== who) return denied
+      if (!(slot && !slot.deleted && voting?.status === 'voting' && member?.state === 'joined')) return denied
+      if (kind !== 'delete' && !world.slot_options.some((o) => o.slot_id === row.slot_id && o.venue_id === row.venue_id)) return dbError('23503', 'votes: the place is not an option of the slot')
       return null
     }
     if (table === 'session_members' && kind === 'update') {
@@ -376,7 +565,7 @@ function query(world, table, who) {
         for (const row of op.rows) {
           const denied = refuseWrite(row, 'insert')
           if (denied) return { data: null, error: denied }
-          const key = (r) => (table === 'spot_approvals' ? [r.session_id, r.area_id, r.user_id] : [r.session_id, r.user_id]).join('|')
+          const key = (r) => (table === 'spot_approvals' ? [r.session_id, r.area_id, r.user_id] : table === 'votes' ? [r.slot_id, r.user_id] : [r.session_id, r.user_id]).join('|')
           const dup = rows.find((r) => key(r) === key(row))
           if (dup && !op.upsert) return { data: null, error: dbError('23505', `duplicate key in ${table}`) }
           if (dup) Object.assign(dup, row)
@@ -388,7 +577,7 @@ function query(world, table, who) {
       const found = rows.filter(matches)
       if (op.kind === 'update') {
         for (const row of found) {
-          const denied = refuseWrite(row, 'update')
+          const denied = refuseWrite({ ...row, ...op.patch }, 'update')
           if (denied) return { data: null, error: denied }
         }
         for (const row of found) Object.assign(row, op.patch)
@@ -463,6 +652,17 @@ function clientOver(world, who) {
     },
     async rpc(name, args) {
       world.calls.push({ rpc: name, kind: 'rpc', who })
+      // Each joined member's private planner needs, for the server only (db/schema.sql session_member_needs()).
+      if (name === 'session_member_needs') {
+        if (who !== null) return { data: null, error: dbError('42501', 'permission denied for function session_member_needs') }
+        if (world.failNeeds) return { data: null, error: dbError('XX000', 'boom') }
+        const rows = world.session_members
+          .filter((m) => sameValue(m.session_id, args.sid) && m.state === 'joined')
+          .map((m) => ({ m, pp: world.profile_private.find((p) => sameValue(p.id, m.user_id)) }))
+          .filter(({ pp }) => pp)
+          .map(({ m, pp }) => ({ user_id: m.user_id, home_area_id: pp.home_area_id ?? null, dietary: pp.dietary ?? [], budget_max_per_person: pp.budget_max_per_person ?? null, needs_step_free: pp.needs_step_free ?? false }))
+        return { data: rows, error: null }
+      }
       if (name !== 'apply_session_plan') return { data: null, error: dbError('42883', `no function ${name}`) }
       if (who !== null) return { data: null, error: dbError('42501', 'permission denied for function apply_session_plan') }
       if (world.hangApply) return new Promise(() => {})

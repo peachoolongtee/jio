@@ -224,13 +224,12 @@ export function lostApprovalsNote(areaIds, nameOf) {
 //   lostApprovalsBannerText("Jonathan's start location changed.", ['orchard'], (id) => 'Orchard')
 export const lostApprovalsBannerText = (reason, areaIds, nameOf) => `${reason} ${lostApprovalsNote(areaIds, nameOf)}`
 
-// The reason a recompute gives for the notice, by what changed.
+// What changed, as a clause that follows "because" or starts a sentence: "Ian's start location changed". No capital, no full stop.
 //
 // How to call:
-//   describeChange('start', 'Ian') // "Ian's start location changed."
-export function describeChange(kind, name) {
-  const text =
-    kind === 'start' ? `${name}'s start location changed`
+//   triggerText('start', 'Ian') // "Ian's start location changed"
+export function triggerText(kind, name) {
+  return kind === 'start' ? `${name}'s start location changed`
     : kind === 'end' ? `${name}'s end location changed`
     : kind === 'added' ? `${name} added a start location`
     : kind === 'optout' ? `${name} opted out`
@@ -240,7 +239,31 @@ export function describeChange(kind, name) {
     : kind === 'suggested' ? `${name} suggested a different spot`
     : kind === 'withdrew' ? `${name} withdrew their suggestion`
     : 'The group changed'
+}
+
+// The reason a recompute gives for the notice, by what changed.
+//
+// How to call:
+//   describeChange('start', 'Ian') // "Ian's start location changed."
+export function describeChange(kind, name) {
+  const text = triggerText(kind, name)
   return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`
+}
+
+// The notice a voting session shows when a start or end moved the meeting area, or left it where it was with new travel times
+// (the browser's recalcBanner). `previousName` and `nextName` are area names, or null when there is no meeting area (nobody had
+// shared where they start, so voting is paused).
+//
+// How to call:
+//   meetingBannerText({ previousName: 'Bugis', nextName: 'Orchard', kind: 'start', name: 'Ian' })
+//   // "Meeting area moved from Bugis to Orchard because Ian's start location changed."
+export function meetingBannerText({ previousName, nextName, kind, name }) {
+  const reason = triggerText(kind, name)
+  if (previousName && nextName && previousName !== nextName) return `Meeting area moved from ${previousName} to ${nextName} because ${reason}.`
+  if (previousName && nextName) return `Meeting area stays at ${previousName}. ${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`
+  if (!previousName && nextName) return `Meeting area set to ${nextName} because ${reason}.`
+  if (previousName && !nextName) return `Meeting area cleared because ${reason}. It comes back once everyone has shared where they start.`
+  return describeChange(kind, name)
 }
 
 // The engine's work for pricing one area, for a host's "we already have a place". It asks the engine's travel function for each
