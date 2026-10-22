@@ -12,7 +12,7 @@ let api
 let id
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+  vi.setSystemTime(new Date('2026-10-09T10:00:00+08:00'))
   api = await loadApi()
   await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2004-03-18', homeAreaId: 'bishan' })
   ;({ id } = await api.createSession({ title: 'Saturday hangout', date: '2026-10-10', start: '12:00', end: '20:00' }))
@@ -37,11 +37,11 @@ const fieldsOf = async () => {
 
 describe('updateSession', () => {
   it('changes the title, day and times, and returns the session as the screens read it', async () => {
-    vi.setSystemTime(new Date('2026-10-09T10:05:00'))
+    vi.setSystemTime(new Date('2026-10-09T10:05:00+08:00'))
     const session = await api.updateSession(id, FIELDS)
     expect(session).toMatchObject(FIELDS)
     expect(await fieldsOf()).toEqual(FIELDS)
-    expect(session.updatedAt).toBe(new Date('2026-10-09T10:05:00').getTime())
+    expect(session.updatedAt).toBe(new Date('2026-10-09T10:05:00+08:00').getTime())
   })
 
   it('is saved, so a reload keeps it', async () => {

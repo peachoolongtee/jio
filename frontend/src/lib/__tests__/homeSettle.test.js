@@ -17,13 +17,13 @@ const at = (iso) => vi.setSystemTime(new Date(iso))
 
 beforeAll(async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
-  at('2026-10-09T10:00:00')
+  at('2026-10-09T10:00:00+08:00')
   stubPlanner(planner)
   await confirmedSave()
 })
 beforeEach(() => {
   stubPlanner(planner)
-  at('2026-10-10T15:00:00')
+  at('2026-10-10T15:00:00+08:00')
 })
 afterAll(() => {
   vi.useRealTimers()
@@ -31,7 +31,7 @@ afterAll(() => {
 })
 
 // The confirmed Saturday outing (12:00 to 20:00, Ian and Jonathan), the store loaded while it was still going, Home drawn after.
-// How to call: const t = await openHomeAt('2026-10-10T20:30:00')
+// How to call: const t = await openHomeAt('2026-10-10T20:30:00+08:00')
 async function openHomeAt(iso) {
   const { text } = await confirmedSave()
   const api = await loadApi({ data: { [STORAGE_KEY]: text } })
@@ -56,7 +56,7 @@ async function openHomeAt(iso) {
 
 describe('Home, opened with the list already loaded', () => {
   it('finishes a confirmed outing whose end time passed meanwhile, and pays it once', async () => {
-    const { api, events, view } = await openHomeAt('2026-10-10T20:30:00')
+    const { api, events, view } = await openHomeAt('2026-10-10T20:30:00+08:00')
     await until(() => events.sessions[0].status === 'completed')
     expect(events.sessions[0]).toMatchObject({ endedBy: 'auto', paid: true })
     expect(JSON.parse(api.storage.store[STORAGE_KEY]).sessions[0].status).toBe('completed')
@@ -64,7 +64,7 @@ describe('Home, opened with the list already loaded', () => {
   })
 
   it('leaves an outing that is still going as it is', async () => {
-    const { events, view } = await openHomeAt('2026-10-10T19:00:00')
+    const { events, view } = await openHomeAt('2026-10-10T19:00:00+08:00')
     await view.tick()
     await view.tick()
     expect(events.sessions[0].status).toBe('confirmed')

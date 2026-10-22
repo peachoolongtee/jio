@@ -22,7 +22,7 @@ afterAll(() => {
 })
 
 // The tour loaded at `iso`, the demo account signed in, nothing else.
-// How to call: const { api, tour } = await loadAt('2026-10-10T23:30:00')
+// How to call: const { api, tour } = await loadAt('2026-10-10T23:30:00+08:00')
 async function loadAt(iso) {
   const now = new Date(iso)
   vi.setSystemTime(now)
@@ -44,7 +44,7 @@ const story = (list, tour) => tour.manifest.story.map((id) => list.find((s) => s
 describe('the tour loaded late in the evening', () => {
   let loaded
   beforeAll(async () => {
-    loaded = await loadAt('2026-10-10T23:30:00')
+    loaded = await loadAt('2026-10-10T23:30:00+08:00')
   })
 
   it('has a "today" window that is already over when it is loaded', async () => {
@@ -65,7 +65,7 @@ describe('the tour loaded late in the evening', () => {
 
   it('still leaves it so on the next morning and days later, and pays nothing more', async () => {
     const before = JSON.parse(loaded.api.storage.store['jio-demo-v1']).stats.ian.points
-    for (const iso of ['2026-10-11T00:30:00', '2026-10-11T09:00:00', '2026-10-15T09:00:00']) {
+    for (const iso of ['2026-10-11T00:30:00+08:00', '2026-10-11T09:00:00+08:00', '2026-10-15T09:00:00+08:00']) {
       vi.setSystemTime(new Date(iso))
       const list = await loaded.api.listSessions()
       const [, , , , , confirmed, today] = story(list, loaded.tour)
@@ -80,8 +80,8 @@ describe('the tour loaded late in the evening', () => {
 
 describe('the tour loaded in the morning', () => {
   it('keeps "On the day" for the whole day, past the six hours of its window', async () => {
-    const { api, tour } = await loadAt('2026-10-10T08:00:00')
-    for (const iso of ['2026-10-10T08:05:00', '2026-10-10T13:31:00', '2026-10-10T22:00:00']) {
+    const { api, tour } = await loadAt('2026-10-10T08:00:00+08:00')
+    for (const iso of ['2026-10-10T08:05:00+08:00', '2026-10-10T13:31:00+08:00', '2026-10-10T22:00:00+08:00']) {
       vi.setSystemTime(new Date(iso))
       const list = await api.listSessions()
       const today = story(list, tour)[6]

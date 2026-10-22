@@ -1,7 +1,7 @@
 // Showcase data for the demo tools (development builds only): replaces the account's sessions with ten, one for each state
 // a screen can show, so every feature can be looked at in one sitting instead of being made by hand.
 //   const result = await loadShowcase()                                  // dates counted from this moment
-//   const result = await loadShowcase({ now: new Date('2026-10-10T14:20:00'), makePhotos: stubPhotos })   // in a test
+//   const result = await loadShowcase({ now: new Date('2026-10-10T14:20:00+08:00'), makePhotos: stubPhotos })   // in a test
 // It never writes the stored data itself. Every session is built through the public functions of lib/api.js, in the
 // order a real group would (create, invite, start, share locations, use the meeting area, vote, confirm, end, add
 // photos), so the data is always valid for the code as it is now, and the screens cannot tell it from the real thing.

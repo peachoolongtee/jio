@@ -1,7 +1,7 @@
 // The weather screens' data against the real backend, started in this process on its stub fixtures (no outside call): the
 // planner's answers, as plannerApi.js and api.js turn them, for a confirmed plan, the check on the day, the indoor swap and
 // Home's question. If the request or answer shapes drift apart from backend/src/routes/weather.js, this fails.
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../../../../backend/src/app.js'
 import { createHttp } from '../../../../backend/src/services/http.js'
 import * as api from '../api.js'
@@ -21,7 +21,15 @@ afterAll(() => server?.close())
 describe('a plan confirmed in the rain, and its day', () => {
   it('confirms a plan whose open-air stop has a rain warning, and keeps the weather of each stop', async () => {
     await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2004-03-18', homeAreaId: 'tampines' })
-    ;({ id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' }))
+    // Made the day before: a session cannot be made for a day that has passed. The clock is real again after, so the stops are in the
+    // past for the forecast the stand-in backend answers (which is what these tests read).
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-09T10:00:00+08:00'))
+    try {
+      ;({ id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' }))
+    } finally {
+      vi.useRealTimers()
+    }
     await api.inviteFriends(id, ['jonathan'])
     await api.startSession(id)
     await api.setLocation(id, HOST_ID, 'start', { areaId: 'tampines' })

@@ -105,13 +105,13 @@ describe('the meeting area with runners-up and named areas', () => {
   })
 
   it('is read by the data layer as a list of spots, with "about" times', async () => {
-    const { loadApi } = await import('../../../lib/__tests__/planFixture.js')
+    const { loadApi, tomorrow } = await import('../../../lib/__tests__/planFixture.js')
     const { DEMO_ACCOUNT } = await import('../demoAccount.js')
     const api = await loadApi()
     await api.signUp(DEMO_ACCOUNT)
     api.api.defaults.baseURL = 'http://127.0.0.1:1'
     const offline = useOfflinePlanner(api.api)
-    const { id } = await api.createSession({ title: 'Lunch', date: '2026-10-17', start: '12:00', end: '15:00' })
+    const { id } = await api.createSession({ title: 'Lunch', date: tomorrow(), start: '12:00', end: '15:00' })
     await api.inviteFriends(id, ['darius', 'faith'])
     await api.startSession(id)
     for (const [who, areaId] of Object.entries({ ian: 'toa-payoh', darius: 'bishan', faith: 'novena' })) await api.setLocation(id, who, 'start', { areaId })

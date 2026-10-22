@@ -32,7 +32,7 @@ export function isOpenDuring(venue, start, end) {
 // notBefore: the stop never starts earlier than this (minutes), leaving free time before it. The AI order on confirm
 // sets it, so a meal keeps its time and a shop waits until it opens. Moving or deleting a stop by hand clears it.
 // Each timed stop says whether the place is open for its whole time (`open`).
-export function buildItinerary(stops, modes = [], startAt = null) {
+export function buildItinerary(stops, modes = [], startAt = null, { windowEnd = null, stayUntil = null } = {}) {
   const legs = []
   const timed = []
   stops.forEach((stop, i) => {
@@ -46,7 +46,15 @@ export function buildItinerary(stops, modes = [], startAt = null) {
       start = prev.end + options[mode]
     }
     if (stop.notBefore != null) start = Math.max(start, stop.notBefore)
-    timed.push({ ...stop, start, end: start + stop.duration, open: isOpenDuring(stop.venue, start, start + stop.duration) })
+    const end = start + stop.duration
+    timed.push({
+      ...stop,
+      start,
+      end,
+      open: isOpenDuring(stop.venue, start, end),
+      withinWindow: windowEnd == null || end <= windowEnd,
+      withinStay: stayUntil == null || end <= stayUntil,
+    })
   })
   return { stops: timed, legs }
 }

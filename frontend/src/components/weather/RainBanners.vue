@@ -9,6 +9,7 @@
 import { computed, ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import BannerNote from '../ui/BannerNote.vue'
+import { singaporeMinutes } from '@/lib/session.js'
 import { useNow } from '@/lib/useNow.js'
 import { isDismissed, rainBannerText, rainWarnings, stateOf } from '@/lib/weatherText.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -23,7 +24,7 @@ const events = useEventsStore()
 const now = useNow()
 const isHost = computed(() => props.session.hostId === props.myId)
 const check = computed(() => events.weatherChecks[props.session.id])
-const nowMinutes = computed(() => now.value.getHours() * 60 + now.value.getMinutes())
+const nowMinutes = computed(() => singaporeMinutes(now.value))
 // The stops with a rain warning that the host has not dismissed (for this state of the forecast).
 const warnings = computed(() =>
   rainWarnings(props.itinerary?.stops, check.value, nowMinutes.value).filter((w) => !isDismissed(props.session.weatherDismissed, w)),

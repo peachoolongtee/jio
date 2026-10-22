@@ -33,7 +33,7 @@ const listOf = (...venues) => ({ places: venues.map((v) => card(v)), empty: null
 
 beforeAll(async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+  vi.setSystemTime(new Date('2026-10-09T10:00:00+08:00'))
   stubPlanner(planner)
   await confirmedSave()
 })
@@ -523,12 +523,13 @@ describe('the list for a session that is not under way', () => {
   })
 })
 
-// The clock, as a Date on the test day, at a number of minutes after midnight.
-const clockAt = (minutes) => new Date(2026, 9, 9, Math.floor(minutes / 60), minutes % 60)
 const hhmm = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+// The clock, as the instant on the test day in Singapore at a number of minutes after midnight (a fixed offset, so it is the same in any
+// time zone the tests run in).
+const clockAt = (minutes) => new Date(`2026-10-09T${hhmm(minutes)}:00+08:00`)
 
 describe('a stop added after the plan has ended', () => {
-  afterEach(() => vi.setSystemTime(new Date('2026-10-09T10:00:00')))
+  afterEach(() => vi.setSystemTime(new Date('2026-10-09T10:00:00+08:00')))
 
   // The plan under way, and the clock three hours after its last stop ends.
   async function late() {
