@@ -3,7 +3,7 @@
 // All of it takes plain session summaries (lib/api.js), so it is tested without a browser.
 import { differenceInCalendarDays, format, isValid, parseISO } from 'date-fns'
 import { proposalsOf } from './roam.js'
-import { isPaused, sessionPath } from './session.js'
+import { isPaused, sessionPath, singaporeDate } from './session.js'
 
 // How far apart, in px, pins that share a meeting area are drawn, so each one can still be tapped (a pin is 48px
 // wide). They fan out sideways around the area, centred on it.
@@ -14,7 +14,7 @@ const FINISHED = ['completed', 'cancelled']
 // The day a meetup falls on. The demo's session-day switch (isToday) moves it to today, as it does for the countdown.
 // How to call: dayOf({ date: '2026-10-10' }, new Date()) -> '2026-10-10'
 export function dayOf(session, now) {
-  return session.isToday ? format(now, 'yyyy-MM-dd') : session.date || ''
+  return session.isToday ? singaporeDate(now) : session.date || ''
 }
 
 // A missing date or time sorts after one that is there.
@@ -48,7 +48,7 @@ export function selectMeetup(meetups, id) {
 export function dayLabel(session, now = new Date()) {
   const day = parseISO(dayOf(session, now))
   if (!isValid(day)) return ''
-  const away = differenceInCalendarDays(day, now)
+  const away = differenceInCalendarDays(day, parseISO(singaporeDate(now)))
   if (away === 0) return 'Today'
   return away > 0 && away < 7 ? format(day, 'EEE') : format(day, 'd MMM')
 }

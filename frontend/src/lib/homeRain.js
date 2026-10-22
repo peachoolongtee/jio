@@ -5,8 +5,8 @@
 // that is about "the next two hours". With no such outing there is no request and no layer. The planner is asked about each
 // outing's meeting area (POST /api/weather/stops, at most 8 places), so rain is drawn around the places the person is going
 // to, not over all 47 forecast areas: the backend has no route that lists them.
-import { addDays, isValid, parseISO } from 'date-fns'
 import { dayOf } from './homeMeetups.js'
+import { singaporeInstant } from './session.js'
 import { homeRainText } from './weatherText.js'
 
 // How far ahead an outing counts, and the most places one request may ask about.
@@ -19,12 +19,13 @@ export function outingsSoon(meetups, now = new Date()) {
   return (meetups || []).filter((m) => {
     if (!m?.area) return false
     const day = dayOf(m, now)
-    const start = parseISO(`${day}T${m.start}`)
-    if (!isValid(start)) return false
-    let end = parseISO(`${day}T${m.end}`)
+    // The times are Singapore's, which has no daylight saving, so a day is 24 hours.
+    const start = singaporeInstant(day, m.start)
+    if (!start) return false
+    let end = singaporeInstant(day, m.end)
     // An end at or before the start is the next day ("22:00" to "01:00").
-    if (isValid(end) && end <= start) end = addDays(end, 1)
-    if (isValid(end) && now >= end) return false
+    if (end && end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000)
+    if (end && now >= end) return false
     return start.getTime() - now.getTime() <= SOON_MS
   })
 }

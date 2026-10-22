@@ -11,6 +11,16 @@ import { VENUES } from '../mock/venues.js'
 
 export const STORAGE_KEY = 'jio-demo-v1'
 
+// A day's length in milliseconds, for building a "tomorrow" from the clock.
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Tomorrow's date in Singapore (yyyy-MM-dd), on whatever the clock says now, for a test that needs a session the form would accept
+// and does not care which day it is. How to call: await api.createSession({ title: 'Lunch', date: tomorrow(), start: '12:00', end: '15:00' })
+export function tomorrow() {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(Date.now() + DAY_MS)).map(({ type, value }) => [type, value]))
+  return `${parts.year}-${parts.month}-${parts.day}`
+}
+
 // A local storage that holds a map. `limit` is the most characters the demo's own save may take: a bigger write
 // throws the way a full browser storage does. Small writes (the probe) always work.
 // How to call: const storage = fakeStorage({ limit: 50_000 }); vi.stubGlobal('localStorage', storage)
@@ -68,8 +78,24 @@ export function stubPlanner(planner) {
 // Built once per test file by running the real flow; the planner must be stubbed already. Returns { text, id },
 // the stored text and the session's id.
 let built = null
+// The session is made on 9 October 2026 for 10 October (a session cannot start in the past), so the clock is set to that moment while
+// it is built and put back after, whatever it was (real, or already faked by the test).
 export async function confirmedSave() {
   if (built) return built
+  const faked = vi.isFakeTimers()
+  const before = Date.now()
+  if (!faked) vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-09T10:00:00+08:00'))
+  try {
+    return await buildConfirmedSave()
+  } finally {
+    if (faked) vi.setSystemTime(before)
+    else vi.useRealTimers()
+  }
+}
+
+// How to call: const { text, id } = await buildConfirmedSave()
+async function buildConfirmedSave() {
   const api = await loadApi()
   await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2000-01-31', homeAreaId: 'tampines' })
   const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' })

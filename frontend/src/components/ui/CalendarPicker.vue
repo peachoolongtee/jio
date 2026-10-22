@@ -34,8 +34,9 @@ export function dayAfterKey(from, key, min = '', max = '') {
 //   <CalendarPicker v-model="date" label="Date" min="2026-10-09" max="2026-12-31" />
 // The arrows move a month at a time and stop at the months that hold `min` and `max`.
 import { computed, nextTick, ref, watch } from 'vue'
-import { endOfMonth, isSameMonth, startOfDay, startOfMonth } from 'date-fns'
+import { endOfMonth, isSameMonth, startOfMonth } from 'date-fns'
 import AppIcon from './AppIcon.vue'
+import { singaporeDate } from '@/lib/session.js'
 
 const model = defineModel({ type: String, default: '' })
 const props = defineProps({
@@ -47,11 +48,12 @@ const props = defineProps({
 
 const KEY = 'yyyy-MM-dd'
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-const todayKey = format(startOfDay(new Date()), KEY)
+// Today is Singapore's today, as a session's day is.
+const todayKey = singaporeDate()
 const minKey = computed(() => props.min || todayKey)
 
 // The month on show: the picked day's month, or this month.
-const month = ref(startOfMonth(model.value ? parseISO(model.value) : new Date()))
+const month = ref(startOfMonth(parseISO(model.value || todayKey)))
 watch(model, (v) => { if (v) month.value = startOfMonth(parseISO(v)) })
 
 const canBack = computed(() => format(month.value, 'yyyy-MM') > minKey.value.slice(0, 7))

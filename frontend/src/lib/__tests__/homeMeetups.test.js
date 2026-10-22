@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { FAN_PX, activeMeetups, dayLabel, nextStepFor, pinName, pinsFor, placeCard, routesFor, selectMeetup, whenLine, whereStands } from '../homeMeetups.js'
 
-const NOW = new Date('2026-10-10T09:00:00')
+const NOW = new Date('2026-10-10T09:00:00+08:00')
 const BUGIS = { id: 'bugis', name: 'Bugis', lat: 1.30065, lng: 103.85585 }
 const TAMPINES = { id: 'tampines', name: 'Tampines', lat: 1.35408, lng: 103.94535 }
 const start = (area) => ({ areaId: area.id, name: area.name, lat: area.lat, lng: area.lng })

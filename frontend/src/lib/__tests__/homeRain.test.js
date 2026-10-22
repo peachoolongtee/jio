@@ -13,7 +13,8 @@ const BISHAN = { id: 'bishan', name: 'Bishan', lat: 1.3508, lng: 103.8485 }
 const TAMPINES = { id: 'tampines', name: 'Tampines', lat: 1.3496, lng: 103.9568 }
 const meetup = (over = {}) => ({ id: 'm1', title: 'Saturday', status: 'confirmed', date: '2026-10-10', start: '15:00', end: '18:00', isToday: false, area: BISHAN, ...over })
 // Local time, as Home's clock is.
-const at = (hhmm, day = '2026-10-10') => new Date(`${day}T${hhmm}:00`)
+// An instant on a day in Singapore (a fixed offset, so it is the same in any time zone the tests run in).
+const at = (hhmm, day = '2026-10-10') => new Date(`${day}T${hhmm}:00+08:00`)
 
 describe('which outings count', () => {
   it('is an outing that starts within two hours, or is under way', () => {

@@ -3,6 +3,7 @@
 // demo account's search, which sends nothing anywhere. No network.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROFILE, boot } from './authFixture.js'
+import { tomorrow } from './planFixture.js'
 import { PEOPLE_SEARCH_DELAY_MS, createPeopleSearch, isSearchable, rankPeople, searchTerm } from '../peopleSearch.js'
 
 vi.mock('../plannerApi.js', () => ({
@@ -231,7 +232,7 @@ describe('the demo account\'s search', () => {
     expect((await api.searchPeople('dar')).map((p) => p.username)).toEqual(['darius', 'darryl'])
     expect(await api.searchPeople('ian')).toEqual([])
     // A person met in a session comes first among the rest.
-    const { id } = await api.createSession({ title: 'Saturday', date: '2099-10-10', start: '12:00', end: '20:00' })
+    const { id } = await api.createSession({ title: 'Saturday', date: tomorrow(), start: '12:00', end: '20:00' })
     await api.inviteFriends(id, ['darryl'])
     const found = await api.searchPeople('dar')
     expect(found.map((p) => [p.username, p.metBefore])).toEqual([['darryl', true], ['darius', false]])

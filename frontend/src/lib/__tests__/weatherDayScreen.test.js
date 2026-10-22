@@ -93,7 +93,7 @@ let state
 const pages = []
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
-  vi.setSystemTime(new Date('2026-10-10T10:00:00'))
+  vi.setSystemTime(new Date('2026-10-10T10:00:00+08:00'))
   pinia = createPinia()
   setActivePinia(pinia)
   events = useEventsStore()
@@ -363,7 +363,7 @@ describe('the rain banners', () => {
   })
 
   it('is not shown for a stop that has begun', async () => {
-    vi.setSystemTime(new Date('2026-10-10T15:30:00'))
+    vi.setSystemTime(new Date('2026-10-10T15:30:00+08:00'))
     expect(banners(await open())).toHaveLength(0)
   })
 

@@ -2,7 +2,8 @@
 // what Home lists for each checkpoint, where each checkpoint opens, and the stand-in planner. Everything is built through the
 // public functions of lib/api.js with the planner backend not there (a closed port), at a fixed moment.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { addDays, format } from 'date-fns'
+import { addDays, format, parseISO } from 'date-fns'
+import { singaporeDate } from '@/lib/session.js'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { loadApi } from '../../lib/__tests__/planFixture.js'
 import { activeMeetups } from '../../lib/homeMeetups.js'
@@ -13,11 +14,12 @@ import { DEMO_ACCOUNT } from '../../components/dev/demoAccount.js'
 
 vi.setConfig({ testTimeout: 90000, hookTimeout: 90000 })
 
-const NOW = new Date('2026-10-10T14:20:00')
+const NOW = new Date('2026-10-10T14:20:00+08:00')
 const stubPhotos = async (kinds, count) => Array.from({ length: count }, (_, i) => `data:image/jpeg;base64,AAAA${i}`)
 const DEAD_BACKEND = 'http://127.0.0.1:1'
 const FOUR = ['ian', 'darius', 'nicole', 'faith']
-const dateAt = (days) => format(addDays(NOW, days), 'yyyy-MM-dd')
+// The date `days` from now in Singapore, where a session's day is counted.
+const dateAt = (days) => format(addDays(parseISO(singaporeDate(NOW)), days), 'yyyy-MM-dd')
 
 beforeAll(() => {
   // The data layer reads the real clock for "today", so it is moved to the same moment as `now`. Only Date is faked.
