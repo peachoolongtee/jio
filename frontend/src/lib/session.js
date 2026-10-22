@@ -175,6 +175,30 @@ export function defaultDate(now = new Date()) {
 // it began. Only today can be past: any later day is not.
 // How to call: endHasPassed('2026-10-17', '15:00', new Date('2026-10-17T16:00')) -> true
 export function endHasPassed(date, end, now = new Date()) {
-  if (!date || !end || date !== format(now, 'yyyy-MM-dd')) return false
-  return end <= format(now, 'HH:mm')
+  if (!date || !end || date !== singaporeDate(now)) return false
+  return end <= singaporeTime(now)
+}
+
+// Session dates and times are Singapore local time, regardless of the browser's configured timezone.
+export function singaporeDate(now = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Singapore', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now).map(({ type, value }) => [type, value]))
+  return `${parts.year}-${parts.month}-${parts.day}`
+}
+
+function singaporeTime(now) {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now)
+}
+
+// Is a proposed start time already in the past in Singapore? A session may start later today, but not earlier.
+export function startHasPassed(date, start, now = new Date()) {
+  if (!date || !start || date !== singaporeDate(now)) return false
+  return start <= singaporeTime(now)
+}
+
+// The create form's implicit six-hour end, capped at 23:59. A start at 23:59 therefore has no positive-length window.
+export function defaultSessionEnd(start, end = '', duration = 360) {
+  if (end || !start) return end
+  const [hours, minutes] = start.split(':').map(Number)
+  const total = Math.min(hours * 60 + minutes + duration, 23 * 60 + 59)
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
 }

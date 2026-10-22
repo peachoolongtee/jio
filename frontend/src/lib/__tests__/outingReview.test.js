@@ -6,7 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { STORAGE_KEY, confirmedSave, fakeStorage, loadApi, loadConfirmed, stubPlanner } from './planFixture.js'
 import { VENUES } from '../mock/venues.js'
 import { POINTS_PER_MEETUP } from '../mock/people.js'
-import { NO_COINS, defaultDate, defaultTimes, dueEnding, earnsCoins, endHasPassed, overdueOuting } from '../session.js'
+import { NO_COINS, defaultDate, defaultSessionEnd, defaultTimes, dueEnding, earnsCoins, endHasPassed, singaporeDate, startHasPassed, overdueOuting } from '../session.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), roamNearby: vi.fn() }))
 vi.mock('../plannerApi.js', () => planner)
@@ -271,5 +271,23 @@ describe('the create form late at night', () => {
     expect(endHasPassed('2026-10-18', '03:00', now)).toBe(false)
     expect(endHasPassed('', '03:00', now)).toBe(false)
     expect(endHasPassed('2026-10-17', '', now)).toBe(false)
+  })
+
+  it('refuses a start that has passed in Singapore time', () => {
+    const now = clock('2026-10-17T08:30:00Z') // 16:30 in Singapore
+    expect(startHasPassed('2026-10-17', '16:00', now)).toBe(true)
+    expect(startHasPassed('2026-10-17', '17:00', now)).toBe(false)
+    expect(startHasPassed('2026-10-18', '09:00', now)).toBe(false)
+  })
+
+  it('uses Singapore’s calendar date across the UTC day boundary', () => {
+    expect(singaporeDate(new Date('2026-10-17T16:30:00Z'))).toBe('2026-10-18')
+    expect(singaporeDate(new Date('2026-10-17T15:59:00Z'))).toBe('2026-10-17')
+  })
+
+  it('does not give a 23:59 start a zero-length default session', () => {
+    expect(defaultSessionEnd('23:59')).toBe('23:59')
+    expect(defaultSessionEnd('23:30')).toBe('23:59')
+    expect(defaultSessionEnd('15:00')).toBe('21:00')
   })
 })

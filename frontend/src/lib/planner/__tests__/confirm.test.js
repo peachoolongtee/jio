@@ -115,6 +115,12 @@ describe('rearranging the itinerary', () => {
     expect(buildItinerary(stops).stops.every((s) => s.open)).toBe(true)
   })
 
+  it('flags retimed stops beyond the session window or group stay-until time', () => {
+    const timed = buildItinerary(stops, [], 900, { windowEnd: 1080, stayUntil: 1050 }).stops
+    expect(timed[0]).toMatchObject({ withinWindow: true, withinStay: true })
+    expect(timed[1]).toMatchObject({ withinWindow: false, withinStay: false })
+  })
+
   it('warns when the new last stop is far from an MRT station', async () => {
     const { endPoint } = await import('../itinerary.js')
     expect(endPoint(v('bishan-amk-park')).farFromMrt).toBe(true)

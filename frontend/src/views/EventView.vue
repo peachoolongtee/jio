@@ -412,7 +412,7 @@ async function endPlan() {
                       :area="stop.venue.area"
                       :image="placeImage(stop.venue)"
                       banner
-                      :warning="stop.open === false ? 'Closed at this time' : ''"
+                      :warning="stop.open === false ? 'Closed at this time' : stop.withinWindow === false ? 'Past the session end' : stop.withinStay === false ? 'Past the group’s stay-until time' : ''"
                       :mark="markOf(stop)"
                       :lifted="lifted || selected === stop.venue.id"
                     >

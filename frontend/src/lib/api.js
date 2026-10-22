@@ -16,7 +16,7 @@ import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
-import { dueEnding, earnsCoins, itineraryAction } from './session.js'
+import { dueEnding, earnsCoins, itineraryAction, singaporeDate } from './session.js'
 import { combineWeather, stateOf, venueSetting } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
@@ -673,7 +673,7 @@ const activeIds = (session) => session.members.filter((m) => m.state === 'joined
 const windowOf = (session) => ({ windowStart: P.toMinutes(session.start), windowEnd: P.toMinutes(session.end) })
 
 function todayKey() {
-  return format(new Date(), 'yyyy-MM-dd')
+  return singaporeDate()
 }
 
 function isSessionDay(session) {
@@ -3091,7 +3091,8 @@ export async function getItinerary(id) {
   if (!session.plan) return null
   const stops = session.plan.stops.map((s) => ({ ...s, venue: venueById(s.venueId) }))
   const startAt = session.plan.startAt ?? Math.min(...session.plan.stops.map((s) => s.plannedStart))
-  const { stops: timed, legs } = P.buildItinerary(stops, session.plan.modes, startAt)
+  const bounds = { windowEnd: windowOf(session).windowEnd, stayUntil: P.groupStayUntil(activePrefs(session), windowOf(session).windowEnd) }
+  const { stops: timed, legs } = P.buildItinerary(stops, session.plan.modes, startAt, bounds)
   const last = timed[timed.length - 1]?.venue || null
   const people = activeIds(session)
     .map((pid) => ({ id: pid, name: nameOf(pid), place: endPlaceOf(session, pid) }))
@@ -3102,7 +3103,7 @@ export async function getItinerary(id) {
   // How to call: keptWeather(timed[0]) -> { state: 'dry', ... } or null
   const keptWeather = (s) => session.confirmedRanking?.[s.slotId]?.[s.venue?.id]?.weather ?? null
   return {
-    stops: timed.map((s, index) => ({ index, slotId: s.slotId, category: s.category, venue: clone(s.venue), start: s.start, end: s.end, duration: s.duration, open: s.open, weather: keptWeather(s) })),
+    stops: timed.map((s, index) => ({ index, slotId: s.slotId, category: s.category, venue: clone(s.venue), start: s.start, end: s.end, duration: s.duration, open: s.open, withinWindow: s.withinWindow, withinStay: s.withinStay, weather: keptWeather(s) })),
     // Where the kept forecast came from, once for all stops, or null.
     weather: combineWeather(timed.map(keptWeather)),
     legs,
@@ -3442,7 +3443,9 @@ function assertRoamOpen(session) {
 function timedStops(session) {
   const { stops, modes = [] } = planOf(session)
   const startAt = session.plan.startAt ?? Math.min(...stops.map((s) => s.plannedStart))
-  return P.buildItinerary(stops.map((s) => ({ ...s, venue: venueById(s.venueId) })), modes, startAt).stops
+  const windowEnd = windowOf(session).windowEnd
+  const stayUntil = P.groupStayUntil(activePrefs(session), windowEnd)
+  return P.buildItinerary(stops.map((s) => ({ ...s, venue: venueById(s.venueId) })), modes, startAt, { windowEnd, stayUntil }).stops
 }
 
 // "What next?": ranked places near where the group is, for a plan that is under way. The list is centred on the meeting

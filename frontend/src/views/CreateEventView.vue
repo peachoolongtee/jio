@@ -28,9 +28,9 @@ import RadialTimePicker from '@/components/ui/RadialTimePicker.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import TextField from '@/components/ui/TextField.vue'
 import NotFoundView from './NotFoundView.vue'
-import { fromMinutes, toMinutes } from '@/lib/planner/format.js'
+import { toMinutes } from '@/lib/planner/format.js'
 import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
-import { defaultDate, defaultTimes, endHasPassed } from '@/lib/session.js'
+import { defaultDate, defaultSessionEnd, defaultTimes, endHasPassed, startHasPassed } from '@/lib/session.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -92,9 +92,10 @@ watch(() => props.id, (id) => { if (!id) return; filled = false; fill(session.va
 const today = startOfDay(new Date())
 const lastDay = format(addDays(today, 90), 'yyyy-MM-dd')
 // Without an end time the window runs six hours, up to midnight.
-const endValue = computed(() => end.value || (start.value ? fromMinutes(Math.min(toMinutes(start.value) + DEFAULT_LENGTH, 23 * 60 + 59)) : ''))
+const endValue = computed(() => defaultSessionEnd(start.value, end.value, DEFAULT_LENGTH))
 const endError = computed(() => {
-  if (start.value && end.value && toMinutes(end.value) <= toMinutes(start.value)) return 'End time must be after the start time.'
+  if (start.value && toMinutes(endValue.value) <= toMinutes(start.value)) return 'End time must be after the start time.'
+  if (startHasPassed(date.value, start.value)) return 'That start time has already passed today.'
   // Today, with an end that has gone: the outing would be over before it began.
   return endHasPassed(date.value, endValue.value) ? 'That time has already passed today.' : ''
 })

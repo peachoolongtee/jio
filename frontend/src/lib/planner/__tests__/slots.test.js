@@ -16,6 +16,14 @@ describe('slots', () => {
     expect(slots.map((s) => s.category)).not.toContain('drink')
   })
 
+  it('requires at least half of the responders to pick a category', () => {
+    const prefs = {
+      a: { categories: ['eat'] }, b: { categories: ['drink'] },
+      c: { categories: ['shop'] }, d: { categories: ['activity'] },
+    }
+    expect(buildSlots({ prefs, windowStart: 600, windowEnd: 1200 })).toEqual([])
+  })
+
   it('moves the other slots when one is deleted, and keeps it deleted', () => {
     const slots = buildSlots({ prefs: FRIEND_PICKS, ...window, deleted: ['shop'] })
     expect(slots.map((s) => s.category)).toEqual(['activity', 'eat'])

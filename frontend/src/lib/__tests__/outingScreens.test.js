@@ -199,6 +199,33 @@ describe('the create form late at night', () => {
     expect(next(view).disabled).toBe(false)
   })
 
+  it('holds Next when 23:59 would otherwise produce a zero-length session', async () => {
+    at('2026-10-17T23:30:00')
+    const view = await form()
+    view.type('input', 'Late supper')
+    const start = view.all('.tp__input')[0]
+    start.value = '23:59'
+    start.dispatch('input')
+    start.dispatch('blur')
+    await view.tick()
+    expect(view.text()).toContain('End time must be after the start time.')
+    expect(next(view).disabled).toBe(true)
+  })
+
+  it('holds Next when the selected start time has already passed in Singapore', async () => {
+    at('2026-10-17T08:20:00Z') // 16:20 in Singapore
+    const view = await form()
+    await view.click('[data-day="2026-10-17"]')
+    view.type('input', 'Afternoon tea')
+    const start = view.all('.tp__input')[0]
+    start.value = '16:00'
+    start.dispatch('input')
+    start.dispatch('blur')
+    await view.tick()
+    expect(view.text()).toContain('That start time has already passed today.')
+    expect(next(view).disabled).toBe(true)
+  })
+
   it('leaves the day to be chosen at 14:20, as before', async () => {
     const view = await form()
     view.type('input', 'Afternoon tea')
