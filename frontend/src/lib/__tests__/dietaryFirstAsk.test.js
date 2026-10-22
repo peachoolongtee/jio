@@ -35,7 +35,9 @@ describe('the dietary popup after sign-up', () => {
     await auth.answerDietAsk(['halal'])
     expect(auth.dietAsk).toBe(false)
     expect(auth.user.dietary).toEqual(['halal'])
-    await events.create({ title: 'Saturday', date: '2026-10-10', start: '12:00', end: '20:00' })
+    // Tomorrow in Singapore, so the session's day has not passed whenever the test runs (the past-day rule holds on every path).
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' })
+    await events.create({ title: 'Saturday', date: tomorrow, start: '12:00', end: '20:00' })
     expect(auth.dietAsk).toBe(false)
   })
 
