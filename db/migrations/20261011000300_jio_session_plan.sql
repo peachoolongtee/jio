@@ -78,7 +78,7 @@ alter table public.stops
 create table if not exists public.stop_proposals (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.sessions (id) on delete cascade,
-  venue_id text not null check (char_length(venue_id) between 1 and 80),
+  venue_id text not null check (char_length(venue_id) between 1 and 160),
   proposed_by uuid not null,
   status text not null default 'pending' check (status in ('pending', 'accepted', 'dismissed')),
   created_at timestamptz not null default now(),

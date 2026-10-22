@@ -487,7 +487,7 @@ alter table public.slots
 -- to be added, through the server, which checks that the venue exists and fits the slot.
 create table if not exists public.slot_options (
   slot_id uuid not null references public.slots (id) on delete cascade,
-  venue_id text not null check (char_length(venue_id) <= 80),
+  venue_id text not null check (char_length(venue_id) <= 160),
   rank integer,
   -- The planner's score. It is a penalty: lower is better.
   score numeric,
@@ -522,7 +522,7 @@ create table if not exists public.stops (
   seq integer not null check (seq >= 0),
   slot_id uuid references public.slots (id) on delete set null,
   category text check (category in ('eat', 'drink', 'shop', 'activity')),
-  venue_id text not null check (char_length(venue_id) <= 80),
+  venue_id text not null check (char_length(venue_id) <= 160),
   -- Minutes after midnight.
   planned_start_minute integer not null check (planned_start_minute between 0 and 1439),
   duration_minutes integer not null check (duration_minutes between 1 and 720),
@@ -631,7 +631,7 @@ create index if not exists spot_approvals_member_idx on public.spot_approvals (s
 create table if not exists public.stop_proposals (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.sessions (id) on delete cascade,
-  venue_id text not null check (char_length(venue_id) between 1 and 80),
+  venue_id text not null check (char_length(venue_id) between 1 and 160),
   proposed_by uuid not null,
   status text not null default 'pending' check (status in ('pending', 'accepted', 'dismissed')),
   created_at timestamptz not null default now(),

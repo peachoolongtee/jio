@@ -25,8 +25,10 @@
 //   GET    /api/venues?ids=a,b                                        E18
 // The confirm (E2) now makes the four slots with their places (the demo planner's answers, components/dev/offlinePlanner.js, ranked
 // around the meeting area), E1 in voting prices a pinned area and re-ranks an unpinned one (clearing the votes if it moved), and opting
-// out takes the person's votes. WHAT IS AN ASSUMPTION about the real server is marked "ASSUMED" below and listed in the report: the
-// answers' fields beyond the design's, what a slot's `details` and an option's `details` hold, and the texts of the banners.
+// out takes the person's votes. The answers' fields, what a slot's `details` and an option's `details` hold, and the banners' shape are
+// the real server's (backend/src/services/session-slots.js, checked by sharedVoting.backend.test.js, which runs the real backend on the
+// same stand-in database). What is simpler here than there is marked "SIMPLER" below: this server does not lay slots out by the day's
+// rules or rank with the real engine, and writes straight to tables instead of through apply_session_plan.
 //
 // Its rules are the design's: a write is applied only if the session still has the status and version it was worked out for
 // (otherwise 409 wrong_status and nothing is written: a late answer never undoes a confirmation), spots are changed as a
@@ -238,8 +240,9 @@ export function fakeSessionsServer(database) {
     return keep
   }
 
-  // Make the four slots of a session whose meeting area is `session.meeting_area_id`, with their places. ASSUMED: every category at once,
-  // in the order activity, shop, drink, eat, half an hour apart from the start of the session, as long as they fit.
+  // Make the four slots of a session whose meeting area is `session.meeting_area_id`, with their places. SIMPLER: every category at once,
+  // in the order activity, shop, drink, eat, half an hour apart from the start of the session, as long as they fit (the real server lays
+  // each kind out as if it were the only stop of the day: Eat near lunch or dinner, the others in the middle of the time the group can stay).
   // How to call: await buildSlots(id, { ...session, meeting_area_id: 'bugis' })
   async function buildSlots(id, session) {
     const start = toMinutes(String(session.start_time).slice(0, 5))
@@ -254,7 +257,7 @@ export function fakeSessionsServer(database) {
     return ORDER.length
   }
 
-  // The banner for votes that went, in the shape the server writes. ASSUMED: { text, at, votesCleared: true, byRadius?: true }.
+  // The banner for votes that went, in the shape the real server writes: { text, at, votesCleared: true, byRadius?: true } (`at` is stamped by the database's clock there).
   // How to call: votesBanner('Votes for places outside the new ring were cleared.', 3, { byRadius: true })(2) -> { banner: { ... } }
   const votesBanner = (text, lost, extra = {}) => (version) => (lost > 0 ? { banner: { text, at: Date.now() + version, votesCleared: true, ...extra } } : {})
 
@@ -425,7 +428,7 @@ export function fakeSessionsServer(database) {
       if (member.role === 'host') refuse(403, 'host_cannot_opt_out', 'The host cannot opt out.')
       if (member.state === 'opted_out') return { status: 200, body: { planVersion: session.plan_version, state: 'opted_out' } }
       if (session.status === 'voting') {
-        // ASSUMED (the design's E10): in voting the person's votes go and the area is worked out again without them.
+        // As the real server (E10): in voting the person's votes go and the area is worked out again without them.
         const loadedVoting = { status: session.status, version: session.plan_version }
         let repriced
         const version = await apply(id, loadedVoting, async () => {
@@ -466,7 +469,7 @@ export function fakeSessionsServer(database) {
       }, () => ({}))
       return { status: 200, body: { planVersion: version, state: 'joined' } }
     },
-    // E3: the slots and places worked out again from people's picks. ASSUMED: it changes nothing while no pick changed what is offered.
+    // E3: the slots and places worked out again from people's picks. As the real server: it changes nothing while no pick changed what is offered.
     async syncPlan(user, id) {
       const { session } = load(user, id)
       if (!['voting', 'inviting', 'locating'].includes(session.status)) refuse(409, 'wrong_status', 'The session has moved on.')
@@ -526,11 +529,11 @@ export function fakeSessionsServer(database) {
       }, () => ({}))
       return { status: 200, body: { planVersion: version, restored } }
     },
-    // E7: a member adds a place. ASSUMED answers: 201 { planVersion, added: true }, 200 { planVersion, added: false } when it was there.
+    // E7: a member adds a place. The real answers: 201 { planVersion, added: true }, 200 { planVersion, added: false } when it was there.
     async addOption(user, id, body, { slot: slotId }) {
       const { session } = load(user, id)
       const slot = voting(session, slotId)
-      if (typeof body.venueId !== 'string' || !body.venueId || body.venueId.length > 80) refuse(400, 'invalid_input', 'Send a place id.')
+      if (typeof body.venueId !== 'string' || !body.venueId || body.venueId.length > 160) refuse(400, 'invalid_input', 'Send a place id.')
       const have = optionsOf(slot.id)
       if (have.some((o) => o.venue_id === body.venueId)) return { status: 200, body: { planVersion: session.plan_version, added: false } }
       if (have.length >= OPTIONS_MAX) refuse(409, 'slot_full', 'A category holds up to 6 places.')
@@ -590,8 +593,8 @@ export function fakeSessionsServer(database) {
           await write({ kind: 'delete', table: 'slot_options', filters: [eq('slot_id', slot.id), eq('venue_id', fromId)] })
           return
         }
-        // ASSUMED (the design's E9): the votes follow the swapped place. The real function updates the option in place and the foreign key
-        // carries the votes; here the new place is written, the votes are moved to it, and the old one goes.
+        // SIMPLER: the real function renames the option row in place (the foreign key carries the votes along) and writes the new
+        // place's rank and details; here the new place is written, the votes are moved to it, and the old one goes. The result is the same.
         const made = await write({ kind: 'insert', table: 'slot_options', values: { slot_id: slot.id, venue_id: toId, source: option.source, added_by: option.added_by, ...optionValues(found, option.rank) } })
         if (made.error) throw new Error(made.error.message)
         await write({ kind: 'update', table: 'votes', values: { venue_id: toId }, filters: [eq('slot_id', slot.id), eq('venue_id', fromId)] })

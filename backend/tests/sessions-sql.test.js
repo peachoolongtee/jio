@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { loadPlanData } from '../src/db/venues.js'
+import { MAX } from '../src/routes/plan-schemas.js'
 
 // Guards on the SQL files of the session plan, which no test here can run (there is no Postgres): the migration and db/schema.sql carry
 // the same function, the test file numbers its steps without a gap, and every quote and bracket balances (a missing quote once stopped a
@@ -63,6 +65,31 @@ describe('the function in the migration and in db/schema.sql', () => {
     const sql = functionOf(read(MIGRATION))
     for (const hint of ['area_pinned', 'pin_without_confirm', 'host_member', 'needs_two_people', 'status_transition', 'slots_status', 'slot_missing']) expect(sql).toContain(`hint = '${hint}'`)
     for (const op of ['opt_out', 'rejoin', 'remove_member', 'suggest', 'unsuggest', 'clear_approvals', 'clear_suggestions', 'clear_votes', 'swap_option']) expect(sql).toContain(`when '${op}' then`)
+  })
+})
+
+describe('the limit on a place\'s id', () => {
+  // The 32 hawker centres saved from OneMap have ids of 86 characters, and are the places a halal group is offered, so the tables allow 160
+  // (the same as MAX.venueId in routes/plan-schemas.js, which the session routes and GET /api/venues use).
+  it('is 160 in every table that holds one, in a fresh build and in the migration, and nothing keeps 80', () => {
+    const schema = read('db/schema.sql')
+    const migration = read(MIGRATION)
+    expect(schema.match(/venue_id text not null check \(char_length\(venue_id\)[^)]*\)/g)).toEqual([
+      'venue_id text not null check (char_length(venue_id) <= 160)',
+      'venue_id text not null check (char_length(venue_id) <= 160)',
+      'venue_id text not null check (char_length(venue_id) between 1 and 160)',
+    ])
+    for (const table of ['slot_options', 'stops']) expect(migration).toContain(`add constraint ${table}_venue_id_check check (char_length(venue_id) <= 160)`)
+    expect(migration).toContain('alter table if exists public.stop_proposals')
+    expect(read('db/migrations/20261011000300_jio_session_plan.sql')).toContain('check (char_length(venue_id) between 1 and 160)')
+    for (const sql of [schema, migration, read('db/migrations/20261011000300_jio_session_plan.sql')]) expect(sql).not.toMatch(/char_length\(venue_id\)[^)]*\b80\b/)
+  })
+
+  it('is the same in the requests: MAX.venueId, the session routes and the saved places', () => {
+    expect(MAX.venueId).toBe(160)
+    const longest = Math.max(...loadPlanData().venues.map((v) => v.id.length))
+    expect(longest).toBeLessThanOrEqual(MAX.venueId)
+    expect(longest).toBeGreaterThan(80)
   })
 })
 

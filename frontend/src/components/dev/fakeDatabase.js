@@ -44,7 +44,12 @@
 // who is not a joined member going after it, `session.radius_meters`, a banner stamped by the database's clock, and the minutes of a
 // joined member counting as a change. The browser never calls the function; only the real backend, started in a test, does.
 // `session_member_needs(sid)` is here too (the service key only), over the needs given to `createDatabase` or `setNeeds`.
-// What it cannot make identical to Postgres is listed at the end of this comment.
+// Where it cannot be identical to Postgres (everything else in that function is a step-for-step port, and the same cases are in
+// db/tests/apply_session_plan.sql steps 77 onwards and lib/__tests__/fakeDatabase.votes.test.js): the size check on `slots.details`
+// is `octet_length(details::text) <= 4000` in the database (jsonb's text has a space after each colon and comma) and the length of
+// `JSON.stringify` here, so a value within a few percent of 4000 bytes can differ; `score` is a `numeric` there and a JavaScript
+// number here; `for update` row locks and a rolled-back transaction are replaced by running one call to the end and restoring the
+// tables on an error; and error texts are Postgres's only where the app reads them.
 //
 // Order of checks on an insert follows Postgres: a type error (a value that is not a uuid is 22P02, before anything else), the
 // BEFORE triggers (check_invite_insert, even for the server), the row-level "with check", then the constraints (foreign keys,

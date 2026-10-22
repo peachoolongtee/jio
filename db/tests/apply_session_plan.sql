@@ -5,7 +5,9 @@
 -- created inside the same transaction and everything rolled back, all 76 passed, and no function, user or session was left behind.
 -- Steps 77 onwards are stage 4's (db/migrations/20261022000000_jio_apply_session_plan_slots.sql): the slots and options as a
 -- difference, the votes that go with a member or a moved meeting area, the radius, the stamped banner, and the voting rules of a
--- browser. They have not been run against Postgres yet; the lead runs the whole file once the migration is applied.
+-- browser. Steps 140 to 150 are the venue id limit of the same migration: a place's id of 120 characters as an option, a vote, a swap
+-- and a stop, and 161 refused. They have not been run against Postgres yet (there is none here); the lead runs the whole file once
+-- the migration is applied, or in one transaction with the migration's statements before it.
 --
 -- How to run: after the migration (or a fresh build), run this whole file as ONE batch, in the SQL editor
 -- or with   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/apply_session_plan.sql
@@ -191,6 +193,9 @@ declare
   u uuid;
   tm jsonb;
   p jsonb;
+  -- The id of a saved hawker centre from OneMap is 86 characters; this one is 120, well past the old limit of 80.
+  long_id text := 'onemap_ssot_hawkercentres_' || repeat('x', 94);
+  ver bigint;
 begin
   -- ── Setup, as the project owner ─────────────────────────────────────
   foreach u in array array[host, g1, g2, g3, stranger] loop
@@ -793,6 +798,52 @@ begin
   perform pg_temp.as_admin();
   perform pg_temp.expect_text(139, 'each person has their own new minutes',
     format('select (select travel_minutes from public.session_members where session_id = %L and user_id = %L) || '' '' || (select travel_minutes from public.session_members where session_id = %L and user_id = %L)', s3, host, s3, g1), '14 6');
+
+  -- ── A place's id may be up to 160 characters ─────────────────────────
+  -- The 32 saved hawker centres have ids of 86 characters; a halal group is offered exactly those, so they must be options, votes and
+  -- stops. sl is voting with slot_eat offering A and B; g1 opted out at step 136, so g1 comes back first.
+  perform pg_temp.as_admin();
+  update public.session_members set state = 'joined' where session_id = sl and user_id = g1;
+  select plan_version into ver from public.sessions where id = sl;
+  p := jsonb_build_object('slots', jsonb_build_array(jsonb_build_object('category', 'eat', 'options', jsonb_build_array(
+        jsonb_build_object('venue_id', 'a', 'rank', 1, 'score', 5),
+        jsonb_build_object('venue_id', 'b', 'rank', 2, 'score', 6),
+        jsonb_build_object('venue_id', long_id, 'rank', 3, 'score', 7)))));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(140, 'a place with an id of 120 characters becomes an option',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L::jsonb)', sl, ver, p::text), (ver + 1)::text);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(141, 'it is stored whole',
+    format('select max(char_length(venue_id))::text from public.slot_options where slot_id = %L', slot_eat), '120');
+  perform pg_temp.as_user(g1);
+  perform pg_temp.expect_ok(142, 'a member votes for it', format('insert into public.votes (slot_id, user_id, venue_id) values (%L, %L, %L)', slot_eat, g1, long_id), 1);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(143, 'the vote is for the whole id',
+    format('select venue_id from public.votes where slot_id = %L and user_id = %L', slot_eat, g1), long_id);
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(144, 'a swap away from it is made in place',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L::jsonb)', sl, ver + 1,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'swap_option', 'category', 'eat', 'from', long_id, 'to', 'zz')))::text), (ver + 2)::text);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(145, 'and the vote followed it',
+    format('select venue_id from public.votes where slot_id = %L and user_id = %L', slot_eat, g1), 'zz');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(146, 'a swap back to the long id is made in place too',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L::jsonb)', sl, ver + 2,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'swap_option', 'category', 'eat', 'from', 'zz', 'to', long_id)))::text), (ver + 3)::text);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(147, 'and the vote is on the long id again',
+    format('select venue_id from public.votes where slot_id = %L and user_id = %L', slot_eat, g1), long_id);
+  perform pg_temp.as_server();
+  perform pg_temp.expect_error(148, 'an id of 161 characters is still not an option',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L::jsonb)', sl, ver + 3,
+           jsonb_build_object('slots', jsonb_build_array(jsonb_build_object('category', 'eat', 'options',
+             jsonb_build_array(jsonb_build_object('venue_id', repeat('y', 161), 'rank', 1)))))::text), '23514');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_ok(149, 'a stop may hold an id of 120 characters',
+    format('insert into public.stops (session_id, seq, venue_id, planned_start_minute, duration_minutes) values (%L, 0, %L, 720, 90)', sl, long_id), 1);
+  perform pg_temp.expect_error(150, 'but not 161',
+    format('insert into public.stops (session_id, seq, venue_id, planned_start_minute, duration_minutes) values (%L, 1, %L, 720, 90)', sl, repeat('y', 161)), '23514');
 
   raise notice 'ALL STEPS PASSED';
 end;

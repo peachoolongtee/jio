@@ -1,8 +1,14 @@
 -- Jio migration, stage 4 (server half): apply_session_plan() learns to write a session's slots and options, the radius, and the
 -- votes that go with a member or a moved meeting area.
 --
--- What it changes: one function, replaced (create or replace, same signature, same permissions). No table or column changes. It needs
--- 20261011000200 (slots.details) and the stage 3 function (20261020000000) applied.
+-- What it changes:
+--   1. The length limit of a place's id, raised from 80 to 160 characters on slot_options.venue_id and stops.venue_id (and on
+--      stop_proposals.venue_id when slice d is applied). The 32 hawker centres saved from OneMap have ids of 86 characters
+--      ('onemap_ssot_hawkercentres_<street>-<block>-<name>'), and they are the places a halal group is offered, so they must be able to be
+--      options. votes.venue_id has no check of its own: it is held to slot_options by its foreign key. The checks are replaced under the
+--      names Postgres gave them (<table>_venue_id_check), so db/schema.sql, which carries them inline, is the same.
+--   2. One function, replaced (create or replace, same signature, same permissions).
+-- It needs 20261011000200 (slots.details) and the stage 3 function (20261020000000) applied.
 --
 -- Everything stage 3 did is unchanged, and is tested again by db/tests/apply_session_plan.sql (steps 1 to 76 are the stage 3 steps,
 -- word for word). What is added, all optional parts of the patch:
@@ -40,13 +46,25 @@
 --
 -- Who may call it: the service role only (the server). A browser cannot.
 --
--- Run it once as ONE transaction. Idempotent (create or replace). db/schema.sql carries the same statement. Test it first with
+-- Run it once as ONE transaction. Idempotent (a check dropped if it is there and made again; create or replace). db/schema.sql carries the same statement. Test it first with
 -- db/tests/apply_session_plan.sql inside a transaction that rolls back: to try it before applying, put this file's statements
 -- and the test file's statements in one transaction, in that order, and drop the test file's own begin and rollback lines
 -- (or run the test after applying the migration, which is how the stage 3 function was tried).
 --
 -- How to call it (backend/src/db/sessions.js does this):
 --   const { data } = await serviceClient.rpc('apply_session_plan', { sid, expected_version: 4, expected_status: 'voting', patch })
+
+-- A place's id may be up to 160 characters. Each table is named once, so the existing check (80) is replaced in one statement; a table
+-- that is not on the project yet (stop_proposals comes with slice d, 20261011000300, which carries 160 already) is skipped.
+alter table public.slot_options
+  drop constraint if exists slot_options_venue_id_check,
+  add constraint slot_options_venue_id_check check (char_length(venue_id) <= 160);
+alter table public.stops
+  drop constraint if exists stops_venue_id_check,
+  add constraint stops_venue_id_check check (char_length(venue_id) <= 160);
+alter table if exists public.stop_proposals
+  drop constraint if exists stop_proposals_venue_id_check,
+  add constraint stop_proposals_venue_id_check check (char_length(venue_id) between 1 and 160);
 
 create or replace function public.apply_session_plan(sid uuid, expected_version bigint, expected_status text, patch jsonb)
 returns bigint
