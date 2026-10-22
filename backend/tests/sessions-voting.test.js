@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createSupabase } from '../src/db/supabase.js'
 import { loadPlanData } from '../src/db/venues.js'
+import { MAX } from '../src/routes/plan-schemas.js'
 import { createWeatherResolver } from '../src/planner/weather-window.js'
 import { createHttp } from '../src/services/http.js'
 import { createOneMap } from '../src/services/onemap.js'
@@ -8,7 +9,7 @@ import { createPlannerRuns } from '../src/services/planner-runs.js'
 import { createSessions } from '../src/services/sessions.js'
 import { MAX_ROUTED_TRIPS_PER_REQUEST } from '../src/services/travel-times.js'
 import { createWeather } from '../src/services/weather.js'
-import { createWorld, fakeSupabase, jwksFetch, SUPABASE_URL, userClient } from './helpers/fake-supabase.js'
+import { applySessionPlan, createWorld, fakeSupabase, jwksFetch, SUPABASE_URL, userClient } from './helpers/fake-supabase.js'
 import { addMember, addSession, GUEST, HOST, OTHER, SESSION, startSessionApp, STRANGER } from './helpers/session-app.js'
 
 // The voting endpoints (stage 4, server half), tested without the network: the slots and their places made at the host's confirm, E1 in
@@ -78,7 +79,8 @@ describe('the host\'s confirm makes the slots and their places (E2)', () => {
       for (const o of options) {
         expect(o.source).toBe('planner')
         expect(o.added_by).toBeNull()
-        expect(o.venue_id.length).toBeLessThanOrEqual(80)
+        // An option's id is held to the tables' limit (160: the saved hawker centres have ids of 86 characters), not the old 80.
+        expect(o.venue_id.length).toBeLessThanOrEqual(MAX.venueId)
         expect(Number.isFinite(o.score)).toBe(true)
         expect(o.details).toMatchObject({ approximate: expect.any(Boolean), reasons: expect.any(Array), explanation: expect.any(String) })
       }
@@ -807,13 +809,15 @@ describe('a late answer never overwrites a newer state', () => {
     expect(res.headers.get('retry-after')).toBe('1')
   })
 
-  it('a chosen area is never moved by a voting recompute, even when the write is told to', async () => {
+  it('a chosen area stays where it is when a start changes in voting, and the function refuses to move it even if told to', async () => {
     await start({ known: 'bugis' })
-    const sessions = world.sessions
-    expect(sessions[0].meeting_method).toBe('chosen')
+    expect(session().meeting_method).toBe('chosen')
     await setStart(HOST, 'woodlands')
     await t.call('POST', path('/meeting-area'), { trigger: 'start' }, HOST)
     expect(session()).toMatchObject({ meeting_area_id: 'bugis', meeting_method: 'chosen' })
+    const move = { session: { meeting: { area_id: 'orchard', method: 'chosen', max_minutes: 10, total_minutes: 20, count: 2, approximate: false } } }
+    expect(() => applySessionPlan(world, { sid: SESSION, expected_version: session().plan_version, expected_status: 'voting', patch: move })).toThrow(/chosen/)
+    expect(session()).toMatchObject({ meeting_area_id: 'bugis' })
   })
 })
 
@@ -844,5 +848,58 @@ describe('the line a session\'s writes wait in, in voting', () => {
     expect(writes().length - writesBefore).toBe(1)
     expect(new Set(answers.map((x) => x.planVersion)).size).toBe(1)
     expect(sessions.queue.busy()).toBe(0)
+  })
+})
+
+describe('the stand-in for apply_session_plan keeps the function\'s small rules (db/tests/apply_session_plan.sql steps 151 to 162)', () => {
+  const apply = (patch, version = session().plan_version) => applySessionPlan(world, { sid: SESSION, expected_version: version, expected_status: 'voting', patch })
+
+  it('a swap of a place for itself changes nothing: the place, its votes and the version stay', async () => {
+    await start({ known: 'bugis' })
+    const [venue] = idsOf('eat')
+    await vote(HOST, 'eat', venue)
+    const version = session().plan_version
+    expect(apply({ ops: [{ op: 'swap_option', category: 'eat', from: venue, to: venue }] })).toBe(version)
+    expect(idsOf('eat')).toContain(venue)
+    expect(votesOf('eat').map((v) => v.venue_id)).toEqual([venue])
+    expect(() => apply({ ops: [{ op: 'swap_option', category: 'shop-that-is-not-there', from: venue, to: venue }] })).toThrow(/no .* slot/)
+  })
+
+  it('refuses a part of the plan or of the session that it does not know, even from a late writer, and takes the ones it knows', async () => {
+    await start({ known: 'bugis' })
+    const version = session().plan_version
+    expect(() => apply({ slotz: [] })).toThrow(/slotz/)
+    expect(() => apply({ session: { radius: 1000 } })).toThrow(/radius/)
+    expect(() => apply({ session: [] })).toThrow()
+    expect(() => apply({ session: null })).toThrow()
+    expect(() => apply({ opz: [] }, version - 1)).toThrow(/opz/)
+    expect(session().plan_version).toBe(version)
+    expect(apply({ ops: [], slots: [], session: {}, loaded_at: null, recomputed: false, banner_text: null })).toBe(version)
+    // The error carries the code the SQL raises.
+    try {
+      apply({ slotz: [] })
+    } catch (err) {
+      expect(err.code).toBe('22023')
+    }
+  })
+
+  it('writes a member\'s minutes only where they differ', async () => {
+    await start({ known: 'bugis' })
+    const rows = world.session_members.filter((m) => m.session_id === SESSION)
+    const writes = new Map()
+    for (const row of rows) {
+      let value = row.travel_minutes ?? null
+      writes.set(row.user_id, 0)
+      Object.defineProperty(row, 'travel_minutes', { get: () => value, set: (next) => { value = next; writes.set(row.user_id, writes.get(row.user_id) + 1) }, enumerable: true, configurable: true })
+    }
+    const travel = Object.fromEntries(rows.map((m) => [m.user_id, 12]))
+    const meeting = (minutes) => ({ area_id: 'bugis', method: 'chosen', max_minutes: 12, total_minutes: 36, count: 3, approximate: false, travel: minutes })
+    apply({ session: { meeting: meeting(travel), banner: { text: 'First.' } } })
+    const first = new Map(writes)
+    apply({ session: { meeting: meeting(travel), banner: { text: 'Second.' } } })
+    expect(new Map(writes)).toEqual(first)
+    apply({ session: { meeting: meeting({ ...travel, [GUEST]: 14 }), banner: { text: 'Third.' } } })
+    expect(writes.get(GUEST)).toBe(first.get(GUEST) + 1)
+    expect(writes.get(HOST)).toBe(first.get(HOST))
   })
 })

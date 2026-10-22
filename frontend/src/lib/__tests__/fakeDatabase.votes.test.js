@@ -143,6 +143,56 @@ describe('what goes with what', () => {
     expect(slotId).toBeTruthy()
   })
 
+  it('does nothing for a swap of a place for itself: the place and its votes stay, and so does the version', () => {
+    const { db, vote, plan } = voting()
+    vote(A, 'v1')
+    vote(B, 'v2')
+    const version = db.tables.sessions[0].plan_version
+    expect(plan({ ops: [{ op: 'swap_option', category: 'eat', from: 'v1', to: 'v1' }] }).data).toBe(version)
+    expect(db.tables.slot_options.map((o) => o.venue_id).sort()).toEqual(['v1', 'v2'])
+    expect(db.tables.votes.map((v) => [v.user_id, v.venue_id]).sort()).toEqual([[A, 'v1'], [B, 'v2']].sort())
+    // A swap in a slot the session does not have is still refused, even for a place with itself.
+    expect(plan({ ops: [{ op: 'swap_option', category: 'shop', from: 'a', to: 'a' }] }).error).toMatchObject({ code: 'P0001', hint: 'slot_missing' })
+  })
+
+  it('refuses a part of the plan, or of its session part, that the function does not know, even from a stale writer', () => {
+    const { db, sid, plan } = voting()
+    const version = db.tables.sessions[0].plan_version
+    expect(plan({ slotz: [] }).error).toMatchObject({ code: '22023', message: expect.stringContaining('slotz') })
+    expect(plan({ session: { radius: 1000 } }).error).toMatchObject({ code: '22023', message: expect.stringContaining('radius') })
+    expect(plan({ session: [] }).error.code).toBe('22023')
+    expect(plan({ session: null }).error.code).toBe('22023')
+    const late = db.run({ as: SERVICE, kind: 'rpc', fn: 'apply_session_plan', args: { sid, expected_version: version - 1, expected_status: 'voting', patch: { opz: [] } } })
+    expect(late.error.code).toBe('22023')
+    expect(db.tables.sessions[0].plan_version).toBe(version)
+    // A plan made only of the parts it knows passes.
+    expect(plan({ ops: [], spots: [], slots: [], session: {}, loaded_at: null, recomputed: false, banner_text: null }).error).toBeNull()
+  })
+
+  it('writes a member\'s minutes only where they differ, so the row of a member who is unchanged is not touched', () => {
+    let clock = Date.parse('2026-10-21T10:00:00Z')
+    const db = createDatabase({ profiles: { [A]: profile('a'), [B]: profile('b') }, now: () => (clock += 1000) })
+    const sid = db.run({ as: A, kind: 'insert', table: 'sessions', values: { host_id: A, title: 'T', date: '2026-10-21', start_time: '12:00', end_time: '20:00' }, returning: true, columns: 'id' }).data[0].id
+    const { token } = db.run({ as: A, kind: 'insert', table: 'invites', values: { session_id: sid, created_by: A }, returning: true, columns: 'token' }).data[0]
+    db.run({ as: B, kind: 'rpc', fn: 'join_session', args: { invite_token: token } })
+    db.run({ as: SERVICE, kind: 'update', table: 'sessions', values: { status: 'locating' }, filters: [eq('id', sid)] })
+    const row = () => db.tables.sessions.find((x) => x.id === sid)
+    const apply = (patch) => db.run({ as: SERVICE, kind: 'rpc', fn: 'apply_session_plan', args: { sid, expected_version: row().plan_version, expected_status: row().status, patch } })
+    expect(apply({ session: { status: 'voting', meeting: MEETING } }).error).toBeNull()
+    const member = (id) => db.tables.session_members.find((m) => m.session_id === sid && m.user_id === id)
+    const touched = { a: member(A).updated_at, b: member(B).updated_at }
+    expect(member(A).travel_minutes).toBe(20)
+    // The same minutes with a new notice: the version goes up, no member row is written.
+    const before = Number(row().plan_version)
+    expect(apply({ session: { meeting: MEETING, banner: { text: 'Worked out again.' } } }).data).toBe(before + 1)
+    expect([member(A).updated_at, member(B).updated_at]).toEqual([touched.a, touched.b])
+    // One changed minute: that member's row only.
+    expect(apply({ session: { meeting: { ...MEETING, travel: { [A]: 20, [B]: 12 } } } }).data).toBe(before + 2)
+    expect(member(A).updated_at).toBe(touched.a)
+    expect(member(B).updated_at).not.toBe(touched.b)
+    expect(member(B).travel_minutes).toBe(12)
+  })
+
   it('merges a swap into a place that is already an option: the votes move to it and the old place goes', () => {
     const { db, vote, plan } = voting()
     vote(A, 'v1')

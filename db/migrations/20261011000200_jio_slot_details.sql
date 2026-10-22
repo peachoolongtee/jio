@@ -10,6 +10,10 @@
 -- nothing else: votes, slot_options and their rules already exist, and the new tables of slice b are not
 -- involved.
 --
+-- Folded into 20261022000000_jio_apply_session_plan_slots.sql (stage 4), which starts with this same statement, so one checksum-guarded
+-- apply of that file covers both. Apply either or both, in either order: the column add is idempotent, so the second one does nothing.
+-- A project that applied this one first is not changed by the stage 4 file's copy, and one that applies only the stage 4 file has the column.
+--
 -- Run it once as ONE transaction. Idempotent. db/schema.sql carries the same statement. Test it first with
 -- db/tests/slot_details_access.sql inside a transaction that rolls back.
 

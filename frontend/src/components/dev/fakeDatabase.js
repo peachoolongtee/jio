@@ -711,6 +711,14 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
   function applySessionPlan({ sid, expected_version: expectedVersion, expected_status: expectedStatus, patch }) {
     if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) throw new DbError('22023', 'The plan must be a JSON object.')
     const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key)
+    // A part of the plan the function does not know is refused, before the session is read, so a typo is never dropped without a word.
+    const unknownKey = Object.keys(patch).find((k) => !['ops', 'spots', 'slots', 'session', 'loaded_at', 'recomputed', 'banner_text'].includes(k))
+    if (unknownKey !== undefined) throw new DbError('22023', `The plan has a part this function does not know: ${unknownKey}.`)
+    if (has(patch, 'session')) {
+      if (patch.session === null || typeof patch.session !== 'object' || Array.isArray(patch.session)) throw new DbError('22023', 'The session part of the plan must be a JSON object.')
+      const unknownSessionKey = Object.keys(patch.session).find((k) => !['status', 'meeting', 'banner', 'radius_meters'].includes(k))
+      if (unknownSessionKey !== undefined) throw new DbError('22023', `The session part of the plan has a part this function does not know: ${unknownSessionKey}.`)
+    }
     const sp = patch.session ?? {}
     const meeting = sp.meeting
     const s = sessionOf(sid)
@@ -828,7 +836,9 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
         if (s.status !== 'voting') throw ruleBroken('slots_status', 'An option is swapped only while the session is voting.')
         const slot = tables.slots.find((sl) => sl.session_id === sid && sl.category === op.category)
         if (!slot) throw ruleBroken('slot_missing', `This session has no ${op.category} slot.`)
-        if (tables.slot_options.some((o) => o.slot_id === slot.id && o.venue_id === op.to)) {
+        if (op.from === op.to) {
+          // The same place: nothing to swap.
+        } else if (tables.slot_options.some((o) => o.slot_id === slot.id && o.venue_id === op.to)) {
           // The other place is already an option: the votes move to it and this one goes.
           const moved = tables.votes.filter((v) => v.slot_id === slot.id && v.venue_id === op.from)
           for (const vote of moved) {
@@ -1008,8 +1018,10 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
 
     // Each joined member's own minutes to the confirmed area.
     if (has(sp, 'meeting') && meeting && typeof meeting === 'object' && meeting.travel) {
+      // Only a member whose stored minutes differ is written (and so has their updated_at moved), as in the function.
       for (const m of tables.session_members.filter((row) => row.session_id === sid && row.state === 'joined')) {
-        changeMember(m, { travel_minutes: has(meeting.travel, m.user_id) ? Math.round(meeting.travel[m.user_id]) : null })
+        const minutes = has(meeting.travel, m.user_id) ? Math.round(meeting.travel[m.user_id]) : null
+        if ((m.travel_minutes ?? null) !== minutes) changeMember(m, { travel_minutes: minutes })
       }
     }
     s.status = newStatus

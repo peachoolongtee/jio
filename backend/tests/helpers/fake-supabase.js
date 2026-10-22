@@ -135,6 +135,10 @@ function checkOption(world, row) {
   if (row.added_by && !world.profiles.some((p) => sameValue(p.id, row.added_by))) bad('added_by is not a profile', '23503')
 }
 
+// The parts of a plan the function knows (anything else is refused with 22023), and of its session part.
+const PLAN_KEYS = ['ops', 'spots', 'slots', 'session', 'loaded_at', 'recomputed', 'banner_text']
+const SESSION_PLAN_KEYS = ['status', 'meeting', 'banner', 'radius_meters']
+
 // A JavaScript twin of apply_session_plan(sid, expected_version, expected_status, patch). Returns the new version, null when the
 // session moved on, or the current version when nothing changed. Throws a database error object for the rules and the checks.
 //
@@ -143,6 +147,14 @@ function checkOption(world, row) {
 export function applySessionPlan(world, { sid, expected_version: expectedVersion, expected_status: expectedStatus, patch }) {
   world.hooks.beforeApply?.({ sid, expectedVersion, expectedStatus, patch })
   if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) throw dbError('22023', 'The plan must be a JSON object.')
+  // A part of the plan the function does not know is refused, before the session is read (so a late write with a typo is refused too).
+  const unknownKey = Object.keys(patch).find((k) => !PLAN_KEYS.includes(k))
+  if (unknownKey !== undefined) throw dbError('22023', `The plan has a part this function does not know: ${unknownKey}.`)
+  if (Object.prototype.hasOwnProperty.call(patch, 'session')) {
+    if (patch.session === null || typeof patch.session !== 'object' || Array.isArray(patch.session)) throw dbError('22023', 'The session part of the plan must be a JSON object.')
+    const unknownSessionKey = Object.keys(patch.session).find((k) => !SESSION_PLAN_KEYS.includes(k))
+    if (unknownSessionKey !== undefined) throw dbError('22023', `The session part of the plan has a part this function does not know: ${unknownSessionKey}.`)
+  }
   const session = world.sessions.find((s) => sameValue(s.id, sid))
   if (world.staleApply > 0) {
     world.staleApply -= 1
@@ -299,7 +311,9 @@ function apply(world, session, patch) {
       if (session.status !== 'voting') throw dbError('P0001', 'An option is swapped only while the session is voting.', 'slots_status')
       const slot = slotsOfSession().find((x) => x.category === op.category)
       if (!slot) throw dbError('P0001', `This session has no ${op.category} slot.`, 'slot_missing')
-      if (world.slot_options.some((o) => o.slot_id === slot.id && o.venue_id === op.to)) {
+      if (op.from === op.to) {
+        // The same place: nothing to swap.
+      } else if (world.slot_options.some((o) => o.slot_id === slot.id && o.venue_id === op.to)) {
         // The other place is already an option: the votes move to it and this one goes.
         const moved = world.votes.filter((v) => v.slot_id === slot.id && v.venue_id === op.from)
         for (const v of moved) v.venue_id = op.to
@@ -463,8 +477,10 @@ function apply(world, session, patch) {
   if (!changed) return Number(session.plan_version)
 
   if (has(sp, 'meeting') && meeting && typeof meeting === 'object' && meeting.travel) {
+    // Only a member whose stored minutes differ is written, as in the function.
     for (const m of world.session_members.filter((row) => row.session_id === sid && row.state === 'joined')) {
-      m.travel_minutes = has(meeting.travel, m.user_id) ? Math.round(meeting.travel[m.user_id]) : null
+      const minutes = has(meeting.travel, m.user_id) ? Math.round(meeting.travel[m.user_id]) : null
+      if ((m.travel_minutes ?? null) !== minutes) m.travel_minutes = minutes
     }
   }
   session.status = newStatus

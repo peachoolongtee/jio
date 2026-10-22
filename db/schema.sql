@@ -649,6 +649,29 @@ create index if not exists stop_proposals_resolved_by_idx on public.stop_proposa
 create unique index if not exists stop_proposals_one_pending_idx
   on public.stop_proposals (session_id, venue_id) where status = 'pending';
 
+-- A place's id may be up to 160 characters (the 32 hawker centres saved from OneMap have ids of 86). The tables above carry that check
+-- inline, which a project built before stage 4 does not have (it has 80 on slot_options and stops). So, as in the migration
+-- 20261022000000, every check of the three tables that mentions venue_id is dropped by what it checks, whatever it is called, and the
+-- checks of 160 are made again under the names Postgres gives an inline check.
+do $venue_checks$
+declare
+  old_check record;
+begin
+  for old_check in
+    select con.conrelid::regclass as table_name, con.conname as check_name
+    from pg_constraint con
+    where con.contype = 'c'
+      and con.conrelid in (to_regclass('public.slot_options'), to_regclass('public.stops'), to_regclass('public.stop_proposals'))
+      and pg_get_constraintdef(con.oid) like '%venue_id%'
+  loop
+    execute format('alter table %s drop constraint %I', old_check.table_name, old_check.check_name);
+  end loop;
+end;
+$venue_checks$;
+alter table public.slot_options add constraint slot_options_venue_id_check check (char_length(venue_id) <= 160);
+alter table public.stops add constraint stops_venue_id_check check (char_length(venue_id) <= 160);
+alter table public.stop_proposals add constraint stop_proposals_venue_id_check check (char_length(venue_id) between 1 and 160);
+
 -- ── Fairness and routing ────────────────────────────────────────────────
 
 -- How far each person travelled for a session: in, between stops, and home. Written by the server
@@ -973,9 +996,31 @@ declare
   n_last boolean;
   n_deleted boolean;
   n_details jsonb;
+  unknown_key text;
 begin
   if patch is null or jsonb_typeof(patch) <> 'object' then
     raise exception 'The plan must be a JSON object.' using errcode = '22023';
+  end if;
+  -- A part of the plan this function does not know is refused, never dropped: a typo, or a server newer than this function, must be
+  -- told. (Checked before the session is read, so a stale write with a typo is refused too.)
+  select keys.k into unknown_key
+  from jsonb_object_keys(patch) as keys(k)
+  where keys.k not in ('ops', 'spots', 'slots', 'session', 'loaded_at', 'recomputed', 'banner_text')
+  limit 1;
+  if unknown_key is not null then
+    raise exception 'The plan has a part this function does not know: %.', unknown_key using errcode = '22023';
+  end if;
+  if patch ? 'session' then
+    if jsonb_typeof(patch -> 'session') <> 'object' then
+      raise exception 'The session part of the plan must be a JSON object.' using errcode = '22023';
+    end if;
+    select keys.k into unknown_key
+    from jsonb_object_keys(patch -> 'session') as keys(k)
+    where keys.k not in ('status', 'meeting', 'banner', 'radius_meters')
+    limit 1;
+    if unknown_key is not null then
+      raise exception 'The session part of the plan has a part this function does not know: %.', unknown_key using errcode = '22023';
+    end if;
   end if;
   sp := coalesce(patch -> 'session', '{}'::jsonb);
   meeting := sp -> 'meeting';
@@ -1102,7 +1147,11 @@ begin
         if v_slot is null then
           raise exception 'This session has no % slot.', op ->> 'category' using errcode = 'P0001', hint = 'slot_missing';
         end if;
-        if exists (select 1 from public.slot_options o where o.slot_id = v_slot and o.venue_id = op ->> 'to') then
+        if (op ->> 'from') is not distinct from (op ->> 'to') then
+          -- The same place: nothing to swap. (Without this the votes would move onto the place, and then the place would be deleted
+          -- as "the other one", taking the option and every vote with it.)
+          null;
+        elsif exists (select 1 from public.slot_options o where o.slot_id = v_slot and o.venue_id = op ->> 'to') then
           update public.votes v set venue_id = op ->> 'to' where v.slot_id = v_slot and v.venue_id = op ->> 'from';
           get diagnostics hit = row_count;
           if hit > 0 then changed := true; end if;
@@ -1272,6 +1321,10 @@ begin
           else null end
     );
   end if;
+  -- The banner rule (documented, deliberate): a notice is a change only where it differs from the stored one apart from its time ("at"),
+  -- so the same words sent again after a run that moved nothing are not written, keep their old time, and are not shown again to
+  -- someone who dismissed them; a different notice, or none ("banner": null), is a change. A notice sent without a time is stamped
+  -- with the database's clock when it is written; one sent with a time is written as it is.
   if sp ? 'banner' then
     banner_new := nullif(sp -> 'banner', 'null'::jsonb);
     -- A banner sent without its time is stamped by the database's clock when it is written, so a newer notice always has a later
@@ -1293,13 +1346,17 @@ begin
     return s.plan_version;
   end if;
 
-  -- Each joined member's own minutes to the confirmed area.
+  -- Each joined member's own minutes to the confirmed area, written only where they differ from the stored minutes, so a member's row
+  -- (and its updated_at) is not touched by a patch that repeats it.
   if sp ? 'meeting' and jsonb_typeof(meeting) = 'object' and meeting ? 'travel' then
     update public.session_members m
     set travel_minutes = case
       when (meeting -> 'travel') ? (m.user_id)::text then round(((meeting -> 'travel') ->> (m.user_id)::text)::numeric)::integer
       else null end
-    where m.session_id = sid and m.state = 'joined';
+    where m.session_id = sid and m.state = 'joined'
+      and m.travel_minutes is distinct from case
+        when (meeting -> 'travel') ? (m.user_id)::text then round(((meeting -> 'travel') ->> (m.user_id)::text)::numeric)::integer
+        else null end;
   end if;
 
   update public.sessions set

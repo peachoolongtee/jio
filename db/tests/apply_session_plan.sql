@@ -6,8 +6,11 @@
 -- Steps 77 onwards are stage 4's (db/migrations/20261022000000_jio_apply_session_plan_slots.sql): the slots and options as a
 -- difference, the votes that go with a member or a moved meeting area, the radius, the stamped banner, and the voting rules of a
 -- browser. Steps 140 to 150 are the venue id limit of the same migration: a place's id of 120 characters as an option, a vote, a swap
--- and a stop, and 161 refused. They have not been run against Postgres yet (there is none here); the lead runs the whole file once
--- the migration is applied, or in one transaction with the migration's statements before it.
+-- and a stop, and 161 refused. Steps 151 to 172 are its smaller rules: a swap of a place for itself changes nothing (151 and 152), a part
+-- of the plan or of the session that the function does not know is refused with 22023 (153 to 157), a member's minutes are written only
+-- where they differ (158 to 162), and the checks on a place's id are dropped by what they check, whatever they are called (163 to 172).
+-- They have not been run against Postgres yet (there is none here); the lead runs the whole file once the migration is applied, or in
+-- one transaction with the migration's statements before it.
 --
 -- How to run: after the migration (or a fresh build), run this whole file as ONE batch, in the SQL editor
 -- or with   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/apply_session_plan.sql
@@ -196,6 +199,26 @@ declare
   -- The id of a saved hawker centre from OneMap is 86 characters; this one is 120, well past the old limit of 80.
   long_id text := 'onemap_ssot_hawkercentres_' || repeat('x', 94);
   ver bigint;
+  -- The physical address of a member's row (it changes with every update of the row, even one that writes the same values).
+  tid_host text;
+  tid_g1 text;
+  -- The statement of the migration that drops the venue id checks by what they check (the same text; backend/tests/sessions-sql.test.js
+  -- compares the two).
+  drop_checks text := $sql$do $venue_checks$
+declare
+  old_check record;
+begin
+  for old_check in
+    select con.conrelid::regclass as table_name, con.conname as check_name
+    from pg_constraint con
+    where con.contype = 'c'
+      and con.conrelid in (to_regclass('public.slot_options'), to_regclass('public.stops'), to_regclass('public.stop_proposals'))
+      and pg_get_constraintdef(con.oid) like '%venue_id%'
+  loop
+    execute format('alter table %s drop constraint %I', old_check.table_name, old_check.check_name);
+  end loop;
+end;
+$venue_checks$$sql$;
 begin
   -- ── Setup, as the project owner ─────────────────────────────────────
   foreach u in array array[host, g1, g2, g3, stranger] loop
@@ -844,6 +867,82 @@ begin
     format('insert into public.stops (session_id, seq, venue_id, planned_start_minute, duration_minutes) values (%L, 0, %L, 720, 90)', sl, long_id), 1);
   perform pg_temp.expect_error(150, 'but not 161',
     format('insert into public.stops (session_id, seq, venue_id, planned_start_minute, duration_minutes) values (%L, 1, %L, 720, 90)', sl, repeat('y', 161)), '23514');
+
+  -- ── Smaller rules of the function ────────────────────────────────────
+  -- A swap of a place for itself is not a swap. sl is voting at version ver + 3, and g1's vote is on the long id (step 147).
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(151, 'a swap of a place for itself changes nothing and does not raise the version',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L::jsonb)', sl, ver + 3,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'swap_option', 'category', 'eat', 'from', long_id, 'to', long_id)))::text), (ver + 3)::text);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(152, 'the option is still there, and so is the vote for it',
+    format('select (select count(*) from public.slot_options where slot_id = %L and venue_id = %L) || '' '' || (select count(*) from public.votes where slot_id = %L and user_id = %L and venue_id = %L)',
+           slot_eat, long_id, slot_eat, g1, long_id), '1 1');
+
+  -- A part of the plan the function does not know is refused (22023), whatever else is in the plan.
+  perform pg_temp.as_server();
+  perform pg_temp.expect_error(153, 'a misspelt part of the plan is refused',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L)', sl, ver + 3, '{"slotz":[]}'), '22023', 'slotz');
+  perform pg_temp.expect_error(154, 'a misspelt part of the session is refused',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L)', sl, ver + 3, '{"session":{"radius":1000}}'), '22023', 'radius');
+  perform pg_temp.expect_error(155, 'a session that is not an object is refused',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L)', sl, ver + 3, '{"session":[]}'), '22023');
+  perform pg_temp.expect_error(156, 'a misspelt part is refused even when the write is too late to be made',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L)', sl, '{"opz":[]}'), '22023', 'opz');
+  perform pg_temp.expect_text(157, 'and a plan made only of the known parts passes the check (and, being late, answers null)',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L)', sl, '{"ops":[],"spots":[],"slots":[],"session":{},"loaded_at":null,"recomputed":false,"banner_text":null}'), 'null');
+
+  -- A member's minutes are written only where they differ. s3 is voting at version 6 with minutes 14 (the host) and 6 (g1) from step 138.
+  perform pg_temp.as_admin();
+  select ctid::text into tid_host from public.session_members where session_id = s3 and user_id = host;
+  select ctid::text into tid_g1 from public.session_members where session_id = s3 and user_id = g1;
+  p := jsonb_build_object('session', jsonb_build_object(
+    'banner', jsonb_build_object('text', 'The minutes were worked out again.'),
+    'meeting', jsonb_build_object('area_id', 'bugis', 'method', 'chosen', 'max_minutes', 11, 'total_minutes', 20, 'count', 2, 'approximate', false,
+      'travel', jsonb_build_object(host::text, 14, g1::text, 6))));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(158, 'a new notice with the same minutes raises the version',
+    format('select pg_temp.apply(%L, 6, ''voting'', %L::jsonb)', s3, p::text), '7');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(159, 'and neither member''s row was written again',
+    format('select ((select ctid::text from public.session_members where session_id = %L and user_id = %L) = %L'
+           || ' and (select ctid::text from public.session_members where session_id = %L and user_id = %L) = %L)::text', s3, host, tid_host, s3, g1, tid_g1), 'true');
+  p := jsonb_set(p, '{session}', (p -> 'session') - 'banner');
+  p := jsonb_set(p, '{session,meeting,travel}', jsonb_build_object(host::text, 14, g1::text, 9));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(160, 'one changed minute is written',
+    format('select pg_temp.apply(%L, 7, ''voting'', %L::jsonb)', s3, p::text), '8');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(161, 'to that member''s row only',
+    format('select ((select ctid::text from public.session_members where session_id = %L and user_id = %L) = %L'
+           || ' and (select ctid::text from public.session_members where session_id = %L and user_id = %L) <> %L)::text', s3, host, tid_host, s3, g1, tid_g1), 'true');
+  perform pg_temp.expect_text(162, 'and the minutes are 14 and 9',
+    format('select (select travel_minutes from public.session_members where session_id = %L and user_id = %L) || '' '' || (select travel_minutes from public.session_members where session_id = %L and user_id = %L)', s3, host, s3, g1), '14 9');
+
+  -- The checks on a place's id are dropped by what they check, whatever they are called. Two old-style checks of 80 are put back under
+  -- other names (not valid, so the rows of 120 characters above do not stop them), and the migration's statements run again.
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_ok(163, 'a check of 80 under another name is put on the options',
+    'alter table public.slot_options add constraint odd_name_for_a_limit check (char_length(venue_id) <= 80) not valid');
+  perform pg_temp.expect_ok(164, 'and on the stops',
+    'alter table public.stops add constraint another_odd_name check (char_length(venue_id) <= 80) not valid');
+  perform pg_temp.expect_count(165, 'the options now have two checks on the id',
+    'select count(*) from pg_constraint where contype = ''c'' and conrelid = ''public.slot_options''::regclass and pg_get_constraintdef(oid) like ''%venue_id%''', 2);
+  perform pg_temp.expect_ok(166, 'the migration''s block drops every check that mentions the id', drop_checks);
+  perform pg_temp.expect_count(167, 'none is left on the options',
+    'select count(*) from pg_constraint where contype = ''c'' and conrelid = ''public.slot_options''::regclass and pg_get_constraintdef(oid) like ''%venue_id%''', 0);
+  perform pg_temp.expect_count(168, 'none on the stops',
+    'select count(*) from pg_constraint where contype = ''c'' and conrelid = ''public.stops''::regclass and pg_get_constraintdef(oid) like ''%venue_id%''', 0);
+  perform pg_temp.expect_ok(169, 'the check of 160 is made again on the options',
+    'alter table public.slot_options add constraint slot_options_venue_id_check check (char_length(venue_id) <= 160)');
+  perform pg_temp.expect_ok(170, 'and on the stops',
+    'alter table public.stops add constraint stops_venue_id_check check (char_length(venue_id) <= 160)');
+  perform pg_temp.expect_text(171, 'each table has that one check on the id, and it is 160',
+    'select (select string_agg(conname || (pg_get_constraintdef(oid) like ''%160%'')::text, '','') from pg_constraint where contype = ''c'' and conrelid = ''public.slot_options''::regclass and pg_get_constraintdef(oid) like ''%venue_id%'')'
+    || ' || '' '' || (select string_agg(conname || (pg_get_constraintdef(oid) like ''%160%'')::text, '','') from pg_constraint where contype = ''c'' and conrelid = ''public.stops''::regclass and pg_get_constraintdef(oid) like ''%venue_id%'')',
+    'slot_options_venue_id_checktrue stops_venue_id_checktrue');
+  perform pg_temp.expect_error(172, 'and 161 is still refused',
+    format('insert into public.stops (session_id, seq, venue_id, planned_start_minute, duration_minutes) values (%L, 2, %L, 720, 90)', sl, repeat('y', 161)), '23514');
 
   raise notice 'ALL STEPS PASSED';
 end;

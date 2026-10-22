@@ -1,14 +1,25 @@
 -- Jio migration, stage 4 (server half): apply_session_plan() learns to write a session's slots and options, the radius, and the
 -- votes that go with a member or a moved meeting area.
 --
+-- THIS MIGRATION MUST BE APPLIED BEFORE THE STAGE 4 BACKEND RUNS ANYWHERE (a laptop, a preview, the deployed server). The backend sends
+-- slots, options, the radius and the voting ops through the function below, which the stage 3 function refuses (an operation it does not
+-- know) or ignores, and it stores a place's id of up to 160 characters, which the old checks refuse. Apply it once, as one transaction,
+-- with the checksum guard of the apply tool; this one file is the whole of stage 4's database changes.
+--
 -- What it changes:
+--   0. slots.details (the column added by 20261011000200_jio_slot_details.sql), folded in so that one apply covers stage 4. The column
+--      add is idempotent (`add column if not exists`), so a project that has applied 20261011000200 is not changed by it, and a project
+--      that has not gets the column, its shape check and nothing else. 20261011000200 stays in the folder as the slice c migration (and
+--      its access test, db/tests/slot_details_access.sql, still runs after either one); applying both, in either order, is safe.
 --   1. The length limit of a place's id, raised from 80 to 160 characters on slot_options.venue_id and stops.venue_id (and on
 --      stop_proposals.venue_id when slice d is applied). The 32 hawker centres saved from OneMap have ids of 86 characters
 --      ('onemap_ssot_hawkercentres_<street>-<block>-<name>'), and they are the places a halal group is offered, so they must be able to be
---      options. votes.venue_id has no check of its own: it is held to slot_options by its foreign key. The checks are replaced under the
---      names Postgres gave them (<table>_venue_id_check), so db/schema.sql, which carries them inline, is the same.
+--      options. votes.venue_id has no check of its own: it is held to slot_options by its foreign key. The old checks are dropped by what
+--      they check (every check constraint of those tables whose definition mentions venue_id, found through pg_constraint, whatever it is
+--      called), and the new ones are added under the names Postgres gives an inline check (<table>_venue_id_check), so db/schema.sql,
+--      which carries them inline, is the same.
 --   2. One function, replaced (create or replace, same signature, same permissions).
--- It needs 20261011000200 (slots.details) and the stage 3 function (20261020000000) applied.
+-- It needs the stage 3 function (20261020000000) applied. It does not need slice d (20261011000300).
 --
 -- Everything stage 3 did is unchanged, and is tested again by db/tests/apply_session_plan.sql (steps 1 to 76 are the stage 3 steps,
 -- word for word). What is added, all optional parts of the patch:
@@ -17,7 +28,9 @@
 --                { "op": "swap_option", "category": ..., "from": ..., "to": ... }
 --                                                                 a slot's option becomes another place, in place: its votes follow it.
 --                                                                 When "to" is already an option of the slot, the votes move to it and
---                                                                 "from" is deleted. Doing it again changes nothing.
+--                                                                 "from" is deleted. Doing it again changes nothing, and a swap with
+--                                                                 "from" equal to "to" changes nothing at all (it does not delete the
+--                                                                 option and its votes).
 --                opt_out and remove_member also delete the member's votes of this session (votes belong to the person, not to their
 --                membership, so no foreign key would take them).
 --   slots        the slots the session should have, one item per category, as a difference (never delete-everything-then-insert, which
@@ -37,6 +50,18 @@
 --                member whose minutes were never stored does not count, so a patch that repeats the stored figures still changes nothing.
 --                "banner" without "at" is stamped with the database's clock when it is written, and counts as a change only where it
 --                differs from the stored banner apart from "at". A banner with "at" is written as it was before.
+--                The banner rule, in full: the group sees a notice again (it has a later "at", and a member who dismissed the last one
+--                sees it) only when the notice is different, not when the server says the same thing twice; so a repeat of the same
+--                words after a change that moved nothing stays quiet, and taking the notice away ("banner": null) is a change like any other.
+--                The notice is written by this function only; the rule is deliberate and unchanged from the browser's own.
+--   Members' minutes: the minutes in "meeting"."travel" are written to a joined member's row only where they differ from the stored
+--                minutes, so a repeat never touches a row (and so never moves its updated_at, which the browser reads as "this person's
+--                start changed since the spots were priced").
+--
+-- The patch is checked first, before anything is read: a plan that is not an object, a part of it that this function does not know
+-- (anything but "ops", "spots", "slots", "session", "loaded_at", "recomputed" and "banner_text"), a "session" that is not an object, or
+-- a part of the session that it does not know (anything but "status", "meeting", "banner" and "radius_meters") is refused with errcode
+-- 22023, so a typo, or a server newer than this function, is never dropped without a word.
 --
 -- Rule 7 also covers the two new ops that act on slots and votes: clear_votes and swap_option are refused unless the stored status
 -- is voting (hint slots_status). A swap names a slot that does not exist: hint slot_missing.
@@ -46,7 +71,8 @@
 --
 -- Who may call it: the service role only (the server). A browser cannot.
 --
--- Run it once as ONE transaction. Idempotent (a check dropped if it is there and made again; create or replace). db/schema.sql carries the same statement. Test it first with
+-- Run it once as ONE transaction. Idempotent (a column added only if it is missing; the venue id checks dropped by what they check and made
+-- again; create or replace). db/schema.sql carries the same statements. Test it first with
 -- db/tests/apply_session_plan.sql inside a transaction that rolls back: to try it before applying, put this file's statements
 -- and the test file's statements in one transaction, in that order, and drop the test file's own begin and rollback lines
 -- (or run the test after applying the migration, which is how the stage 3 function was tried).
@@ -54,17 +80,34 @@
 -- How to call it (backend/src/db/sessions.js does this):
 --   const { data } = await serviceClient.rpc('apply_session_plan', { sid, expected_version: 4, expected_status: 'voting', patch })
 
--- A place's id may be up to 160 characters. Each table is named once, so the existing check (80) is replaced in one statement; a table
--- that is not on the project yet (stop_proposals comes with slice d, 20261011000300, which carries 160 already) is skipped.
-alter table public.slot_options
-  drop constraint if exists slot_options_venue_id_check,
-  add constraint slot_options_venue_id_check check (char_length(venue_id) <= 160);
-alter table public.stops
-  drop constraint if exists stops_venue_id_check,
-  add constraint stops_venue_id_check check (char_length(venue_id) <= 160);
-alter table if exists public.stop_proposals
-  drop constraint if exists stop_proposals_venue_id_check,
-  add constraint stop_proposals_venue_id_check check (char_length(venue_id) between 1 and 160);
+-- 0. What the planner said about a slot as a whole (20261011000200, folded in). A project that has the column is left as it is: when the
+-- column exists, Postgres skips the whole clause, shape check included.
+alter table public.slots
+  add column if not exists details jsonb not null default '{}'
+    constraint slots_details_shape check (jsonb_typeof(details) = 'object' and octet_length(details::text) <= 4000);
+
+-- 1. A place's id may be up to 160 characters. Every check of slot_options, stops and stop_proposals that mentions venue_id is dropped by
+-- its definition, whatever it is called (the live project holds exactly slot_options_venue_id_check and stops_venue_id_check, both of
+-- 80), and the checks of 160 are made under the names Postgres gives an inline check. A table that is not on the project yet
+-- (stop_proposals comes with slice d, 20261011000300, which carries 160 already) is skipped.
+do $venue_checks$
+declare
+  old_check record;
+begin
+  for old_check in
+    select con.conrelid::regclass as table_name, con.conname as check_name
+    from pg_constraint con
+    where con.contype = 'c'
+      and con.conrelid in (to_regclass('public.slot_options'), to_regclass('public.stops'), to_regclass('public.stop_proposals'))
+      and pg_get_constraintdef(con.oid) like '%venue_id%'
+  loop
+    execute format('alter table %s drop constraint %I', old_check.table_name, old_check.check_name);
+  end loop;
+end;
+$venue_checks$;
+alter table public.slot_options add constraint slot_options_venue_id_check check (char_length(venue_id) <= 160);
+alter table public.stops add constraint stops_venue_id_check check (char_length(venue_id) <= 160);
+alter table if exists public.stop_proposals add constraint stop_proposals_venue_id_check check (char_length(venue_id) between 1 and 160);
 
 create or replace function public.apply_session_plan(sid uuid, expected_version bigint, expected_status text, patch jsonb)
 returns bigint
@@ -98,9 +141,31 @@ declare
   n_last boolean;
   n_deleted boolean;
   n_details jsonb;
+  unknown_key text;
 begin
   if patch is null or jsonb_typeof(patch) <> 'object' then
     raise exception 'The plan must be a JSON object.' using errcode = '22023';
+  end if;
+  -- A part of the plan this function does not know is refused, never dropped: a typo, or a server newer than this function, must be
+  -- told. (Checked before the session is read, so a stale write with a typo is refused too.)
+  select keys.k into unknown_key
+  from jsonb_object_keys(patch) as keys(k)
+  where keys.k not in ('ops', 'spots', 'slots', 'session', 'loaded_at', 'recomputed', 'banner_text')
+  limit 1;
+  if unknown_key is not null then
+    raise exception 'The plan has a part this function does not know: %.', unknown_key using errcode = '22023';
+  end if;
+  if patch ? 'session' then
+    if jsonb_typeof(patch -> 'session') <> 'object' then
+      raise exception 'The session part of the plan must be a JSON object.' using errcode = '22023';
+    end if;
+    select keys.k into unknown_key
+    from jsonb_object_keys(patch -> 'session') as keys(k)
+    where keys.k not in ('status', 'meeting', 'banner', 'radius_meters')
+    limit 1;
+    if unknown_key is not null then
+      raise exception 'The session part of the plan has a part this function does not know: %.', unknown_key using errcode = '22023';
+    end if;
   end if;
   sp := coalesce(patch -> 'session', '{}'::jsonb);
   meeting := sp -> 'meeting';
@@ -227,7 +292,11 @@ begin
         if v_slot is null then
           raise exception 'This session has no % slot.', op ->> 'category' using errcode = 'P0001', hint = 'slot_missing';
         end if;
-        if exists (select 1 from public.slot_options o where o.slot_id = v_slot and o.venue_id = op ->> 'to') then
+        if (op ->> 'from') is not distinct from (op ->> 'to') then
+          -- The same place: nothing to swap. (Without this the votes would move onto the place, and then the place would be deleted
+          -- as "the other one", taking the option and every vote with it.)
+          null;
+        elsif exists (select 1 from public.slot_options o where o.slot_id = v_slot and o.venue_id = op ->> 'to') then
           update public.votes v set venue_id = op ->> 'to' where v.slot_id = v_slot and v.venue_id = op ->> 'from';
           get diagnostics hit = row_count;
           if hit > 0 then changed := true; end if;
@@ -397,6 +466,10 @@ begin
           else null end
     );
   end if;
+  -- The banner rule (documented, deliberate): a notice is a change only where it differs from the stored one apart from its time ("at"),
+  -- so the same words sent again after a run that moved nothing are not written, keep their old time, and are not shown again to
+  -- someone who dismissed them; a different notice, or none ("banner": null), is a change. A notice sent without a time is stamped
+  -- with the database's clock when it is written; one sent with a time is written as it is.
   if sp ? 'banner' then
     banner_new := nullif(sp -> 'banner', 'null'::jsonb);
     -- A banner sent without its time is stamped by the database's clock when it is written, so a newer notice always has a later
@@ -418,13 +491,17 @@ begin
     return s.plan_version;
   end if;
 
-  -- Each joined member's own minutes to the confirmed area.
+  -- Each joined member's own minutes to the confirmed area, written only where they differ from the stored minutes, so a member's row
+  -- (and its updated_at) is not touched by a patch that repeats it.
   if sp ? 'meeting' and jsonb_typeof(meeting) = 'object' and meeting ? 'travel' then
     update public.session_members m
     set travel_minutes = case
       when (meeting -> 'travel') ? (m.user_id)::text then round(((meeting -> 'travel') ->> (m.user_id)::text)::numeric)::integer
       else null end
-    where m.session_id = sid and m.state = 'joined';
+    where m.session_id = sid and m.state = 'joined'
+      and m.travel_minutes is distinct from case
+        when (meeting -> 'travel') ? (m.user_id)::text then round(((meeting -> 'travel') ->> (m.user_id)::text)::numeric)::integer
+        else null end;
   end if;
 
   update public.sessions set

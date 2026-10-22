@@ -61,6 +61,26 @@ describe('the function in the migration and in db/schema.sql', () => {
     }
   })
 
+  it('adds slots.details itself, so that one apply covers stage 4 (20261011000200 folded in)', () => {
+    const migration = read(MIGRATION)
+    const slice = read('db/migrations/20261011000200_jio_slot_details.sql')
+    const addColumn = (sql) => /alter table public\.slots\s+add column if not exists details jsonb not null default '\{\}'\s+constraint slots_details_shape check \([^;]*\);/.exec(sql)?.[0].replace(/\s+/g, ' ')
+    expect(addColumn(migration)).toBeTruthy()
+    expect(addColumn(migration)).toBe(addColumn(slice))
+    expect(migration.indexOf('add column if not exists details')).toBeLessThan(migration.indexOf('do $venue_checks$'))
+    expect(migration).toContain('MUST BE APPLIED BEFORE THE STAGE 4 BACKEND RUNS')
+    expect(migration).toContain('20261011000200')
+    expect(slice).toContain('20261022000000')
+  })
+
+  it('refuses a part of the plan it does not know, ignores a swap of a place for itself and writes only the minutes that differ', () => {
+    const sql = functionOf(read(MIGRATION))
+    expect(sql).toContain("keys.k not in ('ops', 'spots', 'slots', 'session', 'loaded_at', 'recomputed', 'banner_text')")
+    expect(sql).toContain("keys.k not in ('status', 'meeting', 'banner', 'radius_meters')")
+    expect(sql).toContain("if (op ->> 'from') is not distinct from (op ->> 'to') then")
+    expect(sql).toMatch(/and m\.travel_minutes is distinct from case/)
+  })
+
   it('keeps every rule of stage 3 and adds the slot rules', () => {
     const sql = functionOf(read(MIGRATION))
     for (const hint of ['area_pinned', 'pin_without_confirm', 'host_member', 'needs_two_people', 'status_transition', 'slots_status', 'slot_missing']) expect(sql).toContain(`hint = '${hint}'`)
@@ -79,10 +99,29 @@ describe('the limit on a place\'s id', () => {
       'venue_id text not null check (char_length(venue_id) <= 160)',
       'venue_id text not null check (char_length(venue_id) between 1 and 160)',
     ])
-    for (const table of ['slot_options', 'stops']) expect(migration).toContain(`add constraint ${table}_venue_id_check check (char_length(venue_id) <= 160)`)
-    expect(migration).toContain('alter table if exists public.stop_proposals')
+    for (const table of ['slot_options', 'stops']) expect(migration).toContain(`alter table public.${table} add constraint ${table}_venue_id_check check (char_length(venue_id) <= 160)`)
+    expect(migration).toContain('alter table if exists public.stop_proposals add constraint stop_proposals_venue_id_check')
     expect(read('db/migrations/20261011000300_jio_session_plan.sql')).toContain('check (char_length(venue_id) between 1 and 160)')
     for (const sql of [schema, migration, read('db/migrations/20261011000300_jio_session_plan.sql')]) expect(sql).not.toMatch(/char_length\(venue_id\)[^)]*\b80\b/)
+  })
+
+  // The old checks (80) are found by what they check, not by name, so a check under any name goes: the migration, db/schema.sql (for a
+  // project built before stage 4) and the SQL test run one and the same block.
+  const dropBlock = (sql) => {
+    const start = sql.indexOf('do $venue_checks$')
+    return sql.slice(start, sql.indexOf('$venue_checks$;', start + 20) + '$venue_checks$;'.length)
+  }
+
+  it('drops every check that mentions the id by its definition, in the migration, db/schema.sql and the test', () => {
+    const migration = read(MIGRATION)
+    const block = dropBlock(migration)
+    expect(block).toContain("pg_get_constraintdef(con.oid) like '%venue_id%'")
+    expect(block).toContain("to_regclass('public.slot_options'), to_regclass('public.stops'), to_regclass('public.stop_proposals')")
+    expect(migration).not.toMatch(/drop constraint if exists \w*venue_id_check/)
+    expect(dropBlock(read('db/schema.sql'))).toBe(block)
+    // The test holds the statement without its closing semicolon, inside a dollar quote of its own.
+    const test = read('db/tests/apply_session_plan.sql')
+    expect(test).toContain(`$sql$${block.slice(0, -1)}$sql$`)
   })
 
   it('is the same in the requests: MAX.venueId, the session routes and the saved places', () => {
@@ -109,6 +148,6 @@ describe('the SQL files', () => {
     const sql = read('db/tests/apply_session_plan.sql').replace(/^\s*--.*$/gm, '')
     const steps = [...sql.matchAll(/pg_temp\.expect_(?:error|ok|count|text|hint)\((\d+),/g)].map((m) => Number(m[1]))
     expect(steps).toEqual(Array.from({ length: steps.length }, (_, i) => i + 1))
-    expect(steps.length).toBeGreaterThan(76)
+    expect(steps.length).toBeGreaterThan(172 - 1)
   })
 })
