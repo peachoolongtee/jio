@@ -1,5 +1,5 @@
-// The app-wide spinner: it shows only after 600 ms of unbroken loading, stays at least 400 ms, hides when the last piece of
-// work ends, and holds the page still while it is up, for at most 20 seconds.
+// The busy counter behind the Locate map's spinner: it shows only after 600 ms of unbroken loading, stays at least 400 ms, hides when
+// the last piece of work ends, and holds the map still while it is up, for at most 20 seconds.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 let lib
@@ -109,8 +109,8 @@ describe('when the spinner shows and hides', () => {
   })
 })
 
-describe('holding the page still while the spinner shows', () => {
-  it('holds the page exactly while the spinner is up, and never before it shows', () => {
+describe('holding the map still while the spinner shows', () => {
+  it('holds the map exactly while the spinner is up, and never before it shows', () => {
     const stop = lib.startLoading()
     vi.advanceTimersByTime(lib.SLOW_MS - 1)
     // Nothing on screen yet, so nothing is held: a person can still tap.
@@ -122,7 +122,7 @@ describe('holding the page still while the spinner shows', () => {
     expect([lib.pageSlow.value, lib.pageBlocking.value]).toEqual([false, false])
   })
 
-  it('lets the page be used again after 20 seconds, while the spinner stays until the work ends', () => {
+  it('lets the map be used again after 20 seconds, while the spinner stays until the work ends', () => {
     expect(lib.MAX_BLOCK_MS).toBe(20000)
     const stop = lib.startLoading()
     vi.advanceTimersByTime(lib.SLOW_MS + lib.MAX_BLOCK_MS - 1)
