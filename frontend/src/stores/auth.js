@@ -20,6 +20,34 @@ const emptyDraft = () => ({
   friends: ['darius', 'jonathan', 'nicole', 'faith', 'darryl'],
 })
 
+// "Any dietary needs?" is asked once per account, and the answer is remembered in this browser (not in the account, which has no
+// place for it without a schema change). A person who already has a dietary need saved has been asked, so they are not asked.
+const DIET_ASKED_KEY = 'jio-diet-asked'
+
+// Has this account been asked about dietary needs? A saved need counts as asked. Storage that cannot be read counts as not
+// asked: the question can be skipped, and the person can still set their needs on the profile.
+// How to call: dietAsked({ id: 'u1', dietary: [] }) -> false
+function dietAsked(account) {
+  if (!account) return true
+  if (Array.isArray(account.dietary) && account.dietary.length) return true
+  try {
+    return localStorage.getItem(`${DIET_ASKED_KEY}:${account.id}`) === '1'
+  } catch {
+    return false
+  }
+}
+
+// Remembers that this account has been asked. A storage that cannot be written is ignored: the question may come back.
+// How to call: rememberDietAsked({ id: 'u1' })
+function rememberDietAsked(account) {
+  if (!account?.id) return
+  try {
+    localStorage.setItem(`${DIET_ASKED_KEY}:${account.id}`, '1')
+  } catch {
+    // Not remembered.
+  }
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const user = ref(null)
   const ready = ref(false)
@@ -60,6 +88,7 @@ export const useAuthStore = defineStore('auth', () => {
       try {
         const { user: found, unreachable } = await api.startUser()
         user.value = found
+        askDietIfNew()
         recovering.value = api.passwordRecovery()
         if (found && unreachable) syncNotice.value = MESSAGES.unreachable
         ready.value = true
@@ -106,6 +135,7 @@ export const useAuthStore = defineStore('auth', () => {
     pendingConfirmation.value = null
     syncNotice.value = ''
     user.value = await api.signIn({ email, password })
+    askDietIfNew()
     return user.value
   }
 
@@ -172,15 +202,27 @@ export const useAuthStore = defineStore('auth', () => {
     syncNotice.value = syncError || ''
   }
 
-  // "Any dietary needs?" (DietaryFirstAsk, ticket #107): asked once, in a popup, right after an account is made, in place of a
-  // question in sign-up. True while it waits for an answer.
+  // "Any dietary needs?" (DietaryFirstAsk, ticket #107): asked once per account, in a popup. It opens right after sign-up, and
+  // for a real account that was never asked (an account made on another device, or one whose sign-up needed its email
+  // confirmed first) on its first sign-in or start-up here. True while it waits for an answer; a reload keeps it true until the
+  // question is answered or skipped, because it is asked again unless the answer was remembered (see dietAsked).
   const dietAsk = ref(false)
-  // The answer: the needs picked, saved on the profile, or none for "None, skip". Either way the popup closes for good.
+
+  // Opens the question for a real account that has not been asked. Local and demo accounts are asked only at sign-up.
+  // How to call: askDietIfNew()
+  function askDietIfNew() {
+    dietAsk.value = !!user.value?.authId && !dietAsked(user.value)
+  }
+
+  // The answer: the needs picked, saved on the profile, or none for "None, skip". Either way the popup closes for good, and a
+  // real account is remembered as asked.
   // How to call: await auth.answerDietAsk(['halal'])
   async function answerDietAsk(dietary = []) {
+    const asked = user.value
     try {
       if (dietary.length) await update({ dietary })
     } finally {
+      if (asked?.authId) rememberDietAsked(asked)
       dietAsk.value = false
     }
   }
@@ -236,6 +278,11 @@ export const useAuthStore = defineStore('auth', () => {
     if (event.type === 'reset' || event.type === 'user') {
       user.value = await api.getUser()
       recovering.value = api.passwordRecovery()
+      // The profile read brought in needs saved elsewhere: that account has been asked.
+      if (dietAsk.value && user.value?.authId && dietAsked(user.value)) {
+        rememberDietAsked(user.value)
+        dietAsk.value = false
+      }
     }
   })
 
