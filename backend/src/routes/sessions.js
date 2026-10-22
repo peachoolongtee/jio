@@ -86,14 +86,16 @@ const MIN_MEMBERS_FOR_OTHERS = 3
 const needsOf = (lists) => NEEDS.filter((need) => lists.some((list) => Array.isArray(list) && list.includes(need)))
 
 // Builds the router over the session rules (`sessions`, services/sessions.js). `limiter` limits how often one signed-in caller
-// may use the session routes, and `readLimiter` how often they may read an outing's needs (two counters, so reading never uses
-// up the others). Each is null for no limit (tests only).
+// may use the session routes, `readLimiter` how often they may read an outing's needs, and `searchLimiter` how often they may search
+// the saved places for a slot (three counters, so reading and searching never use up the allowance of the writes). Each is null for no
+// limit (tests only).
 //
 // How to call:
-//   const router = createSessionsRouter({ supabase, sessions, limiter: rateLimit({ windowMs: 60_000, max: 60 }), readLimiter: rateLimit({ windowMs: 60_000, max: 30 }) })
-export function createSessionsRouter({ supabase, sessions, limiter = null, readLimiter = null }) {
+//   const router = createSessionsRouter({ supabase, sessions, limiter: rateLimit({ windowMs: 60_000, max: 60 }), readLimiter: rateLimit({ windowMs: 60_000, max: 30 }), searchLimiter: rateLimit({ windowMs: 60_000, max: 120 }) })
+export function createSessionsRouter({ supabase, sessions, limiter = null, readLimiter = null, searchLimiter = null }) {
   const router = Router()
   const guard = [requireUser({ supabase }), ...(limiter ? [limiter] : [])]
+  const searchGuard = [requireUser({ supabase }), ...(searchLimiter ? [searchLimiter] : [])]
 
   router.get('/sessions/:id/dietary', requireUser({ supabase }), ...(readLimiter ? [readLimiter] : []), async (req, res, next) => {
     try {
@@ -230,7 +232,7 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
     })
   }))
 
-  router.get('/sessions/:id/slots/:slotId/venue-search', ...guard, handle((who, req) => {
+  router.get('/sessions/:id/slots/:slotId/venue-search', ...searchGuard, handle((who, req) => {
     const { q } = sessionSchemas.venueSearch.parse(req.query ?? {})
     return sessions.searchSlot({ ...who, slotId: sessionSchemas.slotId.parse(req.params.slotId), query: q })
   }))

@@ -15,6 +15,7 @@ import {
 import {
   engineMembers,
   groupConstraints,
+  groupSafeResult,
   layoutFor,
   meetingDiffers,
   optionRow,
@@ -268,7 +269,8 @@ export function createVoting({ data, areasById, runs }) {
     return { ops, session, items: slotItems(draft, dirty), info }
   }
 
-  // Searches the saved places by name for a slot, to add one by hand: each result says whether it fits the slot and, when not, why. No
+  // Searches the saved places by name for a slot, to add one by hand: each result says whether it fits the slot and, when not, why (a need of
+  // the group is only ever `group_needs`, never which need). No
   // Google and no OneMap lookup, so the postal-code step of the stateless search is not here. Reads only.
   //
   // How to call:
@@ -296,7 +298,8 @@ export function createVoting({ data, areasById, runs }) {
       { ...data, venues: [...venues.values()] },
     )
     const have = new Set(optionsOf(draft, slot.category).map((o) => o.venue_id))
-    return found.map((r) => ({ ...r, added: have.has(r.venueId) }))
+    // Every member reads the answer, so no reason names a need and no result names the needs it only likely meets (groupSafeResult).
+    return found.map((r) => ({ ...groupSafeResult(r), added: have.has(r.venueId) }))
   }
 
   return { rankSlot, repriceMeeting, syncSlots, planPhase, searchSlot, venues, MAX_QUERY: MAX.searchQuery }

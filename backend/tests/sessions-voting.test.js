@@ -31,13 +31,13 @@ afterEach(async () => {
 // A world with one session and three members, and an app over it. `status` is where the session starts; a voting session is made by the
 // real endpoints (the spots, then the host's confirm), so its slots are the server's own.
 // How to call: await start({ status: 'voting' })
-async function start({ status = 'voting', starts = { [HOST]: 'tampines', [GUEST]: 'clementi', [OTHER]: 'bishan' }, appOptions = {}, known = null } = {}) {
+async function start({ status = 'voting', starts = { [HOST]: 'tampines', [GUEST]: 'clementi', [OTHER]: 'bishan' }, appOptions = {}, known = null, people = [HOST, GUEST, OTHER] } = {}) {
   world = createWorld()
   addSession(world, { id: SESSION, status: status === 'voting' ? 'locating' : status })
   addMember(world, SESSION, HOST, { role: 'host', start: starts[HOST], name: NAMES[HOST] })
   addMember(world, SESSION, GUEST, { start: starts[GUEST], name: NAMES[GUEST] })
-  addMember(world, SESSION, OTHER, { start: starts[OTHER], name: NAMES[OTHER] })
-  for (const id of [HOST, GUEST, OTHER]) world.profile_private.push({ id, dietary: [], budget_max_per_person: null, needs_step_free: false })
+  if (people.includes(OTHER)) addMember(world, SESSION, OTHER, { start: starts[OTHER], name: NAMES[OTHER] })
+  for (const id of people) world.profile_private.push({ id, dietary: [], budget_max_per_person: null, needs_step_free: false })
   t = await startSessionApp(world, appOptions)
   started.push(t)
   if (status === 'voting') {
@@ -663,7 +663,9 @@ describe('what the server uses and what it never says', () => {
     const eat = world.slot_options.filter((o) => o.slot_id === slotOf('eat').id)
     expect(eat.length).toBeGreaterThan(0)
     for (const o of eat) {
-      expect(o.details.dietUnknown).toEqual([])
+      // The stored row names no need (see "what a member's needs never say" below).
+      expect(o.details).not.toHaveProperty('dietUnknown')
+      expect(o.details).not.toHaveProperty('verify')
       const venue = data.venues.find((v) => v.id === o.venue_id)
       // Evidence of halal, not a guess: 'unknown' would pass only under a lenient rule.
       expect(['full', 'options', 'likely']).toContain(venue.diet.halal)
@@ -721,6 +723,129 @@ function countingStubHttp() {
 
 const AREAS = loadPlanData().areas.map((a) => a.id)
 const idOf = (i) => `00000000-0000-4000-8000-${i.toString(16).padStart(12, '0')}`
+
+describe('the limits on searching and on fetching the places behind the cards', () => {
+  it('count apart from the writes and from each other, per person', async () => {
+    // The confirm used one of the writes' four.
+    await start({ known: 'bugis', appOptions: { sessionRateLimit: { windowMs: 60_000, max: 4 }, venueRateLimit: { windowMs: 60_000, max: 2 } } })
+    const slot = slotOf('eat').id
+    const [a] = idsOf('eat')
+    // Two card fetches and two searches use up neither the other's nor the writes' allowance.
+    expect((await t.call('GET', `/api/venues?ids=${a}`, undefined, HOST)).status).toBe(200)
+    expect((await t.call('GET', `/api/venues?ids=${a}`, undefined, HOST)).status).toBe(200)
+    expect((await t.call('GET', path(`/slots/${slot}/venue-search?q=a`), undefined, HOST)).status).toBe(200)
+    expect((await t.call('GET', path(`/slots/${slot}/venue-search?q=a`), undefined, HOST)).status).toBe(200)
+    for (let i = 0; i < 3; i += 1) expect((await t.call('POST', path('/plan/sync'), {}, HOST)).status).toBe(200)
+    // The third of each is held, and says when to try again; the writes' allowance is its own and is now spent.
+    const venues = await t.call('GET', `/api/venues?ids=${a}`, undefined, HOST)
+    expect(venues.status).toBe(429)
+    expect(venues.body.error).toBe('rate_limited')
+    const search = await t.call('GET', path(`/slots/${slot}/venue-search?q=a`), undefined, HOST)
+    expect(search.status).toBe(429)
+    expect(Number(search.headers.get('retry-after'))).toBeGreaterThan(0)
+    expect((await t.call('POST', path('/plan/sync'), {}, HOST)).status).toBe(429)
+    // Another person is not held by it.
+    expect((await t.call('GET', `/api/venues?ids=${a}`, undefined, GUEST)).status).toBe(200)
+    expect((await t.call('GET', path(`/slots/${slot}/venue-search?q=a`), undefined, GUEST)).status).toBe(200)
+  })
+
+  it('a search never uses up the allowance of the writes: with only the writes limited, searching is not', async () => {
+    await start({ known: 'bugis', appOptions: { sessionRateLimit: { windowMs: 60_000, max: 3 } } })
+    const slot = slotOf('eat').id
+    for (let i = 0; i < 6; i += 1) expect((await t.call('GET', path(`/slots/${slot}/venue-search?q=a`), undefined, HOST)).status).toBe(200)
+    expect((await t.call('POST', path('/plan/sync'), {}, HOST)).status).toBe(200)
+  })
+})
+
+describe('what a member\'s needs never say, to the other members', () => {
+  // Every member reads the slot rows and the search answers, so in a group of two a need named there is the other person's. The rows and
+  // answers carry one flag (`checkNeeds`) and one reason (`group_needs`); the browser names the needs it may name, from the places' own
+  // diet levels. GUEST needs halal and step-free access, HOST has no need: if anything names either, HOST learns it.
+  const NAMES_OF_NEEDS = /halal|vegan|vegetarian|step_free|step-free|diet|verify|dietUnknown/i
+  const bugis = () => loadPlanData().areas.find((a) => a.id === 'bugis')
+  // A food place near the meeting area that a halal group cannot be offered (no evidence it is halal), by its name.
+  const unfitForHalal = () => {
+    const area = bugis()
+    return loadPlanData().venues
+      .filter((v) => v.category === 'eat' && v.diet && ['none', 'unknown'].includes(v.diet.halal) && Math.hypot(v.lat - area.lat, v.lng - area.lng) * 111 < 2)
+      .sort((a, b) => a.name.length - b.name.length)[0]
+  }
+  const needy = () => {
+    world.profile_private.find((p) => p.id === GUEST).dietary = ['halal']
+    world.profile_private.find((p) => p.id === GUEST).needs_step_free = true
+  }
+
+  it('stores one flag for a place whose halal is unconfirmed, and no word of a need, in a group of two', async () => {
+    await start({ status: 'locating', people: [HOST, GUEST] })
+    needy()
+    expect((await t.call('PUT', path('/known-place'), { areaId: 'bugis' }, HOST)).status).toBe(200)
+    expect((await t.call('POST', path('/plan/sync'), {}, HOST)).status).toBe(200)
+    const eat = optionsOf('eat')
+    expect(eat.length).toBeGreaterThan(0)
+    // The halal places near Bugis are mostly "likely" (a stall's name, not a certificate), so some option must say to check.
+    const flagged = eat.filter((o) => o.details.checkNeeds === true)
+    expect(flagged.length).toBeGreaterThan(0)
+    for (const row of world.slot_options) {
+      expect(row.details).not.toHaveProperty('verify')
+      expect(row.details).not.toHaveProperty('dietUnknown')
+      // The flag is there only when true.
+      if (row.details.checkNeeds !== undefined) expect(row.details.checkNeeds).toBe(true)
+      expect(JSON.stringify(row)).not.toMatch(NAMES_OF_NEEDS)
+    }
+    expect(JSON.stringify(world.slots)).not.toMatch(NAMES_OF_NEEDS)
+    // Nor does the session, the members or the answers of the writes that made them.
+    expect(JSON.stringify([world.sessions, world.session_members, world.votes])).not.toMatch(NAMES_OF_NEEDS)
+  })
+
+  it('answers a search with one reason for a need, and no list of the needs a place only likely meets, in a group of two', async () => {
+    await start({ known: 'bugis', people: [HOST, GUEST] })
+    needy()
+    const venue = unfitForHalal()
+    expect(venue).toBeTruthy()
+    const slot = slotOf('eat').id
+    const res = await t.call('GET', path(`/slots/${slot}/venue-search?q=${encodeURIComponent(venue.name)}`), undefined, HOST)
+    expect(res.status).toBe(200)
+    const found = res.body.results.find((r) => r.venueId === venue.id)
+    expect(found).toMatchObject({ fits: false })
+    expect(found.unfit).toContain('group_needs')
+    expect(found.unfit.filter((reason) => reason === 'group_needs')).toHaveLength(1)
+    // Nothing in the answer names a need or a list of needs, for anyone: HOST (who has none) cannot learn GUEST's.
+    for (const r of res.body.results) {
+      expect(r).not.toHaveProperty('verify')
+      expect(r).not.toHaveProperty('dietUnknown')
+      for (const reason of r.unfit) expect(reason).not.toMatch(/^diet:|^step_free$/)
+    }
+    expect(JSON.stringify(res.body)).not.toMatch(NAMES_OF_NEEDS)
+    // The reasons about the place itself are still said.
+    const far = await t.call('GET', path(`/slots/${slot}/venue-search?q=Changi`), undefined, HOST)
+    expect(far.status).toBe(200)
+  })
+
+  it('keeps the other reasons a place does not fit (closed, far, another kind) and says a need only once', async () => {
+    const { groupSafeResult } = await import('../src/services/session-slots.js')
+    const result = { venueId: 'a', name: 'A', unfit: ['not_an_outing', 'diet:halal', 'step_free', 'diet:vegan', 'closed', 'far'], verify: ['halal'], dietUnknown: ['vegan'], fits: false }
+    expect(groupSafeResult(result)).toEqual({ venueId: 'a', name: 'A', unfit: ['not_an_outing', 'group_needs', 'closed', 'far'], fits: false })
+    expect(groupSafeResult({ venueId: 'b', unfit: [], verify: [], dietUnknown: [] })).toEqual({ venueId: 'b', unfit: [] })
+    expect(groupSafeResult({ venueId: 'c' })).toEqual({ venueId: 'c', unfit: [] })
+  })
+
+  it('says the same, and names nothing, in a group of three (the browser asks for the needs of the others, which the server gives at three)', async () => {
+    await start({ status: 'locating' })
+    needy()
+    expect((await t.call('PUT', path('/known-place'), { areaId: 'bugis' }, HOST)).status).toBe(200)
+    expect((await t.call('POST', path('/plan/sync'), {}, HOST)).status).toBe(200)
+    expect(JSON.stringify(world.slot_options)).not.toMatch(NAMES_OF_NEEDS)
+    const venue = unfitForHalal()
+    const res = await t.call('GET', path(`/slots/${slotOf('eat').id}/venue-search?q=${encodeURIComponent(venue.name)}`), undefined, OTHER)
+    expect(JSON.stringify(res.body)).not.toMatch(NAMES_OF_NEEDS)
+    expect(res.body.results.find((r) => r.venueId === venue.id).unfit).toContain('group_needs')
+    // With three joined, the needs of the others are given to a member who asks; with two they are not.
+    const three = await t.call('GET', path('/dietary'), undefined, HOST)
+    expect(three.body.others).toEqual(['halal'])
+    world.session_members.find((m) => m.user_id === OTHER).state = 'opted_out'
+    expect((await t.call('GET', path('/dietary'), undefined, HOST)).body.others).toEqual([])
+  })
+})
 
 describe('the OneMap cap: one request, at most 60 trips, across the meeting area and all four slots', () => {
   async function bigGroup(count, { known = null } = {}) {

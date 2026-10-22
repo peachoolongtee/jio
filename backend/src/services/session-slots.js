@@ -127,11 +127,15 @@ const finiteOrNull = (value) => (Number.isFinite(value) ? value : null)
 
 // What the planner said about a place, kept with its option so a reload shows the same card without a planner call: the minutes to
 // walk from the meeting area, how crowded it is likely to be, the short tags, the rain warning and the indoor swap, the sentence that
-// explains the rank, what to check, the diets nobody knows, whether a time was an estimate, and the weather there. Nothing about a person.
+// explains the rank, whether a need of the group is unconfirmed for the place, whether a time was an estimate, and the weather there.
+// Nothing about a person, and no need is named: every member reads this row, so in a group of two a named need ("halal") would be the
+// other person's. The planner's `verify` and `dietUnknown` (which name the needs) become one flag, `checkNeeds`, that is there only when
+// it is true. The browser names the needs itself, for the ones it may name, from the place's own diet levels (GET /api/venues).
 //
 // How to call:
-//   optionDetails(result) // { walkMinutes: 3, crowd: 'quiet', reasons: [...], warnings: [], swap: null, explanation: '...', ... }
+//   optionDetails(result) // { walkMinutes: 3, crowd: 'quiet', reasons: [...], warnings: [], swap: null, explanation: '...', checkNeeds: true, ... }
 export function optionDetails(r) {
+  const checkNeeds = (r.verify?.length ?? 0) + (r.dietUnknown?.length ?? 0) > 0
   const full = {
     walkMinutes: finiteOrNull(r.walkMinutes),
     crowd: r.crowd ?? null,
@@ -139,8 +143,7 @@ export function optionDetails(r) {
     warnings: r.warnings ?? [],
     swap: r.swap ?? null,
     explanation: r.explanation ?? '',
-    verify: r.verify ?? [],
-    dietUnknown: r.dietUnknown ?? [],
+    ...(checkNeeds ? { checkNeeds: true } : {}),
     approximate: !!r.approximate,
     ...(r.weather ? { weather: r.weather } : {}),
   }
@@ -149,6 +152,26 @@ export function optionDetails(r) {
   if (Buffer.byteLength(JSON.stringify(plain)) <= MAX_DETAILS_BYTES) return plain
   // Far larger than a card needs: keep what the card shows, not the long text.
   return { walkMinutes: plain.walkMinutes, crowd: plain.crowd, reasons: plain.reasons.slice(0, 2), warnings: plain.warnings, approximate: plain.approximate }
+}
+
+// The words of the reasons a place does not fit that name a need of the group (a diet, step-free access), which a search must not say to
+// everyone in the session. They become one reason that names none.
+const NEED_REASONS = (reason) => reason.startsWith('diet:') || reason === 'step_free'
+
+// One search result as every member may read it: the reasons that name a need of the group (`diet:halal`, `step_free`) become one
+// `group_needs` (once), and `verify` and `dietUnknown`, which name the needs a place only likely meets or has no data on, are left out.
+// The other reasons (closed, far, the wrong kind of place) are about the place and stay.
+//
+// How to call:
+//   groupSafeResult({ venueId: 'a', unfit: ['diet:halal', 'far', 'diet:vegan'], verify: ['halal'], dietUnknown: [] }) // { venueId: 'a', unfit: ['group_needs', 'far'] }
+export function groupSafeResult(result) {
+  const { verify: _verify, dietUnknown: _dietUnknown, unfit, ...rest } = result
+  const reasons = []
+  for (const reason of unfit ?? []) {
+    const shown = NEED_REASONS(reason) ? 'group_needs' : reason
+    if (!reasons.includes(shown)) reasons.push(shown)
+  }
+  return { ...rest, unfit: reasons }
 }
 
 // One planner result as an option row of the draft. A place the group already had keeps who added it and how (`source`).
