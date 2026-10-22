@@ -281,7 +281,7 @@ describe('the sentences for what the server refuses', () => {
 
   it('words voting as voting: a person cannot leave once it has started, and the work is not possible yet', () => {
     expect(problem({ code: 'session_started' }).message).toBe("You can't leave once voting has started; ask the host to cancel.")
-    expect(problem({ code: 'not_yet' }).message).toBe("That isn't possible once voting has started.")
+    expect(problem({ code: 'not_yet' }).message).toBe("That isn't possible once the plan is confirmed.")
   })
 
   it('keeps the status of an answer, so a refusal that did nothing (4xx) is told from a failure that may have (5xx, none)', () => {

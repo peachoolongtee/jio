@@ -51,7 +51,8 @@ export const WORDS = {
   started: "You can't leave once voting has started; ask the host to cancel.",
   alreadyInvited: 'You have already invited that person.',
   startedRemove: "You can't remove someone once voting has started; cancel the session instead.",
-  notYet: "That isn't possible once voting has started.",
+  // The server answers not_yet only for a confirmed plan (its itinerary is a later stage's work); voting is served.
+  notYet: "That isn't possible once the plan is confirmed.",
   hostLeave: 'The host cannot leave. Cancel the session instead.',
   hostOnlyRemove: 'Only the host can remove someone.',
   closed: 'This session has ended.',
@@ -85,6 +86,9 @@ export const WORDS = {
   hostRadius: 'Only the host can change how far to search.',
   hostSlots: 'Only the host can remove or bring back a category.',
   rejoinClosed: "You can't rejoin once the plan is confirmed.",
+  optOutClosed: "You can't opt out once the plan is confirmed.",
+  // 409 no_meeting_area: voting is paused because nobody has shared where they start (the meeting area was taken away).
+  noMeetingArea: 'Places open once two people have shared where they start.',
 }
 
 // The words for what the Jio server refused, by its code (backend/src/routes/sessions.js). A caller can word a code its own way.
@@ -111,6 +115,7 @@ const CODE_WORDS = {
   venue_not_found: WORDS.noVenue,
   venue_does_not_fit: WORDS.doesNotFit,
   option_not_found: WORDS.optionGone,
+  no_meeting_area: WORDS.noMeetingArea,
 }
 
 // A refusal from the Jio server as an Error with a sentence fit to show, its code kept on `code` and the HTTP status (when the
@@ -734,8 +739,10 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   const knownPlace = (sessionId, areaId) => ask(() => backend.knownPlace(sessionId, areaId), { host_only: 'Only the host can set a known place.', wrong_status: 'A known place can only be set before the group votes on places.' })
   // The person opts out of the session (keeping their place in it), and comes back.
   // How to call: await optOut('3b1f...'); await rejoin('3b1f...')
-  const optOut = (sessionId) => ask(() => backend.optOut(sessionId), { wrong_status: WORDS.closed })
-  const rejoin = (sessionId) => ask(() => backend.rejoin(sessionId), { wrong_status: WORDS.rejoinClosed })
+  const optOut = (sessionId) => ask(() => backend.optOut(sessionId), { wrong_status: WORDS.closed, not_yet: WORDS.optOutClosed })
+  // The server allows rejoining while inviting, locating and voting; once the plan is confirmed it answers not_yet (and wrong_status
+  // after that), both worded as closed.
+  const rejoin = (sessionId) => ask(() => backend.rejoin(sessionId), { wrong_status: WORDS.rejoinClosed, not_yet: WORDS.rejoinClosed })
 
   // ── Voting on places ──────────────────────────────────────────────────────
 

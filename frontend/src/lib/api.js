@@ -2772,7 +2772,8 @@ export async function optOut(id, personId) {
   })
 }
 
-// Rejoin a session of the server after opting out, while the group has not moved on to voting.
+// Rejoin a session of the server after opting out. The server allows it while inviting, locating and voting (the person comes back
+// without their votes, which opting out took); once the plan is confirmed it answers not_yet, and the person is told they cannot.
 // How to call: await rejoinSession('3b1f...')
 export async function rejoinSession(id) {
   needServer()
@@ -3319,12 +3320,12 @@ function planView(read) {
         venue: clone(venue),
         score: row.score ?? 0,
         rank: row.rank,
-        walk: d.walk ?? d.walkMinutes ?? P.walkMinutes(area, venue),
+        walk: d.walkMinutes ?? P.walkMinutes(area, venue),
         // As the crow flies from the meeting area, for the card ("180 m").
         distanceM: Math.round(P.distanceKm(area, venue) * 1000),
         reasons: d.reasons ?? [],
         warnings: d.warnings ?? [],
-        swap: d.swap ? { id: d.swap.id ?? d.swap.venueId, name: d.swap.name } : null,
+        swap: d.swap ? { id: d.swap.venueId, name: d.swap.name } : null,
         explanation: d.explanation ?? '',
         dietUnknown: d.dietUnknown ?? [],
         verify: d.verify ?? [],
@@ -3337,7 +3338,7 @@ function planView(read) {
     // Only people who are in the session count: a vote of someone who has since gone is not one.
     const votes = Object.fromEntries(Object.entries(read.votes[slot.id] || {}).filter(([person]) => ids.includes(person)))
     const empty = details.empty
-    const notice = details.notice
+    const few = details.few
     return {
       id: slot.id,
       category: slot.category,
@@ -3348,11 +3349,12 @@ function planView(read) {
       isLast: slot.isLast,
       ...tallyOptions({ options: shown, votes, nameOf, me: me() }),
       canAddMore: !settled && shown.length < P.OPTIONS_MAX && details.moreAvailable !== false,
-      widened: !!notice,
-      // Why the slot has no places: { reason, nearestKm, widenToKm } from the planner, or null.
-      empty: empty ? { reason: empty.reason, nearestKm: empty.nearestKm ?? empty.hints?.nearestKm ?? null, widenToKm: empty.widenToKm ?? empty.hints?.widenToKm ?? null } : null,
-      // Fewer than 3 places fit inside the search radius: { found, widenToKm }, or null.
-      few: notice?.type === 'few_options' ? { found: notice.found, widenToKm: notice.widenToKm } : null,
+      // What the server stored with the slot (backend/docs/planner-api.md, "A slot's details"): `widened` (the planner widened the
+      // search), `few` ({ found, widenToKm }: fewer than 3 places fit inside the radius), `empty` ({ reason, nearestKm, widenToKm }:
+      // why the slot has no places), `moreAvailable` and `weather`.
+      widened: details.widened === true,
+      empty: empty ? { reason: empty.reason ?? null, nearestKm: empty.nearestKm ?? null, widenToKm: empty.widenToKm ?? null } : null,
+      few: few ? { found: few.found, widenToKm: few.widenToKm ?? null } : null,
     }
   })
   const forecast = combineWeather(read.slotRows.filter((slot) => !slot.deleted).map((slot) => slot.details?.weather))

@@ -161,7 +161,7 @@ export function fakeSessionsServer(database) {
   // How long each category lasts, in minutes (the browser's own durations).
   const IDEAL = { activity: 120, shop: 90, drink: 60, eat: 90 }
   const ORDER = ['activity', 'shop', 'drink', 'eat']
-  // The weather block the server stores with a slot's details. ASSUMED: { source, basis, issuedAt }, the converge answer's own block.
+  // The weather block the server stores with a slot's details: the planner's own block, in the fields a card needs (weatherNote).
   const WEATHER = { source: 'live', basis: 'area', issuedAt: '2026-10-09T10:00:00+08:00' }
   // The step the radius chips go up in, for "widen to".
   const WIDEN = [500, 1000, 2000, 3000]
@@ -191,13 +191,13 @@ export function fakeSessionsServer(database) {
     return all
   }
 
-  // A place's row as the server stores it. ASSUMED: `details` holds the ranking result's own fields (walkMinutes, reasons, warnings, swap,
-  // explanation, verify, dietUnknown, approximate), as the converge answer has them.
+  // A place's row as the server stores it (session-slots.js optionDetails): `details` holds the ranking result's own fields (walkMinutes,
+  // crowd, reasons, warnings, swap: { venueId, name, weather } | null, explanation, verify, dietUnknown, approximate, weather?).
   // How to call: optionValues(result, 1)
   const optionValues = (r, rankNumber) => ({
     rank: rankNumber,
     score: r.score,
-    details: { walkMinutes: r.walkMinutes, reasons: r.reasons, warnings: r.warnings, swap: r.swap, explanation: r.explanation, verify: r.verify, dietUnknown: r.dietUnknown, approximate: r.approximate },
+    details: { walkMinutes: r.walkMinutes, crowd: r.crowd ?? null, reasons: r.reasons, warnings: r.warnings, swap: r.swap, explanation: r.explanation, verify: r.verify, dietUnknown: r.dietUnknown, approximate: r.approximate },
   })
 
   // Rank a slot again and write what it should offer: the places that are offered and still fit stay (with their votes), the rest
@@ -222,12 +222,15 @@ export function fakeSessionsServer(database) {
         : await write({ kind: 'insert', table: 'slot_options', values: { slot_id: slot.id, venue_id: venueId, source: add.includes(venueId) ? 'member' : 'planner', ...values } })
       if (answer.error) throw new Error(`The stand-in server could not write a place: ${answer.error.message}`)
     }
-    // ASSUMED: a slot's details are { notice, empty, moreAvailable, weather }.
+    // A slot's details, as the real server stores them (backend/src/services/session-slots.js slotDetails):
+    // { widened, few: { found, widenToKm } | null, empty: { reason, nearestKm, widenToKm } | null, moreAvailable, weather }.
     const centre = areaOf(session.meeting_area_id)
     const nearest = VENUES.filter((v) => v.category === slot.category).map((v) => distanceKm(centre, v)).sort((a, b) => a - b)[0]
+    const few = radius && list.length > 0 && list.length < 3 ? { found: list.length, widenToKm: (WIDEN.find((m) => m > radius) ?? 3000) / 1000 } : null
     const details = {
-      notice: radius && list.length > 0 && list.length < 3 ? { type: 'few_options', found: list.length, widenToKm: (WIDEN.find((m) => m > radius) ?? 3000) / 1000 } : null,
-      empty: list.length ? null : { reason: 'outside_max_radius', hints: { nearestKm: Math.round(nearest * 10) / 10, widenToKm: Math.ceil(nearest) } },
+      widened: few !== null,
+      few,
+      empty: list.length ? null : { reason: 'outside_max_radius', nearestKm: Math.round(nearest * 10) / 10, widenToKm: Math.ceil(nearest) },
       moreAvailable: rankedIds.length > keep.length && keep.length < OPTIONS_MAX,
       weather: WEATHER,
     }
