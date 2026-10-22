@@ -15,6 +15,9 @@
 //     own state. The page keeps the Itinerary step lit and its back arrow goes to the itinerary.
 //   - Weather: the rain mark on a card follows the planner's weather state ("Outdoor, showers"), one muted line under the list
 //     says where the forecast came from, and a simulated forecast adds a banner at the top (WeatherSource).
+//   - Dietary needs work as on the Vote page (ticket #107): while the list holds food, one line says which needs the places
+//     fit, with no names; when fewer than 3 food places fit, a line offers "Show places we couldn't confirm", each then
+//     labelled on its card. That choice is this person's own, for this page only.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -35,6 +38,7 @@ import { CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { ROAM_CATEGORIES, ROAM_WORDS, centreLine, closedText, memberBlock, placeAction, placeState, proposeBlock, travelLine } from '@/lib/roam.js'
 import { roamOpen, sessionPath } from '@/lib/session.js'
 import { usePlaceDetail } from '@/lib/usePlaceDetail.js'
+import { fewLine, fitLine } from '@/lib/dietText.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { vRadioGroup } from '@/lib/radioGroup.js'
@@ -51,6 +55,8 @@ const centre = ref({ mode: 'meeting', areaName: '' })
 const position = ref(null)
 // '' is All; otherwise one category.
 const kind = ref('')
+// Whether the food places we could not confirm for the group's dietary needs are shown too. This page only.
+const unconfirmed = ref(false)
 const answer = ref(null)
 const loading = ref(true)
 const loadError = ref('')
@@ -109,6 +115,7 @@ async function load() {
     const result = await api.roamNearby(props.id, {
       point: centre.value.mode === 'meeting' ? undefined : position.value,
       categories: kind.value ? [kind.value] : ROAM_CATEGORIES,
+      unconfirmed: unconfirmed.value,
     })
     if (mine !== ticket) return
     answer.value = result
@@ -138,6 +145,7 @@ watch(() => props.id, () => {
   centre.value = { mode: 'meeting', areaName: '' }
   position.value = null
   kind.value = ''
+  unconfirmed.value = false
   answer.value = null
   start()
 })
@@ -148,6 +156,19 @@ watch(open, (now, was) => {
     loading.value = false
   }
 })
+
+// The dietary line, shown while the list can hold food; and the food places that fit, for the "only N fit" line.
+const holdsFood = computed(() => !kind.value || kind.value === 'eat')
+const dietLine = computed(() => (holdsFood.value ? fitLine(answer.value?.dietary) : ''))
+const foodCount = computed(() => places.value.filter((p) => p.venue.category === 'eat').length)
+
+// Show the food places we could not confirm, or only the ones that fit, and ask again.
+// How to call: showUnconfirmed(true)
+function showUnconfirmed(on) {
+  if (unconfirmed.value === on) return
+  unconfirmed.value = on
+  load()
+}
 
 function pickKind(next) {
   if (kind.value === next) return
@@ -269,6 +290,14 @@ const actionFor = (place) => placeAction(place, { myId: myId.value, blocked: blo
           </ChipButton>
         </div>
 
+        <template v-if="dietLine && !loading && !loadError">
+          <p class="caption-sm text-muted diet-line" data-testid="diet-line">{{ dietLine }}</p>
+          <p v-if="answer.dietFew || answer.unconfirmed" class="diet-few" data-testid="diet-few">
+            <span class="caption-sm text-muted">{{ answer.unconfirmed ? "Showing places we couldn't confirm too. Check before you go." : fewLine(foodCount) }}</span>
+            <AppButton variant="tertiary" underline small data-testid="diet-toggle" @click="showUnconfirmed(!answer.unconfirmed)">{{ answer.unconfirmed ? 'Only places that fit' : "Show places we couldn't confirm" }}</AppButton>
+          </p>
+        </template>
+
         <p class="sr-only" role="status">{{ announcement }}</p>
         <p class="sr-only" role="status" data-testid="roam-said">{{ said }}</p>
         <p v-if="actionError" class="body-sm text-error" role="alert" data-testid="roam-error">{{ actionError }}</p>
@@ -327,6 +356,8 @@ const actionFor = (place) => placeAction(place, { myId: myId.value, blocked: blo
 /* The filter: one row of chips, scrolling sideways on a phone, as on the voting page. */
 .filter { display: flex; gap: var(--spacing-sm); }
 .places { list-style: none; margin: 0; padding: 0; }
+.diet-line { margin: 0; }
+.diet-few { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); margin: 0; }
 .places__item { display: flex; min-width: 0; }
 .places__item > :deep(.sugg) { flex: 1 1 auto; min-width: 0; }
 </style>

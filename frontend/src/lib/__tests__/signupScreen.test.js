@@ -24,11 +24,11 @@ beforeEach(() => {
   planner.emailRegistered.mockReset().mockResolvedValue(false)
 })
 
-// The questions, in order, are: 0 email, 1 password, 2 name, 3 date of birth, 4 username, 5 photo, 6 home area, 7 dietary
-// needs, 8 suggested friends. A real account is not offered the sample people as friends, so its last question is the
-// dietary needs (step 7); local accounts also get "Suggested friends" (step 8).
-// How to call: lastStep(fakeSupabase()) -> 7
-const lastStep = (fake) => (fake ? 7 : 8)
+// The questions, in order, are: 0 email, 1 password, 2 name, 3 date of birth, 4 username, 5 photo, 6 home area, 7 suggested
+// friends. A real account is not offered the sample people as friends, so its last question is the home area (step 6); local
+// accounts also get "Suggested friends" (step 7). Dietary needs are not asked in sign-up (ticket #107).
+// How to call: lastStep(fakeSupabase()) -> 6
+const lastStep = (fake) => (fake ? 6 : 7)
 
 // The sign-up screen with the draft filled in and on the last question. `fake` null means local accounts only.
 // How to call: const t = await setUp(fakeSupabase(), { password: 'weak' })
@@ -114,34 +114,31 @@ describe('the order of the questions', () => {
   }
   const FIRST_SEVEN = ['Your email', 'Create a password', 'Your name', 'Date of birth', 'Pick a username', 'Profile photo', 'Home area']
 
-  it('is email, password, name, date of birth, username, photo, home area, then dietary needs, and ends there for a real account', async () => {
+  it('is email, password, name, date of birth, username, photo, then home area, and ends there for a real account', async () => {
     const { titles, last } = await walk(fakeSupabase())
-    expect(titles).toEqual([...FIRST_SEVEN, 'Dietary needs'])
-    expect(last).toBe(7)
+    expect(titles).toEqual(FIRST_SEVEN)
+    expect(last).toBe(6)
   })
 
-  it('has the suggested friends after the dietary needs for a local account, and ends there', async () => {
+  it('has the suggested friends after the home area for a local account, and ends there', async () => {
     const { titles, last } = await walk(null)
-    expect(titles).toEqual([...FIRST_SEVEN, 'Dietary needs', 'Suggested friends'])
-    expect(last).toBe(8)
+    expect(titles).toEqual([...FIRST_SEVEN, 'Suggested friends'])
+    expect(last).toBe(7)
   })
 })
 
 describe('suggested friends', () => {
   it('are not offered to a real account, which starts with nobody but itself, and are kept for local accounts', async () => {
-    // A real account: the home area (step 6) is followed by the dietary needs (step 7), which is the last question.
+    // A real account: the home area (step 6) is the last question.
     const real = await setUp(fakeSupabase(), { step: 6 })
     expect(real.view.text('h1')).toBe('Home area')
-    expect(real.view.text(mainButton(real.view))).toContain('Next')
-    real.store.draft.step = 7
-    await until(() => real.view.text('h1') === 'Dietary needs')
     expect(real.view.text()).not.toContain('Suggested friends')
     expect(real.view.text(mainButton(real.view))).toContain('Finish')
-    // A local account: the dietary needs (step 7) are followed by the friends (step 8), the last question.
-    const local = await setUp(null, { step: 7 })
-    expect(local.view.text('h1')).toBe('Dietary needs')
-    expect(local.view.text(mainButton(local.view))).toContain('None, skip')
-    local.store.draft.step = 8
+    // A local account: the home area (step 6) is followed by the friends (step 7), the last question.
+    const local = await setUp(null, { step: 6 })
+    expect(local.view.text('h1')).toBe('Home area')
+    expect(local.view.text(mainButton(local.view))).toContain('Next')
+    local.store.draft.step = 7
     await until(() => local.view.text('h1') === 'Suggested friends')
     expect(local.view.text(mainButton(local.view))).toContain('Finish')
   })
@@ -378,56 +375,14 @@ describe('creating the account', () => {
   })
 })
 
-describe('the dietary question', () => {
-  it('comes after the home area, offers halal, vegetarian and vegan, and can be skipped (a local account, which goes on to the friends)', async () => {
-    const { view, store } = await setUp(null, { step: 7, dietary: [] })
-    expect(view.text('h1')).toBe('Dietary needs')
-    const chips = view.all('button').filter((b) => ['Halal', 'Vegetarian', 'Vegan'].includes(view.text(b)))
-    expect(chips.map((b) => view.text(b))).toEqual(['Halal', 'Vegetarian', 'Vegan'])
-    expect(view.text(mainButton(view))).toContain('None, skip')
-    await view.click(mainButton(view))
-    await until(() => store.draft.step === 8)
-    expect(store.draft.dietary).toEqual([])
-  })
-
-  it('is the last question of a real account: it can be finished with none picked, and then says so', async () => {
-    const { view, store, fake } = await setUp(fakeSupabase(), { step: 7, dietary: [] })
-    expect(view.text('h1')).toBe('Dietary needs')
-    expect(view.text(mainButton(view))).toContain('Finish')
+describe('dietary needs', () => {
+  it('are not asked in sign-up (ticket #107), and a real account is made with none', async () => {
+    const { view, store, fake } = await setUp(fakeSupabase())
+    expect(view.text()).not.toContain('Dietary needs')
     await view.click(mainButton(view))
     await until(() => store.signedIn)
     expect(fake.state.signUpCalls[0].options.data.dietary).toEqual([])
     expect(store.user.dietary).toEqual([])
-    await until(() => fake.state.priv['uid-1'].dietary !== undefined)
-    expect(fake.state.priv['uid-1'].dietary).toEqual([])
-  })
-
-  it('picks and unpicks any number of needs, and sends them with the sign-up (a real account finishes on this question)', async () => {
-    const { view, store, fake } = await setUp(fakeSupabase(), { step: 7, dietary: [] })
-    const chip = (label) => view.all('button').find((b) => view.text(b) === label)
-    await view.click(chip('Halal'))
-    await view.click(chip('Vegan'))
-    await view.click(chip('Vegan'))
-    await view.click(chip('Vegetarian'))
-    expect(store.draft.dietary).toEqual(['halal', 'vegetarian'])
-    expect(view.text(mainButton(view))).toContain('Finish')
-    await view.click(mainButton(view))
-    await until(() => store.signedIn)
-    expect(fake.state.signUpCalls[0].options.data.dietary).toEqual(['halal', 'vegetarian'])
-    expect(store.user.dietary).toEqual(['halal', 'vegetarian'])
-    await until(() => fake.state.priv['uid-1'].dietary.length === 2)
-  })
-
-  it('goes on to the friends, then finishes, for a local account that picks some', async () => {
-    const { view, store } = await setUp(null, { step: 7, dietary: [] })
-    const chip = (label) => view.all('button').find((b) => view.text(b) === label)
-    await view.click(chip('Halal'))
-    expect(view.text(mainButton(view))).toContain('Next')
-    await view.click(mainButton(view))
-    await until(() => store.draft.step === 8)
-    await view.click(mainButton(view))
-    await until(() => store.signedIn)
-    expect(store.user.dietary).toEqual(['halal'])
   })
 })
 

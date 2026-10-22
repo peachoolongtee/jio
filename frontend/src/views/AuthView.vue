@@ -20,9 +20,10 @@ export function passwordChecks(password, realAccounts) {
 
 <script setup>
 // Sign-up: one question per screen, with a back arrow and a progress bar.
-// Email, password with a live checklist, name, date of birth, username, profile photo (can be skipped), home area,
-// dietary needs (can be skipped), suggested friends (local accounts only: a real account has no sample friends, so its
-// last question is the dietary needs). It ends on Home.
+// Email, password with a live checklist, name, date of birth, username, profile photo (can be skipped), home area, suggested
+// friends (local accounts only: a real account has no sample friends, so its last question is the home area). It ends on
+// Home. Dietary needs are not a question here (ticket #107): a popup asks once, right after the account is made
+// (DietaryFirstAsk), and they can be changed on the profile.
 // The answers live in the auth store's draft, so nothing is lost if the window is resized.
 // With real accounts the password goes to Supabase and is emptied afterwards, whatever happens: after a failed attempt
 // the screen goes back to the question the problem belongs to, keeps every other answer, and asks for the password again
@@ -43,7 +44,6 @@ import * as api from '@/lib/api.js'
 import { shrinkPhoto } from '@/lib/photo.js'
 import { MESSAGES } from '@/lib/auth.js'
 import {
-  DIETARY_OPTIONS,
   dobToIso,
   fieldForSignUpError,
   formatDobInput,
@@ -61,7 +61,7 @@ import {
 import { safeNext } from '@/router/guard.js'
 import { useAuthStore } from '@/stores/auth.js'
 
-const ALL_STEPS = ['email', 'password', 'name', 'dob', 'username', 'photo', 'home', 'diet', 'friends']
+const ALL_STEPS = ['email', 'password', 'name', 'dob', 'username', 'photo', 'home', 'friends']
 
 const router = useRouter()
 const route = useRoute()
@@ -79,8 +79,8 @@ function afterSignUp() {
 // How to call: <AppButton :to="loginLink()">
 const loginLink = () => (safeNext(route.query.next) ? { path: '/login', query: { next: safeNext(route.query.next) } } : '/login')
 // A real account starts with nobody but itself, so it is not offered the sample people to add as friends: its friends are
-// the people it shares a session with, and its last question is the dietary needs (step 7). Local accounts keep the step
-// (the friends are step 8).
+// the people it shares a session with, and its last question is the home area (step 6). Local accounts keep the step
+// (the friends are step 7).
 const STEPS = auth.realAccounts ? ALL_STEPS.filter((name) => name !== 'friends') : ALL_STEPS
 const draft = computed(() => auth.draft)
 const step = computed(() => STEPS[draft.value.step])
@@ -308,14 +308,6 @@ const buttonLabel = computed(() => {
   return step.value === STEPS.at(-1) ? 'Finish' : 'Next'
 })
 
-// What the dietary needs question's button says. It can be skipped; on a real account it is also the last question, so it
-// then says "Finish" (and what is happening while the account is made), as the other last questions do.
-// How to call: dietLabel.value -> 'None, skip'
-const dietLabel = computed(() => {
-  if (step.value === STEPS.at(-1)) return buttonLabel.value
-  return draft.value.dietary.length ? 'Next' : 'None, skip'
-})
-
 // Development builds only: the first question also offers the demo account, with or without showcase data
 // (components/dev/DemoSignIn.vue). In a production build this is null, so the buttons and their words are left out.
 const DemoSignIn = import.meta.env.DEV ? defineAsyncComponent(() => import('@/components/dev/DemoSignIn.vue')) : null
@@ -397,13 +389,6 @@ async function onPhoto(event) {
   } catch (err) {
     photoError.value = err.message
   }
-}
-
-// Pick a dietary need, or take it off. Any number can be picked, or none.
-// How to call: toggleDiet('halal')
-function toggleDiet(value) {
-  const list = draft.value.dietary
-  draft.value.dietary = list.includes(value) ? list.filter((d) => d !== value) : [...list, value]
 }
 
 // Add a suggested friend, or take them off the list.
@@ -548,22 +533,6 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
         <SelectField v-model="draft.homeAreaId" label="Area" placeholder="Choose an area" :options="areaOptions" />
       </template>
 
-      <template v-else-if="step === 'diet'">
-        <h1 ref="stepTitle" tabindex="-1" class="display-xl">Dietary needs</h1>
-        <p id="diet-hint" class="body-md text-muted">Pick any that apply, or skip if none do.</p>
-        <div class="signup__diet" role="group" aria-labelledby="diet-hint">
-          <ChipButton
-            v-for="option in DIETARY_OPTIONS"
-            :key="option.value"
-            check
-            :selected="draft.dietary.includes(option.value)"
-            @click="toggleDiet(option.value)"
-          >
-            {{ option.label }}
-          </ChipButton>
-        </div>
-      </template>
-
       <template v-else-if="step === 'friends'">
         <h1 ref="stepTitle" tabindex="-1" class="display-xl">Suggested friends</h1>
         <ul>
@@ -585,9 +554,6 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
       <p v-if="phase" class="sr-only" role="status">{{ buttonLabel }}</p>
       <template v-if="step === 'photo'">
         <AppButton next block @click="next">{{ draft.photo ? 'Next' : 'Skip' }}</AppButton>
-      </template>
-      <template v-else-if="step === 'diet'">
-        <AppButton next block :disabled="busy" @click="next">{{ dietLabel }}</AppButton>
       </template>
       <template v-else>
         <AppButton next block :disabled="!canContinue || busy" @click="next">{{ buttonLabel }}</AppButton>
@@ -615,7 +581,7 @@ watch(() => draft.value.dob, () => (dobError.value = ''))
 .checklist__item.is-ok { color: var(--ink); }
 .checklist__mark { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1.5px solid var(--border-strong); border-radius: var(--rounded-full); color: var(--on-primary); }
 .checklist__item.is-ok .checklist__mark { border-color: var(--selected); background: var(--selected); }
-.signup__diet, .signup__chips { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
+.signup__chips { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
 .signup__suggest { display: flex; flex-direction: column; gap: var(--spacing-sm); }
 .signup__photo { display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-base); }
 .signup__upload { display: inline-flex; align-items: center; gap: var(--spacing-sm); min-height: 48px; padding: 0 var(--spacing-lg); border: 1px solid var(--ink); border-radius: var(--rounded-sm); font: var(--text-button-md); cursor: pointer; }

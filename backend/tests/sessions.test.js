@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createWorld } from './helpers/fake-supabase.js'
 import { addMember, addSession, GUEST, HOST, OTHER, SESSION, startSessionApp, STRANGER } from './helpers/session-app.js'
 
-// DELETE /api/sessions/:id/members/:userId (leave a session, or the host removes a guest), tested without the network.
+// DELETE /api/sessions/:id/members/:userId (leave a session, or the host removes a guest), and GET /api/sessions/:id/dietary (an
+// outing's needs together), tested without the network.
 // The login check is the real code: the test signs its own tokens. The database is the fake in helpers/fake-supabase.js: it shows a
 // person only the sessions they are in, and a member row can be deleted only through apply_session_plan with the service key.
 // The meeting-spot endpoints are tested in sessions-spots.test.js; this file keeps the leave and remove rules of stage 2 and
@@ -11,6 +12,7 @@ const ENDED = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const STARTED = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const VOTING = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 const CONFIRMED = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+const SMALL = '99999999-9999-4999-8999-999999999999' // a session the dietary tests make for themselves
 
 let world
 const fresh = () => {
@@ -29,6 +31,12 @@ const fresh = () => {
     addMember(world, id, HOST, { role: 'host' })
     addMember(world, id, GUEST)
   }
+  // Each person's private row, as profile_private holds it: dietary needs and the other private fields (GET .../dietary).
+  world.profile_private = [
+    { id: HOST, dietary: ['vegan'], home_area_id: 'tampines', budget_max_per_person: 20, needs_step_free: true },
+    { id: GUEST, dietary: ['halal', 'durian-free'], home_area_id: 'bishan', budget_max_per_person: null, needs_step_free: false },
+    { id: OTHER, dietary: null, home_area_id: 'bugis', budget_max_per_person: null, needs_step_free: false },
+  ]
   return world
 }
 
@@ -46,7 +54,9 @@ async function start(options = {}) {
   started.push(t)
   // Asks to remove `person` ('me' or an id) from `session`, as `as` (a person's id; none sends no token).
   const remove = (session, person, as) => t.call('DELETE', `/api/sessions/${session}/members/${person}`, undefined, as)
-  return { ...t, remove }
+  // Asks for `session`'s dietary needs, as `as` (a person's id; none sends no token).
+  const needs = (session, as) => t.call('GET', `/api/sessions/${session}/dietary`, undefined, as)
+  return { ...t, remove, needs }
 }
 
 const memberIds = (session = SESSION) => world.session_members.filter((m) => m.session_id === session).map((m) => m.user_id)
@@ -289,5 +299,112 @@ describe('the route\'s edges', () => {
     expect(failed.body.error).toBe('server_error')
     expect(JSON.stringify(failed.body)).not.toContain('boom')
     expect(memberIds()).toEqual([HOST, GUEST, OTHER])
+  })
+})
+
+describe('GET /api/sessions/:id/dietary (an outing’s needs, together)', () => {
+  it('gives a member every need in the outing and the others’ needs, in the app’s order, and nothing else', async () => {
+    const t = await start()
+    const asGuest = await t.needs(SESSION, GUEST)
+    expect(asGuest.status).toBe(200)
+    expect(asGuest.body).toEqual({ dietary: ['halal', 'vegan'], others: ['vegan'] })
+    expect((await t.needs(SESSION, HOST)).body).toEqual({ dietary: ['halal', 'vegan'], others: ['halal'] })
+    expect((await t.needs(SESSION, OTHER)).body).toEqual({ dietary: ['halal', 'vegan'], others: ['halal', 'vegan'] })
+    // No ids, no counts, no other private field, and an unknown need is dropped.
+    const text = JSON.stringify(asGuest.body)
+    for (const leak of [HOST, GUEST, OTHER, 'tampines', 'bishan', 'durian', 'budget', 'step']) expect(text).not.toContain(leak)
+    expect(asGuest.headers.get('cache-control')).toBe('no-store')
+  })
+
+  it('says nothing about the others when only two have joined: the caller would learn their partner\'s own list', async () => {
+    const t = await start()
+    // Two joined members, and a third who opted out and has a need of their own that must stay out of both lists.
+    addSession(world, { id: SMALL, status: 'inviting', version: 1 })
+    addMember(world, SMALL, HOST, { role: 'host' })
+    addMember(world, SMALL, GUEST)
+    addMember(world, SMALL, STRANGER, { state: 'opted_out' })
+    world.profile_private.push({ id: STRANGER, dietary: ['vegetarian'], home_area_id: 'bugis', budget_max_per_person: null, needs_step_free: false })
+    const asHost = await t.needs(SMALL, HOST)
+    expect(asHost.status).toBe(200)
+    expect(asHost.body).toEqual({ dietary: ['halal', 'vegan'], others: [] })
+    expect((await t.needs(SMALL, GUEST)).body).toEqual({ dietary: ['halal', 'vegan'], others: [] })
+  })
+
+  it('tells the others’ needs once three have joined, as a list of needs only: no ids, no counts', async () => {
+    const t = await start()
+    addSession(world, { id: SMALL, status: 'inviting', version: 1 })
+    addMember(world, SMALL, HOST, { role: 'host' })
+    addMember(world, SMALL, GUEST)
+    addMember(world, SMALL, OTHER)
+    // The third joined member has a need too, so the union of the others is told but not who has what.
+    world.profile_private.find((p) => p.id === OTHER).dietary = ['halal', 'vegetarian']
+    const asHost = await t.needs(SMALL, HOST)
+    expect(asHost.body).toEqual({ dietary: ['halal', 'vegetarian', 'vegan'], others: ['halal', 'vegetarian'] })
+    expect(Object.keys(asHost.body).sort()).toEqual(['dietary', 'others'])
+    const text = JSON.stringify(asHost.body)
+    for (const leak of [HOST, GUEST, OTHER, '3', 'count']) expect(text).not.toContain(leak)
+  })
+
+  it('counts joined members only: an opted-out member neither adds a need nor makes up the three', async () => {
+    const t = await start()
+    addSession(world, { id: SMALL, status: 'inviting', version: 1 })
+    addMember(world, SMALL, HOST, { role: 'host' })
+    addMember(world, SMALL, GUEST)
+    addMember(world, SMALL, STRANGER, { state: 'opted_out' })
+    world.profile_private.push({ id: STRANGER, dietary: ['vegetarian'], home_area_id: 'bugis', budget_max_per_person: null, needs_step_free: false })
+    // Three rows, two joined: the others’ list stays empty, and the opted-out person’s need is in neither list.
+    expect((await t.needs(SMALL, HOST)).body).toEqual({ dietary: ['halal', 'vegan'], others: [] })
+  })
+
+  it('answers a member who opted out as it answers a stranger: the same 404, and no private read', async () => {
+    const t = await start()
+    addSession(world, { id: SMALL, status: 'inviting', version: 1 })
+    addMember(world, SMALL, HOST, { role: 'host' })
+    addMember(world, SMALL, GUEST)
+    addMember(world, SMALL, OTHER, { state: 'opted_out' })
+    const res = await t.needs(SMALL, OTHER)
+    expect(res.status).toBe(404)
+    expect(res.body.error).toBe('session_not_found')
+    expect(world.calls.some((c) => c.kind === 'rpc')).toBe(false)
+  })
+
+  it('reads as the caller first, and the private rows only with the server’s key', async () => {
+    const t = await start()
+    await t.needs(SESSION, GUEST)
+    expect(world.calls.map((c) => [c.table ?? c.rpc, c.kind, c.who])).toEqual([
+      ['session_members', 'select', GUEST.toLowerCase()],
+      ['session_member_needs', 'rpc', null],
+    ])
+  })
+
+  it('tells a stranger nothing: the same 404 as for a session that does not exist, and no private read', async () => {
+    const t = await start()
+    const stranger = await t.needs(SESSION, STRANGER)
+    expect(stranger.status).toBe(404)
+    expect(stranger.body.error).toBe('session_not_found')
+    expect((await t.needs('cccccccc-cccc-4ccc-8ccc-cccccccccccc', GUEST)).body.error).toBe('session_not_found')
+    expect(world.calls.some((c) => c.kind === 'rpc')).toBe(false)
+  })
+
+  it('needs a login and a session id, and fails as a server error when the needs cannot be read', async () => {
+    const t = await start()
+    expect((await t.needs(SESSION, null)).status).toBe(401)
+    const bad = await t.needs('not-a-uuid', GUEST)
+    expect(bad.status).toBe(400)
+    expect(bad.body.error).toBe('invalid_input')
+    world.failNeeds = true
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const failed = await t.needs(SESSION, GUEST)
+    expect(failed.status).toBe(500)
+    expect(failed.body.error).toBe('server_error')
+  })
+
+  it('is limited per person on its own counter, apart from leaving', async () => {
+    const t = await start({ sessionRateLimit: { windowMs: 60_000, max: 2 } })
+    expect((await t.needs(SESSION, GUEST)).status).toBe(200)
+    expect((await t.needs(SESSION, GUEST)).status).toBe(200)
+    expect((await t.needs(SESSION, GUEST)).status).toBe(429)
+    // Leaving still has its own two.
+    expect((await t.remove(SESSION, 'me', GUEST)).status).toBe(200)
   })
 })

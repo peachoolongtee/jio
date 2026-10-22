@@ -71,7 +71,8 @@ import { createWeather } from './services/weather.js'
 //   supabase       - The server's Supabase clients, from createSupabase(). Without it the routes that
 //                    need a login (GET /api/me) are not mounted.
 //   sessionRateLimit - { windowMs, max } to limit how often one signed-in caller may use the session endpoints (the meeting spots,
-//                    opting out, leaving, removing a guest), or leave it out for no limit. index.js sets it outside stub mode.
+//                    opting out, leaving, removing a guest), and, counted apart, read an outing's dietary needs
+//                    (GET /api/sessions/:id/dietary), or leave it out for no limit. index.js sets it outside stub mode.
 //   peopleSearchRateLimit - { windowMs, max } to limit how often one signed-in caller may search for people to invite
 //                    (GET /api/people/search, which a screen calls as the person types), or leave it out for no limit. index.js sets it
 //                    outside stub mode.
@@ -180,10 +181,16 @@ export function createApp({
   // start sending the session token first.
   if (supabase) app.use('/api', createMeRouter({ supabase }))
   // Where a group meets, on the server: the meeting spots, a suggestion, the host's confirm and known place, opting out and
-  // rejoining, leaving and removing (/api/sessions/:id/...). Needs a login, then a limit per person.
+  // rejoining, leaving and removing (/api/sessions/:id/...); and an outing's dietary needs together (GET /api/sessions/:id/dietary).
+  // Needs a login, then a limit per person (the needs counted apart).
   if (supabase) {
     const sessions = createSessions({ supabase, data: planData, runs, ...(routingDeadlineMs !== undefined && { routingDeadlineMs }) })
-    app.use('/api', createSessionsRouter({ supabase, sessions, limiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null }))
+    app.use('/api', createSessionsRouter({
+      supabase,
+      sessions,
+      limiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null,
+      readLimiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null,
+    }))
   }
 
   // Finding a person to invite by the start of their username: /api/people/search. Needs a login, then a limit per person.

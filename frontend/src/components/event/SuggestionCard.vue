@@ -10,6 +10,8 @@
 // The review line is its own button, apart from the vote and the swap, and opens the place's reviews (`open`, with 'review'). It quotes
 // the start of a review by someone in the outing (`outing`, ids), else by a friend (`friends`, ids), with a "Sample" tag;
 // with neither it says how many sample reviews there are. It stays on the card whatever the card's state.
+// A food place that does not surely fit the group's dietary needs says so in its tags, one per need ("Halal likely", "Halal not
+// confirmed"; hovering says "check before you go"), from the option's dietUnknown and verify.
 // Colour coding: a stripe in the category colour. `leading` outlines the card in ink
 // and tags it "Leading"; `behind` (another place leads) mutes the vote count. `closed` makes the vote read-only.
 // Roam ("What next?") uses the same card without votes: `meta` replaces the walking line ("about 4 min away · 250 m") and
@@ -32,6 +34,7 @@ import { placeImage } from '@/lib/placeImages.js'
 import { cardLine, reviewLabel } from '@/lib/reviewPick.js'
 import { cardTags, hoursNote, votersText } from '@/lib/cardText.js'
 import { optionMark } from '@/lib/weatherText.js'
+import { dietTags } from '@/lib/dietText.js'
 
 const props = defineProps({
   option: { type: Object, required: true },
@@ -61,6 +64,8 @@ const openName = computed(() => `Open ${props.option.venue.name}`)
 // The rain warning, in the weather state the planner gave ("Outdoor, showers"); null when the option has none. Its source is
 // said once under the list, not on the card.
 const rainMark = computed(() => optionMark(props.option))
+// The dietary caveats, one tag per need; none for a place that surely fits.
+const diet = computed(() => dietTags(props.option))
 
 // The review line: how many sample reviews the place has and the one to quote, if there is one.
 const line = computed(() => cardLine(props.option.venue, { outing: props.outing, friends: props.friends }))
@@ -93,6 +98,7 @@ const reviewName = computed(() => reviewLabel(props.option.venue.name, line.valu
     <div class="sugg__tags">
       <InfoTag v-if="leading" tone="strong" icon="trophy">Leading</InfoTag>
       <InfoTag v-for="tag in tags" :key="tag.key" :tone="tag.tone" :icon="tag.icon">{{ tag.text }}</InfoTag>
+      <InfoTag v-for="tag in diet" :key="tag.key" :tone="tag.tone" :icon="tag.icon" :title="tag.title" data-testid="diet-tag">{{ tag.text }}</InfoTag>
       <WeatherMark v-if="rainMark" :mark="rainMark" />
     </div>
     <button type="button" class="sugg__review" :data-review-for="option.id" :aria-label="reviewName" @click="$emit('open', option, 'review')">

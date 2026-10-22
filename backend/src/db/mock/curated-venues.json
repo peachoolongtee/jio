@@ -90,7 +90,7 @@
    "rating": 4.3,
    "ratingCount": null,
    "diet": {
-    "halal": "unknown",
+    "halal": "likely",
     "vegetarian": "unknown",
     "vegan": "unknown",
     "healthy": 2
@@ -135,10 +135,14 @@
    "source": "curated",
    "dataQuality": {
     "attributesAreDefaults": true,
-    "dietUnknown": true,
+    "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "halalSource": "muis",
+    "halalScope": "stalls",
+    "muisStalls": 2,
+    "halalCheckedAt": "2026-10-18"
    }
   },
   {
@@ -620,7 +624,7 @@
    "rating": 4.2,
    "ratingCount": null,
    "diet": {
-    "halal": "unknown",
+    "halal": "likely",
     "vegetarian": "unknown",
     "vegan": "unknown",
     "healthy": 2
@@ -666,10 +670,14 @@
    "source": "curated",
    "dataQuality": {
     "attributesAreDefaults": true,
-    "dietUnknown": true,
+    "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "halalSource": "muis",
+    "halalScope": "stalls",
+    "muisStalls": 1,
+    "halalCheckedAt": "2026-10-18"
    }
   },
   {
@@ -689,7 +697,7 @@
    "rating": 4.1,
    "ratingCount": null,
    "diet": {
-    "halal": "unknown",
+    "halal": "likely",
     "vegetarian": "unknown",
     "vegan": "unknown",
     "healthy": 2
@@ -734,10 +742,14 @@
    "source": "curated",
    "dataQuality": {
     "attributesAreDefaults": true,
-    "dietUnknown": true,
+    "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "halalSource": "muis",
+    "halalScope": "stalls",
+    "muisStalls": 1,
+    "halalCheckedAt": "2026-10-18"
    }
   },
   {
@@ -2059,7 +2071,7 @@
    "rating": 3.9,
    "ratingCount": null,
    "diet": {
-    "halal": "unknown",
+    "halal": "likely",
     "vegetarian": "unknown",
     "vegan": "unknown",
     "healthy": 2
@@ -2103,10 +2115,14 @@
    "source": "curated",
    "dataQuality": {
     "attributesAreDefaults": true,
-    "dietUnknown": true,
+    "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "halalSource": "muis",
+    "halalScope": "stalls",
+    "muisStalls": 9,
+    "halalCheckedAt": "2026-10-18"
    }
   },
   {
@@ -3744,7 +3760,7 @@
    "rating": 4,
    "ratingCount": null,
    "diet": {
-    "halal": "unknown",
+    "halal": "likely",
     "vegetarian": "unknown",
     "vegan": "unknown",
     "healthy": 2
@@ -3789,10 +3805,14 @@
    "source": "curated",
    "dataQuality": {
     "attributesAreDefaults": true,
-    "dietUnknown": true,
+    "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "halalSource": "muis",
+    "halalScope": "stalls",
+    "muisStalls": 3,
+    "halalCheckedAt": "2026-10-18"
    }
   },
   {
@@ -3939,7 +3959,7 @@
    "rating": 3.9,
    "ratingCount": null,
    "diet": {
-    "halal": "unknown",
+    "halal": "likely",
     "vegetarian": "unknown",
     "vegan": "unknown",
     "healthy": 2
@@ -3984,10 +4004,14 @@
    "source": "curated",
    "dataQuality": {
     "attributesAreDefaults": true,
-    "dietUnknown": true,
+    "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "halalSource": "muis",
+    "halalScope": "stalls",
+    "muisStalls": 1,
+    "halalCheckedAt": "2026-10-18"
    }
   }
  ]

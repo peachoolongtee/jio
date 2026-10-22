@@ -48,7 +48,7 @@ const session = {
 const flush = async () => {
   for (let i = 0; i < 4; i++) await new Promise((resolve) => setTimeout(resolve, 0))
 }
-const REQUEST = (point) => ['s1', { point, categories: ['eat', 'drink', 'shop', 'activity'] }]
+const REQUEST = (point) => ['s1', { point, categories: ['eat', 'drink', 'shop', 'activity'], unconfirmed: false }]
 
 let pinia
 beforeEach(() => {

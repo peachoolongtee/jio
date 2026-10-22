@@ -62,11 +62,24 @@ function parseHours(hours) {
   });
 }
 
-/** One frontend venue -> one engine venue. Keeps the frontend's id so the UI can match results to its own list. */
+// A place of this kind is a centre of many stalls: MUIS certifies a stall, never the centre.
+const CENTRE_KINDS = ['hawker', 'market'];
+
+/**
+ * One frontend venue -> one engine venue. Keeps the frontend's id so the UI can match results to its own list.
+ * A place with certification from MUIS (`halal: { muisStalls, checked }`, ticket #107) carries it in dataQuality (the count,
+ * the date and `halalScope`) so a screen can say where it came from. A single certified shop or restaurant is halal 'options'
+ * (verified). A centre with certified stalls is only halal 'likely': one stall's certificate does not make the centre halal,
+ * so a halal group is told to check the stall (`verify`).
+ * How to call: fromFrontendVenue(VENUES[0])
+ */
 function fromFrontendVenue(v) {
   const tags = v.tags ?? [];
   const food = v.category === 'eat' || v.category === 'drink';
+  const muis = food && Number.isInteger(v.halal?.muisStalls) && v.halal.muisStalls > 0 ? v.halal : null;
   const d = KIND_DEFAULTS[v.kind] ?? KIND_DEFAULTS.attraction;
+  const stallsOnly = muis !== null && CENTRE_KINDS.includes(v.kind);
+  const halalLevel = muis === null ? 'unknown' : stallsOnly ? 'likely' : 'options';
   return {
     id: v.id, name: v.name, area: v.area, nearestMrt: v.mrt ?? null, mrtWalkMinutes: v.mrtWalk ?? null,
     lat: v.lat, lng: v.lng, forecastArea: approxRegion(v),
@@ -75,7 +88,7 @@ function fromFrontendVenue(v) {
     avgPricePerPerson: v.price, priceBand: priceBandFor(v.price),
     rating: typeof v.rating === 'number' ? Math.round((v.rating / 2) * 10) / 10 : null, // frontend 0-10 -> engine 0-5
     ratingCount: null,
-    diet: food ? { halal: 'unknown', vegetarian: 'unknown', vegan: 'unknown', healthy: d.healthy ?? 2 } : null,
+    diet: food ? { halal: halalLevel, vegetarian: 'unknown', vegan: 'unknown', healthy: d.healthy ?? 2 } : null,
     setting: v.indoor ? 'indoor' : 'outdoor', exposure: exposureFor(v.indoor, v.kind, v.mrtWalk ?? 10),
     aircon: v.indoor && !['hawker', 'market'].includes(v.kind),
     stepFree: null, sockets: null, wifi: null,
@@ -87,7 +100,10 @@ function fromFrontendVenue(v) {
     attributes: attributesFor(v.kind, tags),
     popularity: v.popularity ?? null, tags: [...tags],
     source: 'curated',
-    dataQuality: { attributesAreDefaults: true, dietUnknown: food, accessUnknown: true, ratingRescaledFrom10: true, forecastAreaApprox: true },
+    dataQuality: {
+      attributesAreDefaults: true, dietUnknown: food && !muis, accessUnknown: true, ratingRescaledFrom10: true, forecastAreaApprox: true,
+      ...(muis ? { halalSource: 'muis', halalScope: stallsOnly ? 'stalls' : 'venue', muisStalls: muis.muisStalls, halalCheckedAt: muis.checked } : {}),
+    },
   };
 }
 
