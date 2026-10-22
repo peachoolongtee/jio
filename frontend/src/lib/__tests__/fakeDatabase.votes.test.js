@@ -1,6 +1,6 @@
 // The stand-in database's slots, places and votes (stage 4): who reads them, who may vote and when, what goes with what (a removed place
-// takes its votes, a removed slot takes its places), the slot sections of the apply_session_plan port (marked ASSUMED in fakeDatabase.js:
-// the server's own migration is written by the backend half), and the live events a vote raises. No network.
+// takes its votes, a removed slot takes its places), the slot sections of the apply_session_plan port (the server's own function,
+// migration 20261022000000, with the cases of db/tests/apply_session_plan.sql steps 77 onwards), and the live events a vote raises. No network.
 import { describe, expect, it } from 'vitest'
 import { SERVICE, createDatabase } from '../../components/dev/fakeDatabase.js'
 
@@ -94,10 +94,10 @@ describe('casting, moving and taking back a vote', () => {
     expect(db.run({ as: B, kind: 'update', table: 'votes', values: { venue_id: 'v2' }, filters: [eq('slot_id', slotId)], returning: true, columns: 'user_id' }).data).toEqual([])
     db.run({ as: SERVICE, kind: 'update', table: 'session_members', values: { state: 'joined' }, filters: [eq('user_id', B)] })
     // The slot removed (its places go with it, so the vote does too).
-    plan({ slot_flags: [{ id: slotId, deleted: true }] })
+    plan({ slots: [{ category: 'eat', deleted: true }] })
     expect(db.tables.votes).toHaveLength(0)
     expect(vote(A, 'v1').error.code).toBe('42501')
-    plan({ slot_flags: [{ id: slotId, deleted: false }], slots: [{ category: 'eat', start_minute: 720, duration_minutes: 90, picks: 2, is_last: true, options: [option('v1', 1)] }] })
+    plan({ slots: [{ category: 'eat', deleted: false, options: [option('v1', 1)] }] })
     expect(vote(A, 'v1').error).toBeNull()
     // Confirmed: read-only.
     db.run({ as: SERVICE, kind: 'update', table: 'sessions', values: { status: 'confirmed' }, filters: [eq('id', sid)] })
@@ -119,10 +119,10 @@ describe('what goes with what', () => {
     const { db, slotId, vote, plan } = voting()
     vote(A, 'v1')
     vote(B, 'v2')
-    plan({ slots: [{ category: 'eat', start_minute: 720, duration_minutes: 90, picks: 2, is_last: true, options: [option('v2', 1)] }] })
+    plan({ slots: [{ category: 'eat', options: [option('v2', 1)] }] })
     expect(db.tables.slot_options.map((o) => o.venue_id)).toEqual(['v2'])
     expect(db.tables.votes.map((v) => [v.user_id, v.venue_id])).toEqual([[B, 'v2']])
-    plan({ slots: [] })
+    plan({ slots: [{ category: 'eat', remove: true }] })
     expect(db.tables.slots).toHaveLength(0)
     expect(db.tables.slot_options).toHaveLength(0)
     expect(db.tables.votes).toHaveLength(0)
@@ -132,9 +132,24 @@ describe('what goes with what', () => {
   it('keeps a vote with its place when the place is swapped in place', () => {
     const { db, slotId, vote, plan } = voting()
     vote(A, 'v1')
-    expect(plan({ swap: { slot_id: slotId, from: 'v1', to: 'v9', rank: 1, score: 5, details: { walkMinutes: 1 } } }).data).toBeGreaterThan(1)
+    expect(plan({ ops: [{ op: 'swap_option', category: 'eat', from: 'v1', to: 'v9' }] }).data).toBeGreaterThan(1)
     expect(db.tables.votes[0].venue_id).toBe('v9')
-    expect(db.tables.slot_options.find((o) => o.venue_id === 'v9')).toMatchObject({ rank: 1, score: 5 })
+    // The option is renamed in place: it keeps its rank, score and details until a slot item writes new ones.
+    expect(db.tables.slot_options.find((o) => o.venue_id === 'v9')).toMatchObject({ rank: 1, score: 10, details: { walkMinutes: 3, reasons: [] } })
+    expect(db.tables.slot_options.map((o) => o.venue_id).sort()).toEqual(['v2', 'v9'])
+    // Doing it again changes nothing (the place it swapped from is gone).
+    const version = db.tables.sessions[0].plan_version
+    expect(plan({ ops: [{ op: 'swap_option', category: 'eat', from: 'v1', to: 'v9' }] }).data).toBe(version)
+    expect(slotId).toBeTruthy()
+  })
+
+  it('merges a swap into a place that is already an option: the votes move to it and the old place goes', () => {
+    const { db, vote, plan } = voting()
+    vote(A, 'v1')
+    vote(B, 'v2')
+    plan({ ops: [{ op: 'swap_option', category: 'eat', from: 'v1', to: 'v2' }] })
+    expect(db.tables.slot_options.map((o) => o.venue_id)).toEqual(['v2'])
+    expect(db.tables.votes.map((v) => [v.user_id, v.venue_id]).sort()).toEqual([[A, 'v2'], [B, 'v2']].sort())
   })
 
   it('takes a person\'s votes when they opt out, and with the session when it goes', () => {
@@ -150,7 +165,7 @@ describe('what goes with what', () => {
   })
 })
 
-describe('the slot sections of apply_session_plan (ASSUMED shape)', () => {
+describe('the slot sections of apply_session_plan (the stage 4 function)', () => {
   it('writes slots and places as a difference and counts only real changes', () => {
     const { db, slotId, plan, row } = voting()
     const same = { slots: [{ category: 'eat', start_minute: 720, duration_minutes: 90, picks: 2, is_last: true, details: { moreAvailable: true }, options: [option('v1', 1), option('v2', 2)] }] }
@@ -164,15 +179,103 @@ describe('the slot sections of apply_session_plan (ASSUMED shape)', () => {
   it('removes a slot and its places and brings it back, and clears every place at once', () => {
     const { db, slotId, plan, vote } = voting()
     vote(A, 'v1')
-    plan({ slot_flags: [{ id: slotId, deleted: true }] })
+    plan({ slots: [{ category: 'eat', deleted: true }] })
     expect(db.tables.slots[0].deleted).toBe(true)
     expect(db.tables.slot_options).toHaveLength(0)
-    plan({ slot_flags: [{ id: slotId, deleted: false }] })
+    expect(db.tables.votes).toHaveLength(0)
+    plan({ slots: [{ category: 'eat', deleted: false }] })
     expect(db.tables.slots[0].deleted).toBe(false)
-    plan({ slots: [{ category: 'eat', start_minute: 720, duration_minutes: 90, picks: 2, is_last: true, options: [option('v1', 1)] }] })
-    plan({ clear_options: true })
-    expect(db.tables.slot_options).toHaveLength(0)
-    expect(db.tables.slots).toHaveLength(1)
+    expect(db.tables.slots[0].id).toBe(slotId)
+    plan({ slots: [{ category: 'eat', options: [option('v1', 1)] }] })
+    expect(db.tables.slot_options).toHaveLength(1)
+    // `remove` deletes the slot row itself.
+    plan({ slots: [{ category: 'eat', remove: true }] })
+    expect(db.tables.slots).toHaveLength(0)
+  })
+
+  it('leaves a category the patch does not mention alone, and a slot without "options" keeps its places', () => {
+    const { db, plan } = voting()
+    plan({ slots: [{ category: 'drink', start_minute: 900, duration_minutes: 60, options: [option('d1', 1)] }] })
+    plan({ slots: [{ category: 'eat', picks: 1 }] })
+    expect(db.tables.slots.map((x) => x.category).sort()).toEqual(['drink', 'eat'])
+    expect(db.tables.slot_options.map((o) => o.venue_id).sort()).toEqual(['d1', 'v1', 'v2'])
+    expect(db.tables.slots.find((x) => x.category === 'eat').picks).toBe(1)
+  })
+
+  it('clears every vote of the session (the meeting area moved) and only while it is voting', () => {
+    const { db, sid, vote, plan, row } = voting()
+    vote(A, 'v1')
+    vote(B, 'v2')
+    const version = row().plan_version
+    expect(plan({ ops: [{ op: 'clear_votes' }] }).data).toBe(version + 1)
+    expect(db.tables.votes).toHaveLength(0)
+    expect(plan({ ops: [{ op: 'clear_votes' }] }).data).toBe(version + 1)
+    db.run({ as: SERVICE, kind: 'update', table: 'sessions', values: { status: 'confirmed' }, filters: [eq('id', sid)] })
+    expect(plan({ ops: [{ op: 'clear_votes' }] }).error).toMatchObject({ code: 'P0001', hint: 'slots_status' })
+  })
+
+  it('refuses slots, a swap and a clear unless the session is voting, and a swap in a slot that is not there', () => {
+    const { db, sid, plan } = voting()
+    expect(plan({ ops: [{ op: 'swap_option', category: 'shop', from: 'a', to: 'b' }] }).error).toMatchObject({ code: 'P0001', hint: 'slot_missing' })
+    db.run({ as: SERVICE, kind: 'update', table: 'sessions', values: { status: 'confirmed' }, filters: [eq('id', sid)] })
+    expect(plan({ slots: [{ category: 'eat', picks: 3 }] }).error).toMatchObject({ code: 'P0001', hint: 'slots_status' })
+    expect(plan({ ops: [{ op: 'swap_option', category: 'eat', from: 'v1', to: 'v9' }] }).error).toMatchObject({ code: 'P0001', hint: 'slots_status' })
+  })
+
+  it('takes the votes of anyone who is not a joined member after it writes the slots, and a removed member\'s votes at once', () => {
+    const { db, vote, plan } = voting()
+    vote(A, 'v1')
+    vote(B, 'v2')
+    // B opts out directly (a vote cast a moment earlier is still there), then a slot write sweeps it.
+    db.run({ as: SERVICE, kind: 'update', table: 'session_members', values: { state: 'opted_out' }, filters: [eq('user_id', B)] })
+    expect(db.tables.votes).toHaveLength(2)
+    plan({ slots: [{ category: 'eat', picks: 1 }] })
+    expect(db.tables.votes.map((v) => v.user_id)).toEqual([A])
+    plan({ ops: [{ op: 'remove_member', user_id: B }] })
+    expect(db.tables.votes.map((v) => v.user_id)).toEqual([A])
+  })
+
+  it('stamps a banner sent without its time with the clock, and counts a swap of two people\'s minutes as a change', () => {
+    const { db, plan, row } = voting()
+    const version = row().plan_version
+    const sent = { session: { banner: { text: 'Votes for places were cleared.', votesCleared: true } } }
+    expect(plan(sent).data).toBe(version + 1)
+    expect(row().banner).toMatchObject({ text: 'Votes for places were cleared.', votesCleared: true, at: expect.any(Number) })
+    // The same banner again is no change, whatever its stored time.
+    expect(plan(sent).data).toBe(version + 1)
+    // Same longest trip, total and count; the minutes of A and B swapped.
+    for (const m of db.tables.session_members) m.travel_minutes = m.user_id === A ? 20 : 10
+    const swapped = { session: { meeting: { ...MEETING, travel: { [A]: 10, [B]: 20 } } } }
+    expect(plan(swapped).data).toBe(version + 2)
+    expect(plan(swapped).data).toBe(version + 2)
+  })
+
+  it('accepts a venue id of 120 characters, the saved hawker centres\' kind, as a place and as a vote, and refuses 161', () => {
+    const { db, plan, vote } = voting()
+    const long = `onemap_ssot_hawkercentres_${'x'.repeat(94)}`
+    expect(long).toHaveLength(120)
+    expect(plan({ slots: [{ category: 'eat', options: [option('v1', 1), option(long, 2)] }] }).error).toBeNull()
+    expect(vote(B, long).error).toBeNull()
+    expect(db.tables.votes[0].venue_id).toBe(long)
+    expect(plan({ slots: [{ category: 'eat', options: [option('v1', 1), option(long, 2), option('y'.repeat(161), 3)] }] }).error.code).toBe('23514')
+  })
+
+  it('makes a slot only with its start and length', () => {
+    const { plan } = voting()
+    expect(plan({ slots: [{ category: 'shop' }] }).error.code).toBe('23502')
+  })
+
+  it('gives the private needs of the joined members to the server only, none for a member who opted out', () => {
+    const db = createDatabase({ profiles: { [A]: profile('a'), [B]: profile('b') }, needs: { [A]: { dietary: ['halal'] }, [B]: { dietary: ['vegan'], needs_step_free: true } } })
+    const sid = db.run({ as: A, kind: 'insert', table: 'sessions', values: { host_id: A, title: 'T', date: '2026-10-21', start_time: '12:00', end_time: '20:00' }, returning: true, columns: 'id' }).data[0].id
+    const { token } = db.run({ as: A, kind: 'insert', table: 'invites', values: { session_id: sid, created_by: A }, returning: true, columns: 'token' }).data[0]
+    db.run({ as: B, kind: 'rpc', fn: 'join_session', args: { invite_token: token } })
+    const asked = (as) => db.run({ as, kind: 'rpc', fn: 'session_member_needs', args: { sid } })
+    expect(asked(A).error.code).toBe('42501')
+    expect(asked(null).error.code).toBe('42501')
+    expect(asked(SERVICE).data.map((r) => [r.user_id, r.dietary, r.needs_step_free]).sort()).toEqual([[A, ['halal'], false], [B, ['vegan'], true]].sort())
+    db.run({ as: SERVICE, kind: 'update', table: 'session_members', values: { state: 'opted_out' }, filters: [eq('user_id', B)] })
+    expect(asked(SERVICE).data.map((r) => r.user_id)).toEqual([A])
   })
 
   it('writes the radius, refuses one outside 100 to 3000, and does not count the same radius as a change', () => {

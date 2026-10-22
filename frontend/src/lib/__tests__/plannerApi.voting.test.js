@@ -89,15 +89,19 @@ describe('the calls', () => {
   })
 
   it('searches places for a slot: GET venue-search with the words, mapped as the search sheet reads them, with "added"', async () => {
+    // The server's own fields (E17): { venueId, name, area, category, source, matchedStall, walkMinutes, distanceKm, fits, unfit, added }
+    // and the dietary caveats a ranked option carries.
     const sent = answer({
       results: [
-        { venueId: 'v1', name: 'Gem Cafe', area: 'Bishan', category: 'eat', walkMinutes: 4, unfit: [], added: true },
-        { venueId: 'v2', name: 'Late Bar', area: 'Bishan', category: 'drink', walkMinutes: 9, unfit: ['meal_period', 'closed'] },
+        { venueId: 'v1', name: 'Gem Cafe', area: 'Bishan', category: 'eat', source: 'curated', matchedStall: null, walkMinutes: 4, distanceKm: 0.3, fits: true, unfit: [], verify: ['halal'], dietUnknown: [], added: true },
+        { venueId: 'v2', name: 'Late Bar', area: 'Bishan', category: 'drink', source: 'onemap', matchedStall: 'Nasi Lemak', walkMinutes: 9, distanceKm: 0.8, fits: false, unfit: ['meal_period', 'closed'], added: false },
+        { venueId: 'v3', name: 'Pork Rice', area: 'Bishan', category: 'eat', source: 'curated', matchedStall: null, walkMinutes: 5, distanceKm: 0.4, fits: false, unfit: ['diet:halal'], added: false },
       ],
     })
     expect(await searchSessionSlot(ID, SLOT, 'cafe')).toEqual([
-      { id: 'v1', name: 'Gem Cafe', area: 'Bishan', category: 'eat', walk: 4, unfit: '', added: true },
-      { id: 'v2', name: 'Late Bar', area: 'Bishan', category: 'drink', walk: 9, unfit: 'meal', added: false },
+      { id: 'v1', name: 'Gem Cafe', area: 'Bishan', category: 'eat', walk: 4, unfit: '', verify: ['halal'], dietUnknown: [], added: true },
+      { id: 'v2', name: 'Late Bar', area: 'Bishan', category: 'drink', walk: 9, unfit: 'meal', verify: [], dietUnknown: [], added: false },
+      { id: 'v3', name: 'Pork Rice', area: 'Bishan', category: 'eat', walk: 5, unfit: 'diet', need: 'halal', verify: [], dietUnknown: [], added: false },
     ])
     expect([sent[0].method, sent[0].url, sent[0].params, sent[0].timeout]).toEqual(['get', `/api/sessions/${ID}/slots/${SLOT}/venue-search`, { q: 'cafe' }, 8000])
     expect(toSearchResult({ venueId: 'x', name: 'X', area: 'A', category: 'eat', walkMinutes: 1 }).unfit).toBe('')

@@ -38,18 +38,22 @@
 //     subscriber's filter. A delete is not filtered by access rules, carries only the row's key, and, as Supabase cannot
 //     filter deletes, is NOT delivered to a subscriber who gave a filter (the stricter reading, so code cannot lean on it).
 //
-// What of stage 4 is an ASSUMPTION about the server (its migration is written by the backend half and may differ): the keys of the patch
-// that `apply_session_plan` takes for slots and options (`slots`, `slot_flags`, `swap`, `clear_options`, `session.radius_meters`,
-// and `opt_out` deleting the person's votes), copied from the design's SQL (ticket 80, section 6). They are marked "ASSUMED" below.
-// The browser never calls the function; only the stand-in Jio server (lib/__tests__/fakeSessionsServer.js) does.
+// Stage 4 of `apply_session_plan` is a port of db/migrations/20261022000000_jio_apply_session_plan_slots.sql (and of its JavaScript
+// twin, backend/tests/helpers/fake-supabase.js): the ops `clear_votes` and `swap_option`, `opt_out` and `remove_member` taking the
+// person's votes, the `slots` list as a difference (one item per category, with `options`, `deleted` and `remove`), the votes of anyone
+// who is not a joined member going after it, `session.radius_meters`, a banner stamped by the database's clock, and the minutes of a
+// joined member counting as a change. The browser never calls the function; only the real backend, started in a test, does.
+// `session_member_needs(sid)` is here too (the service key only), over the needs given to `createDatabase` or `setNeeds`.
+// What it cannot make identical to Postgres is listed at the end of this comment.
 //
 // Order of checks on an insert follows Postgres: a type error (a value that is not a uuid is 22P02, before anything else), the
 // BEFORE triggers (check_invite_insert, even for the server), the row-level "with check", then the constraints (foreign keys,
 // check constraints, unique indexes). A statement that RETURNS a row the caller may not read fails as a whole (42501) and
 // leaves nothing behind.
 //
-// What it does NOT model: the planner columns of `sessions` beyond what stage 3 reads (meeting_*, banner and plan_version are
-// there and the server's stand-in writes them; radius and replan are not), `slots`, `votes`, `stops` and the other tables, the 30-day
+// What it does NOT model: the planner columns of `sessions` beyond what stages 3 and 4 read (meeting_*, banner, plan_version and
+// radius_meters are there; replan is not), `stops` and the other tables, the table `profile_private` itself (only the function over
+// it), the 30-day
 // ceiling on how far ahead `expires_at` may be set beyond what the check says, row locks and concurrent transactions (one
 // call runs to the end before the next), Postgres's exact error texts beyond the ones the app reads, Realtime's connection
 // life (reconnects, missed events), and the rate limits and size limits of Supabase itself.
@@ -158,7 +162,10 @@ function dateText(value) {
 }
 
 // How to call: const db = createDatabase({ profiles, now: () => Date.now() })
-export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
+export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now() } = {}) {
+  // The private planner needs of each person, as `profile_private` holds them (home_area_id, dietary, budget_max_per_person,
+  // needs_step_free). Nobody reads them as a table; only `session_member_needs()` does, for the service key.
+  const privateNeeds = new Map(Object.entries(needs).map(([id, row]) => [id, structuredClone(row)]))
   const tables = { sessions: [], session_members: [], invites: [], session_member_places: [], session_spots: [], spot_suggestions: [], spot_approvals: [], slots: [], slot_options: [], votes: [] }
   const subscribers = new Set()
   // The events of the statement being run, or null outside one.
@@ -544,7 +551,7 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
   }
 
   // The server's slots and options (the service key only). The checks the tables make: a category from the four, a start inside the day,
-  // a length of 1 to 720 minutes, one slot per category per session, one option per place per slot, a venue id up to 80 characters.
+  // a length of 1 to 720 minutes, one slot per category per session, one option per place per slot, a venue id up to 160 characters (the 32 saved hawker centres have ids of 86).
   // How to call: insertSlot({ session_id, category: 'eat', start_minute: 720, duration_minutes: 90 })
   function insertSlot(values) {
     const row = { id: newId(), picks: 0, is_last: false, deleted: false, details: {}, created_at: iso(now()), updated_at: iso(now()), ...structuredClone(values) }
@@ -558,6 +565,8 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
   function checkSlot(row) {
     if (!sessionOf(row.session_id)) throw new DbError('23503', 'insert or update on table "slots" violates foreign key constraint "slots_session_id_fkey"')
     if (!['eat', 'drink', 'shop', 'activity'].includes(row.category)) throw new DbError('23514', 'new row for relation "slots" violates check constraint "slots_category_check"')
+    if (row.start_minute == null) throw new DbError('23502', 'null value in column "start_minute" of relation "slots" violates not-null constraint')
+    if (row.duration_minutes == null) throw new DbError('23502', 'null value in column "duration_minutes" of relation "slots" violates not-null constraint')
     if (!(row.start_minute >= 0 && row.start_minute <= 1439)) throw new DbError('23514', 'new row for relation "slots" violates check constraint "slots_start_minute_check"')
     if (!(row.duration_minutes >= 1 && row.duration_minutes <= 720)) throw new DbError('23514', 'new row for relation "slots" violates check constraint "slots_duration_minutes_check"')
     if (row.details === null || typeof row.details !== 'object' || Array.isArray(row.details) || JSON.stringify(row.details).length > 4000) throw new DbError('23514', 'new row for relation "slots" violates check constraint "slots_details_shape"')
@@ -566,7 +575,7 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
   function insertOption(values) {
     const row = { rank: null, score: null, source: 'planner', added_by: null, details: {}, created_at: iso(now()), ...structuredClone(values) }
     if (!slotOf(row.slot_id)) throw new DbError('23503', 'insert or update on table "slot_options" violates foreign key constraint "slot_options_slot_id_fkey"')
-    if (typeof row.venue_id !== 'string' || row.venue_id.length < 1 || row.venue_id.length > 80) throw new DbError('23514', 'new row for relation "slot_options" violates check constraint "slot_options_venue_id_check"')
+    if (typeof row.venue_id !== 'string' || row.venue_id.length < 1 || row.venue_id.length > 160) throw new DbError('23514', 'new row for relation "slot_options" violates check constraint "slot_options_venue_id_check"')
     if (!['planner', 'member'].includes(row.source)) throw new DbError('23514', 'new row for relation "slot_options" violates check constraint "slot_options_source_check"')
     if (row.added_by != null && !profiles[row.added_by]) throw new DbError('23503', 'insert or update on table "slot_options" violates foreign key constraint "slot_options_added_by_fkey"')
     if (tables.slot_options.some((o) => o.slot_id === row.slot_id && o.venue_id === row.venue_id)) throw new DbError('23505', 'duplicate key value violates unique constraint "slot_options_pkey"', { status: 409 })
@@ -744,7 +753,21 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
       publish('session_members', 'UPDATE', row)
     }
 
-    // Members, suggestions and approvals, in the order given.
+    // Rule 7: slots and options are written only while the session is voting (after this patch).
+    if (has(patch, 'slots') && newStatus !== 'voting') {
+      throw ruleBroken('slots_status', 'Slots and options are written only while the session is voting.')
+    }
+
+    // This session's votes, deleted where `test` says so (a vote hangs on its slot, so only this session's go). True if any went.
+    // How to call: dropVotes((v) => v.user_id === uid)
+    const dropVotes = (test) => {
+      const mine = new Set(tables.slots.filter((sl) => sl.session_id === sid).map((sl) => sl.id))
+      const gone = tables.votes.filter((v) => mine.has(v.slot_id) && test(v))
+      cascade('votes', gone)
+      return gone.length > 0
+    }
+
+    // Members, suggestions, approvals, votes and options, in the order given.
     for (const op of patch.ops ?? []) {
       const user = op.user_id
       const member = tables.session_members.find((m) => m.session_id === sid && m.user_id === user)
@@ -759,12 +782,8 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
         }
         changed = dropRows('spot_approvals', (a) => a.user_id === user) || changed
         changed = dropRows('spot_suggestions', (g) => g.user_id === user) || changed
-        // ASSUMED (the design's SQL, ticket 80): opting out also takes the person's votes in this session's slots.
-        const theirVotes = tables.votes.filter((v) => v.user_id === user && tables.slots.some((sl) => sl.id === v.slot_id && sl.session_id === sid))
-        if (theirVotes.length) {
-          cascade('votes', theirVotes)
-          changed = true
-        }
+        // Opting out also takes the person's votes in this session's slots.
+        changed = dropVotes((v) => v.user_id === user) || changed
       } else if (op.op === 'rejoin') {
         if (member?.state === 'opted_out') {
           changeMember(member, { state: 'joined' })
@@ -775,6 +794,8 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
           cascade('session_members', [member])
           changed = true
         }
+        // Votes belong to the person, not to their membership: nothing took them with the row, so they go here.
+        changed = dropVotes((v) => v.user_id === user) || changed
       } else if (op.op === 'suggest') {
         // One suggestion per member. Suggesting the same again changes nothing; a different one counts as newest.
         const here = op.here ?? false
@@ -794,6 +815,40 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
         changed = dropRows('spot_approvals', () => true) || changed
       } else if (op.op === 'clear_suggestions') {
         changed = dropRows('spot_suggestions', () => true) || changed
+      } else if (op.op === 'clear_votes') {
+        // The meeting area moved, so every vote is for a place that no longer belongs to it. Only in a voting session.
+        if (s.status !== 'voting') throw ruleBroken('slots_status', 'Votes are cleared only while the session is voting.')
+        changed = dropVotes(() => true) || changed
+      } else if (op.op === 'swap_option') {
+        if (s.status !== 'voting') throw ruleBroken('slots_status', 'An option is swapped only while the session is voting.')
+        const slot = tables.slots.find((sl) => sl.session_id === sid && sl.category === op.category)
+        if (!slot) throw ruleBroken('slot_missing', `This session has no ${op.category} slot.`)
+        if (tables.slot_options.some((o) => o.slot_id === slot.id && o.venue_id === op.to)) {
+          // The other place is already an option: the votes move to it and this one goes.
+          const moved = tables.votes.filter((v) => v.slot_id === slot.id && v.venue_id === op.from)
+          for (const vote of moved) {
+            vote.venue_id = op.to
+            vote.updated_at = iso(now())
+            publish('votes', 'UPDATE', vote)
+          }
+          changed = moved.length > 0 || changed
+          const gone = tables.slot_options.filter((o) => o.slot_id === slot.id && o.venue_id === op.from)
+          cascade('slot_options', gone)
+          changed = gone.length > 0 || changed
+        } else {
+          // In place: the option's place changes and the votes for it follow it (on update cascade).
+          const option = tables.slot_options.find((o) => o.slot_id === slot.id && o.venue_id === op.from)
+          if (option) {
+            option.venue_id = op.to
+            publish('slot_options', 'UPDATE', option)
+            for (const vote of tables.votes.filter((v) => v.slot_id === slot.id && v.venue_id === op.from)) {
+              vote.venue_id = op.to
+              vote.updated_at = iso(now())
+              publish('votes', 'UPDATE', vote)
+            }
+            changed = true
+          }
+        }
       } else {
         throw new DbError('22023', `Unknown operation ${op.op}.`)
       }
@@ -843,93 +898,79 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
       if (lostApprovals) bannerText = patch.banner_text || 'Some spots are no longer on the list, so approvals for them were removed.'
     }
 
-    // ASSUMED (the design's SQL, ticket 80, section 6): the slot plan. In this order: every option cleared (`clear_options`), slots
-    // removed or brought back (`slot_flags`: removing one also removes its options, and the votes for them), one option swapped
-    // for another in place (`swap`: the votes follow it), then the slots as a difference (`slots`: a listed category is inserted or
-    // updated, a category not listed is deleted unless it was removed by the host; each may carry `options`, also as a difference).
-    // Each is a change only where it alters a stored value.
+    // The slots and their options, as a difference (never delete-everything-then-insert, which would delete every vote). One item per
+    // category: `remove` deletes the slot row; otherwise the slot is made (it then needs start_minute and duration_minutes) or only the
+    // fields the item carries change. `options` is the slot's complete list: a listed place is inserted, or has its rank, score and
+    // details updated (its source, who added it and its votes stay); an unlisted place is deleted and takes its votes. A slot without
+    // `options` keeps its options. A deleted slot has none. Each is a change only where it alters a stored value.
     const sessionSlots = () => tables.slots.filter((sl) => sl.session_id === sid)
-    if (patch.clear_options === true) {
-      const gone = tables.slot_options.filter((o) => sessionSlots().some((sl) => sl.id === o.slot_id))
-      if (gone.length) {
-        cascade('slot_options', gone)
-        changed = true
-      }
-    }
-    for (const flag of patch.slot_flags ?? []) {
-      const slot = sessionSlots().find((sl) => sl.id === flag.id)
-      if (!slot) continue
-      if (slot.deleted !== !!flag.deleted) {
-        slot.deleted = !!flag.deleted
-        slot.updated_at = iso(now())
-        publish('slots', 'UPDATE', slot)
-        changed = true
-      }
-      if (slot.deleted) {
-        const gone = tables.slot_options.filter((o) => o.slot_id === slot.id)
-        if (gone.length) {
-          cascade('slot_options', gone)
-          changed = true
-        }
-      }
-    }
-    if (patch.swap) {
-      const { slot_id: slotId, from, to } = patch.swap
-      const option = tables.slot_options.find((o) => o.slot_id === slotId && o.venue_id === from && sessionSlots().some((sl) => sl.id === slotId))
-      if (option) {
-        if (tables.slot_options.some((o) => o.slot_id === slotId && o.venue_id === to)) throw new DbError('23505', 'duplicate key value violates unique constraint "slot_options_pkey"', { status: 409 })
-        // on update cascade: the votes for the place follow it.
-        for (const vote of tables.votes.filter((v) => v.slot_id === slotId && v.venue_id === from)) {
-          vote.venue_id = to
-          vote.updated_at = iso(now())
-          publish('votes', 'UPDATE', vote)
-        }
-        Object.assign(option, { venue_id: to, rank: patch.swap.rank ?? null, score: patch.swap.score ?? null, details: structuredClone(patch.swap.details ?? {}) })
-        publish('slot_options', 'UPDATE', option)
-        changed = true
-      }
-    }
     if (has(patch, 'slots')) {
       if (!Array.isArray(patch.slots)) throw new DbError('22023', 'The slots must be a JSON list.')
-      const categories = new Set(patch.slots.map((item) => item.category))
-      const dropped = sessionSlots().filter((sl) => !sl.deleted && !categories.has(sl.category))
-      if (dropped.length) {
-        cascade('slots', dropped)
-        changed = true
-      }
       for (const item of patch.slots) {
-        const values = { start_minute: item.start_minute, duration_minutes: item.duration_minutes, picks: item.picks ?? 0, is_last: !!item.is_last, details: structuredClone(item.details ?? {}) }
+        if (item === null || typeof item !== 'object' || Array.isArray(item)) throw new DbError('22023', 'Each slot must be a JSON object.')
+        if (item.remove === true) {
+          const gone = sessionSlots().filter((sl) => sl.category === item.category)
+          cascade('slots', gone)
+          changed = gone.length > 0 || changed
+          continue
+        }
         let slot = sessionSlots().find((sl) => sl.category === item.category)
         if (!slot) {
-          slot = insertSlot({ session_id: sid, category: item.category, ...values })
+          slot = insertSlot({
+            session_id: sid,
+            category: item.category,
+            start_minute: item.start_minute ?? null,
+            duration_minutes: item.duration_minutes ?? null,
+            picks: item.picks ?? 0,
+            is_last: item.is_last ?? false,
+            deleted: item.deleted ?? false,
+            details: item.details ?? {},
+          })
           changed = true
-        } else if (!sameJson({ ...values }, { start_minute: slot.start_minute, duration_minutes: slot.duration_minutes, picks: slot.picks, is_last: slot.is_last, details: slot.details })) {
-          const next = { ...slot, ...values }
+        } else {
+          const next = {
+            ...slot,
+            start_minute: item.start_minute ?? slot.start_minute,
+            duration_minutes: item.duration_minutes ?? slot.duration_minutes,
+            picks: item.picks ?? slot.picks,
+            is_last: item.is_last ?? slot.is_last,
+            deleted: item.deleted ?? slot.deleted,
+            details: has(item, 'details') ? structuredClone(item.details) : slot.details,
+          }
           checkSlot(next)
-          Object.assign(slot, next, { updated_at: iso(now()) })
-          publish('slots', 'UPDATE', slot)
-          changed = true
-        }
-        if (!has(item, 'options')) continue
-        const listed = new Set(item.options.map((o) => o.venue_id))
-        const stale = tables.slot_options.filter((o) => o.slot_id === slot.id && !listed.has(o.venue_id))
-        if (stale.length) {
-          cascade('slot_options', stale)
-          changed = true
-        }
-        for (const wanted of item.options) {
-          const existing = tables.slot_options.find((o) => o.slot_id === slot.id && o.venue_id === wanted.venue_id)
-          const fields = { rank: wanted.rank ?? null, score: wanted.score ?? null, details: structuredClone(wanted.details ?? {}) }
-          if (!existing) {
-            insertOption({ slot_id: slot.id, venue_id: wanted.venue_id, source: wanted.source ?? 'planner', added_by: wanted.added_by ?? null, ...fields })
-            changed = true
-          } else if (!sameJson(fields, { rank: existing.rank, score: existing.score, details: existing.details })) {
-            Object.assign(existing, fields)
-            publish('slot_options', 'UPDATE', existing)
+          if (!sameJson(next, slot)) {
+            Object.assign(slot, next, { updated_at: iso(now()) })
+            publish('slots', 'UPDATE', slot)
             changed = true
           }
         }
+        if (slot.deleted) {
+          // A removed slot has no options, and so no votes.
+          const gone = tables.slot_options.filter((o) => o.slot_id === slot.id)
+          cascade('slot_options', gone)
+          changed = gone.length > 0 || changed
+        } else if (has(item, 'options')) {
+          if (!Array.isArray(item.options)) throw new DbError('22023', 'The options of a slot must be a JSON list.')
+          const listed = new Set(item.options.map((o) => o.venue_id))
+          const stale = tables.slot_options.filter((o) => o.slot_id === slot.id && !listed.has(o.venue_id))
+          cascade('slot_options', stale)
+          changed = stale.length > 0 || changed
+          for (const wanted of item.options) {
+            const existing = tables.slot_options.find((o) => o.slot_id === slot.id && o.venue_id === wanted.venue_id)
+            const fields = { rank: wanted.rank ?? null, score: wanted.score ?? null, details: structuredClone(wanted.details ?? {}) }
+            if (!existing) {
+              insertOption({ slot_id: slot.id, venue_id: wanted.venue_id, source: wanted.source ?? 'planner', added_by: wanted.added_by ?? null, ...fields })
+              changed = true
+            } else if (!sameJson(fields, { rank: existing.rank, score: existing.score, details: existing.details })) {
+              Object.assign(existing, fields)
+              publish('slot_options', 'UPDATE', existing)
+              changed = true
+            }
+          }
+        }
       }
+      // Votes belong to the person, not to their membership: those of anyone who is not a joined member go now.
+      changed = dropVotes((v) => !joinedIn(v.user_id, sid)) || changed
     }
 
     // Rule 3: the session section is a change only where a value differs from the stored row. The meeting is compared as it would be
@@ -943,13 +984,21 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
       [s.meeting_count, meeting ? rounded(meeting.count) : null],
       [s.meeting_approximate, meeting?.approximate ?? null],
     ].some(([stored, written]) => (stored ?? null) !== written)
-    const bannerChanged = has(sp, 'banner') && !sameJson(s.banner ?? null, sp.banner ?? null)
-    // ASSUMED: the radius the host chose (100 to 3000 metres, or null for the planner's own widening).
+    // A banner sent without its time is stamped by the database's clock when it is written, so a newer notice always has a later
+    // `at` than an older one. It differs from the stored one only apart from that time.
+    const stampedBanner = has(sp, 'banner') && sp.banner !== null && typeof sp.banner === 'object' && !has(sp.banner, 'at')
+    const bannerChanged = has(sp, 'banner') && !sameJson(stampedBanner && s.banner ? (({ at: _at, ...rest }) => rest)(s.banner) : s.banner ?? null, sp.banner ?? null)
+    // A joined member whose stored minutes differ from the new ones counts as a change (when they have stored minutes at all): two
+    // people can swap their times with the longest trip, the total and the count the same.
+    const travelChanged = has(sp, 'meeting') && meeting && typeof meeting === 'object' && !!meeting.travel &&
+      tables.session_members.some((m) => m.session_id === sid && m.state === 'joined' && m.travel_minutes != null &&
+        (has(meeting.travel, m.user_id) ? Math.round(meeting.travel[m.user_id]) : null) !== m.travel_minutes)
+    // The radius the host chose (100 to 3000 metres, or null for the planner's own widening); the table's own check refuses the rest.
     const radiusChanged = has(sp, 'radius_meters') && (s.radius_meters ?? null) !== (sp.radius_meters ?? null)
-    if (radiusChanged && sp.radius_meters != null && !(sp.radius_meters >= 100 && sp.radius_meters <= 3000)) {
+    if (radiusChanged && sp.radius_meters != null && !(Number.isInteger(sp.radius_meters) && sp.radius_meters >= 100 && sp.radius_meters <= 3000)) {
       throw new DbError('23514', 'new row for relation "sessions" violates check constraint "sessions_radius_meters_check"')
     }
-    if (meetingChanged || bannerChanged || radiusChanged || bannerText !== null) changed = true
+    if (meetingChanged || travelChanged || bannerChanged || radiusChanged || bannerText !== null) changed = true
     if (!changed) return Number(s.plan_version)
 
     // Each joined member's own minutes to the confirmed area.
@@ -971,6 +1020,7 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
     }
     // The banner the function writes when approvals went: { text, at, approvalsRemoved: true }, `at` in milliseconds.
     if (bannerText !== null) s.banner = { text: bannerText, at: now(), approvalsRemoved: true }
+    else if (bannerChanged && stampedBanner) s.banner = { ...sp.banner, at: now() }
     else if (bannerChanged) s.banner = sp.banner ?? null
     s.plan_version = Number(s.plan_version) + 1
     s.updated_at = iso(now())
@@ -1036,6 +1086,23 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
     apply_session_plan({ as, args }) {
       if (as !== SERVICE) throw denied('apply_session_plan')
       return applySessionPlan(args)
+    },
+    // Each joined member's private planner needs, for the server only (db/schema.sql session_member_needs()): one row per joined
+    // member who has a private row. A member who opted out has none; nobody else may call it.
+    session_member_needs({ as, args }) {
+      if (as !== SERVICE) throw new DbError('42501', 'permission denied for function session_member_needs', { status: 403 })
+      return tables.session_members
+        .filter((m) => m.session_id === args.sid && m.state === 'joined' && privateNeeds.has(m.user_id))
+        .map((m) => {
+          const row = privateNeeds.get(m.user_id)
+          return {
+            user_id: m.user_id,
+            home_area_id: row.home_area_id ?? null,
+            dietary: structuredClone(row.dietary ?? []),
+            budget_max_per_person: row.budget_max_per_person ?? null,
+            needs_step_free: row.needs_step_free ?? false,
+          }
+        })
     },
     // The invitee says no.
     decline_invite({ as, args }) {
@@ -1105,7 +1172,11 @@ export function createDatabase({ profiles = {}, now = () => Date.now() } = {}) {
   const setToken = (token, id) => void tokens.set(token, id)
   const userForToken = (token) => tokens.get(token) ?? null
 
-  return Object.assign(self, { canSee, run, subscribe, setProfile, getProfiles, usernameTaken, profileByUsername, setToken, userForToken, tables, functionNames: Object.keys(functions) })
+  // Gives a person private planner needs, as their `profile_private` row would hold them.
+  // How to call: db.setNeeds(uid, { dietary: ['halal'], needs_step_free: false })
+  const setNeeds = (id, row) => privateNeeds.set(id, structuredClone(row))
+
+  return Object.assign(self, { canSee, run, subscribe, setNeeds, setProfile, getProfiles, usernameTaken, profileByUsername, setToken, userForToken, tables, functionNames: Object.keys(functions) })
 }
 
 // ── A client's view of a database ─────────────────────────────────────────

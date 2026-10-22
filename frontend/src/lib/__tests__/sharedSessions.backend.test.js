@@ -164,12 +164,16 @@ function watchRepairs(app, before = null) {
 }
 
 describe('a start saved while the host confirms', () => {
-  // The host confirms between the guest's direct write and the guest's call to the server. The server answers 409 not_yet while the
-  // group is voting, and 409 wrong_status once the session is further on; the guest's start stays, and nothing is thrown.
+  // The host confirms between the guest's direct write and the guest's call to the server. While the group is voting the server works
+  // the pinned area out again for the new start and answers (stage 4); once the session is further on it does nothing: 409 not_yet
+  // while the plan is confirmed (the itinerary is a later stage's work) and 409 wrong_status after that. The guest's start stays
+  // each time, and nothing is thrown.
   it.each([
-    ['not_yet', 'voting', async () => {}],
-    ['wrong_status', 'confirmed', async (w, id) => { w.database.tables.sessions.find((s) => s.id === id).status = 'confirmed' }],
-  ])('keeps the start and throws nothing when the server says %s', async (code, status, extra) => {
+    ['nothing (the group is voting: the pinned area is priced again)', 'voting', async () => {}],
+    ['not_yet', 'confirmed', async (w, id) => { w.database.tables.sessions.find((s) => s.id === id).status = 'confirmed' }],
+    ['wrong_status', 'completed', async (w, id) => { w.database.tables.sessions.find((s) => s.id === id).status = 'completed' }],
+  ])('keeps the start and throws nothing when the server says %s', async (said, status, extra) => {
+    const code = ['not_yet', 'wrong_status'].includes(said) ? said : undefined
     const w = await world()
     const { sam, kim, id } = await locatingPair(w)
     const answers = []
@@ -181,8 +185,8 @@ describe('a start saved while the host confirms', () => {
     })
     const seen = await kim.api.setLocation(id, kim.user.id, 'start', { areaId: 'jurong-east', label: 'Jurong East Mall' })
     expect(asked.count).toBe(1)
-    expect(answers).toEqual([code])
-    expect(w.database.tables.sessions.find((s) => s.id === id).status).toBe(status === 'voting' ? 'voting' : 'confirmed')
+    expect(answers).toEqual(code ? [code] : [])
+    expect(w.database.tables.sessions.find((s) => s.id === id).status).toBe(status)
     expect(w.database.tables.session_members.find((m) => m.user_id === kim.user.id).start_area_id).toBe('jurong-east')
     expect(seen.locations[kim.user.id].start).toMatchObject({ areaId: 'jurong-east' })
   })
