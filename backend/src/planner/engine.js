@@ -75,15 +75,6 @@ function staticFactors(venue, c) {
 const PRUNE_DISTANCE = 0.53125, PRUNE_FIT = 0.31875, PRUNE_RATING = 0.15;
 
 /**
- * Cheap pre-score using straight-line distance only (no routing). Keeps the best N so we make
- * at most N x members routing calls. It uses fit and rating as well as distance, so a close but
- * poor-fit venue cannot push a much better one out of the shortlist, and a place that is close only
- * because it has one five-star review cannot beat a well-reviewed one (the rating is the weighted one).
- * Occasion fit is computed the same way as in the final score, so a venue without a precomputed
- * occasionFit is not mistaken for a zero fit and cut here. Places in one building, and more than 2 Google
- * places among a category's first 5, rank below the rest (diversity.js), so the N are not all look-alikes.
- */
-/**
  * The same rows, those that likely meet more of the group's dietary needs first (ticket #107): every need met, then all but
  * one, and so on down to none known. Within a tier the order given is kept (the sort is stable), so a tier stays best first.
  * With no needs, or in strict mode (every place left meets them all), nothing moves. `rows` each have `.venue`.
@@ -94,6 +85,15 @@ function byDietFit(rows, members) {
   return [...rows].sort((a, b) => misses.get(a) - misses.get(b));
 }
 
+/**
+ * Cheap pre-score using straight-line distance only (no routing). Keeps the best N so we make
+ * at most N x members routing calls. It uses fit and rating as well as distance, so a close but
+ * poor-fit venue cannot push a much better one out of the shortlist, and a place that is close only
+ * because it has one five-star review cannot beat a well-reviewed one (the rating is the weighted one).
+ * Occasion fit is computed the same way as in the final score, so a venue without a precomputed
+ * occasionFit is not mistaken for a zero fit and cut here. Places in one building, and more than 2 Google
+ * places among a category's first 5, rank below the rest (diversity.js), so the N are not all look-alikes.
+ */
 function prune(candidates, c, keep) {
   if (candidates.length <= keep) return candidates;
   const dn = S.normalizeMinMax(candidates.map(x => x.distanceKm));
@@ -198,7 +198,7 @@ function hardFilterContext(input, members, mode) {
   return {
     members, groupConstraints: roaming ? input.groupConstraints ?? [] : lastStopRules(input, {}).constraints, dateTime: input.dateTime,
     categories: input.categories ?? (roaming ? ['eat', 'drink', 'activity'] : ['eat', 'drink']), excludeVenueIds: input.excludeVenueIds ?? [],
-    unknownPolicy: input.unknownPolicy ?? 'strict', durationMinutes: input.durationMinutes ?? 0,
+    unknownPolicy: input.unknownPolicy ?? 'strict', dietPolicy: input.dietPolicy, durationMinutes: input.durationMinutes ?? 0,
   };
 }
 
@@ -215,7 +215,7 @@ function emptyResult(reason, extra) {
 /**
  * Converge: several people, one fair place.
  * @param {object} input  { members, overrides?, optedOut?, occasion, dateTime, groupConstraints?, categories?,
- *                          weatherCase?, groupId?, unknownPolicy? ('strict' default | 'lenient'), seed?, pruneTo?, topN?,
+ *                          weatherCase?, groupId?, unknownPolicy? ('strict' default | 'lenient'), dietPolicy? (the same, for dietary needs alone; follows unknownPolicy), seed?, pruneTo?, topN?,
  *                          weights?, radius?, fairnessScaleMinutes?,
  *                          travelCeilingMinutes? (default 60) }
  *                        seed: 'weighted_centroid' (default) | 'centroid' | 'minimax'
@@ -605,7 +605,7 @@ const MIN_ADDRESS_QUERY = 3;
  * the same fit, a place whose name (or a stall's name) holds the words before one matched by area, address or `alsoMatch`;
  * then by walking time. An address is matched only by a query of 3 or more characters.
  * @param input { query, centre, dateTime, members?, durationMinutes?, categories?, lastStop?, groupConstraints?,
- *                unknownPolicy?, maxKm?, limit? (default 12), alsoMatch? (venue ids) }
+ *                unknownPolicy?, dietPolicy?, maxKm?, limit? (default 12), alsoMatch? (venue ids) }
  */
 function searchVenues(input, data) {
   const q = input.query.trim().toLowerCase();
@@ -622,7 +622,7 @@ function searchVenues(input, data) {
   const ctx = {
     members: input.members ?? [], groupConstraints: lastStopRules(input, {}).constraints, dateTime: input.dateTime,
     categories: input.categories ?? ['eat', 'drink', 'shop', 'activity'],
-    unknownPolicy: input.unknownPolicy ?? 'strict', durationMinutes: input.durationMinutes ?? 0,
+    unknownPolicy: input.unknownPolicy ?? 'strict', dietPolicy: input.dietPolicy, durationMinutes: input.durationMinutes ?? 0,
   };
   const reasonsById = new Map(filterByConstraints(matches.map(m => m.v), ctx).rejected.map(r => [r.venue.id, r.reasons]));
   const maxKm = input.maxKm ?? 3;

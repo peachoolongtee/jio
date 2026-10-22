@@ -47,6 +47,9 @@ export const MAX = {
   // POST /api/weather/stops: the stops of one plan (an itinerary holds at most this many), and the exposure scale.
   weatherStops: 8,
   exposure: 5,
+  // The two words a request may use for what to do with a place it has no data on: `unknownPolicy` (every constraint) and
+  // `dietPolicy` (dietary needs alone). Nothing else is accepted.
+  policies: ['strict', 'lenient'],
 }
 const text = (max = MAX.text) => z.string().min(1).max(max)
 
@@ -146,7 +149,10 @@ export function makePlanSchemas(data) {
     excludeVenueIds: z.array(text(MAX.venueId)).max(MAX.excludedVenues).default([]),
     // The options the group is already voting on, so a rain swap never suggests one of them again.
     currentOptionIds: z.array(text(MAX.venueId)).max(MAX.currentOptions).default([]),
-    unknownPolicy: z.enum(['strict', 'lenient']).default('strict'),
+    unknownPolicy: z.enum(MAX.policies).default('strict'),
+    // For dietary needs alone, so a group's needs can be strict without making the walk to the MRT, step-free access or sockets
+    // strict too. Left out, dietary needs follow unknownPolicy.
+    dietPolicy: z.enum(MAX.policies).optional(),
     weatherCase,
     groupId: text().optional(),
     topN: z.number().int().min(1).max(20).optional(),
@@ -254,7 +260,10 @@ export function makePlanSchemas(data) {
     lastStopMrtWalkMinutes: z.number().int().min(1).max(30).optional(),
     members: z.array(roamMember).max(MAX.members).default([]),
     groupConstraints: z.array(constraint).max(MAX.constraints).default([]),
-    unknownPolicy: z.enum(['strict', 'lenient']).default('strict'),
+    unknownPolicy: z.enum(MAX.policies).default('strict'),
+    // For dietary needs alone, so a group's needs can be strict without making the walk to the MRT, step-free access or sockets
+    // strict too. Left out, dietary needs follow unknownPolicy.
+    dietPolicy: z.enum(MAX.policies).optional(),
     maxKm: z.number().positive().max(30).optional(),
     limit: z.number().int().min(1).max(50).optional(),
   })

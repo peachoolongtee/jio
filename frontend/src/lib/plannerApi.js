@@ -331,8 +331,13 @@ export const DEFAULT_OCCASION = 'catch_up'
 // What the planner does with a place it has no data on (a dietary need, step-free access, the walk to the MRT): 'strict' leaves
 // it out, 'lenient' keeps it and each option says which dietary needs are unknown (dietUnknown). The caller decides, because it
 // knows the group's needs and whether the group asked to see the places we could not confirm (lib/api.js dietPolicy). Left
-// out, a request is 'lenient', as it always was.
+// out, a request is 'lenient', as it always was. A group's dietary needs are strict on their own (`dietPolicy`, same two words),
+// so they never make the walk to the MRT, step-free access or sockets strict as well.
 const UNKNOWN_POLICY = 'lenient'
+
+// The policy for dietary needs only, left out of a request when the caller gives none (then the planner follows `unknownPolicy`).
+// How to call: dietField('strict') -> { dietPolicy: 'strict' }
+const dietField = (dietPolicy) => (dietPolicy ? { dietPolicy } : {})
 
 // The backend's "does not fit" words, in the words the search sheet already knows. A dietary reason ('diet:halal') is 'diet',
 // with the need kept apart.
@@ -406,8 +411,8 @@ export async function meetingArea({ members, routing = true, alternatives, inclu
 // weather: what the planner used, { source: 'live' | 'simulated' | 'unavailable', simulationIgnored? }.
 // The weather case is only sent while the demo rain switch is on; otherwise the planner uses the live forecast.
 // few: { found, widenToKm } when fewer than 3 places fit inside the search radius.
-// unknownPolicy: 'strict' or 'lenient' (see UNKNOWN_POLICY).
-export async function rankSlot({ members, centre, date, slot, lastStop, currentOptionIds = [], conditions = {}, radiusMeters, topN, unknownPolicy = UNKNOWN_POLICY }) {
+// unknownPolicy: 'strict' or 'lenient' (see UNKNOWN_POLICY); dietPolicy: the same for the group's dietary needs alone.
+export async function rankSlot({ members, centre, date, slot, lastStop, currentOptionIds = [], conditions = {}, radiusMeters, topN, unknownPolicy = UNKNOWN_POLICY, dietPolicy }) {
   const { data } = await api.post('/api/converge', {
     members,
     occasion: DEFAULT_OCCASION,
@@ -419,6 +424,7 @@ export async function rankSlot({ members, centre, date, slot, lastStop, currentO
     currentOptionIds,
     ...(conditions.rain ? { weatherCase: 'rain' } : {}),
     unknownPolicy,
+    ...dietField(dietPolicy),
     radiusMeters,
     topN,
   })
@@ -452,11 +458,11 @@ function toRoamPlace(r, block = null) {
 //   current:   { lat, lng } where the group is
 //   date, time: when the stop would start, "YYYY-MM-DD" and "HH:MM"; minutes: how long it would last
 //   categories: any of eat, drink, shop, activity. Left out, the planner uses eat, drink and activity.
-//   unknownPolicy: 'strict' or 'lenient' (see UNKNOWN_POLICY).
+//   unknownPolicy: 'strict' or 'lenient' (see UNKNOWN_POLICY); dietPolicy: the same for the group's dietary needs alone.
 // Returns { places (best first, each as a voting-page card plus id, travelMinutes, distanceKm, distanceM), empty (the
 // planner's answer when nothing fits, else null), widened, weather }.
 // How to call: await roamNearby({ members: [{ id: 'ian' }], current: { lat: 1.35, lng: 103.85 }, date: '2026-10-11', time: '15:00', minutes: 60 })
-export async function roamNearby({ members, current, date, time, minutes, categories, conditions = {}, topN, unknownPolicy = UNKNOWN_POLICY }) {
+export async function roamNearby({ members, current, date, time, minutes, categories, conditions = {}, topN, unknownPolicy = UNKNOWN_POLICY, dietPolicy }) {
   const { data } = await api.post(
     '/api/roam',
     {
@@ -468,6 +474,7 @@ export async function roamNearby({ members, current, date, time, minutes, catego
       current: point(current),
       ...(conditions.rain ? { weatherCase: 'rain' } : {}),
       unknownPolicy,
+      ...dietField(dietPolicy),
       topN,
     },
     { timeout: ROAM_TIMEOUT_MS },
@@ -515,8 +522,8 @@ export async function arrangeItinerary({ stops, startAt, endAt, shown = [], rain
 // Find places by name for a slot. Each says whether it fits, and the first reason it does not. A place that fails a dietary
 // need says 'diet', with the need in `need`; one that fits says which needs it only likely meets (`verify`) or has no data on
 // (`dietUnknown`), as a ranked option does.
-// How to call: await searchSlot({ query: 'market', members, centre, date: '2026-10-17', slot, lastStop: false, unknownPolicy: 'strict' })
-export async function searchSlot({ query, members, centre, date, slot, lastStop, maxKm, unknownPolicy = UNKNOWN_POLICY }) {
+// How to call: await searchSlot({ query: 'market', members, centre, date: '2026-10-17', slot, lastStop: false, dietPolicy: 'strict' })
+export async function searchSlot({ query, members, centre, date, slot, lastStop, maxKm, unknownPolicy = UNKNOWN_POLICY, dietPolicy }) {
   const { data } = await api.post('/api/search', {
     query,
     centre: point(centre),
@@ -526,6 +533,7 @@ export async function searchSlot({ query, members, centre, date, slot, lastStop,
     lastStop,
     members,
     unknownPolicy,
+    ...dietField(dietPolicy),
     maxKm,
   })
   return data.results.map((r) => {
