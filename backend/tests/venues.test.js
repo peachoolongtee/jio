@@ -2,10 +2,11 @@
 // and the combined list the API serves.
 import { test } from 'vitest';
 import assert from 'node:assert';
+import fs from 'node:fs';
 import { fromFrontendVenue, parseHours } from '../src/planner/venue-adapter.js';
 import { loadPlanData, mergeCuratedWithCdc, withEstimatedMrtWalk, dropKnownPlaces, carryOverFromCdcSite } from '../src/db/venues.js';
 import { converge, roam, searchVenues } from '../src/planner/engine.js';
-import { isOpenAt, filterByConstraints } from '../src/planner/filters.js';
+import { isOpenAt, filterByConstraints, needsVerification } from '../src/planner/filters.js';
 import { fromOneMapRow } from '../src/planner/onemap-adapter.js';
 
 const frontendVenue = (extra = {}) => ({
@@ -294,25 +295,49 @@ test('roam ranks the same way: the food places that likely meet more needs first
   assert.ok(misses[0] < 3);
 });
 
-test('a centre with MUIS-certified stalls is verified halal, with the count and the day it was checked; others stay unknown', () => {
+test('a centre with MUIS-certified stalls is only likely halal, with the count and the day it was checked; others stay unknown', () => {
   const certified = fromFrontendVenue(frontendVenue({ id: 'c', name: 'A Food Centre', category: 'eat', kind: 'hawker', halal: { muisStalls: 9, checked: '2026-10-18' } }));
-  assert.strictEqual(certified.diet.halal, 'options');
-  assert.deepStrictEqual([certified.dataQuality.halalSource, certified.dataQuality.muisStalls, certified.dataQuality.halalCheckedAt], ['muis', 9, '2026-10-18']);
+  assert.strictEqual(certified.diet.halal, 'likely'); // one stall's certificate is not the centre's
+  assert.deepStrictEqual([certified.dataQuality.halalSource, certified.dataQuality.halalScope, certified.dataQuality.muisStalls, certified.dataQuality.halalCheckedAt], ['muis', 'stalls', 9, '2026-10-18']);
   assert.strictEqual(certified.dataQuality.dietUnknown, false);
+  const market = fromFrontendVenue(frontendVenue({ id: 'm', category: 'eat', kind: 'market', halal: { muisStalls: 1, checked: '2026-10-18' } }));
+  assert.strictEqual(market.diet.halal, 'likely');
   const plain = fromFrontendVenue(frontendVenue({ id: 'p', category: 'eat', kind: 'hawker' }));
   assert.strictEqual(plain.diet.halal, 'unknown');
   assert.strictEqual(plain.dataQuality.halalSource, undefined);
   // In the loaded pool: the six checked on 18 October 2026; a centre with no certified stall (Chomp Chomp) is not marked.
   const byId = new Map(loadPlanData().venues.map((v) => [v.id, v]));
   for (const id of ['newton-food-centre', 'serangoon-garden-market', 'tiong-bahru-market', 'maxwell-food-centre', 'chinatown-complex', 'kovan-209-market']) {
-    assert.strictEqual(byId.get(id).diet.halal, 'options', id);
+    assert.strictEqual(byId.get(id).diet.halal, 'likely', id);
     assert.strictEqual(byId.get(id).dataQuality.halalSource, 'muis', id);
   }
   assert.notStrictEqual(byId.get('chomp-chomp').dataQuality.halalSource, 'muis');
-  // A strict halal ranking around Newton keeps it with no "check" caveat.
+  // A strict halal ranking around Newton keeps it, with the "check the stall" caveat (verify) so the group is told.
   const centre = { lat: byId.get('newton-food-centre').lat, lng: byId.get('newton-food-centre').lng };
   const r = converge({ members: [{ id: 'a', home: centre, dietary: ['halal'] }], centre, occasion: 'catch_up', dateTime: '2026-10-13T19:00', durationMinutes: 60, categories: ['eat'], unknownPolicy: 'strict', topN: 30 }, loadPlanData());
   const newton = r.results.find((x) => x.venueId === 'newton-food-centre');
   assert.ok(newton, 'Newton is ranked');
-  assert.deepStrictEqual([newton.verify, newton.dietUnknown], [[], []]);
+  assert.deepStrictEqual([newton.verify, newton.dietUnknown], [['halal'], []]);
+});
+
+test('a single certified restaurant is verified halal, with no caveat, and its scope is the venue', () => {
+  const shop = fromFrontendVenue(frontendVenue({ id: 'r', name: 'A Halal Restaurant', category: 'eat', kind: 'restaurant', halal: { muisStalls: 1, checked: '2026-10-18' } }));
+  assert.strictEqual(shop.diet.halal, 'options');
+  assert.deepStrictEqual([shop.dataQuality.halalSource, shop.dataQuality.halalScope], ['muis', 'venue']);
+  const r = filterByConstraints([shop], { members: [{ id: 'a', dietary: ['halal'] }], dateTime: '2026-10-13T12:30', categories: ['eat'], unknownPolicy: 'strict' });
+  assert.strictEqual(r.passed.length, 1);
+  assert.deepStrictEqual(needsVerification(shop, [{ id: 'a', dietary: ['halal'] }]), []);
+});
+
+test('the curated file is what the builder makes from the frontend list: a hand edit fails here', async () => {
+  const { VENUES } = await import('../../frontend/src/lib/mock/venues.js');
+  const curated = JSON.parse(fs.readFileSync(new URL('../src/db/mock/curated-venues.json', import.meta.url), 'utf8')).venues;
+  assert.strictEqual(curated.length, VENUES.length);
+  assert.deepStrictEqual(curated, JSON.parse(JSON.stringify(VENUES.map(fromFrontendVenue))));
+  // The six marked centres are the ones in docs/dietary/halal-check-2026-10-18.md, with the counts it records.
+  const marked = Object.fromEntries(curated.filter((v) => v.dataQuality.halalSource === 'muis').map((v) => [v.id, [v.dataQuality.muisStalls, v.dataQuality.halalCheckedAt]]));
+  assert.deepStrictEqual(marked, {
+    'tiong-bahru-market': [2, '2026-10-18'], 'maxwell-food-centre': [1, '2026-10-18'], 'chinatown-complex': [1, '2026-10-18'],
+    'newton-food-centre': [9, '2026-10-18'], 'serangoon-garden-market': [3, '2026-10-18'], 'kovan-209-market': [1, '2026-10-18'],
+  });
 });

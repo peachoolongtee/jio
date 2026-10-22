@@ -280,6 +280,7 @@ Request (one slot; the response below is real output for these two members with 
 | `centre` | no | Rank around this point. Without it, the engine uses the fairness-weighted centre of everyone's start (`seed` picks another method). |
 | `lastStop` | no | The frontend's last-stop rule: only venues within `lastStopMrtWalkMinutes` (default 10) of an MRT, and the longest trip home counts toward the score. |
 | `unknownPolicy` | no | `strict` (default): a venue with no data on a diet need, step-free access or sockets is left out. `lenient`: it is kept, and `dietUnknown` says what we don't know. In lenient mode the results are tiered by how many of the group's diet needs a place is not known to meet: places that meet every need (for sure or likely) first, then those missing one, and so on, each tier in score order. The shortlist that is routed is cut the same way, so a place that likely meets more needs is never dropped for one that meets fewer. `/api/roam` does the same. |
+| `dietPolicy` | no | `strict` or `lenient`, for dietary needs alone. Left out, dietary needs follow `unknownPolicy`. The frontend sends `strict` for the food slots of a group with needs and leaves `unknownPolicy` as it was, so a dietary need does not make `near_mrt`, `step_free` and `sockets` strict as well. Accepted by `/api/converge`, `/api/roam` and `/api/search`. |
 | `groupConstraints` | no | `step_free`, `sockets`, `quiet`, `indoor_only`, `max_price_pp:N`, `near_mrt:N`. |
 | `weights` | no | Override scoring weights, all 0 or more. Keys: `worst`, `mean`, `returnWorst`, `occasion`, `preference`, `weather`, `price`, `cdc`, `antiRepeat`, `crowd`. `crowd` has no weight by default, so it doesn't change the ranking unless you send one. **There is no `rating` weight a caller can send**: the rating always counts (as far as its reviews, see "Things to know" below) with a weight the server sets and scales to the weights in use, so a request that sends `weights.rating` is refused with the usual 400 (`invalid_input`, path `weights.rating`). Venues carry `rating` and `ratingCount` for display. (Roam takes the same keys except `worst`, `mean` and `returnWorst`, plus `distance`.) |
 | `weatherCase` | no | `clear`, `rain`, `rain_east`: a simulated forecast. Used only when the server allows it; otherwise ignored. See [Weather](#weather). |
@@ -898,7 +899,7 @@ Leave a shared session, or (as the host) remove a guest. `:userId` is `me` (the 
 | 401 `unauthenticated`, 503 `auth_unavailable` | The login check, as for every route that needs one. |
 | 403 `host_cannot_leave` | The host asked to leave, or someone asked to remove the host. They cancel the session instead. |
 | 403 `host_only` | A guest asked to remove someone else. |
-| 404 `session_not_found` | No such session, or the caller is not in it (the same answer, so a stranger learns nothing). |
+| 404 `session_not_found` | No such session, or the caller is not a joined member of it (an opted-out member too; the same answer, so a stranger learns nothing). |
 | 404 `member_not_found` | The person is not in the session (or went a moment ago). |
 | 409 `session_closed` | The session is completed or cancelled. |
 | 409 `session_started` | The session is in `voting` or `confirmed`: taking a person's votes, options and place in the plan with them is the voting stage's work, so for now it is refused. `inviting` and `locating` are allowed. |
@@ -935,13 +936,13 @@ An outing's dietary needs, together and without names (ticket #107), so "Confirm
 
 | Answer | When |
 |---|---|
-| 200 `{ "dietary": ["halal", "vegan"], "others": ["halal"] }` | `dietary` is every joined member's needs together; `others` is everyone's but the caller's (the ones the caller cannot take off). Each list is in the app's order (halal, vegetarian, vegan), each need once; anything else in a row is left out. Never an id, a count or another private field (home area, budget, step-free). `Cache-Control: no-store`. |
+| 200 `{ "dietary": ["halal", "vegan"], "others": ["halal"] }` | `dietary` is every joined member's needs together; `others` is everyone's but the caller's (the ones the caller cannot take off), and `[]` until at least three members have joined. Each list is in the app's order (halal, vegetarian, vegan), each need once; anything else in a row is left out. Never an id, a count or another private field (home area, budget, step-free). `Cache-Control: no-store`. |
 | 400 `invalid_input` | `:id` is not a uuid. |
 | 401 `unauthenticated`, 503 `auth_unavailable` | The login check. |
-| 404 `session_not_found` | No such session, or the caller is not in it (the same answer, so a stranger learns nothing, and no private row is read). |
+| 404 `session_not_found` | No such session, or the caller is not a joined member of it (an opted-out member too; the same answer, so a stranger learns nothing, and no private row is read). |
 | 429 `rate_limited` | More than `SESSION_RATE_LIMIT_PER_MINUTE` (30) a minute from one person, counted apart from leaving. |
 
-In a group of two, `others` is the other person's needs; that is no more than the line "Showing places that fit halal" already tells them.
+With fewer than three joined members `others` is `[]`: in a group of two it would be the other person's own list, and it is never offered for the "Unselect" warning. (`dietary` is still everyone's together, because the places are filtered for it; the line "Showing places that fit halal" says as much.) Members who opted out count for nothing here: they add no need and are not part of the three.
 
 ## Limits
 

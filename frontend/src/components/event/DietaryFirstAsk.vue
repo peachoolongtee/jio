@@ -1,8 +1,9 @@
 <script setup>
-// "Any dietary needs?" (ticket #107): asked once, in a popup, right after a person makes their account, in place of a question
-// in sign-up. It opens over the first page while auth.dietAsk is true (set by auth.signUp). The needs picked are saved on the
-// profile, the person's standing setting that each outing starts from; "None, skip", the backdrop and Escape skip. Either way it
-// is not asked again; the needs can still be changed on the profile, and for one outing on its Vote page.
+// "Any dietary needs?" (ticket #107): not a question in sign-up, but a popup asked once per account, in the app frame. It opens
+// over the first page while auth.dietAsk is true: right after sign-up, and for a real account that was never asked, at its first
+// start-up or sign-in here (a reload keeps it until it is answered; auth.js remembers the answer in this browser). The needs
+// picked are saved on the profile, the person's standing setting that each outing starts from; "None, skip", the backdrop and
+// Escape skip. Either way it is not asked again; the needs can still be changed on the profile, and for one outing on its Vote page.
 //   <DietaryFirstAsk />   (once, in the app frame)
 import { computed, ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
@@ -47,7 +48,7 @@ async function answer(needs) {
   <ModalDialog
     v-model:open="open"
     title="Any dietary needs?"
-    text="Food places for your outings will fit them. They stay private: the group sees which needs places fit, never whose. You can change them on your profile."
+    text="Food places for your outings will fit them. They stay private: the group sees which needs places fit, never whose. In an outing of fewer than three people, other people's needs are not listed. You can change them on your profile."
   >
     <template #content>
       <div class="first-ask__chips" role="group" aria-label="Dietary needs" data-testid="diet-first-ask">

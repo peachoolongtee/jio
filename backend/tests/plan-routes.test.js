@@ -107,6 +107,23 @@ describe('POST /api/converge', () => {
     expect(none.body.diagnostics.passedFilters).toBeGreaterThan(capital.body.diagnostics.passedFilters)
   })
 
+  it('takes dietPolicy for dietary needs alone, and refuses any word but strict and lenient', async () => {
+    const centre = { lat: 1.3008, lng: 103.8559 }
+    // Lenient places are kept only under a lenient diet policy, whatever unknownPolicy says.
+    const dietStrict = await post('/converge', { ...slot, centre, unknownPolicy: 'lenient', dietPolicy: 'strict' })
+    const dietLenient = await post('/converge', { ...slot, centre, unknownPolicy: 'strict', dietPolicy: 'lenient' })
+    expect(dietStrict.status).toBe(200)
+    dietStrict.body.results.forEach((r) => expect(['full', 'options', 'likely']).toContain(r.venue.diet.halal))
+    expect(dietLenient.body.diagnostics.passedFilters).toBeGreaterThan(dietStrict.body.diagnostics.passedFilters)
+    const bad = await post('/converge', { ...slot, centre, dietPolicy: 'sometimes' })
+    expect(bad.status).toBe(400)
+    expect(bad.body.issues.map((i) => i.path)).toEqual(['dietPolicy'])
+    const roam = await post('/roam', { members: group, occasion: 'casual_meal', dateTime: '2026-10-10T12:30', current: centre, dietPolicy: 'x' })
+    expect(roam.status).toBe(400)
+    const search = await post('/search', { query: 'market', centre, dateTime: '2026-10-10T12:30', dietPolicy: 'x' })
+    expect(search.status).toBe(400)
+  })
+
   it('answers 400 with every bad field named', async () => {
     const { status, body } = await post('/converge', {
       ...slot,

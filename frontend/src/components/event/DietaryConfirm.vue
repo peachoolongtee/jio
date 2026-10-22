@@ -61,7 +61,7 @@ function confirm() {
 </script>
 
 <template>
-  <ModalDialog v-model:open="open" :title="title" text="Food places for this outing will fit these needs. Your picks are for this outing only, and stay private: the group sees which needs places fit, never whose." @close="confirm">
+  <ModalDialog v-model:open="open" :title="title" text="Food places for this outing will fit these needs. Your picks are for this outing only, and stay private: the group sees which needs places fit, never whose. Until three people have joined, other people's needs are not listed here, though places still fit them." @close="confirm">
     <template #content>
       <div data-testid="diet-confirm">
         <DietaryChips :mine="picked" :others="others" :dropped="droppedNow" :busy="busy" @change="keep" />

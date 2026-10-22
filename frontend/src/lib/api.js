@@ -735,9 +735,16 @@ const groupNeeds = (session) => cleanDietary(membersDietary(session, activeIds(s
 // someone needs it). Anyone in the outing may drop one or bring it back. How to call: droppedNeeds(session) -> ['halal']
 const droppedNeeds = (session) => cleanDietary(session.dietDropped)
 
-// The needs of everyone in the outing but the signed-in person, together and without names: the ones they cannot take off.
+// How many people an outing needs before the others' needs are listed. With two, the others' list would be the other person's
+// own, so it is empty (the server answers the same, backend/src/routes/sessions.js).
+const MIN_MEMBERS_FOR_OTHERS = 3
+
+// The needs of everyone in the outing but the signed-in person, together and without names: the ones they cannot take off
+// (and are warned about when they try). Empty until three people have joined.
 // How to call: othersNeeds(session) -> ['halal']
-const othersNeeds = (session) => cleanDietary(membersDietary(session, activeIds(session).filter((id) => id !== me())))
+const othersNeeds = (session) => (activeIds(session).length < MIN_MEMBERS_FOR_OTHERS
+  ? []
+  : cleanDietary(membersDietary(session, activeIds(session).filter((id) => id !== me()))))
 
 // The members as the planner gets them, with the group's needs on the first one only. The planner filters by every need
 // in the group whoever holds it, so this changes nothing in the ranking, and a need is never tied to the person who has
@@ -1064,7 +1071,7 @@ async function rankSlot(session, slot, slots, currentOptionIds = session.options
     conditions: db.conditions,
     radiusMeters: session.radius || undefined,
     topN: RANKED_MAX,
-    unknownPolicy: dietPolicy(session, slot.category),
+    dietPolicy: dietPolicy(session, slot.category),
   })
   for (const o of [...ranked.options, ...ranked.current]) db.venues[o.venue.id] = o.venue
   return ranked
@@ -3053,7 +3060,7 @@ export async function searchVenuesForSlot(id, slotId, query) {
     slot,
     lastStop: false,
     maxKm: session.radius ? session.radius / 1000 : undefined,
-    unknownPolicy: dietPolicy(session, slot.category),
+    dietPolicy: dietPolicy(session, slot.category),
   })
   return results.map((r) => ({ ...r, added: (session.options[slotId] || []).includes(r.id) }))
 }
@@ -3656,7 +3663,7 @@ export async function roamNearby(id, { point, categories, unconfirmed = false } 
   const strict = needs.length > 0 && !unconfirmed
   const answer = await planner.roamNearby({
     members: withGroupNeeds(activeIds(session).map((pid) => ({ id: pid })), needs),
-    unknownPolicy: strict ? 'strict' : 'lenient',
+    dietPolicy: strict ? 'strict' : 'lenient',
     current: here,
     date: todayKey(),
     time: P.fromMinutes(startsAt),

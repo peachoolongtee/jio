@@ -12,6 +12,7 @@ const ENDED = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const STARTED = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const VOTING = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 const CONFIRMED = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+const SMALL = '99999999-9999-4999-8999-999999999999' // a session the dietary tests make for themselves
 
 let world
 const fresh = () => {
@@ -313,6 +314,58 @@ describe('GET /api/sessions/:id/dietary (an outing’s needs, together)', () => 
     const text = JSON.stringify(asGuest.body)
     for (const leak of [HOST, GUEST, OTHER, 'tampines', 'bishan', 'durian', 'budget', 'step']) expect(text).not.toContain(leak)
     expect(asGuest.headers.get('cache-control')).toBe('no-store')
+  })
+
+  it('says nothing about the others when only two have joined: the caller would learn their partner\'s own list', async () => {
+    const t = await start()
+    // Two joined members, and a third who opted out and has a need of their own that must stay out of both lists.
+    addSession(world, { id: SMALL, status: 'inviting', version: 1 })
+    addMember(world, SMALL, HOST, { role: 'host' })
+    addMember(world, SMALL, GUEST)
+    addMember(world, SMALL, STRANGER, { state: 'opted_out' })
+    world.profile_private.push({ id: STRANGER, dietary: ['vegetarian'], home_area_id: 'bugis', budget_max_per_person: null, needs_step_free: false })
+    const asHost = await t.needs(SMALL, HOST)
+    expect(asHost.status).toBe(200)
+    expect(asHost.body).toEqual({ dietary: ['halal', 'vegan'], others: [] })
+    expect((await t.needs(SMALL, GUEST)).body).toEqual({ dietary: ['halal', 'vegan'], others: [] })
+  })
+
+  it('tells the others’ needs once three have joined, as a list of needs only: no ids, no counts', async () => {
+    const t = await start()
+    addSession(world, { id: SMALL, status: 'inviting', version: 1 })
+    addMember(world, SMALL, HOST, { role: 'host' })
+    addMember(world, SMALL, GUEST)
+    addMember(world, SMALL, OTHER)
+    // The third joined member has a need too, so the union of the others is told but not who has what.
+    world.profile_private.find((p) => p.id === OTHER).dietary = ['halal', 'vegetarian']
+    const asHost = await t.needs(SMALL, HOST)
+    expect(asHost.body).toEqual({ dietary: ['halal', 'vegetarian', 'vegan'], others: ['halal', 'vegetarian'] })
+    expect(Object.keys(asHost.body).sort()).toEqual(['dietary', 'others'])
+    const text = JSON.stringify(asHost.body)
+    for (const leak of [HOST, GUEST, OTHER, '3', 'count']) expect(text).not.toContain(leak)
+  })
+
+  it('counts joined members only: an opted-out member neither adds a need nor makes up the three', async () => {
+    const t = await start()
+    addSession(world, { id: SMALL, status: 'inviting', version: 1 })
+    addMember(world, SMALL, HOST, { role: 'host' })
+    addMember(world, SMALL, GUEST)
+    addMember(world, SMALL, STRANGER, { state: 'opted_out' })
+    world.profile_private.push({ id: STRANGER, dietary: ['vegetarian'], home_area_id: 'bugis', budget_max_per_person: null, needs_step_free: false })
+    // Three rows, two joined: the others’ list stays empty, and the opted-out person’s need is in neither list.
+    expect((await t.needs(SMALL, HOST)).body).toEqual({ dietary: ['halal', 'vegan'], others: [] })
+  })
+
+  it('answers a member who opted out as it answers a stranger: the same 404, and no private read', async () => {
+    const t = await start()
+    addSession(world, { id: SMALL, status: 'inviting', version: 1 })
+    addMember(world, SMALL, HOST, { role: 'host' })
+    addMember(world, SMALL, GUEST)
+    addMember(world, SMALL, OTHER, { state: 'opted_out' })
+    const res = await t.needs(SMALL, OTHER)
+    expect(res.status).toBe(404)
+    expect(res.body.error).toBe('session_not_found')
+    expect(world.calls.some((c) => c.kind === 'rpc')).toBe(false)
   })
 
   it('reads as the caller first, and the private rows only with the server’s key', async () => {

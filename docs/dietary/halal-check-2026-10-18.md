@@ -1,7 +1,7 @@
 # Halal check of the curated food and drink places, 18 October 2026
 
 What the MUIS halal directory showed for each of the 34 curated food and drink places in `frontend/src/lib/mock/venues.js`
-(ticket #107). Nothing in the app reads this file yet: it is for a person to spot-check before any place is marked.
+(ticket #107). It is the record the six marks in `venues.js` were taken from; a test holds those marks to it.
 
 ## How it was checked
 
@@ -76,8 +76,11 @@ Spot-checked by darryl5942 on 18 October 2026: all six centres below were confir
 | Chinatown Complex Food Centre | `halal: { muisStalls: 1, checked: '2026-10-18' }` |
 | Kovan 209 Market and Food Centre | `halal: { muisStalls: 1, checked: '2026-10-18' }` |
 
-The planner reads these as halal `options` (verified, `dataQuality.halalSource: 'muis'`), so a halal group sees them with no
-"check" caveat, and each card carries a brown "MUIS halal stalls" tag whose hover gives the count and this date. Every other
-place stays `unknown`. To change a mark, edit `venues.js` and run `pnpm --filter jio-backend build:venues`.
+The planner reads these as halal `likely` (`dataQuality.halalSource: 'muis'`, `halalScope: 'stalls'`), not verified: MUIS
+certifies a stall, never a whole centre, so one certified stall does not make the centre halal. A halal group sees the centre
+with a brown tag giving the count ("1 MUIS halal stall", "9 MUIS halal stalls", the date on hover) and "Halal likely, check the
+stall". A single certified shop or restaurant would be `options` (verified, `halalScope: 'venue'`, tag "MUIS halal"); none of the
+curated ones is certified. Every other place stays `unknown`. To change a mark, edit `venues.js` and run
+`pnpm --filter jio-backend build:venues`; `backend/tests/venues.test.js` fails if the curated file differs from what that makes.
 
 Certificates expire: search the directory again before the final, and update the counts and the date.

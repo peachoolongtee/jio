@@ -17,13 +17,13 @@ vi.setConfig({ testTimeout: 20000 })
 // A planner that honours dietary needs: of a category's places, the even ones fit every need and the odd ones are unknown.
 // Strict leaves the unknown ones out; lenient keeps them and says so. `fitting` caps how many places fit for sure.
 function dietPlanner({ fitting = 3 } = {}) {
-  planner.rankSlot.mockReset().mockImplementation(async ({ members, slot, currentOptionIds = [], unknownPolicy }) => {
+  planner.rankSlot.mockReset().mockImplementation(async ({ members, slot, currentOptionIds = [], dietPolicy }) => {
     const needs = [...new Set(members.flatMap((m) => m.dietary || []))]
     const ofKind = VENUES.filter((v) => v.category === slot.category)
     const sure = ofKind.filter((_, i) => i % 2 === 0).slice(0, fitting)
     const unsure = ofKind.filter((_, i) => i % 2 === 1)
     const filtered = slot.category === 'eat' && needs.length
-    const fits = filtered ? (unknownPolicy === 'lenient' ? [...sure, ...unsure] : sure) : ofKind
+    const fits = filtered ? (dietPolicy === 'lenient' ? [...sure, ...unsure] : sure) : ofKind
     const option = (venue, i) => ({
       venue, rank: i + 1, score: i, walk: 5, crowd: 'quiet', reasons: [], warnings: [], swap: null, explanation: '',
       dietUnknown: filtered && unsure.includes(venue) ? needs : [], verify: [], approximate: false,
@@ -72,12 +72,14 @@ describe('the group\'s needs reach the planner', () => {
     const plan = await api.getPlan(id)
     expect(plan.dietary).toEqual(['halal', 'vegetarian'])
     const [eat] = callsFor('eat')
-    expect(eat.unknownPolicy).toBe('strict')
+    expect(eat.dietPolicy).toBe('strict')
+    // Only the dietary needs are strict: the walk to the MRT, step-free access and sockets keep the planner client's own policy.
+    expect(eat.unknownPolicy).toBeUndefined()
     expect(eat.members[0].dietary).toEqual(['halal', 'vegetarian'])
     expect(eat.members.slice(1).every((m) => m.dietary === undefined)).toBe(true)
     // No name goes with a need.
     expect(eat.members.every((m) => m.name === undefined)).toBe(true)
-    expect(callsFor('drink')[0].unknownPolicy).toBe('lenient')
+    expect(callsFor('drink')[0].dietPolicy).toBe('lenient')
     expect(callsFor('drink')[0].members[0].dietary).toEqual(['halal', 'vegetarian'])
   })
 
@@ -86,7 +88,7 @@ describe('the group\'s needs reach the planner', () => {
     planner.rankSlot.mockClear()
     const plan = await api.getPlan(id)
     expect(plan.dietary).toEqual([])
-    expect(callsFor('eat')[0].unknownPolicy).toBe('lenient')
+    expect(callsFor('eat')[0].dietPolicy).toBe('lenient')
     expect(callsFor('eat')[0].members.some((m) => m.dietary)).toBe(false)
     expect(plan.slots.find((s) => s.category === 'eat').dietFew).toBe(false)
   })
@@ -113,7 +115,7 @@ describe('fewer than 3 food places fit', () => {
     expect(eat.options).toHaveLength(3)
     const unsure = eat.options.find((o) => o.dietUnknown.length)
     expect(dietTags(unsure).map((t) => t.text)).toEqual(['Halal not confirmed'])
-    expect(callsFor('eat').at(-1).unknownPolicy).toBe('lenient')
+    expect(callsFor('eat').at(-1).dietPolicy).toBe('lenient')
 
     await api.vote(id, eat.id, 'ian', unsure.id)
     const back = await api.setUnconfirmed(id, false)
@@ -181,11 +183,11 @@ describe('the places we could not confirm, in order', () => {
     // fit best, so only the order by needs met can put them right.
     const eat = VENUES.filter((v) => v.category === 'eat').slice(0, 3)
     const unknownFor = [['vegan'], ['vegetarian', 'vegan'], ['halal', 'vegetarian', 'vegan']]
-    planner.rankSlot.mockReset().mockImplementation(async ({ slot, currentOptionIds = [], unknownPolicy }) => {
+    planner.rankSlot.mockReset().mockImplementation(async ({ slot, currentOptionIds = [], dietPolicy }) => {
       const pool = slot.category === 'eat' ? eat : VENUES.filter((v) => v.category === slot.category).slice(0, 3)
       const option = (venue, i) => ({
         venue, rank: i + 1, score: slot.category === 'eat' ? 10 - i : i, walk: 5, crowd: 'quiet', reasons: [], warnings: [], swap: null, explanation: '',
-        dietUnknown: slot.category === 'eat' && unknownPolicy === 'lenient' ? unknownFor[i] : [], verify: [], approximate: false,
+        dietUnknown: slot.category === 'eat' && dietPolicy === 'lenient' ? unknownFor[i] : [], verify: [], approximate: false,
       })
       return { options: pool.map(option), current: pool.filter((v) => currentOptionIds.includes(v.id)).map(option), widened: false, few: null, empty: null }
     })
@@ -249,6 +251,19 @@ describe('"Confirm dietary needs" on an outing', () => {
     expect((await api.getPlan(other)).dietChecked).toBe(false)
   })
 
+  it('lists nobody else\'s needs in an outing of two, so there is no "Unselect" to offer, and lists them once three have joined', async () => {
+    // Two people: the other's list would be their own, so it is empty; the places still fit it.
+    const pair = await voting(['faith'])
+    const twoPlan = await pair.api.getPlan(pair.id)
+    expect(twoPlan.dietary).toEqual(['halal'])
+    expect(twoPlan.othersDietary).toEqual([])
+    expect(dietChips({ mine: twoPlan.myDietary, others: twoPlan.othersDietary, dropped: twoPlan.dietDropped }).some((c) => c.shared)).toBe(false)
+    expect(await pair.api.outingDietary(pair.id)).toMatchObject({ dietary: ['halal'], others: [] })
+    // Three people: the others' needs together, no names and no counts.
+    const trio = await voting(['faith', 'nicole'])
+    expect(await trio.api.outingDietary(trio.id)).toMatchObject({ dietary: ['halal', 'vegetarian'], others: ['halal', 'vegetarian'] })
+  })
+
   it('keeps a change of the person’s own needs to this outing, leaves the profile, and ranks the outing again', async () => {
     const { api, id } = await voting(['jonathan'])
     planner.rankSlot.mockClear()
@@ -256,7 +271,7 @@ describe('"Confirm dietary needs" on an outing', () => {
     expect((await api.getUser()).dietary).toEqual([])
     expect((await api.getPlan(id)).dietary).toEqual(['halal'])
     expect((await api.getPlan(id)).myDietary).toEqual(['halal'])
-    expect(callsFor('eat').at(-1).unknownPolicy).toBe('strict')
+    expect(callsFor('eat').at(-1).dietPolicy).toBe('strict')
     // A later change of profile does not undo what the person picked for this outing.
     await api.updateUser({ dietary: ['vegan'] })
     await api.whenRefiltered()
@@ -370,13 +385,21 @@ describe('the words', () => {
     ])
     expect(dietTags({})).toEqual([])
     expect(unfitDietText('halal')).toBe('Halal not confirmed')
-    // A centre checked against MUIS says so first, with the count and the day on hover.
-    const muis = { dataQuality: { halalSource: 'muis', muisStalls: 9, halalCheckedAt: '2026-10-18' } }
-    expect(dietTags({ venue: muis, dietUnknown: [], verify: ['vegetarian'] }).map((t) => [t.text, t.tone, t.title])).toEqual([
-      ['MUIS halal stalls', 'halal', '9 stalls certified halal by MUIS, checked 18 Oct 2026'],
+    // A centre with MUIS-certified stalls says so first, with the count in the tag itself and the day on hover; its halal tag
+    // says to check the stall, because one stall's certificate is not the centre's.
+    const muis = { dataQuality: { halalSource: 'muis', halalScope: 'stalls', muisStalls: 9, halalCheckedAt: '2026-10-18' } }
+    expect(dietTags({ venue: muis, dietUnknown: [], verify: ['halal', 'vegetarian'] }).map((t) => [t.text, t.tone, t.title])).toEqual([
+      ['9 MUIS halal stalls', 'halal', '9 stalls certified halal by MUIS, checked 18 Oct 2026'],
+      ['Halal likely', 'halal', 'Halal likely, check the stall'],
       ['Vegetarian likely', 'veg', 'Vegetarian likely, check before you go'],
     ])
-    expect(dietTags({ venue: { dataQuality: { halalSource: 'muis', muisStalls: 1, halalCheckedAt: '2026-10-18' } } })[0].title).toBe('1 stall certified halal by MUIS, checked 18 Oct 2026')
+    const one = dietTags({ venue: { dataQuality: { halalSource: 'muis', halalScope: 'stalls', muisStalls: 1, halalCheckedAt: '2026-10-18' } } })[0]
+    expect([one.text, one.title]).toEqual(['1 MUIS halal stall', '1 stall certified halal by MUIS, checked 18 Oct 2026'])
+    // A single certified restaurant is "MUIS halal", with no stall count and no caveat of its own.
+    const shop = { dataQuality: { halalSource: 'muis', halalScope: 'venue', muisStalls: 1, halalCheckedAt: '2026-10-18' } }
+    expect(dietTags({ venue: shop, dietUnknown: [], verify: [] }).map((t) => [t.text, t.title])).toEqual([['MUIS halal', 'Certified halal by MUIS, checked 18 Oct 2026']])
+    // Without a count the tag does not claim one.
+    expect(dietTags({ venue: { dataQuality: { halalSource: 'muis', halalScope: 'stalls', muisStalls: 0 } } })).toEqual([])
     expect(dietTags({ venue: {} })).toEqual([])
   })
 })
@@ -396,16 +419,20 @@ describe('the demo tools\' planner', () => {
     expect(dietFit(bar, ['halal'], 'lenient').fits).toBe(false)
     expect(dietFit(bar, ['vegetarian'], 'strict').fits).toBe(true)
     expect(dietFit(cafe, ['halal'], 'strict')).toEqual({ fits: true, verify: [], dietUnknown: [] })
-    // A centre with MUIS-certified stalls needs no check for halal; vegetarian is still a guess there.
-    expect(dietFit(certified, ['halal', 'vegetarian'], 'strict')).toEqual({ fits: true, verify: ['vegetarian'], dietUnknown: [] })
+    // A centre with MUIS-certified stalls is likely halal, not verified: the group is asked to check the stall.
+    expect(dietFit(certified, ['halal', 'vegetarian'], 'strict')).toEqual({ fits: true, verify: ['halal', 'vegetarian'], dietUnknown: [] })
   })
 
   it('ranks only the food that fits in strict mode', () => {
     const centre = { lat: hawker.lat, lng: hawker.lng }
-    const { results } = standInConverge({ categories: ['eat'], centre, dateTime: '2026-10-17T12:00', durationMinutes: 60, topN: 30, members: [{ id: 'a', dietary: ['halal'] }], unknownPolicy: 'strict' })
+    const rank = (extra) => standInConverge({ categories: ['eat'], centre, dateTime: '2026-10-17T12:00', durationMinutes: 60, topN: 60, members: [{ id: 'a', dietary: ['halal'] }], ...extra })
+    const { results } = rank({ dietPolicy: 'strict', unknownPolicy: 'lenient' })
     expect(results.length).toBeGreaterThan(0)
-    // Each is either likely halal (a check is asked for) or a centre with MUIS-certified stalls (none needed).
-    expect(results.every((r) => r.verify.includes('halal') || r.venue.dataQuality?.halalSource === 'muis')).toBe(true)
-    expect(results.some((r) => r.venue.dataQuality?.halalSource === 'muis' && r.verify.length === 0 && r.dietUnknown.length === 0)).toBe(true)
+    // Each is likely halal, and a check is asked for: a centre with MUIS-certified stalls is among them, with the check too.
+    expect(results.every((r) => r.verify.includes('halal'))).toBe(true)
+    expect(results.some((r) => r.venue.dataQuality?.halalSource === 'muis' && r.venue.dataQuality.halalScope === 'stalls')).toBe(true)
+    // The request's own policy words are kept apart: dietPolicy decides the diet; unknownPolicy decides it only when dietPolicy is left out.
+    expect(rank({ dietPolicy: 'lenient', unknownPolicy: 'strict' }).results.length).toBeGreaterThan(results.length)
+    expect(rank({ unknownPolicy: 'strict' }).results.length).toBe(results.length)
   })
 })
