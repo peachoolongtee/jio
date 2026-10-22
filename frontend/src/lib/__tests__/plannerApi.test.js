@@ -120,6 +120,17 @@ describe('rankSlot', () => {
     expect(post.mock.calls[2][1].weatherCase).toBe('rain')
   })
 
+  it('keeps the diet\'s policy apart: unknownPolicy stays lenient, and dietPolicy is sent only when given', async () => {
+    const post = vi.spyOn(api, 'post').mockResolvedValue(answer())
+    await rankSlot({ ...ASK })
+    await rankSlot({ ...ASK, dietPolicy: 'strict' })
+    expect(post.mock.calls[0][1]).toMatchObject({ unknownPolicy: 'lenient' })
+    expect(post.mock.calls[0][1]).not.toHaveProperty('dietPolicy')
+    expect(post.mock.calls[1][1]).toMatchObject({ unknownPolicy: 'lenient', dietPolicy: 'strict' })
+    await roamNearby({ members: [], current: HUB, date: '2026-10-20', time: '19:00', minutes: 60, dietPolicy: 'strict' })
+    expect(post.mock.calls[2][1]).toMatchObject({ unknownPolicy: 'lenient', dietPolicy: 'strict' })
+  })
+
   it('never sends crowd weights', async () => {
     const post = vi.spyOn(api, 'post').mockResolvedValue(answer())
     await rankSlot({ ...ASK, conditions: { rain: true, crowd: true } })

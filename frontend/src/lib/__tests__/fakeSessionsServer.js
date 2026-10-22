@@ -225,6 +225,7 @@ export function fakeSessionsServer(database) {
       const loaded = { status: session.status, version: session.plan_version }
       const people = located(id)
       const priced = people.length ? pricing(body.areaId, people) : null
+      await after.knownPlace?.(id)
       const version = await apply(id, loaded, async () => {
         for (const table of ['spot_suggestions', 'session_spots']) await write({ kind: 'delete', table, filters: [eq('session_id', id)] })
         const answer = await write({ kind: 'insert', table: 'session_spots', values: { session_id: id, area_id: body.areaId, rank: null, worst_minutes: priced?.worst ?? 0, mean_minutes: priced?.mean ?? 0, travel_minutes: priced?.travel ?? {} } })

@@ -288,6 +288,7 @@ async function savePassword() {
               {{ option.label }}
             </ChipButton>
           </div>
+          <p class="caption-sm text-muted" data-testid="diet-private">Private. Your group sees which needs the places fit, never whose they are.</p>
         </div>
         <p v-if="detailsError" class="body-sm text-error" role="alert" data-testid="details-error">{{ detailsError }}</p>
         <p v-if="notSaved" class="body-sm text-error" role="alert" data-testid="details-not-saved">Saved on this device, but not to your account. Press Save details to try again.</p>

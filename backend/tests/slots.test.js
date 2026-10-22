@@ -3,7 +3,7 @@ import { test } from 'vitest';
 import assert from 'node:assert';
 import mock from '../src/db/mock/mock-data.json';
 import areasFile from '../src/db/mock/areas.json';
-import { converge, roam, meetingArea } from '../src/planner/engine.js';
+import { converge, roam, meetingArea, searchVenues } from '../src/planner/engine.js';
 import { filterByConstraints, isOpenFor } from '../src/planner/filters.js';
 import { mockTravelMinutes } from '../src/planner/geo.js';
 import * as S from '../src/planner/scoring.js';
@@ -54,6 +54,31 @@ test('lastStop: only near-MRT places, and the trip home becomes part of the scor
   assert.ok(out.results.every(r => r.breakdown.returnWorst && r.breakdown.returnWorst.weight === 15));
   const normal = converge({ ...lunch, members: [solo] }, only(vs));
   assert.ok(normal.results.every(r => !r.breakdown.returnWorst), 'off by default');
+});
+
+test('dietPolicy is strict for dietary needs alone: a last stop with an unknown MRT walk is not dropped because the group has a need', () => {
+  const halalGroup = [{ ...solo, dietary: ['halal'] }];
+  const likely = { halal: 'likely', vegetarian: 'unknown', vegan: 'unknown', healthy: 3 };
+  const vs = [
+    venue('unknownWalk', { mrtWalkMinutes: null, diet: likely }),
+    venue('noHalalData', { mrtWalkMinutes: 3, diet: { ...likely, halal: 'unknown' } }),
+    venue('knownWalk', { mrtWalkMinutes: 3, diet: likely }),
+  ];
+  const ids = out => out.results.map(r => r.venueId).sort();
+  const input = { ...lunch, members: halalGroup, lastStop: true, unknownPolicy: 'lenient', dietPolicy: 'strict', topN: 10 };
+  // Strict for halal: the place with no halal data goes. Lenient for the MRT walk: the one with an unknown walk stays.
+  assert.deepStrictEqual(ids(converge(input, only(vs))), ['knownWalk', 'unknownWalk']);
+  // Without dietPolicy the diet follows unknownPolicy, as before: lenient keeps all three.
+  assert.deepStrictEqual(ids(converge({ ...input, dietPolicy: undefined }, only(vs))), ['knownWalk', 'noHalalData', 'unknownWalk']);
+  // Strict overall (the old way a strict diet was asked for) also drops the unknown walk: the reason dietPolicy exists.
+  assert.deepStrictEqual(ids(converge({ ...input, unknownPolicy: 'strict', dietPolicy: undefined }, only(vs))), ['knownWalk']);
+  // The same on the filter, and the slot search, which is how a place is added.
+  const ctx = { members: halalGroup, dateTime: lunch.dateTime, groupConstraints: ['near_mrt:10', 'step_free'], unknownPolicy: 'lenient', dietPolicy: 'strict' };
+  const withAccess = vs.map(v => ({ ...v, stepFree: null }));
+  assert.deepStrictEqual(filterByConstraints(withAccess, ctx).passed.map(v => v.id), ['unknownWalk', 'knownWalk']);
+  assert.deepStrictEqual(filterByConstraints(withAccess, { ...ctx, dietPolicy: undefined }).passed.map(v => v.id), ['unknownWalk', 'noHalalData', 'knownWalk']);
+  const found = searchVenues({ query: 'Walk', centre: bugis, dateTime: lunch.dateTime, members: halalGroup, lastStop: true, unknownPolicy: 'lenient', dietPolicy: 'strict' }, only(vs));
+  assert.deepStrictEqual(found.filter(r => r.fits).map(r => r.venueId).sort(), ['knownWalk', 'unknownWalk']);
 });
 
 // ---------------- shop category

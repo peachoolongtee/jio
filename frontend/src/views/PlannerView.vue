@@ -11,6 +11,13 @@
 // category tops up again (lib/api.js setRadius). A category with too few places inside offers "Widen to ...".
 // Weather: a card keeps its small rain mark (SuggestionCard), and one muted line under the list says where the forecast came
 // from (WeatherSource); a simulated forecast also shows a banner at the top.
+// Dietary needs (ticket #107): when the group has any, one line under Eat says which needs the places fit ("Showing places
+// that fit halal and vegetarian"), with no names and no count. Food places are filtered strictly; when fewer than 3 fit, a
+// line says so and offers "Show places we couldn't confirm", each then labelled on its card. "Only places that fit" goes back.
+// Each person is asked once per outing, when it reaches voting, to "Confirm dietary needs" (DietaryConfirm), with the outing's
+// needs already selected; their picks are for this outing only, and the profile is left as it is. While voting, "Group dietary
+// needs" under the radius holds the same chips (DietaryChips), saved at each tap, so the needs can be changed at any time. A
+// shared session loads no plan, so none of this shows there yet.
 // A shared session (one kept on the server, session.remote) reaches this page once the host has confirmed the meeting spot, and stops
 // here for now: the page says voting with friends comes next, names the confirmed spot, and offers the way back to the people. It loads
 // no plan, shows no places and no "Confirm plan".
@@ -45,6 +52,9 @@ import TextField from '@/components/ui/TextField.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
+import DietaryChips, { dietChips } from '@/components/event/DietaryChips.vue'
+import { DIETARY_OPTIONS } from '@/lib/signupRules.js'
+import DietaryConfirm from '@/components/event/DietaryConfirm.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
 import WeatherSource from '@/components/weather/WeatherSource.vue'
 import CategoryKey from '@/components/map/CategoryKey.vue'
@@ -56,6 +66,7 @@ import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, vot
 import { placeImage } from '@/lib/placeImages.js'
 import { walkFromText } from '@/lib/cardText.js'
 import { usePlaceDetail } from '@/lib/usePlaceDetail.js'
+import { fewLine, fitLine, unfitDietText } from '@/lib/dietText.js'
 import { confetti } from '@/lib/confetti.js'
 import { mealWindow, MEAL_WINDOWS } from '@/lib/planner/timeOfDay.js'
 import { isBehind } from '@/lib/stepNav.js'
@@ -114,7 +125,10 @@ watch(() => props.id, load)
 
 const session = computed(() => events.byId[props.id])
 const plan = computed(() => planner.plans[props.id])
-const loading = computed(() => planner.loading[props.id] && !plan.value?.slots?.length)
+// The grey placeholder rows: on the page's first load, and again while a change to the group's dietary needs picks the places
+// afresh (`refiltering`, under Dietary needs).
+const refiltering = ref(false)
+const loading = computed(() => refiltering.value || (planner.loading[props.id] && !plan.value?.slots?.length))
 const voting = computed(() => session.value?.status === 'voting')
 // What a shared session's stop here says: the confirmed meeting spot, and that choosing places is the next thing to come.
 const nextText = computed(() => {
@@ -129,9 +143,11 @@ const slots = computed(() => plan.value?.slots || [])
 // Where the walking times on the cards are measured from, said once above the list. Nothing without a meeting area.
 const walkFrom = computed(() => (session.value?.meeting ? walkFromText(session.value.area?.name) : ''))
 const shown = computed(() => (filter.value ? slots.value.filter((s) => s.category === filter.value) : slots.value))
-// Under All, categories with nothing nearby fold into one line instead of an empty section each.
-const listed = computed(() => (filter.value ? shown.value : shown.value.filter((s) => s.options.length)))
-const emptyLabels = computed(() => (filter.value ? [] : shown.value.filter((s) => !s.options.length).map((s) => CATEGORY_LABELS[s.category])))
+// Under All, categories with nothing nearby fold into one line instead of an empty section each. Eat left empty by the group's
+// dietary needs keeps its section, which offers the places we could not confirm.
+const keepsSection = (s) => s.options.length > 0 || !!s.dietFew
+const listed = computed(() => (filter.value ? shown.value : shown.value.filter(keepsSection)))
+const emptyLabels = computed(() => (filter.value ? [] : shown.value.filter((s) => !keepsSection(s)).map((s) => CATEGORY_LABELS[s.category])))
 const listJoin = (words) => (words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} or ${words.at(-1)}`)
 const countOf = (category) => slots.value.find((s) => s.category === category)?.options.length ?? 0
 const voterIds = computed(() => plan.value?.voters || [])
@@ -202,6 +218,7 @@ function unfitText(result, slot) {
   if (result.unfit === 'closed') return `Closed at ${slot.time}`
   if (result.unfit === 'meal') return `Not open for ${MEAL_WINDOWS.find((w) => w.id === mealWindow(slot.start)).label.toLowerCase()}`
   if (result.unfit === 'mrt') return 'Too far from MRT'
+  if (result.unfit === 'diet') return unfitDietText(result.need)
   return ''
 }
 async function add(result) {
@@ -242,12 +259,129 @@ const radiusFor = (km) => RADII.find((m) => m != null && m >= km * 1000) ?? null
 // How far the places may be, in words: the chosen radius, or the planner's own limit of 3 km under Auto.
 const reachText = computed(() => radiusLabel(radius.value ?? 3000))
 
+// ── Dietary needs ──
+// The line under Eat, or '' when the group has no needs.
+const dietLine = computed(() => fitLine(plan.value?.dietary))
+// A change to the group's dietary filter picks the places again, so the list goes back to its placeholder rows, as on the first
+// load, and the sections rise in again when the new places are in. The rows stay at least this long, so a quick answer does
+// not flash.
+const REFILTER_MIN_MS = 450
+// How to call: await refilter(() => planner.setUnconfirmed(props.id, true))
+async function refilter(work) {
+  refiltering.value = true
+  const started = Date.now()
+  try {
+    return await work()
+  } finally {
+    const left = REFILTER_MIN_MS - (Date.now() - started)
+    if (left > 0) await new Promise((resolve) => setTimeout(resolve, left))
+    refiltering.value = false
+  }
+}
+// How to call: sameNeeds(['halal'], ['halal']) -> true
+const sameNeeds = (a = [], b = []) => a.length === b.length && a.every((n) => b.includes(n))
+// True when { mine, dropped } differs from what the outing already has. How to call: dietChanges({ mine: ['halal'], dropped: [] })
+const dietChanges = ({ mine, dropped }) => !sameNeeds(mine, plan.value?.myDietary) || !sameNeeds(dropped, plan.value?.dietDropped)
+// True while the group's choice of places runs (the same rule as the radius chips: clicks are ignored meanwhile).
+const settingDiet = ref(false)
+// Show the food places we could not confirm, or only the ones that fit.
+// How to call: await showUnconfirmed(true)
+async function showUnconfirmed(on) {
+  if (settingDiet.value) return
+  settingDiet.value = true
+  error.value = ''
+  try {
+    await refilter(() => planner.setUnconfirmed(props.id, on))
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    settingDiet.value = false
+  }
+}
+
+// "Confirm dietary needs": opens by itself while voting until the signed-in person has confirmed for this outing. (Replacing a
+// stop is for a confirmed plan, never while voting, so it never opens there.) Each value is compared on its own, so the session
+// being read again does not count as a change; a dialog answered on this page is never opened again for the outing, even
+// while the plan that says so is still loading; and it closes once the plan says it is confirmed (in another tab, say).
+const dietOpen = ref(false)
+const dietBusy = ref(false)
+const dietError = ref('')
+const dietChecked = computed(() => plan.value?.dietChecked)
+const hasMeeting = computed(() => !!session.value?.meeting)
+const dietAnswered = new Set()
+watch(
+  [voting, hasMeeting, dietChecked],
+  ([isVoting, meeting, checked]) => {
+    if (checked === true) dietOpen.value = false
+    else if (isVoting && meeting && checked === false && !dietAnswered.has(props.id)) dietOpen.value = true
+  },
+  { immediate: true },
+)
+// A need's name for its tag. How to call: needLabel('halal') -> 'Halal'
+const needLabel = (need) => DIETARY_OPTIONS.find((o) => o.value === need)?.label ?? need
+// The change being saved, { mine, dropped }, or null. The tags and chips show it at once, while the places load behind them.
+const pendingDiet = ref(null)
+// The person's own needs and the dropped ones as the page shows them: the change being saved, else the outing's.
+const shownMine = computed(() => pendingDiet.value?.mine ?? plan.value?.myDietary ?? [])
+const shownDropped = computed(() => pendingDiet.value?.dropped ?? plan.value?.dietDropped ?? [])
+// The tags under "Group dietary needs": the selected chips, in the chips' order.
+const shownNeeds = computed(() => (pendingDiet.value
+  ? dietChips({ mine: shownMine.value, others: plan.value?.othersDietary || [], dropped: shownDropped.value }).filter((c) => c.selected).map((c) => c.value)
+  : plan.value?.dietary || []))
+
+// A tap on the Vote page's dietary chips, saved at once: the person's own needs and the others' needs not to filter for.
+// How to call: await saveDiet({ mine: ['halal'], dropped: [] })
+async function saveDiet({ mine, dropped }) {
+  if (dietBusy.value) return
+  dietBusy.value = true
+  pendingDiet.value = { mine, dropped }
+  error.value = ''
+  try {
+    const answer = await refilter(() => planner.confirmDiet(props.id, mine, dropped))
+    if (answer?.syncError) error.value = answer.syncError
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    pendingDiet.value = null
+    dietBusy.value = false
+  }
+}
+
+// answer: { mine, dropped } from the dialog: the person's own needs, and the others' needs the group should not filter for.
+// How to call: await confirmDiet({ mine: ['halal'], dropped: [] })
+async function confirmDiet({ mine, dropped }) {
+  if (dietBusy.value) return
+  dietBusy.value = true
+  dietError.value = ''
+  // A change closes the dialog at once and shows the list loading behind it; confirming the needs as they are just saves.
+  const changes = dietChanges({ mine, dropped })
+  if (changes) {
+    dietAnswered.add(props.id)
+    dietOpen.value = false
+    pendingDiet.value = { mine, dropped }
+  }
+  try {
+    const answer = await (changes ? refilter(() => planner.confirmDiet(props.id, mine, dropped)) : planner.confirmDiet(props.id, mine, dropped))
+    dietAnswered.add(props.id)
+    dietOpen.value = false
+    // Saved here but not to the account: said under the votes, as the page says other failures.
+    if (answer?.syncError) error.value = answer.syncError
+  } catch (e) {
+    dietError.value = e.message
+    dietOpen.value = true
+  } finally {
+    pendingDiet.value = null
+    dietBusy.value = false
+  }
+}
+
 // Why a slot has nothing, in words.
 function emptyText(slot) {
   const e = slot.empty
   // The nearest distance may be missing, so the sentence about it is optional.
   const nearest = e?.nearestKm != null ? ` The nearest is ${e.nearestKm.toFixed(1)} km away.` : ''
   if (e?.reason === 'outside_max_radius') return `Nothing that fits is within ${reachText.value}.${nearest}`
+  if (slot.dietFew) return fewLine(0)
   return 'Jio found no place that is open and fits this time.'
 }
 
@@ -553,6 +687,18 @@ async function confirm() {
           <span class="caption-sm text-muted" aria-live="polite">{{ radius == null ? 'Auto starts at 500 m and looks further out until 3 places fit.' : `Only places within ${radiusLabel(radius)} of ${session.area.name}.` }}</span>
         </div>
 
+        <!-- The outing's dietary needs, laid out like "Search within": the label with the needs selected below as tags, then the
+             Halal, Vegetarian and Vegan chips the places are filtered by. A tap saves at once; taking off a need someone else has
+             asks first (DietaryChips). -->
+        <div v-if="voting && plan?.myDietary" class="diet-edit" data-testid="diet-edit">
+          <div class="diet-edit__mine">
+            <span class="caption text-muted">Group dietary needs</span>
+            <InfoTag v-for="need in shownNeeds" :key="need" :tone="need === 'halal' ? 'halal' : 'veg'" data-testid="diet-mine">{{ needLabel(need) }}</InfoTag>
+            <span v-if="!shownNeeds.length" class="caption" data-testid="diet-mine">None</span>
+          </div>
+          <DietaryChips :mine="shownMine" :others="plan.othersDietary || []" :dropped="shownDropped" :busy="dietBusy" @change="saveDiet" />
+        </div>
+
         <SplitView v-model:view="view" label="Places">
           <template #list>
             <p v-if="!loading && listed.length && walkFrom" class="walk-from caption-sm text-muted" data-testid="walk-from">{{ walkFrom }}</p>
@@ -565,6 +711,12 @@ async function confirm() {
                 <CategoryIcon :category="slot.category" :size="32" />
                 <h2 :id="`slot-${slot.id}`" class="title-md">{{ CATEGORY_LABELS[slot.category] }}</h2>
               </header>
+              <p v-if="slot.category === 'eat' && dietLine" class="diet-line caption-sm text-muted" data-testid="diet-line">{{ dietLine }}</p>
+              <p v-if="voting && slot.category === 'eat' && (slot.dietFew || plan.unconfirmed)" class="few-line" data-testid="diet-few">
+                <span v-if="plan.unconfirmed" class="caption-sm text-muted">Showing places we couldn't confirm too. Check before you go.</span>
+                <span v-else-if="slot.options.length" class="caption-sm text-muted">{{ fewLine(slot.options.length) }}</span>
+                <AppButton variant="tertiary" underline small :disabled="settingDiet" data-testid="diet-toggle" @click="showUnconfirmed(!plan.unconfirmed)">{{ plan.unconfirmed ? 'Only places that fit' : "Show places we couldn't confirm" }}</AppButton>
+              </p>
 
               <template v-if="!slot.options.length">
                 <p class="body-sm text-muted">{{ emptyText(slot) }}</p>
@@ -647,6 +799,8 @@ async function confirm() {
 
     <PlaceDetail v-if="reviewing" :place="reviewing.place" :reviews="reviewing.reviews" :outing="outingIds" :from="session.area.name" @close="closeReviews" />
 
+    <DietaryConfirm v-if="plan" v-model:open="dietOpen" :mine="plan.myDietary || []" :others="plan.othersDietary || []" :dropped="plan.dietDropped || []" :busy="dietBusy" :error="dietError" @confirm="confirmDiet" />
+
     <ModalDialog v-model:open="confirmOpen" title="Confirm plan?">
       <template #content>
         <div v-if="suggesting || orderView.choice" class="order-pick">
@@ -714,6 +868,10 @@ async function confirm() {
 .filter { display: flex; gap: var(--spacing-sm); }
 .filter__count { margin-left: var(--spacing-xs); opacity: 0.6; }
 .walk-from { margin: 0; }
+.diet-line { margin: 0; }
+/* "Group dietary needs": the same stack as "Search within" above it; the label and the selected needs share a line. */
+.diet-edit { display: flex; flex-direction: column; gap: var(--spacing-xs); }
+.diet-edit__mine { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); }
 .slot { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .slot + .slot { padding-top: var(--spacing-lg); }
 .slot__head { display: flex; align-items: center; gap: var(--spacing-md); }
