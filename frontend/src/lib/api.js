@@ -16,7 +16,7 @@ import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
-import { dueEnding, earnsCoins, itineraryAction, singaporeDate } from './session.js'
+import { dueEnding, earnsCoins, itineraryAction, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
 import { combineWeather, stateOf, venueSetting } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
@@ -2156,12 +2156,12 @@ export async function createSession({ title, date, start, end, hostId = me(), ke
   await wait(DELAY.write)
   requireMe(undefined, 'Log in to create a session.')
   if (hostId !== me() && !personById(hostId)) throw new Error('This person does not exist.')
+  // The same checks as the server's path and the form, so a past day or a start that has passed is refused here too. The demo's own
+  // sessions (keepOpen) are built at fixed times, some already under way, so they skip them.
+  const fields = keepOpen ? { title: String(title ?? '').trim(), date, start, end } : checkSessionFields({ title, date, start, end })
   const session = {
     id: `s${db.seq++}`,
-    title: title.trim(),
-    date,
-    start,
-    end,
+    ...fields,
     hostId,
     status: 'inviting',
     createdAt: Date.now(),
@@ -2186,31 +2186,37 @@ export async function createSession({ title, date, start, end, hostId = me(), ke
 }
 
 // The checks the create form makes before it lets a host carry on: a title of 1 to 60 characters, a real day from
-// today to three months ahead, two times of the day, the end after the start. Throws the first thing wrong; answers
-// the values as they are stored (the title trimmed).
+// today to three months ahead (today in Singapore), two times of the day, the end after the start, and a start that has not
+// passed yet in Singapore. Every way into the data layer that makes or changes a session's day and times uses it. Throws the
+// first thing wrong; answers the values as they are stored (the title trimmed).
+// `current`: the session being edited. When the day and times are the ones it already has, only its title is changing, so a day or
+// start that has passed since is not held against the edit.
 // How to call: checkSessionFields({ title: ' Dinner ', date: '2026-10-17', start: '18:00', end: '21:00' })
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/
-function checkSessionFields({ title, date, start, end }) {
+function checkSessionFields({ title, date, start, end }, { current = null } = {}) {
   const name = String(title ?? '').trim()
   if (!name) throw new Error('A session needs a title.')
   if (name.length > 60) throw new Error('A title can be at most 60 characters.')
   const day = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? parseISO(date) : null
   if (!day || !isValid(day) || format(day, 'yyyy-MM-dd') !== date) throw new Error('Pick a day for the session.')
-  if (date < todayKey()) throw new Error('That day has passed.')
-  if (date > format(addDays(new Date(), 90), 'yyyy-MM-dd')) throw new Error('Sessions can be planned up to 3 months ahead.')
+  const timingKept = !!current && date === current.date && start === current.start && end === current.end
+  if (!timingKept && date < todayKey()) throw new Error('That day has passed.')
+  if (!timingKept && date > format(addDays(parseISO(todayKey()), 90), 'yyyy-MM-dd')) throw new Error('Sessions can be planned up to 3 months ahead.')
   if (!TIME.test(start || '')) throw new Error('Start must be a time such as 14:00.')
   if (!TIME.test(end || '')) throw new Error('End must be a time such as 18:00.')
   if (end <= start) throw new Error('End time must be after the start time.')
+  if (!timingKept && startHasPassed(date, start)) throw new Error('That start time has already passed today.')
   return { title: name, date, start, end }
 }
 
 // Changes a session's title, day and times, for the host going back to the create form from the invite step. Only the
 // host may, and only while the session is inviting: once it starts, the group plans around the day and times. Nothing
-// else on the session changes. Checked like the create form (checkSessionFields).
+// else on the session changes. Checked like the create form (checkSessionFields), except that a change of the title alone is
+// always allowed.
 // How to call: await updateSession('s1', { title: 'Dinner', date: '2026-10-17', start: '18:00', end: '21:00' })
 export async function updateSession(id, fields) {
   if (onServer()) {
-    const session = summary(fromServer(await remote.update(id, checkSessionFields(fields))))
+    const session = summary(fromServer(await remote.update(id, checkSessionFields(fields, { current: newestRead.get(id)?.session }))))
     broadcast({ type: 'session', sessionId: id })
     return session
   }
@@ -2219,7 +2225,7 @@ export async function updateSession(id, fields) {
   const session = sessionById(id)
   if (session.hostId !== me()) throw new Error('Only the host can change a session.')
   if (session.status !== 'inviting') throw new Error('The date and times can only change before the session starts.')
-  Object.assign(session, checkSessionFields(fields))
+  Object.assign(session, checkSessionFields(fields, { current: session }))
   return touch(session, 'session')
 }
 
@@ -3466,9 +3472,8 @@ export async function roamNearby(id, { point, categories } = {}) {
   if (own && !(Number.isFinite(point.lat) && Number.isFinite(point.lng) && P.inSingapore(point))) throw new Error('That place is outside Singapore. Pick an area instead.')
   const meetingArea = areaById(session.meeting.areaId)
   const here = own ? { lat: point.lat, lng: point.lng } : { lat: meetingArea.lat, lng: meetingArea.lng }
-  const now = new Date()
   const lastEnd = timedStops(session).at(-1)?.end ?? 0
-  const startsAt = Math.min(1439, nextStopStart(lastEnd, now.getHours() * 60 + now.getMinutes()))
+  const startsAt = Math.min(1439, nextStopStart(lastEnd, singaporeMinutes()))
   const answer = await planner.roamNearby({
     members: activeIds(session).map((pid) => ({ id: pid })),
     current: here,
@@ -3552,8 +3557,7 @@ export async function resolveProposal(id, proposalId, accept) {
       if (stops.length >= ROAM.stops) throw new Error(proposeBlock({ stops: stops.length, mine: 0, total: 0 }))
       // A light meetup (startRoam) starts with no stops: its first stop starts now.
       const last = timedStops(session).at(-1)
-      const now = new Date()
-      const notBefore = nextStopStart(last?.end, now.getHours() * 60 + now.getMinutes())
+      const notBefore = nextStopStart(last?.end, singaporeMinutes())
       session.plan.stops = [...stops, { slotId: `roam-${proposal.id}`, category: venue.category, venueId: proposal.venueId, plannedStart: last?.end ?? notBefore, duration: ROAM.minutes, notBefore }]
       if (!last) session.plan.startAt = notBefore
       // The note was about the order the stops had; the plan is no longer exactly that.
@@ -3580,8 +3584,7 @@ export async function startRoam({ areaId, title = '' } = {}) {
   if (!area) throw new Error('Pick an area first.')
   const name = String(title ?? '').trim() || `Out in ${area.name}`
   if (name.length > 60) throw new Error('A title can be at most 60 characters.')
-  const now = new Date()
-  const from = Math.min(now.getHours() * 60 + now.getMinutes(), 23 * 60 + 58)
+  const from = Math.min(singaporeMinutes(), 23 * 60 + 58)
   const session = {
     id: `s${db.seq++}`,
     title: name,

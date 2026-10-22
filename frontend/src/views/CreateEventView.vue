@@ -4,7 +4,8 @@
 // Next stays disabled until the title, the date and the start time are set. A new session's times start filled in: the next
 // round hour and three hours after it (defaultTimes in lib/session.js), so only the title and the day are left to choose. After
 // 23:00 that start is after midnight, so the day starts as tomorrow (defaultDate); and a window that has already ended today is
-// refused under the end time (endHasPassed), never a default for a day that is over.
+// refused under the end time (endHasPassed), never a default for a day that is over, and a start that has gone is refused under the
+// start time (startHasPassed). All of it on Singapore's clock. An edit that changes only the title is never held back by the clock.
 // The same form edits a session (/sessions/:id/edit), reached from the invite step's back arrow or the steps bar's
 // Create: the heading says "Edit session", the form starts with the session's title, day and times, and Next saves them
 // and goes on to the invite step. The back arrow goes Home, as from the first step of any session. Only the host can
@@ -16,7 +17,7 @@
 //   <CreateEventView id="s1" />          /sessions/s1/edit
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { addDays, format, startOfDay } from 'date-fns'
+import { addDays, format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
@@ -30,7 +31,7 @@ import TextField from '@/components/ui/TextField.vue'
 import NotFoundView from './NotFoundView.vue'
 import { toMinutes } from '@/lib/planner/format.js'
 import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
-import { defaultDate, defaultSessionEnd, defaultTimes, endHasPassed, startHasPassed } from '@/lib/session.js'
+import { defaultDate, defaultSessionEnd, defaultTimes, endHasPassed, singaporeDate, startHasPassed } from '@/lib/session.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -88,18 +89,21 @@ watch(session, fill, { immediate: true })
 // The same screen opened for another session: take that one's values.
 watch(() => props.id, (id) => { if (!id) return; filled = false; fill(session.value); load() })
 
-// Sessions can be planned up to three months ahead.
-const today = startOfDay(new Date())
-const lastDay = format(addDays(today, 90), 'yyyy-MM-dd')
+// Sessions can be planned up to three months ahead of today in Singapore.
+const lastDay = format(addDays(parseISO(singaporeDate()), 90), 'yyyy-MM-dd')
 // Without an end time the window runs six hours, up to midnight.
 const endValue = computed(() => defaultSessionEnd(start.value, end.value, DEFAULT_LENGTH))
+// Editing a session and leaving its day and times as they are: only the title changes, so a start or end that has passed since the
+// session was made is not held against the edit (lib/api.js updateSession allows it too).
+const timingKept = computed(() => !!session.value && date.value === session.value.date && start.value === session.value.start && endValue.value === session.value.end)
+// Today, with a start that has gone in Singapore: shown under the start time.
+const startError = computed(() => (!timingKept.value && startHasPassed(date.value, start.value) ? 'That start time has already passed today.' : ''))
 const endError = computed(() => {
   if (start.value && toMinutes(endValue.value) <= toMinutes(start.value)) return 'End time must be after the start time.'
-  if (startHasPassed(date.value, start.value)) return 'That start time has already passed today.'
   // Today, with an end that has gone: the outing would be over before it began.
-  return endHasPassed(date.value, endValue.value) ? 'That time has already passed today.' : ''
+  return !timingKept.value && endHasPassed(date.value, endValue.value) ? 'That time has already passed today.' : ''
 })
-const ready = computed(() => title.value.trim().length > 0 && date.value !== '' && start.value !== '' && !endError.value)
+const ready = computed(() => title.value.trim().length > 0 && date.value !== '' && start.value !== '' && !startError.value && !endError.value)
 
 // Creates the session, or saves the changes to it, and goes on to the invite step in place of this screen.
 // How to call: next()
@@ -156,7 +160,7 @@ async function next() {
           <span id="when-label" class="sr-only">Date and time</span>
           <CalendarPicker v-model="date" class="when__calendar" label="Date" :max="lastDay" />
           <div class="when__times">
-            <RadialTimePicker v-model="start" label="Start time" fallback="09:00" />
+            <RadialTimePicker v-model="start" label="Start time" fallback="09:00" :error="startError" />
             <RadialTimePicker v-model="end" label="End time" :fallback="endValue || '18:00'" :error="endError" :hint="!end && start ? `Ends ${endValue} unless you change it` : ''" />
           </div>
         </section>
