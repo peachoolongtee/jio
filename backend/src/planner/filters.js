@@ -70,7 +70,10 @@ function mealPeriodAt(dateTime) {
 /**
  * Diet levels: 'full' | 'options' (verified) | 'likely' (inferred, e.g. from a stall name) | 'unknown' (no evidence) | 'none'.
  * Verified and 'likely' pass the hard filter ('likely' is flagged for the UI to verify). 'none' always fails.
- * 'unknown' fails by default (we will not claim halal without evidence) and passes only if unknownPolicy is 'lenient'.
+ * A hawker centre with MUIS-certified stalls is 'likely', never verified: one stall's certificate is not the centre's, so the
+ * group is told to check the stall (venue-adapter.js). A single certified shop or restaurant is 'options'.
+ * 'unknown' fails by default (we will not claim halal without evidence) and passes only if the policy is 'lenient'
+ * (`dietPolicy` in a request, which follows `unknownPolicy` when it is not given).
  * Activities have diet = null and skip dietary filters.
  * A drink stop is not a meal (ticket #107): only halal changes it, and only by keeping bars out (a place whose kind is
  * 'bar', or whose halal level is 'none'). Cafés stay, with no caveat.
@@ -140,13 +143,15 @@ function rejectionReasons(venue, ctx) {
     members, groupConstraints = [], dateTime, categories = ['eat', 'drink'],
     excludeVenueIds = [], enforceMealPeriod = true, unknownPolicy = 'strict', durationMinutes = 0,
   } = ctx;
+  // Dietary needs have a policy of their own, so that strict dietary filtering does not make near_mrt, step_free and sockets strict.
+  const dietPolicy = ctx.dietPolicy ?? unknownPolicy;
   const reasons = [];
 
   if (!categories.includes(venue.category)) reasons.push('category');
   if (excludeVenueIds.includes(venue.id)) reasons.push('excluded');
 
   const needs = [...new Set(members.flatMap(m => m.dietary ?? []))];
-  for (const need of needs) if (!meetsDiet(venue, need, unknownPolicy)) reasons.push(`diet:${need}`);
+  for (const need of needs) if (!meetsDiet(venue, need, dietPolicy)) reasons.push(`diet:${need}`);
 
   for (const c of groupConstraints) {
     if (c.startsWith('max_price_pp:')) {
@@ -179,7 +184,7 @@ function rejectionReasons(venue, ctx) {
 /**
  * @param {object[]} venues
  * @param {{members:object[], groupConstraints?:string[], dateTime:string, categories?:string[],
- *          excludeVenueIds?:string[], enforceMealPeriod?:boolean, unknownPolicy?:'strict'|'lenient',
+ *          excludeVenueIds?:string[], enforceMealPeriod?:boolean, unknownPolicy?:'strict'|'lenient', dietPolicy?:'strict'|'lenient',
  *          durationMinutes?:number}} ctx  members = ACTIVE members only
  * @returns {{passed:object[], rejected:{venue:object, reasons:string[]}[]}}
  */

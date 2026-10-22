@@ -43,8 +43,8 @@ export function asBackendVenue(v) {
     mealPeriods: v.serves || [],
     cdcAccepted: (v.tags || []).includes('cdc'),
     tags: v.tags || [],
-    // A centre with MUIS-certified stalls says so, as the planner's adapter does (venue-adapter.js).
-    ...(v.halal?.muisStalls > 0 ? { dataQuality: { halalSource: 'muis', muisStalls: v.halal.muisStalls, halalCheckedAt: v.halal.checked } } : {}),
+    // A place with MUIS-certified stalls says so, as the planner's adapter does (venue-adapter.js): a centre by its stalls.
+    ...(v.halal?.muisStalls > 0 ? { dataQuality: { halalSource: 'muis', halalScope: ['hawker', 'market'].includes(v.kind) ? 'stalls' : 'venue', muisStalls: v.halal.muisStalls, halalCheckedAt: v.halal.checked } } : {}),
   }
 }
 
@@ -115,16 +115,19 @@ export function standInMeetingArea({ members, method = 'station', alternatives, 
 // dietary data, so a food place is 'likely' to fit halal and vegetarian only when it is a whole hawker centre or food court
 // (many stalls, as the planner guesses from a CDC site's stall names), and 'unknown' otherwise; nothing is known to be vegan.
 // A drink place is changed only by halal, which keeps bars out. Strict leaves unknown places out; lenient keeps them, labelled.
+// The policy is the request's `dietPolicy`, which follows its `unknownPolicy` when not given.
 // How to call: dietFit(VENUES[0], ['halal'], 'strict') -> { fits: true, verify: ['halal'], dietUnknown: [] }
 const CENTRE_NAME = /market|food cent(re|er)|hawker|food court|kopitiam|complex/i
 export function dietFit(v, needs = [], unknownPolicy = 'lenient') {
   if (v.category === 'drink') return { fits: !(needs.includes('halal') && v.kind === 'bar'), verify: [], dietUnknown: [] }
   if (v.category !== 'eat' || !needs.length) return { fits: true, verify: [], dietUnknown: [] }
   const likely = v.kind === 'hawker' && CENTRE_NAME.test(v.name)
-  // Halal at a centre with MUIS-certified stalls is known, not guessed: it needs no check.
-  const certified = (n) => n === 'halal' && v.halal?.muisStalls > 0
-  const verify = needs.filter((n) => likely && n !== 'vegan' && !certified(n))
-  const dietUnknown = needs.filter((n) => !verify.includes(n) && !certified(n))
+  // A centre with MUIS-certified stalls is likely halal, not verified: one stall's certificate is not the centre's, so the
+  // group is asked to check the stall. A certified shop or restaurant (not a centre) is halal for sure.
+  const certifiedShop = (n) => n === 'halal' && v.halal?.muisStalls > 0 && !['hawker', 'market'].includes(v.kind)
+  const certifiedCentre = (n) => n === 'halal' && v.halal?.muisStalls > 0 && ['hawker', 'market'].includes(v.kind)
+  const verify = needs.filter((n) => (likely || certifiedCentre(n)) && n !== 'vegan' && !certifiedShop(n))
+  const dietUnknown = needs.filter((n) => !verify.includes(n) && !certifiedShop(n))
   return { fits: !dietUnknown.length || unknownPolicy === 'lenient', verify, dietUnknown }
 }
 
@@ -135,15 +138,15 @@ const needsOf = (members = []) => [...new Set(members.flatMap((m) => m.dietary |
 // is open the nearest of the category are offered anyway, so a slot is never empty, unless the group's dietary needs leave
 // none (then the slot is empty, as the planner's would be). `current` holds the options the group already has that are in the list.
 // How to call: standInConverge({ categories: ['eat'], centre, dateTime: '2026-10-17T12:00', durationMinutes: 90, currentOptionIds: [], topN: 10 })
-export function standInConverge({ categories = ['eat'], centre, dateTime, durationMinutes = 60, currentOptionIds = [], topN = 5, radiusMeters, members = [], unknownPolicy = 'lenient' }) {
+export function standInConverge({ categories = ['eat'], centre, dateTime, durationMinutes = 60, currentOptionIds = [], topN = 5, radiusMeters, members = [], unknownPolicy = 'lenient', dietPolicy = unknownPolicy }) {
   const start = toMinutes(String(dateTime).slice(11, 16))
   const needs = needsOf(members)
-  const ofKind = VENUES.filter((v) => categories.includes(v.category) && dietFit(v, needs, unknownPolicy).fits)
+  const ofKind = VENUES.filter((v) => categories.includes(v.category) && dietFit(v, needs, dietPolicy).fits)
   const km = (v) => distanceKm(centre, v)
   const inRadius = radiusMeters ? ofKind.filter((v) => km(v) * 1000 <= radiusMeters) : ofKind
   const open = inRadius.filter((v) => isOpenFor(v.hours, start, durationMinutes))
   // As the planner does: places that likely meet more of the group's dietary needs first, then the nearest.
-  const misses = (v) => dietFit(v, needs, unknownPolicy).dietUnknown.length
+  const misses = (v) => dietFit(v, needs, dietPolicy).dietUnknown.length
   const ranked = [...(open.length ? open : inRadius)].sort((a, b) => misses(a) - misses(b) || km(a) - km(b) || a.id.localeCompare(b.id))
   const toResult = (v, i) => ({
     rank: i + 1,
@@ -156,8 +159,8 @@ export function standInConverge({ categories = ['eat'], centre, dateTime, durati
     warnings: [],
     swap: null,
     explanation: 'Ranked by distance from the meeting area, by the demo tools (the planner is not running).',
-    verify: dietFit(v, needs, unknownPolicy).verify,
-    dietUnknown: dietFit(v, needs, unknownPolicy).dietUnknown,
+    verify: dietFit(v, needs, dietPolicy).verify,
+    dietUnknown: dietFit(v, needs, dietPolicy).dietUnknown,
     approximate: true,
   })
   const results = ranked.slice(0, topN).map(toResult)
@@ -168,14 +171,14 @@ export function standInConverge({ categories = ['eat'], centre, dateTime, durati
 // Places whose name contains the words typed, of the slot's categories, nearest to the centre first, as /api/search answers.
 // A place that is not open for the slot, or does not fit a dietary need, is listed but says why it does not fit. At most 8.
 // How to call: standInSearch({ query: 'market', categories: ['eat'], centre, dateTime: '2026-10-17T12:00', durationMinutes: 90 })
-export function standInSearch({ query = '', categories = ['eat'], centre, dateTime, durationMinutes = 60, maxKm, members = [], unknownPolicy = 'lenient' }) {
+export function standInSearch({ query = '', categories = ['eat'], centre, dateTime, durationMinutes = 60, maxKm, members = [], unknownPolicy = 'lenient', dietPolicy = unknownPolicy }) {
   const needs = needsOf(members)
   const words = String(query).toLowerCase().split(/\s+/).filter(Boolean)
   const start = toMinutes(String(dateTime).slice(11, 16))
   const km = (v) => distanceKm(centre, v)
   const found = VENUES.filter((v) => categories.includes(v.category) && words.every((w) => `${v.name} ${v.area}`.toLowerCase().includes(w)) && (!maxKm || km(v) <= maxKm))
   // A place that fails a dietary need says so first, as the planner's first reason would be.
-  const dietWhy = (v) => (dietFit(v, needs, unknownPolicy).fits ? [] : [`diet:${dietFit(v, needs, unknownPolicy).dietUnknown[0] ?? 'halal'}`])
+  const dietWhy = (v) => (dietFit(v, needs, dietPolicy).fits ? [] : [`diet:${dietFit(v, needs, dietPolicy).dietUnknown[0] ?? 'halal'}`])
   const fits = (v) => isOpenFor(v.hours, start, durationMinutes) && !dietWhy(v).length
   const ranked = [...found].sort((a, b) => Number(fits(b)) - Number(fits(a)) || km(a) - km(b) || a.id.localeCompare(b.id))
   const results = ranked.slice(0, 8).map((v) => ({
@@ -187,8 +190,8 @@ export function standInSearch({ query = '', categories = ['eat'], centre, dateTi
     distanceKm: Math.round(km(v) * 100) / 100,
     fits: fits(v),
     unfit: fits(v) ? [] : dietWhy(v).length ? dietWhy(v) : ['meal_period'],
-    verify: dietFit(v, needs, unknownPolicy).verify,
-    dietUnknown: dietFit(v, needs, unknownPolicy).dietUnknown,
+    verify: dietFit(v, needs, dietPolicy).verify,
+    dietUnknown: dietFit(v, needs, dietPolicy).dietUnknown,
   }))
   return { status: 'ok', results }
 }
