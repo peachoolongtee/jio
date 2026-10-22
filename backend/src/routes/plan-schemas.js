@@ -16,6 +16,8 @@ import { isSingaporePoint } from '../planner/singapore.js'
 // How to use: MAX.constraints, MAX.text and so on, in the schemas below. routes/plan.js reads the ones it enforces.
 export const MAX = {
   text: 80, // ids, names and labels
+  // A place's id: longer than other ids, because a saved OneMap place's id carries its address (the longest are 86).
+  venueId: 120,
   members: 30,
   alternatives: 3, // runners-up a /meeting-area request may ask for
   includedAreas: 8, // areas a /meeting-area request may name in `include`
@@ -141,9 +143,9 @@ export function makePlanSchemas(data) {
     durationMinutes: z.number().int().min(0).max(720).optional(),
     categories,
     groupConstraints: z.array(constraint).max(MAX.constraints).default([]),
-    excludeVenueIds: z.array(text()).max(MAX.excludedVenues).default([]),
+    excludeVenueIds: z.array(text(MAX.venueId)).max(MAX.excludedVenues).default([]),
     // The options the group is already voting on, so a rain swap never suggests one of them again.
-    currentOptionIds: z.array(text()).max(MAX.currentOptions).default([]),
+    currentOptionIds: z.array(text(MAX.venueId)).max(MAX.currentOptions).default([]),
     unknownPolicy: z.enum(['strict', 'lenient']).default('strict'),
     weatherCase,
     groupId: text().optional(),

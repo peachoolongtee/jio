@@ -72,17 +72,33 @@ function mealPeriodAt(dateTime) {
  * Verified and 'likely' pass the hard filter ('likely' is flagged for the UI to verify). 'none' always fails.
  * 'unknown' fails by default (we will not claim halal without evidence) and passes only if unknownPolicy is 'lenient'.
  * Activities have diet = null and skip dietary filters.
+ * A drink stop is not a meal (ticket #107): only halal changes it, and only by keeping bars out (a place whose kind is
+ * 'bar', or whose halal level is 'none'). Cafés stay, with no caveat.
+ * How to call: meetsDiet(venue, 'halal', 'strict') -> true
  */
 function meetsDiet(venue, need, unknownPolicy = 'strict') {
   if (venue.diet === null) return true;
+  if (venue.category === 'drink') return !(need === 'halal' && isBar(venue));
   const level = venue.diet[need];
   if (['full', 'options', 'likely'].includes(level)) return true;
   return level === 'unknown' && unknownPolicy === 'lenient';
 }
 
+/**
+ * Is this drink place a bar, which a halal group leaves out? Its kind says so, or its halal level is 'none'.
+ * How to call: isBar({ kind: 'bar' }) -> true
+ */
+function isBar(venue) {
+  return venue.kind === 'bar' || venue.diet?.halal === 'none';
+}
+
+// Food places are the only ones whose dietary status is checked and shown (drink stops skip it, see meetsDiet).
+// How to call: dietChecked(venue) -> true
+const dietChecked = (venue) => venue.diet !== null && venue.diet !== undefined && venue.category !== 'drink';
+
 /** Which dietary needs are only 'likely' for this venue, so the UI can say "check the stall". */
 function needsVerification(venue, members) {
-  if (venue.diet === null) return [];
+  if (!dietChecked(venue)) return [];
   const needs = [...new Set(members.flatMap(m => m.dietary ?? []))];
   return needs.filter(n => venue.diet[n] === 'likely');
 }
@@ -92,9 +108,19 @@ function needsVerification(venue, members) {
  * the UI must say so ("halal status not known"), otherwise lenient silently looks like a yes.
  */
 function unknownDietNeeds(venue, members) {
-  if (venue.diet === null) return [];
+  if (!dietChecked(venue)) return [];
   const needs = [...new Set(members.flatMap(m => m.dietary ?? []))];
   return needs.filter(n => venue.diet[n] === 'unknown');
+}
+
+/**
+ * How many of the group's dietary needs this place is NOT known to meet: 0 for a place that meets all of them (for sure or
+ * likely), and for every drink, shop or activity place. Only lenient mode keeps places above 0. The engine ranks by it first
+ * (ticket #107): places that likely meet more of the group's needs come before those that meet fewer, then by score.
+ * How to call: dietMisses(venue, [{ id: 'a', dietary: ['halal', 'vegan'] }]) -> 1
+ */
+function dietMisses(venue, members) {
+  return unknownDietNeeds(venue, members).length;
 }
 
 // null = unknown. Strict (default): unknown fails a hard constraint. Lenient: unknown passes.
@@ -194,6 +220,6 @@ function relaxationHints(venues, ctx) {
 }
 
 export {
-  filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds, isOpenAt, isOpenFor, mealPeriodAt, minutesOfDay, toMinutes,
+  filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds, dietMisses, isOpenAt, isOpenFor, mealPeriodAt, minutesOfDay, toMinutes,
   weekdayOf, isClosedWeekday,
 };

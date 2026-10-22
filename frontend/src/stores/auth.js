@@ -95,6 +95,8 @@ export const useAuthStore = defineStore('auth', () => {
     // The name and home area are written to the account after sign-up; a failure arrives as an event (see subscribe).
     if (syncError) syncNotice.value = syncError
     draft.value = emptyDraft()
+    // The new account is asked its dietary needs once, in a popup over the first page (DietaryFirstAsk).
+    dietAsk.value = true
     return user.value
   }
 
@@ -170,6 +172,19 @@ export const useAuthStore = defineStore('auth', () => {
     syncNotice.value = syncError || ''
   }
 
+  // "Any dietary needs?" (DietaryFirstAsk, ticket #107): asked once, in a popup, right after an account is made, in place of a
+  // question in sign-up. True while it waits for an answer.
+  const dietAsk = ref(false)
+  // The answer: the needs picked, saved on the profile, or none for "None, skip". Either way the popup closes for good.
+  // How to call: await auth.answerDietAsk(['halal'])
+  async function answerDietAsk(dietary = []) {
+    try {
+      if (dietary.length) await update({ dietary })
+    } finally {
+      dietAsk.value = false
+    }
+  }
+
   // Signs the person out here whatever goes wrong, with one exception: a real account whose session could not be ended
   // on this browser (lib/auth.js says so with code 'sign_out_failed') stays signed in and this rejects, so the screen can
   // say so. Telling the app "signed out" while the session is still stored would bring the person back after a reload.
@@ -185,6 +200,7 @@ export const useAuthStore = defineStore('auth', () => {
     recovering.value = false
     pendingConfirmation.value = null
     syncNotice.value = ''
+    dietAsk.value = false
     draft.value = emptyDraft()
   }
 
@@ -236,6 +252,8 @@ export const useAuthStore = defineStore('auth', () => {
     signedIn,
     myId,
     sampleWorld,
+    dietAsk,
+    answerDietAsk,
     init,
     signUp,
     signIn,

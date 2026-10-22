@@ -58,6 +58,11 @@
   --cat-shop-bg: color-mix(in srgb, var(--cat-shop-fg) 12%, var(--canvas));
   --cat-activity-fg: #059669;
   --cat-activity-bg: color-mix(in srgb, var(--cat-activity-fg) 12%, var(--canvas));
+  /* Dietary tags on a place's card (ticket #107): halal brown, vegetarian and vegan green. Text on its tint: 6.1:1 and 6.0:1. */
+  --diet-halal-fg: #7c4a1e;
+  --diet-halal-bg: color-mix(in srgb, var(--diet-halal-fg) 12%, var(--canvas));
+  --diet-veg-fg: #166534;
+  --diet-veg-bg: color-mix(in srgb, var(--diet-veg-fg) 12%, var(--canvas));
   /* People: each person keeps one colour everywhere, on their map pin and their avatar (lib/people.js). */
   --person-1: #2563eb;
   --person-2: #7c3aed;

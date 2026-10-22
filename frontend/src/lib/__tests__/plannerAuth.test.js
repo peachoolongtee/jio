@@ -3,7 +3,7 @@
 import { AxiosError } from 'axios'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as auth from '../auth.js'
-import { api, goesToPlanner, meetingArea, plannerErrorMessage, rankSlot } from '../plannerApi.js'
+import { api, goesToPlanner, meetingArea, plannerErrorMessage, rankSlot, sessionDietary } from '../plannerApi.js'
 import { AUTH_STORAGE_KEY } from '../supabase.js'
 import { fakeStorage } from './planFixture.js'
 import { fakeSupabase } from './authFixture.js'
@@ -396,5 +396,22 @@ describe('the existing error sentences', () => {
     }
     await expect(meetingArea({ members: [] })).rejects.toThrow('Cannot reach the Jio planner.')
     expect(plannerErrorMessage({ response: { status: 503, data: {} } }, { dev: false })).toBe('The planner had a problem. Try again.')
+  })
+})
+
+describe('an outing’s dietary needs (GET /api/sessions/:id/dietary)', () => {
+  it('sends the login token, and gives the two lists back', async () => {
+    script([200, { dietary: ['halal', 'vegan'], others: ['halal'] }])
+    expect(await sessionDietary('3b1f')).toEqual({ dietary: ['halal', 'vegan'], others: ['halal'] })
+    expect(seen).toEqual(['Bearer token-1'])
+  })
+
+  it('refuses an answer that is not two lists of known needs, and passes the server’s code on', async () => {
+    script([200, { dietary: ['halal'], others: ['pescatarian'] }])
+    await expect(sessionDietary('3b1f')).rejects.toThrow()
+    script([200, { dietary: ['halal'] }])
+    await expect(sessionDietary('3b1f')).rejects.toThrow()
+    script([404, { error: 'session_not_found', message: 'This session does not exist, or you are not in it.' }])
+    await expect(sessionDietary('3b1f')).rejects.toMatchObject({ code: 'session_not_found', status: 404 })
   })
 })

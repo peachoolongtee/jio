@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createWorld } from './helpers/fake-supabase.js'
 import { addMember, addSession, GUEST, HOST, OTHER, SESSION, startSessionApp, STRANGER } from './helpers/session-app.js'
 
-// DELETE /api/sessions/:id/members/:userId (leave a session, or the host removes a guest), tested without the network.
+// DELETE /api/sessions/:id/members/:userId (leave a session, or the host removes a guest), and GET /api/sessions/:id/dietary (an
+// outing's needs together), tested without the network.
 // The login check is the real code: the test signs its own tokens. The database is the fake in helpers/fake-supabase.js: it shows a
 // person only the sessions they are in, and a member row can be deleted only through apply_session_plan with the service key.
 // The meeting-spot endpoints are tested in sessions-spots.test.js; this file keeps the leave and remove rules of stage 2 and
@@ -29,6 +30,12 @@ const fresh = () => {
     addMember(world, id, HOST, { role: 'host' })
     addMember(world, id, GUEST)
   }
+  // Each person's private row, as profile_private holds it: dietary needs and the other private fields (GET .../dietary).
+  world.profile_private = [
+    { id: HOST, dietary: ['vegan'], home_area_id: 'tampines', budget_max_per_person: 20, needs_step_free: true },
+    { id: GUEST, dietary: ['halal', 'durian-free'], home_area_id: 'bishan', budget_max_per_person: null, needs_step_free: false },
+    { id: OTHER, dietary: null, home_area_id: 'bugis', budget_max_per_person: null, needs_step_free: false },
+  ]
   return world
 }
 
@@ -46,7 +53,9 @@ async function start(options = {}) {
   started.push(t)
   // Asks to remove `person` ('me' or an id) from `session`, as `as` (a person's id; none sends no token).
   const remove = (session, person, as) => t.call('DELETE', `/api/sessions/${session}/members/${person}`, undefined, as)
-  return { ...t, remove }
+  // Asks for `session`'s dietary needs, as `as` (a person's id; none sends no token).
+  const needs = (session, as) => t.call('GET', `/api/sessions/${session}/dietary`, undefined, as)
+  return { ...t, remove, needs }
 }
 
 const memberIds = (session = SESSION) => world.session_members.filter((m) => m.session_id === session).map((m) => m.user_id)
@@ -289,5 +298,60 @@ describe('the route\'s edges', () => {
     expect(failed.body.error).toBe('server_error')
     expect(JSON.stringify(failed.body)).not.toContain('boom')
     expect(memberIds()).toEqual([HOST, GUEST, OTHER])
+  })
+})
+
+describe('GET /api/sessions/:id/dietary (an outing’s needs, together)', () => {
+  it('gives a member every need in the outing and the others’ needs, in the app’s order, and nothing else', async () => {
+    const t = await start()
+    const asGuest = await t.needs(SESSION, GUEST)
+    expect(asGuest.status).toBe(200)
+    expect(asGuest.body).toEqual({ dietary: ['halal', 'vegan'], others: ['vegan'] })
+    expect((await t.needs(SESSION, HOST)).body).toEqual({ dietary: ['halal', 'vegan'], others: ['halal'] })
+    expect((await t.needs(SESSION, OTHER)).body).toEqual({ dietary: ['halal', 'vegan'], others: ['halal', 'vegan'] })
+    // No ids, no counts, no other private field, and an unknown need is dropped.
+    const text = JSON.stringify(asGuest.body)
+    for (const leak of [HOST, GUEST, OTHER, 'tampines', 'bishan', 'durian', 'budget', 'step']) expect(text).not.toContain(leak)
+    expect(asGuest.headers.get('cache-control')).toBe('no-store')
+  })
+
+  it('reads as the caller first, and the private rows only with the server’s key', async () => {
+    const t = await start()
+    await t.needs(SESSION, GUEST)
+    expect(world.calls.map((c) => [c.table ?? c.rpc, c.kind, c.who])).toEqual([
+      ['session_members', 'select', GUEST.toLowerCase()],
+      ['session_member_needs', 'rpc', null],
+    ])
+  })
+
+  it('tells a stranger nothing: the same 404 as for a session that does not exist, and no private read', async () => {
+    const t = await start()
+    const stranger = await t.needs(SESSION, STRANGER)
+    expect(stranger.status).toBe(404)
+    expect(stranger.body.error).toBe('session_not_found')
+    expect((await t.needs('cccccccc-cccc-4ccc-8ccc-cccccccccccc', GUEST)).body.error).toBe('session_not_found')
+    expect(world.calls.some((c) => c.kind === 'rpc')).toBe(false)
+  })
+
+  it('needs a login and a session id, and fails as a server error when the needs cannot be read', async () => {
+    const t = await start()
+    expect((await t.needs(SESSION, null)).status).toBe(401)
+    const bad = await t.needs('not-a-uuid', GUEST)
+    expect(bad.status).toBe(400)
+    expect(bad.body.error).toBe('invalid_input')
+    world.failNeeds = true
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const failed = await t.needs(SESSION, GUEST)
+    expect(failed.status).toBe(500)
+    expect(failed.body.error).toBe('server_error')
+  })
+
+  it('is limited per person on its own counter, apart from leaving', async () => {
+    const t = await start({ sessionRateLimit: { windowMs: 60_000, max: 2 } })
+    expect((await t.needs(SESSION, GUEST)).status).toBe(200)
+    expect((await t.needs(SESSION, GUEST)).status).toBe(200)
+    expect((await t.needs(SESSION, GUEST)).status).toBe(429)
+    // Leaving still has its own two.
+    expect((await t.remove(SESSION, 'me', GUEST)).status).toBe(200)
   })
 })

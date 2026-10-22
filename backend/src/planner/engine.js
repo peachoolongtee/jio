@@ -5,7 +5,7 @@
 //   seed point -> hard filters -> expanding radius -> prune (cap routing cost) -> route -> score -> rank -> explain
 
 import { centroid, fairnessWeights, minimaxCenter, radiusSearch, mockTravelMinutes, haversineKm, walkMinutes } from './geo.js';
-import { filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds } from './filters.js';
+import { filterByConstraints, countReasons, relaxationHints, needsVerification, unknownDietNeeds, dietMisses } from './filters.js';
 import * as S from './scoring.js';
 import { diversify } from './diversity.js';
 import { BALANCE, balanceWeights, choicesOf, measure, pickBalanced, rankBalanced } from './balance.js';
@@ -83,6 +83,17 @@ const PRUNE_DISTANCE = 0.53125, PRUNE_FIT = 0.31875, PRUNE_RATING = 0.15;
  * occasionFit is not mistaken for a zero fit and cut here. Places in one building, and more than 2 Google
  * places among a category's first 5, rank below the rest (diversity.js), so the N are not all look-alikes.
  */
+/**
+ * The same rows, those that likely meet more of the group's dietary needs first (ticket #107): every need met, then all but
+ * one, and so on down to none known. Within a tier the order given is kept (the sort is stable), so a tier stays best first.
+ * With no needs, or in strict mode (every place left meets them all), nothing moves. `rows` each have `.venue`.
+ * How to call: byDietFit(diversify(rows), members)
+ */
+function byDietFit(rows, members) {
+  const misses = new Map(rows.map(r => [r, dietMisses(r.venue, members)]));
+  return [...rows].sort((a, b) => misses.get(a) - misses.get(b));
+}
+
 function prune(candidates, c, keep) {
   if (candidates.length <= keep) return candidates;
   const dn = S.normalizeMinMax(candidates.map(x => x.distanceKm));
@@ -90,7 +101,8 @@ function prune(candidates, c, keep) {
     .map((x, i) => ({ x, pre: PRUNE_DISTANCE * dn[i] + PRUNE_FIT * (100 - occasionFitOf(x.venue, c.occasion, c.profile)) + PRUNE_RATING * S.ratingPenalty(x.venue) }))
     .sort((a, b) => a.pre - b.pre)
     .map(o => o.x);
-  return diversify(sorted).slice(0, keep);
+  // Places that likely meet more of the group's dietary needs are kept first (c.members; none in strict mode).
+  return byDietFit(diversify(sorted), c.members ?? []).slice(0, keep);
 }
 
 /**
@@ -250,7 +262,7 @@ function converge(input, data, deps = {}) {
 
   // 4. prune, then route. The options the group is already voting on are always routed and scored too.
   const pruned = withCurrentOptions(
-    prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion] }, pruneTo),
+    prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion], members }, pruneTo),
     filt.passed, centre, input.currentOptionIds, (input.radiusMeters ?? 3000) / 1000,
   );
   diagnostics.routingCalls = pruned.length * members.length * 2;
@@ -314,7 +326,9 @@ function converge(input, data, deps = {}) {
     r.hasHistory = c.groupId !== null && c.history.some(h => h.groupId === c.groupId);
   });
   rows.sort((a, b) => a.score - b.score);
-  rows = diversify(rows); // one place per building, and Google only as a top-up (diversity.js)
+  // One place per building, and Google only as a top-up (diversity.js); then places that likely meet more of the group's
+  // dietary needs first (lenient mode only), each tier keeping that order.
+  rows = byDietFit(diversify(rows), members);
 
   // 7. explain
   const names = Object.fromEntries(members.map(m => [m.id, m.name]));
@@ -358,7 +372,7 @@ function roam(input, data, deps = {}) {
   if (rs.candidates.length === 0) {
     return emptyResult('outside_max_radius', { hints: { nearestKm: rs.nearestKm, widenToKm: Math.ceil(rs.nearestKm) }, diagnostics });
   }
-  const pruned = prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion] }, pruneTo);
+  const pruned = prune(rs.candidates, { occasion: input.occasion, profile: data.occasionProfiles[input.occasion], members }, pruneTo);
   diagnostics.routingCalls = pruned.length;
   const c = context(input, data, members);
   const weights = S.withRatingWeight(occasionWeights(baseWeights, c.profile), 'roam');
@@ -376,7 +390,8 @@ function roam(input, data, deps = {}) {
     r.hasHistory = c.groupId !== null && c.history.some(h => h.groupId === c.groupId);
   });
   rows.sort((a, b) => a.score - b.score);
-  rows = diversify(rows);
+  // As in converge: places that likely meet more of the group's dietary needs first, each tier in the order diversify gives.
+  rows = byDietFit(diversify(rows), members);
   const label = c.profile?.label ?? 'meetup';
   const shown = rows.slice(0, topN), swap = indoorSwap(rows, shown, filt.passed, input.current, input, c.weatherByArea);
   const results = shown.map((r, i) => ({
@@ -620,6 +635,8 @@ function searchVenues(input, data) {
         row: {
           venueId: v.id, name: v.name, area: v.area, category: v.category, source: v.source, matchedStall: stall,
           walkMinutes: walkMinutes(input.centre, v), distanceKm, fits: unfit.length === 0, unfit,
+          // The same caveats as a ranked result: needs only 'likely' met, and needs with no data (lenient only).
+          verify: needsVerification(v, ctx.members), dietUnknown: unknownDietNeeds(v, ctx.members),
         },
         byName,
       };

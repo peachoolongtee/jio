@@ -40,7 +40,7 @@ const DIET_RANK = ['none', 'unknown', 'likely', 'options', 'full']
 const betterDiet = (a, b) => (DIET_RANK.indexOf(b ?? 'unknown') > DIET_RANK.indexOf(a ?? 'unknown') ? b : a)
 
 /**
- * What a OneMap centre keeps from the CDC site it replaces, so replacing loses nothing: the better diet level for each
+ * What a centre (OneMap's or a curated one) keeps from the CDC site it replaces, so replacing loses nothing: the better diet level for each
  * need (halal "likely" from the stall names stays, or a halal group would lose the centre), the stalls (searching for a
  * stall by name still finds its centre) and the site's kind.
  *
@@ -77,7 +77,8 @@ export function mergeCuratedWithCdc(curated, cdc) {
     const site = cdc.find((s) => s.id === match.siteId)
     const replacesSite = isCentre || site.siteKind === 'food_stall'
     if (replacesSite) dropped.add(site.id)
-    const carried = replacesSite && venue.source === 'onemap' ? carryOverFromCdcSite(venue, site) : {}
+    // Whatever replaces its site keeps what the site knew: a curated centre as much as a OneMap one (ticket #107).
+    const carried = replacesSite ? carryOverFromCdcSite(venue, site) : {}
     return { ...venue, ...carried, cdcAccepted: true, cdc: { siteId: site.id, match: match.cdcAccepted, stallCount: site.cdc.stallCount } }
   })
   return { venues: merged, droppedCdcIds: [...dropped] }

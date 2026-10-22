@@ -100,7 +100,7 @@ Each member is an object. Only `id` is required, plus a location (`home` or `sta
 ```
 
 - `start` and `end` default to `home`.
-- `dietary` accepts `halal`, `vegetarian` and `vegan`, in any letter case.
+- `dietary` accepts `halal`, `vegetarian` and `vegan`, in any letter case. It filters food places only. A drink stop is not a meal: a halal need keeps bars out of it (kind `bar`, or a halal level of `none`), cafés stay, and no other need changes it. Drink places carry no `verify` or `dietUnknown`.
 - `travelDebtMinutes` comes from the fairness ledger. Positive means the person travelled more than their share last time.
 - Points must be inside Singapore (lat 1.1 to 1.5, lng 103.5 to 104.1). This catches swapped lat and lng.
 
@@ -279,7 +279,7 @@ Request (one slot; the response below is real output for these two members with 
 | `categories` | no | Any of `eat`, `drink`, `shop`, `activity`. Default `["eat", "drink"]`. |
 | `centre` | no | Rank around this point. Without it, the engine uses the fairness-weighted centre of everyone's start (`seed` picks another method). |
 | `lastStop` | no | The frontend's last-stop rule: only venues within `lastStopMrtWalkMinutes` (default 10) of an MRT, and the longest trip home counts toward the score. |
-| `unknownPolicy` | no | `strict` (default): a venue with no data on a diet need, step-free access or sockets is left out. `lenient`: it is kept, and `dietUnknown` says what we don't know. |
+| `unknownPolicy` | no | `strict` (default): a venue with no data on a diet need, step-free access or sockets is left out. `lenient`: it is kept, and `dietUnknown` says what we don't know. In lenient mode the results are tiered by how many of the group's diet needs a place is not known to meet: places that meet every need (for sure or likely) first, then those missing one, and so on, each tier in score order. The shortlist that is routed is cut the same way, so a place that likely meets more needs is never dropped for one that meets fewer. `/api/roam` does the same. |
 | `groupConstraints` | no | `step_free`, `sockets`, `quiet`, `indoor_only`, `max_price_pp:N`, `near_mrt:N`. |
 | `weights` | no | Override scoring weights, all 0 or more. Keys: `worst`, `mean`, `returnWorst`, `occasion`, `preference`, `weather`, `price`, `cdc`, `antiRepeat`, `crowd`. `crowd` has no weight by default, so it doesn't change the ranking unless you send one. **There is no `rating` weight a caller can send**: the rating always counts (as far as its reviews, see "Things to know" below) with a weight the server sets and scales to the weights in use, so a request that sends `weights.rating` is refused with the usual 400 (`invalid_input`, path `weights.rating`). Venues carry `rating` and `ratingCount` for display. (Roam takes the same keys except `worst`, `mean` and `returnWorst`, plus `distance`.) |
 | `weatherCase` | no | `clear`, `rain`, `rain_east`: a simulated forecast. Used only when the server allows it; otherwise ignored. See [Weather](#weather). |
@@ -405,7 +405,7 @@ Response (real output, without `members`):
 }
 ```
 
-Places that fit come first, then by walking time. `distanceKm` is rounded here. `unfit` says why a place can't be added. It uses the same words as `diagnostics.rejectedCounts` (a counter shown only with `PLANNER_DIAGNOSTICS=1`):
+Each result also carries `verify` and `dietUnknown`, as a ranked result does (both empty without `members`). Places that fit come first, then by walking time. `distanceKm` is rounded here. `unfit` says why a place can't be added. It uses the same words as `diagnostics.rejectedCounts` (a counter shown only with `PLANNER_DIAGNOSTICS=1`):
 
 | `unfit` value | Meaning |
 |---|---|
@@ -929,6 +929,20 @@ At most 5 people, in this order: the exact match, then people who share (or shar
 | 401 `unauthenticated`, 503 `auth_unavailable` | The login check, as for every route that needs one. |
 | 429 `rate_limited` | More than `PEOPLE_SEARCH_RATE_LIMIT_PER_MINUTE` (120) a minute from one person. |
 
+## GET /api/sessions/:id/dietary
+
+An outing's dietary needs, together and without names (ticket #107), so "Confirm dietary needs" can open with them selected for a real friend's need too. Not a planner route: it needs a login and Supabase, as `DELETE /api/sessions/:id/members/:userId` does; without Supabase it does not exist and answers 404. A need is private (`profile_private`, read only by its owner and the server), so the server reads every joined member's through `session_member_needs()` with its own key, after checking as the caller that they are in the session, and answers only the needs.
+
+| Answer | When |
+|---|---|
+| 200 `{ "dietary": ["halal", "vegan"], "others": ["halal"] }` | `dietary` is every joined member's needs together; `others` is everyone's but the caller's (the ones the caller cannot take off). Each list is in the app's order (halal, vegetarian, vegan), each need once; anything else in a row is left out. Never an id, a count or another private field (home area, budget, step-free). `Cache-Control: no-store`. |
+| 400 `invalid_input` | `:id` is not a uuid. |
+| 401 `unauthenticated`, 503 `auth_unavailable` | The login check. |
+| 404 `session_not_found` | No such session, or the caller is not in it (the same answer, so a stranger learns nothing, and no private row is read). |
+| 429 `rate_limited` | More than `SESSION_RATE_LIMIT_PER_MINUTE` (30) a minute from one person, counted apart from leaving. |
+
+In a group of two, `others` is the other person's needs; that is no more than the line "Showing places that fit halal" already tells them.
+
 ## Limits
 
 Every list and number has an upper limit, so one request cannot keep the server busy. Going over any of them is a 400 naming the field.
@@ -945,7 +959,8 @@ Every list and number has an upper limit, so one request cannot keep the server 
 | `areaId` (session endpoints) | 60 characters, a known area |
 | different areas members may suggest in one session | 8 |
 | `cuisineLikes`, `cuisineDislikes` | 20 each per member |
-| any id, name or label | 80 characters |
+| a place's id in `currentOptionIds` or `excludeVenueIds` | 120 characters (a saved OneMap place's id carries its address; the longest are 86) |
+| any other id, name or label | 80 characters |
 | `stops` of `/api/itinerary/arrange` | 8, of which at most 6 are not food (see that route's table) |
 | `stops` of `/api/weather/stops` | 8, with different ids; `exposure` 0 to 5 |
 | any weight | 1000 |
