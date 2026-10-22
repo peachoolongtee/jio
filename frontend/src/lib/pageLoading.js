@@ -1,13 +1,13 @@
-// The loading spinner over the Locate map (components/map/MapLoading.vue). It is used for one thing: confirming the meeting spot on
-// Locate (the host confirms a spot, names a place the group already has, or takes the meeting area), which sets the
+// The busy counter behind the spinner over the Locate map (components/map/MapLoading.vue). It is used for one thing: confirming the
+// meeting spot on Locate (the host confirms a spot, names a place the group already has, or takes the meeting area), which sets the
 // spot and then ranks the places for the vote. Those actions in stores/events.js count themselves in with whileLoading.
-// Nothing else shows it: changes of screen, other loads and planner requests have their own placeholders.
-// The spinner shows only once something has been running for SLOW_MS without a break, so a quick confirm never flashes it.
+// Nothing else counts: changes of screen, other loads and planner requests have their own placeholders.
+// The map's spinner shows only once something has been running for SLOW_MS without a break, so a quick confirm never flashes it.
 // Once shown it stays for at least MIN_SHOWN_MS, so a load that ends just after it appears does not flash it either.
-// While it is on screen the map cannot be used (pageBlocking): no clicks, taps or scrolling reach it; the rest of the page
-// and the keyboard carry on. If the work
-// is still running after MAX_BLOCK_MS, the map can be used again and the spinner stays until the work ends, so a load
-// that hangs never traps anyone.
+// It is only the map's busy state: the map pane is hidden in the list view (phones and tablets), where the confirm buttons say
+// "Confirming…" themselves. While the spinner is on screen the map cannot be used (pageBlocking): no clicks, taps or scrolling
+// reach it; the rest of the page and the keyboard carry on. If the work is still running after MAX_BLOCK_MS, the map can be used
+// again and the spinner stays until the work ends, so a load that hangs never traps anyone.
 import { readonly, ref } from 'vue'
 
 // How long the page may load before the spinner shows: past the point where most screens are on, before people start

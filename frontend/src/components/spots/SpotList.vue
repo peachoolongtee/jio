@@ -15,7 +15,9 @@
 // With fewer than two starts there is no list and nothing to say about it (the "Waiting for N people" card on the screen
 // says who is missing): the section shows only for the host, who can still name a known place.
 // A control that starts a change stays enabled while it saves (aria-busy), so a key press never drops the keyboard focus; a
-// second press is ignored until the first is saved.
+// second press is ignored until the first is saved. A confirm running anywhere on the screen (the footer's "Confirm …" or this
+// list's "Meet at …", one flag in the events store) counts as saving, so a change and a confirm never overlap; "Meet at …" reads
+// "Confirming…" while it runs.
 import { computed, ref } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
@@ -39,7 +41,9 @@ const props = defineProps({
 const emit = defineEmits(['select', 'error'])
 
 const events = useEventsStore()
-const busy = ref(false)
+const changing = ref(false)
+// A change of this list, or a confirm from anywhere, is being saved.
+const busy = computed(() => changing.value || events.confirming)
 const suggestOpen = ref(false)
 const placeOpen = ref(false)
 const confirmOpen = ref(false)
@@ -78,7 +82,7 @@ const intro = computed(() => {
 // How to call: run(() => events.approveMySpot('s1', 'bugis', true))
 async function run(fn, after) {
   if (busy.value) return
-  busy.value = true
+  changing.value = true
   emit('error', '')
   try {
     await fn()
@@ -86,7 +90,7 @@ async function run(fn, after) {
   } catch (e) {
     emit('error', e.message)
   }
-  busy.value = false
+  changing.value = false
 }
 
 // "Works for me" on a spot, or taking it back. How to call: approve(spot, true)
@@ -111,7 +115,7 @@ function pickKnown(place) {
 // How to call: settleKnown()
 async function settleKnown() {
   if (busy.value) return
-  busy.value = true
+  changing.value = true
   dialogError.value = ''
   try {
     await events.setKnownPlace(props.session.id, placeArea.value.id)
@@ -119,7 +123,7 @@ async function settleKnown() {
   } catch (e) {
     dialogError.value = e.message
   }
-  busy.value = false
+  changing.value = false
 }
 </script>
 
@@ -182,7 +186,7 @@ async function settleKnown() {
     <ModalDialog v-model:open="confirmOpen" :title="`Meet at ${placeArea?.name || 'this place'}?`" text="This replaces the list of spots and takes the group on to choosing places. Everyone can still add where they start.">
       <template #content><p v-if="dialogError" class="body-sm text-error" role="alert">{{ dialogError }}</p></template>
       <AppButton block variant="secondary" @click="confirmOpen = false">Not yet</AppButton>
-      <AppButton block :aria-busy="busy ? 'true' : undefined" @click="settleKnown">Meet at {{ placeArea?.name }}</AppButton>
+      <AppButton block :aria-busy="busy ? 'true' : undefined" @click="settleKnown">{{ events.confirming ? 'Confirming…' : `Meet at ${placeArea?.name}` }}</AppButton>
     </ModalDialog>
   </section>
 </template>

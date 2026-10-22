@@ -291,6 +291,14 @@ async function dismissBanner() {
 // "Next" when it was on the button or dialog that has just gone (otherwise it would fall to the top of the page).
 const announcement = ref('')
 const nextButton = ref(null)
+// While a confirm runs, say so too: the map's spinner is out of view in the list view, where phones and tablets start, and the
+// buttons' new words ("Confirming…") are not announced on their own. The line is cleared when it ends (a failure says why in its
+// own alert; a success replaces it with the line above).
+const CONFIRMING_SAID = 'Confirming the meeting spot…'
+watch(() => events.confirming, (on) => {
+  if (on) announcement.value = CONFIRMING_SAID
+  else if (announcement.value === CONFIRMING_SAID) announcement.value = ''
+})
 watch(() => [props.id, status.value], async ([id, now], [beforeId, before]) => {
   if (id !== beforeId || before !== 'locating' || now !== 'voting') return
   const name = session.value?.area?.name
@@ -458,7 +466,7 @@ const startSession = () => run(() => events.start(props.id))
             <PlannerMap ref="mapRef" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" label="Meeting area map" @view="refreshPins" />
             <SpotPins v-if="!settled && spotList.length" ref="pinsRef" :spots="spotList" :selected-id="shown || ''" :confirmed-id="confirmedId" :project="projectPoint" :names="nameOf" :my-id="myId" @select="picked = $event" />
             <div v-if="loading" class="map-wait map-wait--finding title-sm" role="status">Finding the meeting point… {{ Math.round(loadPct) }}%</div>
-            <!-- Confirming the meeting spot, once it has taken 600 ms: a spinner over the map only. -->
+            <!-- Confirming the meeting spot, once it has taken 600 ms: a spinner over the map only (the list view says it on the buttons). -->
             <MapLoading />
           </template>
         </SplitView>
