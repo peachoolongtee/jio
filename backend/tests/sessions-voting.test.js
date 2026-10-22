@@ -452,7 +452,7 @@ describe('places: add (E7), more (E8), swap (E9) and search (E17)', () => {
     const add = (venueId, who = GUEST) => t.call('POST', path(`/slots/${slot}/options`), { venueId }, who)
     expect((await add('no-such-place')).body.error).toBe('venue_not_found')
     expect((await add('')).status).toBe(400)
-    expect((await add('x'.repeat(81))).status).toBe(400)
+    expect((await add('x'.repeat(161))).status).toBe(400)
     // A place of another kind does not fit an Eat slot.
     const drinks = await t.call('GET', path(`/slots/${slotOf('drink').id}/venue-search?q=a`), undefined, HOST)
     const other = drinks.body.results.find((r) => r.fits && r.category === 'drink')
@@ -523,6 +523,45 @@ describe('places: add (E7), more (E8), swap (E9) and search (E17)', () => {
   })
 })
 
+describe('a saved place with a long id', () => {
+  // The 32 hawker centres saved from OneMap have ids of 86 characters. They are the places a halal group gets, so they must be
+  // options like any other: found by search, added, swapped to and from, voted for and read back (the table allows 160).
+  const NAME = 'Tampines Round Market and Food Centre'
+  const longVenue = () => loadPlanData().venues.find((v) => v.name === NAME)
+
+  it('is found by search, added, voted for, swapped away and swapped back', async () => {
+    await start({ known: 'tampines' })
+    const long = longVenue()
+    expect(long.id.length).toBeGreaterThan(80)
+    const slot = slotOf('eat').id
+    const found = await t.call('GET', path(`/slots/${slot}/venue-search?q=${encodeURIComponent(NAME)}`), undefined, GUEST)
+    expect(found.body.results.find((r) => r.venueId === long.id)).toMatchObject({ fits: true, added: idsOf('eat').includes(long.id) })
+    if (!idsOf('eat').includes(long.id)) {
+      const added = await t.call('POST', path(`/slots/${slot}/options`), { venueId: long.id }, GUEST)
+      expect(added.status).toBe(201)
+    }
+    expect(idsOf('eat')).toContain(long.id)
+    await vote(HOST, 'eat', long.id)
+    const other = await fitting('eat')
+    const away = await t.call('POST', path(`/slots/${slot}/options/${long.id}/swap`), { toVenueId: other }, OTHER)
+    expect(away.body.swapped).toBe(true)
+    expect(votesOf('eat').map((v) => v.venue_id)).toEqual([other])
+    const back = await t.call('POST', path(`/slots/${slot}/options/${other}/swap`), { toVenueId: long.id }, OTHER)
+    expect(back.body.swapped).toBe(true)
+    expect(votesOf('eat').map((v) => v.venue_id)).toEqual([long.id])
+    const venues = await t.call('GET', `/api/venues?ids=${long.id}`, undefined, HOST)
+    expect(venues.body.venues.map((v) => v.id)).toEqual([long.id])
+  })
+
+  it('is ranked like any other: the planner is given every saved place, not only those with a short id', async () => {
+    const { sessions, runs, as } = await serviceFor({ known: 'tampines' })
+    runs.runWithTravel.mockClear()
+    await sessions.syncPlan({ ...as(HOST) })
+    const [[, planData]] = runs.runWithTravel.mock.calls.filter(([input]) => input.categories)
+    expect(planData.venues.some((v) => v.id.length > 80)).toBe(true)
+  })
+})
+
 describe('GET /api/venues?ids= (E18)', () => {
   it('needs a login, answers the planner\'s venues in the order asked, once each, and leaves unknown ids out', async () => {
     await start({ known: 'bugis' })
@@ -535,14 +574,15 @@ describe('GET /api/venues?ids= (E18)', () => {
     expect((await t.call('GET', '/api/venues?ids=nope', undefined, HOST)).body).toEqual({ venues: [] })
   })
 
-  it('takes at most 50 ids of at most 80 characters, and at least one', async () => {
+  it('takes at most 50 ids of at most 160 characters, and at least one', async () => {
     await start({ known: 'bugis' })
     const fifty = Array.from({ length: 50 }, (_, i) => `p${i}`).join(',')
     expect((await t.call('GET', `/api/venues?ids=${fifty}`, undefined, HOST)).status).toBe(200)
     const res = await t.call('GET', `/api/venues?ids=${fifty},p50`, undefined, HOST)
     expect(res.status).toBe(400)
     expect(res.body.error).toBe('invalid_input')
-    expect((await t.call('GET', `/api/venues?ids=${'x'.repeat(81)}`, undefined, HOST)).status).toBe(400)
+    expect((await t.call('GET', `/api/venues?ids=${'x'.repeat(160)}`, undefined, HOST)).status).toBe(200)
+    expect((await t.call('GET', `/api/venues?ids=${'x'.repeat(161)}`, undefined, HOST)).status).toBe(400)
     expect((await t.call('GET', '/api/venues', undefined, HOST)).status).toBe(400)
     expect((await t.call('GET', '/api/venues?ids=,,', undefined, HOST)).status).toBe(400)
   })
@@ -598,6 +638,8 @@ describe('what the server uses and what it never says', () => {
     expect(converges).toHaveLength(4)
     for (const [input] of converges) {
       expect(input.unknownPolicy).toBe('lenient')
+      // A place not known to suit every diet is left out, though other unknowns are kept and flagged.
+      expect(input.dietPolicy).toBe('strict')
       expect(input.groupConstraints).toEqual(['step_free'])
       expect(input.groupId).toBe(SESSION)
       expect(new Set(input.members.flatMap((m) => m.dietary))).toEqual(new Set(['halal', 'vegetarian']))
@@ -606,8 +648,25 @@ describe('what the server uses and what it never says', () => {
       const clementi = loadPlanData().areas.find((a) => a.id === 'clementi')
       expect(input.members.find((m) => m.id === GUEST).start).toEqual({ lat: clementi.lat, lng: clementi.lng })
     }
-    // Only the saved venues are ranked: none has an id the table would refuse.
-    for (const [, planData] of converges) expect(planData.venues.every((v) => v.id.length <= 80 && v.source !== 'google')).toBe(true)
+    // Only the saved venues are ranked. The 32 whose id is over 80 characters are among them: the table allows 160.
+    for (const [, planData] of converges) expect(planData.venues.every((v) => v.source !== 'google')).toBe(true)
+  })
+
+  it('leaves out a place not known to be halal when one member needs it, and names nobody for it', async () => {
+    await start({ status: 'locating' })
+    world.profile_private.find((p) => p.id === GUEST).dietary = ['halal']
+    expect((await t.call('PUT', path('/known-place'), { areaId: 'bugis' }, HOST)).status).toBe(200)
+    expect((await t.call('POST', path('/plan/sync'), {}, HOST)).status).toBe(200)
+    const data = loadPlanData()
+    const eat = world.slot_options.filter((o) => o.slot_id === slotOf('eat').id)
+    expect(eat.length).toBeGreaterThan(0)
+    for (const o of eat) {
+      expect(o.details.dietUnknown).toEqual([])
+      const venue = data.venues.find((v) => v.id === o.venue_id)
+      // Evidence of halal, not a guess: 'unknown' would pass only under a lenient rule.
+      expect(['full', 'options', 'likely']).toContain(venue.diet.halal)
+    }
+    expect(JSON.stringify(world.slot_options)).not.toContain(GUEST)
   })
 
   it('a member with no start yet adds no trip, but what they cannot eat still counts', async () => {
@@ -686,7 +745,7 @@ describe('the OneMap cap: one request, at most 60 trips, across the meeting area
     expect(calls.route - afterSpots).toBeLessThanOrEqual(MAX_ROUTED_TRIPS_PER_REQUEST)
     // Each place is real for everyone or estimated for everyone; once the allowance is spent the later slots are estimates.
     expect(world.slot_options.some((o) => o.details.approximate)).toBe(true)
-    expect(world.slot_options.every((o) => o.venue_id.length <= 80)).toBe(true)
+    expect(world.slot_options.every((o) => o.venue_id.length <= 160)).toBe(true)
   })
 
   it('a start change in voting (the meeting area and four slots again) is still at most 60 calls', async () => {

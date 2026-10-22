@@ -16,7 +16,6 @@ import {
   engineMembers,
   groupConstraints,
   layoutFor,
-  MAX_VENUE_ID,
   meetingDiffers,
   optionRow,
   optionsOf,
@@ -72,8 +71,8 @@ export function dateTimeOf(session) {
 // How to call:
 //   const voting = createVoting({ data, areasById, runs })
 export function createVoting({ data, areasById, runs }) {
-  // The saved places that can be options: a venue id longer than the table allows can never be stored.
-  const venues = new Map(data.venues.filter((v) => v.id.length <= MAX_VENUE_ID).map((v) => [v.id, v]))
+  // The saved places that can be options (the planner's own, every one of them).
+  const venues = new Map(data.venues.map((v) => [v.id, v]))
 
   // Asks the engine to rank one slot's kind of place around the meeting area, with the group's needs and the weather at the slot's time,
   // spending from the request's allowance of OneMap trips. `currentIds` are the options the group has: they are always scored.
@@ -86,7 +85,6 @@ export function createVoting({ data, areasById, runs }) {
     const needs = await ctx.needs()
     const members = engineMembers(draft, areasById, needs, centre)
     const resolved = await runs.resolveWeather({ dateTime: `${draft.session.date}T${fromMinutes(slot.start_minute)}` })
-    const planData = { ...resolved.planData, venues: resolved.planData.venues.filter((v) => v.id.length <= MAX_VENUE_ID) }
     const input = rankingInput({
       sessionId: draft.session.id,
       date: draft.session.date,
@@ -98,7 +96,7 @@ export function createVoting({ data, areasById, runs }) {
       radiusMeters: draft.session.radius_meters ?? undefined,
       weatherCase: resolved.weatherCase,
     })
-    const { result, travel } = await runs.runWithTravel(input, planData, converge, () => ({
+    const { result, travel } = await runs.runWithTravel(input, resolved.planData, converge, () => ({
       maxTrips: ctx.allowance.trips,
       deadlineMs: Math.max(0, ctx.allowance.deadlineAt - Date.now()),
     }))
@@ -291,6 +289,7 @@ export function createVoting({ data, areasById, runs }) {
         members,
         groupConstraints: groupConstraints(needs),
         unknownPolicy: 'lenient',
+        dietPolicy: 'strict',
         ...(draft.session.radius_meters ? { maxKm: draft.session.radius_meters / 1000 } : {}),
         limit: 12,
       },

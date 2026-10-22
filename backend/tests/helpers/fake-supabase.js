@@ -130,7 +130,7 @@ function checkOption(world, row) {
   const bad = (why, code = '23514') => {
     throw dbError(code, `slot_options check failed: ${why}`)
   }
-  if (typeof row.venue_id !== 'string' || row.venue_id.length < 1 || row.venue_id.length > 80) bad('venue_id')
+  if (typeof row.venue_id !== 'string' || row.venue_id.length < 1 || row.venue_id.length > 160) bad('venue_id')
   if (!['planner', 'member'].includes(row.source)) bad('source')
   if (row.added_by && !world.profiles.some((p) => sameValue(p.id, row.added_by))) bad('added_by is not a profile', '23503')
 }

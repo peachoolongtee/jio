@@ -11,8 +11,8 @@ import { MAX } from './plan-schemas.js'
 //   const id = sessionSchemas.sessionId.parse(req.params.id)
 
 const areaId = z.string().min(1).max(MAX.areaId)
-// A place's id: the same limit as the database's on slot_options.venue_id.
-const venueId = z.string().min(1).max(MAX.text)
+// A place's id: the same limit as the database's on slot_options.venue_id (160, so the long ids of saved OneMap places fit).
+const venueId = z.string().min(1).max(MAX.venueId)
 // A uuid in a path or a body, in lower case (see sessionId).
 const uuid = z.string().uuid().transform((id) => id.toLowerCase())
 

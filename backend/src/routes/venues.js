@@ -9,7 +9,7 @@ import { MAX } from './plan-schemas.js'
 //   GET /api/venues?ids=ya-kun-kaya-toast,tiong-bahru-bakery   ->   { venues: [ { id, name, lat, lng, category, ... } ] }
 //
 // Any signed-in person may ask (a place is public information; the answer carries nothing about a session or a person). At most 50 ids,
-// each up to 80 characters, separated by commas; an id the planner does not know is left out, and the others come back in the order
+// each up to 160 characters, separated by commas; an id the planner does not know is left out, and the others come back in the order
 // asked, each once. The venues are the planner's own, as POST /api/converge sends them, before the card fields the browser adds
 // (toCardVenue in lib/plannerApi.js). A 400 is { error: 'invalid_input', message, issues }.
 //
@@ -27,7 +27,7 @@ const ids = z
   .string()
   .min(1)
   .transform((text) => [...new Set(text.split(',').map((id) => id.trim()).filter(Boolean))])
-  .pipe(z.array(z.string().max(MAX.text)).min(1).max(MAX_IDS))
+  .pipe(z.array(z.string().max(MAX.venueId)).min(1).max(MAX_IDS))
 
 // Builds the router. `limiter` limits how often one signed-in caller may use it, or is null for no limit (tests only).
 //
@@ -41,7 +41,7 @@ export function createVenuesRouter({ supabase, data, limiter = null }) {
     if (!parsed.success) {
       res.status(400).json({
         error: 'invalid_input',
-        message: `Send up to ${MAX_IDS} place ids, separated by commas, each up to ${MAX.text} characters.`,
+        message: `Send up to ${MAX_IDS} place ids, separated by commas, each up to ${MAX.venueId} characters.`,
         issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
       })
       return

@@ -12,8 +12,8 @@ import { locatedMembers, lower } from './session-plan.js'
 //   vote    { category, user_id, venue_id }
 // Travel times come from the centres of areas, never from an exact place, and no answer built here carries a label or a coordinate.
 
-// The most places a slot holds is in planner/slot-plan.js (OPTIONS_MAX). A venue id longer than this cannot be an option (the table's check).
-export const MAX_VENUE_ID = 80
+// The most places a slot holds is in planner/slot-plan.js (OPTIONS_MAX). Any saved place can be an option: the longest id is 86
+// characters and the table's check (slot_options.venue_id) and the request bound (MAX.venueId) are both 160.
 
 // How many places a ranking asks for per slot (the browser's RANKED_MAX): the top ten, and every current option that still fits.
 export const RANKED_PER_SLOT = 10
@@ -93,8 +93,9 @@ export function engineMembers(draft, areasById, needs, centre) {
 export const groupConstraints = (needs) => (needs.some((n) => n.needs_step_free) ? ['step_free'] : [])
 
 // The request the engine's converge() takes for one slot: places of the slot's kind around the meeting area, at the slot's time. The
-// places the group already has are always scored, so they come back in `current` while they still fit. Unknown diets and access are
-// kept and flagged (`lenient`), as the browser asks. It is a catch-up, as the planner client's DEFAULT_OCCASION says.
+// places the group already has are always scored, so they come back in `current` while they still fit. Unknown access and the like are
+// kept and flagged (`lenient`), as the browser asks; a place that is not known to suit every member's dietary need is left out
+// (`dietPolicy: 'strict'`, the same rule as the diet filter of the stateless planner). It is a catch-up, as the planner client's DEFAULT_OCCASION says.
 //
 // How to call:
 //   rankingInput({ sessionId, date, slot: { category: 'eat', start_minute: 720, duration_minutes: 90 }, members, centre, currentIds: [], constraints: [], radiusMeters: 1000, weatherCase: 'live' })
@@ -111,6 +112,7 @@ export function rankingInput({ sessionId, date, slot, members, centre, currentId
     excludeVenueIds: [],
     currentOptionIds: currentIds,
     unknownPolicy: 'lenient',
+    dietPolicy: 'strict',
     ...(weatherCase !== undefined && { weatherCase }),
     groupId: sessionId,
     centre: { lat: centre.lat, lng: centre.lng },
