@@ -8,6 +8,7 @@ import { createApp } from '../../../../backend/src/app.js'
 import { createHttp } from '../../../../backend/src/services/http.js'
 import { loadPlanData } from '../../../../backend/src/db/venues.js'
 import { OTHER, PROFILE, SESSION, boot, fakeSupabase } from './authFixture.js'
+import { CHECK_NEEDS_TEXT, dietTags } from '../dietText.js'
 import { SERVICE, createDataClient, createDatabase } from '../../components/dev/fakeDatabase.js'
 
 beforeAll(() => {
@@ -47,23 +48,25 @@ async function world() {
   }
 }
 
-// Sam hosts, Kim joins; both share where they start; the host confirms the first spot (or the area named): the group is voting and the
-// real server has made the slots and their places.
+// Sam hosts, Kim joins (and Lee, with `lee`); both share where they start; the host confirms the first spot (or the area named): the group
+// is voting and the real server has made the slots and their places. `samProfile` and `kimProfile` change who they sign up as.
 // How to call: const { w, sam, kim, id, plan } = await voting({ known: 'tampines' })
-async function voting({ known = null } = {}) {
+async function voting({ known = null, lee = false, samProfile = PROFILE, kimProfile = OTHER } = {}) {
   const w = await world()
-  const sam = await w.open(PROFILE)
-  const kim = await w.open(OTHER)
+  const sam = await w.open(samProfile)
+  const kim = await w.open(kimProfile)
+  const third = lee ? await w.open({ email: 'lee@example.com', password: 'Th1rd-secret!', name: 'Lee', username: 'lee_third', dob: '1998-01-02', homeAreaId: 'bishan', friends: [] }) : null
   const { id } = await sam.api.createSession({ ...SESSION })
   const { token } = await sam.api.makeInviteLink(id)
   await kim.api.joinWithLink(token)
+  if (third) await third.api.joinWithLink(token)
   await sam.api.startSession(id)
   await sam.api.setLocation(id, sam.id, 'start', { areaId: 'tampines', label: 'Tampines Mall' })
   await kim.api.setLocation(id, kim.id, 'start', { areaId: 'bishan', label: 'Bishan Junction 8' })
   if (known) await sam.api.setKnownPlace(id, known)
   else await sam.api.confirmSpot(id)
   const plan = await sam.api.getPlan(id)
-  return { w, sam, kim, id, plan }
+  return { w, sam, kim, lee: third, id, plan }
 }
 
 const rows = (w, table) => w.database.tables[table]
@@ -86,9 +89,14 @@ describe('what the real server stores when the host confirms, and what the Vote 
       expect(slot).toMatchObject({ widened: expect.any(Boolean), canAddMore: expect.any(Boolean) })
       expect(slot.empty).toBeNull()
     }
-    // What is stored for a place is what a card reads: the walk, the reasons, the warnings, the swap, the explanation, the caveats.
+    // What is stored for a place is what a card reads: the walk, the reasons, the warnings, the swap, the explanation. A need is never
+    // named in it: at most one flag says a need of the group is unconfirmed (`checkNeeds`), and the card names the needs it may itself.
     const stored = optionRows(w, 'eat')[0].details
-    expect(stored).toMatchObject({ walkMinutes: expect.any(Number), reasons: expect.any(Array), warnings: expect.any(Array), explanation: expect.any(String), verify: expect.any(Array), dietUnknown: expect.any(Array), approximate: expect.any(Boolean) })
+    expect(stored).toMatchObject({ walkMinutes: expect.any(Number), reasons: expect.any(Array), warnings: expect.any(Array), explanation: expect.any(String), approximate: expect.any(Boolean) })
+    for (const row of rows(w, 'slot_options')) {
+      expect(row.details).not.toHaveProperty('verify')
+      expect(row.details).not.toHaveProperty('dietUnknown')
+    }
     expect(plan.slots.find((s) => s.category === 'eat').options[0]).toMatchObject({ walk: stored.walkMinutes, reasons: stored.reasons, explanation: stored.explanation })
     // The other device reads the same places.
     const seen = await kim.api.getPlan(id)
@@ -131,7 +139,7 @@ describe('changing what the group is offered', () => {
     const found = await kim.api.searchVenuesForSlot(id, eat.id, 'market')
     expect(found.length).toBeGreaterThan(0)
     expect(found.length).toBeLessThanOrEqual(12)
-    for (const r of found) expect(r).toEqual(expect.objectContaining({ id: expect.any(String), name: expect.any(String), area: expect.any(String), category: expect.any(String), walk: expect.any(Number), unfit: expect.any(String), verify: expect.any(Array), dietUnknown: expect.any(Array), added: expect.any(Boolean) }))
+    for (const r of found) expect(r).toEqual(expect.objectContaining({ id: expect.any(String), name: expect.any(String), area: expect.any(String), category: expect.any(String), walk: expect.any(Number), unfit: expect.any(String), added: expect.any(Boolean) }))
     const fit = found.find((r) => !r.unfit && !r.added)
     expect(fit).toBeTruthy()
     const after = await kim.api.addOption(id, eat.id, fit.id)
@@ -196,16 +204,127 @@ describe('a place with a long id (the saved hawker centres)', () => {
     expect(long.id.length).toBeGreaterThan(80)
     // A halal member is in the group: the server ranks the eat slot with the strict diet rule, and never says whose need it is.
     await sam.api.setPreferences(id, sam.id, { categories: ['eat'], until: null })
-    for (const o of optionRows(w, 'eat')) expect(o.details.dietUnknown).toEqual([])
+    for (const o of optionRows(w, 'eat')) expect(o.details).not.toHaveProperty('dietUnknown')
     expect(JSON.stringify(rows(w, 'slot_options'))).not.toContain(sam.id)
     const eat = bySlot(await kim.api.getPlan(id), 'eat')
     const found = (await kim.api.searchVenuesForSlot(id, eat.id, 'Tampines Round Market')).find((r) => r.id === long.id)
-    // A halal hawker centre is "likely" (some stalls are certified), so it fits and says to check the stalls.
-    expect(found).toMatchObject({ unfit: '', verify: ['halal'], dietUnknown: [] })
+    // A halal hawker centre is "likely" (some stalls are certified), so it fits. The search does not say which need it only likely meets:
+    // that would be Sam's, and Kim is in a group of two.
+    expect(found).toMatchObject({ unfit: '', verify: [], dietUnknown: [] })
     if (!found.added) await kim.api.addOption(id, eat.id, long.id)
     await kim.api.vote(id, eat.id, kim.id, long.id)
     const read = bySlot(await sam.api.getPlan(id), 'eat')
     expect(read.options.find((o) => o.id === long.id)).toMatchObject({ votes: 1, venue: { name: long.name } })
+  })
+})
+
+describe('what the cards say of dietary needs: the server names none, and the browser names only what the person may', () => {
+  // Sam needs halal. In a group of two, anything that named it would tell Kim, and anything Kim's browser said about Kim's own needs
+  // would be hers. The server stores one flag, and answers a search with one reason; the browser works the rest out.
+  const NAMED = /halal|vegetarian|vegan/i
+  const HALAL = { ...PROFILE, dietary: ['halal'] }
+  // The tags a card shows for the group's needs, by key (a MUIS tag is a fact about the place, whatever the group needs).
+  const keys = (option) => dietTags(option).map((t) => t.key)
+  const eatCards = (plan) => bySlot(plan, 'eat').options
+  // The food places near Tampines that a halal group is not offered, by the shortest name.
+  const notHalal = () => {
+    const area = loadPlanData().areas.find((a) => a.id === 'tampines')
+    return loadPlanData().venues
+      .filter((v) => v.category === 'eat' && v.diet && ['none', 'unknown'].includes(v.diet.halal) && Math.hypot(v.lat - area.lat, v.lng - area.lng) * 111 < 2)
+      .sort((a, b) => a.name.length - b.name.length)[0]
+  }
+  // The server ranks the eat slot again with Sam's need (it reads it from his private needs).
+  const rankedWithHalal = async (world) => {
+    world.w.database.setNeeds(world.sam.id, { dietary: ['halal'] })
+    await world.sam.api.setPreferences(world.id, world.sam.id, { categories: ['eat'], until: null })
+  }
+
+  it('shows Kim, who has no need, one neutral line on the places Sam\'s need leaves unconfirmed, and none of Sam\'s need anywhere', async () => {
+    const world = await voting({ known: 'tampines', samProfile: HALAL })
+    await rankedWithHalal(world)
+    const { w, kim, id } = world
+    const cards = eatCards(await kim.api.getPlan(id))
+    expect(cards.length).toBeGreaterThan(0)
+    const flagged = cards.filter((o) => o.checkNeeds)
+    expect(flagged.length).toBeGreaterThan(0)
+    for (const o of cards) {
+      expect(o.verify).toEqual([])
+      expect(o.dietUnknown).toEqual([])
+      expect(keys(o).filter((key) => key !== 'muis-halal')).toEqual(o.checkNeeds ? ['check-needs'] : [])
+    }
+    expect(dietTags(flagged[0]).map((t) => t.text)).toContain(CHECK_NEEDS_TEXT)
+    // Nothing stored names it, and nothing a live subscription of Kim's would carry.
+    expect(JSON.stringify([rows(w, 'slot_options'), rows(w, 'slots')])).not.toMatch(NAMED)
+    expect(JSON.stringify(rows(w, 'slot_options'))).not.toContain('checkNeeds":false')
+  })
+
+  it('answers Kim\'s search with one reason for a need, and no list of the needs a place only likely meets', async () => {
+    const world = await voting({ known: 'tampines', samProfile: HALAL })
+    await rankedWithHalal(world)
+    const { kim, id } = world
+    const eat = bySlot(await kim.api.getPlan(id), 'eat')
+    const venue = notHalal()
+    const found = (await kim.api.searchVenuesForSlot(id, eat.id, venue.name)).find((r) => r.id === venue.id)
+    expect(found).toMatchObject({ unfit: 'group_needs', verify: [], dietUnknown: [] })
+    // The whole list: no reason names a need.
+    const all = await kim.api.searchVenuesForSlot(id, eat.id, 'a')
+    for (const r of all) {
+      expect(r.unfit).not.toBe('diet')
+      expect(r).not.toHaveProperty('need')
+      expect(r.verify).toEqual([])
+      expect(r.dietUnknown).toEqual([])
+    }
+  })
+
+  it('names Sam\'s own need on his cards, from the places\' own diet levels, and keeps the neutral line for what he was not told', async () => {
+    const world = await voting({ known: 'tampines', samProfile: HALAL })
+    await rankedWithHalal(world)
+    const cards = eatCards(await world.sam.api.getPlan(world.id))
+    const likely = cards.filter((o) => o.venue.diet?.halal === 'likely')
+    expect(likely.length).toBeGreaterThan(0)
+    for (const o of likely) {
+      expect(o.verify).toEqual(['halal'])
+      expect(keys(o)).toContain('likely-halal')
+      // The group is two: Sam is not told Kim has no need, so the flag still says to check.
+      expect(o.checkNeeds).toBe(true)
+    }
+  })
+
+  it('names the needs of the others once three have joined, because the server then gives them, and drops the neutral line', async () => {
+    const world = await voting({ known: 'tampines', samProfile: HALAL, lee: true })
+    await rankedWithHalal(world)
+    const { w, kim, lee, id } = world
+    for (const person of [kim, lee]) {
+      const cards = eatCards(await person.api.getPlan(id))
+      const likely = cards.filter((o) => o.venue.diet?.halal === 'likely')
+      expect(likely.length).toBeGreaterThan(0)
+      for (const o of likely) {
+        expect(o.verify).toEqual(['halal'])
+        expect(o.checkNeeds).toBe(false)
+        expect(keys(o)).not.toContain('check-needs')
+      }
+    }
+    // Still nothing stored.
+    expect(JSON.stringify([rows(w, 'slot_options'), rows(w, 'slots')])).not.toMatch(NAMED)
+  })
+
+  it('falls back to the neutral line when the needs of the others cannot be read', async () => {
+    const world = await voting({ known: 'tampines', samProfile: HALAL, lee: true })
+    await rankedWithHalal(world)
+    const { kim, id } = world
+    const get = kim.api.api.get.bind(kim.api.api)
+    const dietary = vi.spyOn(kim.api.api, 'get').mockImplementation(async (url, ...rest) => {
+      if (/\/dietary$/.test(url)) throw new Error('Network Error')
+      return get(url, ...rest)
+    })
+    const cards = eatCards(await kim.api.getPlan(id))
+    const likely = cards.filter((o) => o.venue.diet?.halal === 'likely')
+    expect(likely.length).toBeGreaterThan(0)
+    for (const o of likely) {
+      expect(o.verify).toEqual([])
+      expect(o.checkNeeds).toBe(true)
+    }
+    expect(dietary).toHaveBeenCalledWith(expect.stringMatching(/\/dietary$/), expect.anything())
   })
 })
 

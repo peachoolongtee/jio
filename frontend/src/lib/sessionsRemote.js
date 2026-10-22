@@ -19,7 +19,9 @@
 // own vote is a direct write to `votes` under the database's rules (the session is voting, the person has joined, the place is one of the
 // slot's options; `castVote`). Everything that changes what the group is offered (the radius, removing or bringing back a category,
 // adding, swapping or asking for more places, the plan from people's picks) is a call to the Jio server. Live: a vote reaches the
-// other devices as a change to `votes`; the server's writes reach them as a change to the session's version, which is read again.
+// other devices as a change to `votes`, which reads the votes alone (`readSlotVotes`); the server's writes reach them as a change to the
+// session's version, which is read again. `details` (what the planner said of each slot and place) is read only for the Vote page
+// (`readPlan`), not for the list Home uses; and the votes are read so that the 1,000 rows one answer can hold never cuts any off.
 //
 // Another member's exact place is never read, shown or kept: `session_member_places` is read with the person's own id and
 // only its two labels, so what comes back is the person's own, and everyone else's start is the area name. The table is
@@ -265,6 +267,16 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   // The minutes after midnight of a time of day, or null. How to call: minutesOfTime('18:30:00') -> 1110
   const minutesOfTime = (time) => (time == null || time === '' ? null : toMinutes(String(time).slice(0, 5)))
 
+  // The votes of some rows as the screens keep them, by slot and then by person, the newest last so a person's latest stands. Rows for a
+  // slot that is not in `slotIds` are left out.
+  // How to call: votesBySlot([{ slot_id: '9a2c...', user_id: 'u1', venue_id: 'v25', updated_at: '2026-10-20T10:00:00Z' }], new Set(['9a2c...'])) -> { '9a2c...': { u1: 'v25' } }
+  function votesBySlot(rows, slotIds) {
+    const votes = {}
+    const byTime = (a, b) => String(a.updated_at).localeCompare(String(b.updated_at)) || String(a.user_id).localeCompare(String(b.user_id))
+    for (const v of rows.filter((x) => slotIds.has(x.slot_id)).sort(byTime)) (votes[v.slot_id] ||= {})[v.user_id] = v.venue_id
+    return votes
+  }
+
   // What the Vote page reads of one session, from the rows read for it: the slots (one per category, in the order they happen),
   // the places offered in each (the best first), the votes, each person's picks, the categories the host removed and the radius.
   // Another member's place is not in any of these: only categories, how long they can stay, and their votes.
@@ -295,9 +307,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
         .sort(byRank)
         .map((o) => ({ venueId: o.venue_id, rank: o.rank ?? null, score: o.score == null ? null : Number(o.score), source: o.source, addedBy: o.added_by ?? null, details: o.details && typeof o.details === 'object' ? o.details : {} }))
     }
-    const votes = {}
-    const byTime = (a, b) => String(a.updated_at).localeCompare(String(b.updated_at)) || String(a.user_id).localeCompare(String(b.user_id))
-    for (const v of planning.votes.filter((x) => slotIds.has(x.slot_id)).sort(byTime)) (votes[v.slot_id] ||= {})[v.user_id] = v.venue_id
+    const votes = votesBySlot(planning.votes, slotIds)
     const prefs = {}
     for (const m of memberRows.filter((x) => x.session_id === sid && x.state === 'joined')) {
       const until = minutesOfTime(m.stay_until)
@@ -351,8 +361,11 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   let opened = 0
   const SESSION_COLUMNS = 'id, host_id, title, date, start_time, end_time, status, created_at, updated_at, plan_version, radius_meters, meeting_area_id, meeting_method, meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, banner'
   const MEMBER_COLUMNS = 'session_id, user_id, role, state, joined_at, start_area_id, end_area_id, travel_minutes, updated_at, categories, stay_until'
-  const SLOT_COLUMNS = 'id, session_id, category, start_minute, duration_minutes, picks, is_last, deleted, details'
-  const OPTION_COLUMNS = 'slot_id, venue_id, rank, score, source, added_by, details'
+  // `details` is what the planner said of a slot or a place, and only the Vote page's cards read it, so the reads that Home and the
+  // session screens use (list, get) leave it out; readPlan has it.
+  const SLOT_COLUMNS = 'id, session_id, category, start_minute, duration_minutes, picks, is_last, deleted'
+  const OPTION_COLUMNS = 'slot_id, venue_id, rank, score, source, added_by'
+  const WITH_DETAILS = (columns) => `${columns}, details`
   const VOTE_COLUMNS = 'slot_id, user_id, venue_id, updated_at'
   const INVITE_COLUMNS = 'session_id, invitee_id, revoked, declined_at, uses, expires_at, created_at'
   const SPOT_COLUMNS = 'session_id, area_id, rank, worst_minutes, mean_minutes, travel_minutes, approximate, computed_at'
@@ -364,7 +377,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   // The rows of spots, suggestions, approvals and the person's own places for the sessions that have got past inviting, a
   // hundred sessions at a time. The exact places are asked for with the person's own id, so only their own row is ever read.
   // How to call: const planning = await readPlanning(['3b1f...'])
-  async function readPlanning(ids, planIds = []) {
+  async function readPlanning(ids, planIds = [], { details = false } = {}) {
     if (!ids.length) return NO_PLANNING
     const mine = who()
     const chunks = []
@@ -375,15 +388,16 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
       all((chunk) => db().from('spot_suggestions').select(SUGGESTION_COLUMNS).in('session_id', chunk)),
       all((chunk) => db().from('spot_approvals').select(APPROVAL_COLUMNS).in('session_id', chunk)),
       all((chunk) => db().from('session_member_places').select(PLACE_LABELS).eq('user_id', mine).in('session_id', chunk)),
-      readPlanRows(planIds),
+      readPlanRows(planIds, { details }),
     ])
     return { spots, suggestions, approvals, places, ...plan }
   }
 
-  // The slots of some sessions, then the places offered in them and the votes for them, a hundred at a time. Two steps, because the
-  // places and votes hang on a slot and not on a session. Nothing here names a person's place.
-  // How to call: const { slots, options, votes } = await readPlanRows(['3b1f...'])
-  async function readPlanRows(sessionIds) {
+  // The slots of some sessions, then the places offered in them and the votes for them, a hundred at a time (the votes by the rows they
+  // can come to, see readVotes). Two steps, because the places and votes hang on a slot and not on a session. Nothing here names a
+  // person's place. `details` also reads what the planner said of each slot and place, which only the Vote page's cards need.
+  // How to call: const { slots, options, votes } = await readPlanRows(['3b1f...'], { details: true })
+  async function readPlanRows(sessionIds, { details = false } = {}) {
     if (!sessionIds.length) return { slots: [], options: [], votes: [] }
     const chunked = (list) => {
       const chunks = []
@@ -391,14 +405,46 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
       return chunks
     }
     const all = async (build, list) => (await Promise.all(chunked(list).map(build))).flatMap((answered) => answer(answered, WORDS.notLoaded))
-    const slots = await all((chunk) => db().from('slots').select(SLOT_COLUMNS).in('session_id', chunk), sessionIds)
+    const slotColumns = details ? WITH_DETAILS(SLOT_COLUMNS) : SLOT_COLUMNS
+    const optionColumns = details ? WITH_DETAILS(OPTION_COLUMNS) : OPTION_COLUMNS
+    const slots = await all((chunk) => db().from('slots').select(slotColumns).in('session_id', chunk), sessionIds)
     if (!slots.length) return { slots, options: [], votes: [] }
     const slotIds = slots.map((x) => x.id)
     const [options, votes] = await Promise.all([
-      all((chunk) => db().from('slot_options').select(OPTION_COLUMNS).in('slot_id', chunk), slotIds),
-      all((chunk) => db().from('votes').select(VOTE_COLUMNS).in('slot_id', chunk), slotIds),
+      all((chunk) => db().from('slot_options').select(optionColumns).in('slot_id', chunk), slotIds),
+      readVotes(slotIds),
     ])
     return { slots, options, votes }
+  }
+
+  // The most rows one read answers: the project's API cuts an answer off at 1,000 rows without saying so.
+  const ROW_CAP = 1000
+  // The most slots one votes read starts with. A session holds up to 30 people and 4 slots, so a slot has up to 30 votes (a few more
+  // while a person who has just left is cleaned up): 25 slots come to about 750 rows, under the cap. A read that still comes back full
+  // is split in two and read again (readVotes), so a vote is never dropped silently.
+  const VOTE_SLOTS = 25
+
+  // The votes of some slots, read so that none is lost to the row cap: in groups of VOTE_SLOTS slots, and any group whose answer reaches
+  // the cap is halved and read again until it fits (a single slot cannot reach it).
+  // How to call: const rows = await readVotes(['9a2c...', '7e11...']) -> [{ slot_id, user_id, venue_id, updated_at }]
+  async function readVotes(slotIds) {
+    const read = async (ids) => {
+      const rows = answer(await db().from('votes').select(VOTE_COLUMNS).in('slot_id', ids), WORDS.notLoaded)
+      if (rows.length < ROW_CAP || ids.length === 1) return rows
+      const half = Math.ceil(ids.length / 2)
+      return [...(await read(ids.slice(0, half))), ...(await read(ids.slice(half)))]
+    }
+    const reads = []
+    for (let i = 0; i < slotIds.length; i += VOTE_SLOTS) reads.push(read(slotIds.slice(i, i + VOTE_SLOTS)))
+    return (await Promise.all(reads)).flat()
+  }
+
+  // The votes of a session's slots, as the screens keep them ({ [slotId]: { [personId]: venueId } }), and nothing else: the one read a
+  // live vote needs. Resolves them for exactly the slots given.
+  // How to call: const votes = await readSlotVotes(['9a2c...']) -> { '9a2c...': { u1: 'v25' } }
+  async function readSlotVotes(slotIds) {
+    who()
+    return votesBySlot(await readVotes(slotIds), new Set(slotIds))
   }
 
   // The sessions that can have spots to read: all but one still inviting.
@@ -421,7 +467,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     const [members, invites, planning] = await Promise.all([
       Promise.all(chunks.map((chunk) => db().from('session_members').select(MEMBER_COLUMNS).in('session_id', chunk))),
       Promise.all(chunks.map((chunk) => db().from('invites').select(INVITE_COLUMNS).in('session_id', chunk))),
-      readPlanning(planned(rows), withPlan(rows)),
+      readPlanning(planned(rows), withPlan(rows), { details: false }),
     ])
     const memberRows = members.flatMap((answered) => answer(answered, WORDS.notLoaded))
     const inviteRows = invites.flatMap((answered) => answer(answered, WORDS.notLoaded))
@@ -441,7 +487,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     ])
     const row = answer(found, WORDS.notLoaded)
     if (!row) throw Object.assign(new Error('This session does not exist.'), { code: 'not_found' })
-    const planning = await readPlanning(planned([row]), withPlan([row]))
+    const planning = await readPlanning(planned([row]), withPlan([row]), { details: false })
     return toSession(row, answer(members, WORDS.notLoaded), answer(invites, WORDS.notLoaded), planning)
   }
 
@@ -459,7 +505,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     const row = answer(found, WORDS.notLoaded)
     if (!row) throw Object.assign(new Error('This session does not exist.'), { code: 'not_found' })
     const memberRows = answer(members, WORDS.notLoaded)
-    const planning = { ...NO_PLANNING, ...(await readPlanRows(withPlan([row]))) }
+    const planning = { ...NO_PLANNING, ...(await readPlanRows(withPlan([row]), { details: true })) }
     return {
       version: Number(row.plan_version) || 0,
       status: row.status,
@@ -946,5 +992,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, readPlan, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
+  return { list, get, readPlan, readSlotVotes, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
 }

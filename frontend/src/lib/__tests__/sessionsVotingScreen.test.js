@@ -246,8 +246,7 @@ describe('a person who opted out', () => {
 
 describe('more places and the search', () => {
   it('asks the server for more places and shows them', async () => {
-    const { w, sam, id } = await voting()
-    const { slot } = await firstCard(sam, id)
+    const { w, id } = await voting()
     const { view } = await draw(id)
     await until(() => view.has('article[data-option]'))
     const before = view.all('article[data-option]').length
@@ -256,6 +255,57 @@ describe('more places and the search', () => {
     await view.click(more)
     await until(() => w.server.calls.some((c) => c.route === 'moreOptions'))
     await until(() => view.all('article[data-option]').length > before)
-    expect(slot.id).toBeTruthy()
+  })
+})
+
+describe('voting that is waiting for a start (the server took the meeting area away)', () => {
+  // Nobody has a start the server could plan from: the area and the places are gone, as the server leaves a voting session in that case.
+  // `kimHasStart` false takes Kim's start as well.
+  const pause = (w, id, { kimHasStart = false } = {}) => {
+    w.database.run({ as: SERVICE, kind: 'update', table: 'sessions', values: { meeting_area_id: null, meeting_method: null }, filters: [eq('id', id)] })
+    if (!kimHasStart) w.database.run({ as: SERVICE, kind: 'update', table: 'session_members', values: { start_area_id: null }, filters: [eq('session_id', id), eq('user_id', w.database.tables.session_members.find((m) => m.role !== 'host').user_id)] })
+    w.database.run({ as: SERVICE, kind: 'delete', table: 'slot_options', filters: [] })
+  }
+
+  it('says why there is nothing to vote on, in the server\'s words, and sends a person with no start to share one', async () => {
+    const { w, id } = await voting({ guest: true })
+    pause(w, id)
+    const { view } = await draw(id)
+    await until(() => view.has('[data-testid=waiting-for-starts]'))
+    const empty = view.one('[data-testid=waiting-for-starts]')
+    expect(view.text(empty)).toContain('Places open once two people have shared where they start.')
+    expect(view.text(empty)).toContain('No meeting area yet')
+    // Kim has no start: the button says what to do, and goes to the page where it is done.
+    const share = view.all('a').find((a) => view.text(a) === 'Share where you start')
+    expect(share).toBeTruthy()
+    expect(share.attrs.href).toBe(`/sessions/${id}`)
+    // A guest cannot call the outing off.
+    expect(view.has('[data-testid=cancel-waiting]')).toBe(false)
+    expect(view.all('button').filter((b) => view.text(b) === 'Vote')).toEqual([])
+  })
+
+  it('gives the host a way to cancel, which asks first, and cancels the outing', async () => {
+    const { w, id } = await voting()
+    pause(w, id)
+    const { view } = await draw(id)
+    await until(() => view.has('[data-testid=cancel-waiting]'))
+    // Sam has a start, so the way back is the people page under its own name.
+    expect(view.all('a').some((a) => view.text(a) === 'People')).toBe(true)
+    expect(view.text(view.one('[data-testid=waiting-for-starts]'))).toContain('Places open once two people have shared where they start.')
+    await view.click(view.one('[data-testid=cancel-waiting]'))
+    await until(() => view.has('[data-testid=cancel-waiting-confirm]'))
+    expect(w.database.tables.sessions[0].status).toBe('voting')
+    await view.click(view.one('[data-testid=cancel-waiting-confirm]'))
+    await until(() => w.database.tables.sessions[0].status === 'cancelled')
+  })
+
+  it('keeps the old "no meeting area yet" page, without the voting words, for a session that is still being set up', async () => {
+    const { w, id } = await voting()
+    pause(w, id)
+    w.database.run({ as: SERVICE, kind: 'update', table: 'sessions', values: { status: 'locating' }, filters: [eq('id', id)] })
+    const { view } = await draw(id)
+    await until(() => view.text().includes('No meeting area yet'))
+    expect(view.has('[data-testid=waiting-for-starts]')).toBe(false)
+    expect(view.has('[data-testid=cancel-waiting]')).toBe(false)
   })
 })

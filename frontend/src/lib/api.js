@@ -27,6 +27,7 @@ import { WORDS as SHARING_WORDS, createSessionsRemote } from './sessionsRemote.j
 import { tallyOptions } from './planVotes.js'
 import { isLegacyRealSave, remapLegacySave } from './legacySave.js'
 import { cleanDietary } from './signupRules.js'
+import { dietCaveats } from './dietText.js'
 import { localAccountsAllowed, projectOrigin } from './supabase.js'
 import { addDays, format, isValid, parseISO } from 'date-fns'
 
@@ -434,6 +435,23 @@ const remote = createSessionsRemote({
 // a session) is read as a change to the session it belongs to. A slot nobody here has read is ignored: the change that creates it
 // raises the session's version, which is heard on its own.
 const slotSessions = new Map()
+// Remember the slots of a session as last handed out, in place of any it had before (a slot that was removed is no longer one). Called
+// only where a read is the newest handed out for its session and its account, never for a read that lost to a newer one.
+// How to call: rememberSlots('3b1f...', read.slotRows)
+function rememberSlots(sessionId, slotRows) {
+  forgetSlots(sessionId)
+  for (const slot of slotRows || []) slotSessions.set(slot.id, sessionId)
+}
+// Forget the slots of a session, when the person is no longer in it (it is not one they can hear votes for).
+// How to call: forgetSlots('3b1f...')
+function forgetSlots(sessionId) {
+  for (const [slotId, owner] of [...slotSessions]) if (owner === sessionId) slotSessions.delete(slotId)
+}
+// The rows of each session of the server as last handed out by a read, before they were made into what the screens keep, so that a live
+// vote can be folded in by reading the votes alone (getSession with `votesOnly`).
+const heldRows = new Map()
+// The dietary needs the signed-in person may name on the cards of a shared session, by session: { key, at, value } (see namedNeedsOf).
+const namedNeedsCache = new Map()
 // The places the server has described, by id, for the cards. A place is the same for everyone and does not change in a session, so
 // it is asked for once and kept for the visit; it is not account data and is not kept across a reload.
 const serverVenues = new Map()
@@ -510,8 +528,6 @@ function repairSpots(read) {
 // How to call: summary(fromServer(await remote.get(id)))
 function fromServer(row) {
   serverMembers.set(row.id, row.members.map((m) => m.id))
-  for (const [slotId, sessionId] of [...slotSessions]) if (sessionId === row.id) slotSessions.delete(slotId)
-  for (const slot of row.slotRows || []) slotSessions.set(slot.id, row.id)
   // The places as the server keeps them are for getPlan, which reads them afresh; the session carries the slots (summary leaves them
   // out of what it hands the screens) and what the other screens read: the votes and the count of places in each slot.
   const { spotsStale: _stale, banner: held, meeting, optionRows: _options, ...rest } = row
@@ -573,13 +589,21 @@ const changed = new Map()
 export const sessionsWatch = { graceMs: 800 }
 
 // Read a session again soon: several events for one session (a member row, the session row and an invite change together) are
-// read once. How to call: readSoon('3b1f...')
-function readSoon(sessionId) {
-  if (changed.has(sessionId)) return
-  changed.set(sessionId, setTimeout(() => {
+// read once. A live vote asks for `votesOnly`: the screens then read the votes alone (type 'votes'), unless another change to the same
+// session is waiting too, in which case the whole session is read (type 'session').
+// How to call: readSoon('3b1f...'); readSoon('3b1f...', { votesOnly: true })
+function readSoon(sessionId, { votesOnly = false } = {}) {
+  const waiting = changed.get(sessionId)
+  if (waiting) {
+    if (!votesOnly) waiting.full = true
+    return
+  }
+  const entry = { full: !votesOnly, timer: null }
+  entry.timer = setTimeout(() => {
     changed.delete(sessionId)
-    broadcast({ type: 'session', sessionId })
-  }, 30))
+    broadcast({ type: entry.full ? 'session' : 'votes', sessionId })
+  }, 30)
+  changed.set(sessionId, entry)
 }
 
 // How to call: openChannel() (does nothing without watchers, without a real account, or when a channel is already open)
@@ -594,13 +618,16 @@ function openChannel() {
       if (!serverMembers.has(change.sessionId)) return
       if (change.mine) {
         serverMembers.delete(change.sessionId)
+        forgetSlots(change.sessionId)
+        heldRows.delete(change.sessionId)
+        newestPlanRead.delete(change.sessionId)
         broadcast({ type: 'session-gone', sessionId: change.sessionId })
       } else readSoon(change.sessionId)
     } else if (change.kind === 'vote') {
       // A vote names a slot. Only a slot of a session this account has read is read again; the votes of anyone else's sessions
       // reach this browser as deletes only (they carry no session, and cannot be filtered) and are ignored.
       const sessionId = slotSessions.get(change.slotId)
-      if (sessionId) readSoon(sessionId)
+      if (sessionId) readSoon(sessionId, { votesOnly: true })
     } else if (change.kind === 'approval-deleted') {
       // Like a deleted membership: it reaches everyone who listens, and only a session this account knows is read again.
       if (serverMembers.has(change.sessionId)) readSoon(change.sessionId)
@@ -616,7 +643,7 @@ function openChannel() {
   closeChannel = () => {
     stop()
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', back)
-    for (const timer of changed.values()) clearTimeout(timer)
+    for (const { timer } of changed.values()) clearTimeout(timer)
     changed.clear()
     channelOpen = false
     closeChannel = () => {}
@@ -1267,6 +1294,8 @@ function resetSessionState() {
   // What was read from the server belongs to the last account, and so does the channel that listens for it.
   serverMembers.clear()
   slotSessions.clear()
+  heldRows.clear()
+  namedNeedsCache.clear()
   newestRead.clear()
   newestPlanRead.clear()
   opened.clear()
@@ -2223,12 +2252,22 @@ export async function listSessions() {
     if (asked !== epoch) return []
     // The list is every session the account is in, so it also says which it has left or been taken out of.
     serverMembers.clear()
-    slotSessions.clear()
-    const rows = read.map(fromServer)
+    // A session the list does not have is not one the person is in: its slots are forgotten. The slots of the others are remembered
+    // below, for each session whose read is the newest.
+    const listed = new Set(read.map((row) => row.id))
+    for (const [slotId, sessionId] of [...slotSessions]) if (!listed.has(sessionId)) slotSessions.delete(slotId)
+    for (const id of [...heldRows.keys()]) if (!listed.has(id)) heldRows.delete(id)
+    const rows = read.map((row) => ({ row, session: fromServer(row) }))
     announceCoMembers()
-    warmPeople(rows.flatMap((s) => s.members.map((m) => m.id)))
+    warmPeople(rows.flatMap(({ session }) => session.members.map((m) => m.id)))
     // A session read since this list began (a confirm, a live update) stands over what the list found of it.
-    return rows.map((s) => newest(s.id, ticket, s.planVersion, () => summary(s, { warm: false })))
+    return rows.map(({ row, session }) =>
+      newest(session.id, ticket, session.planVersion, () => {
+        heldRows.set(row.id, row)
+        rememberSlots(row.id, row.slotRows)
+        return summary(session, { warm: false })
+      }),
+    )
   }
   await wait(DELAY.read)
   settleOutings()
@@ -2238,24 +2277,35 @@ export async function listSessions() {
   return db.sessions.map((s) => summary(s, { warm: false })).sort((a, b) => b.createdAt - a.createdAt)
 }
 
-export async function getSession(id) {
+// With `votesOnly`, a live vote reads the votes alone and folds them into the session as last handed out (the one request the change
+// needs); a session never read before, or one whose slots are not known, is read whole.
+// How to call: await getSession('3b1f...'); await getSession('3b1f...', { votesOnly: true })
+export async function getSession(id, { votesOnly = false } = {}) {
   if (onServer()) {
     const asked = epoch
     const ticket = ++readCount
     let read
     try {
-      read = await remote.get(id)
+      const held = votesOnly ? heldRows.get(id) : null
+      read = held?.slotRows?.length ? { ...held, votes: await remote.readSlotVotes(held.slotRows.map((slot) => slot.id)) } : await remote.get(id)
     } catch (err) {
       // No longer a session this account is in: its people are no longer people it shares a session with.
       if (err?.code === 'not_found' && asked === epoch) {
         serverMembers.delete(id)
         newestRead.delete(id)
+        newestPlanRead.delete(id)
+        heldRows.delete(id)
+        forgetSlots(id)
       }
       throw err
     }
     // Read for the account before: not kept, not shown.
     if (asked !== epoch) throw Object.assign(new Error('That was read for another account.'), { code: 'stale' })
-    const session = newest(id, ticket, read.planVersion, () => summary(fromServer(read)))
+    const session = newest(id, ticket, read.planVersion, () => {
+      heldRows.set(id, read)
+      rememberSlots(id, read.slotRows)
+      return summary(fromServer(read))
+    })
     announceCoMembers()
     repairSpots(read)
     return session
@@ -2921,6 +2971,9 @@ export async function leaveSession(id) {
   needServer()
   await remote.removeMember(id, 'me')
   serverMembers.delete(id)
+  forgetSlots(id)
+  heldRows.delete(id)
+  newestPlanRead.delete(id)
   broadcast({ type: 'session-gone', sessionId: id })
 }
 
@@ -3219,8 +3272,10 @@ export async function vote(id, slotId, personId, venueId) {
   if (onServer()) {
     requireMe(personId)
     if (personId !== me()) throw new Error(SHARING_WORDS.notAllowed)
-    const myVote = await remote.castVote(id, slotId, venueId)
-    broadcast({ type: 'vote', sessionId: id })
+    // One at a time for a slot in this browser, so the last tap wins: a second tap starts when the first has been written, and reads
+    // the vote the first left (a move, or taking it back).
+    const myVote = await inTurn(`${id}:vote:${slotId}`, () => remote.castVote(id, slotId, venueId))
+    broadcast({ type: 'votes', sessionId: id })
     return { id, slotId, myVote }
   }
   await wait(DELAY.write)
@@ -3269,13 +3324,44 @@ function storedOptions(session, slot, area) {
 // Hand out `make()` unless a newer plan of the session has been handed out already, in which case that one stands: a plan whose read began
 // earlier and answers later (a live update, a reload) never goes over a newer one. A plan is older when it holds an older version of
 // the session, or, at the same version (a vote raises none), began before the newest one.
-// How to call: return newestPlan('3b1f...', ++readCount, 4, () => buildPlan(read))
-function newestPlan(sessionId, ticket, version, make) {
+// `held` is what the plan was made from (the rows read, and the needs that could be named), kept so that a live vote can read the votes
+// alone and make the plan again (planFromServer with `votesOnly`).
+// How to call: return newestPlan('3b1f...', ++readCount, 4, () => buildPlan(read), { read, named })
+function newestPlan(sessionId, ticket, version, make, held) {
   const have = newestPlanRead.get(sessionId)
   if (have && (version < have.version || (version === have.version && ticket < have.ticket))) return clone(have.plan)
   const plan = make()
-  newestPlanRead.set(sessionId, { ticket: Math.max(ticket, have?.ticket ?? 0), version, plan: clone(plan) })
+  newestPlanRead.set(sessionId, { ticket: Math.max(ticket, have?.ticket ?? 0), version, plan: clone(plan), ...held })
   return plan
+}
+
+// The fewest people who must have joined before the server tells a member the needs of the others (backend/src/routes/sessions.js,
+// MIN_MEMBERS_FOR_OTHERS): with two, "the others' needs" would be the one other person's own.
+const MIN_JOINED_FOR_OTHERS = 3
+
+// How long a session's named needs are kept before the server is asked again (a person can change theirs in their profile).
+const NAMED_NEEDS_MS = 60_000
+
+// The dietary needs the signed-in person may name on the cards of a shared session: their own, and the others' only when the server
+// gives them (three have joined), in which case every need of the group is named (`complete`). Otherwise a card can only say, in
+// words that name no need, that a need of the group is unconfirmed for a place (`checkNeeds`). The server stores no need in a slot's
+// places and sends none in a search, so in a group of two a need is never the other person's to read. A failure to ask is the
+// same as not being told: the person's own needs, and the neutral line.
+// How to call: await namedNeedsOf('3b1f...', ['u1', 'u2', 'u3']) -> { needs: ['halal'], complete: true }
+async function namedNeedsOf(sessionId, joined) {
+  const mine = cleanDietary(db.user?.dietary)
+  if (joined.length < MIN_JOINED_FOR_OTHERS) return { needs: mine, complete: false }
+  const key = `${[...joined].sort().join(',')}|${mine.join(',')}`
+  const kept = namedNeedsCache.get(sessionId)
+  if (kept && kept.key === key && Date.now() - kept.at < NAMED_NEEDS_MS) return kept.value
+  try {
+    const answer = await planner.sessionDietary(sessionId)
+    const value = { needs: cleanDietary([...mine, ...answer.others]), complete: true }
+    namedNeedsCache.set(sessionId, { key, at: Date.now(), value })
+    return value
+  } catch {
+    return { needs: mine, complete: false }
+  }
 }
 
 // The places of some options as the cards read them, asked for from the server once each. A place the server does not know is left
@@ -3291,21 +3377,35 @@ async function ensureVenues(ids) {
 // each with what the planner said of them, and the votes) and from the server's description of each place; it asks the planner nothing,
 // so it can be read as often as a vote or a live update asks, and a reload shows the same places as before. The weather, the notice about
 // few places and the reason a slot is empty are what the server stored with the slot when it ranked it.
-// How to call: await planFromServer('3b1f...')
-async function planFromServer(id) {
+// With `votesOnly` (a live vote) it reads the votes alone and makes the plan again from the rows and needs of the plan last handed out;
+// a plan never read before is read whole.
+// The slots a live vote may name are remembered only when this plan is the newest handed out for its account (see rememberSlots).
+// How to call: await planFromServer('3b1f...'); await planFromServer('3b1f...', { votesOnly: true })
+async function planFromServer(id, { votesOnly = false } = {}) {
   const asked = epoch
   const ticket = ++readCount
-  const read = await remote.readPlan(id)
-  // The slots of a session this page reads are the slots a live vote may name.
-  for (const [slotId, sessionId] of [...slotSessions]) if (sessionId === id) slotSessions.delete(slotId)
-  for (const slot of read.slotRows) slotSessions.set(slot.id, id)
+  const held = votesOnly ? newestPlanRead.get(id) : null
+  const read = held?.read ? { ...held.read, votes: await remote.readSlotVotes(held.read.slotRows.map((slot) => slot.id)) } : await remote.readPlan(id)
+  const named = held?.read ? held.named : await namedNeedsOf(id, read.joined)
   await ensureVenues(Object.values(read.optionRows).flatMap((rows) => rows.map((r) => r.venueId)))
   if (asked !== epoch) throw Object.assign(new Error('That was read for another account.'), { code: 'stale' })
-  return newestPlan(id, ticket, read.version, () => planView(read))
+  return newestPlan(
+    id,
+    ticket,
+    read.version,
+    () => {
+      rememberSlots(id, read.slotRows)
+      return planView(read, named)
+    },
+    { read, named },
+  )
 }
 
-// How to call: planView(await remote.readPlan('3b1f...'))
-function planView(read) {
+// A shared session's plan from the rows read for it. `named` is what the person may name of the group's dietary needs (namedNeedsOf):
+// each food place's caveats are worked out here from the place's own diet levels for those needs, and a place the server flagged
+// (`checkNeeds`) that these needs do not account for says only "check it fits everyone's needs".
+// How to call: planView(await remote.readPlan('3b1f...'), { needs: ['halal'], complete: false })
+function planView(read, named = { needs: [], complete: false }) {
   const area = read.meetingAreaId ? areaById(read.meetingAreaId) : null
   const ids = read.joined
   const startOf = P.toMinutes(read.start)
@@ -3321,6 +3421,7 @@ function planView(read) {
       if (!venue) return []
       const d = row.details || {}
       const weather = weatherFrom(d.weather, details.weather)
+      const caveats = dietCaveats(venue, named.needs)
       return [{
         id: row.venueId,
         venue: clone(venue),
@@ -3333,8 +3434,11 @@ function planView(read) {
         warnings: d.warnings ?? [],
         swap: d.swap ? { id: d.swap.venueId, name: d.swap.name } : null,
         explanation: d.explanation ?? '',
-        dietUnknown: d.dietUnknown ?? [],
-        verify: d.verify ?? [],
+        // Named from the place's own diet levels, for the needs the person may name; never read from the stored row, which names none.
+        dietUnknown: caveats.dietUnknown,
+        verify: caveats.verify,
+        // A need of the group is unconfirmed for the place, and the person was not told whose (or all of them): a line that names none.
+        checkNeeds: d.checkNeeds === true && !named.complete,
         approximate: !!d.approximate,
         ...(weather ? { weather } : {}),
       }]
@@ -3383,8 +3487,8 @@ function planView(read) {
 
 // Everything the voting screen needs, ranked with the current weather. Once the plan is confirmed the stored
 // options are returned as they were: only a session in Voting asks the planner.
-export async function getPlan(id) {
-  if (onServer()) return planFromServer(id)
+export async function getPlan(id, { votesOnly = false } = {}) {
+  if (onServer()) return planFromServer(id, { votesOnly })
   await wait(DELAY.plan)
   const session = sessionById(id)
   const ids = activeIds(session)

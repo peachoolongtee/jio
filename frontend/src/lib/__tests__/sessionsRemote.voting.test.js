@@ -73,6 +73,62 @@ describe('what it reads of the plan', () => {
     expect(list.filter((s) => s.status === 'voting').every((s) => Object.keys(s.options).length === (s.id === id ? 4 : 1))).toBe(true)
   })
 
+  it('leaves what the planner said of each slot and place (details) out of the reads Home and the session screens use, and has it for the Vote page', async () => {
+    const { w, sam, id } = await voting()
+    const columnsOf = (table) => w.ops.filter((op) => op.kind === 'select' && op.table === table).map((op) => op.columns)
+    w.ops.length = 0
+    await asPerson(sam).list()
+    await asPerson(sam).get(id)
+    for (const columns of [...columnsOf('slots'), ...columnsOf('slot_options')]) expect(columns).not.toMatch(/details/)
+    expect(columnsOf('slots')).toHaveLength(2)
+    expect(columnsOf('slot_options')).toHaveLength(2)
+    w.ops.length = 0
+    const read = await asPerson(sam).readPlan(id)
+    for (const columns of [...columnsOf('slots'), ...columnsOf('slot_options')]) expect(columns).toMatch(/details/)
+    expect(read.slotRows[0].details).toMatchObject({ widened: expect.any(Boolean) })
+    expect(Object.values(read.optionRows)[0][0].details).toMatchObject({ walkMinutes: expect.any(Number) })
+    // A session read without them still has its slots and its places, with empty details.
+    const listed = await asPerson(sam).get(id)
+    expect(listed.slotRows).toHaveLength(4)
+    expect(listed.slotRows.every((slot) => Object.keys(slot.details).length === 0)).toBe(true)
+    expect(Object.values(listed.options).every((ids) => ids.length > 0)).toBe(true)
+  })
+
+  it('never loses a vote to the 1,000 rows one answer can hold: a read that comes back full is split and read again', async () => {
+    // A client that answers a votes read as the project's API does: at most 1,000 rows, with no word that it cut the rest.
+    const slotIds = Array.from({ length: 60 }, (_, i) => `00000000-0000-4000-8000-${i.toString(16).padStart(12, '0')}`)
+    const perSlot = 45
+    const rows = slotIds.flatMap((slot, s) => Array.from({ length: perSlot }, (_, u) => ({ slot_id: slot, user_id: `u${u}`, venue_id: `v${s}`, updated_at: '2026-10-09T10:00:00Z' })))
+    const asked = []
+    const client = {
+      from: (table) => ({
+        select: () => ({
+          in: async (column, ids) => {
+            asked.push({ table, column, count: ids.length })
+            return { data: rows.filter((r) => ids.includes(r.slot_id)).slice(0, 1000), error: null }
+          },
+        }),
+      }),
+    }
+    const remote = createSessionsRemote({ client: () => client, me: () => 'sam' })
+    const votes = await remote.readSlotVotes(slotIds)
+    expect(Object.keys(votes)).toHaveLength(60)
+    expect(Object.values(votes).every((byPerson) => Object.keys(byPerson).length === perSlot)).toBe(true)
+    // It started with groups of 25 slots, and halved the ones that came back full.
+    expect(asked[0].count).toBe(25)
+    expect(asked.some((a) => a.count < 25)).toBe(true)
+  })
+
+  it('reads the votes of 25 slots at a time, which a full session of 30 people cannot fill', async () => {
+    const slotIds = Array.from({ length: 60 }, (_, i) => `00000000-0000-4000-8000-${i.toString(16).padStart(12, '0')}`)
+    const rows = slotIds.flatMap((slot) => Array.from({ length: 30 }, (_, u) => ({ slot_id: slot, user_id: `u${u}`, venue_id: 'v', updated_at: 'x' })))
+    const asked = []
+    const client = { from: () => ({ select: () => ({ in: async (column, ids) => (asked.push(ids.length), { data: rows.filter((r) => ids.includes(r.slot_id)).slice(0, 1000), error: null }) }) }) }
+    const votes = await createSessionsRemote({ client: () => client, me: () => 'sam' }).readSlotVotes(slotIds)
+    expect(Object.values(votes).every((byPerson) => Object.keys(byPerson).length === 30)).toBe(true)
+    expect(asked).toEqual([25, 25, 10])
+  })
+
   it('reads a person\'s picks and the radius, and nothing of where anyone is', async () => {
     const { w, sam, kim, id } = await voting()
     await w.database.run({ as: kim.id, kind: 'update', table: 'session_members', values: { categories: ['eat', 'shop'], stay_until: '17:30:00' }, filters: [eq('session_id', id), eq('user_id', kim.id)] })

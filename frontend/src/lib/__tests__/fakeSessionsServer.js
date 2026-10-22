@@ -194,12 +194,25 @@ export function fakeSessionsServer(database) {
   }
 
   // A place's row as the server stores it (session-slots.js optionDetails): `details` holds the ranking result's own fields (walkMinutes,
-  // crowd, reasons, warnings, swap: { venueId, name, weather } | null, explanation, verify, dietUnknown, approximate, weather?).
+  // crowd, reasons, warnings, swap: { venueId, name, weather } | null, explanation, approximate, weather?) and, when a need of the group is
+  // unconfirmed for the place, `checkNeeds: true`. No need is named: the planner's verify and dietUnknown are not stored.
   // How to call: optionValues(result, 1)
   const optionValues = (r, rankNumber) => ({
     rank: rankNumber,
     score: r.score,
-    details: { walkMinutes: r.walkMinutes, crowd: r.crowd ?? null, reasons: r.reasons, warnings: r.warnings, swap: r.swap, explanation: r.explanation, verify: r.verify, dietUnknown: r.dietUnknown, approximate: r.approximate },
+    details: {
+      walkMinutes: r.walkMinutes, crowd: r.crowd ?? null, reasons: r.reasons, warnings: r.warnings, swap: r.swap, explanation: r.explanation,
+      ...((r.verify?.length ?? 0) + (r.dietUnknown?.length ?? 0) > 0 ? { checkNeeds: true } : {}),
+      approximate: r.approximate,
+    },
+  })
+
+  // A search result as every member may read it (session-slots.js groupSafeResult): a reason that names a need becomes `group_needs`
+  // (once), and the needs a place only likely meets are left out.
+  // How to call: groupSafe({ venueId: 'a', unfit: ['diet:halal'], verify: ['halal'], dietUnknown: [] }) -> { venueId: 'a', unfit: ['group_needs'] }
+  const groupSafe = ({ verify: _verify, dietUnknown: _dietUnknown, unfit, ...rest }) => ({
+    ...rest,
+    unfit: [...new Set((unfit ?? []).map((reason) => (reason.startsWith('diet:') || reason === 'step_free' ? 'group_needs' : reason)))],
   })
 
   // Rank a slot again and write what it should offer: the places that are offered and still fit stay (with their votes), the rest
@@ -611,7 +624,7 @@ export function fakeSessionsServer(database) {
       if (!q || q.length > 60) refuse(400, 'invalid_input', 'Send a search of 1 to 60 characters.')
       const have = optionsOf(slot.id).map((o) => o.venue_id)
       const found = standInSearch({ query: q, categories: [slot.category], centre: areaOf(session.meeting_area_id), dateTime: stamp(session, slot), durationMinutes: slot.duration_minutes, maxKm: session.radius_meters ? session.radius_meters / 1000 : undefined })
-      return { status: 200, body: { results: found.results.map((r) => ({ ...r, added: have.includes(r.venueId) })) } }
+      return { status: 200, body: { results: found.results.map((r) => ({ ...groupSafe(r), added: have.includes(r.venueId) })) } }
     },
     // E18: places by id, in the shape the backend sends them; one it does not know is left out.
     async venues(user, id, body, { query }) {

@@ -120,9 +120,11 @@ export const useEventsStore = defineStore('events', () => {
 
 
   // Only the newest answer for a session is kept, so quick live updates never show older data.
-  async function loadSession(id) {
+  // With `votesOnly` (a live vote in a shared session) the data layer reads only the votes and folds them into the session it last had.
+  // How to call: await loadSession('3b1f...'); await loadSession('3b1f...', { votesOnly: true })
+  async function loadSession(id, { votesOnly = false } = {}) {
     const ticket = (seq[id] = (seq[id] || 0) + 1)
-    const session = await api.getSession(id)
+    const session = await api.getSession(id, { votesOnly })
     if (ticket === seq[id]) put(session)
     return session
   }
@@ -407,6 +409,11 @@ export const useEventsStore = defineStore('events', () => {
     }
     if (event.sessionId) {
       try {
+        // A live vote changed the votes and nothing else: the session is not read whole, and an itinerary or photos are not read at all.
+        if (event.type === 'votes') {
+          await loadSession(event.sessionId, { votesOnly: true })
+          return
+        }
         await loadSession(event.sessionId)
         if (itineraries.value[event.sessionId] !== undefined) await loadItinerary(event.sessionId)
         if (event.type === 'photos' && photos.value[event.sessionId] !== undefined) await loadPhotos(event.sessionId)

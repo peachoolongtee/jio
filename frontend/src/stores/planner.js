@@ -18,11 +18,13 @@ export const usePlannerStore = defineStore('planner', () => {
   const seq = {}
 
   // Only the newest load of a plan applies. A load that fails sets errors[id] and still throws, so the caller can react.
-  async function loadPlan(id, { quiet = false } = {}) {
+  // With `votesOnly` (a live vote in a shared session) the data layer reads only the votes and makes the plan again from the rest it has.
+  // How to call: await loadPlan('3b1f...'); await loadPlan('3b1f...', { quiet: true, votesOnly: true })
+  async function loadPlan(id, { quiet = false, votesOnly = false } = {}) {
     const ticket = (seq[id] = (seq[id] || 0) + 1)
     if (!quiet || !plans.value[id]) loading.value = { ...loading.value, [id]: true }
     try {
-      const plan = await api.getPlan(id)
+      const plan = await api.getPlan(id, { votesOnly })
       if (ticket !== seq[id]) return plans.value[id]
       plans.value = { ...plans.value, [id]: plan }
       errors.value = { ...errors.value, [id]: '' }
@@ -62,7 +64,13 @@ export const usePlannerStore = defineStore('planner', () => {
     const before = toRaw(plans.value[id])
     if (!before?.remote) return api.vote(id, slotId, currentUserId(), venueId)
     const shown = withMyVote(before, slotId, venueId, currentUserId(), myName())
-    if (shown !== before) plans.value = { ...plans.value, [id]: shown }
+    if (shown !== before) {
+      plans.value = { ...plans.value, [id]: shown }
+      // A read of the plan that began earlier must not put an older plan over this vote when it answers: it is out of date now. (The
+      // vote is read again below, or by the event it raises. A spinner such a read held is put out with it.)
+      seq[id] = (seq[id] || 0) + 1
+      loading.value = { ...loading.value, [id]: false }
+    }
     try {
       return await api.vote(id, slotId, currentUserId(), venueId)
     } catch (err) {
@@ -92,8 +100,9 @@ export const usePlannerStore = defineStore('planner', () => {
   // How to call: await planner.confirmDiet(id, ['halal'], [])
   const confirmDiet = (id, dietary, dropped) => afterReload(id, api.confirmDiet(id, dietary, dropped))
 
-  // A live reload that fails has nowhere to throw to: the failure is in errors[id].
-  const reload = (id) => loadPlan(id, { quiet: true }).catch(() => {})
+  // A live reload that fails has nowhere to throw to: the failure is in errors[id]. A live vote reads the votes alone.
+  // How to call: reload('3b1f...'); reload('3b1f...', { votesOnly: true })
+  const reload = (id, { votesOnly = false } = {}) => loadPlan(id, { quiet: true, votesOnly }).catch(() => {})
 
   // Live updates: a change to a session that can alter its ranking refreshes its plan; weather refreshes every plan.
   // Whose plans the store holds. A change of person, with or without a sign-out between, empties them: every account's first
@@ -137,6 +146,10 @@ export const usePlannerStore = defineStore('planner', () => {
       return
     }
     if (KEEPS_RANKING.has(event.type)) return
+    if (event.type === 'votes') {
+      if (event.sessionId && plans.value[event.sessionId]) reload(event.sessionId, { votesOnly: true })
+      return
+    }
     if (event.sessionId && plans.value[event.sessionId]) reload(event.sessionId)
   })
 

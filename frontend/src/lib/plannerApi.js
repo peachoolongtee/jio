@@ -627,8 +627,9 @@ export async function searchSlot({ query, members, centre, date, slot, lastStop,
 }
 
 // One search result as the screen reads it: the first reason it does not fit, in the words the search sheet knows (a dietary reason
-// is 'diet' with the need in `need`), and which dietary needs it only likely meets (`verify`) or has no data on (`dietUnknown`).
-// The stateless search and a session's own search (E17) answer in this shape.
+// is 'diet' with the need in `need`; a session's own search says only 'group_needs', which names no need), and which dietary needs it
+// only likely meets (`verify`) or has no data on (`dietUnknown`), which a session's own search never sends (it would name the needs of
+// the other members). The stateless search and a session's own search (E17) answer in this shape.
 // How to call: toSearchResult({ venueId: 'v25', name: 'Gem Cafe', area: 'Bishan', category: 'eat', walkMinutes: 4, unfit: ['meal_period'] })
 export function toSearchResult(r) {
   const reason = (r.unfit || [])[0] || ''

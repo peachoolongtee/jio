@@ -105,6 +105,9 @@ describe('the calls', () => {
     ])
     expect([sent[0].method, sent[0].url, sent[0].params, sent[0].timeout]).toEqual(['get', `/api/sessions/${ID}/slots/${SLOT}/venue-search`, { q: 'cafe' }, 8000])
     expect(toSearchResult({ venueId: 'x', name: 'X', area: 'A', category: 'eat', walkMinutes: 1 }).unfit).toBe('')
+    // A session's own search names no need: one reason, and no list of the needs a place only likely meets.
+    expect(toSearchResult({ venueId: 'x', name: 'X', area: 'A', category: 'eat', walkMinutes: 1, unfit: ['group_needs', 'far'] })).toMatchObject({ unfit: 'group_needs', verify: [], dietUnknown: [] })
+    expect(toSearchResult({ venueId: 'x', name: 'X', area: 'A', category: 'eat', walkMinutes: 1, unfit: ['group_needs'] })).not.toHaveProperty('need')
     answer({ nothing: true })
     await expect(searchSessionSlot(ID, SLOT, 'x')).rejects.toThrow()
   })

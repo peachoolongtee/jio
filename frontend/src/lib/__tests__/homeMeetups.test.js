@@ -166,12 +166,20 @@ describe('nextStepFor', () => {
     expect(nextStepFor({ ...s, hostId: 'darius' }, 'ian')).toMatchObject({ label: 'Waiting for the host', tone: 'wait' })
   })
   it('asks for a vote, and opens the voting screen', () => {
-    const s = make({ ...two, status: 'voting', locations: located, votes: { eat: { darius: 'v1' } } })
+    const s = make({ ...two, status: 'voting', locations: located, meeting: { areaId: 'bugis' }, area: BUGIS, votes: { eat: { darius: 'v1' } } })
     expect(nextStepFor(s, 'ian')).toEqual({ label: 'Vote', tone: 'action', to: '/sessions/s1/plan' })
   })
   it('waits for the others once you have voted', () => {
-    const s = make({ ...two, status: 'voting', locations: located, votes: { eat: { ian: 'v1' } } })
+    const s = make({ ...two, status: 'voting', locations: located, meeting: { areaId: 'bugis' }, area: BUGIS, votes: { eat: { ian: 'v1' } } })
     expect(nextStepFor(s, 'ian')).toMatchObject({ label: 'Waiting for others', tone: 'wait', to: '/sessions/s1/plan' })
+  })
+  it('does not ask for a vote when voting has no meeting area (nobody has a start): it waits, or asks for your start', () => {
+    // Two joined, only Darius has a start: there is nothing to vote on until a second start is shared.
+    const paused = make({ ...two, remote: true, status: 'voting', locations: { darius: { start: start(TAMPINES), end: null } }, meeting: null, area: null })
+    expect(nextStepFor(paused, 'ian')).toEqual({ label: 'Share your start', tone: 'action', to: '/sessions/s1' })
+    expect(nextStepFor(paused, 'darius')).toMatchObject({ label: 'Waiting for others', tone: 'wait' })
+    expect(nextStepFor(paused, 'ian').label).not.toBe('Vote')
+    expect(nextStepFor(paused, 'darius').label).not.toBe('Vote')
   })
   it('points at the plan once it is confirmed', () => {
     const s = make({ ...two, status: 'confirmed', locations: located })

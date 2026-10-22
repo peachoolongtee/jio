@@ -69,10 +69,12 @@ import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, vot
 import { placeImage } from '@/lib/placeImages.js'
 import { walkFromText } from '@/lib/cardText.js'
 import { usePlaceDetail } from '@/lib/usePlaceDetail.js'
-import { fewLine, fitLine, unfitDietText } from '@/lib/dietText.js'
+import { fewLine, fitLine, unfitDietText, unfitGroupNeedsText } from '@/lib/dietText.js'
 import { confetti } from '@/lib/confetti.js'
 import { mealWindow, MEAL_WINDOWS } from '@/lib/planner/timeOfDay.js'
 import { isBehind } from '@/lib/stepNav.js'
+import { CANCEL_OUTING } from '@/lib/session.js'
+import { WORDS } from '@/lib/sessionsRemote.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
@@ -238,6 +240,8 @@ function unfitText(result, slot) {
   if (result.unfit === 'meal') return `Not open for ${MEAL_WINDOWS.find((w) => w.id === mealWindow(slot.start)).label.toLowerCase()}`
   if (result.unfit === 'mrt') return 'Too far from MRT'
   if (result.unfit === 'diet') return unfitDietText(result.need)
+  // A shared session's search never says which need.
+  if (result.unfit === 'group_needs') return unfitGroupNeedsText
   return ''
 }
 async function add(result) {
@@ -412,6 +416,29 @@ const mapPlaces = computed(() =>
 )
 const selectedEntry = computed(() => mapOptions.value.find(({ option }) => option.id === selected.value) || null)
 const selectedOption = computed(() => selectedEntry.value?.option || null)
+
+// ── Voting that is waiting for a start ──
+// A shared session that is voting but has no meeting area: nobody has a start the server could plan from (it needs two), so there are no
+// places to vote on. The page says so, sends whoever has no start to the page where they can share it (a start can be changed while
+// voting; the server works the places out again), and gives the host a way to call the outing off.
+const noArea = computed(() => shared.value && voting.value && !session.value?.meeting)
+const hasStart = computed(() => !!session.value?.locations?.[auth.myId]?.start)
+const cancelOpen = ref(false)
+const cancelling = ref(false)
+// Call the outing off (the host's, as the header's hold button does). How to call: await cancelOuting()
+async function cancelOuting() {
+  cancelling.value = true
+  error.value = ''
+  try {
+    await events.cancel(props.id)
+    cancelOpen.value = false
+  } catch (e) {
+    error.value = e.message
+    cancelOpen.value = false
+  } finally {
+    cancelling.value = false
+  }
+}
 
 // ── Replace one stop of a confirmed plan ──
 // The slot of the stop being replaced, from ?replace=. Only a confirmed plan has stops to replace; any other session
@@ -598,8 +625,11 @@ async function confirm() {
       </BannerNote>
 
       <div v-if="!session.meeting || ['inviting', 'locating'].includes(session.status)" class="empty-wrap">
-        <EmptyState title="No meeting area yet">
-          <AppButton variant="secondary" :to="`/sessions/${id}`">People</AppButton>
+        <EmptyState title="No meeting area yet" :text="noArea ? WORDS.noMeetingArea : ''" :data-testid="noArea ? 'waiting-for-starts' : undefined">
+          <div class="empty-actions">
+            <AppButton variant="secondary" :to="`/sessions/${id}`">{{ noArea && !hasStart ? 'Share where you start' : 'People' }}</AppButton>
+            <AppButton v-if="noArea && isHost" variant="secondary" data-testid="cancel-waiting" @click="cancelOpen = true">{{ CANCEL_OUTING.action }}</AppButton>
+          </div>
         </EmptyState>
       </div>
 
@@ -831,6 +861,11 @@ async function confirm() {
 
     <DietaryConfirm v-if="plan" v-model:open="dietOpen" :mine="plan.myDietary || []" :others="plan.othersDietary || []" :dropped="plan.dietDropped || []" :busy="dietBusy" :error="dietError" @confirm="confirmDiet" />
 
+    <ModalDialog v-model:open="cancelOpen" :title="CANCEL_OUTING.title" :text="CANCEL_OUTING.text">
+      <AppButton block variant="secondary" @click="cancelOpen = false">{{ CANCEL_OUTING.keep }}</AppButton>
+      <AppButton block variant="danger" :disabled="cancelling" data-testid="cancel-waiting-confirm" @click="cancelOuting">{{ CANCEL_OUTING.confirm }}</AppButton>
+    </ModalDialog>
+
     <ModalDialog v-model:open="confirmOpen" title="Confirm plan?">
       <template #content>
         <div v-if="suggesting || orderView.choice" class="order-pick">
@@ -908,6 +943,7 @@ async function confirm() {
 .slot__options { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .slot__more { display: flex; gap: var(--spacing-base); }
 .empty-wrap { padding-top: var(--spacing-lg); }
+.empty-actions { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
 .confirm-next { margin: 0 0 var(--spacing-sm); text-align: center; }
 /* Replace: the stop being replaced, above the places that could take its place. */
 .replace { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-base); border-radius: var(--rounded-md); background: var(--surface-soft); }

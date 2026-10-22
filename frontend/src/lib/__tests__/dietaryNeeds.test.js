@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { loadApi, stubPlanner } from './planFixture.js'
 import { VENUES } from '../mock/venues.js'
 import { SAMPLE_DIETARY } from '../mock/people.js'
-import { dietTags, fewLine, fitLine, needsText, unfitDietText } from '../dietText.js'
+import { CHECK_NEEDS_TEXT, dietCaveats, dietTags, fewLine, fitLine, needsText, unfitDietText, unfitGroupNeedsText } from '../dietText.js'
 import { dietChips } from '../../components/event/DietaryChips.vue'
 import { dietFit, standInConverge } from '../../components/dev/offlinePlanner.js'
 
@@ -401,6 +401,33 @@ describe('the words', () => {
     // Without a count the tag does not claim one.
     expect(dietTags({ venue: { dataQuality: { halalSource: 'muis', halalScope: 'stalls', muisStalls: 0 } } })).toEqual([])
     expect(dietTags({ venue: {} })).toEqual([])
+  })
+})
+
+describe('the caveats of a shared session\'s cards, worked out in the browser from the place', () => {
+  const eat = { category: 'eat', diet: { halal: 'likely', vegetarian: 'unknown', vegan: 'full' } }
+
+  it('names a need the place only likely meets or has no data on, for the needs given and no others', () => {
+    expect(dietCaveats(eat, ['halal', 'vegetarian', 'vegan'])).toEqual({ verify: ['halal'], dietUnknown: ['vegetarian'] })
+    expect(dietCaveats(eat, ['vegan'])).toEqual({ verify: [], dietUnknown: [] })
+    expect(dietCaveats(eat, [])).toEqual({ verify: [], dietUnknown: [] })
+    // Anything that is not a need is left out, and the app's order is kept.
+    expect(dietCaveats(eat, ['vegetarian', 'nonsense', 'halal'])).toEqual({ verify: ['halal'], dietUnknown: ['vegetarian'] })
+  })
+
+  it('names nothing for a drink, a shop, an activity or a place with no diet levels', () => {
+    expect(dietCaveats({ category: 'drink', diet: { halal: 'unknown' } }, ['halal'])).toEqual({ verify: [], dietUnknown: [] })
+    expect(dietCaveats({ category: 'activity', diet: null }, ['halal'])).toEqual({ verify: [], dietUnknown: [] })
+    expect(dietCaveats(undefined, ['halal'])).toEqual({ verify: [], dietUnknown: [] })
+  })
+
+  it('adds one neutral tag, last, when the option is flagged, and none when it is not', () => {
+    const flagged = dietTags({ checkNeeds: true, verify: ['halal'], dietUnknown: [] })
+    expect(flagged.map((t) => [t.key, t.text, t.tone])).toEqual([['likely-halal', 'Halal likely', 'halal'], ['check-needs', CHECK_NEEDS_TEXT, 'neutral']])
+    expect(dietTags({ checkNeeds: true }).map((t) => t.text)).toEqual(["Check it fits everyone's needs"])
+    expect(dietTags({ checkNeeds: false, verify: [], dietUnknown: [] })).toEqual([])
+    // The line names no need.
+    expect(`${CHECK_NEEDS_TEXT} ${unfitGroupNeedsText}`).not.toMatch(/halal|vegan|vegetarian/i)
   })
 })
 

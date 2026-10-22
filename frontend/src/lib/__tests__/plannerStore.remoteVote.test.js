@@ -46,6 +46,39 @@ describe('a vote in a shared session', () => {
     expect(slotOf(planner, id, slot.id).myVote).toBe(a)
   })
 
+  it('does not let a plan read that began before the tap put its older plan over the vote shown', async () => {
+    const { planner, w, kim, id, slot } = await storeFor()
+    const a = slot.options[0].id
+    // A live reload is out: it has read the votes (none yet) and its answer is held.
+    let releaseRead
+    const heldRead = new Promise((resolve) => { releaseRead = resolve })
+    let reading = false
+    w.gate.hold = (op) => {
+      if (op.kind !== 'select' || op.table !== 'votes') return null
+      reading = true
+      w.gate.hold = null
+      return heldRead
+    }
+    const reload = planner.loadPlan(id, { quiet: true })
+    await vi.waitFor(() => expect(reading).toBe(true))
+    // The tap: shown at once, its write held.
+    let releaseWrite
+    const heldWrite = new Promise((resolve) => { releaseWrite = resolve })
+    w.gate.hold = (op) => (op.kind === 'insert' && op.table === 'votes' ? heldWrite : null)
+    const tap = planner.vote(id, slot.id, a)
+    await vi.waitFor(() => expect(slotOf(planner, id, slot.id)).toMatchObject({ myVote: a, totalVotes: 1 }))
+    // The older read answers now. What it read is from before the tap, so it must not replace what is shown.
+    releaseRead()
+    await reload
+    expect(slotOf(planner, id, slot.id)).toMatchObject({ myVote: a, totalVotes: 1 })
+    expect(slotOf(planner, id, slot.id).options.find((o) => o.id === a).voters).toEqual([{ id: kim.id, name: 'Kim' }])
+    w.gate.hold = null
+    releaseWrite()
+    await tap
+    await vi.waitFor(() => expect(w.database.tables.votes).toHaveLength(1))
+    expect(slotOf(planner, id, slot.id).myVote).toBe(a)
+  })
+
   it('takes the vote back when the database refuses it, and the plan shows what the database holds', async () => {
     const { planner, w, id, slot } = await storeFor()
     await w.database.run({ as: SERVICE, kind: 'update', table: 'sessions', values: { status: 'confirmed' }, filters: [eq('id', id)] })
