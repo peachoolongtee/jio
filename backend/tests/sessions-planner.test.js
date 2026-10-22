@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createSupabase } from '../src/db/supabase.js'
 import { loadPlanData } from '../src/db/venues.js'
 import { mockTravelMinutes } from '../src/planner/geo.js'
+import { createWeatherResolver } from '../src/planner/weather-window.js'
 import { createHttp } from '../src/services/http.js'
 import { createOneMap } from '../src/services/onemap.js'
 import { createPlannerRuns } from '../src/services/planner-runs.js'
+import { createWeather } from '../src/services/weather.js'
 import { SCENARIO_HEADER } from '../src/services/scenario.js'
 import { createSessionQueue } from '../src/services/session-queue.js'
 import { createSessions } from '../src/services/sessions.js'
@@ -101,7 +103,8 @@ describe('the OneMap cap: 30 members, one request, at most 60 trips', () => {
     const res = await t.call('PUT', `/api/sessions/${SESSION}/known-place`, { areaId: 'bugis' }, HOST)
     expect(res.status).toBe(200)
     expect(calls.route).toBeGreaterThan(0)
-    expect(calls.route).toBeLessThanOrEqual(30)
+    // The area is priced for 30 people (30 trips), and the slots are ranked in the same request: all of it within one allowance of 60.
+    expect(calls.route).toBeLessThanOrEqual(MAX_ROUTED_TRIPS_PER_REQUEST)
     expect(world.session_spots).toHaveLength(1)
     expect(world.session_spots[0].approximate).toBe(false)
     expect(Object.keys(world.session_spots[0].travel_minutes)).toHaveLength(30)
@@ -143,7 +146,9 @@ describe('the OneMap cap: 30 members, one request, at most 60 trips', () => {
 function serviceOver(over, sessionOptions = {}) {
   const supabase = fakeSupabase(over, createSupabase({ url: SUPABASE_URL, anonKey: 'a', serviceKey: 's', fetchImpl: jwksFetch }))
   const data = loadPlanData()
-  const base = createPlannerRuns({ data, weatherResolver: null, onemap: null })
+  // The weather answers from the stub fixtures, so a voting ranking needs no network.
+  const weatherResolver = createWeatherResolver({ data, weather: createWeather({ http: createHttp({ stub: true }) }) })
+  const base = createPlannerRuns({ data, weatherResolver, onemap: null })
   const control = { gate: null, edit: null }
   const runs = {
     ...base,
@@ -233,7 +238,7 @@ describe('one run at a time per session, at most one waiting', () => {
     expect(sessionRow().plan_version).toBe(2)
   })
 
-  it('gives a host\'s confirm its own turn, and a recompute queued after it is refused: a late answer never undoes the confirmation', async () => {
+  it('gives a host\'s confirm its own turn, and a recompute queued after it runs on the confirmed session: a late answer never undoes the confirmation', async () => {
     lineWorld()
     const { sessions, runs, hold, as } = serviceOver(world)
     await sessions.recompute({ ...as(HOST) })
@@ -249,7 +254,8 @@ describe('one run at a time per session, at most one waiting', () => {
     const spotsBefore = spotContent()
     release()
     await Promise.all([running, confirm, late])
-    expect(order).toEqual(['recompute', 'confirm', 'late not_yet'])
+    // The recompute queued after the confirm is worked out on the confirmed session, as a voting recompute (stage 4).
+    expect(order).toEqual(['recompute', 'confirm', 'late ok'])
     expect(sessionRow()).toMatchObject({ status: 'voting', meeting_method: 'fairest' })
     expect(spotContent()).toBe(spotsBefore)
   })

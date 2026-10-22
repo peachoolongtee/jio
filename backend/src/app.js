@@ -8,6 +8,7 @@ import { createLinksRouter } from './routes/links.js'
 import { createPeopleRouter } from './routes/people.js'
 import { createPlanRouter } from './routes/plan.js'
 import { createSessionsRouter } from './routes/sessions.js'
+import { createVenuesRouter } from './routes/venues.js'
 import { createWeatherRouter } from './routes/weather.js'
 import { createWeatherResolver } from './planner/weather-window.js'
 import { createHttp } from './services/http.js'
@@ -185,12 +186,15 @@ export function createApp({
   // Needs a login, then a limit per person (the needs counted apart).
   if (supabase) {
     const sessions = createSessions({ supabase, data: planData, runs, ...(routingDeadlineMs !== undefined && { routingDeadlineMs }) })
+    const sessionLimiter = sessionRateLimit ? rateLimit(sessionRateLimit) : null
     app.use('/api', createSessionsRouter({
       supabase,
       sessions,
-      limiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null,
+      limiter: sessionLimiter,
       readLimiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null,
     }))
+    // The saved places behind a voting session's cards: GET /api/venues?ids=. Needs a login, then the same limit per person.
+    app.use('/api', createVenuesRouter({ supabase, data: planData, limiter: sessionLimiter }))
   }
 
   // Finding a person to invite by the start of their username: /api/people/search. Needs a login, then a limit per person.
