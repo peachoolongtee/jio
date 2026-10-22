@@ -14,16 +14,25 @@
 // them), `banner` and `planVersion`. lib/api.js adds what belongs to the later stages (votes, the plan) as empty and runs the
 // same summary as for a local session, so screens do not change.
 //
+// Stage 4 adds voting: the slots (one per category), the places offered in each, and the votes. They are read here for a session that is
+// voting (`slotRows`, `optionRows`, and the shapes the screens keep: `options`, `votes`, `prefs`, `deletedSlots`, `radius`). A person's
+// own vote is a direct write to `votes` under the database's rules (the session is voting, the person has joined, the place is one of the
+// slot's options; `castVote`). Everything that changes what the group is offered (the radius, removing or bringing back a category,
+// adding, swapping or asking for more places, the plan from people's picks) is a call to the Jio server. Live: a vote reaches the
+// other devices as a change to `votes`; the server's writes reach them as a change to the session's version, which is read again.
+//
 // Another member's exact place is never read, shown or kept: `session_member_places` is read with the person's own id and
 // only its two labels, so what comes back is the person's own, and everyone else's start is the area name. The table is
 // not listened to. A person who is not a member is shown only the preview of an invite (title, date, times, the host's name).
 //
 // `client()` is the Supabase client (or null), `me()` the signed-in user's id, `backend` the calls to the Jio server
-// (`removeMember`, `refreshSpots`, `putSpot`, `deleteSpot`, `confirmSpot`, `knownPlace`, `optOut`, `rejoin`), `now()` the clock
+// (`removeMember`, `refreshSpots`, `putSpot`, `deleteSpot`, `confirmSpot`, `knownPlace`, `optOut`, `rejoin`, and from stage 4 `syncPlan`,
+// `setRadius`, `deleteSlot`, `restoreSlots`, `addOption`, `moreOptions`, `swapOption`, `searchSlot`, `venues`), `now()` the clock
 // in milliseconds.
 // How to call: const remote = createSessionsRemote({ client: () => auth.dataClient(), me: () => currentUserId(), backend, now: Date.now })
 
 import { isUuid } from './peopleSource.js'
+import { fromMinutes, toMinutes } from './planner/format.js'
 
 // The words a person reads. Written once so a screen and a test say the same thing.
 export const WORDS = {
@@ -63,8 +72,19 @@ export const WORDS = {
   notIn: 'Only people in this session can do that.',
   hostOptOut: 'The host cannot opt out.',
   busy: 'Jio is busy with another change to this session. Try again in a moment.',
-  // What stops at the next stage: choosing places and the plan, with friends. Shown where a real account's session reaches it.
-  comesNext: 'Choosing places and the plan with friends comes in the next update.',
+  // What stops at the next stage: confirming the plan, the itinerary and finishing, with friends. Shown where a real account's session reaches it.
+  comesNext: 'Confirming the plan with friends comes in the next update.',
+  // Stage 4: voting on places.
+  votesClosed: 'Votes are read-only once the plan is confirmed.',
+  placesClosed: 'Places can only change while the group is voting.',
+  optionGone: 'That place is no longer an option.',
+  slotGone: 'That category is not on the list any more.',
+  slotFull: 'A category holds up to 6 places.',
+  noVenue: 'That place could not be found.',
+  doesNotFit: 'That place does not fit this category.',
+  hostRadius: 'Only the host can change how far to search.',
+  hostSlots: 'Only the host can remove or bring back a category.',
+  rejoinClosed: "You can't rejoin once the plan is confirmed.",
 }
 
 // The words for what the Jio server refused, by its code (backend/src/routes/sessions.js). A caller can word a code its own way.
@@ -86,6 +106,11 @@ const CODE_WORDS = {
   unknown_area: WORDS.noArea,
   area_not_priced: WORDS.noTrips,
   plan_busy: WORDS.busy,
+  slot_not_found: WORDS.slotGone,
+  slot_full: WORDS.slotFull,
+  venue_not_found: WORDS.noVenue,
+  venue_does_not_fit: WORDS.doesNotFit,
+  option_not_found: WORDS.optionGone,
 }
 
 // A refusal from the Jio server as an Error with a sentence fit to show, its code kept on `code` and the HTTP status (when the
@@ -126,7 +151,7 @@ export function plain(error, fallback = WORDS.notSaved) {
 }
 
 // Nothing read for planning yet. How to call: toSession(row, members, invites, NO_PLANNING)
-const NO_PLANNING = { spots: [], suggestions: [], approvals: [], places: [] }
+const NO_PLANNING = { spots: [], suggestions: [], approvals: [], places: [], slots: [], options: [], votes: [] }
 
 // How to call: const remote = createSessionsRemote({ client, me, backend, now })
 export function createSessionsRemote({ client, me, backend = {}, now = Date.now } = {}) {
@@ -207,9 +232,10 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     let meeting = null
     if (row.meeting_area_id) {
       const kept = list.find((x) => x.areaId === row.meeting_area_id)
-      const times = kept && Object.keys(kept.times).length
-        ? kept.times
-        : Object.fromEntries(members.filter((m) => m.state === 'joined' && m.travel_minutes != null).map((m) => [m.user_id, minutesOf(m.travel_minutes)]))
+      // The minutes on the members' rows are the newest (the server writes them whenever it prices the confirmed area again, as a start
+      // changes while voting); the spot kept as the record fills in anyone whose row has none.
+      const onRows = Object.fromEntries(members.filter((m) => m.state === 'joined' && m.travel_minutes != null).map((m) => [m.user_id, minutesOf(m.travel_minutes)]))
+      const times = { ...(kept ? kept.times : {}), ...onRows }
       const minutes = Object.values(times)
       meeting = {
         areaId: row.meeting_area_id,
@@ -229,6 +255,58 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     const stale = row.status === 'locating' && located.length >= 2 && (!spotRows.length || changed > newest(spotRows, 'computed_at'))
     // The time of that change as text (it names the gap, so a screen asks the server once for each), or '' when there is none.
     return { locations, meeting, spots, banner: row.banner && typeof row.banner === 'object' ? { ...row.banner } : null, spotsStale: stale ? String(changed) : '' }
+  }
+
+  // The minutes after midnight of a time of day, or null. How to call: minutesOfTime('18:30:00') -> 1110
+  const minutesOfTime = (time) => (time == null || time === '' ? null : toMinutes(String(time).slice(0, 5)))
+
+  // What the Vote page reads of one session, from the rows read for it: the slots (one per category, in the order they happen),
+  // the places offered in each (the best first), the votes, each person's picks, the categories the host removed and the radius.
+  // Another member's place is not in any of these: only categories, how long they can stay, and their votes.
+  // How to call: planOf(row, memberRows, planning) -> { slotRows, optionRows, options, votes, prefs, deletedSlots, radius }
+  function planOf(row, memberRows, planning) {
+    const sid = row.id
+    const slotRows = planning.slots
+      .filter((x) => x.session_id === sid)
+      .sort((a, b) => a.start_minute - b.start_minute || a.category.localeCompare(b.category))
+      .map((x) => ({
+        id: x.id,
+        category: x.category,
+        start: x.start_minute,
+        time: fromMinutes(x.start_minute),
+        duration: x.duration_minutes,
+        picks: x.picks ?? 0,
+        isLast: !!x.is_last,
+        deleted: !!x.deleted,
+        details: x.details && typeof x.details === 'object' ? x.details : {},
+      }))
+    const slotIds = new Set(slotRows.map((x) => x.id))
+    // The best first: the planner's rank (a place a member added has none yet), then its score, which is a penalty.
+    const byRank = (a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || (a.score ?? 1e9) - (b.score ?? 1e9) || a.venue_id.localeCompare(b.venue_id)
+    const optionRows = {}
+    for (const slot of slotRows) {
+      optionRows[slot.id] = planning.options
+        .filter((o) => o.slot_id === slot.id)
+        .sort(byRank)
+        .map((o) => ({ venueId: o.venue_id, rank: o.rank ?? null, score: o.score == null ? null : Number(o.score), source: o.source, addedBy: o.added_by ?? null, details: o.details && typeof o.details === 'object' ? o.details : {} }))
+    }
+    const votes = {}
+    const byTime = (a, b) => String(a.updated_at).localeCompare(String(b.updated_at)) || String(a.user_id).localeCompare(String(b.user_id))
+    for (const v of planning.votes.filter((x) => slotIds.has(x.slot_id)).sort(byTime)) (votes[v.slot_id] ||= {})[v.user_id] = v.venue_id
+    const prefs = {}
+    for (const m of memberRows.filter((x) => x.session_id === sid && x.state === 'joined')) {
+      const until = minutesOfTime(m.stay_until)
+      if ((m.categories || []).length || until != null) prefs[m.user_id] = { categories: [...(m.categories || [])], until }
+    }
+    return {
+      slotRows,
+      optionRows,
+      options: Object.fromEntries(slotRows.map((x) => [x.id, optionRows[x.id].map((o) => o.venueId)])),
+      votes,
+      prefs,
+      deletedSlots: slotRows.filter((x) => x.deleted).map((x) => x.category),
+      radius: row.radius_meters ?? null,
+    }
   }
 
   // A session as the screens keep it, from its rows. The host first, then the people who joined in the order they came, then
@@ -257,6 +335,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
       members: [...joined, ...invited],
       planVersion: Number(row.plan_version) || 0,
       ...planningOf(row, memberRows, planning, me()),
+      ...planOf(row, memberRows, planning),
       remote: true,
     }
   }
@@ -265,8 +344,11 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   const CHUNK = 100
   // How many channels this factory has opened, for their topics.
   let opened = 0
-  const SESSION_COLUMNS = 'id, host_id, title, date, start_time, end_time, status, created_at, updated_at, plan_version, meeting_area_id, meeting_method, meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, banner'
-  const MEMBER_COLUMNS = 'session_id, user_id, role, state, joined_at, start_area_id, end_area_id, travel_minutes, updated_at'
+  const SESSION_COLUMNS = 'id, host_id, title, date, start_time, end_time, status, created_at, updated_at, plan_version, radius_meters, meeting_area_id, meeting_method, meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, banner'
+  const MEMBER_COLUMNS = 'session_id, user_id, role, state, joined_at, start_area_id, end_area_id, travel_minutes, updated_at, categories, stay_until'
+  const SLOT_COLUMNS = 'id, session_id, category, start_minute, duration_minutes, picks, is_last, deleted, details'
+  const OPTION_COLUMNS = 'slot_id, venue_id, rank, score, source, added_by, details'
+  const VOTE_COLUMNS = 'slot_id, user_id, venue_id, updated_at'
   const INVITE_COLUMNS = 'session_id, invitee_id, revoked, declined_at, uses, expires_at, created_at'
   const SPOT_COLUMNS = 'session_id, area_id, rank, worst_minutes, mean_minutes, travel_minutes, approximate, computed_at'
   const SUGGESTION_COLUMNS = 'session_id, user_id, area_id, here, created_at'
@@ -277,24 +359,49 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   // The rows of spots, suggestions, approvals and the person's own places for the sessions that have got past inviting, a
   // hundred sessions at a time. The exact places are asked for with the person's own id, so only their own row is ever read.
   // How to call: const planning = await readPlanning(['3b1f...'])
-  async function readPlanning(ids) {
+  async function readPlanning(ids, planIds = []) {
     if (!ids.length) return NO_PLANNING
     const mine = who()
     const chunks = []
     for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK))
     const all = async (build) => (await Promise.all(chunks.map(build))).flatMap((answered) => answer(answered, WORDS.notLoaded))
-    const [spots, suggestions, approvals, places] = await Promise.all([
+    const [spots, suggestions, approvals, places, plan] = await Promise.all([
       all((chunk) => db().from('session_spots').select(SPOT_COLUMNS).in('session_id', chunk)),
       all((chunk) => db().from('spot_suggestions').select(SUGGESTION_COLUMNS).in('session_id', chunk)),
       all((chunk) => db().from('spot_approvals').select(APPROVAL_COLUMNS).in('session_id', chunk)),
       all((chunk) => db().from('session_member_places').select(PLACE_LABELS).eq('user_id', mine).in('session_id', chunk)),
+      readPlanRows(planIds),
     ])
-    return { spots, suggestions, approvals, places }
+    return { spots, suggestions, approvals, places, ...plan }
+  }
+
+  // The slots of some sessions, then the places offered in them and the votes for them, a hundred at a time. Two steps, because the
+  // places and votes hang on a slot and not on a session. Nothing here names a person's place.
+  // How to call: const { slots, options, votes } = await readPlanRows(['3b1f...'])
+  async function readPlanRows(sessionIds) {
+    if (!sessionIds.length) return { slots: [], options: [], votes: [] }
+    const chunked = (list) => {
+      const chunks = []
+      for (let i = 0; i < list.length; i += CHUNK) chunks.push(list.slice(i, i + CHUNK))
+      return chunks
+    }
+    const all = async (build, list) => (await Promise.all(chunked(list).map(build))).flatMap((answered) => answer(answered, WORDS.notLoaded))
+    const slots = await all((chunk) => db().from('slots').select(SLOT_COLUMNS).in('session_id', chunk), sessionIds)
+    if (!slots.length) return { slots, options: [], votes: [] }
+    const slotIds = slots.map((x) => x.id)
+    const [options, votes] = await Promise.all([
+      all((chunk) => db().from('slot_options').select(OPTION_COLUMNS).in('slot_id', chunk), slotIds),
+      all((chunk) => db().from('votes').select(VOTE_COLUMNS).in('slot_id', chunk), slotIds),
+    ])
+    return { slots, options, votes }
   }
 
   // The sessions that can have spots to read: all but one still inviting.
   // How to call: planned(rows) -> ['3b1f...']
   const planned = (rows) => rows.filter((r) => r.status !== 'inviting').map((r) => r.id)
+  // The sessions that can have slots, places and votes to read: those the group is voting in or has gone on from.
+  // How to call: withPlan(rows) -> ['3b1f...']
+  const withPlan = (rows) => rows.filter((r) => ['voting', 'confirmed', 'completed'].includes(r.status)).map((r) => r.id)
 
   // Every session the person is in, newest first, in a few reads for all of them.
   // How to call: const sessions = await list()
@@ -309,7 +416,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     const [members, invites, planning] = await Promise.all([
       Promise.all(chunks.map((chunk) => db().from('session_members').select(MEMBER_COLUMNS).in('session_id', chunk))),
       Promise.all(chunks.map((chunk) => db().from('invites').select(INVITE_COLUMNS).in('session_id', chunk))),
-      readPlanning(planned(rows)),
+      readPlanning(planned(rows), withPlan(rows)),
     ])
     const memberRows = members.flatMap((answered) => answer(answered, WORDS.notLoaded))
     const inviteRows = invites.flatMap((answered) => answer(answered, WORDS.notLoaded))
@@ -329,8 +436,35 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     ])
     const row = answer(found, WORDS.notLoaded)
     if (!row) throw Object.assign(new Error('This session does not exist.'), { code: 'not_found' })
-    const planning = await readPlanning(planned([row]))
+    const planning = await readPlanning(planned([row]), withPlan([row]))
     return toSession(row, answer(members, WORDS.notLoaded), answer(invites, WORDS.notLoaded), planning)
+  }
+
+  // What the Vote page needs of one session, read afresh and without the people, invites or spots: the version it was read at, the
+  // status, the meeting area, the radius, the host, and the slots with their places and votes. Reading it asks the planner nothing.
+  // A session that is not there, or not the person's, is "does not exist".
+  // How to call: const read = await readPlan('3b1f...') -> { version, status, hostId, meetingAreaId, banner, joined, ...planOf }
+  async function readPlan(id) {
+    who()
+    if (!isUuid(id)) throw Object.assign(new Error('This session does not exist.'), { code: 'not_found' })
+    const [found, members] = await Promise.all([
+      db().from('sessions').select('id, host_id, status, plan_version, radius_meters, meeting_area_id, start_time, end_time').eq('id', id).maybeSingle(),
+      db().from('session_members').select('session_id, user_id, state, categories, stay_until').eq('session_id', id),
+    ])
+    const row = answer(found, WORDS.notLoaded)
+    if (!row) throw Object.assign(new Error('This session does not exist.'), { code: 'not_found' })
+    const memberRows = answer(members, WORDS.notLoaded)
+    const planning = { ...NO_PLANNING, ...(await readPlanRows(withPlan([row]))) }
+    return {
+      version: Number(row.plan_version) || 0,
+      status: row.status,
+      hostId: row.host_id,
+      meetingAreaId: row.meeting_area_id ?? null,
+      start: hhmm(row.start_time),
+      end: hhmm(row.end_time),
+      joined: memberRows.filter((m) => m.state === 'joined').map((m) => m.user_id),
+      ...planOf(row, memberRows, planning),
+    }
   }
 
   // A new session; the database adds the host's own member row. `fields` are already checked (title, date, start, end).
@@ -601,7 +735,141 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   // The person opts out of the session (keeping their place in it), and comes back.
   // How to call: await optOut('3b1f...'); await rejoin('3b1f...')
   const optOut = (sessionId) => ask(() => backend.optOut(sessionId), { wrong_status: WORDS.closed })
-  const rejoin = (sessionId) => ask(() => backend.rejoin(sessionId), { wrong_status: 'You can only rejoin before the group votes on places.' })
+  const rejoin = (sessionId) => ask(() => backend.rejoin(sessionId), { wrong_status: WORDS.rejoinClosed })
+
+  // ── Voting on places ──────────────────────────────────────────────────────
+
+  // Why a vote that changed no row was turned away, in a sentence: the session is no longer voting, the person is not in it any more, or
+  // the category was taken off the list. When none of those is so, nothing is wrong that the person can fix, so it is a plain failure.
+  // How to call: throw await whyNoVote('3b1f...', '9a2c...')
+  async function whyNoVote(sessionId, slotId) {
+    const [read, slot, member] = await Promise.all([
+      db().from('sessions').select('status').eq('id', sessionId).maybeSingle(),
+      db().from('slots').select('deleted').eq('id', slotId).maybeSingle(),
+      db().from('session_members').select('state').eq('session_id', sessionId).eq('user_id', who()).maybeSingle(),
+    ])
+    const status = answer(read, WORDS.notSaved)?.status
+    const state = answer(member, WORDS.notSaved)?.state
+    const gone = answer(slot, WORDS.notSaved)
+    if (!status) return Object.assign(new Error(WORDS.noSession), { code: 'session_not_found' })
+    if (['completed', 'cancelled'].includes(status)) return Object.assign(new Error(WORDS.closed), { code: 'wrong_status' })
+    if (status !== 'voting') return Object.assign(new Error(WORDS.votesClosed), { code: 'wrong_status' })
+    if (state !== 'joined') return Object.assign(new Error(WORDS.notIn), { code: 'not_joined' })
+    if (!gone || gone.deleted) return Object.assign(new Error(WORDS.slotGone), { code: 'slot_not_found' })
+    return Object.assign(new Error(WORDS.notSaved), { code: 'not_saved' })
+  }
+
+  // The person's vote in one slot: a vote for a place they have not voted for is cast (or moved from the place they voted for), and a
+  // vote for the place they have voted for takes it back. A direct write under the database's rules, so the group can vote while the
+  // Jio server is asleep; the rules are that the session is voting, the person has joined, the category is still there and the place is
+  // still one of its options. It reads the person's own vote first, so two devices of one person agree on what a tap means; if the row
+  // appears or goes between that read and the write, the write is made again for what is there now. Resolves with the place the person
+  // has voted for in this slot afterwards, or null. A refusal rejects with the sentence for it (`code` `wrong_status`, `not_joined`,
+  // `slot_not_found` or `option_not_found`); a write that failed for another reason rejects with `notSaved`, and the vote may or may
+  // not have been kept.
+  // How to call: const myVote = await castVote('3b1f...', '9a2c...', 'v25')
+  async function castVote(sessionId, slotId, venueId) {
+    const mine = who()
+    if (!isUuid(slotId)) throw Object.assign(new Error(WORDS.slotGone), { code: 'slot_not_found' })
+    const mineIn = () => db().from('votes').update({ venue_id: venueId }).eq('slot_id', slotId).eq('user_id', mine)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const have = answer(await db().from('votes').select('venue_id').eq('slot_id', slotId).eq('user_id', mine).maybeSingle(), WORDS.notSaved)
+      if (have?.venue_id === venueId) {
+        // Taking it back: only the vote for this place, so a vote that was moved from another device meanwhile stays.
+        const removed = answer(await db().from('votes').delete().eq('slot_id', slotId).eq('user_id', mine).eq('venue_id', venueId).select('user_id'), WORDS.notSaved)
+        if (removed.length) return null
+        const fresh = answer(await db().from('votes').select('venue_id').eq('slot_id', slotId).eq('user_id', mine).maybeSingle(), WORDS.notSaved)
+        if (!fresh) return null
+        if (fresh.venue_id !== venueId) return fresh.venue_id
+        throw await whyNoVote(sessionId, slotId)
+      }
+      if (have) {
+        const { data, error } = await mineIn().select('user_id')
+        if (error?.code === '42501') throw await whyNoVote(sessionId, slotId)
+        if (error) throw voteError(error)
+        if (data.length) return venueId
+        const fresh = answer(await db().from('votes').select('venue_id').eq('slot_id', slotId).eq('user_id', mine).maybeSingle(), WORDS.notSaved)
+        if (fresh) throw await whyNoVote(sessionId, slotId)
+        continue
+      }
+      const { error } = await db().from('votes').insert({ slot_id: slotId, user_id: mine, venue_id: venueId })
+      if (!error) return venueId
+      // Cast from another device a moment ago: the write is made again as a move.
+      if (error.code === '23505') continue
+      // The rules turned it away: say which one (the session is over, the person is out, the category is gone).
+      if (error.code === '42501') throw await whyNoVote(sessionId, slotId)
+      throw voteError(error)
+    }
+    throw Object.assign(new Error(WORDS.notSaved), { code: 'not_saved' })
+  }
+
+  // A refused vote write as an Error with its sentence. The place is no longer an option (the foreign key), or the rules do not let
+  // the person vote now (the session is not voting, they are out, the category was removed), or something else failed.
+  // How to call: throw voteError({ code: '23503' })
+  function voteError(error) {
+    if (error.code === '23503') return Object.assign(new Error(WORDS.optionGone), { code: 'option_not_found' })
+    if (error.code === '42501') return Object.assign(new Error(WORDS.votesClosed), { code: 'wrong_status' })
+    return plain(error, WORDS.notSaved)
+  }
+
+  // The calls to the Jio server that change what the group is offered. Each rejects with a sentence; none changes anything here (the
+  // session is read again afterwards), so a refusal needs nothing taken back.
+  // How to call: await setRadius('3b1f...', 1000)
+  const setRadius = (sessionId, metres) => ask(() => backend.setRadius(sessionId, metres), { host_only: WORDS.hostRadius, wrong_status: WORDS.placesClosed })
+  // The host takes a category off the list and brings them back. How to call: await removeSlot('3b1f...', '9a2c...'); await restoreSlots('3b1f...')
+  const removeSlot = (sessionId, slotId) => ask(() => backend.deleteSlot(sessionId, slotId), { host_only: WORDS.hostSlots, wrong_status: WORDS.placesClosed })
+  const restoreSlots = (sessionId) => ask(() => backend.restoreSlots(sessionId), { host_only: WORDS.hostSlots, wrong_status: WORDS.placesClosed })
+  // A member adds a place to a category. Resolves true when it was added and false when it was there already.
+  // How to call: const added = await addOption('3b1f...', '9a2c...', 'v25')
+  async function addOption(sessionId, slotId, venueId) {
+    const answered = await ask(() => backend.addOption(sessionId, slotId, venueId), { wrong_status: WORDS.placesClosed })
+    return answered?.added !== false
+  }
+  // A member asks for more places in a category, saying how many they are looking at. Resolves the ids added.
+  // How to call: const added = await moreOptions('3b1f...', '9a2c...', 3)
+  async function moreOptions(sessionId, slotId, have) {
+    const answered = await ask(() => backend.moreOptions(sessionId, slotId, have), { wrong_status: WORDS.placesClosed })
+    return Array.isArray(answered?.added) ? answered.added : []
+  }
+  // A member swaps a place for another one in a category. Resolves true when it was swapped.
+  // How to call: await swapOption('3b1f...', '9a2c...', 'east-coast-park', 'toa-payoh-library')
+  async function swapOption(sessionId, slotId, fromId, toId) {
+    const answered = await ask(() => backend.swapOption(sessionId, slotId, fromId, toId), { wrong_status: WORDS.placesClosed })
+    return answered?.swapped !== false
+  }
+  // Places to add to a category, found by name. Resolves [{ id, name, area, category, walk, unfit, added }]. A failure is worded.
+  // How to call: const results = await searchSlot('3b1f...', '9a2c...', 'chicken rice')
+  const searchSlot = (sessionId, slotId, q) => ask(() => backend.searchSlot(sessionId, slotId, q), { wrong_status: WORDS.placesClosed })
+  // The server works the slots and places out again from people's picks. How to call: await syncPlan('3b1f...')
+  const syncPlan = (sessionId) => ask(() => backend.syncPlan(sessionId), { wrong_status: WORDS.placesClosed })
+  // Places by id for the cards (the server's E18), a failure worded. How to call: const venues = await venues(['v25'])
+  const venues = (ids) => ask(() => backend.venues(ids))
+
+  // The person's own picks for the plan: the categories they would like (up to four) and how long they can stay (minutes after midnight,
+  // or null for the whole time). A direct write to their member row. Resolves what it replaced and what it wrote, for putting back
+  // (see restorePrefs).
+  // How to call: const before = await setPrefs('3b1f...', { categories: ['eat', 'drink'], until: 17 * 60 })
+  async function setPrefs(sessionId, { categories, until }) {
+    const mine = who()
+    const stay = until == null ? null : `${fromMinutes(until)}:00`
+    const read = answer(await db().from('session_members').select('state, categories, stay_until, updated_at').eq('session_id', sessionId).eq('user_id', mine).maybeSingle(), WORDS.notSaved)
+    if (!read) throw Object.assign(new Error(WORDS.notIn), { code: 'not_joined' })
+    const rows = answer(await db().from('session_members').update({ categories: [...categories], stay_until: stay }).eq('session_id', sessionId).eq('user_id', mine).select('updated_at'), WORDS.notSaved)
+    if (!rows.length) throw Object.assign(new Error(WORDS.notIn), { code: 'not_joined' })
+    return { categories: [...(read.categories || [])], stayUntil: read.stay_until ?? null, wroteAt: rows[0].updated_at }
+  }
+
+  // Put the person's picks back as `before` (what setPrefs resolved), only if their member row has not changed since the write: a newer
+  // change of theirs (from another device) stays. It never fails: it is the repair for a failure, and the failure is the one worth reading.
+  // How to call: await restorePrefs('3b1f...', before)
+  async function restorePrefs(sessionId, before) {
+    try {
+      const mine = who()
+      await db().from('session_members').update({ categories: before.categories, stay_until: before.stayUntil }).eq('session_id', sessionId).eq('user_id', mine).eq('updated_at', before.wroteAt).select('user_id')
+    } catch {
+      // The next read shows what is stored.
+    }
+  }
 
   // ── Live updates ──────────────────────────────────────────────────────────
 
@@ -612,6 +880,8 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   //                                                   delete carries only keys and cannot be filtered, so the whole table is
   //                                                   listened to for deletes and the caller keeps only those in sessions it
   //                                                   knows;
+  //   { kind: 'vote', slotId }                        a vote was cast, moved or taken back on some slot (the caller maps the slot to
+  //                                                   the session it knows, and ignores a slot it does not know);
   //   { kind: 'approval-deleted', sessionId }         a "Works for me" was taken back or removed somewhere (keys only; the
   //                                                   caller keeps those in sessions it knows);
   //   { kind: 'invitations' }                         an invitation to this person changed;
@@ -645,6 +915,13 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
       // A mark taken back, or gone with its spot or its member. Like any delete it carries only keys and reaches everyone who
       // listens, so the caller keeps only the sessions it knows.
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'spot_approvals' }, (p) => p.old?.session_id && onChange({ kind: 'approval-deleted', sessionId: p.old.session_id }))
+      // A vote cast, moved or taken back. A vote is a row on a slot, not on a session, and a delete carries only its keys and reaches
+      // everyone who listens, so the caller keeps only the slots it knows. Inserts and updates reach only the members of the slot's
+      // session (row-level security). The slots, places and radius change with the session's version, which is the sessions row above.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'votes' }, (p) => {
+        const slotId = p.new?.slot_id || p.old?.slot_id
+        if (slotId) onChange({ kind: 'vote', slotId })
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'invites', filter: `invitee_id=eq.${mine}` }, () => onChange({ kind: 'invitations' }))
       // The host's own links and invitations: one declined, one used, one turned off or run out (on another device too).
       .on('postgres_changes', { event: '*', schema: 'public', table: 'invites', filter: `created_by=eq.${mine}` }, (p) => {
@@ -662,5 +939,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
+  return { list, get, readPlan, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
 }

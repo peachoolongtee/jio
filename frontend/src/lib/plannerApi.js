@@ -309,6 +309,93 @@ export async function rejoinSession(sessionId) {
   return data
 }
 
+// ── Voting on places, for a session on the server (stage 4, ticket 129; the contract is E3 to E9, E17 and E18 of the sessions design) ──
+// The votes themselves are the browser's own writes to the database (lib/sessionsRemote.js); everything that changes what the
+// group is offered goes through these. Each resolves the server's small answer, which is never put into the screens (the session is
+// read again afterwards), and a refusal is an Error whose `code` is the server's: session_not_found, not_joined, host_only,
+// wrong_status, slot_not_found, slot_full, venue_not_found, venue_does_not_fit, option_not_found, plan_busy.
+
+// The server works the slots and options out again from what people picked (E3). Answers { planVersion, changed }.
+// How to call: await syncSessionPlan('3b1f...')
+export async function syncSessionPlan(sessionId) {
+  const { data } = await api.post(sessionPath(sessionId, '/plan/sync'), {}, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The host sets how far from the meeting area places may be, in metres (100 to 3000), or null for the planner's own widening
+// (E4). Places outside drop out with their votes and each slot is topped up again. Answers { planVersion, radiusMeters }.
+// How to call: await putSessionRadius('3b1f...', 1000)
+export async function putSessionRadius(sessionId, radiusMeters) {
+  const { data } = await api.put(sessionPath(sessionId, '/radius'), { radiusMeters }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The host removes a slot (a category) and its places and votes (E5), or brings them back (E6; one slot, or all when `slotId` is
+// left out). Answer { planVersion } and { planVersion, restored: [slotId] }.
+// How to call: await deleteSessionSlot('3b1f...', '9a2c...'); await restoreSessionSlots('3b1f...')
+export async function deleteSessionSlot(sessionId, slotId) {
+  const { data } = await api.delete(sessionPath(sessionId, `/slots/${encodeURIComponent(slotId)}`), { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+export async function restoreSessionSlots(sessionId, slotId) {
+  const { data } = await api.post(sessionPath(sessionId, '/slots/restore'), slotId ? { slotId } : {}, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// A member adds a place to a slot (E7). Answers { planVersion, added }: added is false when the place was there already.
+// How to call: await addSessionOption('3b1f...', '9a2c...', 'v25')
+export async function addSessionOption(sessionId, slotId, venueId) {
+  const { data } = await api.post(sessionPath(sessionId, `/slots/${encodeURIComponent(slotId)}/options`), { venueId }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// A member asks for more places in a slot (E8). `have` is how many the person is looking at, so asking again after a lost answer
+// adds nothing twice. Answers { planVersion, added: [venueId] }.
+// How to call: await moreSessionOptions('3b1f...', '9a2c...', 3)
+export async function moreSessionOptions(sessionId, slotId, have) {
+  const { data } = await api.post(sessionPath(sessionId, `/slots/${encodeURIComponent(slotId)}/options/more`), { have }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// A member swaps one place of a slot for another, as for an outdoor place in the rain (E9); the votes for it follow. Answers
+// { planVersion, swapped }.
+// How to call: await swapSessionOption('3b1f...', '9a2c...', 'east-coast-park', 'toa-payoh-library')
+export async function swapSessionOption(sessionId, slotId, fromVenueId, toVenueId) {
+  const { data } = await api.post(
+    sessionPath(sessionId, `/slots/${encodeURIComponent(slotId)}/options/${encodeURIComponent(fromVenueId)}/swap`),
+    { toVenueId },
+    { timeout: SESSION_TIMEOUT_MS },
+  )
+  return data
+}
+
+// Places to add to a slot, found by name (E17), each saying whether it fits and why not: the same results as POST /api/search, and
+// `added` when the place is already an option. Resolves [{ id, name, area, category, walk, unfit, added }]. Rejects in the
+// client's usual way.
+// How to call: await searchSessionSlot('3b1f...', '9a2c...', 'chicken rice')
+export async function searchSessionSlot(sessionId, slotId, q) {
+  const { data } = await api.get(sessionPath(sessionId, `/slots/${encodeURIComponent(slotId)}/venue-search`), { params: { q }, timeout: 8000 })
+  if (!Array.isArray(data?.results)) throw new Error(notJsonMessage())
+  return data.results.map((r) => ({ ...toSearchResult(r), added: r.added === true }))
+}
+
+// The most places one request for venues may ask for.
+export const VENUES_PER_REQUEST = 50
+
+// Places by id (E18), as the cards read them (toCardVenue); an id the server does not know is left out. Asks 50 at a time.
+// Rejects in the client's usual way.
+// How to call: const venues = await venuesByIds(['v25', 'cdc_570511'])
+export async function venuesByIds(ids) {
+  const wanted = [...new Set(ids)].filter(Boolean)
+  const found = []
+  for (let i = 0; i < wanted.length; i += VENUES_PER_REQUEST) {
+    const { data } = await api.get('/api/venues', { params: { ids: wanted.slice(i, i + VENUES_PER_REQUEST).join(',') }, timeout: 8000 })
+    if (!Array.isArray(data?.venues)) throw new Error(notJsonMessage())
+    found.push(...data.venues.map(toCardVenue))
+  }
+  return found
+}
+
 // The weather the planner used for the last ranking: { source: 'live' | 'simulated' | 'unavailable', simulationIgnored? }.
 // The demo panel reads it to say when the server ignored the rain switch. Null until a ranking has come back.
 export const lastWeather = ref(null)
@@ -508,10 +595,14 @@ export async function searchSlot({ query, members, centre, date, slot, lastStop,
     unknownPolicy: UNKNOWN_POLICY,
     maxKm,
   })
-  return data.results.map((r) => {
-    const reason = r.unfit[0] || ''
-    return { id: r.venueId, name: r.name, area: r.area, category: r.category, walk: r.walkMinutes, unfit: UNFIT_WORDS[reason] || reason }
-  })
+  return data.results.map(toSearchResult)
+}
+
+// One search result as the screen reads it: the first reason it does not fit, in the words the search sheet knows.
+// How to call: toSearchResult({ venueId: 'v25', name: 'Gem Cafe', area: 'Bishan', category: 'eat', walkMinutes: 4, unfit: ['meal_period'] })
+export function toSearchResult(r) {
+  const reason = (r.unfit || [])[0] || ''
+  return { id: r.venueId, name: r.name, area: r.area, category: r.category, walk: r.walkMinutes, unfit: UNFIT_WORDS[reason] || reason }
 }
 
 // How long an address search is waited for. Typing makes many of them, so a slow one is given up on sooner than a ranking.

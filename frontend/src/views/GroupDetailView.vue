@@ -431,7 +431,7 @@ const startSession = () => run(() => events.start(props.id))
               </ul>
             </section>
 
-            <BannerNote v-if="optedOut && ['inviting', 'locating'].includes(status)" icon="info">
+            <BannerNote v-if="optedOut && ['inviting', 'locating', 'voting'].includes(status)" icon="info">
               You opted out of this session, so your trips are not counted.
               <template #actions><AppButton small variant="secondary" :disabled="busy" @click="rejoin">Rejoin</AppButton></template>
             </BannerNote>
