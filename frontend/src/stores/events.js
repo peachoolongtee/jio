@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '@/lib/api.js'
 import { currentUserId } from '@/lib/currentUser.js'
+import { whileLoading } from '@/lib/pageLoading.js'
 import { moveItem } from '@/lib/planner/itinerary.js'
 
 // Who a session in Locating is waiting for: the people in it who have not set where they start. The meeting area
@@ -161,14 +162,29 @@ export const useEventsStore = defineStore('events', () => {
   const invite = act((id, personIds) => api.inviteFriends(id, personIds, { pending: true }))
   const start = act(api.startSession)
   const setMyLocation = (id, which, place) => act(api.setLocation)(id, currentUserId(), which, place)
-  const useArea = act(api.useMeetingArea)
+  // Confirming the meeting spot sets the spot and then ranks the places for the vote, which can take some seconds. While it runs
+  // the screen shows it where the person is looking: "Confirming…" on the confirm buttons, whichever pane is open (`confirming`,
+  // one flag for all three ways to confirm, so two confirms never overlap), and, after 600 ms, the spinner over the Locate map
+  // (lib/pageLoading.js). The three ways: take the meeting area, confirm a spot, or name a place the group already has.
+  // How to call: confirmingWith(api.confirmSpot)
+  const confirmingNow = ref(0)
+  const confirming = computed(() => confirmingNow.value > 0)
+  const confirmingWith = (fn) => act(async (...args) => {
+    confirmingNow.value += 1
+    try {
+      return await whileLoading(fn(...args))
+    } finally {
+      confirmingNow.value -= 1
+    }
+  })
+  const useArea = confirmingWith(api.useMeetingArea)
   // Meeting spots. The first three act as the signed-in person; the host confirms a spot or sets a known place.
   // How to call: suggestMySpot('s1', 'bugis', { here: true }), approveMySpot('s1', 'bugis', true), withdrawMySpot('s1')
   const suggestMySpot = (id, areaId, options) => act(api.suggestSpot)(id, currentUserId(), areaId, options)
   const withdrawMySpot = (id) => act(api.withdrawSpot)(id, currentUserId())
   const approveMySpot = (id, areaId, on) => act(api.approveSpot)(id, currentUserId(), areaId, on)
-  const confirmSpot = act(api.confirmSpot)
-  const setKnownPlace = act(api.setKnownPlace)
+  const confirmSpot = confirmingWith(api.confirmSpot)
+  const setKnownPlace = confirmingWith(api.setKnownPlace)
   const cancel = act(api.cancelSession)
   // The host carries on without a member who has not shared where they start (they opt out of this session).
   const optOut = act(api.optOut)
@@ -409,6 +425,6 @@ export const useEventsStore = defineStore('events', () => {
     sessions, byId, itineraries, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
     loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, dropSession,
     loadSessions, loadSession, loadItinerary, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
-    create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
+    confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
   }
 })
