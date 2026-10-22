@@ -454,8 +454,8 @@ function query(world, table, who) {
   return builder
 }
 
-// session_member_needs(sid), as db/schema.sql defines it: one row per member of the session, with their private fields. Only the
-// service key may call it.
+// session_member_needs(sid), as db/schema.sql defines it: one row per joined member of the session (an opted-out member has
+// none), with their private fields. Only the service key may call it.
 //
 // How to call:
 //   return memberNeeds(world, null, { sid: SESSION })
@@ -463,7 +463,7 @@ function memberNeeds(world, who, { sid }) {
   if (who !== null) return { data: null, error: dbError('42501', 'permission denied for function session_member_needs') }
   if (world.failNeeds) return { data: null, error: dbError('XX000', 'boom') }
   const rows = world.session_members
-    .filter((m) => m.session_id === sid)
+    .filter((m) => m.session_id === sid && m.state === 'joined')
     .map((m) => (world.profile_private || []).find((p) => p.id === m.user_id))
     .filter(Boolean)
     .map((p) => ({ user_id: p.id, home_area_id: p.home_area_id, dietary: p.dietary, budget_max_per_person: p.budget_max_per_person, needs_step_free: p.needs_step_free }))

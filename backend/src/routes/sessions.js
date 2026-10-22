@@ -62,6 +62,10 @@ function refuse(res, status, error, message, extra = {}) {
 // The needs a person can have, in the order the app shows them. Anything else in the database is left out.
 const NEEDS = ['halal', 'vegetarian', 'vegan']
 
+// How many joined members an outing needs before the others' needs are told to a member. With fewer, the others' list would be
+// one known person's own list (two members), so it is empty. How to call: joined.length >= MIN_MEMBERS_FOR_OTHERS
+const MIN_MEMBERS_FOR_OTHERS = 3
+
 // Needs from many rows, each once, in the app's order. How to call: needsOf([['vegan'], ['halal', 'vegan'], null]) -> ['halal', 'vegan']
 const needsOf = (lists) => NEEDS.filter((need) => lists.some((list) => Array.isArray(list) && list.includes(need)))
 
@@ -81,13 +85,15 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
       if (!id.success) return refuse(res, 400, 'invalid_input', 'The session id is not valid.')
       const me = req.user.id.toLowerCase()
 
-      // Read as the caller: the database shows a session's members only to people in it.
+      // Read as the caller: the database shows a session's members only to people in it. Only a joined member may read the
+      // needs: one who opted out gets the same answer as a stranger.
       const { data: members, error: membersError } = await req.supabase
         .from('session_members')
-        .select('user_id')
+        .select('user_id, state')
         .eq('session_id', id.data)
       if (membersError) throw new Error(`Could not load the members: ${membersError.message}`)
-      if (!members?.some((m) => m.user_id.toLowerCase() === me)) {
+      const joined = (members ?? []).filter((m) => m.state === 'joined')
+      if (!joined.some((m) => m.user_id.toLowerCase() === me)) {
         return refuse(res, 404, 'session_not_found', 'This session does not exist, or you are not in it.')
       }
 
@@ -96,9 +102,13 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
       if (needsError) throw new Error(`Could not load the members' needs: ${needsError.message}`)
       const list = Array.isArray(rows) ? rows : []
       res.set('Cache-Control', 'no-store')
+      // With one other joined member, "the others' needs" would be that person's own list. So nothing is said about the others
+      // until at least three have joined (the caller and two more): see MIN_MEMBERS_FOR_OTHERS.
       res.json({
         dietary: needsOf(list.map((r) => r.dietary)),
-        others: needsOf(list.filter((r) => String(r.user_id).toLowerCase() !== me).map((r) => r.dietary)),
+        others: joined.length >= MIN_MEMBERS_FOR_OTHERS
+          ? needsOf(list.filter((r) => String(r.user_id).toLowerCase() !== me).map((r) => r.dietary))
+          : [],
       })
     } catch (err) {
       next(err)
