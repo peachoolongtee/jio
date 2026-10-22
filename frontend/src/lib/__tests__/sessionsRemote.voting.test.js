@@ -111,7 +111,7 @@ describe('what it reads of the plan', () => {
       }),
     }
     const remote = createSessionsRemote({ client: () => client, me: () => 'sam' })
-    const votes = await remote.readSlotVotes(slotIds)
+    const votes = await remote.readSlotVotes(slotIds, Array.from({ length: perSlot }, (_, u) => `u${u}`))
     expect(Object.keys(votes)).toHaveLength(60)
     expect(Object.values(votes).every((byPerson) => Object.keys(byPerson).length === perSlot)).toBe(true)
     // It started with groups of 25 slots, and halved the ones that came back full.
@@ -124,7 +124,7 @@ describe('what it reads of the plan', () => {
     const rows = slotIds.flatMap((slot) => Array.from({ length: 30 }, (_, u) => ({ slot_id: slot, user_id: `u${u}`, venue_id: 'v', updated_at: 'x' })))
     const asked = []
     const client = { from: () => ({ select: () => ({ in: async (column, ids) => (asked.push(ids.length), { data: rows.filter((r) => ids.includes(r.slot_id)).slice(0, 1000), error: null }) }) }) }
-    const votes = await createSessionsRemote({ client: () => client, me: () => 'sam' }).readSlotVotes(slotIds)
+    const votes = await createSessionsRemote({ client: () => client, me: () => 'sam' }).readSlotVotes(slotIds, Array.from({ length: 30 }, (_, u) => `u${u}`))
     expect(Object.values(votes).every((byPerson) => Object.keys(byPerson).length === 30)).toBe(true)
     expect(asked).toEqual([25, 25, 10])
   })

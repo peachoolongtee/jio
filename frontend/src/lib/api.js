@@ -2287,7 +2287,9 @@ export async function getSession(id, { votesOnly = false } = {}) {
     let read
     try {
       const held = votesOnly ? heldRows.get(id) : null
-      read = held?.slotRows?.length ? { ...held, votes: await remote.readSlotVotes(held.slotRows.map((slot) => slot.id)) } : await remote.get(id)
+      read = held?.slotRows?.length
+        ? { ...held, votes: await remote.readSlotVotes(held.slotRows.map((slot) => slot.id), held.members.filter((m) => m.state === 'joined').map((m) => m.id)) }
+        : await remote.get(id)
     } catch (err) {
       // No longer a session this account is in: its people are no longer people it shares a session with.
       if (err?.code === 'not_found' && asked === epoch) {
@@ -3385,7 +3387,7 @@ async function planFromServer(id, { votesOnly = false } = {}) {
   const asked = epoch
   const ticket = ++readCount
   const held = votesOnly ? newestPlanRead.get(id) : null
-  const read = held?.read ? { ...held.read, votes: await remote.readSlotVotes(held.read.slotRows.map((slot) => slot.id)) } : await remote.readPlan(id)
+  const read = held?.read ? { ...held.read, votes: await remote.readSlotVotes(held.read.slotRows.map((slot) => slot.id), held.read.joined) } : await remote.readPlan(id)
   const named = held?.read ? held.named : await namedNeedsOf(id, read.joined)
   await ensureVenues(Object.values(read.optionRows).flatMap((rows) => rows.map((r) => r.venueId)))
   if (asked !== epoch) throw Object.assign(new Error('That was read for another account.'), { code: 'stale' })

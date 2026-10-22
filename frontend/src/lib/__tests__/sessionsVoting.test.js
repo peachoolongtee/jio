@@ -719,6 +719,29 @@ describe('opting out and rejoining while voting', () => {
     expect(bySlot(seen, slot.category)).toMatchObject({ totalVotes: 0 })
     expect(seen.voters).toEqual([])
   })
+
+  it('counts it nowhere else either: not in the session Home reads, its slots, or the votes-only reads (the accepted race: a vote cast as the person opted out)', async () => {
+    const { w, sam, kim, id, slot } = await voting()
+    const a = idsOf(slot)[0]
+    await kim.api.vote(id, slot.id, kim.id, a)
+    await sam.api.getSession(id)
+    await sam.api.getPlan(id)
+    expect((await sam.api.getSession(id)).slots.map((x) => x.id)).toEqual([slot.id])
+    // Kim opts out, and a row of hers is left behind (the vote and the opt-out crossed). Nothing reads it as a vote.
+    await w.database.run({ as: SERVICE, kind: 'update', table: 'session_members', values: { state: 'opted_out' }, filters: [eq('user_id', kim.id)] })
+    expect(rowsOf(w, 'votes')).toHaveLength(1)
+    for (const read of [await sam.api.getSession(id), await sam.api.getSession(id, { votesOnly: true }), (await sam.api.listSessions()).find((x) => x.id === id)]) {
+      expect(read.votes).toEqual({})
+      expect(read.slots).toEqual([])
+    }
+    // (A change of who is in the session is heard as a change to the session, which reads the plan whole; the votes-only read that
+    // follows a vote uses who was in it then.)
+    expect(bySlot(await sam.api.getPlan(id), slot.category)).toMatchObject({ totalVotes: 0 })
+    const plan = await sam.api.getPlan(id, { votesOnly: true })
+    expect(bySlot(plan, slot.category)).toMatchObject({ totalVotes: 0 })
+    expect(plan.voters).toEqual([])
+    expect(plan.planned).toEqual([])
+  })
 })
 
 describe('a late answer never goes over a newer state', () => {

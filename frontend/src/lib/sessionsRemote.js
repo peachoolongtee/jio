@@ -307,7 +307,10 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
         .sort(byRank)
         .map((o) => ({ venueId: o.venue_id, rank: o.rank ?? null, score: o.score == null ? null : Number(o.score), source: o.source, addedBy: o.added_by ?? null, details: o.details && typeof o.details === 'object' ? o.details : {} }))
     }
-    const votes = votesBySlot(planning.votes, slotIds)
+    // Only the votes of people who are in the session count: a vote can outlive its person for a moment (it was cast as they opted out),
+    // and the server clears it with its next write to the slots. Whatever tallies votes for a screen reads these.
+    const joinedIds = new Set(memberRows.filter((x) => x.session_id === sid && x.state === 'joined').map((x) => x.user_id))
+    const votes = votesBySlot(planning.votes.filter((v) => joinedIds.has(v.user_id)), slotIds)
     const prefs = {}
     for (const m of memberRows.filter((x) => x.session_id === sid && x.state === 'joined')) {
       const until = minutesOfTime(m.stay_until)
@@ -440,11 +443,12 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   }
 
   // The votes of a session's slots, as the screens keep them ({ [slotId]: { [personId]: venueId } }), and nothing else: the one read a
-  // live vote needs. Resolves them for exactly the slots given.
-  // How to call: const votes = await readSlotVotes(['9a2c...']) -> { '9a2c...': { u1: 'v25' } }
-  async function readSlotVotes(slotIds) {
+  // live vote needs. Resolves them for exactly the slots given, and only the votes of the people given (the ones who are in the session).
+  // How to call: const votes = await readSlotVotes(['9a2c...'], ['u1']) -> { '9a2c...': { u1: 'v25' } }
+  async function readSlotVotes(slotIds, joinedIds) {
     who()
-    return votesBySlot(await readVotes(slotIds), new Set(slotIds))
+    const people = new Set(joinedIds)
+    return votesBySlot((await readVotes(slotIds)).filter((v) => people.has(v.user_id)), new Set(slotIds))
   }
 
   // The sessions that can have spots to read: all but one still inviting.
