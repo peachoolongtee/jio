@@ -115,7 +115,7 @@ async function invite(person) {
       label="Search by username"
       hide-label
       type="text"
-      placeholder="for example sam_tan"
+      placeholder="Search by username"
       autocomplete="off"
       autocapitalize="none"
       spellcheck="false"

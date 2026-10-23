@@ -269,7 +269,7 @@ describe('the invite page', () => {
     const { view, database, kim } = await invitePage()
     // The server's side is tested in the backend; here it answers with Kim for the start of "kim" and nobody otherwise.
     planner.searchPeopleByUsername.mockImplementation(async (q) => ('kim'.startsWith(q) ? [{ id: kim.user.id, name: 'Kim', username: 'kim', avatarUrl: '', metBefore: false }] : []))
-    const box = () => view.all('input').find((i) => i.attrs.placeholder === 'for example sam_tan')
+    const box = () => view.all('input').find((i) => i.attrs.placeholder === 'Search by username')
     const type = (text) => {
       box().value = text
       box().dispatch('input')
