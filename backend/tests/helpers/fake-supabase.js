@@ -57,7 +57,8 @@ const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestion
 //   failApply           true: apply_session_plan fails as a database error
 //   hangApply           true: apply_session_plan never answers (a database that hung)
 //   hangReads           true: the service key's reads never answer
-//   hooks.beforeRead    ({ table }) => void, run before each read by the service key: to play a request that arrives while a run loads
+//   hooks.beforeRead    ({ table }) => void | Promise, run before each read by the service key: to play a request that arrives while a run loads
+//                       (a promise holds the read until it settles)
 //   profile_private     [{ id, dietary, home_area_id, budget_max_per_person, needs_step_free }]: the private rows that
 //                       session_member_needs reads (no client may read them as a table)
 //   failNeeds           true: session_member_needs fails as a database error
@@ -769,11 +770,16 @@ function query(world, table, who) {
 
   const run = () => {
     log()
+    let wait
     if (who === null && op.kind === 'select') {
-      world.hooks.beforeRead?.({ table })
+      wait = world.hooks.beforeRead?.({ table })
       // A database that hung: the service key's reads never answer.
       if (world.hangReads) return new Promise(() => {})
     }
+    // A hook that returns a promise holds this read until it settles (to play requests that arrive while a run is loading).
+    return wait && typeof wait.then === 'function' ? wait.then(execute) : execute()
+  }
+  const execute = () => {
     const rows = world[table]
     if (op.kind === 'select' && who !== null && world.failPast && ((table === 'sessions' && op.filters.some(([column]) => column === 'status')) || table === 'stops')) {
       return { data: null, error: dbError('XX000', 'boom') }

@@ -1259,11 +1259,14 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   }
 
   // A job that rewrites the whole list of stops: the rows and the plan's start it was given, and the note about the order cleared (the stops
-  // are no longer exactly in the order that was suggested).
+  // are no longer exactly in the order that was suggested). The draft takes the new stops too, so another job in the same run edits the plan
+  // as this one left it, and the run writes both (the last list of stops is the one written).
   //
   // How to call:
-  //   return stopsJob(rows, planStart, { stopOptions }, answer)
-  function stopsJob({ rows, planStart }, extra, answer) {
+  //   return stopsJob(draft, result, { stopOptions }, answer)
+  function stopsJob(draft, { rows, planStart }, extra, answer) {
+    draft.stops = rows.map((r) => ({ ...r }))
+    Object.assign(draft.session, { plan_start_minute: planStart, order_reason: null, order_source: null })
     return {
       ops: [],
       needs: 'none',
@@ -1462,7 +1465,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           stopOf(draft, stopId)
           if (draft.stops.length <= 1) throw refuse(409, 'last_stop', 'A plan needs at least one stop.')
           const result = withoutStop(draft.stops, stopId, draft.session, ctxVenue)
-          return stopsJob(result, {}, ({ version }) => ({ planVersion: version }))
+          return stopsJob(draft, result, {}, ({ version }) => ({ planVersion: version }))
         },
       },
     )
@@ -1485,6 +1488,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           stopOf(draft, stopId)
           const result = withMode(draft.stops, stopId, mode, draft.session, ctxVenue)
           if (!result) throw refuse(409, 'no_leg', 'The first stop has no leg before it.')
+          draft.stops = result.rows.map((r) => ({ ...r }))
           return {
             ops: [],
             needs: 'none',
@@ -1516,7 +1520,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           if (!result) throw refuse(409, 'stops_changed', 'The plan has changed. Look at it again.')
           // The same order: the modes and earliest starts stay as they are.
           if (stopIds.every((stopId, i) => draft.stops[i].id === stopId)) return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version }) }
-          return stopsJob(result, {}, ({ version }) => ({ planVersion: version }))
+          return stopsJob(draft, result, {}, ({ version }) => ({ planVersion: version }))
         },
       },
     )
@@ -1558,6 +1562,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           const result = withPlace(draft.stops, stopId, { venueId, category: kind, startedAt: Math.min(1439, startedAt) }, draft.session, ctxVenue)
           const kept = row.slot_id ? optionRow(kind, ranking.rows.get(venueId)) : null
           return stopsJob(
+            draft,
             result,
             kept ? { stopOptions: [{ slot_id: row.slot_id, venue_id: venueId, rank: kept.rank, score: kept.score, source: 'planner', added_by: null, details: kept.details, replaces: row.venue_id }] } : {},
             ({ version }) => ({ planVersion: version, changed: true }),
@@ -1643,6 +1648,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           const waiting = draft.proposals.find((p) => p.venue_id === venueId)
           if (waiting) return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, id: waiting.id, applied: false }) }
           const proposalId = randomUUID()
+          draft.proposals.push({ id: proposalId, venue_id: venueId, proposed_by: userId, status: 'pending' })
           return { ops: [{ op: 'propose', id: proposalId, user_id: userId, venue_id: venueId }], needs: 'none', answer: ({ version }) => ({ planVersion: version, id: proposalId, applied: true }) }
         },
       },
@@ -1675,6 +1681,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           if (accept && !isHost) throw refuse(403, 'host_only', 'Only the host can add a place to the plan.')
           if (!accept && !isHost && lower(proposal.proposed_by) !== userId) throw refuse(403, 'host_only', 'Only the host, or the person who proposed it, can dismiss it.')
           const ops = [{ op: 'resolve_proposal', proposal_id: proposal.id, status: accept ? 'accepted' : 'dismissed', by: userId }]
+          draft.proposals = draft.proposals.filter((p) => p !== proposal)
           const answer = ({ version }) => ({ planVersion: version, applied: true })
           if (!accept) return { ops, needs: 'none', answer }
           const venue = voting.venues.get(proposal.venue_id)
@@ -1686,7 +1693,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           const sgMinutes = Number(nowInSingapore().slice(11, 13)) * 60 + Number(nowInSingapore().slice(14, 16))
           const notBefore = Math.max(endedAt ?? 0, sgMinutes)
           const result = withAddedStop(draft.stops, { venueId: proposal.venue_id, category: venue.category, notBefore, duration: 60, endedAt }, draft.session, ctxVenue)
-          return { ...stopsJob(result, {}, answer), ops }
+          return { ...stopsJob(draft, result, {}, answer), ops }
         },
       },
     )

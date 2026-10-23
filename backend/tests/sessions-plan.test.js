@@ -487,6 +487,28 @@ describe('editing the stops (E15)', () => {
     expect(writes().length).toBe(before)
   })
 
+  it('two edits that arrive together are both made (a run does the second to the plan the first left)', async () => {
+    await confirmed()
+    const [, b, c] = stops()
+    // The first request runs alone and is held while it loads; the other two wait behind it and share the next run.
+    let release
+    const held = new Promise((resolve) => { release = resolve })
+    let first = true
+    world.hooks.beforeRead = ({ table }) => {
+      if (table !== 'sessions' || !first) return undefined
+      first = false
+      return held
+    }
+    setTimeout(() => release(), 60)
+    const answers = await Promise.all([
+      t.call('PATCH', path(`/stops/${b.id}`), { travelMode: 'car' }, HOST),
+      t.call('PATCH', path(`/stops/${b.id}`), { travelMode: 'walk' }, HOST),
+      t.call('PATCH', path(`/stops/${c.id}`), { travelMode: 'car' }, HOST),
+    ])
+    expect(answers.map((a) => a.status)).toEqual([200, 200, 200])
+    expect(stops().map((s) => s.travel_mode)).toEqual([null, 'walk', 'car'])
+  })
+
   it('every edit is refused unless the plan is confirmed', async () => {
     await confirmed()
     const [a, b] = stops()
