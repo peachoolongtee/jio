@@ -18,7 +18,7 @@
 //   - Dietary needs work as on the Vote page (ticket #107): while the list holds food, one line says which needs the places
 //     fit, with no names; when fewer than 3 food places fit, a line offers "Show places we couldn't confirm", each then
 //     labelled on its card. That choice is this person's own, for this page only.
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import CategoryIcon from '@/components/ui/CategoryIcon.vue'
@@ -139,7 +139,14 @@ async function start() {
   if (open.value) await load()
   else loading.value = false
 }
-onMounted(start)
+// A shared session's plan and proposals arrive live while this page is open, so a place put forward elsewhere shows as proposed here
+// (a no-op for the demo and local accounts).
+let stopWatching = () => {}
+onMounted(() => {
+  stopWatching = api.watchSessions()
+  start()
+})
+onBeforeUnmount(() => stopWatching())
 watch(() => props.id, () => {
   resetPlace()
   centre.value = { mode: 'meeting', areaName: '' }

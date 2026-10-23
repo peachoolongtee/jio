@@ -50,17 +50,19 @@ export function world() {
 // How to call: const { w, sam, kim, id } = await locating({ places: true })
 export async function locating({ places = false, third = false, hostLast = false } = {}) {
   const w = world()
-  // The app opened last is the one the stores and screens of a test belong to: Kim's by default, or Sam's (the host's) with `hostLast`.
+  // The app opened last is the one the stores and screens of a test belong to: Kim's by default (Lee's when there is a third person), or Sam's (the host's) with `hostLast`.
   let sam
   let kim
+  let lee = null
   if (hostLast) {
     kim = await w.open(OTHER)
+    lee = third ? await w.open(THIRD) : null
     sam = await w.open(PROFILE)
   } else {
     sam = await w.open(PROFILE)
     kim = await w.open(OTHER)
+    lee = third ? await w.open(THIRD) : null
   }
-  const lee = third ? await w.open(THIRD) : null
   const { id } = await sam.api.createSession({ ...SESSION })
   const { token } = await sam.api.makeInviteLink(id)
   await kim.api.joinWithLink(token)

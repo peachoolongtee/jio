@@ -26,7 +26,8 @@
 //     edits it (the pencil, the travel modes, Replace, delete, drag, Re-plan) and finishes the outing; everyone else sees the plan, and the
 //     footer says the host finishes it. Finishing pays no JioCoins there; a finished outing shows the person's own row of the travel ledger
 //     ("Your travel"), with a Try again when it could not be read. A move, delete or change that the server refuses is one line of words
-//     above the stops, and the page then shows the plan as it is stored.
+//     above the stops, and the page then shows the plan as it is stored. Changes made on another device (a move, a delete, a travel mode, a
+//     place added or replaced, the end of the outing, a re-plan) arrive live, with no reload.
 //   - While the plan is under way (roamOpen in lib/session.js: a confirmed plan on its day) a "What next?" button under the
 //     stops opens the Roam page, and the places members proposed there appear under the stops as proposed stops
 //     (ProposedStops). It is a secondary button: the footer's "Finish outing" stays the page's one main action.
@@ -73,6 +74,7 @@ import { sourceIcon, sourceText } from '@/lib/confirmOrder.js'
 import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
 import { createWeatherCheck } from '@/lib/weatherCheck.js'
 import { stopMark, venueSetting } from '@/lib/weatherText.js'
+import { watchSessions } from '@/lib/api.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { usePlannerStore } from '@/stores/planner.js'
@@ -134,7 +136,10 @@ async function load() {
     else loadError.value = err?.message || 'The plan could not be loaded.'
   }
 }
+// A shared session's plan changes arrive live while this page is open (a no-op for the demo and local accounts).
+let stopWatching = () => {}
 onMounted(() => {
+  stopWatching = watchSessions()
   clearConfirmedFlag()
   load()
   // The demo's "Simulate rain" switch, which decides what the weather check asks for.
@@ -239,7 +244,10 @@ watch([stopsKey, simulatedRain], ([key, rain], [, was]) => {
   askedFor = key
   checker.poke()
 })
-onBeforeUnmount(() => checker.stop())
+onBeforeUnmount(() => {
+  checker.stop()
+  stopWatching()
+})
 
 // Put the "Plan confirmed" words into the live region once the card is on screen.
 watch(
