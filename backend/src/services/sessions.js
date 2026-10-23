@@ -157,22 +157,24 @@ function within(work, ms, what) {
   return Promise.race([work, late]).finally(() => clearTimeout(timer))
 }
 
-// Reads something the planner can do without (the group's past): waits at most the database deadline, and on any failure at all (a database
-// error, a function that is not on the project, a timeout) answers `fallback` and says so in the log, at most once a minute. The log line
-// holds only what was being read and the kind of failure, never a message from the database.
+// Builds the reader for something the planner can do without (the group's past): it waits at most `ms`, and on any failure at all (a database
+// error, a function that is not on the project, a timeout) answers `fallback` and says so in the log, at most once a minute for each service.
+// The log line holds only what was being read and the kind of failure, never a message from the database.
 //
 // How to call:
-//   const debts = await softly(() => loadDebts(service, id), 'reading the travel debt', null)
-let lastHistoryWarning = 0
-function softly(work, what, fallback, ms = DB_DEADLINE_MS) {
-  return within(work(), ms, what).catch((err) => {
-    const at = Date.now()
-    if (at - lastHistoryWarning > 60_000) {
-      lastHistoryWarning = at
-      console.warn(`Session history is not used (${what} failed: ${typeof err?.code === 'string' ? err.code : (err?.name ?? 'Error')}). The planner answers without it.`)
-    }
-    return fallback
-  })
+//   const soft = createSoftly(8000)
+//   const debts = await soft(() => loadDebts(service, id), 'reading the travel debt', null)
+function createSoftly(ms) {
+  let lastWarning = 0
+  return (work, what, fallback) =>
+    within(work(), ms, what).catch((err) => {
+      const at = Date.now()
+      if (at - lastWarning > 60_000) {
+        lastWarning = at
+        console.warn(`Session history is not used (${what} failed: ${typeof err?.code === 'string' ? err.code : (err?.name ?? 'Error')}). The planner answers without it.`)
+      }
+      return fallback
+    })
 }
 
 // The status check every endpoint makes. `allowed` are the statuses it works in. Of the others: a finished session is `closed`
@@ -265,8 +267,8 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   const areasById = new Map((data.areas ?? []).map((a) => [a.id, a]))
   const areaName = (id) => areasById.get(id)?.name ?? id
   const voting = createVoting({ data, areasById, runs })
-  // Reads something the planner can do without, within this service's database deadline (see softly).
-  const soft = (work, what, fallback) => softly(work, what, fallback, dbDeadlineMs)
+  // Reads something the planner can do without, within this service's database deadline (see createSoftly).
+  const soft = createSoftly(dbDeadlineMs)
   // A saved place by its id (undefined when it is not one), for the timing of a plan.
   const ctxVenue = (venueId) => voting.venues.get(venueId)
 

@@ -62,12 +62,12 @@ const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestion
 //                       session_member_needs reads (no client may read them as a table)
 //   failNeeds           true: session_member_needs fails as a database error
 //   failDebt            true: session_travel_debt fails as a database error (the function is not on the project yet, say)
-//   failReads           a table name (or a list of them): a read of that table by the signed-in user's client fails as a database error
+//   failPast            true: the signed-in user's reads of finished outings (the sessions with a status filter, and the stops) fail as a database error
 //
 // How to call:
 //   const world = createWorld()
 export function createWorld() {
-  const world = { calls: [], hooks: {}, staleApply: 0, failApply: false, failNeeds: false, failDebt: false, failReads: [], hangApply: false, hangReads: false, t: Date.parse('2026-10-20T08:00:00Z') }
+  const world = { calls: [], hooks: {}, staleApply: 0, failApply: false, failNeeds: false, failDebt: false, failPast: false, hangApply: false, hangReads: false, t: Date.parse('2026-10-20T08:00:00Z') }
   for (const table of TABLES) world[table] = []
   return world
 }
@@ -775,7 +775,9 @@ function query(world, table, who) {
       if (world.hangReads) return new Promise(() => {})
     }
     const rows = world[table]
-    if (op.kind === 'select' && who !== null && [].concat(world.failReads).includes(table)) return { data: null, error: dbError('XX000', 'boom') }
+    if (op.kind === 'select' && who !== null && world.failPast && ((table === 'sessions' && op.filters.some(([column]) => column === 'status')) || table === 'stops')) {
+      return { data: null, error: dbError('XX000', 'boom') }
+    }
     if (op.kind === 'select') {
       let found = rows.filter(matches)
       if (op.order) {
