@@ -108,7 +108,7 @@ async function invite(person) {
 
 <template>
   <section class="byname" aria-labelledby="byname-head" data-testid="invite-by-username">
-    <h3 id="byname-head" class="title-sm">Invite by username</h3>
+    <h3 id="byname-head" class="title-sm"><label :for="fieldId">Invite by username</label></h3>
     <TextField
       v-model="text"
       :id="fieldId"
