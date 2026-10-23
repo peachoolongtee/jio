@@ -1,7 +1,7 @@
 // The Vote page of a shared session (stage 4), drawn for real on an in-memory page (domless.js) on the stand-in database and the stand-in
 // Jio server: the places the server offered, a vote that shows at once and is taken back if refused, the other person's vote arriving live,
-// the radius (the host's to change), the failure state with its retry, a person who opted out, and the note that confirming the plan
-// together comes next. No network.
+// the radius (the host's to change), the failure state with its retry, a person who opted out, and who confirms the plan (stage 5:
+// sessionsPlanScreen.test.js has the Confirm dialog). No network.
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
@@ -104,14 +104,25 @@ describe('the places and the way back', () => {
     await until(() => view.has('article[data-option]'))
   })
 
-  it('stops at the plan: no Confirm plan, a sentence that it comes next, and the way back to the people', async () => {
+  it('gives the host Confirm plan (off until two have voted), with no sentence about a next update', async () => {
     const { id } = await voting()
     const { view } = await draw(id)
-    await until(() => view.has('[data-testid=confirm-next]'))
-    expect(view.text(view.one('[data-testid=confirm-next]'))).toContain('Confirming the plan with friends comes in the next update.')
+    await until(() => view.has('article[data-option]'))
+    expect(view.has('[data-testid=confirm-next]')).toBe(false)
+    expect(view.text()).not.toContain('comes in the next update')
+    expect(press(view, 'Needs 2 voters').disabled).toBe(true)
+    expect(press(view, 'Confirm plan')).toBeUndefined()
+  })
+
+  it('tells a guest who confirms the plan, and gives the way back to the people', async () => {
+    const { id } = await voting({ guest: true })
+    const { view } = await draw(id)
+    await until(() => view.has('[data-testid=confirm-waiting]'))
+    // The host's name is read from their profile a moment after the page is drawn.
+    await until(() => view.text(view.one('[data-testid=confirm-waiting]')).includes('Waiting for Sam to confirm the plan.'))
     expect(view.all('a').some((a) => view.text(a).includes('Back to the people'))).toBe(true)
     expect(press(view, 'Confirm plan')).toBeUndefined()
-    expect(view.text()).not.toContain('Needs 2 voters')
+    expect(press(view, 'Needs 2 voters')).toBeUndefined()
   })
 
   it('shows a failure with a retry when the places cannot be loaded, and the page works after it', async () => {
