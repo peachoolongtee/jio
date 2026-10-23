@@ -1,11 +1,12 @@
-// Reads and writes for the session endpoints. This file is the only one that names the session tables for the meeting-spot
-// endpoints; the service (services/sessions.js) asks for rows and for one write, and knows nothing of table names.
+// Reads and writes for the session endpoints. This file is the only one that names the session tables for the meeting-spot and
+// voting endpoints; the service (services/sessions.js) asks for rows and for one write, and knows nothing of table names.
 //
 // Reads come in two kinds:
 //   - admission, as the signed-in user (`req.supabase`): the database's own rules decide whether the caller is in the session
 //     at all, so a stranger and a missing session look the same;
 //   - state, with the service key, after admission has proved the caller is a member: everything a run needs about the session,
-//     never an exact place (session_member_places is not read anywhere here).
+//     never an exact place (session_member_places is not read anywhere here). Members' private needs (what they cannot eat, a
+//     budget, step-free access) come from session_member_needs(), and only when a ranking needs them.
 // Every write is the one function apply_session_plan (db/migrations/20261020000000_jio_apply_session_plan.sql), which locks the
 // session row, compares the version and the status the run loaded, and writes nothing if either has moved.
 //
@@ -48,43 +49,64 @@ export async function loadAdmission(client, id) {
   return { session, members: members ?? [] }
 }
 
-// Everything a run needs: the session, its members (areas only), the stored spots, the suggestions and the approvals. Read with
-// the service key, so call it only after admission. The session is null if it is gone.
+// Everything a run needs: the session, its members (areas, picks and how long they stay; never an exact place), the stored spots, the
+// suggestions and the approvals, and for voting the slots, their options (with what the planner said about each) and the votes. Read
+// with the service key, so call it only after admission. The session is null if it is gone.
 //
 // How to call:
-//   const { session, members, spots, suggestions, approvals } = await loadState(supabase.service, id)
+//   const { session, members, spots, suggestions, approvals, slots, options, votes } = await loadState(supabase.service, id)
 export async function loadState(service, id) {
   const session = unwrap(
     await service
       .from('sessions')
-      .select('id, host_id, status, plan_version, date, start_time, end_time, meeting_area_id, meeting_method')
+      .select(
+        'id, host_id, status, plan_version, date, start_time, end_time, radius_meters, banner, meeting_area_id, meeting_method, ' +
+          'meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate',
+      )
       .eq('id', id)
       .maybeSingle(),
     'the session',
   )
-  if (!session) return { session: null, members: [], spots: [], suggestions: [], approvals: [] }
-  const [members, spots, suggestions, approvals] = await Promise.all([
-    service.from('session_members').select('user_id, role, state, start_area_id, end_area_id').eq('session_id', id),
+  if (!session) return { session: null, members: [], spots: [], suggestions: [], approvals: [], slots: [], options: [], votes: [] }
+  const [members, spots, suggestions, approvals, slots] = await Promise.all([
+    service.from('session_members').select('user_id, role, state, start_area_id, end_area_id, categories, stay_until, travel_minutes').eq('session_id', id),
     service.from('session_spots').select('area_id, rank, worst_minutes, mean_minutes, travel_minutes, approximate').eq('session_id', id),
     service.from('spot_suggestions').select('user_id, area_id, here, created_at').eq('session_id', id),
     service.from('spot_approvals').select('area_id, user_id').eq('session_id', id),
+    service.from('slots').select('id, category, start_minute, duration_minutes, picks, is_last, deleted, details').eq('session_id', id),
   ])
+  const slotRows = unwrap(slots, 'the slots') ?? []
+  let optionRows = []
+  let voteRows = []
+  if (slotRows.length > 0) {
+    const slotIds = slotRows.map((s) => s.id)
+    const [options, votes] = await Promise.all([
+      service.from('slot_options').select('slot_id, venue_id, rank, score, source, added_by, details').in('slot_id', slotIds),
+      service.from('votes').select('slot_id, user_id, venue_id').in('slot_id', slotIds),
+    ])
+    optionRows = (unwrap(options, 'the options') ?? []).map((o) => ({ ...o, score: o.score === null ? null : Number(o.score) }))
+    voteRows = unwrap(votes, 'the votes') ?? []
+  }
   return {
     session,
     members: unwrap(members, 'the members') ?? [],
     spots: (unwrap(spots, 'the spots') ?? []).map((s) => ({ ...s, worst_minutes: Number(s.worst_minutes), mean_minutes: Number(s.mean_minutes) })),
     suggestions: unwrap(suggestions, 'the suggestions') ?? [],
     approvals: unwrap(approvals, 'the approvals') ?? [],
+    slots: slotRows,
+    options: optionRows,
+    votes: voteRows,
   }
 }
 
-// How many slots the session has (not counting removed ones): voting needs them, and this stage does not make them.
+// Each joined member's private planner needs: { user_id, dietary, budget_max_per_person, needs_step_free }. Only the service key can
+// call the function, and only a ranking asks: a spot never needs them. Nothing here leaves the server except as which places pass.
 //
 // How to call:
-//   await countSlots(supabase.service, id) // 0
-export async function countSlots(service, id) {
-  const rows = unwrap(await service.from('slots').select('id').eq('session_id', id).eq('deleted', false), 'the slots')
-  return (rows ?? []).length
+//   const needs = await loadNeeds(supabase.service, id) // [{ user_id, dietary: ['halal'], budget_max_per_person: 20, needs_step_free: false }]
+export async function loadNeeds(service, id) {
+  const rows = unwrap(await service.rpc('session_member_needs', { sid: id }), "the members' needs")
+  return rows ?? []
 }
 
 // People's names, for the sentence a notice carries. A person with no profile row is left out.

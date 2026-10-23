@@ -1408,3 +1408,31 @@ The lead asked for faithpho's #160 (ticket #149: Google places compete fairly) t
   - Clause 3(a) licenses SLA data "for any usage". Clause 3(b)(i) forbids storing it "except as expressly permitted" by 3(a). The Open Data Licence does not clearly cover OneMap. The Developer Agreement was not read.
   - The lead decided to keep both saved OneMap files (`area-times.json` and `onemap-places.json`) under five conditions recorded in `backend/docs/external-apis.md`: non-commercial; repository private; credit with the access date; minutes and place fields only, no raw responses; delete both if OneMap asks or the licence ends.
 - **Run by the lead's agent before merging, exit codes read:** backend 1547 passed, 2 skipped, also with outbound calls blocked (none attempted); frontend 2019 passed; build succeeded. (The outbound-call guard had been deleted from the scratch folder; it was recreated, and checked to refuse example.com, before this run.)
+
+## Round 32: stage 4 on the server, and three new pull requests reviewed (2026-10-22)
+
+**Stage 3 passed the lead's two-device check** on 22 October, run by the lead's agent in two copies of `dev` (`5ad1067`) against the live project, with the lead signing in test1 and test2. All 8 steps passed. #128 was closed with the record. Two small defects were found: the "Search by username" label does not focus its field, and on Create the end time does not follow a changed start time.
+
+The lead said "start it and at the same time review all the PRs".
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Stage 4 on the server (#129) | backend implementer | `feat/sessions-stage-4` | #125 slice c: the confirm creates slots and options; the slot plan (E3); E1 in voting (re-price a pinned area, re-rank an unpinned one and clear votes); E4 to E9, E17, E18; `slots.details` (`20261011000200`); `apply_session_plan` extended for slots and options, as a new migration, not applied |
+| Stage 4 in the browser (#129) | frontend engineer | `feat/sessions-stage-4-frontend` | Votes as direct writes; the slot functions through the server; live votes; the Vote page for a real account |
+| darryl5942's #176 (dietary needs, #107) | read-only reviewer | `review/pr-176` | Audit |
+| darryl5942's #177 (a spinner on the confirm) | read-only reviewer | `review/pr-177` | Audit |
+| NICHOLE-ONG's #178 (session planning rules, #66) | read-only reviewer | `review/pr-178` | Audit |
+
+Results are filled in below as they arrive.
+
+### 32.1 Results (23 October)
+
+- **#176, darryl5942's dietary needs (#107):** merged as #179 with fixes. A hawker centre with certified stalls is "check the stall", with the count; a partner's needs are private until three have joined; the strict policy is separate; the question is remembered. #107 closed.
+- **#177, darryl5942's confirm spinner:** merged as #180. The busy state now shows on the button, which phones could not see before; one live region.
+- **#178, NICHOLE-ONG's planning rules (#66):** merged as #181. The tests now pass in any time zone; six had failed under UTC. A past start is refused on both paths, Singapore time is used throughout, and a stale test date from #176 was fixed. #66 is left open with what remains.
+- **Stage 4 (#129):** built by two agents, integrated, and reviewed by two reviewers.
+  - **Fixes:** a partner's dietary need was inferable from stored option tags and search reasons, so options now store one neutral flag and search sends one `group_needs` reason; a paused session was a dead end; votes could flicker or land on the earlier tap; read volume; the function now refuses unknown parts, makes a self-swap a no-op, writes only changed minutes, and drops the venue-id checks by definition. 32 hawker centre ids over 80 characters are now allowed (160).
+  - **Live trial:** the migration and its 172-step test passed on the live project in a rolled-back transaction.
+  - **Applied** at the lead's word ("apply") as `jio_apply_session_plan_slots`, checksum-guarded (md5 5d3df7e8…). It folds in `20261011000200`. Afterwards: `slots.details` exists; both venue-id checks are 160; signed-in and anonymous calls are refused 42501; a typo is refused 22023.
+  - **Run by the lead's agent before merging, exit codes read:** backend 1642 passed (2 skipped), also with outbound calls blocked; frontend 2281 passed under four time zones and with outbound calls blocked; build. Live checks: `votes` follows a swap (`ON UPDATE CASCADE`), and `votes` is in the Realtime publication.
+- **Not verified:** two real people voting on two devices (the next check).

@@ -8,6 +8,7 @@ import { createLinksRouter } from './routes/links.js'
 import { createPeopleRouter } from './routes/people.js'
 import { createPlanRouter } from './routes/plan.js'
 import { createSessionsRouter } from './routes/sessions.js'
+import { createVenuesRouter } from './routes/venues.js'
 import { createWeatherRouter } from './routes/weather.js'
 import { createWeatherResolver } from './planner/weather-window.js'
 import { createHttp } from './services/http.js'
@@ -73,6 +74,10 @@ import { createWeather } from './services/weather.js'
 //   sessionRateLimit - { windowMs, max } to limit how often one signed-in caller may use the session endpoints (the meeting spots,
 //                    opting out, leaving, removing a guest), and, counted apart, read an outing's dietary needs
 //                    (GET /api/sessions/:id/dietary), or leave it out for no limit. index.js sets it outside stub mode.
+//   venueRateLimit - { windowMs, max } to limit how often one signed-in caller may search the saved places for a slot
+//                    (GET /api/sessions/:id/slots/:slotId/venue-search) and fetch the places behind the cards (GET /api/venues). Each route
+//                    counts apart, and apart from sessionRateLimit, so showing cards never uses up the allowance of the writes. Leave it out
+//                    for no limit. index.js sets it outside stub mode.
 //   peopleSearchRateLimit - { windowMs, max } to limit how often one signed-in caller may search for people to invite
 //                    (GET /api/people/search, which a screen calls as the person types), or leave it out for no limit. index.js sets it
 //                    outside stub mode.
@@ -94,6 +99,7 @@ export function createApp({
   allowSimulatedWeather = false,
   planRateLimit = null,
   sessionRateLimit = null,
+  venueRateLimit = null,
   peopleSearchRateLimit = null,
   accountCheckRateLimit = { windowMs: 60_000, max: 10 },
   routingDeadlineMs = undefined,
@@ -185,12 +191,16 @@ export function createApp({
   // Needs a login, then a limit per person (the needs counted apart).
   if (supabase) {
     const sessions = createSessions({ supabase, data: planData, runs, ...(routingDeadlineMs !== undefined && { routingDeadlineMs }) })
+    const sessionLimiter = sessionRateLimit ? rateLimit(sessionRateLimit) : null
     app.use('/api', createSessionsRouter({
       supabase,
       sessions,
-      limiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null,
+      limiter: sessionLimiter,
       readLimiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null,
+      searchLimiter: venueRateLimit ? rateLimit(venueRateLimit) : null,
     }))
+    // The saved places behind a voting session's cards: GET /api/venues?ids=. Needs a login, then a limit per person of its own.
+    app.use('/api', createVenuesRouter({ supabase, data: planData, limiter: venueRateLimit ? rateLimit(venueRateLimit) : null }))
   }
 
   // Finding a person to invite by the start of their username: /api/people/search. Needs a login, then a limit per person.

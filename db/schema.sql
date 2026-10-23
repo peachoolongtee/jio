@@ -487,7 +487,7 @@ alter table public.slots
 -- to be added, through the server, which checks that the venue exists and fits the slot.
 create table if not exists public.slot_options (
   slot_id uuid not null references public.slots (id) on delete cascade,
-  venue_id text not null check (char_length(venue_id) <= 80),
+  venue_id text not null check (char_length(venue_id) <= 160),
   rank integer,
   -- The planner's score. It is a penalty: lower is better.
   score numeric,
@@ -522,7 +522,7 @@ create table if not exists public.stops (
   seq integer not null check (seq >= 0),
   slot_id uuid references public.slots (id) on delete set null,
   category text check (category in ('eat', 'drink', 'shop', 'activity')),
-  venue_id text not null check (char_length(venue_id) <= 80),
+  venue_id text not null check (char_length(venue_id) <= 160),
   -- Minutes after midnight.
   planned_start_minute integer not null check (planned_start_minute between 0 and 1439),
   duration_minutes integer not null check (duration_minutes between 1 and 720),
@@ -631,7 +631,7 @@ create index if not exists spot_approvals_member_idx on public.spot_approvals (s
 create table if not exists public.stop_proposals (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.sessions (id) on delete cascade,
-  venue_id text not null check (char_length(venue_id) between 1 and 80),
+  venue_id text not null check (char_length(venue_id) between 1 and 160),
   proposed_by uuid not null,
   status text not null default 'pending' check (status in ('pending', 'accepted', 'dismissed')),
   created_at timestamptz not null default now(),
@@ -648,6 +648,29 @@ create index if not exists stop_proposals_resolved_by_idx on public.stop_proposa
 -- The same place cannot wait for the host twice.
 create unique index if not exists stop_proposals_one_pending_idx
   on public.stop_proposals (session_id, venue_id) where status = 'pending';
+
+-- A place's id may be up to 160 characters (the 32 hawker centres saved from OneMap have ids of 86). The tables above carry that check
+-- inline, which a project built before stage 4 does not have (it has 80 on slot_options and stops). So, as in the migration
+-- 20261022000000, every check of the three tables that mentions venue_id is dropped by what it checks, whatever it is called, and the
+-- checks of 160 are made again under the names Postgres gives an inline check.
+do $venue_checks$
+declare
+  old_check record;
+begin
+  for old_check in
+    select con.conrelid::regclass as table_name, con.conname as check_name
+    from pg_constraint con
+    where con.contype = 'c'
+      and con.conrelid in (to_regclass('public.slot_options'), to_regclass('public.stops'), to_regclass('public.stop_proposals'))
+      and pg_get_constraintdef(con.oid) like '%venue_id%'
+  loop
+    execute format('alter table %s drop constraint %I', old_check.table_name, old_check.check_name);
+  end loop;
+end;
+$venue_checks$;
+alter table public.slot_options add constraint slot_options_venue_id_check check (char_length(venue_id) <= 160);
+alter table public.stops add constraint stops_venue_id_check check (char_length(venue_id) <= 160);
+alter table public.stop_proposals add constraint stop_proposals_venue_id_check check (char_length(venue_id) between 1 and 160);
 
 -- ── Fairness and routing ────────────────────────────────────────────────
 
@@ -929,15 +952,17 @@ as $$
   group by m.user_id;
 $$;
 
--- Every write the server makes to a session's plan, in one transaction (the meeting spots today; later stages add slots, options and
--- stops). It locks the session row and writes NOTHING unless the version and the status the server loaded are still current, so
+-- Every write the server makes to a session's plan, in one transaction (the meeting spots, and the slots and options of voting; later
+-- stages add stops). It locks the session row and writes NOTHING unless the version and the status the server loaded are still current, so
 -- a late answer never undoes the host's confirm. It also enforces the rules JavaScript must not be trusted with: only the host's
 -- confirm or known place moves a status (inviting or locating to voting, with an area), and leaving inviting needs two joined
 -- members after the patch's ops; a pinned meeting area ('voted' or 'chosen') is never moved by a recompute, and is set only with
--- that confirm; the host is never opted out or removed; and the version rises, and anything is written, only when a value differs
--- from the stored row. Spots get the time the server loaded its inputs (loaded_at) as their computed_at.
+-- that confirm; the host is never opted out or removed; slots, options and their votes are written only while the session is voting;
+-- and the version rises, and anything is written, only when a value differs from the stored row. Spots get the time the server
+-- loaded its inputs (loaded_at) as their computed_at. Options are written as a difference, so a kept option keeps its votes.
 -- Returns the version after the write, or null when the session moved on. The server only (the service key); a browser cannot call it.
--- The patch is described in db/migrations/20261020000000_jio_apply_session_plan.sql.
+-- The patch is described in db/migrations/20261020000000_jio_apply_session_plan.sql (stage 3) and
+-- db/migrations/20261022000000_jio_apply_session_plan_slots.sql (stage 4: slots, options, votes, the radius).
 --   const { data } = await serviceClient.rpc('apply_session_plan', { sid, expected_version: 4, expected_status: 'locating', patch })
 create or replace function public.apply_session_plan(sid uuid, expected_version bigint, expected_status text, patch jsonb)
 returns bigint
@@ -949,6 +974,7 @@ declare
   meeting jsonb;
   op jsonb;
   item jsonb;
+  opt jsonb;
   hit bigint;
   changed boolean := false;
   new_status text;
@@ -957,9 +983,44 @@ declare
   stamp timestamptz;
   meeting_changed boolean := false;
   banner_changed boolean := false;
+  banner_new jsonb;
+  banner_stamped boolean := false;
+  radius_changed boolean := false;
+  travel_changed boolean := false;
+  slot_row public.slots%rowtype;
+  v_category text;
+  v_slot uuid;
+  n_start integer;
+  n_duration integer;
+  n_picks integer;
+  n_last boolean;
+  n_deleted boolean;
+  n_details jsonb;
+  unknown_key text;
 begin
   if patch is null or jsonb_typeof(patch) <> 'object' then
     raise exception 'The plan must be a JSON object.' using errcode = '22023';
+  end if;
+  -- A part of the plan this function does not know is refused, never dropped: a typo, or a server newer than this function, must be
+  -- told. (Checked before the session is read, so a stale write with a typo is refused too.)
+  select keys.k into unknown_key
+  from jsonb_object_keys(patch) as keys(k)
+  where keys.k not in ('ops', 'spots', 'slots', 'session', 'loaded_at', 'recomputed', 'banner_text')
+  limit 1;
+  if unknown_key is not null then
+    raise exception 'The plan has a part this function does not know: %.', unknown_key using errcode = '22023';
+  end if;
+  if patch ? 'session' then
+    if jsonb_typeof(patch -> 'session') <> 'object' then
+      raise exception 'The session part of the plan must be a JSON object.' using errcode = '22023';
+    end if;
+    select keys.k into unknown_key
+    from jsonb_object_keys(patch -> 'session') as keys(k)
+    where keys.k not in ('status', 'meeting', 'banner', 'radius_meters')
+    limit 1;
+    if unknown_key is not null then
+      raise exception 'The session part of the plan has a part this function does not know: %.', unknown_key using errcode = '22023';
+    end if;
   end if;
   sp := coalesce(patch -> 'session', '{}'::jsonb);
   meeting := sp -> 'meeting';
@@ -1003,7 +1064,13 @@ begin
       using errcode = 'P0001', hint = 'pin_without_confirm';
   end if;
 
-  -- Members, suggestions and approvals, in the order given. Rule 6: the host is never opted out or removed here.
+  -- Rule 7: slots and options are written only while the session is voting (after this patch).
+  if patch ? 'slots' and new_status <> 'voting' then
+    raise exception 'Slots and options are written only while the session is voting.'
+      using errcode = 'P0001', hint = 'slots_status';
+  end if;
+
+  -- Members, suggestions, approvals, votes and options, in the order given. Rule 6: the host is never opted out or removed here.
   for op in select * from jsonb_array_elements(coalesce(patch -> 'ops', '[]'::jsonb)) loop
     case op ->> 'op'
       when 'opt_out' then
@@ -1020,6 +1087,10 @@ begin
         delete from public.spot_suggestions g where g.session_id = sid and g.user_id = (op ->> 'user_id')::uuid;
         get diagnostics hit = row_count;
         if hit > 0 then changed := true; end if;
+        delete from public.votes v using public.slots sl
+        where sl.id = v.slot_id and sl.session_id = sid and v.user_id = (op ->> 'user_id')::uuid;
+        get diagnostics hit = row_count;
+        if hit > 0 then changed := true; end if;
       when 'rejoin' then
         update public.session_members m set state = 'joined'
         where m.session_id = sid and m.user_id = (op ->> 'user_id')::uuid and m.state = 'opted_out';
@@ -1030,6 +1101,10 @@ begin
           raise exception 'The host cannot be removed.' using errcode = 'P0001', hint = 'host_member';
         end if;
         delete from public.session_members m where m.session_id = sid and m.user_id = (op ->> 'user_id')::uuid;
+        get diagnostics hit = row_count;
+        if hit > 0 then changed := true; end if;
+        delete from public.votes v using public.slots sl
+        where sl.id = v.slot_id and sl.session_id = sid and v.user_id = (op ->> 'user_id')::uuid;
         get diagnostics hit = row_count;
         if hit > 0 then changed := true; end if;
       when 'suggest' then
@@ -1053,6 +1128,41 @@ begin
         delete from public.spot_suggestions g where g.session_id = sid;
         get diagnostics hit = row_count;
         if hit > 0 then changed := true; end if;
+      when 'clear_votes' then
+        -- Rule 7: votes are cleared only in a voting session. The meeting area moved, so every vote is for a place that no
+        -- longer belongs to it.
+        if s.status <> 'voting' then
+          raise exception 'Votes are cleared only while the session is voting.' using errcode = 'P0001', hint = 'slots_status';
+        end if;
+        delete from public.votes v using public.slots sl where sl.id = v.slot_id and sl.session_id = sid;
+        get diagnostics hit = row_count;
+        if hit > 0 then changed := true; end if;
+      when 'swap_option' then
+        -- Rule 7 again. The place changes in place, so the votes for it follow it; when the other place is already an option, the
+        -- votes move to it and this one goes.
+        if s.status <> 'voting' then
+          raise exception 'An option is swapped only while the session is voting.' using errcode = 'P0001', hint = 'slots_status';
+        end if;
+        select sl.id into v_slot from public.slots sl where sl.session_id = sid and sl.category = op ->> 'category';
+        if v_slot is null then
+          raise exception 'This session has no % slot.', op ->> 'category' using errcode = 'P0001', hint = 'slot_missing';
+        end if;
+        if (op ->> 'from') is not distinct from (op ->> 'to') then
+          -- The same place: nothing to swap. (Without this the votes would move onto the place, and then the place would be deleted
+          -- as "the other one", taking the option and every vote with it.)
+          null;
+        elsif exists (select 1 from public.slot_options o where o.slot_id = v_slot and o.venue_id = op ->> 'to') then
+          update public.votes v set venue_id = op ->> 'to' where v.slot_id = v_slot and v.venue_id = op ->> 'from';
+          get diagnostics hit = row_count;
+          if hit > 0 then changed := true; end if;
+          delete from public.slot_options o where o.slot_id = v_slot and o.venue_id = op ->> 'from';
+          get diagnostics hit = row_count;
+          if hit > 0 then changed := true; end if;
+        else
+          update public.slot_options o set venue_id = op ->> 'to' where o.slot_id = v_slot and o.venue_id = op ->> 'from';
+          get diagnostics hit = row_count;
+          if hit > 0 then changed := true; end if;
+        end if;
       else
         raise exception 'Unknown operation %.', op ->> 'op' using errcode = '22023';
     end case;
@@ -1114,6 +1224,86 @@ begin
     end if;
   end if;
 
+  -- The slots and their options, as a difference. A kept option keeps its votes; a dropped one takes them by foreign key.
+  if patch ? 'slots' then
+    if jsonb_typeof(patch -> 'slots') <> 'array' then
+      raise exception 'The slots must be a JSON list.' using errcode = '22023';
+    end if;
+    for item in select * from jsonb_array_elements(patch -> 'slots') loop
+      if jsonb_typeof(item) <> 'object' then
+        raise exception 'Each slot must be a JSON object.' using errcode = '22023';
+      end if;
+      v_category := item ->> 'category';
+
+      if coalesce((item ->> 'remove')::boolean, false) then
+        delete from public.slots sl where sl.session_id = sid and sl.category = v_category;
+        get diagnostics hit = row_count;
+        if hit > 0 then changed := true; end if;
+        continue;
+      end if;
+
+      select * into slot_row from public.slots sl where sl.session_id = sid and sl.category = v_category;
+      if not found then
+        n_deleted := coalesce((item ->> 'deleted')::boolean, false);
+        insert into public.slots (session_id, category, start_minute, duration_minutes, picks, is_last, deleted, details)
+        values (sid, v_category, (item ->> 'start_minute')::integer, (item ->> 'duration_minutes')::integer,
+                coalesce((item ->> 'picks')::integer, 0), coalesce((item ->> 'is_last')::boolean, false), n_deleted,
+                coalesce(item -> 'details', '{}'::jsonb))
+        returning id into v_slot;
+        changed := true;
+      else
+        v_slot := slot_row.id;
+        n_start := coalesce((item ->> 'start_minute')::integer, slot_row.start_minute);
+        n_duration := coalesce((item ->> 'duration_minutes')::integer, slot_row.duration_minutes);
+        n_picks := coalesce((item ->> 'picks')::integer, slot_row.picks);
+        n_last := coalesce((item ->> 'is_last')::boolean, slot_row.is_last);
+        n_deleted := coalesce((item ->> 'deleted')::boolean, slot_row.deleted);
+        n_details := case when item ? 'details' then item -> 'details' else slot_row.details end;
+        update public.slots sl
+        set start_minute = n_start, duration_minutes = n_duration, picks = n_picks, is_last = n_last, deleted = n_deleted, details = n_details
+        where sl.id = v_slot
+          and (sl.start_minute, sl.duration_minutes, sl.picks, sl.is_last, sl.deleted, sl.details)
+              is distinct from (n_start, n_duration, n_picks, n_last, n_deleted, n_details);
+        get diagnostics hit = row_count;
+        if hit > 0 then changed := true; end if;
+      end if;
+
+      if n_deleted then
+        -- A removed slot has no options, and so no votes.
+        delete from public.slot_options o where o.slot_id = v_slot;
+        get diagnostics hit = row_count;
+        if hit > 0 then changed := true; end if;
+      elsif item ? 'options' then
+        if jsonb_typeof(item -> 'options') <> 'array' then
+          raise exception 'The options of a slot must be a JSON list.' using errcode = '22023';
+        end if;
+        delete from public.slot_options o
+        where o.slot_id = v_slot
+          and not exists (select 1 from jsonb_array_elements(item -> 'options') e where e ->> 'venue_id' = o.venue_id);
+        get diagnostics hit = row_count;
+        if hit > 0 then changed := true; end if;
+        for opt in select * from jsonb_array_elements(item -> 'options') loop
+          insert into public.slot_options as o (slot_id, venue_id, rank, score, source, added_by, details)
+          values (v_slot, opt ->> 'venue_id', (opt ->> 'rank')::integer, (opt ->> 'score')::numeric,
+                  coalesce(opt ->> 'source', 'planner'), (opt ->> 'added_by')::uuid, coalesce(opt -> 'details', '{}'::jsonb))
+          on conflict (slot_id, venue_id) do update
+            set rank = excluded.rank, score = excluded.score, details = excluded.details
+            where (o.rank, o.score, o.details) is distinct from (excluded.rank, excluded.score, excluded.details);
+          get diagnostics hit = row_count;
+          if hit > 0 then changed := true; end if;
+        end loop;
+      end if;
+    end loop;
+
+    -- Votes belong to the person, not to their membership, so nothing took a leaver's or an opted-out member's votes with them if
+    -- they were cast a moment before the change: they go now.
+    delete from public.votes v using public.slots sl
+    where sl.id = v.slot_id and sl.session_id = sid
+      and not exists (select 1 from public.session_members m where m.session_id = sid and m.user_id = v.user_id and m.state = 'joined');
+    get diagnostics hit = row_count;
+    if hit > 0 then changed := true; end if;
+  end if;
+
   -- Rule 3: the session section is a change only where a value differs from the stored row. The meeting is compared as it would
   -- be written, after rounding; the banner as stored.
   if sp ? 'meeting' then
@@ -1122,27 +1312,56 @@ begin
                         round((meeting ->> 'total_minutes')::numeric)::integer, round((meeting ->> 'count')::numeric)::integer,
                         (meeting ->> 'approximate')::boolean);
   end if;
-  if sp ? 'banner' then
-    banner_changed := s.banner is distinct from nullif(sp -> 'banner', 'null'::jsonb);
+  if sp ? 'meeting' and jsonb_typeof(meeting) = 'object' and meeting ? 'travel' then
+    travel_changed := exists (
+      select 1 from public.session_members m
+      where m.session_id = sid and m.state = 'joined' and m.travel_minutes is not null
+        and m.travel_minutes is distinct from case
+          when (meeting -> 'travel') ? (m.user_id)::text then round(((meeting -> 'travel') ->> (m.user_id)::text)::numeric)::integer
+          else null end
+    );
   end if;
-  if meeting_changed or banner_changed or banner_text is not null then
+  -- The banner rule (documented, deliberate): a notice is a change only where it differs from the stored one apart from its time ("at"),
+  -- so the same words sent again after a run that moved nothing are not written, keep their old time, and are not shown again to
+  -- someone who dismissed them; a different notice, or none ("banner": null), is a change. A notice sent without a time is stamped
+  -- with the database's clock when it is written; one sent with a time is written as it is.
+  if sp ? 'banner' then
+    banner_new := nullif(sp -> 'banner', 'null'::jsonb);
+    -- A banner sent without its time is stamped by the database's clock when it is written, so a newer notice always has a later
+    -- `at` than an older one. It differs from the stored one only apart from that time.
+    if banner_new is not null and jsonb_typeof(banner_new) = 'object' and not (banner_new ? 'at') then
+      banner_stamped := true;
+      banner_changed := (s.banner - 'at') is distinct from banner_new;
+    else
+      banner_changed := s.banner is distinct from banner_new;
+    end if;
+  end if;
+  if sp ? 'radius_meters' then
+    radius_changed := s.radius_meters is distinct from (sp ->> 'radius_meters')::integer;
+  end if;
+  if meeting_changed or travel_changed or banner_changed or radius_changed or banner_text is not null then
     changed := true;
   end if;
   if not changed then
     return s.plan_version;
   end if;
 
-  -- Each joined member's own minutes to the confirmed area.
+  -- Each joined member's own minutes to the confirmed area, written only where they differ from the stored minutes, so a member's row
+  -- (and its updated_at) is not touched by a patch that repeats it.
   if sp ? 'meeting' and jsonb_typeof(meeting) = 'object' and meeting ? 'travel' then
     update public.session_members m
     set travel_minutes = case
       when (meeting -> 'travel') ? (m.user_id)::text then round(((meeting -> 'travel') ->> (m.user_id)::text)::numeric)::integer
       else null end
-    where m.session_id = sid and m.state = 'joined';
+    where m.session_id = sid and m.state = 'joined'
+      and m.travel_minutes is distinct from case
+        when (meeting -> 'travel') ? (m.user_id)::text then round(((meeting -> 'travel') ->> (m.user_id)::text)::numeric)::integer
+        else null end;
   end if;
 
   update public.sessions set
     status = new_status,
+    radius_meters = case when radius_changed then (sp ->> 'radius_meters')::integer else radius_meters end,
     meeting_area_id = case when meeting_changed then meeting ->> 'area_id' else meeting_area_id end,
     meeting_method = case when meeting_changed then meeting ->> 'method' else meeting_method end,
     meeting_max_minutes = case when meeting_changed then round((meeting ->> 'max_minutes')::numeric)::integer else meeting_max_minutes end,
@@ -1153,7 +1372,8 @@ begin
                                when meeting_changed then null else meeting_computed_at end,
     banner = case
       when banner_text is not null then jsonb_build_object('text', banner_text, 'at', (extract(epoch from now()) * 1000)::bigint, 'approvalsRemoved', true)
-      when banner_changed then nullif(sp -> 'banner', 'null'::jsonb)
+      when banner_changed and banner_stamped then banner_new || jsonb_build_object('at', (extract(epoch from now()) * 1000)::bigint)
+      when banner_changed then banner_new
       else banner end,
     plan_version = plan_version + 1
   where id = sid;

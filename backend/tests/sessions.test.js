@@ -214,21 +214,25 @@ describe('the version, the status, and uuid case', () => {
     expect(memberIds()).toEqual([HOST, GUEST, OTHER])
   })
 
-  it('lets a member leave or be removed while the group is locating, and refuses once it has moved on to voting or later (for now)', async () => {
+  it('lets a member leave or be removed while the group is locating or voting, and refuses once the plan is confirmed (for now)', async () => {
     const t = await start()
     const leave = await t.remove(STARTED, 'me', GUEST)
     expect(leave.status).toBe(200)
     expect(leave.body).toEqual({ planVersion: 3, left: true })
     expect(memberIds(STARTED)).toEqual([HOST])
-    for (const id of [VOTING, CONFIRMED]) {
-      const left = await t.remove(id, 'me', GUEST)
-      expect(left.status).toBe(409)
-      expect(left.body.error).toBe('session_started')
-      const removed = await t.remove(id, GUEST, HOST)
-      expect(removed.status).toBe(409)
-      expect(removed.body.error).toBe('session_started')
-      expect(memberIds(id)).toEqual([HOST, GUEST])
-    }
+    // Voting (stage 4): a guest leaves, and the host can remove one.
+    const leftVoting = await t.remove(VOTING, 'me', GUEST)
+    expect(leftVoting.status).toBe(200)
+    expect(leftVoting.body.left).toBe(true)
+    expect(memberIds(VOTING)).toEqual([HOST])
+    // Confirmed is the plan stage's.
+    const left = await t.remove(CONFIRMED, 'me', GUEST)
+    expect(left.status).toBe(409)
+    expect(left.body.error).toBe('session_started')
+    const removed = await t.remove(CONFIRMED, GUEST, HOST)
+    expect(removed.status).toBe(409)
+    expect(removed.body.error).toBe('session_started')
+    expect(memberIds(CONFIRMED)).toEqual([HOST, GUEST])
   })
 
   it('compares ids without regard to the case of the letters, in the path and in the token', async () => {

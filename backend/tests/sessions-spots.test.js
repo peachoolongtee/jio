@@ -187,12 +187,15 @@ describe('POST /api/sessions/:id/meeting-area (E1)', () => {
     expect(spots().map((s) => s.computed_at)).toEqual(before)
   })
 
-  it('answers 409 not_yet in voting, and 409 wrong_status once confirmed, completed or cancelled', async () => {
+  it('works in voting (stage 4), answers 409 not_yet once confirmed, and 409 wrong_status when completed or cancelled', async () => {
     await start({ status: 'voting' })
     const voting = await t.call('POST', path('/meeting-area'), {}, HOST)
-    expect(voting.status).toBe(409)
-    expect(voting.body.error).toBe('not_yet')
-    for (const status of ['confirmed', 'completed', 'cancelled']) {
+    expect(voting.status).toBe(200)
+    session().status = 'confirmed'
+    const confirmed = await t.call('POST', path('/meeting-area'), {}, HOST)
+    expect(confirmed.status).toBe(409)
+    expect(confirmed.body.error).toBe('not_yet')
+    for (const status of ['completed', 'cancelled']) {
       session().status = status
       const res = await t.call('POST', path('/meeting-area'), {}, HOST)
       expect(res.status).toBe(409)
@@ -425,7 +428,7 @@ describe('POST /api/sessions/:id/voting (E2)', () => {
     await approve(HOST, first.area_id)
     const res = await t.call('POST', path('/voting'), {}, HOST)
     expect(res.status).toBe(200)
-    expect(res.body).toEqual({ planVersion: res.body.planVersion, status: 'voting', meetingAreaId: second.area_id, method: 'voted', slotCount: 0 })
+    expect(res.body).toEqual({ planVersion: res.body.planVersion, status: 'voting', meetingAreaId: second.area_id, method: 'voted', slotCount: 4 })
     expect(session()).toMatchObject({
       status: 'voting',
       meeting_area_id: second.area_id,
@@ -547,12 +550,20 @@ describe('POST /api/sessions/:id/voting (E2)', () => {
     expect(res.body.meetingAreaId).toBe(first.area_id)
   })
 
-  it('leaves the slots to the voting stage and says so: slotCount is what exists', async () => {
+  it('makes the slots and their places in the same write as the status move: slotCount is what exists', async () => {
     await listed()
+    const before = writes().length
     const res = await t.call('POST', path('/voting'), {}, HOST)
-    expect(res.body.slotCount).toBe(0)
-    world.slots.push({ id: 's1', session_id: SESSION, deleted: false }, { id: 's2', session_id: SESSION, deleted: true })
-    expect((await t.call('POST', path('/voting'), {}, HOST)).body.slotCount).toBe(1)
+    expect(res.body.slotCount).toBe(4)
+    expect(writes().length - before).toBe(1) // one apply_session_plan call, the status move and the slots together
+    expect(world.slots.map((s) => s.category).sort()).toEqual(['activity', 'drink', 'eat', 'shop'])
+    // Every slot has options, and a repeat of the confirm writes nothing more.
+    for (const slot of world.slots) expect(world.slot_options.filter((o) => o.slot_id === slot.id).length).toBeGreaterThan(0)
+    const again = await t.call('POST', path('/voting'), {}, HOST)
+    expect(again.body.slotCount).toBe(4)
+    expect(writes().length - before).toBe(1)
+    world.slots.find((s) => s.category === 'shop').deleted = true
+    expect((await t.call('POST', path('/voting'), {}, HOST)).body.slotCount).toBe(3)
   })
 })
 
@@ -569,8 +580,10 @@ describe('a late answer never undoes a confirmation', () => {
     }
     await setStart(GUEST, 'woodlands')
     const late = await t.call('POST', path('/meeting-area'), { trigger: 'start' }, GUEST)
-    expect(late.status).toBe(409)
-    expect(late.body.error).toBe('not_yet')
+    // The answer is worked out again on the confirmed session, as a voting recompute: it never touches the spots, and a chosen area stays.
+    expect(late.status).toBe(200)
+    expect(late.body.meetingAreaId).toBe(first.area_id)
+    expect(late.body.moved).toBe(false)
     expect(JSON.stringify(spots())).toBe(before)
     expect(session()).toMatchObject({ status: 'voting', meeting_area_id: first.area_id, meeting_method: 'voted' })
   })
@@ -783,7 +796,9 @@ describe('PUT /api/sessions/:id/known-place (E21)', () => {
     await start()
     await t.call('PUT', path('/known-place'), { areaId: 'bugis' }, HOST)
     const res = await t.call('POST', path('/meeting-area'), {}, GUEST)
-    expect(res.body.error).toBe('not_yet')
+    // In voting a recompute only moves the travel times of a chosen area.
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ meetingAreaId: 'bugis', moved: false, votesCleared: false })
     expect(session()).toMatchObject({ meeting_area_id: 'bugis', meeting_method: 'chosen' })
   })
 })
@@ -836,16 +851,17 @@ describe('POST /api/sessions/:id/opt-out and /rejoin (E10, E11)', () => {
     expect(session().plan_version).toBe(version)
   })
 
-  it('works in inviting and locating; voting and confirmed are the later stage (409 not_yet), finished is 409 wrong_status', async () => {
+  it('works in inviting, locating and voting; confirmed is the plan stage (409 not_yet), finished is 409 wrong_status', async () => {
     await listed()
     session().status = 'inviting'
     expect((await t.call('POST', path('/opt-out'), undefined, OTHER)).status).toBe(200)
     await t.call('POST', path('/rejoin'), undefined, OTHER)
-    for (const status of ['voting', 'confirmed']) {
-      session().status = status
-      expect((await t.call('POST', path('/opt-out'), undefined, OTHER)).body.error).toBe('not_yet')
-      expect((await t.call('POST', path('/rejoin'), undefined, OTHER)).body.error).toBe('not_yet')
-    }
+    session().status = 'voting'
+    expect((await t.call('POST', path('/opt-out'), undefined, OTHER)).body).toMatchObject({ state: 'opted_out' })
+    expect((await t.call('POST', path('/rejoin'), undefined, OTHER)).body).toMatchObject({ state: 'joined' })
+    session().status = 'confirmed'
+    expect((await t.call('POST', path('/opt-out'), undefined, OTHER)).body.error).toBe('not_yet')
+    expect((await t.call('POST', path('/rejoin'), undefined, OTHER)).body.error).toBe('not_yet')
     for (const status of ['completed', 'cancelled']) {
       session().status = status
       expect((await t.call('POST', path('/opt-out'), undefined, OTHER)).body.error).toBe('wrong_status')

@@ -1,0 +1,376 @@
+// The stand-in database's slots, places and votes (stage 4): who reads them, who may vote and when, what goes with what (a removed place
+// takes its votes, a removed slot takes its places), the slot sections of the apply_session_plan port (the server's own function,
+// migration 20261022000000, with the cases of db/tests/apply_session_plan.sql steps 77 onwards), and the live events a vote raises. No network.
+import { describe, expect, it } from 'vitest'
+import { SERVICE, createDatabase } from '../../components/dev/fakeDatabase.js'
+
+const A = '00000000-0000-4000-8000-00000000000a'
+const B = '00000000-0000-4000-8000-00000000000b'
+const C = '00000000-0000-4000-8000-00000000000c'
+const profile = (name) => ({ username: name, display_name: name, avatar_url: null })
+const eq = (col, value) => ({ col, op: 'eq', value })
+const MEETING = { area_id: 'bugis', method: 'chosen', max_minutes: 20, total_minutes: 30, count: 2, approximate: false, travel: { [A]: 20, [B]: 10 } }
+const option = (venue, rank, extra = {}) => ({ venue_id: venue, rank, score: rank * 10, details: { walkMinutes: 3, reasons: [] }, ...extra })
+
+// A hosts, B joins, C is outside. The session is voting with one slot (eat) offering v1 and v2.
+// How to call: const { db, sid, slotId, plan, vote } = voting()
+function voting() {
+  const db = createDatabase({ profiles: { [A]: profile('a'), [B]: profile('b'), [C]: profile('c') } })
+  const sid = db.run({ as: A, kind: 'insert', table: 'sessions', values: { host_id: A, title: 'T', date: '2026-10-21', start_time: '12:00', end_time: '20:00' }, returning: true, columns: 'id' }).data[0].id
+  const { token } = db.run({ as: A, kind: 'insert', table: 'invites', values: { session_id: sid, created_by: A }, returning: true, columns: 'token' }).data[0]
+  db.run({ as: B, kind: 'rpc', fn: 'join_session', args: { invite_token: token } })
+  const row = () => db.tables.sessions.find((s) => s.id === sid)
+  const plan = (patch) => db.run({ as: SERVICE, kind: 'rpc', fn: 'apply_session_plan', args: { sid, expected_version: row().plan_version, expected_status: row().status, patch } })
+  db.run({ as: SERVICE, kind: 'update', table: 'sessions', values: { status: 'locating' }, filters: [eq('id', sid)] })
+  plan({
+    session: { status: 'voting', meeting: MEETING },
+    slots: [{ category: 'eat', start_minute: 720, duration_minutes: 90, picks: 2, is_last: true, details: { moreAvailable: true }, options: [option('v1', 1), option('v2', 2)] }],
+  })
+  const slotId = db.tables.slots[0].id
+  const vote = (as, venue, user = as) => db.run({ as, kind: 'insert', table: 'votes', values: { slot_id: slotId, user_id: user, venue_id: venue } })
+  return { db, sid, row, plan, slotId, vote }
+}
+
+describe('who reads the slots, places and votes', () => {
+  it('lets a member read them and keeps an outsider out, whatever is asked', () => {
+    const { db, slotId, vote } = voting()
+    vote(B, 'v1')
+    for (const table of ['slots', 'slot_options', 'votes']) {
+      expect(db.run({ as: B, kind: 'select', table, columns: '*', filters: [] }).data.length).toBeGreaterThan(0)
+      expect(db.run({ as: C, kind: 'select', table, columns: '*', filters: [] }).data).toEqual([])
+      expect(db.run({ as: null, kind: 'select', table, columns: '*', filters: [] }).error.code).toBe('42501')
+    }
+    expect(db.run({ as: A, kind: 'select', table: 'votes', columns: 'user_id', filters: [eq('slot_id', slotId)] }).data).toEqual([{ user_id: B }])
+  })
+
+  it('still lets a member who opted out read the votes, as the policy does (my_slot_ids ignores the state)', () => {
+    const { db, vote } = voting()
+    vote(A, 'v1')
+    db.run({ as: SERVICE, kind: 'update', table: 'session_members', values: { state: 'opted_out' }, filters: [eq('user_id', B)] })
+    expect(db.run({ as: B, kind: 'select', table: 'votes', columns: '*', filters: [] }).data).toHaveLength(1)
+  })
+})
+
+describe('casting, moving and taking back a vote', () => {
+  it('lets a joined member vote once per slot, for one of its places, as themselves', () => {
+    const { db, vote } = voting()
+    expect(vote(B, 'v1').error).toBeNull()
+    expect(vote(B, 'v2').error.code).toBe('23505')
+    expect(vote(A, 'nowhere').error.code).toBe('23503')
+    // Not as someone else, and not by a stranger.
+    expect(vote(B, 'v1', A).error.code).toBe('42501')
+    expect(vote(C, 'v1').error.code).toBe('42501')
+    expect(db.tables.votes).toHaveLength(1)
+  })
+
+  it('moves a vote by changing its place only, and refuses a place that is not offered', () => {
+    const { db, slotId, vote } = voting()
+    vote(B, 'v1')
+    const filters = [eq('slot_id', slotId), eq('user_id', B)]
+    expect(db.run({ as: B, kind: 'update', table: 'votes', values: { venue_id: 'v2' }, filters, returning: true, columns: 'venue_id' }).data).toEqual([{ venue_id: 'v2' }])
+    expect(db.run({ as: B, kind: 'update', table: 'votes', values: { venue_id: 'v9' }, filters }).error.code).toBe('23503')
+    expect(db.run({ as: B, kind: 'update', table: 'votes', values: { user_id: A }, filters }).error.code).toBe('42501')
+    // Someone else's vote is not theirs to change: no row is reached.
+    vote(A, 'v1')
+    expect(db.run({ as: B, kind: 'update', table: 'votes', values: { venue_id: 'v2' }, filters: [eq('user_id', A)], returning: true, columns: 'user_id' }).data).toEqual([])
+    expect(db.tables.votes.find((v) => v.user_id === A).venue_id).toBe('v1')
+  })
+
+  it('lets a member take back their own vote and no one else\'s', () => {
+    const { db, slotId, vote } = voting()
+    vote(B, 'v1')
+    vote(A, 'v2')
+    const gone = db.run({ as: B, kind: 'delete', table: 'votes', filters: [eq('slot_id', slotId)], returning: true, columns: 'user_id' })
+    expect(gone.data).toEqual([{ user_id: B }])
+    expect(db.tables.votes.map((v) => v.user_id)).toEqual([A])
+  })
+
+  it('refuses every vote write unless the session is voting, the person has joined and the slot is not removed', () => {
+    const { db, sid, slotId, vote, plan } = voting()
+    vote(B, 'v1')
+    // Opted out.
+    db.run({ as: SERVICE, kind: 'update', table: 'session_members', values: { state: 'opted_out' }, filters: [eq('user_id', B)] })
+    expect(db.run({ as: B, kind: 'delete', table: 'votes', filters: [eq('slot_id', slotId)], returning: true, columns: 'user_id' }).data).toEqual([])
+    expect(db.run({ as: B, kind: 'update', table: 'votes', values: { venue_id: 'v2' }, filters: [eq('slot_id', slotId)], returning: true, columns: 'user_id' }).data).toEqual([])
+    db.run({ as: SERVICE, kind: 'update', table: 'session_members', values: { state: 'joined' }, filters: [eq('user_id', B)] })
+    // The slot removed (its places go with it, so the vote does too).
+    plan({ slots: [{ category: 'eat', deleted: true }] })
+    expect(db.tables.votes).toHaveLength(0)
+    expect(vote(A, 'v1').error.code).toBe('42501')
+    plan({ slots: [{ category: 'eat', deleted: false, options: [option('v1', 1)] }] })
+    expect(vote(A, 'v1').error).toBeNull()
+    // Confirmed: read-only.
+    db.run({ as: SERVICE, kind: 'update', table: 'sessions', values: { status: 'confirmed' }, filters: [eq('id', sid)] })
+    expect(db.run({ as: A, kind: 'delete', table: 'votes', filters: [eq('slot_id', slotId)], returning: true, columns: 'user_id' }).data).toEqual([])
+    expect(vote(B, 'v1').error.code).toBe('42501')
+  })
+
+  it('gives the browser no insert or update on slots and places, and no other column of a vote', () => {
+    const { db, sid, slotId } = voting()
+    expect(db.run({ as: A, kind: 'insert', table: 'slots', values: { session_id: sid, category: 'drink', start_minute: 0, duration_minutes: 30 } }).error.code).toBe('42501')
+    expect(db.run({ as: A, kind: 'insert', table: 'slot_options', values: { slot_id: slotId, venue_id: 'v3' } }).error.code).toBe('42501')
+    expect(db.run({ as: A, kind: 'update', table: 'slots', values: { deleted: true }, filters: [eq('id', slotId)] }).error.code).toBe('42501')
+    expect(db.run({ as: A, kind: 'insert', table: 'votes', values: { slot_id: slotId, user_id: A, venue_id: 'v1', created_at: 'x' } }).error.code).toBe('42501')
+  })
+})
+
+describe('what goes with what', () => {
+  it('takes the votes for a place when the place goes, and the places and votes when a slot goes', () => {
+    const { db, slotId, vote, plan } = voting()
+    vote(A, 'v1')
+    vote(B, 'v2')
+    plan({ slots: [{ category: 'eat', options: [option('v2', 1)] }] })
+    expect(db.tables.slot_options.map((o) => o.venue_id)).toEqual(['v2'])
+    expect(db.tables.votes.map((v) => [v.user_id, v.venue_id])).toEqual([[B, 'v2']])
+    plan({ slots: [{ category: 'eat', remove: true }] })
+    expect(db.tables.slots).toHaveLength(0)
+    expect(db.tables.slot_options).toHaveLength(0)
+    expect(db.tables.votes).toHaveLength(0)
+    expect(slotId).toBeTruthy()
+  })
+
+  it('keeps a vote with its place when the place is swapped in place', () => {
+    const { db, slotId, vote, plan } = voting()
+    vote(A, 'v1')
+    expect(plan({ ops: [{ op: 'swap_option', category: 'eat', from: 'v1', to: 'v9' }] }).data).toBeGreaterThan(1)
+    expect(db.tables.votes[0].venue_id).toBe('v9')
+    // The option is renamed in place: it keeps its rank, score and details until a slot item writes new ones.
+    expect(db.tables.slot_options.find((o) => o.venue_id === 'v9')).toMatchObject({ rank: 1, score: 10, details: { walkMinutes: 3, reasons: [] } })
+    expect(db.tables.slot_options.map((o) => o.venue_id).sort()).toEqual(['v2', 'v9'])
+    // Doing it again changes nothing (the place it swapped from is gone).
+    const version = db.tables.sessions[0].plan_version
+    expect(plan({ ops: [{ op: 'swap_option', category: 'eat', from: 'v1', to: 'v9' }] }).data).toBe(version)
+    expect(slotId).toBeTruthy()
+  })
+
+  it('does nothing for a swap of a place for itself: the place and its votes stay, and so does the version', () => {
+    const { db, vote, plan } = voting()
+    vote(A, 'v1')
+    vote(B, 'v2')
+    const version = db.tables.sessions[0].plan_version
+    expect(plan({ ops: [{ op: 'swap_option', category: 'eat', from: 'v1', to: 'v1' }] }).data).toBe(version)
+    expect(db.tables.slot_options.map((o) => o.venue_id).sort()).toEqual(['v1', 'v2'])
+    expect(db.tables.votes.map((v) => [v.user_id, v.venue_id]).sort()).toEqual([[A, 'v1'], [B, 'v2']].sort())
+    // A swap in a slot the session does not have is still refused, even for a place with itself.
+    expect(plan({ ops: [{ op: 'swap_option', category: 'shop', from: 'a', to: 'a' }] }).error).toMatchObject({ code: 'P0001', hint: 'slot_missing' })
+  })
+
+  it('refuses a part of the plan, or of its session part, that the function does not know, even from a stale writer', () => {
+    const { db, sid, plan } = voting()
+    const version = db.tables.sessions[0].plan_version
+    expect(plan({ slotz: [] }).error).toMatchObject({ code: '22023', message: expect.stringContaining('slotz') })
+    expect(plan({ session: { radius: 1000 } }).error).toMatchObject({ code: '22023', message: expect.stringContaining('radius') })
+    expect(plan({ session: [] }).error.code).toBe('22023')
+    expect(plan({ session: null }).error.code).toBe('22023')
+    const late = db.run({ as: SERVICE, kind: 'rpc', fn: 'apply_session_plan', args: { sid, expected_version: version - 1, expected_status: 'voting', patch: { opz: [] } } })
+    expect(late.error.code).toBe('22023')
+    expect(db.tables.sessions[0].plan_version).toBe(version)
+    // A plan made only of the parts it knows passes.
+    expect(plan({ ops: [], spots: [], slots: [], session: {}, loaded_at: null, recomputed: false, banner_text: null }).error).toBeNull()
+  })
+
+  it('writes a member\'s minutes only where they differ, so the row of a member who is unchanged is not touched', () => {
+    let clock = Date.parse('2026-10-21T10:00:00Z')
+    const db = createDatabase({ profiles: { [A]: profile('a'), [B]: profile('b') }, now: () => (clock += 1000) })
+    const sid = db.run({ as: A, kind: 'insert', table: 'sessions', values: { host_id: A, title: 'T', date: '2026-10-21', start_time: '12:00', end_time: '20:00' }, returning: true, columns: 'id' }).data[0].id
+    const { token } = db.run({ as: A, kind: 'insert', table: 'invites', values: { session_id: sid, created_by: A }, returning: true, columns: 'token' }).data[0]
+    db.run({ as: B, kind: 'rpc', fn: 'join_session', args: { invite_token: token } })
+    db.run({ as: SERVICE, kind: 'update', table: 'sessions', values: { status: 'locating' }, filters: [eq('id', sid)] })
+    const row = () => db.tables.sessions.find((x) => x.id === sid)
+    const apply = (patch) => db.run({ as: SERVICE, kind: 'rpc', fn: 'apply_session_plan', args: { sid, expected_version: row().plan_version, expected_status: row().status, patch } })
+    expect(apply({ session: { status: 'voting', meeting: MEETING } }).error).toBeNull()
+    const member = (id) => db.tables.session_members.find((m) => m.session_id === sid && m.user_id === id)
+    const touched = { a: member(A).updated_at, b: member(B).updated_at }
+    expect(member(A).travel_minutes).toBe(20)
+    // The same minutes with a new notice: the version goes up, no member row is written.
+    const before = Number(row().plan_version)
+    expect(apply({ session: { meeting: MEETING, banner: { text: 'Worked out again.' } } }).data).toBe(before + 1)
+    expect([member(A).updated_at, member(B).updated_at]).toEqual([touched.a, touched.b])
+    // One changed minute: that member's row only.
+    expect(apply({ session: { meeting: { ...MEETING, travel: { [A]: 20, [B]: 12 } } } }).data).toBe(before + 2)
+    expect(member(A).updated_at).toBe(touched.a)
+    expect(member(B).updated_at).not.toBe(touched.b)
+    expect(member(B).travel_minutes).toBe(12)
+  })
+
+  it('merges a swap into a place that is already an option: the votes move to it and the old place goes', () => {
+    const { db, vote, plan } = voting()
+    vote(A, 'v1')
+    vote(B, 'v2')
+    plan({ ops: [{ op: 'swap_option', category: 'eat', from: 'v1', to: 'v2' }] })
+    expect(db.tables.slot_options.map((o) => o.venue_id)).toEqual(['v2'])
+    expect(db.tables.votes.map((v) => [v.user_id, v.venue_id]).sort()).toEqual([[A, 'v2'], [B, 'v2']].sort())
+  })
+
+  it('takes a person\'s votes when they opt out, and with the session when it goes', () => {
+    const { db, vote, plan, sid } = voting()
+    vote(A, 'v1')
+    vote(B, 'v1')
+    plan({ ops: [{ op: 'opt_out', user_id: B }] })
+    expect(db.tables.votes.map((v) => v.user_id)).toEqual([A])
+    db.run({ as: SERVICE, kind: 'delete', table: 'sessions', filters: [eq('id', sid)] })
+    expect(db.tables.slots).toHaveLength(0)
+    expect(db.tables.slot_options).toHaveLength(0)
+    expect(db.tables.votes).toHaveLength(0)
+  })
+})
+
+describe('the slot sections of apply_session_plan (the stage 4 function)', () => {
+  it('writes slots and places as a difference and counts only real changes', () => {
+    const { db, slotId, plan, row } = voting()
+    const same = { slots: [{ category: 'eat', start_minute: 720, duration_minutes: 90, picks: 2, is_last: true, details: { moreAvailable: true }, options: [option('v1', 1), option('v2', 2)] }] }
+    const version = row().plan_version
+    expect(plan(same).data).toBe(version)
+    expect(db.tables.slots[0].id).toBe(slotId)
+    expect(plan({ slots: [{ ...same.slots[0], options: [option('v1', 1), option('v2', 3)] }] }).data).toBe(version + 1)
+    expect(db.tables.slot_options.find((o) => o.venue_id === 'v2').rank).toBe(3)
+  })
+
+  it('removes a slot and its places and brings it back, and clears every place at once', () => {
+    const { db, slotId, plan, vote } = voting()
+    vote(A, 'v1')
+    plan({ slots: [{ category: 'eat', deleted: true }] })
+    expect(db.tables.slots[0].deleted).toBe(true)
+    expect(db.tables.slot_options).toHaveLength(0)
+    expect(db.tables.votes).toHaveLength(0)
+    plan({ slots: [{ category: 'eat', deleted: false }] })
+    expect(db.tables.slots[0].deleted).toBe(false)
+    expect(db.tables.slots[0].id).toBe(slotId)
+    plan({ slots: [{ category: 'eat', options: [option('v1', 1)] }] })
+    expect(db.tables.slot_options).toHaveLength(1)
+    // `remove` deletes the slot row itself.
+    plan({ slots: [{ category: 'eat', remove: true }] })
+    expect(db.tables.slots).toHaveLength(0)
+  })
+
+  it('leaves a category the patch does not mention alone, and a slot without "options" keeps its places', () => {
+    const { db, plan } = voting()
+    plan({ slots: [{ category: 'drink', start_minute: 900, duration_minutes: 60, options: [option('d1', 1)] }] })
+    plan({ slots: [{ category: 'eat', picks: 1 }] })
+    expect(db.tables.slots.map((x) => x.category).sort()).toEqual(['drink', 'eat'])
+    expect(db.tables.slot_options.map((o) => o.venue_id).sort()).toEqual(['d1', 'v1', 'v2'])
+    expect(db.tables.slots.find((x) => x.category === 'eat').picks).toBe(1)
+  })
+
+  it('clears every vote of the session (the meeting area moved) and only while it is voting', () => {
+    const { db, sid, vote, plan, row } = voting()
+    vote(A, 'v1')
+    vote(B, 'v2')
+    const version = row().plan_version
+    expect(plan({ ops: [{ op: 'clear_votes' }] }).data).toBe(version + 1)
+    expect(db.tables.votes).toHaveLength(0)
+    expect(plan({ ops: [{ op: 'clear_votes' }] }).data).toBe(version + 1)
+    db.run({ as: SERVICE, kind: 'update', table: 'sessions', values: { status: 'confirmed' }, filters: [eq('id', sid)] })
+    expect(plan({ ops: [{ op: 'clear_votes' }] }).error).toMatchObject({ code: 'P0001', hint: 'slots_status' })
+  })
+
+  it('refuses slots, a swap and a clear unless the session is voting, and a swap in a slot that is not there', () => {
+    const { db, sid, plan } = voting()
+    expect(plan({ ops: [{ op: 'swap_option', category: 'shop', from: 'a', to: 'b' }] }).error).toMatchObject({ code: 'P0001', hint: 'slot_missing' })
+    db.run({ as: SERVICE, kind: 'update', table: 'sessions', values: { status: 'confirmed' }, filters: [eq('id', sid)] })
+    expect(plan({ slots: [{ category: 'eat', picks: 3 }] }).error).toMatchObject({ code: 'P0001', hint: 'slots_status' })
+    expect(plan({ ops: [{ op: 'swap_option', category: 'eat', from: 'v1', to: 'v9' }] }).error).toMatchObject({ code: 'P0001', hint: 'slots_status' })
+  })
+
+  it('takes the votes of anyone who is not a joined member after it writes the slots, and a removed member\'s votes at once', () => {
+    const { db, vote, plan } = voting()
+    vote(A, 'v1')
+    vote(B, 'v2')
+    // B opts out directly (a vote cast a moment earlier is still there), then a slot write sweeps it.
+    db.run({ as: SERVICE, kind: 'update', table: 'session_members', values: { state: 'opted_out' }, filters: [eq('user_id', B)] })
+    expect(db.tables.votes).toHaveLength(2)
+    plan({ slots: [{ category: 'eat', picks: 1 }] })
+    expect(db.tables.votes.map((v) => v.user_id)).toEqual([A])
+    plan({ ops: [{ op: 'remove_member', user_id: B }] })
+    expect(db.tables.votes.map((v) => v.user_id)).toEqual([A])
+  })
+
+  it('stamps a banner sent without its time with the clock, and counts a swap of two people\'s minutes as a change', () => {
+    const { db, plan, row } = voting()
+    const version = row().plan_version
+    const sent = { session: { banner: { text: 'Votes for places were cleared.', votesCleared: true } } }
+    expect(plan(sent).data).toBe(version + 1)
+    expect(row().banner).toMatchObject({ text: 'Votes for places were cleared.', votesCleared: true, at: expect.any(Number) })
+    // The same banner again is no change, whatever its stored time.
+    expect(plan(sent).data).toBe(version + 1)
+    // Same longest trip, total and count; the minutes of A and B swapped.
+    for (const m of db.tables.session_members) m.travel_minutes = m.user_id === A ? 20 : 10
+    const swapped = { session: { meeting: { ...MEETING, travel: { [A]: 10, [B]: 20 } } } }
+    expect(plan(swapped).data).toBe(version + 2)
+    expect(plan(swapped).data).toBe(version + 2)
+  })
+
+  it('accepts a venue id of 120 characters, the saved hawker centres\' kind, as a place and as a vote, and refuses 161', () => {
+    const { db, plan, vote } = voting()
+    const long = `onemap_ssot_hawkercentres_${'x'.repeat(94)}`
+    expect(long).toHaveLength(120)
+    expect(plan({ slots: [{ category: 'eat', options: [option('v1', 1), option(long, 2)] }] }).error).toBeNull()
+    expect(vote(B, long).error).toBeNull()
+    expect(db.tables.votes[0].venue_id).toBe(long)
+    expect(plan({ slots: [{ category: 'eat', options: [option('v1', 1), option(long, 2), option('y'.repeat(161), 3)] }] }).error.code).toBe('23514')
+  })
+
+  it('makes a slot only with its start and length', () => {
+    const { plan } = voting()
+    expect(plan({ slots: [{ category: 'shop' }] }).error.code).toBe('23502')
+  })
+
+  it('gives the private needs of the joined members to the server only, none for a member who opted out', () => {
+    const db = createDatabase({ profiles: { [A]: profile('a'), [B]: profile('b') }, needs: { [A]: { dietary: ['halal'] }, [B]: { dietary: ['vegan'], needs_step_free: true } } })
+    const sid = db.run({ as: A, kind: 'insert', table: 'sessions', values: { host_id: A, title: 'T', date: '2026-10-21', start_time: '12:00', end_time: '20:00' }, returning: true, columns: 'id' }).data[0].id
+    const { token } = db.run({ as: A, kind: 'insert', table: 'invites', values: { session_id: sid, created_by: A }, returning: true, columns: 'token' }).data[0]
+    db.run({ as: B, kind: 'rpc', fn: 'join_session', args: { invite_token: token } })
+    const asked = (as) => db.run({ as, kind: 'rpc', fn: 'session_member_needs', args: { sid } })
+    expect(asked(A).error.code).toBe('42501')
+    expect(asked(null).error.code).toBe('42501')
+    expect(asked(SERVICE).data.map((r) => [r.user_id, r.dietary, r.needs_step_free]).sort()).toEqual([[A, ['halal'], false], [B, ['vegan'], true]].sort())
+    db.run({ as: SERVICE, kind: 'update', table: 'session_members', values: { state: 'opted_out' }, filters: [eq('user_id', B)] })
+    expect(asked(SERVICE).data.map((r) => r.user_id)).toEqual([A])
+  })
+
+  it('writes the radius, refuses one outside 100 to 3000, and does not count the same radius as a change', () => {
+    const { plan, row } = voting()
+    const version = row().plan_version
+    expect(plan({ session: { radius_meters: 1000 } }).data).toBe(version + 1)
+    expect(row().radius_meters).toBe(1000)
+    expect(plan({ session: { radius_meters: 1000 } }).data).toBe(version + 1)
+    expect(plan({ session: { radius_meters: 50 } }).error.code).toBe('23514')
+    expect(plan({ session: { radius_meters: null } }).data).toBe(version + 2)
+  })
+
+  it('checks the slot: a category from the four, one slot per category, a day-long start, and a details object', () => {
+    const { plan } = voting()
+    expect(plan({ slots: [{ category: 'sleep', start_minute: 0, duration_minutes: 10 }] }).error.code).toBe('23514')
+    expect(plan({ slots: [{ category: 'drink', start_minute: 2000, duration_minutes: 10 }] }).error.code).toBe('23514')
+    expect(plan({ slots: [{ category: 'drink', start_minute: 0, duration_minutes: 0 }] }).error.code).toBe('23514')
+  })
+})
+
+describe('live events', () => {
+  it('delivers a vote to the members of the session and no one else, and a delete without a filter with keys only', async () => {
+    const { db, slotId, vote } = voting()
+    const heard = { a: [], c: [] }
+    db.subscribe({ as: A, table: 'votes', event: '*' }, (p) => heard.a.push(p))
+    db.subscribe({ as: C, table: 'votes', event: '*' }, (p) => heard.c.push(p))
+    vote(B, 'v1')
+    db.run({ as: B, kind: 'update', table: 'votes', values: { venue_id: 'v2' }, filters: [eq('slot_id', slotId)] })
+    db.run({ as: B, kind: 'delete', table: 'votes', filters: [eq('slot_id', slotId)] })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(heard.a.map((p) => p.eventType)).toEqual(['INSERT', 'UPDATE', 'DELETE'])
+    expect(heard.a[1].new).toMatchObject({ slot_id: slotId, user_id: B, venue_id: 'v2' })
+    // A delete carries only the keys, and reaches a subscriber who is not in the session (the accepted stance for votes).
+    expect(heard.a[2]).toMatchObject({ new: {}, old: { slot_id: slotId, user_id: B } })
+    expect(heard.c.map((p) => p.eventType)).toEqual(['DELETE'])
+  })
+
+  it('does not deliver a delete to a subscriber who gave a filter, and tells nobody of a vote that failed', async () => {
+    const { db, slotId, vote } = voting()
+    const heard = []
+    db.subscribe({ as: A, table: 'votes', event: '*', filter: `slot_id=eq.${slotId}` }, (p) => heard.push(p.eventType))
+    expect(vote(B, 'nowhere').error.code).toBe('23503')
+    vote(B, 'v1')
+    db.run({ as: B, kind: 'delete', table: 'votes', filters: [eq('slot_id', slotId)] })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(heard).toEqual(['INSERT'])
+  })
+})

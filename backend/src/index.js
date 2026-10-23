@@ -157,6 +157,20 @@ if (!Number.isInteger(sessionLimitPerMinute) || sessionLimitPerMinute <= 0) {
 }
 const sessionRateLimit = stub ? null : { windowMs: 60_000, max: sessionLimitPerMinute }
 
+// How many times one signed-in person may search the saved places for a slot (GET /api/sessions/:id/slots/:slotId/venue-search, as they
+// type) and fetch the places behind the cards of a voting session (GET /api/venues, when a card is shown for the first time). Each
+// counts apart, and apart from the session endpoints above, so showing cards never uses up the allowance of the writes. Stub mode has
+// no limit.
+//
+// How to change it:
+//   VENUE_RATE_LIMIT_PER_MINUTE=60
+const venueLimitPerMinute = Number(process.env.VENUE_RATE_LIMIT_PER_MINUTE || 120)
+if (!Number.isInteger(venueLimitPerMinute) || venueLimitPerMinute <= 0) {
+  console.error('VENUE_RATE_LIMIT_PER_MINUTE must be a whole number above 0.')
+  process.exit(1)
+}
+const venueRateLimit = stub ? null : { windowMs: 60_000, max: venueLimitPerMinute }
+
 // How many times one signed-in person may search for someone to invite each minute (GET /api/people/search). The invite
 // field asks after a short pause as the person types, so this is loose enough for a fast typist. Stub mode has no limit.
 //
@@ -210,7 +224,7 @@ const finalistsNumber = Number(finalistsText)
 const meetingFinalists = Number.isInteger(finalistsNumber) && finalistsNumber >= 1 && finalistsNumber <= MEETING_FINALISTS_MAX ? finalistsNumber : undefined
 if (finalistsText !== '' && meetingFinalists === undefined) console.warn(`MEETING_FINALISTS must be a whole number from 1 to ${MEETING_FINALISTS_MAX}, so the default is used.`)
 
-createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader, linkRateLimit, supabase, allowSimulatedWeather, planRateLimit, sessionRateLimit, peopleSearchRateLimit, areaTimes, meetingFinalists }).listen(port, () => {
+createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader, linkRateLimit, supabase, allowSimulatedWeather, planRateLimit, sessionRateLimit, venueRateLimit, peopleSearchRateLimit, areaTimes, meetingFinalists }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
   if (stub) console.log('Stub mode is ON: external API calls are answered from fixtures.')
   else if (!onemap.routingEnabled) {

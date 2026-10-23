@@ -1,8 +1,16 @@
 -- Test for the server's plan-writing function: apply_session_plan(), in db/migrations/20261020000000_jio_apply_session_plan.sql (or a
 -- fresh build of db/schema.sql and db/policies.sql). It needs slice b applied (the meeting-spot tables and sessions.plan_version).
 --
--- Run on the live project on 20 October 2026 by the lead's agent, with the function created inside the same transaction and
--- everything rolled back: all 76 steps passed, and no function, user or session was left behind.
+-- Steps 1 to 76 are the stage 3 steps, unchanged: run on the live project on 20 October 2026 by the lead's agent, with the function
+-- created inside the same transaction and everything rolled back, all 76 passed, and no function, user or session was left behind.
+-- Steps 77 onwards are stage 4's (db/migrations/20261022000000_jio_apply_session_plan_slots.sql): the slots and options as a
+-- difference, the votes that go with a member or a moved meeting area, the radius, the stamped banner, and the voting rules of a
+-- browser. Steps 140 to 150 are the venue id limit of the same migration: a place's id of 120 characters as an option, a vote, a swap
+-- and a stop, and 161 refused. Steps 151 to 172 are its smaller rules: a swap of a place for itself changes nothing (151 and 152), a part
+-- of the plan or of the session that the function does not know is refused with 22023 (153 to 157), a member's minutes are written only
+-- where they differ (158 to 162), and the checks on a place's id are dropped by what they check, whatever they are called (163 to 172).
+-- They have not been run against Postgres yet (there is none here); the lead runs the whole file once the migration is applied, or in
+-- one transaction with the migration's statements before it.
 --
 -- How to run: after the migration (or a fresh build), run this whole file as ONE batch, in the SQL editor
 -- or with   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/apply_session_plan.sql
@@ -11,8 +19,9 @@
 -- left whether it passes or fails. A passing step prints a notice "ok step N". A broken rule raises an exception "FAIL step N: ..."
 -- and stops the run (with the rollback that follows).
 --
--- Expected error codes: 42501 = permission denied, 23514 = check constraint, 23505 = unique, 22023 = bad parameter value,
--- P0001 = a rule of the function (with a hint: area_pinned, pin_without_confirm, host_member, needs_two_people, status_transition).
+-- Expected error codes: 42501 = permission denied, 23514 = check constraint, 23505 = unique, 23502 = not null, 22023 = bad parameter
+-- value, P0001 = a rule of the function (with a hint: area_pinned, pin_without_confirm, host_member, needs_two_people,
+-- status_transition, slots_status, slot_missing).
 
 begin;
 
@@ -180,9 +189,36 @@ declare
   s3 uuid := gen_random_uuid();        -- voting, a pinned meeting at Bugis (the "changed means changed" and loaded_at steps)
   s4 uuid := gen_random_uuid();        -- inviting, the host and g1 (the two-people check after the ops)
   s5 uuid := gen_random_uuid();        -- locating, no meeting yet (a pin only with a confirm; the host stays)
+  sv uuid := gen_random_uuid();        -- voting, an unpinned meeting at Bugis (the slot steps)
+  sl uuid := gen_random_uuid();        -- locating, the host and g1 (a confirm that makes the slots in the same call)
+  slot_eat uuid;
+  slot_drink uuid;
   u uuid;
   tm jsonb;
   p jsonb;
+  -- The id of a saved hawker centre from OneMap is 86 characters; this one is 120, well past the old limit of 80.
+  long_id text := 'onemap_ssot_hawkercentres_' || repeat('x', 94);
+  ver bigint;
+  -- The physical address of a member's row (it changes with every update of the row, even one that writes the same values).
+  tid_host text;
+  tid_g1 text;
+  -- The statement of the migration that drops the venue id checks by what they check (the same text; backend/tests/sessions-sql.test.js
+  -- compares the two).
+  drop_checks text := $sql$do $venue_checks$
+declare
+  old_check record;
+begin
+  for old_check in
+    select con.conrelid::regclass as table_name, con.conname as check_name
+    from pg_constraint con
+    where con.contype = 'c'
+      and con.conrelid in (to_regclass('public.slot_options'), to_regclass('public.stops'), to_regclass('public.stop_proposals'))
+      and pg_get_constraintdef(con.oid) like '%venue_id%'
+  loop
+    execute format('alter table %s drop constraint %I', old_check.table_name, old_check.check_name);
+  end loop;
+end;
+$venue_checks$$sql$;
 begin
   -- ── Setup, as the project owner ─────────────────────────────────────
   foreach u in array array[host, g1, g2, g3, stranger] loop
@@ -528,6 +564,385 @@ begin
   perform pg_temp.as_admin();
   perform pg_temp.expect_text(76, 'with computed_at an hour ago as well',
     format('select (computed_at = now() - interval ''1 hour'')::text from public.session_spots where session_id = %L and area_id = ''jurong-east''', s3), 'true');
+
+
+  -- ── Stage 4: slots and options, written as a difference ──────────────
+  -- sv is voting with an unpinned meeting at Bugis; the host, g1 and g2 are joined and g3 has opted out.
+  perform pg_temp.as_admin();
+  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version, meeting_area_id, meeting_method,
+                               meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, meeting_computed_at)
+    values (sv, host, 'Voting', current_date + 1, '10:00', '20:00', 'voting', 0, 'bugis', 'fairest', 20, 40, 2, false, now());
+  insert into public.session_members (session_id, user_id, state) values (sv, g1, 'joined'), (sv, g2, 'joined'), (sv, g3, 'opted_out');
+
+  -- Rule 7: slots, votes and options are written only while the session is voting.
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(77, 'slots are refused while the session is locating',
+    format('select pg_temp.apply(%L, 1, ''locating'', %L::jsonb)', s5,
+           '{"slots":[{"category":"eat","start_minute":720,"duration_minutes":90}]}'), 'slots_status');
+  perform pg_temp.expect_hint(78, 'so is clearing votes',
+    format('select pg_temp.apply(%L, 1, ''locating'', %L::jsonb)', s5, '{"ops":[{"op":"clear_votes"}]}'), 'slots_status');
+  perform pg_temp.expect_hint(79, 'and swapping an option',
+    format('select pg_temp.apply(%L, 1, ''locating'', %L::jsonb)', s5,
+           '{"ops":[{"op":"swap_option","category":"eat","from":"a","to":"b"}]}'), 'slots_status');
+
+  p := jsonb_build_object('slots', jsonb_build_array(
+    jsonb_build_object('category', 'eat', 'start_minute', 720, 'duration_minutes', 90, 'picks', 2, 'is_last', false,
+      'details', jsonb_build_object('widened', false), 'options', jsonb_build_array(
+        jsonb_build_object('venue_id', 'a', 'rank', 1, 'score', 10.5, 'details', jsonb_build_object('walk', 3)),
+        jsonb_build_object('venue_id', 'b', 'rank', 2, 'score', 12),
+        jsonb_build_object('venue_id', 'c', 'rank', 3, 'score', 15, 'source', 'member', 'added_by', g1))),
+    jsonb_build_object('category', 'drink', 'start_minute', 900, 'duration_minutes', 60, 'is_last', true, 'options', jsonb_build_array(
+        jsonb_build_object('venue_id', 'd', 'rank', 1, 'score', 9)))));
+  perform pg_temp.expect_text(80, 'slots and options are made, and the version goes up',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L::jsonb)', sv, p::text), '1');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(81, 'two slots with four options, with the figures sent',
+    format('select (select count(*) from public.slots where session_id = %L) || '' '' || (select count(*) from public.slot_options o join public.slots x on x.id = o.slot_id where x.session_id = %L)'
+           || ' || '' '' || (select start_minute || ''/'' || duration_minutes || ''/'' || picks || ''/'' || is_last from public.slots where session_id = %L and category = ''eat'')'
+           || ' || '' '' || (select score::text from public.slot_options o join public.slots x on x.id = o.slot_id where x.session_id = %L and o.venue_id = ''a'')', sv, sv, sv, sv),
+    '2 4 720/90/2/false 10.5');
+  select id into slot_eat from public.slots where session_id = sv and category = 'eat';
+  select id into slot_drink from public.slots where session_id = sv and category = 'drink';
+  perform pg_temp.as_server();
+  perform pg_temp.expect_error(82, 'a new slot needs its start and length',
+    format('select pg_temp.apply(%L, 1, ''voting'', %L::jsonb)', sv, '{"slots":[{"category":"shop"}]}'), '23502');
+  perform pg_temp.expect_text(83, 'the same slots again change nothing and do not raise the version',
+    format('select pg_temp.apply(%L, 1, ''voting'', %L::jsonb)', sv, p::text), '1');
+
+  -- Votes: g1 on A and the host on B in Eat, g2 on D in Drink (cast through the table, as a browser would not need to repeat).
+  perform pg_temp.as_admin();
+  insert into public.votes (slot_id, user_id, venue_id) values (slot_eat, g1, 'a'), (slot_eat, host, 'b'), (slot_drink, g2, 'd');
+  -- Eat now lists A (new score), C and E. B drops out and takes the host's vote; C keeps its source and who added it.
+  p := jsonb_build_object('slots', jsonb_build_array(jsonb_build_object('category', 'eat', 'options', jsonb_build_array(
+        jsonb_build_object('venue_id', 'a', 'rank', 1, 'score', 8.25, 'details', jsonb_build_object('walk', 4)),
+        jsonb_build_object('venue_id', 'c', 'rank', 2, 'score', 15, 'source', 'planner'),
+        jsonb_build_object('venue_id', 'e', 'rank', 3, 'score', 20)))));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(84, 'a changed list is written and raises the version',
+    format('select pg_temp.apply(%L, 1, ''voting'', %L::jsonb)', sv, p::text), '2');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(85, 'the dropped option took its vote; the kept option kept its vote; Drink is untouched',
+    format('select string_agg(v.user_id::text || '':'' || v.venue_id, '','' order by v.venue_id) from public.votes v join public.slots x on x.id = v.slot_id where x.session_id = %L', sv),
+    format('%s:a,%s:d', g1, g2));
+  perform pg_temp.expect_text(86, 'the options are A, C and E',
+    format('select string_agg(venue_id, '','' order by venue_id) from public.slot_options where slot_id = %L', slot_eat), 'a,c,e');
+  perform pg_temp.expect_text(87, 'a kept option has the new score and details',
+    format('select score::text || '' '' || (details ->> ''walk'') from public.slot_options where slot_id = %L and venue_id = ''a''', slot_eat), '8.25 4');
+  perform pg_temp.expect_text(88, 'and keeps its source and who added it when the planner lists it again',
+    format('select source || '' '' || (added_by = %L)::text from public.slot_options where slot_id = %L and venue_id = ''c''', g1, slot_eat), 'member true');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(89, 'a slot item without options changes only the fields it carries',
+    format('select pg_temp.apply(%L, 2, ''voting'', %L::jsonb)', sv, '{"slots":[{"category":"eat","start_minute":780}]}'), '3');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(90, 'the start moved, the length and the options stayed',
+    format('select start_minute || ''/'' || duration_minutes || '' '' || (select count(*) from public.slot_options where slot_id = %L) from public.slots where id = %L', slot_eat, slot_eat),
+    '780/90 3');
+
+  -- Removing a slot, and bringing it back.
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(91, 'a removed slot loses its options, and with them its votes',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', sv, '{"slots":[{"category":"drink","deleted":true,"options":[{"venue_id":"zzz"}]}]}'), '4');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(92, 'Drink is deleted with no options and no votes (the options sent with it are ignored)',
+    format('select deleted::text || '' '' || (select count(*) from public.slot_options where slot_id = %L) || '' '' || (select count(*) from public.votes where slot_id = %L) from public.slots where id = %L',
+           slot_drink, slot_drink, slot_drink), 'true 0 0');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(93, 'restoring it with a list of options',
+    format('select pg_temp.apply(%L, 4, ''voting'', %L::jsonb)', sv,
+           '{"slots":[{"category":"drink","deleted":false,"options":[{"venue_id":"d","rank":1,"score":9},{"venue_id":"f","rank":2,"score":11}]}]}'), '5');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(94, 'Drink is back with two options',
+    format('select deleted::text || '' '' || (select count(*) from public.slot_options where slot_id = %L) from public.slots where id = %L', slot_drink, slot_drink), 'false 2');
+
+  -- Swapping an option in place: the votes follow it.
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(95, 'a swap raises the version',
+    format('select pg_temp.apply(%L, 5, ''voting'', %L::jsonb)', sv, '{"ops":[{"op":"swap_option","category":"eat","from":"a","to":"a2"}]}'), '6');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(96, 'the option is now A2 and g1''s vote moved with it',
+    format('select (select string_agg(venue_id, '','' order by venue_id) from public.slot_options where slot_id = %L) || '' '' || (select venue_id from public.votes where slot_id = %L and user_id = %L)',
+           slot_eat, slot_eat, g1), 'a2,c,e a2');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(97, 'swapping again changes nothing: the place it leaves is gone',
+    format('select pg_temp.apply(%L, 6, ''voting'', %L::jsonb)', sv, '{"ops":[{"op":"swap_option","category":"eat","from":"a","to":"a2"}]}'), '6');
+  perform pg_temp.as_admin();
+  insert into public.votes (slot_id, user_id, venue_id) values (slot_eat, host, 'c');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(98, 'swapping into a place that is already an option',
+    format('select pg_temp.apply(%L, 6, ''voting'', %L::jsonb)', sv, '{"ops":[{"op":"swap_option","category":"eat","from":"c","to":"e"}]}'), '7');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(99, 'moves the votes to it and removes the old option',
+    format('select (select string_agg(venue_id, '','' order by venue_id) from public.slot_options where slot_id = %L) || '' '' || (select venue_id from public.votes where slot_id = %L and user_id = %L)',
+           slot_eat, slot_eat, host), 'a2,e e');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(100, 'a swap in a slot the session does not have is refused',
+    format('select pg_temp.apply(%L, 7, ''voting'', %L::jsonb)', sv, '{"ops":[{"op":"swap_option","category":"shop","from":"a","to":"b"}]}'), 'slot_missing');
+
+  -- The radius and the banner.
+  perform pg_temp.expect_text(101, 'the radius is written and raises the version',
+    format('select pg_temp.apply(%L, 7, ''voting'', %L::jsonb)', sv, '{"session":{"radius_meters":1000}}'), '8');
+  perform pg_temp.expect_text(102, 'the same radius again changes nothing',
+    format('select pg_temp.apply(%L, 8, ''voting'', %L::jsonb)', sv, '{"session":{"radius_meters":1000}}'), '8');
+  perform pg_temp.expect_text(103, 'clearing it is a change',
+    format('select pg_temp.apply(%L, 8, ''voting'', %L::jsonb)', sv, '{"session":{"radius_meters":null}}'), '9');
+  perform pg_temp.expect_error(104, 'a radius outside 100 to 3000 is refused by the table',
+    format('select pg_temp.apply(%L, 9, ''voting'', %L::jsonb)', sv, '{"session":{"radius_meters":50}}'), '23514');
+  p := '{"session":{"banner":{"text":"Votes for places outside the new ring were cleared.","votesCleared":true,"byRadius":true}}}'::jsonb;
+  perform pg_temp.expect_text(105, 'a banner sent without its time is written',
+    format('select pg_temp.apply(%L, 9, ''voting'', %L::jsonb)', sv, p::text), '10');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(106, 'with the database''s time, in milliseconds, beside what was sent',
+    format('select ((banner ->> ''at'')::bigint > 1700000000000)::text || '' '' || (banner ->> ''byRadius'') from public.sessions where id = %L', sv), 'true true');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(107, 'the same banner again changes nothing (it differs only by the time)',
+    format('select pg_temp.apply(%L, 10, ''voting'', %L::jsonb)', sv, p::text), '10');
+  perform pg_temp.expect_text(108, 'a banner sent with its time is written as it was before: exactly as sent',
+    format('select pg_temp.apply(%L, 10, ''voting'', %L::jsonb)', sv, '{"session":{"banner":{"text":"Hello","at":5}}}'), '11');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(109, 'with the time it carried',
+    format('select (banner ->> ''at'') from public.sessions where id = %L', sv), '5');
+
+  -- The meeting area moving in voting, with the votes cleared in the same call, then the votes that go with a member.
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_count(110, 'two votes stand before the meeting area moves',
+    format('select count(*) from public.votes v join public.slots x on x.id = v.slot_id where x.session_id = %L', sv), 2);
+  p := jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'clear_votes')),
+    'session', jsonb_build_object('meeting', jsonb_build_object('area_id', 'orchard', 'method', 'fairest', 'max_minutes', 25, 'total_minutes', 45,
+      'count', 2, 'approximate', false, 'travel', jsonb_build_object(host::text, 20, g1::text, 25, g2::text, 18))));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(111, 'an unpinned meeting area moves in voting, and its votes are cleared in the same call',
+    format('select pg_temp.apply(%L, 11, ''voting'', %L::jsonb)', sv, p::text), '12');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(112, 'the area is Orchard, no vote is left, the options stay, and g1 has their minutes',
+    format('select meeting_area_id || '' '' || (select count(*) from public.votes v join public.slots x on x.id = v.slot_id where x.session_id = %L)'
+           || ' || '' '' || (select count(*) from public.slot_options where slot_id = %L) || '' '' || (select travel_minutes from public.session_members where session_id = %L and user_id = %L)'
+           || ' from public.sessions where id = %L', sv, slot_eat, sv, g1, sv),
+    'orchard 0 2 25');
+  insert into public.votes (slot_id, user_id, venue_id) values (slot_eat, g1, 'a2'), (slot_eat, g2, 'e'), (slot_drink, g2, 'd');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(113, 'opting a member out deletes their votes too',
+    format('select pg_temp.apply(%L, 12, ''voting'', %L::jsonb)', sv, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'opt_out', 'user_id', g2)))::text), '13');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(114, 'g2 is out and has no vote; g1''s stands',
+    format('select (select state from public.session_members where session_id = %L and user_id = %L) || '' '' || (select count(*) from public.votes where user_id = %L and slot_id in (%L, %L))'
+           || ' || '' '' || (select count(*) from public.votes where user_id = %L and slot_id = %L)', sv, g2, g2, slot_eat, slot_drink, g1, slot_eat),
+    'opted_out 0 1');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(115, 'removing a member deletes their votes, which no foreign key would',
+    format('select pg_temp.apply(%L, 13, ''voting'', %L::jsonb)', sv, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'remove_member', 'user_id', g1)))::text), '14');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_count(116, 'g1 has no vote left in the session',
+    format('select count(*) from public.votes v join public.slots x on x.id = v.slot_id where x.session_id = %L and v.user_id = %L', sv, g1), 0);
+
+  -- Votes cast by someone who is not joined go with the next write of the slots.
+  perform pg_temp.as_admin();
+  insert into public.votes (slot_id, user_id, venue_id) values (slot_eat, g3, 'e');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(117, 'a late vote by an opted-out member is cleaned up by the next slot write',
+    format('select pg_temp.apply(%L, 14, ''voting'', %L::jsonb)', sv, '{"slots":[{"category":"eat"}]}'), '15');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_count(118, 'and it is gone',
+    format('select count(*) from public.votes where user_id = %L', g3), 0);
+
+  -- A late answer writes nothing.
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(119, 'a slot write computed against an older version answers null',
+    format('select pg_temp.apply(%L, 14, ''voting'', %L::jsonb)', sv, '{"slots":[{"category":"eat","start_minute":600}]}'), 'null');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(120, 'and changed nothing',
+    format('select start_minute::text from public.slots where id = %L', slot_eat), '780');
+
+  -- A slot that no longer fits the day is removed.
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(121, 'a slot can be removed outright',
+    format('select pg_temp.apply(%L, 15, ''voting'', %L::jsonb)', sv, '{"slots":[{"category":"drink","remove":true}]}'), '16');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_count(122, 'Drink is gone with its options',
+    format('select (select count(*) from public.slots where session_id = %L and category = ''drink'') + (select count(*) from public.slot_options where slot_id = %L)', sv, slot_drink), 0);
+
+  -- The confirm makes the slots in the same call as the status move.
+  perform pg_temp.as_admin();
+  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version) values (sl, host, 'Confirming', current_date + 1, '10:00', '20:00', 'locating', 0);
+  insert into public.session_members (session_id, user_id, state) values (sl, g1, 'joined');
+  p := jsonb_build_object('session', jsonb_build_object('status', 'voting', 'banner', null,
+      'meeting', jsonb_build_object('area_id', 'bugis', 'method', 'voted', 'max_minutes', 20, 'total_minutes', 40, 'count', 2, 'approximate', false, 'travel', '{}'::jsonb)),
+    'slots', jsonb_build_array(jsonb_build_object('category', 'eat', 'start_minute', 720, 'duration_minutes', 90, 'options', jsonb_build_array(jsonb_build_object('venue_id', 'a', 'rank', 1, 'score', 5)))));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(123, 'the confirm moves to voting and makes the slots and options in one call',
+    format('select pg_temp.apply(%L, 0, ''locating'', %L::jsonb)', sl, p::text), '1');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(124, 'the session is voting with a slot and an option',
+    format('select status || '' '' || (select count(*) from public.slots where session_id = %L) || '' '' || (select count(*) from public.slot_options o join public.slots x on x.id = o.slot_id where x.session_id = %L)'
+           || ' from public.sessions where id = %L', sl, sl, sl), 'voting 1 1');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(125, 'a pinned meeting area still cannot be moved by a recompute in voting',
+    format('select pg_temp.apply(%L, 1, ''voting'', %L::jsonb)', sl, jsonb_set(p, '{session,meeting,area_id}', '"orchard"')::text), 'area_pinned');
+
+  -- ── Stage 4: what a browser may do in voting ─────────────────────────
+  -- Votes are the one planning write a browser makes. sv is voting; the host and g2 are joined... g2 is out, so use sl (host, g1).
+  perform pg_temp.as_admin();
+  select id into slot_eat from public.slots where session_id = sl and category = 'eat';
+  insert into public.slot_options (slot_id, venue_id, rank, score) values (slot_eat, 'b', 2, 6);
+  perform pg_temp.as_user(g1);
+  perform pg_temp.expect_ok(126, 'a joined member votes for an option', format('insert into public.votes (slot_id, user_id, venue_id) values (%L, %L, ''a'')', slot_eat, g1), 1);
+  perform pg_temp.expect_error(127, 'a member cannot vote as somebody else',
+    format('insert into public.votes (slot_id, user_id, venue_id) values (%L, %L, ''a'')', slot_eat, host), '42501');
+  perform pg_temp.as_user(host);
+  perform pg_temp.expect_ok(128, 'the host votes too', format('insert into public.votes (slot_id, user_id, venue_id) values (%L, %L, ''b'')', slot_eat, host), 1);
+  perform pg_temp.as_user(g1);
+  perform pg_temp.expect_count(129, 'a member reads everyone''s votes in the session', format('select count(*) from public.votes where slot_id = %L', slot_eat), 2);
+  perform pg_temp.expect_ok(130, 'a member cannot delete another member''s vote: the row is not theirs, so nothing is touched',
+    format('delete from public.votes where slot_id = %L and user_id = %L', slot_eat, host), 0);
+  perform pg_temp.expect_ok(131, 'a member takes their own vote back', format('delete from public.votes where slot_id = %L and user_id = %L', slot_eat, g1), 1);
+  perform pg_temp.expect_error(132, 'a member cannot make an option', format('insert into public.slot_options (slot_id, venue_id) values (%L, ''x'')', slot_eat), '42501');
+  perform pg_temp.expect_error(133, 'cannot make a slot', format('insert into public.slots (session_id, category, start_minute, duration_minutes) values (%L, ''shop'', 900, 60)', sl), '42501');
+  perform pg_temp.as_user(host);
+  perform pg_temp.expect_error(134, 'the host cannot write the radius directly: it goes through the server',
+    format('update public.sessions set radius_meters = 500 where id = %L', sl), '42501');
+  perform pg_temp.expect_error(135, 'nor delete a slot', format('delete from public.slots where id = %L', slot_eat), '42501');
+  perform pg_temp.as_admin();
+  update public.session_members set state = 'opted_out' where session_id = sl and user_id = g1;
+  perform pg_temp.as_user(g1);
+  perform pg_temp.expect_error(136, 'a member who has opted out cannot vote',
+    format('insert into public.votes (slot_id, user_id, venue_id) values (%L, %L, ''a'')', slot_eat, g1), '42501');
+
+  -- A change of who travels how long, with the same longest trip, total and count, is still a change: two people swapped their times.
+  -- s3 is voting, pinned at Bugis (longest 11, total 20, two people); its members have no stored minutes yet.
+  perform pg_temp.as_admin();
+  update public.session_members set travel_minutes = 10 where session_id = s3 and user_id in (host, g1);
+  p := jsonb_build_object('session', jsonb_build_object('meeting', jsonb_build_object('area_id', 'bugis', 'method', 'chosen',
+    'max_minutes', 11, 'total_minutes', 20, 'count', 2, 'approximate', false, 'travel', jsonb_build_object(host::text, 10, g1::text, 10))));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(137, 'the same figures and the same minutes change nothing',
+    format('select pg_temp.apply(%L, 5, ''voting'', %L::jsonb)', s3, p::text), '5');
+  p := jsonb_set(p, '{session,meeting,travel}', jsonb_build_object(host::text, 14, g1::text, 6));
+  perform pg_temp.expect_text(138, 'the same figures but different minutes for the people are written, and raise the version',
+    format('select pg_temp.apply(%L, 5, ''voting'', %L::jsonb)', s3, p::text), '6');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(139, 'each person has their own new minutes',
+    format('select (select travel_minutes from public.session_members where session_id = %L and user_id = %L) || '' '' || (select travel_minutes from public.session_members where session_id = %L and user_id = %L)', s3, host, s3, g1), '14 6');
+
+  -- ── A place's id may be up to 160 characters ─────────────────────────
+  -- The 32 saved hawker centres have ids of 86 characters; a halal group is offered exactly those, so they must be options, votes and
+  -- stops. sl is voting with slot_eat offering A and B; g1 opted out at step 136, so g1 comes back first.
+  perform pg_temp.as_admin();
+  update public.session_members set state = 'joined' where session_id = sl and user_id = g1;
+  select plan_version into ver from public.sessions where id = sl;
+  p := jsonb_build_object('slots', jsonb_build_array(jsonb_build_object('category', 'eat', 'options', jsonb_build_array(
+        jsonb_build_object('venue_id', 'a', 'rank', 1, 'score', 5),
+        jsonb_build_object('venue_id', 'b', 'rank', 2, 'score', 6),
+        jsonb_build_object('venue_id', long_id, 'rank', 3, 'score', 7)))));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(140, 'a place with an id of 120 characters becomes an option',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L::jsonb)', sl, ver, p::text), (ver + 1)::text);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(141, 'it is stored whole',
+    format('select max(char_length(venue_id))::text from public.slot_options where slot_id = %L', slot_eat), '120');
+  perform pg_temp.as_user(g1);
+  perform pg_temp.expect_ok(142, 'a member votes for it', format('insert into public.votes (slot_id, user_id, venue_id) values (%L, %L, %L)', slot_eat, g1, long_id), 1);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(143, 'the vote is for the whole id',
+    format('select venue_id from public.votes where slot_id = %L and user_id = %L', slot_eat, g1), long_id);
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(144, 'a swap away from it is made in place',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L::jsonb)', sl, ver + 1,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'swap_option', 'category', 'eat', 'from', long_id, 'to', 'zz')))::text), (ver + 2)::text);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(145, 'and the vote followed it',
+    format('select venue_id from public.votes where slot_id = %L and user_id = %L', slot_eat, g1), 'zz');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(146, 'a swap back to the long id is made in place too',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L::jsonb)', sl, ver + 2,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'swap_option', 'category', 'eat', 'from', 'zz', 'to', long_id)))::text), (ver + 3)::text);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(147, 'and the vote is on the long id again',
+    format('select venue_id from public.votes where slot_id = %L and user_id = %L', slot_eat, g1), long_id);
+  perform pg_temp.as_server();
+  perform pg_temp.expect_error(148, 'an id of 161 characters is still not an option',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L::jsonb)', sl, ver + 3,
+           jsonb_build_object('slots', jsonb_build_array(jsonb_build_object('category', 'eat', 'options',
+             jsonb_build_array(jsonb_build_object('venue_id', repeat('y', 161), 'rank', 1)))))::text), '23514');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_ok(149, 'a stop may hold an id of 120 characters',
+    format('insert into public.stops (session_id, seq, venue_id, planned_start_minute, duration_minutes) values (%L, 0, %L, 720, 90)', sl, long_id), 1);
+  perform pg_temp.expect_error(150, 'but not 161',
+    format('insert into public.stops (session_id, seq, venue_id, planned_start_minute, duration_minutes) values (%L, 1, %L, 720, 90)', sl, repeat('y', 161)), '23514');
+
+  -- ── Smaller rules of the function ────────────────────────────────────
+  -- A swap of a place for itself is not a swap. sl is voting at version ver + 3, and g1's vote is on the long id (step 147).
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(151, 'a swap of a place for itself changes nothing and does not raise the version',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L::jsonb)', sl, ver + 3,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'swap_option', 'category', 'eat', 'from', long_id, 'to', long_id)))::text), (ver + 3)::text);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(152, 'the option is still there, and so is the vote for it',
+    format('select (select count(*) from public.slot_options where slot_id = %L and venue_id = %L) || '' '' || (select count(*) from public.votes where slot_id = %L and user_id = %L and venue_id = %L)',
+           slot_eat, long_id, slot_eat, g1, long_id), '1 1');
+
+  -- A part of the plan the function does not know is refused (22023), whatever else is in the plan.
+  perform pg_temp.as_server();
+  perform pg_temp.expect_error(153, 'a misspelt part of the plan is refused',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L)', sl, ver + 3, '{"slotz":[]}'), '22023', 'slotz');
+  perform pg_temp.expect_error(154, 'a misspelt part of the session is refused',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L)', sl, ver + 3, '{"session":{"radius":1000}}'), '22023', 'radius');
+  perform pg_temp.expect_error(155, 'a session that is not an object is refused',
+    format('select pg_temp.apply(%L, %s, ''voting'', %L)', sl, ver + 3, '{"session":[]}'), '22023');
+  perform pg_temp.expect_error(156, 'a misspelt part is refused even when the write is too late to be made',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L)', sl, '{"opz":[]}'), '22023', 'opz');
+  perform pg_temp.expect_text(157, 'and a plan made only of the known parts passes the check (and, being late, answers null)',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L)', sl, '{"ops":[],"spots":[],"slots":[],"session":{},"loaded_at":null,"recomputed":false,"banner_text":null}'), 'null');
+
+  -- A member's minutes are written only where they differ. s3 is voting at version 6 with minutes 14 (the host) and 6 (g1) from step 138.
+  perform pg_temp.as_admin();
+  select ctid::text into tid_host from public.session_members where session_id = s3 and user_id = host;
+  select ctid::text into tid_g1 from public.session_members where session_id = s3 and user_id = g1;
+  p := jsonb_build_object('session', jsonb_build_object(
+    'banner', jsonb_build_object('text', 'The minutes were worked out again.'),
+    'meeting', jsonb_build_object('area_id', 'bugis', 'method', 'chosen', 'max_minutes', 11, 'total_minutes', 20, 'count', 2, 'approximate', false,
+      'travel', jsonb_build_object(host::text, 14, g1::text, 6))));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(158, 'a new notice with the same minutes raises the version',
+    format('select pg_temp.apply(%L, 6, ''voting'', %L::jsonb)', s3, p::text), '7');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(159, 'and neither member''s row was written again',
+    format('select ((select ctid::text from public.session_members where session_id = %L and user_id = %L) = %L'
+           || ' and (select ctid::text from public.session_members where session_id = %L and user_id = %L) = %L)::text', s3, host, tid_host, s3, g1, tid_g1), 'true');
+  p := jsonb_set(p, '{session}', (p -> 'session') - 'banner');
+  p := jsonb_set(p, '{session,meeting,travel}', jsonb_build_object(host::text, 14, g1::text, 9));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(160, 'one changed minute is written',
+    format('select pg_temp.apply(%L, 7, ''voting'', %L::jsonb)', s3, p::text), '8');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(161, 'to that member''s row only',
+    format('select ((select ctid::text from public.session_members where session_id = %L and user_id = %L) = %L'
+           || ' and (select ctid::text from public.session_members where session_id = %L and user_id = %L) <> %L)::text', s3, host, tid_host, s3, g1, tid_g1), 'true');
+  perform pg_temp.expect_text(162, 'and the minutes are 14 and 9',
+    format('select (select travel_minutes from public.session_members where session_id = %L and user_id = %L) || '' '' || (select travel_minutes from public.session_members where session_id = %L and user_id = %L)', s3, host, s3, g1), '14 9');
+
+  -- The checks on a place's id are dropped by what they check, whatever they are called. Two old-style checks of 80 are put back under
+  -- other names (not valid, so the rows of 120 characters above do not stop them), and the migration's statements run again.
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_ok(163, 'a check of 80 under another name is put on the options',
+    'alter table public.slot_options add constraint odd_name_for_a_limit check (char_length(venue_id) <= 80) not valid');
+  perform pg_temp.expect_ok(164, 'and on the stops',
+    'alter table public.stops add constraint another_odd_name check (char_length(venue_id) <= 80) not valid');
+  perform pg_temp.expect_count(165, 'the options now have two checks on the id',
+    'select count(*) from pg_constraint where contype = ''c'' and conrelid = ''public.slot_options''::regclass and pg_get_constraintdef(oid) like ''%venue_id%''', 2);
+  perform pg_temp.expect_ok(166, 'the migration''s block drops every check that mentions the id', drop_checks);
+  perform pg_temp.expect_count(167, 'none is left on the options',
+    'select count(*) from pg_constraint where contype = ''c'' and conrelid = ''public.slot_options''::regclass and pg_get_constraintdef(oid) like ''%venue_id%''', 0);
+  perform pg_temp.expect_count(168, 'none on the stops',
+    'select count(*) from pg_constraint where contype = ''c'' and conrelid = ''public.stops''::regclass and pg_get_constraintdef(oid) like ''%venue_id%''', 0);
+  perform pg_temp.expect_ok(169, 'the check of 160 is made again on the options',
+    'alter table public.slot_options add constraint slot_options_venue_id_check check (char_length(venue_id) <= 160)');
+  perform pg_temp.expect_ok(170, 'and on the stops',
+    'alter table public.stops add constraint stops_venue_id_check check (char_length(venue_id) <= 160)');
+  perform pg_temp.expect_text(171, 'each table has that one check on the id, and it is 160',
+    'select (select string_agg(conname || (pg_get_constraintdef(oid) like ''%160%'')::text, '','') from pg_constraint where contype = ''c'' and conrelid = ''public.slot_options''::regclass and pg_get_constraintdef(oid) like ''%venue_id%'')'
+    || ' || '' '' || (select string_agg(conname || (pg_get_constraintdef(oid) like ''%160%'')::text, '','') from pg_constraint where contype = ''c'' and conrelid = ''public.stops''::regclass and pg_get_constraintdef(oid) like ''%venue_id%'')',
+    'slot_options_venue_id_checktrue stops_venue_id_checktrue');
+  perform pg_temp.expect_error(172, 'and 161 is still refused',
+    format('insert into public.stops (session_id, seq, venue_id, planned_start_minute, duration_minutes) values (%L, 2, %L, 720, 90)', sl, repeat('y', 161)), '23514');
 
   raise notice 'ALL STEPS PASSED';
 end;

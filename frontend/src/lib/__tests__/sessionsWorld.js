@@ -65,3 +65,14 @@ export async function locating({ places = false, third = false } = {}) {
   return { w, sam, kim, lee, id }
 }
 
+
+// Sam hosts a session with Kim in it, both with a start, and the host has confirmed the first spot: the group is voting, and the server
+// has made the slots and their places. `plan` is the first slot (the first category of the plan) as Sam reads it.
+// How to call: const { w, sam, kim, id, slot } = await voting()
+export async function voting({ third = false } = {}) {
+  const world = await locating({ places: true, third })
+  await world.sam.api.useMeetingArea(world.id)
+  const plan = await world.sam.api.getPlan(world.id)
+  world.w.server.calls.length = 0
+  return { ...world, plan, slot: plan.slots[0] }
+}

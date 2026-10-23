@@ -28,11 +28,27 @@ export function fewLine(found) {
   return `Only ${found} ${found === 1 ? 'place fits' : 'places fit'}.`
 }
 
+// The line a card says when a need of the group is unconfirmed for the place and the person may not be told whose it is (a shared
+// session's server stores one flag, `checkNeeds`, and never names a need: in a group of two a named need is the other person's).
+export const CHECK_NEEDS_TEXT = "Check it fits everyone's needs"
+
+// The needs of the group that a food place only likely meets (`verify`) or has no data on (`dietUnknown`), worked out here from the
+// place's own diet levels (the planner's venue: `diet: { halal: 'likely', ... }`) for the needs the person may name. A drink, shop or
+// activity place has none, as the planner sends none for it.
+// How to call: dietCaveats({ category: 'eat', diet: { halal: 'likely', vegan: 'unknown', vegetarian: 'full' } }, ['halal', 'vegan']) -> { verify: ['halal'], dietUnknown: ['vegan'] }
+export function dietCaveats(venue, needs) {
+  if (!venue?.diet || venue.category === 'drink') return { verify: [], dietUnknown: [] }
+  const named = cleanDietary(needs)
+  return { verify: named.filter((n) => venue.diet[n] === 'likely'), dietUnknown: named.filter((n) => venue.diet[n] === 'unknown') }
+}
+
 // The caveats a place carries, as tags beside "Near MRT", one per need (after a MUIS tag, when the place has one): a need we only guessed from a stall's name ("Halal
 // likely") and a need we have no data on ("Halal not confirmed", with a warning icon). Halal is brown and vegetarian and
 // vegan green (InfoTag tones `halal` and `veg`). Each tag's `title` is the whole sentence, "... check before you go". None
 // for a place that fits for sure, and none for a drink, shop or activity place (the planner sends none for them). At a centre
 // with MUIS-certified stalls the halal tag says "check the stall", because one stall's certificate is not the centre's.
+// An option of a shared session may carry `checkNeeds` (a need of the group is unconfirmed for it and the person may not be told whose):
+// then a last tag says CHECK_NEEDS_TEXT, whatever the named tags before it.
 // How to call: dietTags({ dietUnknown: ['halal'], verify: [] }) -> [{ key: 'unknown-halal', text: 'Halal not confirmed', tone: 'halal', icon: 'warning', title: 'Halal not confirmed, check before you go' }]
 export function dietTags(option) {
   const stalls = isStallsOnly(option?.venue)
@@ -42,7 +58,8 @@ export function dietTags(option) {
     const advice = stalls && need === 'halal' && kind === 'likely' ? 'check the stall' : 'check before you go'
     return { key: `${kind}-${need}`, text, tone, icon: kind === 'unknown' ? 'warning' : '', title: `${text}, ${advice}` }
   }
-  return [...certifiedTags(option?.venue), ...cleanDietary(option?.dietUnknown).map((n) => tag(n, 'unknown')), ...cleanDietary(option?.verify).map((n) => tag(n, 'likely'))]
+  const check = option?.checkNeeds ? [{ key: 'check-needs', text: CHECK_NEEDS_TEXT, tone: 'neutral', icon: 'info', title: `${CHECK_NEEDS_TEXT}, check before you go` }] : []
+  return [...certifiedTags(option?.venue), ...cleanDietary(option?.dietUnknown).map((n) => tag(n, 'unknown')), ...cleanDietary(option?.verify).map((n) => tag(n, 'likely')), ...check]
 }
 
 // Is this a centre whose MUIS certificates cover some of its stalls, not the whole place? A single certified shop or restaurant
@@ -67,3 +84,7 @@ export function certifiedTags(venue) {
 
 // Why a searched place cannot be added for a dietary need. How to call: unfitDietText('halal') -> 'Halal not confirmed'
 export const unfitDietText = (need) => `${capitalised(needWord(need))} not confirmed`
+
+// Why a searched place cannot be added in a shared session, where the server says only that it does not suit the group's needs and
+// never which. How to call: unfitGroupNeedsText -> "Doesn't fit everyone's needs"
+export const unfitGroupNeedsText = "Doesn't fit everyone's needs"

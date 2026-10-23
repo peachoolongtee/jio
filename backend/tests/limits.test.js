@@ -96,12 +96,12 @@ describe('planner input limits', () => {
   })
 
   it('accepts the id of every saved place as a current option, the longest OneMap ids included', async () => {
-    // A saved OneMap place's id carries its address; the longest are 86 characters, over the 80 of other ids.
+    // A saved OneMap place's id carries its address; the longest are 86 characters, over the 80 of other ids. The limit is 160, the database's own.
     const longest = 'onemap_ssot_hawkercentres_marine-parade-central-blk-84-84-marine-parade-central-market'
     expect(longest.length).toBeGreaterThan(80)
     const r = await send('/api/converge', { ...valid, categories: ['eat'], currentOptionIds: [longest], excludeVenueIds: [longest] })
     expect(r.status).toBe(200)
-    const tooLong = await send('/api/converge', { ...valid, currentOptionIds: ['x'.repeat(121)] })
+    const tooLong = await send('/api/converge', { ...valid, currentOptionIds: ['x'.repeat(161)] })
     expect(tooLong.status).toBe(400)
   })
 

@@ -1,6 +1,8 @@
 import { once } from 'node:events'
 import { createApp } from '../../src/app.js'
 import { createSupabase } from '../../src/db/supabase.js'
+import { createHttp } from '../../src/services/http.js'
+import { createWeather } from '../../src/services/weather.js'
 import { fakeSupabase, jwksFetch, SUPABASE_URL, tokenFor } from './fake-supabase.js'
 
 // Starts the real app over a fake database, for the session tests. The login check is the real code (it verifies the tokens
@@ -16,7 +18,9 @@ export async function startSessionApp(world, options = {}) {
   const real = createSupabase({ url: SUPABASE_URL, anonKey: 'anon-key', serviceKey: 'service-key', fetchImpl: jwksFetch })
   const supabase = options.supabase === false ? null : fakeSupabase(world, real)
   const { supabase: _ignored, ...rest } = options
-  const server = createApp({ frontendOrigin: 'http://localhost:5173', supabase, ...rest }).listen(0, '127.0.0.1')
+  // The forecast answers from the stub fixtures (a voting ranking asks for it), so no test needs the network, whatever day it runs on.
+  const weather = createWeather({ http: createHttp({ stub: true }) })
+  const server = createApp({ frontendOrigin: 'http://localhost:5173', supabase, weather, ...rest }).listen(0, '127.0.0.1')
   await once(server, 'listening')
   const base = `http://127.0.0.1:${server.address().port}`
   return {
@@ -51,6 +55,7 @@ export function addSession(world, { id = SESSION, host = HOST, status = 'locatin
     host_id: host,
     status,
     plan_version: version,
+    radius_meters: null,
     date,
     start_time: start,
     end_time: end,

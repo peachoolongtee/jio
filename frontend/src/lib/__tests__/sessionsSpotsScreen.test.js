@@ -1,6 +1,6 @@
 // The screens of stage 3 for a real account, drawn for real on an in-memory page (domless.js) on the stand-in database and the stand-in
 // Jio server: starting the session, the Locate step (the spots, "Works for me", the host's confirm, leaving, removing, rejoining, a
-// failed save and its retry), and the Vote page that says voting with friends comes next. No network.
+// failed save and its retry), and the Vote page. No network.
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
@@ -359,23 +359,18 @@ describe('the banner about marks that went with a spot', () => {
 })
 
 describe('the Vote page of a shared session', () => {
-  it('says voting with friends comes next, names the confirmed spot, and loads no plan', async () => {
-    const { w, sam, kim, id } = await locating()
+  it('lists the places the server offered, names the confirmed spot as the area, and stops at the plan (stage 4: sessionsVotingScreen.test.js has the rest)', async () => {
+    const { w, sam, id } = await locating()
     const first = (await sam.api.getSession(id)).spots.list[0]
     await sam.api.confirmSpot(id, first.areaId)
     w.server.calls.length = 0
     const { view } = await draw('views/PlannerView', `/sessions/${id}/plan`, { id })
-    await until(() => view.has('[data-testid=voting-next]'))
+    await until(() => view.has('article[data-option]'))
     expect(view.errors).toEqual([])
-    expect(view.text(view.one('[data-testid=voting-next]'))).toContain('Voting with friends comes next')
-    expect(view.text()).toContain(`${first.area.name} is confirmed as the meeting spot.`)
-    expect(view.text()).toContain('not ready yet')
-    expect(press(view, 'Back to the people')).toBeUndefined()
-    expect(view.all('a').some((a) => view.text(a).includes('Back to the people'))).toBe(true)
-    // No plan is asked for, no places are listed, nothing can be confirmed.
+    expect(view.has('[data-testid=voting-next]')).toBe(false)
+    expect(view.text()).toContain(`Walking times are from ${first.area.name}`)
+    expect(view.text(view.one('[data-testid=confirm-next]'))).toContain('Confirming the plan with friends comes in the next update.')
     expect(view.text()).not.toContain('Confirm plan')
-    expect(view.text()).not.toContain('Needs 2 voters')
     expect(view.has('[data-testid=plan-error]')).toBe(false)
-    expect(w.server.calls).toEqual([])
   })
 })

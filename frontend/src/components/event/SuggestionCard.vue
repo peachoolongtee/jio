@@ -11,7 +11,9 @@
 // the start of a review by someone in the outing (`outing`, ids), else by a friend (`friends`, ids), with a "Sample" tag;
 // with neither it says how many sample reviews there are. It stays on the card whatever the card's state.
 // A food place that does not surely fit the group's dietary needs says so in its tags, one per need ("Halal likely", "Halal not
-// confirmed"; hovering says "check before you go"), from the option's dietUnknown and verify.
+// confirmed"; hovering says "check before you go"), from the option's dietUnknown and verify. In a shared session those are worked out in
+// the browser for the needs the person may name, and an option the server flagged (`checkNeeds`) that they do not account for says
+// "Check it fits everyone's needs", which names no need.
 // Colour coding: a stripe in the category colour. `leading` outlines the card in ink
 // and tags it "Leading"; `behind` (another place leads) mutes the vote count. `closed` makes the vote read-only.
 // Roam ("What next?") uses the same card without votes: `meta` replaces the walking line ("about 4 min away · 250 m") and

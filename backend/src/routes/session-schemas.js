@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OPTIONS_MAX } from '../planner/slot-plan.js'
 import { MAX } from './plan-schemas.js'
 
 // Request checks for the session endpoints (routes/sessions.js). Every id and body is checked here before anything is read or
@@ -10,6 +11,10 @@ import { MAX } from './plan-schemas.js'
 //   const id = sessionSchemas.sessionId.parse(req.params.id)
 
 const areaId = z.string().min(1).max(MAX.areaId)
+// A place's id: the same limit as the database's on slot_options.venue_id (160, so the long ids of saved OneMap places fit).
+const venueId = z.string().min(1).max(MAX.venueId)
+// A uuid in a path or a body, in lower case (see sessionId).
+const uuid = z.string().uuid().transform((id) => id.toLowerCase())
 
 export const sessionSchemas = {
   // A uuid in a path. Postgres reads one without regard to the case of its letters; the service compares them in lower case, so it is
@@ -25,6 +30,22 @@ export const sessionSchemas = {
   confirmSpot: z.object({ areaId: areaId.optional() }).strict(),
   // PUT /api/sessions/:id/known-place
   knownPlace: z.object({ areaId }).strict(),
-  // POST /api/sessions/:id/opt-out and /rejoin take no body. A body, if sent, must be empty.
+  // POST /api/sessions/:id/opt-out, /rejoin and /plan/sync take no body. A body, if sent, must be empty.
   nothing: z.object({}).strict(),
+  // A slot in a path.
+  slotId: uuid,
+  // A place in a path (swap).
+  venueId,
+  // PUT /api/sessions/:id/radius. Metres from 100 to 3000, or null to let the planner widen on its own.
+  radius: z.object({ radiusMeters: z.number().int().min(100).max(3000).nullable() }).strict(),
+  // POST /api/sessions/:id/slots/restore. Without a slot, every removed slot comes back.
+  restoreSlots: z.object({ slotId: uuid.optional() }).strict(),
+  // POST /api/sessions/:id/slots/:slotId/options
+  addOption: z.object({ venueId }).strict(),
+  // POST /api/sessions/:id/slots/:slotId/options/more. `have` is how many places the caller sees in the slot.
+  moreOptions: z.object({ have: z.number().int().min(0).max(OPTIONS_MAX) }).strict(),
+  // POST /api/sessions/:id/slots/:slotId/options/:venueId/swap
+  swapOption: z.object({ toVenueId: venueId }).strict(),
+  // GET /api/sessions/:id/slots/:slotId/venue-search?q=
+  venueSearch: z.object({ q: z.string().trim().min(1).max(MAX.searchQuery) }).strict(),
 }
