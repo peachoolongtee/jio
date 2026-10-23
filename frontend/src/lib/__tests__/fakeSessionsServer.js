@@ -685,6 +685,8 @@ export function fakeSessionsServer(database) {
   )
   function route(method, path) {
     if (method === 'GET' && path === '/api/venues') return { name: 'venues', id: null }
+    const outside = server.plan?.routeOutsideSessions(method, path)
+    if (outside) return outside
     const m = /^\/api\/sessions\/([^/]+)(\/.*)?$/.exec(path)
     if (!m) return null
     const [, id, tail = ''] = m

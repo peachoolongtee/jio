@@ -4023,7 +4023,8 @@ export async function suggestOrder(id) {
 async function suggestOrderOnServer(id) {
   const asked = epoch
   const answer = await remote.suggestOrder(id)
-  if (!answer) return null
+  // Asked for by the account before: not used, not shown.
+  if (!answer || asked !== epoch) return null
   const plan = newestPlanRead.get(id)?.plan ?? (await planFromServer(id))
   await ensureVenues(answer.stops.map((s) => s.venueId))
   if (asked !== epoch) return null

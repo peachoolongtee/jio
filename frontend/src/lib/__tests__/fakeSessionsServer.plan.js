@@ -23,9 +23,12 @@
 //   POST   /api/sessions/:id/proposals { venueId }               E23 (joined member, confirmed)
 //   POST   /api/sessions/:id/proposals/:proposalId/resolve { accept }   E24 (host; the proposer may dismiss their own)
 //
+// Also POST /api/weather/stops (the weather at the plan's stops: dry, or `server.plan.weather = 'showers'`), which is not a session route.
+//
 // Hooks for a test, on `server.plan`: `orderSource` ('ai' or 'rules', the source of a suggestion), `suggest` (a function that replaces the
-// suggestion: `(winners) => ({ order, reason, source })`, or null for "none"), and `confirmedOptOut` (ASSUMED: opting out of a confirmed
-// plan is allowed and asks "Re-plan?", where the stage 4 server still refuses with not_yet). Per route, `server.after.<route>` runs after
+// suggestion: `(winners) => ({ order, starts, reason, source })`, with `stops` to name the stops itself, or null for "none"), `swap` (a function from a place's id to the indoor swap the
+// server offers for it, `{ venueId, name }`), `weather`, and `confirmedOptOut` (ASSUMED: opting out of a confirmed plan is allowed and
+// asks "Re-plan?", where the stage 4 server still refuses with not_yet). Per route, `server.after.<route>` runs after
 // the server has read the session and before it writes.
 import { AREAS } from '../mock/places.js'
 import { VENUES } from '../mock/venues.js'
@@ -113,16 +116,17 @@ export function registerPlan(kit, routes, PATTERNS) {
     if (voters.size < 2 || !winners.length) refuse(409, 'not_enough_votes', 'At least 2 people need to vote first.')
     const basis = await basisOf(session, winners)
     const stored = session.order_suggestion
+    const stopsOfOrder = (made) => made.stops ?? made.order.map((slotId) => ({ slotId, venueId: winners.find((w) => w.slot.id === slotId).option.venue_id, start: made.starts[slotId] }))
     // An unchanged basis returns the stored answer.
     if (stored?.basis === basis) {
-      return { status: 200, body: { status: 'ok', basis, order: stored.order, stops: stored.order.map((slotId) => ({ slotId, venueId: winners.find((w) => w.slot.id === slotId).option.venue_id, start: stored.starts[slotId] })), reason: stored.reason, source: stored.source } }
+      return { status: 200, body: { status: 'ok', basis, order: stored.order, stops: stopsOfOrder(stored), reason: stored.reason, source: stored.source } }
     }
     const made = suggestionFor(winners)
     await after.suggestOrder?.(id)
     if (!made) return { status: 200, body: { status: 'none', why: 'nothing_to_arrange' } }
     const loaded = loadedOf(session)
-    await apply(id, loaded, async () => {}, () => ({ order_suggestion: { basis, order: made.order, starts: made.starts, reason: made.reason, source: made.source, at: new Date().toISOString() } }))
-    return { status: 200, body: { status: 'ok', basis, order: made.order, stops: made.order.map((slotId) => ({ slotId, venueId: winners.find((w) => w.slot.id === slotId).option.venue_id, start: made.starts[slotId] })), reason: made.reason, source: made.source } }
+    await apply(id, loaded, async () => {}, () => ({ order_suggestion: { basis, order: made.order, starts: made.starts ?? {}, reason: made.reason, source: made.source, at: new Date().toISOString() } }))
+    return { status: 200, body: { status: 'ok', basis, order: made.order, stops: stopsOfOrder(made), reason: made.reason, source: made.source } }
   }
 
   // ── E12: confirm ──
@@ -306,7 +310,8 @@ export function registerPlan(kit, routes, PATTERNS) {
     const stop = stopNamed(id, stopId)
     const slot = slotFor(stop)
     const ranked = rank({ ...session, date: session.date }, slot, [stop.venue_id], session.radius_meters)
-    const swap = ranked.find((r) => r.venueId === stop.venue_id)?.swap
+    // The stand-in ranking offers no indoor swap; a test says what it should offer for a place (`server.plan.swap`).
+    const swap = server.plan.swap?.(stop.venue_id) ?? ranked.find((r) => r.venueId === stop.venue_id)?.swap
     return { status: 200, body: { swap: swap ? { venueId: swap.venueId, name: swap.name } : null } }
   }
   routes.stopChoices = async (user, id, body, { stop: stopId, query }) => {
@@ -317,7 +322,8 @@ export function registerPlan(kit, routes, PATTERNS) {
     const category = query?.category || stop.category
     if (!['eat', 'drink', 'shop', 'activity'].includes(category)) refuse(400, 'invalid_input', 'Choose Eat, Drink, Shop or Activity.')
     const slot = slotFor(stop, category, Number(query?.start))
-    const inPlan = new Set(stopsOf(id).filter((x) => x.id !== stop.id).map((x) => x.venue_id))
+    // Not the stop's own place, nor a place another stop already has.
+    const inPlan = new Set(stopsOf(id).map((x) => x.venue_id))
     const same = slotsOf(id).find((x) => x.category === category)
     const votes = same ? rows('votes').filter((v) => v.slot_id === same.id) : []
     const ranked = rank(session, slot, same ? optionsOf(same.id).map((o) => o.venue_id) : [], session.radius_meters)
@@ -430,6 +436,20 @@ export function registerPlan(kit, routes, PATTERNS) {
     return { status: 200, body: { planVersion: version, status: 'confirmed' } }
   }
 
+  // The weather at a plan's stops (POST /api/weather/stops, not a session route: the plan's screens ask it for the stops' places and times).
+  // Dry unless a test says `server.plan.weather = 'showers'`.
+  routes.weatherStops = async (user, id, body) => {
+    const state = server.plan.weather || 'dry'
+    const at = '2026-10-10T12:00:00+08:00'
+    return {
+      status: 200,
+      body: {
+        stops: (body.stops || []).map((s) => ({ id: s.id, state, rainLikely: state !== 'dry', phrase: null, basis: 'area', issuedAt: at, validUntil: '2026-10-10T14:00:00+08:00' })),
+        weather: { source: 'live', basis: 'area', issuedAt: at },
+      },
+    }
+  }
+
   // ASSUMED: opting out of a confirmed plan asks "Re-plan?" instead of being refused (design E10: "in confirmed only `sessions.replan`").
   const stageFourOptOut = routes.optOut
   routes.optOut = async (user, id, ...rest) => {
@@ -464,6 +484,7 @@ export function registerPlan(kit, routes, PATTERNS) {
     ['POST', /^\/proposals$/, 'propose'],
     ['POST', /^\/proposals\/([^/]+)\/resolve$/, 'resolve', ['proposal']],
   )
+  server.plan.routeOutsideSessions = (method, path) => (method === 'POST' && path === '/api/weather/stops' ? { name: 'weatherStops', id: null } : null)
   // Keep the helper that the tests use to read a place the way the server sends it.
   server.plan.venue = (id) => asBackendVenue(VENUES.find((v) => v.id === id))
   server.plan.tripMinutes = tripMinutes
