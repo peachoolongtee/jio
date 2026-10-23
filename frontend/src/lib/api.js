@@ -3709,6 +3709,8 @@ async function planSession(id) {
   const session = await getSession(id)
   const wanted = [...(session.plan?.stops || []).map((s) => s.venueId), ...(session.proposals || []).map((p) => p.venueId)]
   await ensureVenues(wanted)
+  // A stop whose place the server cannot describe cannot be laid out: say so (the page offers a retry) instead of failing in the layout.
+  if ((session.plan?.stops || []).some((s) => !venueById(s.venueId))) throw Object.assign(new Error(SHARING_WORDS.placeMissing), { code: 'venue_not_found' })
   return session
 }
 

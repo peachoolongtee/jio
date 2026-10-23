@@ -360,6 +360,18 @@ describe('the itinerary on two devices', () => {
   })
 })
 
+describe('a stop whose place cannot be described', () => {
+  it('is said in words by the itinerary and by a change to a stop, instead of failing in the layout', async () => {
+    const { w, sam, id } = await confirmed()
+    const first = (await sam.api.getItinerary(id)).stops[0]
+    w.database.run({ as: SERVICE, kind: 'update', table: 'stops', values: { venue_id: 'a-place-the-server-does-not-list' }, filters: [eq('id', first.stopId)] })
+    await expect(sam.api.getItinerary(id)).rejects.toMatchObject({ message: WORDS.placeMissing, code: 'venue_not_found' })
+    await expect(sam.api.replaceStop(id, first.slotId, 'x', undefined, first.venue.id)).rejects.toMatchObject({ message: WORDS.placeMissing })
+    // The session itself still reads (Home does not need the places).
+    expect((await sam.api.getSession(id)).plan.stops).toHaveLength(4)
+  })
+})
+
 describe('re-planning', () => {
   it('takes the plan back to voting for everyone: the stops and the note go, the votes stay', async () => {
     const { w, sam, kim, id, plan } = await voted()

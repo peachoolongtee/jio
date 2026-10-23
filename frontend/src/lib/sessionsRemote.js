@@ -89,6 +89,7 @@ export const WORDS = {
   // Stage 5: the plan, the itinerary and finishing.
   notShared: "That isn't available in a shared session yet.",
   photosLater: 'Photos are not shared yet. They come in a later update.',
+  placeMissing: 'A place in the plan could not be found. Try again in a moment.',
   planClosed: 'The plan can only be confirmed while the group is voting.',
   notEnoughVotes: 'At least 2 people need to vote first.',
   nothingToConfirm: 'Vote for at least one place first.',

@@ -298,20 +298,23 @@ describe('the itinerary', () => {
     expect(view.has('[data-testid=plan-load-error]')).toBe(false)
   })
 
-  it('says the places of the stops could not be described, with Retry, when the server\'s place list fails', async () => {
+  it('says the plan could not be loaded, with Retry, when the server cannot describe the place of a stop this device has not seen', async () => {
     const world = await confirmed({ hostLast: true })
-    const { api } = world.sam
-    void api
+    // A place Sam's device never described (the stop is made behind its back), and the server's place list is out of reach.
+    const { VENUES } = await import('../mock/venues.js')
+    const used = new Set(world.w.database.tables.slot_options.map((o) => o.venue_id))
+    const unseen = VENUES.find((v) => v.category === 'shop' && !used.has(v.id))
+    world.w.database.run({ as: SERVICE, kind: 'insert', table: 'stops', values: { session_id: world.id, seq: 4, slot_id: null, category: 'shop', venue_id: unseen.id, planned_start_minute: 1100, duration_minutes: 60, not_before_minute: 1100 } })
     world.w.server.down = true
-    // This device has not described the places yet (a fresh page).
     const { view } = await draw('EventView', `/sessions/${world.id}/itinerary`, world.id)
-    await until(() => view.has('[data-testid=plan-load-error]') || view.has('.stop'))
-    if (view.has('[data-testid=plan-load-error]')) {
-      world.w.server.down = false
-      await view.click(press(view, 'Retry'))
-    }
+    await until(() => view.has('[data-testid=plan-load-error]'))
+    expect(view.text(view.one('[data-testid=plan-load-error]'))).toContain('Could not load this plan')
+    expect(view.has('.stop')).toBe(false)
+    world.w.server.down = false
+    await view.click(press(view, 'Retry'))
     await until(() => view.has('.stop'))
-    expect(names(view)).toHaveLength(4)
+    expect(names(view)).toHaveLength(5)
+    expect(names(view).at(-1)).toBe(unseen.name)
   })
 
   it('has the host finish the outing on the day, says no coins are paid, and then shows the person\'s own travel', async () => {
@@ -456,5 +459,76 @@ describe('the places waiting to be added, and What next?', () => {
     await until(() => view.text().includes('Proposed by you'))
     expect(view.text()).toContain(name)
     expect(view.errors).toEqual([])
+  })
+})
+
+describe('photos and the map of a shared outing', () => {
+  it('says photos are not shared yet, with the way back, and offers no camera', async () => {
+    const world = await confirmed({ hostLast: true })
+    const { view } = await draw('EventView', `/sessions/${world.id}/itinerary`, world.id)
+    await until(() => view.has('.stop'))
+    SCREENS.PhotosView = () => import('@/views/PhotosView.vue')
+    const photos = await draw('PhotosView', `/sessions/${world.id}/photos`, world.id)
+    await until(() => photos.view.has('[data-testid=photos-later]'))
+    expect(photos.view.text(photos.view.one('[data-testid=photos-later]'))).toContain('Photos are not shared yet')
+    expect(photos.view.all('a').some((a) => photos.view.text(a) === 'Back to the itinerary')).toBe(true)
+    expect(photos.view.has('input[type=file]')).toBe(false)
+    expect(photos.view.has('button[aria-label="Add photos"]')).toBe(false)
+  })
+
+  it('refuses a photo for a shared outing in words', async () => {
+    const world = await confirmed()
+    await expect(world.kim.api.addPhoto(world.id, world.kim.id, 'data:image/png;base64,AAAA')).rejects.toThrow('Photos are not shared yet. They come in a later update.')
+    expect(await world.kim.api.getPhotos(world.id)).toEqual([])
+    await expect(world.kim.api.deletePhoto(world.id, 'p1')).rejects.toThrow('Photos are not shared yet')
+  })
+
+  it('follows a change to the stops on the full-screen map, live', async () => {
+    SCREENS.SessionMapView = () => import('@/views/SessionMapView.vue')
+    const world = await confirmed({ hostLast: false })
+    const { view } = await draw('SessionMapView', `/sessions/${world.id}/map`, world.id)
+    await until(() => view.all('li').length >= 4)
+    const before = view.all('li').length
+    const first = (await world.sam.api.getItinerary(world.id)).stops[1]
+    await world.sam.api.deleteStop(world.id, 1, { stopId: first.stopId })
+    await until(() => view.all('li').length === before - 1)
+  })
+})
+
+describe('replacing a stop of a shared plan', () => {
+  it('lists the places that could take the stop\'s place and puts the chosen one in, for everyone', async () => {
+    const world = await confirmed({ hostLast: true })
+    const itinerary = await world.sam.api.getItinerary(world.id)
+    const drink = itinerary.stops.find((s) => s.category === 'drink')
+    const { view, router } = await draw('PlannerView', `/sessions/${world.id}/plan?replace=${drink.slotId}`, world.id)
+    await until(() => view.has('[data-testid=replace-options]'))
+    expect(view.text(view.one('[data-testid=replace-view]'))).toContain(drink.venue.name)
+    const use = view.all('button').find((b) => (b.attrs['aria-label'] || '').startsWith('Use '))
+    const chosen = use.attrs['aria-label'].replace(/^Use (.*) instead$/, '$1')
+    await view.click(use)
+    await until(() => router.currentRoute.value.path === `/sessions/${world.id}/itinerary`)
+    const after = await world.kim.api.getItinerary(world.id)
+    expect(after.stops.find((s) => s.slotId === drink.slotId).venue.name).toBe(chosen)
+  })
+
+  it('says why a place could not be put in, and offers the places again', async () => {
+    const world = await confirmed({ hostLast: true })
+    const drink = (await world.sam.api.getItinerary(world.id)).stops.find((s) => s.category === 'drink')
+    const { view } = await draw('PlannerView', `/sessions/${world.id}/plan?replace=${drink.slotId}`, world.id)
+    await until(() => view.has('[data-testid=replace-options]'))
+    // Another device replaced the stop meanwhile, with a place of the eat category this device knows.
+    const other = world.w.database.tables.slot_options.find((o) => !world.w.database.tables.stops.some((s) => s.venue_id === o.venue_id)).venue_id
+    world.w.database.run({ as: SERVICE, kind: 'update', table: 'stops', values: { venue_id: other }, filters: [eq('id', drink.stopId)] })
+    await view.click(view.all('button').find((b) => (b.attrs['aria-label'] || '').startsWith('Use ')))
+    await until(() => view.has('[data-testid=replace-error]'))
+    expect(view.text(view.one('[data-testid=replace-error]'))).toContain('That stop has changed. Look at the plan again.')
+  })
+
+  it('tells a guest that only the host replaces a stop', async () => {
+    const world = await confirmed()
+    const drink = (await world.kim.api.getItinerary(world.id)).stops.find((s) => s.category === 'drink')
+    const { view } = await draw('PlannerView', `/sessions/${world.id}/plan?replace=${drink.slotId}`, world.id)
+    await until(() => view.has('[data-testid=replace-host-only]'))
+    expect(view.text(view.one('[data-testid=replace-host-only]'))).toContain('Only the host can replace a stop')
   })
 })
