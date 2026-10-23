@@ -49,25 +49,27 @@ export async function loadAdmission(client, id) {
   return { session, members: members ?? [] }
 }
 
-// Everything a run needs: the session, its members (areas, picks and how long they stay; never an exact place), the stored spots, the
-// suggestions and the approvals, and for voting the slots, their options (with what the planner said about each) and the votes. Read
-// with the service key, so call it only after admission. The session is null if it is gone.
+// Everything a run needs: the session (with the plan's columns: the suggested order, the order note, the plan's start), its members (areas,
+// picks and how long they stay; never an exact place), the stored spots, the suggestions and the approvals, for voting the slots, their
+// options (with what the planner said about each) and the votes, and for a confirmed plan its stops (in order) and the proposals still
+// waiting. Read with the service key, so call it only after admission. The session is null if it is gone.
 //
 // How to call:
-//   const { session, members, spots, suggestions, approvals, slots, options, votes } = await loadState(supabase.service, id)
+//   const { session, members, spots, suggestions, approvals, slots, options, votes, stops, proposals } = await loadState(supabase.service, id)
 export async function loadState(service, id) {
   const session = unwrap(
     await service
       .from('sessions')
       .select(
         'id, host_id, status, plan_version, date, start_time, end_time, radius_meters, banner, meeting_area_id, meeting_method, ' +
-          'meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate',
+          'meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, ' +
+          'order_reason, order_source, order_suggestion, plan_start_minute, replan, completed_at',
       )
       .eq('id', id)
       .maybeSingle(),
     'the session',
   )
-  if (!session) return { session: null, members: [], spots: [], suggestions: [], approvals: [], slots: [], options: [], votes: [] }
+  if (!session) return { session: null, members: [], spots: [], suggestions: [], approvals: [], slots: [], options: [], votes: [], stops: [], proposals: [] }
   const [members, spots, suggestions, approvals, slots] = await Promise.all([
     service.from('session_members').select('user_id, role, state, start_area_id, end_area_id, categories, stay_until, travel_minutes').eq('session_id', id),
     service.from('session_spots').select('area_id, rank, worst_minutes, mean_minutes, travel_minutes, approximate').eq('session_id', id),
@@ -87,6 +89,17 @@ export async function loadState(service, id) {
     optionRows = (unwrap(options, 'the options') ?? []).map((o) => ({ ...o, score: o.score === null ? null : Number(o.score) }))
     voteRows = unwrap(votes, 'the votes') ?? []
   }
+  // The stops and the proposals only exist once the plan is confirmed, so only then are they read.
+  let stopRows = []
+  let proposalRows = []
+  if (session.status === 'confirmed') {
+    const [stops, proposals] = await Promise.all([
+      service.from('stops').select('id, seq, slot_id, category, venue_id, planned_start_minute, duration_minutes, travel_mode, travel_minutes, not_before_minute').eq('session_id', id),
+      service.from('stop_proposals').select('id, venue_id, proposed_by, status, created_at').eq('session_id', id).eq('status', 'pending'),
+    ])
+    stopRows = [...(unwrap(stops, 'the stops') ?? [])].sort((a, b) => a.seq - b.seq)
+    proposalRows = unwrap(proposals, 'the proposals') ?? []
+  }
   return {
     session,
     members: unwrap(members, 'the members') ?? [],
@@ -96,6 +109,8 @@ export async function loadState(service, id) {
     slots: slotRows,
     options: optionRows,
     votes: voteRows,
+    stops: stopRows,
+    proposals: proposalRows,
   }
 }
 
@@ -107,6 +122,37 @@ export async function loadState(service, id) {
 export async function loadNeeds(service, id) {
   const rows = unwrap(await service.rpc('session_member_needs', { sid: id }), "the members' needs")
   return rows ?? []
+}
+
+// Each joined member's travel debt in minutes (their share of the effort in their other outings in the last 90 days, positive when they
+// travelled more than their share), from session_travel_debt(). Only the service key can call the function. THROWS on any failure: the caller
+// plans without debt when it does (a ranking is never refused because the history could not be read).
+//
+// How to call:
+//   const debts = await loadDebts(supabase.service, id) // Map { userId => 12.5 }
+export async function loadDebts(service, id) {
+  const rows = unwrap(await service.rpc('session_travel_debt', { sid: id }), "the members' travel debt")
+  return new Map((rows ?? []).map((r) => [String(r.user_id).toLowerCase(), Number(r.debt_minutes)]).filter(([, debt]) => Number.isFinite(debt)))
+}
+
+// The caller's own recent finished outings, for the places the group has been to lately: the completed sessions the CALLER is in (the
+// database's own rules decide, so nobody else's session is ever read), the newest `limit` completed since `since`, with their members and
+// their stops. Three small reads, each bounded. THROWS on any failure (the caller plans without history when it does).
+//
+// How to call:
+//   const { sessions, members, stops } = await loadPastOutings(req.supabase, { since: '2026-08-24T00:00:00.000Z', limit: 30 })
+export async function loadPastOutings(client, { since, limit }) {
+  const sessions = unwrap(
+    await client.from('sessions').select('id, date, completed_at').eq('status', 'completed').gte('completed_at', since).order('completed_at', { ascending: false }).limit(limit),
+    'the finished outings',
+  ) ?? []
+  if (sessions.length === 0) return { sessions: [], members: [], stops: [] }
+  const ids = sessions.map((s) => s.id)
+  const [members, stops] = await Promise.all([
+    client.from('session_members').select('session_id, user_id, state').in('session_id', ids),
+    client.from('stops').select('session_id, venue_id').in('session_id', ids),
+  ])
+  return { sessions, members: unwrap(members, 'the finished outings\' members') ?? [], stops: unwrap(stops, 'the finished outings\' stops') ?? [] }
 }
 
 // People's names, for the sentence a notice carries. A person with no profile row is left out.

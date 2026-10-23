@@ -25,6 +25,16 @@ import { sessionSchemas } from './session-schemas.js'
 //   POST   /api/sessions/:id/slots/:slotId/options/more       { have }         more suggestions
 //   POST   /api/sessions/:id/slots/:slotId/options/:venueId/swap { toVenueId } swap one place for another
 //   GET    /api/sessions/:id/slots/:slotId/venue-search?q=                     search the saved places for a slot
+//   POST   /api/sessions/:id/order/suggest                            the host asks for a suggested order of the stops the votes make
+//   POST   /api/sessions/:id/confirm          { order?, basis? }      the host confirms the plan: stops from the stored winners
+//   POST   /api/sessions/:id/replan           { accept? }             the host opens the plan for voting again (accept: false only turns the prompt down)
+//   PUT    /api/sessions/:id/stops/order      { stopIds }             the host sets the order of the stops
+//   DELETE /api/sessions/:id/stops/:stopId                            the host deletes a stop
+//   PATCH  /api/sessions/:id/stops/:stopId    { travelMode }          the host sets how the group gets to a stop (walk, mrt, car or null)
+//   PUT    /api/sessions/:id/stops/:stopId/place { venueId, seenVenueId, category? }   the host puts another place in a stop
+//   POST   /api/sessions/:id/complete                                 the host finishes the outing; the server writes the travel ledger
+//   POST   /api/sessions/:id/proposals        { venueId }             a member puts a place forward as the next stop
+//   POST   /api/sessions/:id/proposals/:proposalId/resolve { accept } the host adds it (accept) or leaves it out; the proposer may take it back
 //
 // Answers (200, JSON):
 //   meeting-area   { planVersion, meetingAreaId: null, moved: false, votesCleared: false, skipped: [userId], spots: n, approvalsRemoved: [areaId] }
@@ -39,6 +49,15 @@ import { sessionSchemas } from './session-schemas.js'
 //   options POST   201 { planVersion, added: true }, or 200 { planVersion, added: false } when the place is already there
 //   options/more   { planVersion, added: [venueId] }          swap { planVersion, swapped }
 //   venue-search   { results: [{ venueId, name, area, category, source, matchedStall, walkMinutes, distanceKm, fits, unfit, added }] }
+//   order/suggest  { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], reason, source: 'ai' | 'rules' }
+//                  or { status: 'none', why: 'no_stops' | 'one_movable' | 'no_order_fits' | 'unknown_place' }
+//   confirm        { planVersion, status: 'confirmed', stops: n }   (confirming again: the same answer, nothing written)
+//   replan         { planVersion, status: 'voting' }                 (accept: false: status 'confirmed'; already voting: a no-op)
+//   stops/order, stops/:id DELETE   { planVersion }              stops/:id PATCH { planVersion, travelMode }
+//   stops/:id/place  { planVersion, changed }                    (changed: false when the stop already holds the place)
+//   complete       { planVersion, status: 'completed' }              (a retry after success: the same answer, nothing written)
+//   proposals      201 { planVersion, id, applied: true }, or 200 { planVersion, id, applied: false } when the place is already waiting
+//   proposals/:id/resolve   { planVersion, applied }             (applied: false when it is not waiting any more)
 // A member's own vote is written by the browser directly (votes, under the database's rules); the server only reads it.
 // Approvals ("Works for me") and a member's own start and end are written by the browser directly, under the database's rules;
 // the server only reads them. No answer carries a label or a coordinate.
@@ -48,10 +67,13 @@ import { sessionSchemas } from './session-schemas.js'
 //   401 unauthenticated, 503 auth_unavailable (from the login check), 429 rate_limited
 //   403 not_joined, host_only, host_cannot_leave, host_cannot_opt_out
 //   404 session_not_found (also for a session the caller is not in), member_not_found, spot_not_found, slot_not_found, venue_not_found,
-//       option_not_found
+//       option_not_found, stop_not_found
 //   409 wrong_status, not_yet (work of a later stage: a confirmed plan), session_closed and session_started (leave and remove), no_spots,
-//       too_many_spots, needs_two_people, area_pinned, no_meeting_area (voting is paused), slot_full, plan_busy (with Retry-After: 1)
-//   422 unknown_area, area_not_priced, venue_does_not_fit
+//       too_many_spots, needs_two_people, area_pinned, no_meeting_area (voting is paused), slot_full, plan_busy (with Retry-After: 1),
+//       not_enough_votes, nothing_to_confirm, order_stale (the suggested order is for stops the votes no longer make), stops_changed (the
+//       stops are not the plan's), stop_changed (the stop no longer holds the place the caller saw), last_stop, no_leg (the first stop),
+//       already_a_stop, plan_full, too_many_proposals
+//   422 unknown_area, area_not_priced, venue_does_not_fit (also for a replaced stop)
 //   500 server_error (a database that fails)
 //
 // How to mount it (app.js does this when Supabase is configured):
@@ -235,6 +257,58 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
   router.get('/sessions/:id/slots/:slotId/venue-search', ...searchGuard, handle((who, req) => {
     const { q } = sessionSchemas.venueSearch.parse(req.query ?? {})
     return sessions.searchSlot({ ...who, slotId: sessionSchemas.slotId.parse(req.params.slotId), query: q })
+  }))
+
+  // The plan. "stops/order" is declared before the routes with a :stopId, so it is never read as one.
+  router.post('/sessions/:id/order/suggest', ...guard, handle((who, req) => {
+    sessionSchemas.nothing.parse(req.body ?? {})
+    return sessions.suggestOrder(who)
+  }))
+
+  router.post('/sessions/:id/confirm', ...guard, handle((who, req) => {
+    const { order, basis } = sessionSchemas.confirmPlan.parse(req.body ?? {})
+    return sessions.confirmPlan({ ...who, order, basis })
+  }))
+
+  router.post('/sessions/:id/replan', ...guard, handle((who, req) => {
+    const { accept } = sessionSchemas.replan.parse(req.body ?? {})
+    return sessions.replan({ ...who, accept })
+  }))
+
+  router.put('/sessions/:id/stops/order', ...guard, handle((who, req) => {
+    const { stopIds } = sessionSchemas.stopOrder.parse(req.body ?? {})
+    return sessions.reorderStops({ ...who, stopIds })
+  }))
+
+  router.delete('/sessions/:id/stops/:stopId', ...guard, handle((who, req) => {
+    sessionSchemas.nothing.parse(req.body ?? {})
+    return sessions.deleteStop({ ...who, stopId: sessionSchemas.stopId.parse(req.params.stopId) })
+  }))
+
+  router.patch('/sessions/:id/stops/:stopId', ...guard, handle((who, req) => {
+    const { travelMode } = sessionSchemas.travelMode.parse(req.body ?? {})
+    return sessions.setTravelMode({ ...who, stopId: sessionSchemas.stopId.parse(req.params.stopId), mode: travelMode })
+  }))
+
+  router.put('/sessions/:id/stops/:stopId/place', ...guard, handle((who, req) => {
+    const { venueId, seenVenueId, category } = sessionSchemas.stopPlace.parse(req.body ?? {})
+    return sessions.changeStopPlace({ ...who, stopId: sessionSchemas.stopId.parse(req.params.stopId), venueId, seenVenueId, category })
+  }))
+
+  router.post('/sessions/:id/complete', ...guard, handle((who, req) => {
+    sessionSchemas.nothing.parse(req.body ?? {})
+    return sessions.completeOuting(who)
+  }))
+
+  // Proposing answers 201 when the place was put forward and 200 when it was already waiting.
+  router.post('/sessions/:id/proposals', ...guard, handle((who, req) => {
+    const { venueId } = sessionSchemas.proposal.parse(req.body ?? {})
+    return sessions.proposeStop({ ...who, venueId })
+  }, (body) => (body.applied ? 201 : 200)))
+
+  router.post('/sessions/:id/proposals/:proposalId/resolve', ...guard, handle((who, req) => {
+    const { accept } = sessionSchemas.resolveProposal.parse(req.body ?? {})
+    return sessions.resolveProposal({ ...who, proposalId: sessionSchemas.proposalId.parse(req.params.proposalId), accept })
   }))
 
   router.delete('/sessions/:id/members/:userId', ...guard, async (req, res, next) => {

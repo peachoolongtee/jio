@@ -58,9 +58,11 @@ export const optionsOf = (draft, category) =>
 // not planned a trip for, but what they cannot eat is still left out of the options. With nobody located (a known place is set before
 // anyone shares a start) everyone is sent as starting at the meeting area, so nobody has a trip to it and nobody is favoured.
 //
+// `debts` (optional, a Map of lower-case user id to minutes) is each person's travel debt, which the planner reads as `travelDebtMinutes`.
+//
 // How to call:
 //   engineMembers(draft, areasById, needs, centre) // [{ id, name, start: { lat, lng }, end: { lat, lng }, dietary: [], ... }]
-export function engineMembers(draft, areasById, needs, centre) {
+export function engineMembers(draft, areasById, needs, centre, debts = null) {
   const needOf = new Map(needs.map((n) => [lower(n.user_id), n]))
   const { located } = locatedMembers(draft.members, areasById)
   const joined = draft.members.filter((m) => m.state === 'joined').map((m) => lower(m.user_id))
@@ -80,7 +82,7 @@ export function engineMembers(draft, areasById, needs, centre) {
       prefersHealthy: false,
       cuisineLikes: [],
       cuisineDislikes: [],
-      travelDebtMinutes: 0,
+      travelDebtMinutes: debts?.get(m.id) ?? 0,
       ...(need?.budget_max_per_person !== null && need?.budget_max_per_person !== undefined && { budgetMaxPerPerson: Number(need.budget_max_per_person) }),
     }
   })
@@ -99,7 +101,8 @@ export const groupConstraints = (needs) => (needs.some((n) => n.needs_step_free)
 //
 // How to call:
 //   rankingInput({ sessionId, date, slot: { category: 'eat', start_minute: 720, duration_minutes: 90 }, members, centre, currentIds: [], constraints: [], radiusMeters: 1000, weatherCase: 'live' })
-export function rankingInput({ sessionId, date, slot, members, centre, currentIds, constraints, radiusMeters, weatherCase }) {
+// `last` ranks the slot as the plan's last stop (a place far from an MRT station then counts against it); a voting slot is never ranked so.
+export function rankingInput({ sessionId, date, slot, members, centre, currentIds, constraints, radiusMeters, weatherCase, last = false }) {
   return {
     members,
     overrides: {},
@@ -116,7 +119,7 @@ export function rankingInput({ sessionId, date, slot, members, centre, currentId
     ...(weatherCase !== undefined && { weatherCase }),
     groupId: sessionId,
     centre: { lat: centre.lat, lng: centre.lng },
-    lastStop: false,
+    lastStop: last,
     ...(radiusMeters ? { radiusMeters } : {}),
     topN: RANKED_PER_SLOT,
   }

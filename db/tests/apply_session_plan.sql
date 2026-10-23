@@ -1111,9 +1111,10 @@ begin
   -- Roam proposals: a joined member proposes, the host answers, and the limits are kept under the lock.
   perform pg_temp.as_admin();
   select plan_version into ver5 from public.sessions where id = sc;
+  proposal_p1 := gen_random_uuid();
   perform pg_temp.as_server();
-  perform pg_temp.expect_text(203, 'a joined member proposes a place',
-    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'propose', 'user_id', g2, 'venue_id', 'p1')))::text), (ver5 + 1)::text);
+  perform pg_temp.expect_text(203, 'a joined member proposes a place, with the id the server chose for it',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'propose', 'id', proposal_p1, 'user_id', g2, 'venue_id', 'p1')))::text), (ver5 + 1)::text);
   perform pg_temp.expect_text(204, 'the same place again changes nothing and does not raise the version',
     format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 1, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'propose', 'user_id', g1, 'venue_id', 'p1')))::text), (ver5 + 1)::text);
   perform pg_temp.expect_hint(205, 'a place that is already a stop cannot be proposed',
@@ -1127,7 +1128,6 @@ begin
     format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 2, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'propose', 'user_id', g2, 'venue_id', 'p4')))::text), 'too_many_proposals');
   perform pg_temp.as_admin();
   perform pg_temp.expect_count(209, 'three are waiting', format('select count(*) from public.stop_proposals where session_id = %L and status = ''pending''', sc), 3);
-  select id into proposal_p1 from public.stop_proposals where session_id = sc and venue_id = 'p1';
   select jsonb_agg(jsonb_build_object('id', id, 'seq', seq, 'slot_id', slot_id, 'category', category, 'venue_id', venue_id,
                                       'planned_start_minute', planned_start_minute, 'duration_minutes', duration_minutes, 'travel_mode', travel_mode,
                                       'travel_minutes', travel_minutes, 'not_before_minute', not_before_minute) order by seq)

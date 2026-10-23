@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OPTIONS_MAX } from '../planner/slot-plan.js'
+import { CATEGORIES, OPTIONS_MAX } from '../planner/slot-plan.js'
 import { MAX } from './plan-schemas.js'
 
 // Request checks for the session endpoints (routes/sessions.js). Every id and body is checked here before anything is read or
@@ -48,4 +48,25 @@ export const sessionSchemas = {
   swapOption: z.object({ toVenueId: venueId }).strict(),
   // GET /api/sessions/:id/slots/:slotId/venue-search?q=
   venueSearch: z.object({ q: z.string().trim().min(1).max(MAX.searchQuery) }).strict(),
+  // POST /api/sessions/:id/confirm. `order: 'suggested'` takes the stored suggested order and needs the `basis` the caller was shown.
+  confirmPlan: z
+    .object({ order: z.enum(['voted', 'suggested']).optional(), basis: z.string().regex(/^[0-9a-f]{64}$/, 'a 64-character hash, as the suggestion gave it').optional() })
+    .strict()
+    .refine((body) => body.order !== 'suggested' || body.basis !== undefined, { message: 'send the basis of the suggested order', path: ['basis'] }),
+  // POST /api/sessions/:id/replan. `accept: false` only turns the "plan again?" prompt down.
+  replan: z.object({ accept: z.boolean().optional() }).strict(),
+  // A stop in a path.
+  stopId: uuid,
+  // PATCH /api/sessions/:id/stops/:stopId. null is the default mode for the leg.
+  travelMode: z.object({ travelMode: z.enum(['walk', 'mrt', 'car']).nullable() }).strict(),
+  // PUT /api/sessions/:id/stops/order: every stop of the plan once, in the new order.
+  stopOrder: z.object({ stopIds: z.array(uuid).min(1).max(MAX.stops) }).strict(),
+  // PUT /api/sessions/:id/stops/:stopId/place. `seenVenueId` is the place the caller saw in the stop.
+  stopPlace: z.object({ venueId, seenVenueId: venueId, category: z.enum(CATEGORIES).optional() }).strict(),
+  // POST /api/sessions/:id/proposals
+  proposal: z.object({ venueId }).strict(),
+  // A proposal in a path.
+  proposalId: uuid,
+  // POST /api/sessions/:id/proposals/:proposalId/resolve
+  resolveProposal: z.object({ accept: z.boolean() }).strict(),
 }

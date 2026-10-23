@@ -42,9 +42,13 @@ const clampMinutes = (minutes) => (Number.isFinite(minutes) ? Math.min(MAX_MINUT
 // A member can be planned for when their start area is one the planner knows. Their end is their end area when that is known,
 // else their start. A joined member without a known start area is "skipped": they are told apart so the screen can ask them.
 //
+// `debts` (optional, a Map of lower-case user id to minutes) is each person's travel debt from their other outings; it goes to the planner
+// as `travelDebtMinutes`, so the meeting area leans towards whoever has travelled more than their share. Left out, nobody has a debt.
+//
 // How to call:
 //   const { located, skipped } = locatedMembers(members, areasById) // located: [{ id, name, start, end }], skipped: [userId]
-export function locatedMembers(members, areasById) {
+//   const { located } = locatedMembers(members, areasById, new Map([[userId, 12.5]])) // located[0].travelDebtMinutes is 12.5
+export function locatedMembers(members, areasById, debts = null) {
   const located = []
   const skipped = []
   for (const m of members) {
@@ -57,7 +61,7 @@ export function locatedMembers(members, areasById) {
     }
     const away = areasById.get(m.end_area_id) ?? home
     // `start` and `end` are bare points: the engine tells a member's point from an area by the area carrying an `id`.
-    located.push({ id, name: id, start: { lat: home.lat, lng: home.lng }, end: { lat: away.lat, lng: away.lng } })
+    located.push({ id, name: id, start: { lat: home.lat, lng: home.lng }, end: { lat: away.lat, lng: away.lng }, ...(debts?.has(id) && { travelDebtMinutes: debts.get(id) }) })
   }
   return { located, skipped }
 }
@@ -238,6 +242,7 @@ export function triggerText(kind, name) {
     : kind === 'removed' ? `${name} was removed`
     : kind === 'suggested' ? `${name} suggested a different spot`
     : kind === 'withdrew' ? `${name} withdrew their suggestion`
+    : kind === 'replan' ? 'the plan was opened again'
     : 'The group changed'
 }
 

@@ -43,7 +43,8 @@
 --                                      or null   the server's last suggested order (voting only; the table's check holds its shape)
 --                  "plan_start_minute": 0 to 1439 or null   when the plan starts (confirmed only)
 --                  "replan": an object or null   the pending "plan again?" prompt
---   ops            { "op": "propose", "user_id": ..., "venue_id": ... }   a joined member puts a place forward as the next stop (confirmed
+--   ops            { "op": "propose", "id": <new proposal id> | absent, "user_id": ..., "venue_id": ... }
+--                                                       a joined member puts a place forward as the next stop (confirmed
 --                                                       only). Already a stop: already_a_stop. Plan full (8): plan_full. 3 waiting for the
 --                                                       member or 10 for the session: too_many_proposals. Already waiting: nothing changes.
 --                  { "op": "resolve_proposal", "proposal_id": ..., "status": "accepted" | "dismissed", "by": <user id> }
@@ -446,7 +447,8 @@ begin
              or (select count(*) from public.stop_proposals p where p.session_id = sid and p.status = 'pending' and p.proposed_by = (op ->> 'user_id')::uuid) >= 3 then
             raise exception 'Too many places are waiting for an answer.' using errcode = 'P0001', hint = 'too_many_proposals';
           end if;
-          insert into public.stop_proposals (session_id, venue_id, proposed_by) values (sid, op ->> 'venue_id', (op ->> 'user_id')::uuid);
+          insert into public.stop_proposals (id, session_id, venue_id, proposed_by)
+          values (coalesce(nullif(op ->> 'id', '')::uuid, gen_random_uuid()), sid, op ->> 'venue_id', (op ->> 'user_id')::uuid);
           changed := true;
         end if;
       when 'resolve_proposal' then

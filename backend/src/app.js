@@ -190,7 +190,7 @@ export function createApp({
   // rejoining, leaving and removing (/api/sessions/:id/...); and an outing's dietary needs together (GET /api/sessions/:id/dietary).
   // Needs a login, then a limit per person (the needs counted apart).
   if (supabase) {
-    const sessions = createSessions({ supabase, data: planData, runs, ...(routingDeadlineMs !== undefined && { routingDeadlineMs }) })
+    const sessions = createSessions({ supabase, data: planData, runs, ai: itineraryAi, now, ...(routingDeadlineMs !== undefined && { routingDeadlineMs }) })
     const sessionLimiter = sessionRateLimit ? rateLimit(sessionRateLimit) : null
     app.use('/api', createSessionsRouter({
       supabase,

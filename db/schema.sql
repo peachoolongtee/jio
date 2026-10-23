@@ -1226,7 +1226,8 @@ begin
              or (select count(*) from public.stop_proposals p where p.session_id = sid and p.status = 'pending' and p.proposed_by = (op ->> 'user_id')::uuid) >= 3 then
             raise exception 'Too many places are waiting for an answer.' using errcode = 'P0001', hint = 'too_many_proposals';
           end if;
-          insert into public.stop_proposals (session_id, venue_id, proposed_by) values (sid, op ->> 'venue_id', (op ->> 'user_id')::uuid);
+          insert into public.stop_proposals (id, session_id, venue_id, proposed_by)
+          values (coalesce(nullif(op ->> 'id', '')::uuid, gen_random_uuid()), sid, op ->> 'venue_id', (op ->> 'user_id')::uuid);
           changed := true;
         end if;
       when 'resolve_proposal' then

@@ -1,13 +1,37 @@
+import { randomUUID } from 'node:crypto'
 import {
   applyPlan,
   loadAdmission,
+  loadDebts,
   loadNames,
   loadNeeds,
+  loadPastOutings,
   loadState,
   PlanRefused,
 } from '../db/sessions.js'
+import { arrangeCandidates, freshCandidates } from '../planner/arrange.js'
 import { moreOptions, OPTIONS_MAX, OPTIONS_MORE } from '../planner/slot-plan.js'
 import { MAX } from '../routes/plan-schemas.js'
+import { nowInSingapore } from './planner-runs.js'
+import { currentScenario } from './scenario.js'
+import { HISTORY_OUTINGS, historySince, visitsFrom } from './session-history.js'
+import {
+  arrangeInput,
+  basisOf,
+  confirmedRows,
+  MAX_STOPS,
+  reorderedRows,
+  startOf,
+  suggestionFits,
+  timedRows,
+  votedStops,
+  votersOf,
+  withAddedStop,
+  withMode,
+  withoutStop,
+  withPlace,
+} from './session-itinerary.js'
+import { homeTripsRun, ledgerFor, ledgerPeople, minutesBetween } from './session-ledger.js'
 import { createSessionQueue } from './session-queue.js'
 import {
   APP_SPOTS,
@@ -31,10 +55,12 @@ import { categoryOfSlot, optionRow, optionsOf } from './session-slots.js'
 import { createVoting, dateTimeOf, spend } from './session-voting.js'
 import { MAX_ROUTED_TRIPS_PER_REQUEST, ROUTING_DEADLINE_MS } from './travel-times.js'
 
-// The session endpoints that decide where a group meets and what it votes on, on the server: the meeting spots, a member's suggestion,
-// the host's confirm and known place (which also makes the voting slots and their options), the radius, adding, swapping and removing
-// places, removing and restoring a slot, opting out and rejoining, and leaving or being removed. Votes are not here: a browser writes
-// its own vote directly, under the database's rules. routes/sessions.js is the HTTP side of this; this file is the rules.
+// The session endpoints that decide where a group meets, what it votes on and the plan it makes, on the server: the meeting spots, a member's
+// suggestion, the host's confirm and known place (which also makes the voting slots and their options), the radius, adding, swapping and
+// removing places, removing and restoring a slot, opting out and rejoining, leaving or being removed, and (stage 5) the suggested order of the
+// stops, the host's confirm of the plan, opening it again, deleting, moving and re-timing its stops, putting another place in a stop, Roam
+// proposals, and finishing the outing with its travel ledger. Votes are not here: a browser writes its own vote directly, under the
+// database's rules. routes/sessions.js is the HTTP side of this; this file is the rules.
 //
 // How a request goes:
 //   1. Admission, as the signed-in user. The database's own rules show a session only to people in it, so a stranger and a
@@ -50,7 +76,12 @@ import { MAX_ROUTED_TRIPS_PER_REQUEST, ROUTING_DEADLINE_MS } from './travel-time
 //
 // Travel times come from the centres of areas, never from an exact place, and only saved venues exist here: no Google. No answer
 // carries a label or a coordinate, and session_member_places is never read. One request has one allowance of OneMap trips (60), which
-// its meeting area and all its slots spend together.
+// its meeting area, all its slots, a replaced stop and the trips home of a finished outing spend together.
+//
+// The group's past is an extra, never a need (services/session-history.js): a ranking uses each person's travel debt (session_travel_debt())
+// and the places the group has been to lately (the caller's own finished outings), and any failure or slowness reading either means the
+// planner answers without it. The AI is asked for a suggested order only through the itinerary AI's budget (services/itinerary-ai.js),
+// with only place names, kinds, times and the weather.
 //
 // Every refusal is a SessionError, which the router answers as { error, message } with the status given.
 //
@@ -82,6 +113,37 @@ export class SessionError extends Error {
 // A SessionError to throw. How to call: throw refuse(403, 'host_only', 'Only the host can confirm a spot.')
 const refuse = (status, code, message, options) => new SessionError(status, code, message, options)
 
+// What a rule of apply_session_plan that refused a write (its hint) is told to the caller as. A hint that is not here is the session being
+// in a state the request does not fit (409 wrong_status): the write was refused by the database after the server had checked, which means
+// the session moved on between the two.
+const REFUSALS = {
+  area_pinned: [409, 'area_pinned', 'The meeting area was chosen, so this cannot move it.'],
+  needs_two_people: [409, 'needs_two_people', 'A session needs at least two people.'],
+  slot_missing: [404, 'slot_not_found', 'That slot is not in this session.'],
+  not_enough_votes: [409, 'not_enough_votes', 'At least two people need to vote before the plan can be confirmed.'],
+  stops_missing: [409, 'nothing_to_confirm', 'Vote for at least one place first.'],
+  last_stop: [409, 'last_stop', 'A plan needs at least one stop.'],
+  plan_full: [409, 'plan_full', `A plan holds up to ${MAX_STOPS} stops.`],
+  too_many_stops: [409, 'plan_full', `A plan holds up to ${MAX_STOPS} stops.`],
+  too_many_proposals: [409, 'too_many_proposals', 'Too many places are waiting for an answer.'],
+  already_a_stop: [409, 'already_a_stop', 'That place is already in the plan.'],
+  proposal_member: [403, 'not_joined', 'Only people in this session can do that.'],
+  stop_missing: [409, 'stops_changed', 'The plan has changed. Look at it again.'],
+  stop_order: [409, 'stops_changed', 'The plan has changed. Look at it again.'],
+  stop_duplicate: [409, 'stops_changed', 'The plan has changed. Look at it again.'],
+  stop_slot: [409, 'stops_changed', 'The plan has changed. Look at it again.'],
+  stop_not_option: [409, 'stops_changed', 'The plan has changed. Look at it again.'],
+}
+
+// The SessionError for the hint of a refused write.
+//
+// How to call:
+//   throw refusalOf('not_enough_votes')
+const refusalOf = (hint) => {
+  const [status, code, message] = REFUSALS[hint] ?? [409, 'wrong_status', 'This cannot be done while the session is in this state.']
+  return refuse(status, code, message)
+}
+
 // Waits for a call to the database, at most `ms`. Past that it fails with 503 `unavailable` (the call may still finish later, so
 // the caller cannot tell whether a write happened, which is why this is a 5xx and not a refusal).
 //
@@ -93,6 +155,24 @@ function within(work, ms, what) {
     timer = setTimeout(() => reject(refuse(503, 'unavailable', `The database did not answer in time while ${what}. Try again in a moment.`, { retryAfter: 2 })), ms)
   })
   return Promise.race([work, late]).finally(() => clearTimeout(timer))
+}
+
+// Reads something the planner can do without (the group's past): waits at most the database deadline, and on any failure at all (a database
+// error, a function that is not on the project, a timeout) answers `fallback` and says so in the log, at most once a minute. The log line
+// holds only what was being read and the kind of failure, never a message from the database.
+//
+// How to call:
+//   const debts = await softly(() => loadDebts(service, id), 'reading the travel debt', null)
+let lastHistoryWarning = 0
+function softly(work, what, fallback, ms = DB_DEADLINE_MS) {
+  return within(work(), ms, what).catch((err) => {
+    const at = Date.now()
+    if (at - lastHistoryWarning > 60_000) {
+      lastHistoryWarning = at
+      console.warn(`Session history is not used (${what} failed: ${typeof err?.code === 'string' ? err.code : (err?.name ?? 'Error')}). The planner answers without it.`)
+    }
+    return fallback
+  })
 }
 
 // The status check every endpoint makes. `allowed` are the statuses it works in. Of the others: a finished session is `closed`
@@ -158,6 +238,9 @@ const draftOf = (state) => {
     slots: state.slots.map((s) => ({ ...s })),
     options: state.options.map(({ slot_id: slotId, ...o }) => ({ ...o, category: categoryOf.get(slotId) })),
     votes: state.votes.map(({ slot_id: slotId, ...v }) => ({ ...v, category: categoryOf.get(slotId) })),
+    // The stops of a confirmed plan (in order) and the proposals still waiting; empty in any other status.
+    stops: (state.stops ?? []).map((s) => ({ ...s })),
+    proposals: (state.proposals ?? []).map((p) => ({ ...p })),
     // The categories whose slots this run changed; only these go in the patch.
     dirty: new Set(),
   }
@@ -171,14 +254,21 @@ const draftOf = (state) => {
 //   runs     - The shared planner runs, from createPlannerRuns() (services/planner-runs.js). Every OneMap call goes through them.
 //   queue    - Tests may pass their own lane (createSessionQueue); normally built here.
 //   dbDeadlineMs - The most time one call to the database may take inside a run. Default DB_DEADLINE_MS (8 seconds).
+//   ai       - The itinerary AI, from createItineraryAi() (services/itinerary-ai.js): it chooses the suggested order of the stops among the orders
+//              the rules allow, inside its own budget. Without one the rules choose.
+//   now      - Returns the time in milliseconds. Tests pass a fake clock; it decides how far back the group's past is read.
 //
 // How to call:
-//   const sessions = createSessions({ supabase, data, runs })
-export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTING_DEADLINE_MS, dbDeadlineMs = DB_DEADLINE_MS }) {
+//   const sessions = createSessions({ supabase, data, runs, ai })
+export function createSessions({ supabase, data, runs, ai = null, now = Date.now, routingDeadlineMs = ROUTING_DEADLINE_MS, dbDeadlineMs = DB_DEADLINE_MS }) {
   const service = supabase.service
   const areasById = new Map((data.areas ?? []).map((a) => [a.id, a]))
   const areaName = (id) => areasById.get(id)?.name ?? id
   const voting = createVoting({ data, areasById, runs })
+  // Reads something the planner can do without, within this service's database deadline (see softly).
+  const soft = (work, what, fallback) => softly(work, what, fallback, dbDeadlineMs)
+  // A saved place by its id (undefined when it is not one), for the timing of a plan.
+  const ctxVenue = (venueId) => voting.venues.get(venueId)
 
   // ── Admission ──────────────────────────────────────────────────────────
 
@@ -208,9 +298,10 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
   // two starts gives an empty list. One engine run (so at most one allowance of OneMap trips) however many suggestions there are.
   //
   // How to call:
-  //   const { rows, skipped, travel } = await computeSpots(draft, allowance)
-  async function computeSpots(draft, allowance) {
-    const { located, skipped } = locatedMembers(draft.members, areasById)
+  //   const { rows, skipped, travel } = await computeSpots(draft, allowance, ctx)
+  async function computeSpots(draft, allowance, ctx) {
+    const debts = (await ctx.debts?.()) ?? null
+    const { located, skipped } = locatedMembers(draft.members, areasById, debts)
     if (located.length < MIN_STARTS) return { rows: [], skipped, travel: null }
     const input = {
       members: located,
@@ -256,7 +347,30 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
       const spotsBefore = draft.spots
       // The members' private needs, read once and only if a ranking asks (the service key is used here after admission has passed).
       let needsRead
-      const ctx = { allowance, state, needs: () => (needsRead ??= within(loadNeeds(service, sessionId), dbDeadlineMs, "reading the members' needs")) }
+      let debtsRead
+      let visitsRead
+      // The group's past, read softly: any failure, or a database too slow, answers nothing and the planner goes on without it. The
+      // finished outings are read as the first caller of the batch that is still waiting (the database's rules show that person only their
+      // own), never with the service key; the travel debt is the server's own function.
+      const ctx = {
+        allowance,
+        state,
+        venueOf: (venueId) => voting.venues.get(venueId),
+        needs: () => (needsRead ??= within(loadNeeds(service, sessionId), dbDeadlineMs, "reading the members' needs")),
+        debts: () => (debtsRead ??= soft(() => loadDebts(service, sessionId), 'reading the travel debt', null)),
+        visits: () =>
+          (visitsRead ??= soft(
+            async () => {
+              const client = batch.jobs.find((job) => !dropped.has(job) && job.client)?.client
+              if (!client) return []
+              const joined = new Set(state.members.filter((m) => m.state === 'joined').map((m) => lower(m.user_id)))
+              const outings = await loadPastOutings(client, { since: historySince(now()), limit: HISTORY_OUTINGS })
+              return visitsFrom({ outings, sessionId, joined })
+            },
+            'reading the finished outings',
+            [],
+          )),
+      }
       const live = []
       for (const job of batch.jobs) {
         if (dropped.has(job)) continue
@@ -286,7 +400,7 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
       let skipped = []
       let recomputed = false
       if (rows === undefined && needs === 'recompute') {
-        ;({ rows, skipped } = await computeSpots(draft, allowance))
+        ;({ rows, skipped } = await computeSpots(draft, allowance, ctx))
         recomputed = true
       } else if (rows === undefined && needs === 'relist') {
         rows = relistedRows(draft.spots, suggestedAreaIds(draft.suggestions, draft.members, areasById))
@@ -318,6 +432,13 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
       const sessionPart = { ...jobSession, ...plan?.session }
       if (Object.keys(sessionPart).length > 0) patch.session = sessionPart
       if (plan && plan.items.length > 0) patch.slots = plan.items
+      // The plan's own parts: the complete list of stops, the details of a place put in a stop, and the ledger of a finished outing.
+      const stopsPart = live.map(({ prepared }) => prepared.stops).filter((part) => part !== undefined).at(-1)
+      if (stopsPart !== undefined) patch.stops = stopsPart
+      const stopOptions = live.flatMap(({ prepared }) => prepared.stopOptions ?? [])
+      if (stopOptions.length > 0) patch.stop_options = stopOptions
+      const ledgerPart = live.map(({ prepared }) => prepared.ledger).filter((part) => part !== undefined).at(-1)
+      if (ledgerPart !== undefined) patch.ledger = ledgerPart
       let lost = []
       if (rows !== undefined) {
         patch.spots = rows
@@ -340,7 +461,9 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
         }
       }
 
-      const nothingToWrite = patch.ops.length === 0 && patch.spots === undefined && !patch.session && patch.slots === undefined
+      const nothingToWrite =
+        patch.ops.length === 0 && patch.spots === undefined && !patch.session && patch.slots === undefined &&
+        patch.stops === undefined && patch.stop_options === undefined && patch.ledger === undefined
       let version = Number(state.session.plan_version)
       if (!nothingToWrite) {
         // Asked again now: a run may have joined the line while the planner worked, and its jobs would be done again on newer inputs.
@@ -355,11 +478,7 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
           version = written
         } catch (err) {
           if (!(err instanceof PlanRefused)) throw err
-          const error =
-            err.hint === 'area_pinned' ? refuse(409, 'area_pinned', 'The meeting area was chosen, so this cannot move it.')
-            : err.hint === 'needs_two_people' ? refuse(409, 'needs_two_people', 'A session needs at least two people.')
-            : err.hint === 'slot_missing' ? refuse(404, 'slot_not_found', 'That slot is not in this session.')
-            : refuse(409, 'wrong_status', 'This cannot be done while the session is in this state.')
+          const error = refusalOf(err.hint)
           for (const { job } of live) reject(job, error)
           return
         }
@@ -406,7 +525,8 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
     id = lower(id)
     const state = await admit(client, id, userId)
     job.check(state)
-    return queue.enqueue(id, job)
+    // The caller's own client goes with the job: the group's past is read as a member of the batch (never with the service key).
+    return queue.enqueue(id, { ...job, client })
   }
 
   // A person's name for a notice, or "Someone" when they have none.
@@ -1113,6 +1233,463 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
     return { results: await voting.searchSlot(draft, slot, query, ctx) }
   }
 
+
+  // ── The plan: the suggested order, confirming, the stops, finishing ────
+
+  // The caller must be the host of a confirmed plan (every edit of the stops, finishing, and the answer to a re-plan prompt).
+  //
+  // How to call:
+  //   const check = confirmedPlanCheck(userId, 'delete a stop')
+  const confirmedPlanCheck = (userId, what) => (state) => {
+    requireJoined(state, userId)
+    requireHost(state, userId, what)
+    requireStatus(state, ['confirmed'], { what })
+  }
+
+  // The stop of the draft with this id, or 404.
+  //
+  // How to call:
+  //   const row = stopOf(draft, stopId)
+  function stopOf(draft, stopId) {
+    const row = draft.stops.find((s) => s.id === stopId)
+    if (!row) throw refuse(404, 'stop_not_found', 'That stop is not in this plan.')
+    return row
+  }
+
+  // A job that rewrites the whole list of stops: the rows and the plan's start it was given, and the note about the order cleared (the stops
+  // are no longer exactly in the order that was suggested).
+  //
+  // How to call:
+  //   return stopsJob(rows, planStart, { stopOptions }, answer)
+  function stopsJob({ rows, planStart }, extra, answer) {
+    return {
+      ops: [],
+      needs: 'none',
+      session: { order_note: null, plan_start_minute: planStart },
+      stops: rows,
+      ...extra,
+      answer,
+    }
+  }
+
+  // POST /api/sessions/:id/order/suggest: the host asks for a suggested order of the stops the votes make now (E22). The order is chosen among
+  // the orders that keep every place open and every meal on time (planner/arrange.js), by the itinerary AI inside its own budget, or by the
+  // rules when it cannot answer. It is stored with the session (`order_suggestion`) with a hash of the stops it was made for (`basis`), so
+  // asking again for the same stops makes no AI call, and confirming with `order: 'suggested'` is refused when the stops have moved since.
+  // The browser sends nothing but the request: the stops, the sentence and who chose it all come from stored rows. Only the names, kinds,
+  // opening hours and settings of the places, the times, and whether it rains go to the AI provider, never anything about a person.
+  //
+  // How to call:
+  //   await sessions.suggestOrder({ client: req.supabase, id, userId: req.user.id })
+  //   // { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], reason, source: 'ai' | 'rules' }
+  //   // or { status: 'none', why: 'one_movable' | 'no_order_fits' | 'no_stops' | 'unknown_place' }
+  async function suggestOrder({ client, id, userId }) {
+    userId = lower(userId)
+    id = lower(id)
+    const check = (state) => {
+      requireJoined(state, userId)
+      requireHost(state, userId, 'ask for a suggested order')
+      requireStatus(state, ['voting'], { what: 'suggest an order' })
+    }
+    check(await admit(client, id, userId))
+    for (let attempt = 0; attempt < MAX_TRIES; attempt += 1) {
+      const state = await within(loadState(service, id), dbDeadlineMs, 'reading the session')
+      if (!state.session) throw refuse(404, 'session_not_found', 'This session does not exist, or you are not in it.')
+      const draft = draftOf(state)
+      check(draft)
+      if (votersOf(draft) < 2) throw refuse(409, 'not_enough_votes', 'At least two people need to vote before an order can be suggested.')
+      const stops = votedStops(draft)
+      if (stops.length === 0) return { status: 'none', why: 'no_stops' }
+      const basis = basisOf(draft.session, stops)
+      const answerOf = (stored) => ({
+        status: 'ok',
+        basis,
+        order: stored.order,
+        stops: stored.order.map((slotId) => ({ slotId, venueId: stops.find((s) => s.slotId === slotId).venueId, start: stored.starts[slotId] })),
+        reason: stored.reason,
+        source: stored.source,
+      })
+      // The same stops as the stored suggestion: nothing to work out, nothing to write, no AI call.
+      const stored = state.session.order_suggestion
+      if (stored?.basis === basis && suggestionFits(stops, stored)) return answerOf(stored)
+      if (stops.some((s) => !voting.venues.has(s.venueId))) return { status: 'none', why: 'unknown_place' }
+      if (stops.filter((s) => s.category !== 'eat').length < 2) return { status: 'none', why: 'one_movable' }
+      const { candidates } = arrangeCandidates(arrangeInput(stops, (venueId) => voting.venues.get(venueId), draft.session))
+      const { options } = freshCandidates(candidates, [], { includeCurrent: true })
+      if (options.length === 0) return { status: 'none', why: 'no_order_fits' }
+      // The AI never throws because it is down, slow or over budget: it falls back to the rules.
+      const choice = ai ? await ai.choose({ options, rain: currentScenario() === 'rain' }) : { index: 0, reason: 'Every place is open and every meal is on time in this order.', source: 'rules' }
+      const chosen = options[choice.index] ?? options[0]
+      const suggestion = {
+        basis,
+        order: chosen.ids,
+        starts: Object.fromEntries(chosen.stops.map((s) => [s.id, s.start])),
+        reason: choice.reason,
+        source: choice.source === 'ai' ? 'ai' : 'rules',
+        at: now(),
+      }
+      try {
+        await submit(
+          { client, id, userId },
+          {
+            check,
+            prepare: (current) => {
+              check(current)
+              // The votes (or the places) moved while the order was worked out: this suggestion is for stops that are gone.
+              if (basisOf(current.session, votedStops(current)) !== basis) throw refuse(409, 'plan_busy', 'The votes changed while an order was worked out. Try again.', { retryAfter: 1 })
+              return { ops: [], needs: 'none', session: { order_suggestion: suggestion }, answer: ({ version }) => ({ planVersion: version }) }
+            },
+          },
+        )
+      } catch (err) {
+        if (err instanceof SessionError && err.code === 'plan_busy' && attempt + 1 < MAX_TRIES) continue
+        throw err
+      }
+      return answerOf(suggestion)
+    }
+    throw refuse(409, 'plan_busy', 'The votes changed while an order was worked out. Try again.', { retryAfter: 1 })
+  }
+
+  // POST /api/sessions/:id/confirm: the host confirms the plan (E12), voting to confirmed. The stops are written from the stored winners of
+  // each slot, laid back to back inside the session's window (the browser never sends a stop, a time or a sentence). `order: 'voted'` (or
+  // nothing) keeps the voted order. `order: 'suggested'` takes the stored suggested order, with its sentence and who chose it, only if the
+  // body's `basis` is the stored suggestion's AND the stops the votes make now still hash to it: otherwise 409 order_stale and nothing is
+  // written, and the host asks for a suggestion again. At least two joined people must have voted. Confirming again is a no-op.
+  //
+  // How to call:
+  //   await sessions.confirmPlan({ client: req.supabase, id, userId: req.user.id, order: 'suggested', basis })
+  //   // { planVersion, status: 'confirmed', stops: 3 }
+  function confirmPlan({ client, id, userId, order = 'voted', basis }) {
+    userId = lower(userId)
+    const check = (state) => {
+      requireJoined(state, userId)
+      requireHost(state, userId, 'confirm the plan')
+      if (state.session.status !== 'confirmed') requireStatus(state, ['voting'], { what: 'confirm the plan' })
+    }
+    return submit(
+      { client, id, userId },
+      {
+        exclusive: true,
+        check,
+        prepare: (draft) => {
+          check(draft)
+          if (draft.session.status === 'confirmed') {
+            return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, status: 'confirmed', stops: draft.stops.length }) }
+          }
+          if (votersOf(draft) < 2) throw refuse(409, 'not_enough_votes', 'At least 2 people need to vote first.')
+          const stops = votedStops(draft)
+          if (stops.length === 0) throw refuse(409, 'nothing_to_confirm', 'Vote for at least one place first.')
+          let suggestion = null
+          if (order === 'suggested') {
+            const stored = draft.session.order_suggestion
+            const current = basisOf(draft.session, stops)
+            if (!basis || basis !== current || stored?.basis !== current || !suggestionFits(stops, stored)) {
+              throw refuse(409, 'order_stale', 'The votes changed since this order was suggested. Look at the order again.')
+            }
+            suggestion = stored
+          }
+          const { rows, planStart } = confirmedRows(stops, (venueId) => voting.venues.get(venueId), suggestion)
+          const note = suggestion ? { reason: suggestion.reason, source: suggestion.source === 'ai' ? 'ai' : 'rules' } : null
+          return {
+            ops: [],
+            needs: 'none',
+            session: { status: 'confirmed', banner: null, replan: null, plan_start_minute: planStart, order_note: note },
+            stops: rows,
+            answer: ({ version }) => ({ planVersion: version, status: 'confirmed', stops: rows.length }),
+          }
+        },
+      },
+    )
+  }
+
+  // POST /api/sessions/:id/replan: the host opens a confirmed plan for voting again (E13), or turns down the "plan again?" prompt with
+  // `accept: false` (which only clears the prompt). Opening it again takes the stops, the order note and the suggested order away, dismisses
+  // the proposals still waiting, works the meeting area out again (a chosen area stays; the planner's own pick may move, and then the votes
+  // go) and ranks the slots again. Already voting is a no-op.
+  //
+  // How to call:
+  //   await sessions.replan({ client: req.supabase, id, userId: req.user.id, accept: true }) // { planVersion, status: 'voting' }
+  function replan({ client, id, userId, accept = true }) {
+    userId = lower(userId)
+    const check = (state) => {
+      requireJoined(state, userId)
+      requireHost(state, userId, 'plan again')
+      if (state.session.status !== 'voting') requireStatus(state, ['confirmed'], { what: 'plan again' })
+    }
+    return submit(
+      { client, id, userId },
+      {
+        exclusive: true,
+        check,
+        prepare: (draft) => {
+          check(draft)
+          if (draft.session.status === 'voting') return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, status: 'voting' }) }
+          if (!accept) {
+            return { ops: [], needs: 'none', session: { replan: null }, answer: ({ version }) => ({ planVersion: version, status: 'confirmed' }) }
+          }
+          Object.assign(draft.session, { status: 'voting', banner: null, replan: null, order_reason: null, order_source: null, order_suggestion: null, plan_start_minute: null })
+          draft.stops = []
+          draft.proposals = []
+          return {
+            ops: [],
+            needs: 'none',
+            session: { status: 'voting', banner: null, replan: null },
+            plan: { meeting: true, rank: 'all', trigger: { kind: 'replan', name: '' } },
+            answer: ({ version }) => ({ planVersion: version, status: 'voting' }),
+          }
+        },
+      },
+    )
+  }
+
+  // DELETE /api/sessions/:id/stops/:stopId: the host takes a stop out of the plan (E15). The stops after it move up, the legs either side merge
+  // into one with its default mode, the order note and every stop's earliest start from the order go, and when the first stop goes the plan
+  // starts when the next one does. The last stop cannot be deleted.
+  //
+  // How to call:
+  //   await sessions.deleteStop({ client: req.supabase, id, userId: req.user.id, stopId }) // { planVersion }
+  function deleteStop({ client, id, userId, stopId }) {
+    userId = lower(userId)
+    const check = confirmedPlanCheck(userId, 'delete a stop')
+    return submit(
+      { client, id, userId },
+      {
+        check,
+        prepare: (draft) => {
+          check(draft)
+          stopOf(draft, stopId)
+          if (draft.stops.length <= 1) throw refuse(409, 'last_stop', 'A plan needs at least one stop.')
+          const result = withoutStop(draft.stops, stopId, draft.session, ctxVenue)
+          return stopsJob(result, {}, ({ version }) => ({ planVersion: version }))
+        },
+      },
+    )
+  }
+
+  // PATCH /api/sessions/:id/stops/:stopId: the host sets how the group gets to a stop from the stop before (E15): walk, mrt or car, or null for
+  // the default. The first stop has no leg into it (409 no_leg). Setting the mode it already has changes nothing.
+  //
+  // How to call:
+  //   await sessions.setTravelMode({ client: req.supabase, id, userId: req.user.id, stopId, mode: 'car' }) // { planVersion, travelMode: 'car' }
+  function setTravelMode({ client, id, userId, stopId, mode }) {
+    userId = lower(userId)
+    const check = confirmedPlanCheck(userId, 'change how the group travels')
+    return submit(
+      { client, id, userId },
+      {
+        check,
+        prepare: (draft) => {
+          check(draft)
+          stopOf(draft, stopId)
+          const result = withMode(draft.stops, stopId, mode, draft.session, ctxVenue)
+          if (!result) throw refuse(409, 'no_leg', 'The first stop has no leg before it.')
+          return {
+            ops: [],
+            needs: 'none',
+            session: { plan_start_minute: result.planStart },
+            stops: result.rows,
+            answer: ({ version }) => ({ planVersion: version, travelMode: mode }),
+          }
+        },
+      },
+    )
+  }
+
+  // PUT /api/sessions/:id/stops/order: the host sets the order of the stops (E15). `stopIds` names every stop of the plan once, in the new
+  // order, or the plan has changed (409 stops_changed). The plan keeps its start; every stop follows the one before it; the travel modes go back
+  // to their defaults (the legs are new pairs); the order note and the earliest starts from the order go. The same order again changes nothing.
+  //
+  // How to call:
+  //   await sessions.reorderStops({ client: req.supabase, id, userId: req.user.id, stopIds: [b, a, c] }) // { planVersion }
+  function reorderStops({ client, id, userId, stopIds }) {
+    userId = lower(userId)
+    const check = confirmedPlanCheck(userId, 'rearrange the stops')
+    return submit(
+      { client, id, userId },
+      {
+        check,
+        prepare: (draft) => {
+          check(draft)
+          const result = reorderedRows(draft.stops, stopIds, draft.session, ctxVenue)
+          if (!result) throw refuse(409, 'stops_changed', 'The plan has changed. Look at it again.')
+          // The same order: the modes and earliest starts stay as they are.
+          if (stopIds.every((stopId, i) => draft.stops[i].id === stopId)) return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version }) }
+          return stopsJob(result, {}, ({ version }) => ({ planVersion: version }))
+        },
+      },
+    )
+  }
+
+  // PUT /api/sessions/:id/stops/:stopId/place: the host puts another place in a stop (E15), for the rain swap and for Replace: the one way a
+  // confirmed stop's place changes. Refused unless the stop still holds `seenVenueId`, the place the caller saw (409 stop_changed), and
+  // unless the place is a saved one (404), not already another stop (409 already_a_stop) and fits the stop: the planner is asked for it at the
+  // time the stop starts in the itinerary now, as the plan's last stop if it is (422 venue_does_not_fit). The stop keeps its length, never starts
+  // earlier than the time the planner checked it for, the legs either side go back to their default modes, the order note goes, and the new
+  // place is kept as an option of the stop's slot with what the planner said about it (the old place leaves the options, with its votes).
+  // `category` makes it another kind of stop. Asking again once the stop holds the place changes nothing.
+  //
+  // How to call:
+  //   await sessions.changeStopPlace({ client: req.supabase, id, userId: req.user.id, stopId, venueId: 'toa-payoh-library', seenVenueId: 'east-coast-park' })
+  //   // { planVersion, changed: true }
+  function changeStopPlace({ client, id, userId, stopId, venueId, seenVenueId, category }) {
+    userId = lower(userId)
+    const check = confirmedPlanCheck(userId, 'replace a stop')
+    return submit(
+      { client, id, userId },
+      {
+        check,
+        prepare: async (draft, ctx) => {
+          check(draft)
+          const row = stopOf(draft, stopId)
+          const venue = voting.venues.get(venueId)
+          if (!venue) throw refuse(404, 'venue_not_found', 'That place is not one Jio knows.')
+          const kind = category ?? row.category ?? venue.category
+          if (row.venue_id === venueId && row.category === kind) return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, changed: false }) }
+          if (row.venue_id !== seenVenueId) throw refuse(409, 'stop_changed', 'That stop has changed. Look at the plan again.')
+          if (draft.stops.some((s) => s.id !== row.id && s.venue_id === venueId)) throw refuse(409, 'already_a_stop', `${venue.name} is already in the plan.`)
+          const index = draft.stops.indexOf(row)
+          const startedAt = timedRows(draft.stops, ctxVenue, startOf(draft.session, draft.stops)).timed[index].start
+          const slot = { category: kind, start_minute: Math.min(1439, startedAt), duration_minutes: row.duration_minutes }
+          requireMeetingArea(draft)
+          const ranking = await voting.rankSlot(draft, slot, [venueId], ctx, { last: index === draft.stops.length - 1 })
+          if (!ranking.current.has(venueId)) throw refuse(422, 'venue_does_not_fit', `${venue.name} does not fit this stop.`)
+          const result = withPlace(draft.stops, stopId, { venueId, category: kind, startedAt: Math.min(1439, startedAt) }, draft.session, ctxVenue)
+          const kept = row.slot_id ? optionRow(kind, ranking.rows.get(venueId)) : null
+          return stopsJob(
+            result,
+            kept ? { stopOptions: [{ slot_id: row.slot_id, venue_id: venueId, rank: kept.rank, score: kept.score, source: 'planner', added_by: null, details: kept.details, replaces: row.venue_id }] } : {},
+            ({ version }) => ({ planVersion: version, changed: true }),
+          )
+        },
+      },
+    )
+  }
+
+  // POST /api/sessions/:id/complete: the host finishes the outing (E14), confirmed to completed. The server works the travel ledger out from
+  // stored rows, never from the browser: for each joined person who has minutes in (stored when the meeting spot was confirmed), the minutes in,
+  // the minutes between stops (the stored leg minutes), and the minutes home, routed from the last stop to the centre of the area they end the
+  // day in (OneMap through the shared runs, inside the request's allowance, with the estimate where it cannot route). The deltas from the
+  // mean sum to exactly zero. The ledger and the status are written together; a retry after success is a no-op, and it is refused unless
+  // the plan is confirmed.
+  //
+  // How to call:
+  //   await sessions.completeOuting({ client: req.supabase, id, userId: req.user.id }) // { planVersion, status: 'completed' }
+  function completeOuting({ client, id, userId }) {
+    userId = lower(userId)
+    const check = (state) => {
+      requireJoined(state, userId)
+      requireHost(state, userId, 'finish the outing')
+      if (state.session.status !== 'completed') requireStatus(state, ['confirmed'], { what: 'finish the outing' })
+    }
+    return submit(
+      { client, id, userId },
+      {
+        exclusive: true,
+        check,
+        prepare: async (draft, { allowance }) => {
+          check(draft)
+          if (draft.session.status === 'completed') return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, status: 'completed' }) }
+          const people = ledgerPeople(draft.members)
+          const between = minutesBetween(draft.stops)
+          const last = draft.stops.at(-1)
+          const lastVenue = last ? voting.venues.get(last.venue_id) : null
+          const ends = people.map((m) => ({ id: lower(m.user_id), area: areasById.get(m.end_area_id) ?? areasById.get(m.start_area_id) })).filter((p) => p.area)
+          let home = {}
+          if (lastVenue && ends.length > 0) {
+            const input = {
+              from: { id: lastVenue.id, lat: lastVenue.lat, lng: lastVenue.lng },
+              people: ends.map((p) => ({ id: p.id, end: { lat: p.area.lat, lng: p.area.lng } })),
+              dateTime: dateTimeOf(draft.session),
+            }
+            const { result, travel } = await runs.runWithTravel(input, data, homeTripsRun, () => ({
+              maxTrips: allowance.trips,
+              deadlineMs: Math.max(0, allowance.deadlineAt - Date.now()),
+            }))
+            spend(allowance, travel)
+            home = result.minutes
+          }
+          const ledger = ledgerFor(people.map((m) => ({ userId: lower(m.user_id), minutesIn: m.travel_minutes, minutesBetween: between, minutesHome: home[lower(m.user_id)] ?? 0 })))
+          draft.session.status = 'completed'
+          return { ops: [], needs: 'none', session: { status: 'completed', replan: null }, ledger, answer: ({ version }) => ({ planVersion: version, status: 'completed' }) }
+        },
+      },
+    )
+  }
+
+  // POST /api/sessions/:id/proposals: a joined member puts a saved place forward as the next stop (E23), while the plan is confirmed. The place
+  // must be one Jio knows (404), not already a stop (409 already_a_stop), and the plan not full (409 plan_full); a member has at most 3
+  // waiting and the session 10 (409 too_many_proposals). A place that is already waiting stays its first proposer's: nothing changes and the
+  // answer says `applied: false` with that proposal's id.
+  //
+  // How to call:
+  //   await sessions.proposeStop({ client: req.supabase, id, userId: req.user.id, venueId: 'ya-kun-kaya-toast' }) // { planVersion, id, applied: true }
+  function proposeStop({ client, id, userId, venueId }) {
+    userId = lower(userId)
+    const check = (state) => {
+      requireJoined(state, userId)
+      requireStatus(state, ['confirmed'], { what: 'propose a place' })
+    }
+    return submit(
+      { client, id, userId },
+      {
+        check,
+        prepare: (draft) => {
+          check(draft)
+          const venue = voting.venues.get(venueId)
+          if (!venue) throw refuse(404, 'venue_not_found', 'That place is not one Jio knows.')
+          if (draft.stops.some((s) => s.venue_id === venueId)) throw refuse(409, 'already_a_stop', `${venue.name} is already in the plan.`)
+          const waiting = draft.proposals.find((p) => p.venue_id === venueId)
+          if (waiting) return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, id: waiting.id, applied: false }) }
+          const proposalId = randomUUID()
+          return { ops: [{ op: 'propose', id: proposalId, user_id: userId, venue_id: venueId }], needs: 'none', answer: ({ version }) => ({ planVersion: version, id: proposalId, applied: true }) }
+        },
+      },
+    )
+  }
+
+  // POST /api/sessions/:id/proposals/:proposalId/resolve: the host adds a proposed place to the plan (`accept: true`), or leaves it out
+  // (`accept: false`); the person who proposed it may also leave it out, which is taking it back (E24). Adding appends a stop at the end, in the
+  // place's own category, lasting 60 minutes, which may not start before the last stop ends or now, whichever is later (the time the list of
+  // places was ranked for); it clears the note about the order. A plan of 8 stops takes no more (409 plan_full). A proposal that is not waiting
+  // any more (answered, or cleared by a re-plan or the end of the outing) changes nothing: `applied: false`.
+  //
+  // How to call:
+  //   await sessions.resolveProposal({ client: req.supabase, id, userId: req.user.id, proposalId, accept: true }) // { planVersion, applied: true }
+  function resolveProposal({ client, id, userId, proposalId, accept }) {
+    userId = lower(userId)
+    const check = (state) => {
+      requireJoined(state, userId)
+      requireStatus(state, ['confirmed'], { what: 'answer a proposal' })
+    }
+    return submit(
+      { client, id, userId },
+      {
+        check,
+        prepare: (draft) => {
+          check(draft)
+          const proposal = draft.proposals.find((p) => lower(p.id) === lower(proposalId))
+          if (!proposal) return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, applied: false }) }
+          const isHost = lower(draft.session.host_id) === userId
+          if (accept && !isHost) throw refuse(403, 'host_only', 'Only the host can add a place to the plan.')
+          if (!accept && !isHost && lower(proposal.proposed_by) !== userId) throw refuse(403, 'host_only', 'Only the host, or the person who proposed it, can dismiss it.')
+          const ops = [{ op: 'resolve_proposal', proposal_id: proposal.id, status: accept ? 'accepted' : 'dismissed', by: userId }]
+          const answer = ({ version }) => ({ planVersion: version, applied: true })
+          if (!accept) return { ops, needs: 'none', answer }
+          const venue = voting.venues.get(proposal.venue_id)
+          if (!venue) throw refuse(404, 'venue_not_found', 'That place is not one Jio knows.')
+          if (draft.stops.some((s) => s.venue_id === proposal.venue_id)) return { ops, needs: 'none', answer }
+          if (draft.stops.length >= MAX_STOPS) throw refuse(409, 'plan_full', `A plan holds up to ${MAX_STOPS} stops.`)
+          const timed = draft.stops.length ? timedRows(draft.stops, ctxVenue, startOf(draft.session, draft.stops)).timed : []
+          const endedAt = timed.at(-1)?.end ?? null
+          const sgMinutes = Number(nowInSingapore().slice(11, 13)) * 60 + Number(nowInSingapore().slice(14, 16))
+          const notBefore = Math.max(endedAt ?? 0, sgMinutes)
+          const result = withAddedStop(draft.stops, { venueId: proposal.venue_id, category: venue.category, notBefore, duration: 60, endedAt }, draft.session, ctxVenue)
+          return { ...stopsJob(result, {}, answer), ops }
+        },
+      },
+    )
+  }
+
   return {
     recompute,
     suggestSpot,
@@ -1130,6 +1707,16 @@ export function createSessions({ supabase, data, runs, routingDeadlineMs = ROUTI
     addMoreOptions,
     swapOption,
     searchSlot,
+    suggestOrder,
+    confirmPlan,
+    replan,
+    deleteStop,
+    setTravelMode,
+    reorderStops,
+    changeStopPlace,
+    completeOuting,
+    proposeStop,
+    resolveProposal,
     queue,
   }
 }

@@ -9,7 +9,8 @@ import { isDeepStrictEqual } from 'node:util'
 //     exact place, and their own vote (votes);
 //   - the service client (`service`) sees everything, is the only one that may call apply_session_plan, and records every request.
 // `applySessionPlan` below is a JavaScript twin of the SQL function in db/migrations/20261020000000_jio_apply_session_plan.sql (stage 3)
-// as extended by db/migrations/20261022000000_jio_apply_session_plan_slots.sql (stage 4: slots, options, votes, the radius).
+// as extended by db/migrations/20261022000000_jio_apply_session_plan_slots.sql (stage 4: slots, options, votes, the radius) and
+// db/migrations/20261023000000_jio_apply_session_plan_stops.sql (stage 5: the plan's stops, their order, proposals, finishing and the ledger).
 // It is a second implementation of the same rules, so the real function must still be tested on the live project
 // (db/tests/apply_session_plan.sql); the point of the twin is that the server's code can be tested offline.
 //
@@ -47,7 +48,7 @@ export async function jwksFetch(input) {
   return new Response('{}', { status: 404 })
 }
 
-const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'slot_options', 'votes', 'profiles', 'profile_private', 'session_member_places']
+const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'slot_options', 'votes', 'stops', 'stop_proposals', 'commute_ledger', 'profiles', 'profile_private', 'session_member_places']
 
 // An empty database. `calls` records every request: { table | rpc, kind, who } with who = the user id, or null for the service key.
 // Fields a test may set:
@@ -60,11 +61,13 @@ const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestion
 //   profile_private     [{ id, dietary, home_area_id, budget_max_per_person, needs_step_free }]: the private rows that
 //                       session_member_needs reads (no client may read them as a table)
 //   failNeeds           true: session_member_needs fails as a database error
+//   failDebt            true: session_travel_debt fails as a database error (the function is not on the project yet, say)
+//   failReads           a table name (or a list of them): a read of that table by the signed-in user's client fails as a database error
 //
 // How to call:
 //   const world = createWorld()
 export function createWorld() {
-  const world = { calls: [], hooks: {}, staleApply: 0, failApply: false, failNeeds: false, hangApply: false, hangReads: false, t: Date.parse('2026-10-20T08:00:00Z') }
+  const world = { calls: [], hooks: {}, staleApply: 0, failApply: false, failNeeds: false, failDebt: false, failReads: [], hangApply: false, hangReads: false, t: Date.parse('2026-10-20T08:00:00Z') }
   for (const table of TABLES) world[table] = []
   return world
 }
@@ -135,9 +138,48 @@ function checkOption(world, row) {
   if (row.added_by && !world.profiles.some((p) => sameValue(p.id, row.added_by))) bad('added_by is not a profile', '23503')
 }
 
+// The database's own checks on a stop, a proposal, a ledger row and the plan's columns of a session (db/schema.sql).
+//
+// How to call:
+//   checkStop({ seq: 0, venue_id: 'a', category: 'eat', planned_start_minute: 720, duration_minutes: 90, travel_mode: null })
+function checkStop(row) {
+  const bad = (why, code = '23514') => {
+    throw dbError(code, `stops check failed: ${why}`)
+  }
+  for (const key of ['seq', 'planned_start_minute', 'duration_minutes']) if (!Number.isInteger(row[key])) bad(`${key} is null or not a whole number`, '23502')
+  if (typeof row.venue_id !== 'string' || row.venue_id.length < 1 || row.venue_id.length > 160) bad('venue_id')
+  if (row.seq < 0) bad('seq')
+  if (row.planned_start_minute < 0 || row.planned_start_minute > 1439) bad('planned_start_minute')
+  if (row.duration_minutes < 1 || row.duration_minutes > 720) bad('duration_minutes')
+  if (row.category !== null && !['eat', 'drink', 'shop', 'activity'].includes(row.category)) bad('category')
+  if (row.travel_mode !== null && !['walk', 'mrt', 'car'].includes(row.travel_mode)) bad('travel_mode')
+  if (row.not_before_minute !== null && !(Number.isInteger(row.not_before_minute) && row.not_before_minute >= 0 && row.not_before_minute <= 1439)) bad('not_before_minute')
+}
+function checkLedger(row) {
+  for (const key of ['minutes_in', 'minutes_between', 'minutes_home']) {
+    if (!(Number.isInteger(row[key]) && row[key] >= 0)) throw dbError('23514', `commute_ledger check failed: ${key}`)
+  }
+}
+function checkOrder({ note, suggestion }) {
+  const bad = (why) => {
+    throw dbError('23514', `sessions check failed: ${why}`)
+  }
+  if (note !== null) {
+    const { reason, source } = note
+    if ((reason === undefined || reason === null) !== (source === undefined || source === null)) bad('order_note_pair')
+    if (reason != null && !(typeof reason === 'string' && reason.length >= 1 && reason.length <= 200)) bad('order_reason_length')
+    if (source != null && !['ai', 'rules'].includes(source)) bad('order_source_values')
+  }
+  if (suggestion !== null) {
+    if (typeof suggestion !== 'object' || Array.isArray(suggestion) || Buffer.byteLength(JSON.stringify(suggestion)) > 4000) bad('order_suggestion_shape')
+    if (!/^[0-9a-f]{64}$/.test(String(suggestion.basis ?? ''))) bad('order_suggestion_shape')
+    if (!Array.isArray(suggestion.order) || suggestion.order.length > 8) bad('order_suggestion_shape')
+  }
+}
+
 // The parts of a plan the function knows (anything else is refused with 22023), and of its session part.
-const PLAN_KEYS = ['ops', 'spots', 'slots', 'session', 'loaded_at', 'recomputed', 'banner_text']
-const SESSION_PLAN_KEYS = ['status', 'meeting', 'banner', 'radius_meters']
+const PLAN_KEYS = ['ops', 'spots', 'slots', 'stops', 'stop_options', 'ledger', 'session', 'loaded_at', 'recomputed', 'banner_text']
+const SESSION_PLAN_KEYS = ['status', 'meeting', 'banner', 'radius_meters', 'replan', 'plan_start_minute', 'order_note', 'order_suggestion']
 
 // A JavaScript twin of apply_session_plan(sid, expected_version, expected_status, patch). Returns the new version, null when the
 // session moved on, or the current version when nothing changed. Throws a database error object for the rules and the checks.
@@ -173,6 +215,9 @@ export function applySessionPlan(world, { sid, expected_version: expectedVersion
     slots: world.slots,
     slot_options: world.slot_options,
     votes: world.votes,
+    stops: world.stops,
+    stop_proposals: world.stop_proposals,
+    commute_ledger: world.commute_ledger,
   })
   try {
     return apply(world, session, patch)
@@ -214,13 +259,17 @@ function apply(world, session, patch) {
   if (has(sp, 'meeting') && ['voted', 'chosen'].includes(session.meeting_method) && ((meeting?.area_id ?? null) !== session.meeting_area_id || (meeting?.method ?? null) !== session.meeting_method)) {
     throw dbError('P0001', 'The meeting area was chosen and cannot be changed by a recompute.', 'area_pinned')
   }
-  // Rule 1: the only move is inviting or locating to voting, with an area.
+  // Rule 1: the moves are inviting or locating to voting (with an area), and the plan's: voting to confirmed, confirmed to voting (the
+  // plan is opened again) and confirmed to completed.
   if (moving) {
-    if (!(['inviting', 'locating'].includes(session.status) && newStatus === 'voting') || !meeting?.area_id) {
-      throw dbError('P0001', `A session cannot go from ${session.status} to ${newStatus} this way.`, 'status_transition')
-    }
+    const allowed =
+      (['inviting', 'locating'].includes(session.status) && newStatus === 'voting' && !!meeting?.area_id) ||
+      (session.status === 'voting' && newStatus === 'confirmed') ||
+      (session.status === 'confirmed' && ['voting', 'completed'].includes(newStatus))
+    if (!allowed) throw dbError('P0001', `A session cannot go from ${session.status} to ${newStatus} this way.`, 'status_transition')
     changed = true
   }
+  const reopened = session.status === 'confirmed' && newStatus === 'voting'
   // Rule 5: a pin only with a confirm: the move to voting in this patch, or the same pin already stored.
   if (['voted', 'chosen'].includes(meeting?.method) && !moving && !(session.meeting_method === meeting.method && (session.meeting_area_id ?? null) === (meeting.area_id ?? null))) {
     throw dbError('P0001', 'A meeting area is pinned only when the host confirms it.', 'pin_without_confirm')
@@ -228,6 +277,22 @@ function apply(world, session, patch) {
   // Rule 7: slots and options are written only while the session is voting (after this patch).
   if (has(patch, 'slots') && newStatus !== 'voting') {
     throw dbError('P0001', 'Slots and options are written only while the session is voting.', 'slots_status')
+  }
+
+  // Rule 8 (stage 5): the stops, a stop's place details, the order note and the plan's start only while confirmed (after this patch); the
+  // suggested order only while voting; the ledger only with the move to completed; confirming needs stops.
+  const given = (key) => has(sp, key) && sp[key] !== null
+  if ((has(patch, 'stops') || has(patch, 'stop_options') || given('plan_start_minute') || given('order_note')) && newStatus !== 'confirmed') {
+    throw dbError('P0001', 'The stops and the order of the plan are written only while the session is confirmed.', 'stops_status')
+  }
+  if (given('order_suggestion') && !(session.status === 'voting' && newStatus === 'voting')) {
+    throw dbError('P0001', 'The suggested order is written only while the session is voting.', 'order_status')
+  }
+  if (has(patch, 'ledger') && !(session.status === 'confirmed' && newStatus === 'completed')) {
+    throw dbError('P0001', 'The ledger is written only when the outing is finished.', 'ledger_status')
+  }
+  if (session.status === 'voting' && newStatus === 'confirmed' && !(Array.isArray(patch.stops) && patch.stops.length > 0)) {
+    throw dbError('P0001', 'A plan needs at least one stop before it can be confirmed.', 'stops_missing')
   }
 
   const dropApprovals = (test) => {
@@ -305,7 +370,7 @@ function apply(world, session, patch) {
     } else if (op.op === 'clear_suggestions') {
       changed = dropSuggestions(() => true) || changed
     } else if (op.op === 'clear_votes') {
-      if (session.status !== 'voting') throw dbError('P0001', 'Votes are cleared only while the session is voting.', 'slots_status')
+      if (!(session.status === 'voting' || reopened)) throw dbError('P0001', 'Votes are cleared only while the session is voting.', 'slots_status')
       changed = dropVotes(() => true) || changed
     } else if (op.op === 'swap_option') {
       if (session.status !== 'voting') throw dbError('P0001', 'An option is swapped only while the session is voting.', 'slots_status')
@@ -327,6 +392,26 @@ function apply(world, session, patch) {
           for (const v of world.votes.filter((row) => row.slot_id === slot.id && row.venue_id === op.from)) v.venue_id = op.to
           changed = true
         }
+      }
+    } else if (op.op === 'propose') {
+      if (!(session.status === 'confirmed' && newStatus === 'confirmed')) throw dbError('P0001', 'A place is proposed only while the plan is confirmed.', 'proposal_status')
+      if (member?.state !== 'joined') throw dbError('P0001', 'Only a joined member can propose a place.', 'proposal_member')
+      if (world.stops.some((x) => x.session_id === sid && x.venue_id === op.venue_id)) throw dbError('P0001', 'That place is already in the plan.', 'already_a_stop')
+      const pending = world.stop_proposals.filter((x) => x.session_id === sid && x.status === 'pending')
+      if (!pending.some((x) => x.venue_id === op.venue_id)) {
+        if (world.stops.filter((x) => x.session_id === sid).length >= 8) throw dbError('P0001', 'The plan already has the most stops it can hold.', 'plan_full')
+        if (pending.length >= 10 || pending.filter((x) => x.proposed_by === user).length >= 3) throw dbError('P0001', 'Too many places are waiting for an answer.', 'too_many_proposals')
+        if (typeof op.venue_id !== 'string' || op.venue_id.length < 1 || op.venue_id.length > 160) throw dbError('23514', 'stop_proposals check failed: venue_id')
+        world.stop_proposals.push({ id: op.id ?? randomUUID(), session_id: sid, venue_id: op.venue_id, proposed_by: user, status: 'pending', created_at: tick(world), resolved_at: null, resolved_by: null })
+        changed = true
+      }
+    } else if (op.op === 'resolve_proposal') {
+      if (!(session.status === 'confirmed' && newStatus === 'confirmed')) throw dbError('P0001', 'A proposal is answered only while the plan is confirmed.', 'proposal_status')
+      if (!['accepted', 'dismissed'].includes(op.status)) throw dbError('23514', 'stop_proposals check failed: status')
+      const proposal = world.stop_proposals.find((x) => x.session_id === sid && sameValue(x.id, op.proposal_id) && x.status === 'pending')
+      if (proposal) {
+        Object.assign(proposal, { status: op.status, resolved_at: tick(world), resolved_by: op.by ?? null })
+        changed = true
       }
     } else {
       throw dbError('22023', `Unknown operation ${op.op}.`)
@@ -454,6 +539,98 @@ function apply(world, session, patch) {
     changed = dropVotes((v) => !world.session_members.some((m) => m.session_id === sid && sameValue(m.user_id, v.user_id) && m.state === 'joined')) || changed
   }
 
+  // ── Stage 5: the plan ──
+  if (session.status === 'confirmed' && newStatus !== 'confirmed') {
+    for (const proposal of world.stop_proposals.filter((x) => x.session_id === sid && x.status === 'pending')) Object.assign(proposal, { status: 'dismissed', resolved_at: tick(world) })
+    if (reopened) world.stops = world.stops.filter((x) => x.session_id !== sid)
+  }
+  if (session.status === 'voting' && newStatus === 'confirmed') {
+    const joined = new Set(world.session_members.filter((m) => m.session_id === sid && m.state === 'joined').map((m) => m.user_id))
+    const mySlots = new Set(slotsOfSession().filter((x) => !x.deleted).map((x) => x.id))
+    const voters = new Set(world.votes.filter((v) => mySlots.has(v.slot_id) && joined.has(v.user_id)).map((v) => v.user_id))
+    if (voters.size < 2) throw dbError('P0001', 'At least two people need to vote before the plan can be confirmed.', 'not_enough_votes')
+  }
+  if (has(patch, 'stops')) {
+    if (!Array.isArray(patch.stops)) throw dbError('22023', 'The stops must be a JSON list.')
+    if (patch.stops.length > 8) throw dbError('P0001', 'A plan holds up to 8 stops.', 'too_many_stops')
+    const listed = new Set(patch.stops.map((e) => e.id).filter(Boolean))
+    const gone = world.stops.filter((x) => x.session_id === sid && !listed.has(x.id))
+    if (gone.length > 0) {
+      world.stops = world.stops.filter((x) => !gone.includes(x))
+      changed = true
+    }
+    for (const item of patch.stops) {
+      if (item === null || typeof item !== 'object' || Array.isArray(item)) throw dbError('22023', 'Each stop must be a JSON object.')
+      if (item.slot_id && !slotsOfSession().some((x) => sameValue(x.id, item.slot_id))) throw dbError('P0001', 'A stop names a slot that is not in this session.', 'stop_slot')
+      const next = {
+        seq: item.seq,
+        slot_id: item.slot_id || null,
+        category: item.category ?? null,
+        venue_id: item.venue_id,
+        planned_start_minute: item.planned_start_minute,
+        duration_minutes: item.duration_minutes,
+        travel_mode: item.travel_mode ?? null,
+        travel_minutes: item.travel_minutes ?? null,
+        not_before_minute: item.not_before_minute ?? null,
+      }
+      if (item.id) {
+        const row = world.stops.find((x) => x.session_id === sid && x.id === item.id)
+        if (!row) throw dbError('P0001', 'A stop is not in this session.', 'stop_missing')
+        checkStop(next)
+        if (!isDeepStrictEqual(Object.fromEntries(Object.keys(next).map((k) => [k, row[k]])), next)) {
+          Object.assign(row, next)
+          changed = true
+        }
+      } else {
+        checkStop(next)
+        world.stops.push({ id: randomUUID(), session_id: sid, ...next, arrived_at: null, created_at: tick(world) })
+        changed = true
+      }
+    }
+    const mine = world.stops.filter((x) => x.session_id === sid)
+    if (mine.length === 0) throw dbError('P0001', 'A confirmed plan keeps at least one stop.', 'last_stop')
+    if (new Set(mine.map((x) => x.seq)).size !== mine.length || Math.max(...mine.map((x) => x.seq)) !== mine.length - 1) {
+      throw dbError('P0001', 'The stops must be numbered 0, 1, 2 ... with no gap and no repeat.', 'stop_order')
+    }
+    if (new Set(mine.map((x) => x.venue_id)).size !== mine.length) throw dbError('P0001', 'A place cannot be two stops.', 'stop_duplicate')
+    if (session.status === 'voting' && mine.some((x) => !x.slot_id || !world.slot_options.some((o) => o.slot_id === x.slot_id && o.venue_id === x.venue_id))) {
+      throw dbError('P0001', 'A stop is not one of the places the group could vote for.', 'stop_not_option')
+    }
+  }
+  if (has(patch, 'stop_options')) {
+    if (!Array.isArray(patch.stop_options)) throw dbError('22023', 'The stop options must be a JSON list.')
+    for (const item of patch.stop_options) {
+      const slot = slotsOfSession().find((x) => sameValue(x.id, item.slot_id))
+      if (!slot) throw dbError('P0001', 'A stop option names a slot that is not in this session.', 'stop_slot')
+      if (item.replaces && item.replaces !== item.venue_id) changed = dropOptions(slot.id, (o) => o.venue_id === item.replaces) || changed
+      const next = { slot_id: slot.id, venue_id: item.venue_id, rank: item.rank ?? null, score: item.score ?? null, source: item.source ?? 'planner', added_by: item.added_by ?? null, details: item.details ?? {} }
+      checkOption(world, next)
+      const existing = world.slot_options.find((o) => o.slot_id === slot.id && o.venue_id === item.venue_id)
+      if (!existing) {
+        world.slot_options.push({ ...next, created_at: tick(world) })
+        changed = true
+      } else if (!isDeepStrictEqual([existing.rank, existing.score, existing.details], [next.rank, next.score, next.details])) {
+        Object.assign(existing, { rank: next.rank, score: next.score, details: next.details })
+        changed = true
+      }
+    }
+  }
+  if (has(patch, 'ledger')) {
+    if (!Array.isArray(patch.ledger)) throw dbError('22023', 'The ledger must be a JSON list.')
+    if (patch.ledger.some((e) => !world.session_members.some((m) => m.session_id === sid && sameValue(m.user_id, e.user_id) && m.state === 'joined'))) {
+      throw dbError('P0001', 'The ledger names someone who is not a joined member.', 'ledger_member')
+    }
+    // In cents, so that the sum is exact as it is in the database's numeric column.
+    if (patch.ledger.reduce((sum, e) => sum + Math.round(Number(e.delta_from_mean) * 100), 0) !== 0) throw dbError('P0001', "The ledger's deltas must sum to zero.", 'ledger_sum')
+    for (const e of patch.ledger) {
+      const row = { session_id: sid, user_id: e.user_id, minutes_in: e.minutes_in, minutes_between: e.minutes_between ?? 0, minutes_home: e.minutes_home, delta_from_mean: Number(e.delta_from_mean) }
+      checkLedger(row)
+      if (world.commute_ledger.some((x) => x.session_id === sid && sameValue(x.user_id, e.user_id))) continue
+      world.commute_ledger.push({ ...row, total_minutes: row.minutes_in + row.minutes_between + row.minutes_home, created_at: tick(world) })
+      changed = true
+    }
+  }
+
   // Rule 3: the session section is a change only where a value differs from the stored row (the meeting as it would be written).
   const nextMeeting = [meeting?.area_id ?? null, meeting?.method ?? null, roundOrNull(meeting?.max_minutes), roundOrNull(meeting?.total_minutes), roundOrNull(meeting?.count), meeting?.approximate ?? null]
   const storedMeeting = [session.meeting_area_id, session.meeting_method, session.meeting_max_minutes, session.meeting_total_minutes, session.meeting_count, session.meeting_approximate].map((v) => v ?? null)
@@ -473,7 +650,16 @@ function apply(world, session, patch) {
   if (has(sp, 'radius_meters') && sp.radius_meters !== null && !(Number.isInteger(sp.radius_meters) && sp.radius_meters >= 100 && sp.radius_meters <= 3000) && radiusChanged) {
     throw dbError('23514', 'sessions check failed: radius_meters')
   }
-  if (meetingChanged || travelChanged || bannerChanged || radiusChanged || bannerText !== null) changed = true
+  // Stage 5: the order note, the suggested order, the plan's start and the pending prompt, each a change only where it differs.
+  const noteNew = has(sp, 'order_note') ? sp.order_note ?? null : null
+  const suggestionNew = has(sp, 'order_suggestion') ? sp.order_suggestion ?? null : null
+  if (has(sp, 'order_note') && noteNew !== null && (typeof noteNew !== 'object' || Array.isArray(noteNew))) throw dbError('22023', 'The order note must be a JSON object or null.')
+  if (has(sp, 'replan') && sp.replan !== null && (typeof sp.replan !== 'object' || Array.isArray(sp.replan))) throw dbError('22023', 'The re-plan prompt must be a JSON object or null.')
+  const noteChanged = has(sp, 'order_note') && ((session.order_reason ?? null) !== (noteNew?.reason ?? null) || (session.order_source ?? null) !== (noteNew?.source ?? null))
+  const suggestionChanged = has(sp, 'order_suggestion') && !isDeepStrictEqual(session.order_suggestion ?? null, suggestionNew)
+  const startChanged = has(sp, 'plan_start_minute') && (session.plan_start_minute ?? null) !== (sp.plan_start_minute ?? null)
+  const replanChanged = has(sp, 'replan') && !isDeepStrictEqual(session.replan ?? null, sp.replan ?? null)
+  if (meetingChanged || travelChanged || bannerChanged || radiusChanged || bannerText !== null || noteChanged || suggestionChanged || startChanged || replanChanged) changed = true
   if (!changed) return Number(session.plan_version)
 
   if (has(sp, 'meeting') && meeting && typeof meeting === 'object' && meeting.travel) {
@@ -483,6 +669,22 @@ function apply(world, session, patch) {
       if ((m.travel_minutes ?? null) !== minutes) m.travel_minutes = minutes
     }
   }
+  // The checks the database makes on the new values (db/schema.sql), before anything is kept.
+  checkOrder({ note: has(sp, 'order_note') && !reopened ? noteNew : null, suggestion: has(sp, 'order_suggestion') && !reopened ? suggestionNew : null })
+  if (has(sp, 'plan_start_minute') && sp.plan_start_minute !== null && !(Number.isInteger(sp.plan_start_minute) && sp.plan_start_minute >= 0 && sp.plan_start_minute <= 1439)) {
+    throw dbError('23514', 'sessions check failed: plan_start_minute_range')
+  }
+  const wasConfirmed = session.status === 'confirmed'
+  if (reopened) {
+    Object.assign(session, { order_reason: null, order_source: null, order_suggestion: null, plan_start_minute: null })
+  } else {
+    if (has(sp, 'order_note')) Object.assign(session, { order_reason: noteNew?.reason ?? null, order_source: noteNew?.source ?? null })
+    if (has(sp, 'order_suggestion')) session.order_suggestion = suggestionNew
+    if (has(sp, 'plan_start_minute')) session.plan_start_minute = sp.plan_start_minute ?? null
+  }
+  if ((wasConfirmed && newStatus !== 'confirmed') || (session.status === 'voting' && newStatus === 'confirmed')) session.replan = null
+  else if (has(sp, 'replan')) session.replan = sp.replan ?? null
+  if (wasConfirmed && newStatus === 'completed') session.completed_at = tick(world)
   session.status = newStatus
   if (radiusChanged) session.radius_meters = sp.radius_meters ?? null
   if (meetingChanged) {
@@ -573,8 +775,14 @@ function query(world, table, who) {
       if (world.hangReads) return new Promise(() => {})
     }
     const rows = world[table]
+    if (op.kind === 'select' && who !== null && [].concat(world.failReads).includes(table)) return { data: null, error: dbError('XX000', 'boom') }
     if (op.kind === 'select') {
-      const found = rows.filter(matches)
+      let found = rows.filter(matches)
+      if (op.order) {
+        const { column, ascending } = op.order
+        found = [...found].sort((a, b) => (a[column] < b[column] ? -1 : a[column] > b[column] ? 1 : 0) * (ascending ? 1 : -1))
+      }
+      if (op.limit !== undefined) found = found.slice(0, op.limit)
       return op.single ? { data: found[0] ? { ...found[0] } : null, error: null } : { data: found.map((r) => ({ ...r })), error: null }
     }
     try {
@@ -649,6 +857,18 @@ function query(world, table, who) {
       op.filters.push([column, (v) => values.some((candidate) => sameValue(v, candidate))])
       return builder
     },
+    gte(column, value) {
+      op.filters.push([column, (v) => v !== null && v !== undefined && Date.parse(v) >= Date.parse(value)])
+      return builder
+    },
+    order(column, { ascending = true } = {}) {
+      op.order = { column, ascending }
+      return builder
+    },
+    limit(count) {
+      op.limit = count
+      return builder
+    },
     maybeSingle() {
       op.single = true
       return builder
@@ -674,6 +894,26 @@ function memberNeeds(world, who, { sid }) {
   return { data: rows, error: null }
 }
 
+// session_travel_debt(sid), as db/schema.sql defines it: one row per joined member, the sum of their deltas in other sessions in the last 90
+// days, clamped to plus or minus 14,400. Only the service key may call it. A ledger row's `created_at` defaults to the world's clock.
+//
+// How to call:
+//   return travelDebt(world, null, { sid: SESSION })
+function travelDebt(world, who, { sid }) {
+  if (who !== null) return { data: null, error: dbError('42501', 'permission denied for function session_travel_debt') }
+  if (world.failDebt) return { data: null, error: dbError('42883', 'function public.session_travel_debt(uuid) does not exist') }
+  const since = world.t - 90 * 24 * 3600 * 1000
+  const rows = world.session_members
+    .filter((m) => sameValue(m.session_id, sid) && m.state === 'joined')
+    .map((m) => {
+      const sum = world.commute_ledger
+        .filter((l) => sameValue(l.user_id, m.user_id) && !sameValue(l.session_id, sid) && Date.parse(l.created_at ?? new Date(world.t).toISOString()) > since)
+        .reduce((total, l) => total + Number(l.delta_from_mean), 0)
+      return { user_id: m.user_id, debt_minutes: Math.max(-14400, Math.min(14400, sum)) }
+    })
+  return { data: rows, error: null }
+}
+
 // One client over the world. `who` is a lower-case user id, or null for the service key.
 //
 // How to call:
@@ -687,6 +927,7 @@ function clientOver(world, who) {
     async rpc(name, args) {
       world.calls.push({ rpc: name, kind: 'rpc', who })
       if (name === 'session_member_needs') return memberNeeds(world, who, args)
+      if (name === 'session_travel_debt') return travelDebt(world, who, args)
       if (name !== 'apply_session_plan') return { data: null, error: dbError('42883', `no function ${name}`) }
       if (who !== null) return { data: null, error: dbError('42501', 'permission denied for function apply_session_plan') }
       if (world.hangApply) return new Promise(() => {})
