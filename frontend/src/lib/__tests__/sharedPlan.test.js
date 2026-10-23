@@ -14,11 +14,11 @@ import { KIM_PLACE, SAM_PLACE, confirmed, voted, voting } from './sessionsWorld.
 
 beforeAll(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+  vi.setSystemTime(new Date('2026-10-09T02:00:00Z'))
 })
 afterEach(() => {
   vi.unstubAllGlobals()
-  vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+  vi.setSystemTime(new Date('2026-10-09T02:00:00Z'))
 })
 
 const eq = (col, value) => ({ col, op: 'eq', value })
@@ -26,7 +26,8 @@ const rowsOf = (w, table) => w.database.tables[table]
 const sessionRow = (w, id) => rowsOf(w, 'sessions').find((s) => s.id === id)
 const stopsInOrder = (w, id) => rowsOf(w, 'stops').filter((s) => s.session_id === id).sort((a, b) => a.seq - b.seq)
 const callsTo = (w, name) => w.server.calls.filter((c) => c.route === name)
-// The day of the outing, at noon in Singapore, in any time zone the tests run in: Roam opens on the day.
+// The tests' own clock is an instant (10:00 in Singapore the day before), not a local time, so they hold in any time zone. The day of the
+// outing, at noon in Singapore: Roam opens on the day.
 const ON_THE_DAY = new Date('2026-10-10T04:00:00Z')
 
 // Three people have voted so that a second person can change a winner: Sam and Kim for the first place of every category, Lee joined.
@@ -869,6 +870,30 @@ describe('a late answer is never applied over a newer state', () => {
     const outcome = await reading
     expect(outcome).toBeInstanceOf(Error)
     expect(outcome.code).toBe('stale')
+  })
+
+  it('forgets a suggested order that was still being asked for when the dialog drew the orders again', async () => {
+    const { w, sam, id } = await voted({ hostLast: true })
+    setActivePinia(createPinia())
+    const { useAuthStore } = await import('@/stores/auth.js')
+    await useAuthStore().init()
+    const events = (await import('@/stores/events.js')).useEventsStore()
+    await sam.api.getPlan(id)
+    let release
+    const held = new Promise((resolve) => { release = resolve })
+    w.server.after.suggestOrder = () => held
+    const asking = events.suggestOrder(id, 'the votes as they were')
+    await vi.waitFor(() => expect(events.orders[id]).toMatchObject({ key: 'the votes as they were', loading: true }))
+    // The server refused the host's order as out of date, so the dialog forgets the question and asks it again for the new votes.
+    events.forgetOrder(id)
+    expect(events.orders[id]).toBeUndefined()
+    w.server.after.suggestOrder = undefined
+    const again = await events.suggestOrder(id, 'the votes as they are now')
+    release()
+    await asking
+    // The late answer to the old question is not kept over the new one.
+    expect(events.orders[id]).toMatchObject({ key: 'the votes as they are now', loading: false, failed: false })
+    expect(events.orders[id].answer).toEqual(again)
   })
 
   it('does not apply a Confirm answer that was computed for the votes before a change: the basis is the server\'s check, not the browser\'s', async () => {

@@ -90,6 +90,8 @@ export const WORDS = {
   notShared: "That isn't available in a shared session yet.",
   photosLater: 'Photos are not shared yet. They come in a later update.',
   placeMissing: 'A place in the plan could not be found. Try again in a moment.',
+  // A route the server does not have (yet): the stand-in for the parts of stage 5 that the server may not have built.
+  notBuilt: 'That is not available yet. Try again after the next update.',
   planClosed: 'The plan can only be confirmed while the group is voting.',
   notEnoughVotes: 'At least 2 people need to vote first.',
   nothingToConfirm: 'Vote for at least one place first.',
@@ -1091,22 +1093,23 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
 
   // ASSUMED routes (see plannerApi.js): the indoor swap offered for a stop, the places that could take a stop's place, and putting one in.
   // How to call: await stopSwap('3b1f...', '5d0c...'); await stopChoices('3b1f...', '5d0c...', { category: 'drink', start: 900 }); await changeStopPlace('3b1f...', '5d0c...', { venueId: 'v25', fromVenueId: 'v12', start: 900 })
-  const stopSwap = (sessionId, stopId) => ask(() => backend.stopSwap(sessionId, stopId), { wrong_status: WORDS.needConfirmed })
-  const stopChoices = (sessionId, stopId, options) => ask(() => backend.stopChoices(sessionId, stopId, options), { host_only: 'Only the host can replace a stop.', wrong_status: WORDS.needConfirmed })
+  const stopSwap = (sessionId, stopId) => ask(() => backend.stopSwap(sessionId, stopId), { wrong_status: WORDS.needConfirmed, not_found: WORDS.notBuilt })
+  const stopChoices = (sessionId, stopId, options) => ask(() => backend.stopChoices(sessionId, stopId, options), { host_only: 'Only the host can replace a stop.', wrong_status: WORDS.needConfirmed, not_found: WORDS.notBuilt })
   const changeStopPlace = (sessionId, stopId, body) =>
     ask(() => backend.changeStopPlace(sessionId, stopId, body), {
       host_only: 'Only the host can replace a stop.',
       wrong_status: WORDS.needConfirmed,
       venue_does_not_fit: WORDS.doesNotFit,
       stop_changed: WORDS.planChanged,
+      not_found: WORDS.notBuilt,
     })
 
   // Roam. The list of places near the group (nothing is written), a place put forward as the next stop, and the answer to a proposal.
   // `propose` resolves { id, existing } (`existing` when that place was already waiting); `resolve` the server's small answer.
   // How to call: const list = await roam('3b1f...', { current, categories }); await propose('3b1f...', 'v25'); await resolve('3b1f...', 'c7ae...', true)
-  const roam = (sessionId, options) => ask(() => backend.roam(sessionId, options), { wrong_status: WORDS.roamClosed })
-  const propose = (sessionId, venueId) => ask(() => backend.propose(sessionId, venueId), { wrong_status: WORDS.roamClosed })
-  const resolve = (sessionId, proposalId, accept) => ask(() => backend.resolve(sessionId, proposalId, accept), { host_only: 'Only the host can add a place to the plan.', wrong_status: WORDS.roamClosed })
+  const roam = (sessionId, options) => ask(() => backend.roam(sessionId, options), { wrong_status: WORDS.roamClosed, not_found: WORDS.notBuilt })
+  const propose = (sessionId, venueId) => ask(() => backend.propose(sessionId, venueId), { wrong_status: WORDS.roamClosed, not_found: WORDS.notBuilt })
+  const resolve = (sessionId, proposalId, accept) => ask(() => backend.resolve(sessionId, proposalId, accept), { host_only: 'Only the host can add a place to the plan.', wrong_status: WORDS.roamClosed, not_found: WORDS.notBuilt })
 
   // The person's own row of the travel ledger for a finished outing: how long they spent getting there, between stops and home, and how that
   // compares with the group's average (minutes more, or fewer when negative). Their row only, whatever the rules let them read. Resolves

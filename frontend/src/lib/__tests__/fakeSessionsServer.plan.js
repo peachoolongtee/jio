@@ -25,6 +25,19 @@
 //
 // Also POST /api/weather/stops (the weather at the plan's stops: dry, or `server.plan.weather = 'showers'`), which is not a session route.
 //
+// What the design leaves open and this stand-in therefore ASSUMES (to be reconciled with the backend half):
+//   - the stops E12 writes have `planned_start_minute` = the slot's start and `duration_minutes` = the slot's length; a suggested order
+//     also sets each stop's `not_before_minute` to the suggested start; `plan_start_minute` is the earliest start (suggested or planned);
+//     `order_reason` and `order_source` carry the suggestion's note (voted: both null); a pending proposal is dismissed on confirm;
+//   - E13 (accept) deletes the stops, clears the order columns and the suggestion, dismisses pending proposals and prices the area again;
+//   - E14 writes one ledger row per joined member (in = their trip to the meeting area, between = 0, home = in; delta = their total less
+//     the group's mean), sets `completed_at`, clears `replan` and dismisses pending proposals;
+//   - E15 DELETE and the order route clear every stop's `not_before_minute` (the design says "every stop's") and the order note, and the
+//     order route also clears the travel modes; deleting the first stop sets `plan_start_minute` to the next stop's planned start;
+//   - E24 (accept) appends a stop with no slot, the place's own category, 60 minutes, starting when the last stop ends, with that start as
+//     its earliest start, and clears the order note;
+//   - E22 answers `{ status: 'none', why }` when fewer than two stops can move, and stores `{ basis, order, starts, reason, source, at }`.
+//
 // Hooks for a test, on `server.plan`: `orderSource` ('ai' or 'rules', the source of a suggestion), `suggest` (a function that replaces the
 // suggestion: `(winners) => ({ order, starts, reason, source })`, with `stops` to name the stops itself, or null for "none"), `swap` (a function from a place's id to the indoor swap the
 // server offers for it, `{ venueId, name }`), `weather`, and `confirmedOptOut` (ASSUMED: opting out of a confirmed plan is allowed and

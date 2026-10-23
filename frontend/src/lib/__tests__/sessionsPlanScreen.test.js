@@ -17,7 +17,7 @@ vi.mock('../../components/spots/SpotPins.vue', () => ({ default: { name: 'SpotPi
 vi.setConfig({ testTimeout: 40000 })
 // The day of the outing, at noon in Singapore, in any time zone the tests run in.
 const ON_THE_DAY = new Date('2026-10-10T04:00:00Z')
-const BEFORE = new Date('2026-10-09T10:00:00')
+const BEFORE = new Date('2026-10-09T02:00:00Z')
 beforeAll(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(BEFORE)

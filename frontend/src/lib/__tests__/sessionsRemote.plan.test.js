@@ -10,7 +10,7 @@ import { confirmed, voted, voting } from './sessionsWorld.js'
 
 beforeAll(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(new Date('2026-10-09T10:00:00'))
+  vi.setSystemTime(new Date('2026-10-09T02:00:00Z'))
 })
 afterEach(() => vi.unstubAllGlobals())
 
@@ -259,6 +259,18 @@ describe('the calls it makes and the sentences for their refusals', () => {
   ])('%s: a refusal with the code "%s" says it in plain words and keeps the code and the status', async (name, args, code, words) => {
     const { backend } = recorder(refused(code))
     await expect(remote(backend)[name](...args)).rejects.toMatchObject({ message: words, code, status: 409 })
+  })
+
+  it.each([
+    ['stopSwap', ['s', 'p']],
+    ['stopChoices', ['s', 'p', {}]],
+    ['changeStopPlace', ['s', 'p', {}]],
+    ['roam', ['s', {}]],
+    ['propose', ['s', 'v']],
+    ['resolve', ['s', 'c', true]],
+  ])('%s: a route the server does not have yet says so in words, not as a problem with the planner', async (name, args) => {
+    const { backend } = recorder(refused('not_found', 404, 'No such route.'))
+    await expect(remote(backend)[name](...args)).rejects.toMatchObject({ message: WORDS.notBuilt, code: 'not_found', status: 404 })
   })
 
   it('says "plan_busy" and "session_not_found" in the words the other stages use', async () => {
