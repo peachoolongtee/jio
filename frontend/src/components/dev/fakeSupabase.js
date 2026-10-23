@@ -15,7 +15,7 @@
 //
 // Stage 2 adds the sessions side of the database (fakeDatabase.js): `from('sessions' | 'session_members' | 'invites')` (and, from
 // stage 3, `session_member_places`, `session_spots`, `spot_suggestions` and `spot_approvals`; from stage 4, `slots`, `slot_options` and
-// `votes`),
+// `votes`; from stage 5, `stops`, `commute_ledger` and `stop_proposals`),
 // the functions `invite_preview`, `join_session`, `my_invitations` and `decline_invite`, and Realtime's `channel()` /
 // `removeChannel()`, all acting as the signed-in user (or the public key when nobody is signed in). By default each
 // stand-in has a database of its own; give `database` to have several share one (a script holding one database for two
@@ -311,7 +311,7 @@ export function fakeSupabase(options = {}) {
     removeChannel: (channel) => data.removeChannel(channel),
     from(table) {
       // The sessions side of the database has its own tables and rules (fakeDatabase.js).
-      if (['sessions', 'session_members', 'invites', 'session_member_places', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'slot_options', 'votes'].includes(table)) return data.from(table)
+      if (['sessions', 'session_members', 'invites', 'session_member_places', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'slot_options', 'votes', 'stops', 'commute_ledger', 'stop_proposals'].includes(table)) return data.from(table)
       const rows = table === 'profiles' ? state.profiles : state.priv
       return {
         select(columns) {
