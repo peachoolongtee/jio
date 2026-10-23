@@ -76,3 +76,27 @@ export async function voting({ third = false } = {}) {
   world.w.server.calls.length = 0
   return { ...world, plan, slot: plan.slots[0] }
 }
+
+// Stage 5. Sam hosts, Kim has joined, and both have voted in every category: Sam for each category's first place, Kim for the first of the
+// first two categories and the second place of the rest, so the winners (a tie goes to the better stored score) are the first places.
+// The host has not confirmed. `plan` is the Vote page's plan as Sam reads it.
+// How to call: const { w, sam, kim, id, plan } = await voted()
+export async function voted({ third = false } = {}) {
+  const world = await voting({ third })
+  const { sam, kim, id, plan } = world
+  for (const [index, slot] of plan.slots.entries()) {
+    await sam.api.vote(id, slot.id, sam.id, slot.options[0].id)
+    await kim.api.vote(id, slot.id, kim.id, slot.options[index < 2 ? 0 : 1].id)
+  }
+  world.w.server.calls.length = 0
+  return world
+}
+
+// The same, and the host has confirmed the plan in the voted order: the group has an itinerary. `itinerary` is Sam's read of it.
+// How to call: const { w, sam, kim, id, itinerary } = await confirmed()
+export async function confirmed({ third = false } = {}) {
+  const world = await voted({ third })
+  await world.sam.api.confirmPlan(world.id)
+  world.w.server.calls.length = 0
+  return { ...world, itinerary: await world.sam.api.getItinerary(world.id) }
+}
