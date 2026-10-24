@@ -245,6 +245,35 @@ create table if not exists public.sessions (
 );
 create index if not exists sessions_host_id_idx on public.sessions (host_id);
 
+-- A session's date and start are Singapore wall time. Keep the browser and server checks as
+-- useful feedback, but reject a past date or start at the database boundary too. A title-only
+-- edit to an older session remains valid because this checks only temporal changes.
+create or replace function public.sessions_guard_future_start() returns trigger
+language plpgsql as $$
+declare
+  singapore_now timestamp without time zone := statement_timestamp() at time zone 'Asia/Singapore';
+begin
+  if tg_op = 'UPDATE'
+    and new.date is not distinct from old.date
+    and new.start_time is not distinct from old.start_time then
+    return new;
+  end if;
+
+  if new.date < singapore_now::date then
+    raise exception 'That day has passed.' using errcode = '23514';
+  end if;
+  if new.date = singapore_now::date
+    and new.start_time <= date_trunc('minute', singapore_now)::time then
+    raise exception 'That start time has already passed today.' using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists sessions_guard_future_start on public.sessions;
+create trigger sessions_guard_future_start
+  before insert or update of date, start_time on public.sessions
+  for each row execute function public.sessions_guard_future_start();
+
 -- Raised by one on every write the server makes to a plan, so a late answer can be told from a current one and
 -- clients know when to refetch. Server only.
 alter table public.sessions add column if not exists plan_version bigint not null default 0;
