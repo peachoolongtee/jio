@@ -1,4 +1,4 @@
-// The demo tour's data: one outing, told in eight checkpoints, and a few side cases outside the story.
+// The demo tour's data: one outing, told in ten checkpoints, and a few side cases outside the story.
 //
 // The story is one outing with the same title and the same four people (Ian hosts, with Darius, Nicole and Faith), saved
 // ten times as a real group would have it at that moment (the two Start choice checkpoints are the two ways the same outing could go). Each save is its own session in the data layer, built through its

@@ -1,4 +1,4 @@
-// The demo tour's data (tour/story.js, tour/load.js, tour/store.js): one outing saved at eight checkpoints, the side cases,
+// The demo tour's data (tour/story.js, tour/load.js, tour/store.js): one outing saved at ten checkpoints, the side cases,
 // what Home lists for each checkpoint, where each checkpoint opens, and the stand-in planner. Everything is built through the
 // public functions of lib/api.js with the planner backend not there (a closed port), at a fixed moment.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'

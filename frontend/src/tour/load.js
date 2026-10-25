@@ -1,4 +1,4 @@
-// Fill the demo account with the tour: the story's eight saves, then the side cases, then one reward redeemed.
+// Fill the demo account with the tour: the story's ten saves, then the side cases, then one reward redeemed.
 //   const manifest = await loadTour({ now, makePhotos, onProgress })
 // It starts with resetDemo, so loading twice gives the same set (s1 to s11) and not twice as many. The account and friends
 // stay; the sessions, JioCoins, rewards and demo switches go back to how a new demo account has them. Every session is built
@@ -17,7 +17,7 @@ import { makeDemoPhotos } from '@/components/dev/demoPhotos.js'
 // The voucher redeemed so Rewards has a history.
 const REWARD = 'r-nylon'
 
-// Answers { story: [eight ids, in checkpoint order], side: [ids], title, redeemed }.
+// Answers { story: [ten ids, in checkpoint order], side: [ids], title, redeemed }.
 // Throws a ShowcaseError, after doing what it can, when a session could not be finished; the message says which.
 // How to call: const { story, side } = await loadTour({ onProgress: ({ done, total }) => (note.value = `${done} of ${total}`) })
 export async function loadTour({ now = new Date(), makePhotos = makeDemoPhotos, onProgress = () => {} } = {}) {

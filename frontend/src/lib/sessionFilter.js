@@ -1,6 +1,6 @@
 // Which of the signed-in person's sessions the lists show. Home, Sessions and the Profile screen's list read the sessions
 // through visibleSessions(), which hands them back as they are unless something has installed a filter. Only the demo tour
-// does (tour/store.js), so that the eight saves of one outing do not show as eight meetups. A build with no tour never
+// does (tour/store.js), so that the ten saves of one outing do not show as ten meetups. A build with no tour never
 // installs one, and the lists are exactly what the store holds.
 //   const shown = computed(() => visibleSessions(events.sessions))
 import { shallowRef } from 'vue'

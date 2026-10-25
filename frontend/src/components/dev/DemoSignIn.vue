@@ -84,7 +84,7 @@ async function enter(kind) {
     <AppButton block variant="secondary" :disabled="!!busy" @click="enter('tour')">
       {{ busy === 'tour' ? 'Loading the tour' : 'Start the tour' }}
     </AppButton>
-    <p class="body-sm text-muted">The same, plus one outing told in eight checkpoints with a strip to move between them (also at /demo).</p>
+    <p class="body-sm text-muted">The same, plus one outing told in ten checkpoints with a strip to move between them (also at /demo).</p>
 
     <template v-if="canMakeUpReal">
       <AppButton block variant="secondary" :disabled="!!busy" @click="enter('madeup')">

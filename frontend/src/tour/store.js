@@ -3,9 +3,9 @@
 //
 // The tour is "on" (live) only for the demo account, with every session it loaded still there. While it is on:
 //   - the strip shows (TourStrip.vue) and the stand-in planner answers when the real one does not (standIn.js);
-//   - the lists show the selected checkpoint's save and the side cases, not all eight saves (lib/sessionFilter.js).
+//   - the lists show the selected checkpoint's save and the side cases, not all ten saves (lib/sessionFilter.js).
 // Leaving the tour keeps the account and its sessions, hides the strip and takes the stand-in off. The lists keep showing the
-// one save that was selected, so eight copies of one outing do not appear; restarting the tour loads everything again.
+// one save that was selected, so ten copies of one outing do not appear; restarting the tour loads everything again.
 // Anything else that resets the data (signing out, the development showcase) ends the tour for good.
 //   const tour = useTourStore(); await tour.start(); tour.go(3)
 import { defineStore } from 'pinia'
@@ -18,7 +18,7 @@ import { startStandIn, stopStandIn } from './standIn.js'
 
 export const TOUR_KEY = 'jio-tour-v1'
 
-// The saved state, when it looks right: eight ids for the story, a list of ids for the side cases, a checkpoint number.
+// The saved state, when it looks right: ten ids for the story, a list of ids for the side cases, a checkpoint number.
 // How to call: readManifest(localStorage.getItem(TOUR_KEY)) -> { story, side, index, left, rough } or null
 export function readManifest(text) {
   try {
@@ -96,7 +96,7 @@ export const useTourStore = defineStore('tour', () => {
     syncStandIn()
   }
 
-  // Select a checkpoint (0 to 7).
+  // Select a checkpoint (0 to 9).
   // How to call: tour.select(3)
   function select(i) {
     if (!manifest.value || i < 0 || i >= CHECKPOINTS.length) return
