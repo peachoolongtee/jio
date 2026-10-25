@@ -1472,3 +1472,24 @@ The stage 4 two-device check was run on 26 October on `dev` at `056078f`; the re
 | Rain as layered drops (the lead picked B from the mock-up, 26 October) | frontend engineer | `feat/rain-layered-drops`, off `dev` | Three tokens (`--rain-wash`, `--rain-streak`, `--rain-text`). The rain patch becomes a feathered blue wash with three layers of falling drops (far, middle, near) under the route and pins, a 900 ms fade in, and a white chip "Rain likely · next 2 h". The same layer goes on the session map. Motion stops under reduced motion. `DESIGN.md` gets a weather section. |
 
 Results are filled in below as they arrive.
+
+Results of round 34, checked by the lead's session on 26 October:
+
+- **Gaps closed** (`feat/sessions-stage-5-integration` at `2c51420`, five commits).
+  - Three stateless reads, members only and confirmed only, with no Google calls and at most 60 OneMap trips:
+    - `GET /stops/:stopId/swap`;
+    - `GET /stops/:stopId/choices` (host only);
+    - `POST /roam` (E16).
+  - Opting out of a confirmed plan is now allowed. It writes the opt-out, dismisses the person's waiting proposals and raises `sessions.replan`, in one `apply_session_plan` patch. Leaving and removal in `confirmed` are still refused.
+  - A stale reorder answers 409 `stops_changed` on both sides.
+  - The migration is unchanged. SQL steps 258 to 269 were added; all 269 pass on PGlite, not on the live project.
+  - No state is kept in memory.
+  - Checked again by the lead's session, with outbound calls blocked:
+    - backend 1770 passed, 2 skipped, exit 0;
+    - frontend 2500 passed under `TZ=UTC`, exit 0, nothing blocked;
+    - build exit 0.
+- **Rain as layered drops** (`feat/rain-layered-drops`, `ebe7ad6`, two commits).
+  - Tokens, `lib/rainLook.js`, `styles/rain.css`, `RainChip`, `SingaporeMap.vue` and a Leaflet `rain` pane on `PlannerMap.vue`.
+  - The chip says "Rain likely · next 2 h" only for the live two-hour forecast, "Rain likely" for other live forecasts, and "Simulated rain" for the demo.
+  - `DESIGN.md` has a Weather section.
+  - Checked again: frontend 2303 passed (exit 0), also under `TZ=UTC` with outbound calls blocked; build exit 0.
