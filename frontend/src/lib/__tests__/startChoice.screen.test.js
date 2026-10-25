@@ -82,7 +82,12 @@ describe('the host\'s choice screen', () => {
     expect(view.text(fair)).toContain('Default')
     expect(view.text(fair)).toContain('Best when people start from different places')
     expect(view.text(known)).toContain('We already know where')
-    expect(view.text(known)).toContain('Or use where you are right now')
+    expect(view.text(known)).toContain('Or set it to where you are right now')
+    // Each card is named by its title and described by the rest.
+    for (const card of [fair, known]) {
+      expect(card.attrs['aria-labelledby']).toMatch(/-title$/)
+      expect(card.attrs['aria-describedby']).toMatch(/-text.*-meta$/)
+    }
     expect(fair.attrs['aria-checked']).toBe('true')
     expect(known.attrs['aria-checked']).toBe('false')
     expect(view.all('[role=radiogroup]')).toHaveLength(1)
@@ -158,19 +163,27 @@ describe('the follow-up for "We already know where"', () => {
     const { view } = await draw('views/StartView', `/sessions/${id}/start?where=1`, { id })
     await until(() => view.text().includes('Where is the place?'))
     const names = view.all('button').filter((b) => b.attrs.role === 'radio').map((b) => view.text(b))
-    expect(names).toEqual(['Bishan', 'Tampines', 'Jurong East', 'Bugis', 'Orchard', 'Punggol', 'Woodlands', "We're here nowUse where you are. We pick the nearest area, then you choose places around it."])
+    expect(names).toEqual(['Bishan', 'Tampines', 'Jurong East', 'Bugis', 'Orchard', 'Punggol', 'Woodlands', "We're here nowUse where you are. This sets the meeting area to where you are now."])
     expect(view.text()).toContain('Popular areas')
     expect(press(view, 'Meet at Bishan')).toBeTruthy()
     expect(view.text()).toContain('Then you choose places together.')
+    // "We're here now" is its own group, not one of the areas.
+    const groups = view.all('[role=radiogroup]')
+    expect(groups.map((g) => g.attrs['aria-label'])).toEqual(['Popular areas', 'Or use where you are'])
+    expect(groups[1].querySelectorAll('[role=radio]')).toHaveLength(1)
     await view.click(chip(view, 'Orchard'))
     expect(press(view, 'Meet at Orchard')).toBeTruthy()
     view.type('input[type=text]', 'jurong')
     await view.tick()
     expect(view.all('button').filter((b) => b.attrs.role === 'radio').map((b) => view.text(b)).slice(0, 1)).toEqual(['Jurong East'])
     expect(view.text()).toContain('Areas that match')
+    // The chosen area stays on screen, so the button never names an area that is hidden.
+    expect(chip(view, 'Orchard')).toBeTruthy()
+    expect(press(view, 'Meet at Orchard')).toBeTruthy()
     view.type('input[type=text]', 'zzz')
     await view.tick()
     expect(view.text()).toContain('No area matches that.')
+    expect(chip(view, 'Orchard').attrs['aria-checked']).toBe('true')
   })
 
   it('starts the session with the choice saved as known, names the area through the known place, and goes on to choosing places', async () => {
@@ -191,6 +204,8 @@ describe('the follow-up for "We already know where"', () => {
     await until(() => view.text().includes('Where is the place?'))
     await view.click(view.all('button').find((b) => view.text(b).startsWith("We're here now")))
     expect(press(view, 'Use my location')).toBeTruthy()
+    // Say plainly what it does: it sets the outing's meeting area to where the host is now.
+    expect(view.text()).toContain('This sets the meeting area to where you are now. Then you choose places together.')
     await view.click(press(view, 'Use my location'))
     await until(() => router.currentRoute.value.path === `/sessions/${id}/plan`)
     expect(row(w, id)).toMatchObject({ status: 'voting', meet_by: 'known', meeting_area_id: 'tampines' })
@@ -216,6 +231,28 @@ describe('the follow-up for "We already know where"', () => {
     await view.click(press(view, 'Meet at Bugis'))
     await until(() => router.currentRoute.value.path === `/sessions/${id}/plan`)
     expect(row(w, id)).toMatchObject({ status: 'voting', meet_by: 'known', meeting_area_id: 'bugis' })
+  })
+
+  it('starts nothing and goes nowhere when the host leaves while the browser is still asking for their location', async () => {
+    const { w, id } = await started()
+    let answer
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition: (ok) => { answer = ok } } })
+    const { view, router } = await draw('views/StartView', `/sessions/${id}/start?where=1`, { id })
+    await until(() => view.text().includes('Where is the place?'))
+    await view.click(view.all('button').find((b) => view.text(b).startsWith("We're here now")))
+    await view.click(press(view, 'Use my location'))
+    await until(() => typeof answer === 'function')
+    // Back: the page goes away while the question is open, then the person answers it.
+    await router.push(`/sessions/${id}`)
+    const visited = []
+    router.afterEach((to) => visited.push(to.path))
+    view.unmount()
+    answer({ coords: { latitude: 1.3521, longitude: 103.9448 } })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(row(w, id)).toMatchObject({ status: 'inviting', meet_by: null })
+    expect(w.server.calls.map((c) => c.route)).not.toContain('knownPlace')
+    // (Unmounting the app resets the router, so the test reads where it was sent, not where it ends up.)
+    expect(visited.filter((path) => path.endsWith('/plan'))).toEqual([])
   })
 
   it('stays open when naming the area fails after the start, keeps the choice, and the next press only names the area', async () => {

@@ -29,7 +29,7 @@ import NotFoundView from './NotFoundView.vue'
 import * as api from '@/lib/api.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { vRadioGroup } from '@/lib/radioGroup.js'
-import { CHOICES, START_NOTE, WHERE_NOTE, areaHere, findAreas, startLabel, whereLabel } from '@/lib/startChoice.js'
+import { CHOICES, HERE_NOTE, START_NOTE, WHERE_NOTE, areaHere, findAreas, startLabel, whereLabel } from '@/lib/startChoice.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -61,9 +61,10 @@ const chosenArea = computed(() => AREAS.find((a) => a.id === where.value) || nul
 // The areas the follow-up lists: the popular ones, or what the search finds. The chosen area stays listed so it never vanishes under a search.
 const areas = computed(() => {
   const found = findAreas(query.value)
-  return chosenArea.value && !found.some((a) => a.id === chosenArea.value.id) && !query.value.trim() ? [...found, chosenArea.value] : found
+  return chosenArea.value && !found.some((a) => a.id === chosenArea.value.id) ? [...found, chosenArea.value] : found
 })
-const noMatch = computed(() => !!query.value.trim() && areas.value.length === 0)
+// Nothing matches the search (the chosen area is kept in the list, so it is the matches that are counted).
+const noMatch = computed(() => !!query.value.trim() && findAreas(query.value).length === 0)
 
 async function load() {
   missing.value = false
@@ -76,6 +77,10 @@ async function load() {
   }
 }
 // A shared session changes under this page (someone leaves, the host starts it on another device): it is read again as it happens.
+// The host left this page (Back, or any other link) while something was pending, such as the browser's question about their location:
+// a late answer must not start the session or take them on to another page.
+let cancelled = false
+onBeforeUnmount(() => { cancelled = true })
 let stopWatching = () => {}
 onMounted(() => {
   stopWatching = api.watchSessions()
@@ -123,6 +128,10 @@ async function run(fn) {
   }
 }
 
+// Is this page still the one on screen, so a finished save may take the host on? False once it was left.
+// How to call: if (stillHere()) await router.replace(...)
+const stillHere = () => !cancelled && router.currentRoute.value.path === `${sessionPath.value}/start`
+
 // The main button of the first screen. The fairest spot starts the session and the host stays on its page, now the Locate step; the
 // other choice goes on to the follow-up without saving anything yet.
 // How to call: choose()
@@ -136,7 +145,7 @@ async function choose() {
     await events.start(props.id, { meetBy: 'fairest' })
     leaving.value = true
   })
-  if (ok) await router.replace(sessionPath.value)
+  if (ok && stillHere()) await router.replace(sessionPath.value)
 }
 
 // The main button of the follow-up: the area (or the nearest area to where the person is) becomes the known place, and the group goes on
@@ -146,16 +155,18 @@ async function meet() {
   let done = false
   const ok = await run(async () => {
     const areaId = hereNow.value ? (await areaHere(typeof navigator === 'undefined' ? null : navigator.geolocation, api.placeFromCoords)).areaId : where.value
+    // The host went back while the browser was asking: nothing is started.
+    if (cancelled) return
     if (session.value?.status === 'inviting') await events.start(props.id, { meetBy: 'known' })
     await events.setKnownPlace(props.id, areaId)
     done = true
     leaving.value = true
   })
-  if (ok && done) await router.replace(`${sessionPath.value}/plan`)
+  if (ok && done && stillHere()) await router.replace(`${sessionPath.value}/plan`)
 }
 
 const primary = computed(() => (step.value === 'how' ? startLabel(choice.value) : whereLabel(chosenArea.value, hereNow.value)))
-const note = computed(() => (step.value === 'how' ? START_NOTE : WHERE_NOTE))
+const note = computed(() => (step.value === 'how' ? START_NOTE : hereNow.value ? HERE_NOTE : WHERE_NOTE))
 const onPrimary = () => (step.value === 'how' ? choose() : meet())
 const primaryOff = computed(() => busy.value || (step.value === 'where' && !hereNow.value && !chosenArea.value))
 const primaryText = computed(() => (busy.value ? (step.value === 'where' && hereNow.value ? 'Finding where you are…' : 'Saving…') : primary.value))
@@ -196,14 +207,17 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
         </div>
         <div class="choices" role="radiogroup" v-radio-group :aria-label="query.trim() ? 'Areas that match' : 'Popular areas'">
           <p class="caption text-muted" aria-hidden="true">{{ query.trim() ? 'Areas that match' : 'Popular areas' }}</p>
-          <div v-if="areas.length" class="chips">
+          <div class="chips">
             <ChipButton v-for="a in areas" :key="a.id" radio :selected="where === a.id" :disabled="busy" @click="where = a.id">{{ a.name }}</ChipButton>
           </div>
-          <p v-else-if="noMatch" class="body-sm text-muted" role="status">No area matches that. Try the start of its name.</p>
-          <div class="or" aria-hidden="true">or</div>
+          <p v-if="noMatch" class="body-sm text-muted" role="status">No area matches that. Try the start of its name.</p>
+        </div>
+        <div class="or" aria-hidden="true">or</div>
+        <!-- Its own group: the card is not one of the areas. Choosing it, or an area, unchooses the other. -->
+        <div class="choices" role="radiogroup" v-radio-group aria-label="Or use where you are">
           <ChoiceCard :selected="hereNow" :disabled="busy" icon="locate" @click="where = 'here'">
             <template #title>We're here now</template>
-            <template #text>Use where you are. We pick the nearest area, then you choose places around it.</template>
+            <template #text>Use where you are. This sets the meeting area to where you are now.</template>
           </ChoiceCard>
         </div>
       </template>

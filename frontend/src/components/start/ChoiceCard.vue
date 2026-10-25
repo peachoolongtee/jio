@@ -6,6 +6,7 @@
 //     <template #title>Find the fairest spot</template> <template #text>...</template> <template #meta>...</template>
 //   </ChoiceCard>
 // A disabled card stays focusable (aria-disabled) and ignores clicks, so focus is not lost while a request runs.
+import { useId } from 'vue'
 import AppIcon from '../ui/AppIcon.vue'
 
 const props = defineProps({
@@ -14,6 +15,8 @@ const props = defineProps({
   icon: { type: String, default: 'pin' },
 })
 const emit = defineEmits(['click'])
+// The card is named by its title and described by the rest, so a screen reader reads "Find the fairest spot, radio, 1 of 2" and then the sentence.
+const uid = useId()
 
 // How to call: <button @click="onClick"> (passes the click on unless the card is disabled)
 function onClick(event) {
@@ -32,14 +35,16 @@ function onClick(event) {
     class="choice"
     :class="{ 'is-selected': selected }"
     :aria-checked="String(selected)"
+    :aria-labelledby="`${uid}-title`"
+    :aria-describedby="`${uid}-text ${$slots.meta ? `${uid}-meta` : ''}`.trim()"
     :aria-disabled="disabled ? 'true' : undefined"
     @click="onClick"
   >
     <span class="choice__icon" aria-hidden="true"><AppIcon :name="icon" :size="24" /></span>
     <span class="choice__body">
-      <span class="choice__title title-md"><slot name="title" /><span v-if="$slots.tag" class="choice__tag"><slot name="tag" /></span></span>
-      <span class="choice__text body-sm text-muted"><slot name="text" /></span>
-      <span v-if="$slots.meta" class="choice__meta caption-sm"><slot name="meta" /></span>
+      <span :id="`${uid}-title`" class="choice__title title-md"><slot name="title" /><span v-if="$slots.tag" class="choice__tag"><slot name="tag" /></span></span>
+      <span :id="`${uid}-text`" class="choice__text body-sm text-muted"><slot name="text" /></span>
+      <span v-if="$slots.meta" :id="`${uid}-meta`" class="choice__meta caption-sm"><slot name="meta" /></span>
     </span>
     <span class="choice__dot" aria-hidden="true" />
   </button>

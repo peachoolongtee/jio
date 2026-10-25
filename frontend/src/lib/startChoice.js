@@ -20,7 +20,7 @@ export const CHOICES = [
     title: 'We already know where',
     tag: '',
     text: 'You pick the area. The group goes straight to choosing places.',
-    meta: 'Or use where you are right now',
+    meta: 'Or set it to where you are right now',
     icon: 'pin',
   },
 ]
@@ -44,6 +44,8 @@ export function whereLabel(area, here = false) {
   return area ? `Meet at ${area.name}` : 'Choose an area'
 }
 export const WHERE_NOTE = 'Then you choose places together.'
+// Under the button once "We're here now" is chosen: it is the outing's meeting area that is set, not a look at what is nearby.
+export const HERE_NOTE = 'This sets the meeting area to where you are now. Then you choose places together.'
 
 // The areas whose name contains what was typed (case and spaces ignored), in the app's order; the popular ones when nothing is typed.
 // How to call: findAreas('bis') -> [{ id: 'bugis', ... }, { id: 'bishan', ... }]
