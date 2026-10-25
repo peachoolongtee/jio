@@ -217,7 +217,7 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
         <div class="choices" role="radiogroup" v-radio-group aria-label="Or use where you are">
           <ChoiceCard :selected="hereNow" :disabled="busy" icon="locate" @click="where = 'here'">
             <template #title>We're here now</template>
-            <template #text>Use where you are. This sets the meeting area to where you are now.</template>
+            <template #text>Use where you are, asking your browser for it.</template>
           </ChoiceCard>
         </div>
       </template>

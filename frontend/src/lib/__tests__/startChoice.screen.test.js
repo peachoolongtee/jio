@@ -163,7 +163,7 @@ describe('the follow-up for "We already know where"', () => {
     const { view } = await draw('views/StartView', `/sessions/${id}/start?where=1`, { id })
     await until(() => view.text().includes('Where is the place?'))
     const names = view.all('button').filter((b) => b.attrs.role === 'radio').map((b) => view.text(b))
-    expect(names).toEqual(['Bishan', 'Tampines', 'Jurong East', 'Bugis', 'Orchard', 'Punggol', 'Woodlands', "We're here nowUse where you are. This sets the meeting area to where you are now."])
+    expect(names).toEqual(['Bishan', 'Tampines', 'Jurong East', 'Bugis', 'Orchard', 'Punggol', 'Woodlands', "We're here nowUse where you are, asking your browser for it."])
     expect(view.text()).toContain('Popular areas')
     expect(press(view, 'Meet at Bishan')).toBeTruthy()
     expect(view.text()).toContain('Then you choose places together.')
