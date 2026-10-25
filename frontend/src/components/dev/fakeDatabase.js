@@ -47,8 +47,8 @@
 // service key set any status the table allows, which is what the trigger leaves to it).
 // ASSUMED (no migration of stage 5 is written yet, so these are this stand-in's reading, to be reconciled with the backend half): the
 // server writes the plan through direct table writes here, where the real one will extend `apply_session_plan` with stops, ledger,
-// proposals and the order columns. The patch's parts for those are therefore NOT ported: `apply_session_plan` still knows only the
-// stage 3 and 4 parts, and the stand-in server (lib/__tests__/fakeSessionsServer.js) writes the stage 5 rows itself. The shapes of
+// proposals and the order columns. The patch's parts for those are therefore NOT ported, except two: `session.replan` and the op `resolve_proposal`
+// (a guest opting out of a confirmed plan sends both): `apply_session_plan` here still knows only the stage 3 and 4 parts besides, and the stand-in server (lib/__tests__/fakeSessionsServer.js) writes the stage 5 rows itself. The shapes of
 // `order_suggestion` ({ basis, order, starts, reason, source, at }) and of `replan` ({ reason, trigger, at }) are from the design (#125, #80).
 //
 // Stage 4 of `apply_session_plan` is a port of db/migrations/20261022000000_jio_apply_session_plan_slots.sql (and of its JavaScript
@@ -70,7 +70,7 @@
 // leaves nothing behind.
 //
 // What it does NOT model: the planner columns of `sessions` beyond what stages 3 and 4 read (meeting_*, banner, plan_version and
-// radius_meters are there; replan is not), `stops` and the other tables, the table `profile_private` itself (only the function over
+// radius_meters and replan are there), `stops` and the other tables, the table `profile_private` itself (only the function over
 // it), the 30-day
 // ceiling on how far ahead `expires_at` may be set beyond what the check says, row locks and concurrent transactions (one
 // call runs to the end before the next), Postgres's exact error texts beyond the ones the app reads, Realtime's connection
@@ -834,7 +834,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     if (unknownKey !== undefined) throw new DbError('22023', `The plan has a part this function does not know: ${unknownKey}.`)
     if (has(patch, 'session')) {
       if (patch.session === null || typeof patch.session !== 'object' || Array.isArray(patch.session)) throw new DbError('22023', 'The session part of the plan must be a JSON object.')
-      const unknownSessionKey = Object.keys(patch.session).find((k) => !['status', 'meeting', 'banner', 'radius_meters'].includes(k))
+      const unknownSessionKey = Object.keys(patch.session).find((k) => !['status', 'meeting', 'banner', 'radius_meters', 'replan'].includes(k))
       if (unknownSessionKey !== undefined) throw new DbError('22023', `The session part of the plan has a part this function does not know: ${unknownSessionKey}.`)
     }
     const sp = patch.session ?? {}
@@ -981,6 +981,17 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
             }
             changed = true
           }
+        }
+      } else if (op.op === 'resolve_proposal') {
+        // Stage 5, only the part a guest opting out of a confirmed plan needs: the proposals they had waiting are dismissed in the same
+        // write (migration 20261023000000). Only while the plan stays confirmed; one already answered changes nothing.
+        if (!(s.status === 'confirmed' && newStatus === 'confirmed')) throw ruleBroken('proposal_status', 'A proposal is answered only while the plan is confirmed.')
+        if (!['accepted', 'dismissed'].includes(op.status)) throw new DbError('23514', 'new row for relation "stop_proposals" violates check constraint "stop_proposals_status_check"')
+        const waiting = tables.stop_proposals.find((x) => x.session_id === sid && x.id === op.proposal_id && x.status === 'pending')
+        if (waiting) {
+          Object.assign(waiting, { status: op.status, resolved_at: iso(now()), resolved_by: op.by ?? null })
+          publish('stop_proposals', 'UPDATE', waiting)
+          changed = true
         }
       } else {
         throw new DbError('22023', `Unknown operation ${op.op}.`)
@@ -1131,7 +1142,12 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     if (radiusChanged && sp.radius_meters != null && !(Number.isInteger(sp.radius_meters) && sp.radius_meters >= 100 && sp.radius_meters <= 3000)) {
       throw new DbError('23514', 'new row for relation "sessions" violates check constraint "sessions_radius_meters_check"')
     }
-    if (meetingChanged || travelChanged || bannerChanged || radiusChanged || bannerText !== null) changed = true
+    // The "plan again?" prompt a guest's opting out of a confirmed plan writes: an object or null, a change only where it differs.
+    if (has(sp, 'replan') && sp.replan != null && (typeof sp.replan !== 'object' || Array.isArray(sp.replan))) {
+      throw new DbError('22023', 'The re-plan prompt must be a JSON object or null.')
+    }
+    const replanChanged = has(sp, 'replan') && !sameJson(s.replan ?? null, sp.replan ?? null)
+    if (meetingChanged || travelChanged || bannerChanged || radiusChanged || bannerText !== null || replanChanged) changed = true
     if (!changed) return Number(s.plan_version)
 
     // Each joined member's own minutes to the confirmed area.
@@ -1142,6 +1158,9 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
         if ((m.travel_minutes ?? null) !== minutes) changeMember(m, { travel_minutes: minutes })
       }
     }
+    // Leaving confirmed, or entering it, clears the prompt; otherwise the patch's prompt is kept.
+    if ((s.status === 'confirmed' && newStatus !== 'confirmed') || (s.status === 'voting' && newStatus === 'confirmed')) s.replan = null
+    else if (has(sp, 'replan')) s.replan = sp.replan ?? null
     s.status = newStatus
     if (radiusChanged) s.radius_meters = sp.radius_meters ?? null
     if (meetingChanged) {

@@ -4,9 +4,8 @@
 // service key, flat errors, 401 without a token, 404 `session_not_found` for a stranger, and a write applied only if the session still has
 // the status and version it was worked out for.
 //
-// Every route here is ASSUMED to the extent the backend half (branch feat/sessions-stage-5) is not written yet: the names of the paths
-// are the design's; the answers' fields are the design's; what the design leaves open is marked ASSUMED below. A rule the real server
-// has and this one has simpler is marked SIMPLER. The real server writes through apply_session_plan; this one writes straight to the
+// The paths and the answers' fields follow the real server (backend/src/routes/sessions.js, services/sessions.js, documented in
+// backend/docs/planner-api.md); what this stand-in does differently is marked SIMPLER (a rule the real server has and this one has simpler). The real server writes through apply_session_plan; this one writes straight to the
 // tables (the stand-in database's port of that function knows only the stage 3 and 4 parts of a patch).
 //
 //   POST   /api/sessions/:id/order/suggest                       E22 (host, voting): the winners' suggested order, stored with its basis
@@ -16,9 +15,9 @@
 //   PATCH  /api/sessions/:id/stops/:stopId   { travelMode }      E15 (host)
 //   DELETE /api/sessions/:id/stops/:stopId                       E15 (host)
 //   PUT    /api/sessions/:id/stops/order     { stopIds }         E15's order route (host)
-//   GET    /api/sessions/:id/stops/:stopId/swap                  ASSUMED: the indoor swap offered for a stop
-//   GET    /api/sessions/:id/stops/:stopId/choices?category=&start=   ASSUMED: the places that could take a stop's place
-//   PUT    /api/sessions/:id/stops/:stopId/place { venueId, seenVenueId, category? }   ASSUMED: put one in (host)
+//   GET    /api/sessions/:id/stops/:stopId/swap                  the indoor swap offered for a stop (joined member, confirmed; reads)
+//   GET    /api/sessions/:id/stops/:stopId/choices?category=     the places that could take a stop's place (host, confirmed; reads; any other query key is a 400)
+//   PUT    /api/sessions/:id/stops/:stopId/place { venueId, seenVenueId, category? }   put one in (host)
 //   POST   /api/sessions/:id/roam      { current?, categories? } E16 (joined member, confirmed): the list; writes nothing
 //   POST   /api/sessions/:id/proposals { venueId }               E23 (joined member, confirmed)
 //   POST   /api/sessions/:id/proposals/:proposalId/resolve { accept }   E24 (host; the proposer may dismiss their own)
@@ -40,8 +39,8 @@
 //
 // Hooks for a test, on `server.plan`: `orderSource` ('ai' or 'rules', the source of a suggestion), `suggest` (a function that replaces the
 // suggestion: `(winners) => ({ order, starts, reason, source })`, with `stops` to name the stops itself, or null for "none"), `swap` (a function from a place's id to the indoor swap the
-// server offers for it, `{ venueId, name }`), `weather`, and `confirmedOptOut` (ASSUMED: opting out of a confirmed plan is allowed and
-// asks "Re-plan?", where the stage 4 server still refuses with not_yet). Per route, `server.after.<route>` runs after
+// server offers for it, `{ venueId, name }`), `weather`, and `confirmedOptOut` (default true, as the real server: opting out of a confirmed plan is allowed and
+// asks "Re-plan?"; false is the stage 4 server, which refuses with not_yet). Per route, `server.after.<route>` runs after
 // the server has read the session and before it writes.
 import { AREAS } from '../mock/places.js'
 import { VENUES } from '../mock/venues.js'
@@ -63,7 +62,7 @@ async function sha256(text) {
 // How to call: registerPlan(kit, routes, PATTERNS)
 export function registerPlan(kit, routes, PATTERNS) {
   const { rows, write, eq, refuse, load, apply, after, server, repriceVoting, rank, areaOf, slotsOf, optionsOf, tripMinutes, located, pricing } = kit
-  server.plan = { orderSource: 'ai', suggest: undefined, confirmedOptOut: false }
+  server.plan = { orderSource: 'ai', suggest: undefined, confirmedOptOut: true }
 
   const stopsOf = (id) => rows('stops').filter((x) => x.session_id === id).sort((a, b) => a.seq - b.seq)
   const joinedIds = (id) => rows('session_members').filter((m) => m.session_id === id && m.state === 'joined').map((m) => m.user_id)
@@ -302,7 +301,7 @@ export function registerPlan(kit, routes, PATTERNS) {
     const all = stopsOf(id)
     const ids = body.stopIds
     if (!Array.isArray(ids) || ids.length > PLAN_MAX) refuse(400, 'invalid_input', 'Send up to 8 stop ids.')
-    if (ids.length !== all.length || new Set(ids).size !== ids.length || ids.some((x) => !all.some((s) => s.id === x))) refuse(404, 'stop_not_found', 'That is not the list of stops in the plan.')
+    if (ids.length !== all.length || new Set(ids).size !== ids.length || ids.some((x) => !all.some((s) => s.id === x))) refuse(409, 'stops_changed', 'The plan has changed. Look at it again.')
     const loaded = loadedOf(session)
     const version = await apply(id, loaded, async () => {
       // The key on the order is checked at the end of a statement, one stop at a time here: out of the way first.
@@ -313,7 +312,7 @@ export function registerPlan(kit, routes, PATTERNS) {
     return { status: 200, body: { planVersion: version } }
   }
 
-  // ── ASSUMED: change a stop's place ──
+  // ── Change a stop's place: the reads (swap, choices) and the write (place) ──
   // The slot a stop is ranked as: its category (or the one asked for), at the time asked for (or its own start).
   // How to call: slotFor(stop, 'drink', 900) -> { id, category, start_minute, duration_minutes }
   const slotFor = (stop, category, start) => ({ id: stop.slot_id ?? stop.id, category: category || stop.category, start_minute: Number.isFinite(start) ? start : stop.not_before_minute ?? stop.planned_start_minute, duration_minutes: stop.duration_minutes })
@@ -332,9 +331,10 @@ export function registerPlan(kit, routes, PATTERNS) {
     asHost(session, user)
     confirmedOnly(session)
     const stop = stopNamed(id, stopId)
+    if (Object.keys(query ?? {}).some((key) => key !== 'category')) refuse(400, 'invalid_input', 'Only a category can be asked for.')
     const category = query?.category || stop.category
     if (!['eat', 'drink', 'shop', 'activity'].includes(category)) refuse(400, 'invalid_input', 'Choose Eat, Drink, Shop or Activity.')
-    const slot = slotFor(stop, category, Number(query?.start))
+    const slot = slotFor(stop, category)
     // Not the stop's own place, nor a place another stop already has.
     const inPlan = new Set(stopsOf(id).map((x) => x.venue_id))
     const same = slotsOf(id).find((x) => x.category === category)
@@ -469,7 +469,9 @@ export function registerPlan(kit, routes, PATTERNS) {
     }
   }
 
-  // ASSUMED: opting out of a confirmed plan asks "Re-plan?" instead of being refused (design E10: "in confirmed only `sessions.replan`").
+  // Opting out of a confirmed plan asks "Re-plan?" instead of being refused (design E10: "in confirmed only `sessions.replan`"): the person goes out
+  // with their votes, the proposals they had waiting are dismissed, and the prompt says so and where the meeting area would stay (SIMPLER: the
+  // real server also says when the planner's own pick would move).
   const stageFourOptOut = routes.optOut
   routes.optOut = async (user, id, ...rest) => {
     const { session, member } = load(user, id, { joined: false })
@@ -477,13 +479,15 @@ export function registerPlan(kit, routes, PATTERNS) {
     if (member.state === 'opted_out') return { status: 200, body: { planVersion: session.plan_version, state: 'opted_out' } }
     const loaded = loadedOf(session)
     const name = kit.nameOf?.(user) ?? 'Someone'
+    const area = AREAS.find((a) => a.id === session.meeting_area_id)
+    const stayLine = area ? ` The meeting area would stay at ${area.name}.` : ''
     const version = await apply(id, loaded, async () => {
       await write({ kind: 'update', table: 'session_members', values: { state: 'opted_out' }, filters: [eq('session_id', id), eq('user_id', user)] })
       for (const slot of slotsOf(id)) await write({ kind: 'delete', table: 'votes', filters: [eq('slot_id', slot.id), eq('user_id', user)] })
       for (const proposal of rows('stop_proposals').filter((x) => x.session_id === id && x.proposed_by === user && x.status === 'pending')) {
-        await write({ kind: 'delete', table: 'stop_proposals', filters: [eq('id', proposal.id)] })
+        await write({ kind: 'update', table: 'stop_proposals', values: { status: 'dismissed', resolved_at: new Date().toISOString(), resolved_by: user }, filters: [eq('id', proposal.id)] })
       }
-    }, () => ({ replan: { reason: `${name} opted out.`, trigger: { kind: 'optout' }, at: Date.now() } }))
+    }, () => ({ replan: { reason: `${name} opted out.${stayLine}`, trigger: { kind: 'optout' }, at: Date.now() } }))
     return { status: 200, body: { planVersion: version, state: 'opted_out' } }
   }
 
