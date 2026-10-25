@@ -243,8 +243,45 @@ export function joinNames(names) {
   return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
 }
 
-// The text equivalent of the rain on Home's map.
-// How to call: homeRainText(['Bishan']) -> 'Rain likely around Bishan in the next two hours'
-export function homeRainText(areaNames) {
-  return `Rain likely around ${joinNames(areaNames)} in the next two hours`
+// Which kind of forecast a weather block is, for the words and the picture of rain on a map, so the chip, the line of text and
+// the layer all follow one rule:
+//   'next2h'     the live two-hour forecast (basis 'area'): the rain is about the next two hours
+//   'live'       a live forecast of another basis (the 24-hour regional one, or a mix): rain is likely, with no claim about two hours
+//   'simulated'  the demo's made-up forecast
+//   ''           unavailable, outside the window, or not known: nothing is claimed
+// How to call: rainWindow({ source: 'live', basis: 'area' }) -> 'next2h'
+export function rainWindow(block) {
+  const kind = block ? sourceLine(block).kind : ''
+  if (kind === 'simulated') return 'simulated'
+  if (kind === 'live') return block.basis === 'area' ? 'next2h' : 'live'
+  return ''
+}
+
+// How long a live forecast with no end time stays current: the two-hour forecast's own length.
+const TWO_HOURS_MS = 2 * 60 * 60 * 1000
+
+// Is this forecast still current? A simulated forecast is about no clock, so it always is. A live one is current until its
+// `validUntil`, or until two hours after it was issued when it has no end; with neither time it cannot be shown to be current, so
+// it is not. `weather` is one place's weather (its own times win), `block` the answer's block (the times it falls back on).
+// A forecast stored with a plan when it was confirmed is not current hours later.
+// How to call: forecastIsCurrent({ source: 'live', validUntil: '2026-10-26T07:30:00+08:00' }, null, new Date()) -> true or false
+export function forecastIsCurrent(weather, block = null, now = new Date()) {
+  const source = weather?.source ?? block?.source
+  if (source === 'simulated') return true
+  if (source !== 'live') return false
+  const until = Date.parse(weather?.validUntil ?? block?.validUntil)
+  if (Number.isFinite(until)) return now.getTime() < until
+  const issued = Date.parse(weather?.issuedAt ?? block?.issuedAt)
+  return Number.isFinite(issued) && now.getTime() < issued + TWO_HOURS_MS
+}
+
+// The text equivalent of the rain on Home's map, worded by the same rule as the chip (rainWindow): "in the next two hours" only for
+// the live two-hour forecast, no time at all for another live forecast, and "Simulated rain" for the demo's.
+// How to call: homeRainText(['Bishan'], { source: 'live', basis: 'area' }) -> 'Rain likely around Bishan in the next two hours'
+export function homeRainText(areaNames, block = null) {
+  const where = joinNames(areaNames)
+  const kind = rainWindow(block)
+  if (kind === 'simulated') return `Simulated rain around ${where}`
+  if (kind === 'next2h') return `Rain likely around ${where} in the next two hours`
+  return `Rain likely around ${where}`
 }

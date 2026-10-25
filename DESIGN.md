@@ -820,18 +820,24 @@ How a forecast looks on a map, called "Layered drops". Words for the weather (th
 | Live, the two-hour forecast (`basis: 'area'`) | "Rain likely · next 2 h" |
 | Live, the 24-hour or a mixed forecast | "Rain likely" (no claim about two hours) |
 | Simulated (the demo's "Simulate rain") | "Simulated rain" |
-| Unavailable, outside the forecast window, or not known | No chip |
+| Unavailable, outside the forecast window, or not known | No chip, and no rain drawn |
+
+Home's line of text (`homeRainText`) follows the same rule through `rainWindow`, so a screen reader and the chip never disagree: "Rain likely around Bishan in the next two hours" only for the live two-hour forecast, "Rain likely around Bishan" for another live forecast, "Simulated rain around Bishan" for the demo's.
+
+**Only while current.** Rain and its chip are drawn only while the forecast is current (`forecastIsCurrent` in `lib/weatherText.js`): before its `validUntil`, or before two hours after it was issued when it has no end time. A live forecast with no times, one that is unavailable, and one stored with a confirmed plan hours ago are not drawn. A simulated forecast is about no clock and is always current. This holds for Home, the itinerary's map and the full-screen map, and the screens read the shared clock, so the rain goes when the forecast runs out.
 
 **Screens.**
 
 | Screen | Map | What is drawn | Words for a screen reader |
 |---|---|---|---|
-| Home | `SingaporeMap` | One patch at each meeting area where rain is likely in the next two hours (`useHomeRain`). Chip at the top of the map. | The map and the chip are hidden from screen readers. The line under the greeting says "Rain likely around Bishan in the next two hours" (`role="status"`), with the source line under it. |
-| Itinerary (`EventView`), and the full-screen map (`SessionMapView`) | `PlannerMap` | A patch at each stop of a confirmed plan whose weather says rain is likely, from a live or simulated forecast; stops within 1.2 km share one patch. Chip at the top of the map, under the bar on the full-screen map. | The chip is inside the map's region, so it is read with the map. The rain banners and the marks on each stop say the rest. |
+| Home | `SingaporeMap` | One patch at each meeting area where rain is likely in the next two hours (`useHomeRain`), at most six. The chip sits just under the first of them, at the map's own scale (the pins fan out above a meeting point, so above would be behind them); it is the chip of the mock-up moved below the wash. Picking another meetup draws the map again without fading the same rain in again (`fadeRain`). | The map and the chip are hidden from screen readers. The line under the greeting says "Rain likely around Bishan in the next two hours" (`role="status"`), with the source line under it. |
+| Itinerary (`EventView`), and the full-screen map (`SessionMapView`) | `PlannerMap` | A patch of its own at each stop of a confirmed plan whose weather says rain is likely, from a current live or simulated forecast (stops in the same spot share one; at most six). Chip at the top middle of the map, in a slot that clears the zoom buttons and "View map" or "Expand map" (it starts 64px down); on the full-screen map it is under the bar with the back button. The full-screen map also carries the muted source line and its licence notice (`WeatherSource`) under the chip, as Home and the itinerary do. | The chip is inside the map's region, so it is read with the map. The rain banners and the marks on each stop say the rest. |
 
 The Locate and Vote maps show no rain: they carry no forecast for a place yet.
 
-**On `PlannerMap`.** The rain is a Leaflet marker for each patch, in a pane of its own (z-index 350, between the tiles at 200 and the route at 400), so it moves and glides with the map. Its size covers about 1.5 km each way at the current zoom, between 170 and 480px across, and is set again when a zoom ends (without the fade).
+**On `PlannerMap`.** The rain is a Leaflet marker for each patch, in a pane of its own (z-index 350, between the tiles at 200 and the route at 400), so it moves and glides with the map. Its size covers about 1 km each way at the current zoom, between 170 and 480px across. During a zoom it scales to the size it will have, in step with the markers' glide (250ms, Leaflet's own curve), and it is made at that size when the zoom ends (without the fade). Each rainy stop has a patch of its own, so a stop zoomed into always has rain round it.
+
+**Cost.** Each patch is three animated rectangles under one mask. Measured in Chromium with the CPU slowed 4 times, on Home and on a Leaflet map being panned, with 1, 3 and 6 patches: every frame stayed at 16.7ms (no frame over 25ms) at every count, and raster work grew by about 85ms for each patch for each 4 seconds (6 patches: about 3ms a frame on the raster threads). A map therefore draws at most six patches (`MAX_RAIN_PATCHES`).
 
 **Motion.** Only `transform` and `opacity` change. Under `prefers-reduced-motion: reduce` there is no falling and no fade: the wash and the drops are drawn still, so the meaning is not lost, and the chip arrives without its rise.
 

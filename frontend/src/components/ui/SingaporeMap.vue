@@ -11,14 +11,14 @@
 // rain: [{ lat, lng }] the places where rain is likely: each is a feathered blue wash with three layers of drops (far, middle,
 // near) over about one forecast area, "Layered drops" (lib/rainLook.js; DESIGN.md, "Weather"). Home draws it only for an outing
 // within two hours; the words for it are on the page, and so is the chip, as the map is hidden from screen readers. It fades in
-// over 900 ms and the drops fall; under reduced motion neither happens and the wash and drops stand still. It is under the routes
+// over 900 ms (`fadeRain` turns that off) and the drops fall; under reduced motion neither happens and the wash and drops stand still. It is under the routes
 // and the pins, and takes no pointer events.
 // quick: draw the routes in about twice as fast, for a map that redraws when the choice changes (give it a new
 // :key to redraw it): <SingaporeMap :key="selected.id" :routes="routes" quick />
 // Built after Aceternity's World Map, with Singapore from lib/singaporeDots.js instead of the world.
 import { computed, useId } from 'vue'
 import { DOT_STEP, NEARBY_DOTS, SINGAPORE_DOTS, project } from '@/lib/singaporeDots.js'
-import { DROPS_SHARE, FEATHER_STOPS, RAIN_LAYERS, WASH_STOPS } from '@/lib/rainLook.js'
+import { DROPS_SHARE, FEATHER_STOPS, MAX_RAIN_PATCHES, RAIN_LAYERS, WASH_STOPS } from '@/lib/rainLook.js'
 
 const DOT = DOT_STEP * 0.42
 
@@ -32,6 +32,9 @@ const props = defineProps({
   hideMeet: { type: Boolean, default: false },
   quick: { type: Boolean, default: false },
   rain: { type: Array, default: () => [] },
+  // Fade the rain in over 900 ms. A map that is drawn again for the same rain (Home picks another meetup) turns it off, so the rain does not
+  // fade out and in again.
+  fadeRain: { type: Boolean, default: true },
 })
 
 // How far the rain wash reaches around a place, in map units (6.2 km: a forecast area and the ground around it, wide enough to
@@ -63,7 +66,7 @@ const lines = computed(() =>
     return { a, b, d: curve(a, b) }
   }),
 )
-const patches = computed(() => props.rain.map((p, i) => ({ ...project(p.lat, p.lng), i })))
+const patches = computed(() => props.rain.slice(0, MAX_RAIN_PATCHES).map((p, i) => ({ ...project(p.lat, p.lng), i })))
 
 // Every route ends at the same place, so draw the meeting point once.
 const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
@@ -97,7 +100,7 @@ const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
         <filter :id="`${uid}-glow`" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2.4" /></filter>
       </defs>
       <g v-if="patches.length" class="sgmap__rain" data-testid="map-rain">
-        <g v-for="p in patches" :key="`p${p.i}`" class="rain-in" data-testid="map-rain-patch">
+        <g v-for="p in patches" :key="`p${p.i}`" :class="{ 'rain-in': fadeRain }" data-testid="map-rain-patch">
           <circle :cx="p.x" :cy="p.y" :r="RAIN_R" :fill="`url(#${uid}-wash)`" />
           <g :mask="`url(#${uid}-mask${p.i})`">
             <!-- A layer starts one tile above the mask and falls one tile, so the drops never leave a gap at its top edge. -->

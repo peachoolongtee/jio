@@ -8,7 +8,9 @@ import {
   UNAVAILABLE_TEXT,
   combineWeather,
   exposureOf,
+  forecastIsCurrent,
   homeRainText,
+  rainWindow,
   isDismissed,
   joinNames,
   licenceNotice,
@@ -323,10 +325,64 @@ describe('the rain warnings of a day', () => {
 })
 
 describe('Home\'s words for rain on the map', () => {
-  it('joins the places and says the next two hours', () => {
-    expect(homeRainText(['Bishan'])).toBe('Rain likely around Bishan in the next two hours')
-    expect(homeRainText(['Bishan', 'Tampines'])).toBe('Rain likely around Bishan and Tampines in the next two hours')
-    expect(homeRainText(['Bishan', 'Tampines', 'Jurong East'])).toBe('Rain likely around Bishan, Tampines and Jurong East in the next two hours')
+  const AREA = { source: 'live', basis: 'area' }
+
+  it('joins the places and says the next two hours only for the live two-hour forecast', () => {
+    expect(homeRainText(['Bishan'], AREA)).toBe('Rain likely around Bishan in the next two hours')
+    expect(homeRainText(['Bishan', 'Tampines'], AREA)).toBe('Rain likely around Bishan and Tampines in the next two hours')
+    expect(homeRainText(['Bishan', 'Tampines', 'Jurong East'], AREA)).toBe('Rain likely around Bishan, Tampines and Jurong East in the next two hours')
     expect(joinNames([])).toBe('')
+  })
+
+  it('makes no claim about two hours for another live forecast, and says the rain is simulated for the demo\'s', () => {
+    expect(homeRainText(['Bishan'], { source: 'live', basis: 'regional' })).toBe('Rain likely around Bishan')
+    expect(homeRainText(['Bishan'], { source: 'live', basis: 'mixed' })).toBe('Rain likely around Bishan')
+    expect(homeRainText(['Bishan'], { source: 'simulated', basis: 'simulated' })).toBe('Simulated rain around Bishan')
+    expect(homeRainText(['Bishan'])).toBe('Rain likely around Bishan')
+  })
+})
+
+describe('which kind of forecast the rain on a map comes from', () => {
+  it('names the two-hour forecast, another live one, the simulated one, or none', () => {
+    expect(rainWindow({ source: 'live', basis: 'area' })).toBe('next2h')
+    expect(rainWindow({ source: 'live', basis: 'regional' })).toBe('live')
+    expect(rainWindow({ source: 'live' })).toBe('live')
+    expect(rainWindow({ source: 'simulated' })).toBe('simulated')
+    for (const block of [null, undefined, {}, { source: 'unavailable' }, { source: 'none', reason: 'outside_window' }]) expect(rainWindow(block)).toBe('')
+  })
+})
+
+describe('whether a forecast is still current', () => {
+  const at = (hhmm) => new Date(`2026-10-26T${hhmm}:00+08:00`)
+  const live = { source: 'live', issuedAt: '2026-10-26T06:00:00+08:00', validUntil: '2026-10-26T08:00:00+08:00' }
+
+  it('is current until its end time, and not after', () => {
+    expect(forecastIsCurrent(live, null, at('07:59'))).toBe(true)
+    expect(forecastIsCurrent(live, null, at('08:00'))).toBe(false)
+    expect(forecastIsCurrent(live, null, at('13:00'))).toBe(false)
+  })
+
+  it('is current for two hours from when it was issued when it has no end time', () => {
+    const issued = { source: 'live', issuedAt: '2026-10-26T06:00:00+08:00' }
+    expect(forecastIsCurrent(issued, null, at('07:59'))).toBe(true)
+    expect(forecastIsCurrent(issued, null, at('08:00'))).toBe(false)
+  })
+
+  it('takes a place\'s own times first, and the block\'s when the place has none', () => {
+    expect(forecastIsCurrent({ rainLikely: true }, live, at('07:00'))).toBe(true)
+    expect(forecastIsCurrent({ rainLikely: true }, live, at('09:00'))).toBe(false)
+    expect(forecastIsCurrent({ source: 'live', validUntil: '2026-10-26T12:00:00+08:00' }, live, at('09:00'))).toBe(true)
+  })
+
+  it('cannot be shown for a live forecast with no times, an unavailable one, or none: not current', () => {
+    expect(forecastIsCurrent({ source: 'live' }, null, at('07:00'))).toBe(false)
+    expect(forecastIsCurrent({ source: 'unavailable' }, null, at('07:00'))).toBe(false)
+    expect(forecastIsCurrent(null, null, at('07:00'))).toBe(false)
+    expect(forecastIsCurrent({ source: 'live', validUntil: 'soon' }, null, at('07:00'))).toBe(false)
+  })
+
+  it('is always current when simulated, which is about no clock', () => {
+    expect(forecastIsCurrent({ source: 'simulated' }, null, at('23:59'))).toBe(true)
+    expect(forecastIsCurrent({ rainLikely: true }, { source: 'simulated' }, new Date('2030-01-01T00:00:00Z'))).toBe(true)
   })
 })

@@ -11,6 +11,8 @@ import { CHECK_EVERY_MS } from '../weatherCheck.js'
 const MIN = 60 * 1000
 const BISHAN = { id: 'bishan', name: 'Bishan', lat: 1.3508, lng: 103.8485 }
 const TAMPINES = { id: 'tampines', name: 'Tampines', lat: 1.3496, lng: 103.9568 }
+// A live two-hour forecast, current from 12:00 to 17:00 on the day the tests are about.
+const LIVE = { source: 'live', basis: 'area', issuedAt: '2026-10-10T12:00:00+08:00', validUntil: '2026-10-10T17:00:00+08:00' }
 const meetup = (over = {}) => ({ id: 'm1', title: 'Saturday', status: 'confirmed', date: '2026-10-10', start: '15:00', end: '18:00', isToday: false, area: BISHAN, ...over })
 // Local time, as Home's clock is.
 // An instant on a day in Singapore (a fixed offset, so it is the same in any time zone the tests run in).
@@ -69,19 +71,39 @@ describe('what is asked', () => {
 })
 
 describe('what is drawn and said', () => {
-  const answer = (rainy) => ({ stops: Object.fromEntries(['bishan', 'tampines'].map((id) => [id, { state: rainy.includes(id) ? 'showers' : 'dry', rainLikely: rainy.includes(id) }])), weather: { source: 'live', basis: 'area' } })
+  const answer = (rainy) => ({ stops: Object.fromEntries(['bishan', 'tampines'].map((id) => [id, { state: rainy.includes(id) ? 'showers' : 'dry', rainLikely: rainy.includes(id) }])), weather: LIVE })
   const outings = [meetup(), meetup({ id: 'm2', area: TAMPINES })]
 
   it('is each place where rain is likely, with the words for it', () => {
-    const view = rainView(outings, answer(['bishan']))
+    const view = rainView(outings, answer(['bishan']), at('14:00'))
     expect(view.places).toEqual([{ id: 'bishan', name: 'Bishan', lat: 1.3508, lng: 103.8485 }])
     expect(view.text).toBe('Rain likely around Bishan in the next two hours')
-    expect(view.block).toEqual({ source: 'live', basis: 'area' })
-    expect(rainView(outings, answer(['bishan', 'tampines'])).text).toBe('Rain likely around Bishan and Tampines in the next two hours')
+    expect(view.block).toEqual(LIVE)
+    expect(rainView(outings, answer(['bishan', 'tampines']), at('14:00')).text).toBe('Rain likely around Bishan and Tampines in the next two hours')
+  })
+
+  it('words the line by where the forecast came from: no time for a 24-hour forecast, "Simulated rain" for the demo\'s', () => {
+    expect(rainView(outings, { ...answer(['bishan']), weather: { ...LIVE, basis: 'regional' } }, at('14:00')).text).toBe('Rain likely around Bishan')
+    expect(rainView(outings, { ...answer(['bishan']), weather: { source: 'simulated', basis: 'simulated' } }, at('14:00')).text).toBe('Simulated rain around Bishan')
+  })
+
+  it('draws nothing from a forecast that has run out, and from one with no times, but keeps a simulated one', () => {
+    expect(rainView(outings, answer(['bishan']), at('17:00'))).toBeNull()
+    expect(rainView(outings, answer(['bishan']), at('16:59'))).not.toBeNull()
+    expect(rainView(outings, { ...answer(['bishan']), weather: { source: 'live', basis: 'area' } }, at('14:00'))).toBeNull()
+    // With no end time the forecast is current for two hours from when it was issued.
+    expect(rainView(outings, { ...answer(['bishan']), weather: { source: 'live', basis: 'area', issuedAt: LIVE.issuedAt } }, at('13:59'))).not.toBeNull()
+    expect(rainView(outings, { ...answer(['bishan']), weather: { source: 'live', basis: 'area', issuedAt: LIVE.issuedAt } }, at('14:00'))).toBeNull()
+    expect(rainView(outings, { ...answer(['bishan']), weather: { source: 'simulated', basis: 'simulated' } }, at('23:00', '2026-10-12'))).not.toBeNull()
+  })
+
+  it('draws nothing when the answer does not say where the forecast came from', () => {
+    expect(rainView(outings, { ...answer(['bishan']), weather: null }, at('14:00'))).toBeNull()
+    expect(rainView(outings, { ...answer(['bishan']), weather: { source: 'unavailable' } }, at('14:00'))).toBeNull()
   })
 
   it('is nothing when no place has rain likely, or there is no answer yet', () => {
-    expect(rainView(outings, answer([]))).toBeNull()
+    expect(rainView(outings, answer([]), at('14:00'))).toBeNull()
     expect(rainView(outings, null)).toBeNull()
     expect(rainView(outings, {})).toBeNull()
   })
@@ -101,7 +123,7 @@ describe('Home asking', () => {
         return () => h('div', { 'data-testid': 'rain' }, rain.view.value ? rain.view.value.text : 'dry')
       },
     }))
-  const rainy = (ids) => ({ stops: Object.fromEntries(ids.map((id) => [id, { state: 'showers', rainLikely: true, source: 'live', basis: 'area' }])), weather: { source: 'live', basis: 'area' } })
+  const rainy = (ids) => ({ stops: Object.fromEntries(ids.map((id) => [id, { state: 'showers', rainLikely: true, source: 'live', basis: 'area', validUntil: LIVE.validUntil }])), weather: LIVE })
 
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
@@ -136,7 +158,7 @@ describe('Home asking', () => {
   })
 
   it('draws nothing when the forecast is dry there', async () => {
-    ask.mockResolvedValue({ stops: { bishan: { state: 'dry', rainLikely: false } }, weather: { source: 'live' } })
+    ask.mockResolvedValue({ stops: { bishan: { state: 'dry', rainLikely: false } }, weather: { ...LIVE, basis: undefined } })
     const page = mountRain()
     await vi.advanceTimersByTimeAsync(10)
     expect(ask).toHaveBeenCalledTimes(1)

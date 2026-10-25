@@ -5,7 +5,7 @@
 //
 // Sizes are in "rain units": 1 unit is a pixel at the size the look was drawn for. A map that is drawn in other units gives a
 // `scale` (SingaporeMap, whose units are about 110 m).
-import { sourceLine } from './weatherText.js'
+import { forecastIsCurrent, rainWindow } from './weatherText.js'
 
 // The three layers of drops, far to near. `tile` is the repeating pattern; its height equals `travel`, the distance the layer
 // falls in `seconds`, so the loop has no seam. `d` is one drop, `width` its stroke and `opacity` how strong the layer is.
@@ -28,18 +28,23 @@ export const FADE_IN_MS = 900
 export const num = (n) => String(Math.round(n * 1000) / 1000)
 
 // The words on the chip for the rain on a map, or '' when there should be no chip. The block is a weather block
-// (lib/weatherText.js): the chip names the two-hour forecast only when that is where the rain comes from.
+// (lib/weatherText.js): the chip names the two-hour forecast only when that is where the rain comes from, by `rainWindow`.
 //   live forecast, 2-hour area basis -> 'Rain likely · next 2 h'
 //   live forecast, any other basis   -> 'Rain likely' (the 24-hour forecast makes no claim about two hours)
 //   simulated forecast               -> 'Simulated rain' (the demo's, never the real forecast)
 //   unavailable, outside the window, or no block -> '' (nothing is known, so nothing is claimed)
 // How to call: rainChipText({ source: 'live', basis: 'area' }) -> 'Rain likely · next 2 h'
 export function rainChipText(block) {
-  const kind = block ? sourceLine(block).kind : ''
+  const kind = rainWindow(block)
   if (kind === 'simulated') return 'Simulated rain'
-  if (kind === 'live') return block.basis === 'area' ? 'Rain likely · next 2 h' : 'Rain likely'
-  return ''
+  if (kind === 'next2h') return 'Rain likely · next 2 h'
+  return kind === 'live' ? 'Rain likely' : ''
 }
+
+// A new id prefix for each patch drawn, shared by every map on the page, so no two patches ever share a gradient, mask or pattern id.
+// How to call: nextRainUid() -> 'rain-1'
+let uidSeq = 0
+export const nextRainUid = () => `rain-${++uidSeq}`
 
 // One rain patch as SVG markup, in its own coordinates (for Leaflet, which takes an icon as HTML): a square `size` units
 // across, the wash and the drops centred in it. `uid` makes its ids unique on the page; `fade` adds the 900 ms fade-in (left
@@ -63,12 +68,17 @@ export function rainPatchSvg({ size, uid, fade = false }) {
   )
 }
 
-// The rainy places of a session map, with places close together made one: several stops in the same forecast area would draw
-// one wash over another, darker and heavier. A point within `within` metres of one already kept is dropped.
+// The most patches one map draws: each is an animated layer, so the cost grows with their number.
+export const MAX_RAIN_PATCHES = 6
+
+// The rainy places of a map, with places in the same spot made one: two stops in one building would draw one wash over another,
+// darker and heavier. A point within `within` metres of one already kept is dropped, and no more than MAX_RAIN_PATCHES are kept.
+// Stops in different places each keep their own patch, so every rainy stop in view has rain round it.
 // How to call: rainSpots([{ lat: 1.35, lng: 103.85 }, { lat: 1.3502, lng: 103.8503 }]) -> [{ lat: 1.35, lng: 103.85 }]
-export function rainSpots(points, within = 1200) {
+export function rainSpots(points, within = 150) {
   const kept = []
   for (const p of points || []) {
+    if (kept.length >= MAX_RAIN_PATCHES) break
     if (!Number.isFinite(p?.lat) || !Number.isFinite(p?.lng)) continue
     // Metres on the ground at Singapore's latitude: a degree of latitude is 111 km, a degree of longitude 111 km times cos(1.35 degrees).
     const near = kept.some((k) => Math.hypot((k.lat - p.lat) * 111320, (k.lng - p.lng) * 111320 * Math.cos((p.lat * Math.PI) / 180)) < within)
@@ -77,16 +87,17 @@ export function rainSpots(points, within = 1200) {
   return kept
 }
 
-// The rain on an itinerary map: where it is likely (the stops whose weather says so), and the words for the chip. A stop's
-// weather is `weatherOf(stop)` ({ rainLikely, source, ... }, lib/weatherText.js); the block is the one the screen's source
-// line reads. Nothing is drawn for a forecast that is neither live nor simulated, and the chip is empty when the block's source is not known.
-// How to call: itineraryRain(itinerary.stops, weatherOf, weatherBlock) -> { places: [{ lat, lng }], text: 'Rain likely' }
-export function itineraryRain(stops, weatherOf, block) {
+// The rain on an itinerary map: where it is likely (the stops whose weather says so, while that forecast is current), and the words
+// for the chip. A stop's weather is `weatherOf(stop)` ({ rainLikely, source, validUntil, issuedAt, ... }, lib/weatherText.js); the block is
+// the one the screen's source line reads, and gives the times a stop's weather lacks. Nothing is drawn for a forecast that is neither
+// live nor simulated, or that has run out (a forecast stored at confirm time is not current hours later); `now` is the clock.
+// How to call: itineraryRain(itinerary.stops, weatherOf, weatherBlock, new Date()) -> { places: [{ lat, lng }], text: 'Rain likely' }
+export function itineraryRain(stops, weatherOf, block, now = new Date()) {
   const places = rainSpots(
     (stops || [])
       .filter((s) => {
         const w = weatherOf(s)
-        return w?.rainLikely === true && (w.source === 'live' || w.source === 'simulated')
+        return w?.rainLikely === true && forecastIsCurrent(w, block, now)
       })
       .map((s) => ({ lat: s.venue?.lat, lng: s.venue?.lng })),
   )

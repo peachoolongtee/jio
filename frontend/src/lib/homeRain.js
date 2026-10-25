@@ -7,7 +7,7 @@
 // to, not over all 47 forecast areas: the backend has no route that lists them.
 import { dayOf } from './homeMeetups.js'
 import { singaporeInstant } from './session.js'
-import { homeRainText } from './weatherText.js'
+import { forecastIsCurrent, homeRainText, rainWindow } from './weatherText.js'
 
 // How far ahead an outing counts, and the most places one request may ask about.
 export const SOON_MS = 2 * 60 * 60 * 1000
@@ -43,17 +43,21 @@ export function stopsFor(outings, now = new Date()) {
 
 // What Home draws and says, from the outings and the planner's answer ({ stops: { [areaId]: weather }, weather: block }):
 // the places where rain is likely, the words for a screen reader (and everyone), and the block for the source line.
-// Null when the answer is missing or no place has rain likely.
-// How to call: rainView(outings, answer) -> { places: [{ id, name, lat, lng }], text: 'Rain likely around Bishan in the next two hours', block }
-export function rainView(outings, answer) {
+// A place counts only while its forecast is current (`now`) and the answer says where it came from (live or simulated), so Home
+// never draws rain from a forecast that has run out or whose source is not known. Null when no place counts.
+// How to call: rainView(outings, answer, new Date()) -> { places: [{ id, name, lat, lng }], text: 'Rain likely around Bishan in the next two hours', block }
+export function rainView(outings, answer, now = new Date()) {
   if (!answer?.stops) return null
+  const block = answer.weather ?? null
+  if (!rainWindow(block)) return null
   const seen = new Set()
   const places = []
   for (const m of outings) {
     if (seen.has(m.area.id)) continue
     seen.add(m.area.id)
-    if (answer.stops[m.area.id]?.rainLikely === true) places.push({ id: m.area.id, name: m.area.name, lat: m.area.lat, lng: m.area.lng })
+    const weather = answer.stops[m.area.id]
+    if (weather?.rainLikely === true && forecastIsCurrent(weather, block, now)) places.push({ id: m.area.id, name: m.area.name, lat: m.area.lat, lng: m.area.lng })
   }
   if (!places.length) return null
-  return { places, text: homeRainText(places.map((p) => p.name)), block: answer.weather ?? null }
+  return { places, text: homeRainText(places.map((p) => p.name), block), block }
 }

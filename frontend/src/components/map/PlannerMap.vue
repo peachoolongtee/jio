@@ -15,8 +15,9 @@
 //            point is, in px from the map's top-left (call it through the component's ref).
 // rain       [{ lat, lng }] the places where rain is likely: the same "Layered drops" as Home's map (lib/rainLook.js, DESIGN.md
 //            "Weather"), a feathered blue wash with three layers of drops over each, in a Leaflet pane of its own under the
-//            route and the markers and above the tiles. It moves and zooms with the map (a Leaflet marker in that pane,
-//            resized when the zoom ends), takes no pointer events and leaves the tiles and the attribution alone.
+//            route and the markers and above the tiles. It moves and zooms with the map (a Leaflet marker in that pane; it
+//            scales with the zoom glide and is sized again when the zoom ends), takes no pointer events and leaves the tiles
+//            and the attribution alone. Each rainy place keeps a patch of its own, so every rainy stop in view has rain round it.
 // rainLabel  the chip's words ("Rain likely · next 2 h", from rainChipText); the chip is shown with the rain, is read by screen
 //            readers as part of the map's region, and is empty when nothing is known about the forecast's source.
 // Colour coding: each person in their own colour (lib/people.js, the same as their avatar) with their travel
@@ -31,7 +32,7 @@ import { CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { personIndex } from '@/lib/people.js'
 import { retireMap } from './retireMap.js'
 import RainChip from '../weather/RainChip.vue'
-import { rainPatchSvg } from '@/lib/rainLook.js'
+import { nextRainUid, rainPatchSvg } from '@/lib/rainLook.js'
 
 // People who asked for less motion get a map that jumps to its new view instead of gliding there.
 const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -207,20 +208,21 @@ function draw() {
 // The rain: one marker for each rainy place, in the pane `rain` (z-index 350: above the tiles, below the route at 400 and the markers
 // at 600). A marker, because Leaflet already moves and glides a marker with the map. Its icon is the shared rain patch (lib/rainLook.js)
 // sized to cover about RAIN_M metres round the place at the current zoom, between RAIN_MIN and RAIN_MAX pixels across so it is neither a
-// speck at the island's scale nor a huge element close in. Resized when a zoom ends, without the fade-in again.
-const RAIN_M = 1500
+// speck at the island's scale nor a huge element close in. While a zoom glides the patch scales to the size it will have, over the
+// same time and curve as Leaflet's own zoom glide, and is sized again when the zoom ends (without the fade-in).
+const RAIN_M = 1000
 const RAIN_MIN = 170
 const RAIN_MAX = 480
+const ZOOM_GLIDE = 'transform 250ms cubic-bezier(0, 0, 0.25, 1)'
 let rainMarkers = []
-let rainSeq = 0
-// How wide a patch is, in px, for a place at this zoom. How to call: rainSize(1.35, 15) -> 392
+// How wide a patch is, in px, for a place at this zoom. How to call: rainSize(1.35, 15) -> 480
 function rainSize(lat, zoom) {
   const metresPerPixel = (156543.03 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom
   return Math.round(Math.min(RAIN_MAX, Math.max(RAIN_MIN, (RAIN_M * 2) / metresPerPixel)))
 }
 // The icon for a patch of that size. How to call: rainIcon(392, true)
 function rainIcon(size, fade) {
-  return L.divIcon({ className: 'pm-rain', html: rainPatchSvg({ size, uid: `pm-rain-${++rainSeq}`, fade }), iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
+  return L.divIcon({ className: 'pm-rain', html: rainPatchSvg({ size, uid: nextRainUid(), fade }), iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
 }
 // Draw the rain again for the current places. How to call: drawRain()
 function drawRain() {
@@ -232,12 +234,28 @@ function drawRain() {
     return marker
   })
 }
+// A zoom is gliding to `event.zoom`: each patch scales to the size it will have there, in step with the markers' glide.
+// How to call: map.on('zoomanim', glideRain)
+function glideRain(event) {
+  rainMarkers.forEach((marker) => {
+    const now = marker.options.icon.options.iconSize[0]
+    const svg = marker.getElement()?.firstElementChild
+    if (!svg) return
+    svg.style.transition = ZOOM_GLIDE
+    svg.style.transform = `scale(${rainSize(marker.getLatLng().lat, event.zoom) / now})`
+  })
+}
 // The zoom ended: each patch takes the size for it. How to call: map.on('zoomend', sizeRain)
 function sizeRain() {
   if (!map) return
   rainMarkers.forEach((marker) => {
     const size = rainSize(marker.getLatLng().lat, map.getZoom())
     if (marker.options.icon.options.iconSize[0] !== size) marker.setIcon(rainIcon(size, false))
+    else {
+      // A glide that ended at the same size (a clamped one): put the patch back as it was.
+      const svg = marker.getElement()?.firstElementChild
+      if (svg) { svg.style.transition = ''; svg.style.transform = '' }
+    }
   })
 }
 
@@ -318,6 +336,7 @@ onMounted(() => {
   draw()
   drawRadius()
   drawRain()
+  map.on('zoomanim', glideRain)
   map.on('zoomend', sizeRain)
   map.on(VIEW_EVENTS, onView)
   emit('view')
@@ -375,9 +394,10 @@ defineExpose({ refit, project })
 <style scoped>
 /* Its own stacking context, so Leaflet's pane layers never cover cards placed over the map. */
 .planner-map { isolation: isolate; width: 100%; height: 100%; min-height: 240px; background: var(--surface-strong); }
-/* The rain chip, over the top middle of the map: above the panes (the map pane is 400), under the controls (800 and up). A screen that
-   lays a bar over the top of the map sets --pm-rain-top to clear it. */
-.pm-rain-chip { position: absolute; z-index: 500; top: var(--pm-rain-top, var(--spacing-md)); left: 50%; translate: -50% 0; }
+/* The rain chip, over the top middle of the map and below the row of buttons that sit at the top (the zoom buttons at the left, "View map"
+   or "Expand map" at the right: 12px and 44px, so the chip starts at 64px). Above the panes (the map pane is 400), under the controls
+   (800 and up). A screen that lays a bar over the top of the map sets --pm-rain-top to clear it. */
+.pm-rain-chip { position: absolute; z-index: 500; top: var(--pm-rain-top, calc(var(--spacing-md) + var(--tap-min) + var(--spacing-sm))); left: 50%; translate: -50% 0; }
 </style>
 
 <style>
@@ -392,6 +412,7 @@ defineExpose({ refit, project })
 .pm--auto { width: auto !important; height: auto !important; }
 /* The rain: a patch in its own pane (lib/rainLook.js, styles/rain.css), plain and out of the way of the pointer. */
 .pm-rain { background: transparent; border: 0; pointer-events: none; }
+.pm-rain > svg { transform-origin: 50% 50%; }
 .pm-person { display: inline-flex; gap: var(--spacing-xs); width: auto; height: 28px; padding: 2px var(--spacing-sm) 2px 2px; background: var(--canvas); color: var(--ink); white-space: nowrap; }
 .pm-person__dot { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: var(--rounded-full); background: var(--pc, var(--ink)); color: var(--on-dark); }
 /* Each person's colour, on their pin and their line to the meeting area (lib/people.js). */

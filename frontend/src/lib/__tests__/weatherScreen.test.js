@@ -169,6 +169,18 @@ describe('the rain on Home\'s map', () => {
     expect(routeAt).toBeGreaterThan(rainAt)
   })
 
+  it('fades in, unless told not to: a map drawn again for the same rain does not fade it out and in', () => {
+    const fades = (page) => page.all('g').filter((g) => g.props['data-testid'] === 'map-rain-patch').map((g) => (g.props.class || '').includes('rain-in'))
+    const rain = [{ lat: 1.35, lng: 103.85 }, { lat: 1.36, lng: 103.9 }]
+    expect(fades(mount(SingaporeMap, { routes: [], rain }))).toEqual([true, true])
+    expect(fades(mount(SingaporeMap, { routes: [], rain, fadeRain: false }))).toEqual([false, false])
+  })
+
+  it('draws no more patches than the limit', () => {
+    const rain = Array.from({ length: 12 }, (_, i) => ({ lat: 1.3 + i * 0.01, lng: 103.85 }))
+    expect(mount(SingaporeMap, { routes: [], rain }).all('g').filter((g) => g.props['data-testid'] === 'map-rain-patch')).toHaveLength(6)
+  })
+
   it('is inside a map that is hidden from screen readers: the words for it are on the page, not here', () => {
     const page = mount(SingaporeMap, { routes: [], rain: [{ lat: 1.35, lng: 103.85 }] })
     const root = page.all('div').find((d) => (d.props.class || '').includes('sgmap'))
