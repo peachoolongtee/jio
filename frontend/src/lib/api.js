@@ -3692,9 +3692,30 @@ export async function confirmPlan(id, suggestion = null) {
 
 // The session of the server a plan screen is about, read afresh, with the places of its stops and proposals described (the cards and the
 // layout need them). Rejects with the sentence for a failure to read either, which the screen shows with a retry.
-// How to call: const session = await planSession('3b1f...')
-async function planSession(id) {
-  const session = await getSession(id)
+// `known` is a session just read by the caller (a live update read it and asks for the itinerary at once): it is used as it is, so one event is
+// one read of the session, not two.
+// How to call: const session = await planSession('3b1f...'); const same = await planSession('3b1f...', justRead)
+async function planSession(id, known = null) {
+  const session = known ?? (await getSession(id))
+  await describePlaces(session)
+  return session
+}
+
+// The session as last read (the newest handed out), with its places described, for a question that does not need a read of its own (the rain swap, the
+// weather check): it asks the server only for a place it does not know, and reads the session afresh only when none was read. Rejects as planSession does.
+// How to call: const session = await planSessionHeld('3b1f...')
+async function planSessionHeld(id) {
+  const held = newestRead.get(id)?.session
+  if (!held) return planSession(id)
+  const session = clone(held)
+  await describePlaces(session)
+  return session
+}
+
+// Asks for the places of a session's stops and proposals that the server has not described yet (once each), and stands in for a stop's place the
+// server cannot describe. Rejects with the sentence for a failure to read.
+// How to call: await describePlaces(session)
+async function describePlaces(session) {
   const wanted = [...(session.plan?.stops || []).map((s) => s.venueId), ...(session.proposals || []).map((p) => p.venueId)]
   await ensureVenues(wanted)
   // A stop whose place the server cannot describe is drawn as "A place that is no longer listed", with its controls (the host can delete it or
@@ -3704,15 +3725,15 @@ async function planSession(id) {
     if (venueById(stop.venueId)) continue
     unlistedVenues.set(stop.venueId, { id: stop.venueId, name: SHARING_WORDS.placeUnlisted, category: stop.category, area: at?.name ?? '', lat: at?.lat ?? 1.3521, lng: at?.lng ?? 103.8198, price: 0, rating: null, hours: [], serves: [], tags: [], indoor: true, unlisted: true })
   }
-  return session
 }
 
 // The itinerary of a confirmed or finished plan: the stops laid out in time (a meal at its time, a shop after it opens), the travel between
 // them, the end, and each person's trip home. A session on the server is read from the database (planSession) and laid out by the same
 // rules as a local one, from the same shape of plan; each stop also carries its `stopId`, which is what the server's routes name.
 // How to call: await getItinerary('3b1f...')
-export async function getItinerary(id) {
-  if (onServer()) return itineraryView(await planSession(id))
+// `session` may be a session of the server the caller has just read (a live update): it is laid out as it is, without reading it again.
+export async function getItinerary(id, { session } = {}) {
+  if (onServer()) return itineraryView(await planSession(id, session ?? null))
   await wait(DELAY.read)
   return itineraryView(sessionById(id))
 }
@@ -3776,7 +3797,7 @@ function localStart(day, minutes) {
 // How to call: await checkStopWeather('s1')
 export async function checkStopWeather(id) {
   if (!onServer()) await wait(DELAY.read)
-  const session = onServer() ? await planSession(id) : sessionById(id)
+  const session = onServer() ? await planSessionHeld(id) : sessionById(id)
   const stops = timedStops(session).flatMap((s) => {
     const venue = venueById(s.venueId)
     if (!venue) return []
@@ -3809,7 +3830,7 @@ const slotOfStop = (stop) => ({ id: stop.slotId, category: stop.category, start:
 export async function findRainSwap(id, slotId) {
   // A session on the server: the server's own ranking of the stop's place at its time; the indoor place it offers, or none.
   if (onServer()) {
-    const session = await planSession(id)
+    const session = await planSessionHeld(id)
     const stop = session.plan?.stops.find((s) => s.slotId === slotId)
     if (!stop) return null
     const answer = await remote.stopSwap(id, stop.stopId)

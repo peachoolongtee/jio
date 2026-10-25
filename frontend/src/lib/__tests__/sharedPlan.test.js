@@ -365,6 +365,24 @@ describe('the itinerary on two devices', () => {
     expect((await sam.api.getItinerary(id)).stops).toHaveLength(4)
   })
 
+  it('lays the itinerary out from a session just read, and answers the rain swap and the weather check from the session already held: no second read', async () => {
+    const { w, sam, id } = await confirmed()
+    const session = await sam.api.getSession(id)
+    const reads = () => w.ops.filter((o) => o.kind === 'select' && ['sessions', 'stops'].includes(o.table)).length
+    let before = reads()
+    const itinerary = await sam.api.getItinerary(id, { session })
+    expect(reads()).toBe(before)
+    expect(itinerary.stops).toHaveLength(4)
+    // Without one it reads the session, as before.
+    before = reads()
+    await sam.api.getItinerary(id)
+    expect(reads()).toBeGreaterThan(before)
+    before = reads()
+    await sam.api.findRainSwap(id, itinerary.stops[0].slotId)
+    await sam.api.checkStopWeather(id)
+    expect(reads()).toBe(before)
+  })
+
   it('is "does not exist" for a session the person is not in', async () => {
     const { w, id } = await confirmed()
     const outsider = await w.open({ email: 'lee@example.com', password: 'Th1rd-secret!', name: 'Lee', username: 'lee_third', dob: '1998-01-02', homeAreaId: 'bishan', friends: [] })
