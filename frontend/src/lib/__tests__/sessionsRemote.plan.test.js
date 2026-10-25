@@ -313,7 +313,10 @@ describe('the stops now, and the person\'s own ledger row', () => {
 
   it('reads the person\'s own ledger row, and only that, though the rules let a member read the others\'', async () => {
     const { w, sam, kim, id } = await confirmed()
+    // The server finishes an outing from its day on (the plan is for 10 October 2026).
+    vi.setSystemTime(new Date('2026-10-10T04:00:00Z'))
     await sam.api.endPlan(id)
+    vi.setSystemTime(new Date('2026-10-09T02:00:00Z'))
     expect(rowsOf(w, 'commute_ledger')).toHaveLength(2)
     w.ops.length = 0
     const mine = await asPerson(kim).myLedger(id)

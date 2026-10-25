@@ -495,6 +495,9 @@ const searchedNames = new Map()
 // has none). The server's banner is the group's, so dismissing it is this person's alone: it is kept in this browser, under
 // the account, and a newer banner (another stamp) shows again.
 const dismissedBanners = new Map()
+// The basis of the votes the host was last shown in the Confirm dialog, by session (what the server said it made its answer for, an order or none).
+// It is a note of what was on screen, not data: it is sent back with the confirm so the server can tell the votes moved, and forgotten at once.
+const shownBasis = new Map()
 // The server writes `at` (the time it was written, in milliseconds) on every banner, so a newer banner always has a new stamp; the
 // version is only the fallback for a banner without one.
 // How to call: bannerStamp({ at: 1760000000000 }, 4) -> 1760000000000
@@ -4033,10 +4036,6 @@ export async function suggestOrder(id) {
     source: answer.source === 'ai' ? 'ai' : 'rules',
   }
 }
-
-// The basis of the votes the host was last shown in the Confirm dialog, by session (what the server said it made its answer for, an order or none).
-// It is a note of what was on screen, not data: it is sent back with the confirm so the server can tell the votes moved, and forgotten at once.
-const shownBasis = new Map()
 
 // The server's suggested order, in the shape the Confirm dialog reads (the local one's, plus the `basis` the confirm sends back). The server
 // sends slot ids, places and starts; the category and the length of each stop are the slot's and the name is the place's, from the plan
