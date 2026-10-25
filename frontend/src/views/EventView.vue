@@ -66,6 +66,8 @@ import { sourceIcon, sourceText } from '@/lib/confirmOrder.js'
 import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
 import { createWeatherCheck } from '@/lib/weatherCheck.js'
 import { stopMark, venueSetting } from '@/lib/weatherText.js'
+import { itineraryRain } from '@/lib/rainLook.js'
+import { useNow } from '@/lib/useNow.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { usePlannerStore } from '@/stores/planner.js'
@@ -169,6 +171,8 @@ const replaceStop = (stop) => router.push({ path: `/sessions/${props.id}/plan`, 
 // answer, when there is one, is newer and wins.
 const showWeather = computed(() => confirmed.value && !!itinerary.value)
 const check = computed(() => events.weatherChecks[props.id])
+// The shared clock: rain is drawn only while its forecast is current.
+const now = useNow()
 // A stop's weather: the check's if there is one, else the plan's. How to call: weatherOf(itinerary.stops[0]) -> { state: 'dry', ... } or null
 const weatherOf = (stop) => check.value?.stops?.[stop.slotId] ?? stop.weather
 // The mark under a stop, or null when the plan is not confirmed. How to call: markOf(itinerary.stops[0]) -> { label: 'Dry', tone: 'neutral', ... }
@@ -181,6 +185,10 @@ const weatherBlock = computed(() => {
   if (check.value?.failed) return { source: 'unavailable', reason: 'unavailable' }
   return null
 })
+// The rain on the map: a wash and drops over each stop where rain is likely (live or simulated forecast), and the chip that says
+// where the forecast came from (lib/rainLook.js). None until the plan is confirmed, as the marks.
+// How to call: mapRain.value -> { places: [{ lat, lng }], text: 'Rain likely · next 2 h' }
+const mapRain = computed(() => (showWeather.value ? itineraryRain(itinerary.value?.stops, weatherOf, weatherBlock.value, now.value) : { places: [], text: '' }))
 // The last check did not work, and there is a forecast from before to show next to that.
 const refreshFailed = computed(() => !!check.value?.failed && !!(check.value?.weather || itinerary.value?.weather))
 
@@ -466,7 +474,7 @@ async function endPlan() {
           </template>
 
           <template #map>
-            <PlannerMap :places="mapPlaces" :area="itinerary?.area" route fit-to="places" label="Itinerary map" :selected="selected" @select="selected = $event" />
+            <PlannerMap :places="mapPlaces" :area="itinerary?.area" :rain="mapRain.places" :rain-label="mapRain.text" route fit-to="places" label="Itinerary map" :selected="selected" @select="selected = $event" />
             <CategoryKey :categories="mapPlaces.map((p) => p.category)" />
             <AppButton variant="secondary" small class="map-open" :to="`/sessions/${id}/map`">
               <AppIcon name="expand" />

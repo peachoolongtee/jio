@@ -63,6 +63,10 @@
   --diet-halal-bg: color-mix(in srgb, var(--diet-halal-fg) 12%, var(--canvas));
   --diet-veg-fg: #166534;
   --diet-veg-bg: color-mix(in srgb, var(--diet-veg-fg) 12%, var(--canvas));
+  /* Rain (DESIGN.md, "Weather"): a blue-slate cooler than --ink, so rain reads as weather and not as a shadow. Information only: it never marks an action. There is no dark theme. */
+  --rain-wash: #4f7aa6; /* The tint over the rainy area, drawn at 40% opacity in the middle, down to 10% near the edge and nothing at it (10 to 40%), feathered. */
+  --rain-streak: #6f9bc8; /* The drops, 0.38, 0.6 and 0.85 opacity for the far, middle and near layer. */
+  --rain-text: #2a4866; /* Text and icon on the rain chip (a white chip): 9.5:1. */
   /* People: each person keeps one colour everywhere, on their map pin and their avatar (lib/people.js). */
   --person-1: #2563eb;
   --person-2: #7c3aed;

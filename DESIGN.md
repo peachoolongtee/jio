@@ -48,6 +48,9 @@ colors:
   person-6: "#4d7c0f"
   person-7: "#0891b2"
   person-8: "#a16207"
+  rain-wash: "#4f7aa6"
+  rain-streak: "#6f9bc8"
+  rain-text: "#2a4866"
 typography:
   display-xl:
     fontFamily: "\"Airbnb Cereal VF\", Circular, Inter, -apple-system, system-ui, Roboto, \"Helvetica Neue\", sans-serif"
@@ -292,6 +295,9 @@ These carry information on maps, keys, stripes and avatars. None of them is used
 | `--cat-activity-fg` | `#059669` | Activity. |
 | `--cat-eat-bg`, `--cat-drink-bg`, `--cat-shop-bg`, `--cat-activity-bg` | `color-mix(in srgb, <fg> 12%, var(--canvas))` | The pale circle behind a category icon (`CategoryIcon`). `--cat-drink-bg` is also used once in `RewardsView`. |
 | `--person-1` to `--person-8` | `#2563eb`, `#7c3aed`, `#0d9488`, `#c026d3`, `#ea580c`, `#4d7c0f`, `#0891b2`, `#a16207` | One colour per person, the same on their avatar, map pin and profile banner. Chosen by `personIndex(id)` in `frontend/src/lib/people.js`. |
+| `--rain-wash` | `#4f7aa6` | The tint over a rainy area on a map, drawn at 10 to 40% opacity and feathered to nothing at its edge. See "Weather". |
+| `--rain-streak` | `#6f9bc8` | The drops of the rain, at 0.38, 0.6 and 0.85 opacity for the far, middle and near layer. Decoration: no text sits on it, so no contrast ratio applies. |
+| `--rain-text` | `#2a4866` | Text and icon of the rain chip, on white: 9.5:1. |
 | `--scale-good` | `#15803d` | The good end of the travel scale. Reached only through `--travel-short`. |
 | `--scale-middle` | `#b7791f` | Amber as a fill. Reached through `--travel-medium` and read by `lib/confetti.js`. |
 | `--scale-middle-text` | `#97641a` | Amber as text. Reached only through `--travel-medium-text`. |
@@ -673,9 +679,10 @@ Every component file opens with a comment that shows how to call it. Paths are u
 
 | Component | What it is for | Props |
 |---|---|---|
-| `map/PlannerMap.vue` | Every interactive map: Leaflet on OneMap tiles, with person pills, the red meeting-area pin, numbered stops and category dots. | `people`, `area`, `places`, `route`, `spokes`, `selected`, `label` (`'Map'`), `fitTo` (`'all'`), `zoomPosition` (`'topleft'`), `finding`, `radius`. Emits `select`. |
+| `map/PlannerMap.vue` | Every interactive map: Leaflet on OneMap tiles, with person pills, the red meeting-area pin, numbered stops and category dots. | `people`, `area`, `places`, `route`, `spokes`, `selected`, `label` (`'Map'`), `fitTo` (`'all'`), `zoomPosition` (`'topleft'`), `finding`, `radius`, `keep`, `rain` (`[{ lat, lng }]`, drawn as the rain of "Weather"), `rainLabel` (the chip's words). Emits `select`, `view`. |
+| `weather/RainChip.vue` | The white chip that names the rain on a map: a cloud-rain icon and "Rain likely · next 2 h". Information, not a button. | `text` (empty draws nothing). |
 | `map/CategoryKey.vue` | The key to category colours, over a corner of a map. | `categories`. |
-| `ui/SingaporeMap.vue` | The muted dotted map of Singapore with routes that draw in to one point. Decoration only, hidden from screen readers. | `routes`, `center`, `span` (`[420, 330]`), `hideMeet`. |
+| `ui/SingaporeMap.vue` | The muted dotted map of Singapore with routes that draw in to one point, and the rain of "Weather" under them. Decoration only, hidden from screen readers. | `routes`, `center`, `span` (`[420, 330]`), `hideMeet`, `quick`, `rain` (`[{ lat, lng }]`). |
 | `ui/GridPulse.vue` | A fine grid drawn on one canvas. Cells take colour where the pointer passes and fade out; a few light by themselves. The hue runs from yellow at the top through red and blue to green. Cells behind text marked `data-grid-avoid` go faint. | `cell` (24), `reach` (2.6), `ambient` (2), `maxLit` (180), `avoid` (`'[data-grid-avoid]'`). |
 | `ui/MeetupGraph.vue` | Meetup frequency as a heat map that folds up into an isometric skyline. | `history`, `planned`, `weeks` (26), `today`, `defaultView` (`'3d'`). |
 | `ui/PolaroidLine.vue` | Session photos as instant prints pegged to a sagging string. | `photos` (required), `height`, `cardWidth` (260), `sag` (40), `swing` (1), `autoplay` (5000), `label` (`'Photos'`). `v-model:index`. Emits `open`. |
@@ -756,6 +763,9 @@ A global rule in `app.css` covers every CSS animation and transition under `pref
 | `sgmap-draw` | `SingaporeMap` | 1.4s `--ease-out`, delayed 0.2s plus 0.2s per route | The map mounts. | Routes are drawn at once. |
 | `sgmap-comet` | `SingaporeMap` | 3.2s `cubic-bezier(0.45, 0, 0.25, 1)`, endless | After a route is drawn. | Switched off in the component's reduced-motion block. |
 | `sgmap-pop` | `SingaporeMap` | 400ms `--ease-out` | A route's start ring appears. | Shown at once. |
+| `rain-in` | `styles/rain.css` (`SingaporeMap`, `PlannerMap`) | 900ms `--ease-out`, opacity only | The rain first appears on a map. | `animation: none`; the rain is simply there. |
+| `rain-fall` | `styles/rain.css` | Linear, endless, transform only: far 1.7s and 12px, middle 1.1s and 20px, near 0.65s and 34px | Rain is drawn. | `animation: none`; the drops stand still. |
+| `rain-chip-in` | `RainChip` | 600ms `--ease-out` after 200ms, opacity and 4px rise | The chip appears. | `animation: none`. |
 | `pm-comet` | `PlannerMap` | 3s `cubic-bezier(0.45, 0, 0.25, 1)`, endless | `spokes` is set. | Component reduced-motion block. |
 | `pm-pulse` | `PlannerMap` | 1.8s ease-out, endless | `finding` is set. | `animation: none`. |
 | Radius circle | `PlannerMap` (script) | 480ms | `radius` changes. | The map jumps instead of gliding. |
@@ -788,6 +798,48 @@ A global rule in `app.css` covers every CSS animation and transition under `pref
 | Sorting | `SortableList` | `--motion-fast` `--ease-out`; off under reduced motion. |
 
 Curves and durations written in place where a token holds the same value: `200ms` in `TabBar` (`--motion-fast`), `cubic-bezier(0.34, 1.56, 0.64, 1)` in `EventView` (`--ease-spring`), `cubic-bezier(0.32, 0.72, 0, 1)` in `app.css` (`--ease-sheet`).
+
+## Weather
+
+How a forecast looks on a map, called "Layered drops". Words for the weather (the marks on a stop, the banners, the source line) are in `lib/weatherText.js` and are unchanged; this is the picture on a map and the chip that names it. The shapes and numbers are in `frontend/src/lib/rainLook.js`, the animation and reduced-motion rules in `frontend/src/styles/rain.css`.
+
+**Tokens.** Three, in `tokens.css`, a blue-slate cooler than `--ink` so rain reads as weather and not as a shadow. They are information colours: they never mark an action. The app has no dark theme, so they have one value.
+
+| Token | Value | Use |
+|---|---|---|
+| `--rain-wash` | `#4f7aa6` | The tint, at 40% in the middle, 28% at half way, 10% near the edge and nothing at it. |
+| `--rain-streak` | `#6f9bc8` | The drops. |
+| `--rain-text` | `#2a4866` | Chip text and icon, 9.5:1 on white. |
+
+**The layers.** One patch of rain is a feathered wash (a radial gradient that ends in nothing, so there is no hard circle) and three layers of drops clipped by a feathered mask that stops a little inside the wash (66 of 72 of its radius). Each layer is a pattern that repeats, not a set of nodes: three rectangles for each patch. Far drops are short and faint (0.8 stroke, 0.38 opacity, falling 12px in 1.7s), middle drops are 1 stroke at 0.6 (20px in 1.1s), near drops are long and strongest (1.5 stroke at 0.85, 34px in 0.65s). A layer falls by exactly one tile of its pattern, so the loop has no seam. The layer fades in over 900ms (`--ease-out`) when the rain first appears. It lies under the routes, the meeting point, the pins and every marker, and it takes no pointer events. The map's tiles and attribution are not touched.
+
+**The chip.** White, 32px tall, fully rounded, `--shadow-float`, a cloud-rain icon (`AppIcon` `rain`) and one line in `--text-caption` in `--rain-text`. It is information, not a button: no pointer events, no tap target, not focusable. Its words come from `rainChipText`, by where the forecast came from:
+
+| Forecast | Chip |
+|---|---|
+| Live, the two-hour forecast (`basis: 'area'`) | "Rain likely · next 2 h" |
+| Live, the 24-hour or a mixed forecast | "Rain likely" (no claim about two hours) |
+| Simulated (the demo's "Simulate rain") | "Simulated rain" |
+| Unavailable, outside the forecast window, or not known | No chip, and no rain drawn |
+
+Home's line of text (`homeRainText`) follows the same rule through `rainWindow`, so a screen reader and the chip never disagree: "Rain likely around Bishan in the next two hours" only for the live two-hour forecast, "Rain likely around Bishan" for another live forecast, "Simulated rain around Bishan" for the demo's.
+
+**Only while current.** Rain and its chip are drawn only while the forecast is current (`forecastIsCurrent` in `lib/weatherText.js`): before its `validUntil`, or before two hours after it was issued when it has no end time. A live forecast with no times, one that is unavailable, and one stored with a confirmed plan hours ago are not drawn. A simulated forecast is about no clock and is always current. This holds for Home, the itinerary's map and the full-screen map, and the screens read the shared clock, so the rain goes when the forecast runs out.
+
+**Screens.**
+
+| Screen | Map | What is drawn | Words for a screen reader |
+|---|---|---|---|
+| Home | `SingaporeMap` | One patch at each meeting area where rain is likely in the next two hours (`useHomeRain`), at most six. The chip sits just under the first of them, at the map's own scale (the pins fan out above a meeting point, so above would be behind them); it is the chip of the mock-up moved below the wash. Picking another meetup draws the map again without fading the same rain in again (`fadeRain`). | The map and the chip are hidden from screen readers. The line under the greeting says "Rain likely around Bishan in the next two hours" (`role="status"`), with the source line under it. |
+| Itinerary (`EventView`), and the full-screen map (`SessionMapView`) | `PlannerMap` | A patch of its own at each stop of a confirmed plan whose weather says rain is likely, from a current live or simulated forecast (stops in the same spot share one; at most six). Chip at the top middle of the map, in a slot that clears the zoom buttons and "View map" or "Expand map" (it starts 64px down); on the full-screen map it is under the bar with the back button. The full-screen map also carries the muted source line and its licence notice (`WeatherSource`) under the chip, as Home and the itinerary do. | The chip is inside the map's region, so it is read with the map. The rain banners and the marks on each stop say the rest. |
+
+The Locate and Vote maps show no rain: they carry no forecast for a place yet.
+
+**On `PlannerMap`.** The rain is a Leaflet marker for each patch, in a pane of its own (z-index 350, between the tiles at 200 and the route at 400), so it moves and glides with the map. Its size covers about 1 km each way at the current zoom, between 170 and 480px across. During a zoom it scales to the size it will have, in step with the markers' glide (250ms, Leaflet's own curve), and it is made at that size when the zoom ends (without the fade). Each rainy stop has a patch of its own, so a stop zoomed into always has rain round it.
+
+**Cost.** Each patch is three animated rectangles under one mask. Measured in Chromium with the CPU slowed 4 times, on Home and on a Leaflet map being panned, with 1, 3 and 6 patches: every frame stayed at 16.7ms (no frame over 25ms) at every count, and raster work grew by about 85ms for each patch for each 4 seconds (6 patches: about 3ms a frame on the raster threads). A map therefore draws at most six patches (`MAX_RAIN_PATCHES`).
+
+**Motion.** Only `transform` and `opacity` change. Under `prefers-reduced-motion: reduce` there is no falling and no fade: the wash and the drops are drawn still, so the meaning is not lost, and the chip arrives without its rise.
 
 ## Iconography, Imagery and Logo
 

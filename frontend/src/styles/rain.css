@@ -1,0 +1,21 @@
+/* The rain on maps, "Layered drops" (DESIGN.md, "Weather"). Shared by SingaporeMap (Home) and PlannerMap (the session map); the
+   shapes and numbers are in lib/rainLook.js. Only transform and opacity move. The colours are --rain-wash and --rain-streak. */
+.rain-wash { stop-color: var(--rain-wash); }
+/* The feather that masks the drops is white (a mask reads brightness): opaque in the middle, clear at the edge. */
+.rain-feather { stop-color: var(--canvas); }
+.rain-drop { fill: none; stroke: var(--rain-streak); stroke-linecap: round; }
+.rain-patch { display: block; pointer-events: none; }
+/* The layer fades in once, when the rain first appears. */
+.rain-in { animation: rain-in 900ms var(--ease-out) both; }
+@keyframes rain-in { from { opacity: 0; } to { opacity: 1; } }
+/* Each layer falls by exactly one tile of its pattern (--rain-h, set on the layer), so the loop has no seam: far is short and slow,
+   near is long and quick. */
+.rain-fall { animation: rain-fall var(--rain-s, 1s) linear infinite; }
+.rain-fall--far { --rain-s: 1.7s; }
+.rain-fall--mid { --rain-s: 1.1s; }
+.rain-fall--near { --rain-s: 0.65s; }
+@keyframes rain-fall { to { transform: translateY(var(--rain-h, 0px)); } }
+/* Reduced motion: no falling and no fade. The wash and the drops stay, still, so the meaning is not lost. */
+@media (prefers-reduced-motion: reduce) {
+  .rain-in, .rain-fall { animation: none; }
+}
