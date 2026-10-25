@@ -55,6 +55,8 @@ import { activeMeetups, dayLabel, pinName, pinsFor, routesFor, selectMeetup } fr
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useHomeRain } from '@/lib/useHomeRain.js'
+import { rainChipText } from '@/lib/rainLook.js'
+import RainChip from '@/components/weather/RainChip.vue'
 import { dueEnding, overdueOuting, sessionPath, singaporeDate, singaporeDayTime } from '@/lib/session.js'
 import { useNow } from '@/lib/useNow.js'
 import { canViewTransition, withViewTransition } from '@/lib/viewTransition.js'
@@ -202,6 +204,9 @@ const pins = computed(() => {
 // Rain on the map: only when an outing is within two hours. With none, nothing is asked and nothing is drawn. The layer is on
 // the map (SingaporeMap `rain`); its words, and where the forecast came from, are under the greeting.
 const rain = useHomeRain({ meetups, now, simulated: computed(() => !!planner.conditions?.rain), ask: api.weatherAt })
+// The chip over the map's rain: "Rain likely · next 2 h" for the live two-hour forecast, "Simulated rain" for the demo's, and none
+// when the forecast's source is not known (lib/rainLook.js rainChipText). The words for a screen reader are the line under the greeting.
+const rainChip = computed(() => (rain.view.value ? rainChipText(rain.view.value.block) : ''))
 
 // One line under the greeting, about where things stand.
 const blurb = computed(() => {
@@ -423,6 +428,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
       <!-- The map, with the button where the routes meet, or a pin for each meetup. -->
       <div class="hero__stage">
         <SingaporeMap :key="mapKey" class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" :quick="quickMap" :rain="rain.view.value?.places || []" hide-meet />
+        <RainChip v-if="rainChip" :text="rainChip" class="hero__rain-chip" aria-hidden="true" />
         <template v-if="hasMeetups">
           <MeetupPins class="hero__pins" :pins="pins" :meetups="meetups" :my-id="auth.myId" :names="nameOf" :selected-id="selected.id" :center="MEET" :span="mapSpan" @select="select" />
         </template>
@@ -575,6 +581,8 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
    rule is more specific than the phone one below, so it wins there too. */
 .has-meetup .hero__map { --clearing: linear-gradient(#000, #000); }
 .hero__action { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+/* The rain chip rides at the top of the stage, over the map's rain and under the pins. It is information: no pointer events. */
+.hero__rain-chip { position: absolute; z-index: 2; top: var(--spacing-xs); left: 50%; translate: -50% 0; }
 /* The pin stands on the meeting point: its tip, the bottom of its box, is where the routes meet. */
 .hero__action.is-pin { transform: translate(-50%, -100%); }
 /* The pins sit over the map in the same box, so the same centre and span put each on its meeting point. Above the map's

@@ -15,6 +15,7 @@ import StatusPill from '@/components/ui/StatusPill.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
 import { timeAndDuration } from '@/lib/planner/format.js'
+import { itineraryRain } from '@/lib/rainLook.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({ id: { type: String, required: true } })
@@ -36,6 +37,10 @@ async function load() {
   try {
     await events.loadSession(props.id)
     await events.loadItinerary(props.id)
+    // The rain on the map comes from the check on the day. The itinerary page makes it; a map opened on its own (a reload, a
+    // shared link) asks once, on the day of a confirmed plan, and never waits for the answer.
+    const loaded = events.byId[props.id]
+    if (loaded?.status === 'confirmed' && loaded.isToday && !events.weatherChecks[props.id]) events.checkWeather(props.id)
   } catch (err) {
     if (ticket !== loadTicket) return
     if (err?.code === 'not_found') missing.value = true
@@ -49,6 +54,13 @@ const session = computed(() => events.byId[props.id])
 const itinerary = computed(() => events.itineraries[props.id])
 const stops = computed(() => itinerary.value?.stops || [])
 const places = computed(() => stops.value.map((s, i) => ({ id: s.venue.id, name: s.venue.name, lat: s.venue.lat, lng: s.venue.lng, label: String(i + 1), category: s.category })))
+// The rain on the map, as on the itinerary's map: the latest check on the day when there is one, else what the plan kept, for a
+// confirmed plan only. How to call: rain.value -> { places: [{ lat, lng }], text: 'Rain likely' }
+const rain = computed(() => {
+  if (session.value?.status !== 'confirmed' || !itinerary.value) return { places: [], text: '' }
+  const check = events.weatherChecks[props.id]
+  return itineraryRain(stops.value, (stop) => check?.stops?.[stop.slotId] ?? stop.weather, check?.weather ?? itinerary.value.weather ?? null)
+})
 const area = computed(() => itinerary.value?.area || session.value?.area || null)
 const card = computed(() => {
   const i = stops.value.findIndex((s) => s.venue.id === selected.value)
@@ -67,7 +79,7 @@ const card = computed(() => {
     </div>
   </main>
   <main v-else class="full-map">
-    <PlannerMap class="full-map__map" :places="places" :area="area" route fit-to="places" zoom-position="bottomright" :selected="selected" label="Plan map" @select="selected = $event" />
+    <PlannerMap class="full-map__map" :places="places" :area="area" :rain="rain.places" :rain-label="rain.text" route fit-to="places" zoom-position="bottomright" :selected="selected" label="Plan map" @select="selected = $event" />
 
     <header class="full-map__bar">
       <IconButton label="Back to the itinerary" :to="`/sessions/${id}/itinerary`"><AppIcon name="back" /></IconButton>
@@ -104,6 +116,8 @@ const card = computed(() => {
 <style scoped>
 .full-map { position: fixed; inset: 0; z-index: 1; background: var(--surface-strong); }
 .full-map__map { position: absolute; inset: 0; }
+/* The rain chip (PlannerMap) rides under the bar with the back button and the title, not behind it. */
+.full-map__map { --pm-rain-top: calc(var(--spacing-md) + var(--tap-min) + var(--spacing-sm) + env(safe-area-inset-top, 0px)); }
 /* Leaflet's own controls (the zoom buttons and the attribution) sit in corner boxes at the edge of the map, which runs under
    the notch and the home indicator; the boxes move in by the insets, and the controls keep their 10px margin inside. */
 .full-map__map :deep(.leaflet-top) { top: env(safe-area-inset-top, 0px); }

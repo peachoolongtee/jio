@@ -66,6 +66,7 @@ import { sourceIcon, sourceText } from '@/lib/confirmOrder.js'
 import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
 import { createWeatherCheck } from '@/lib/weatherCheck.js'
 import { stopMark, venueSetting } from '@/lib/weatherText.js'
+import { itineraryRain } from '@/lib/rainLook.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { usePlannerStore } from '@/stores/planner.js'
@@ -181,6 +182,10 @@ const weatherBlock = computed(() => {
   if (check.value?.failed) return { source: 'unavailable', reason: 'unavailable' }
   return null
 })
+// The rain on the map: a wash and drops over each stop where rain is likely (live or simulated forecast), and the chip that says
+// where the forecast came from (lib/rainLook.js). None until the plan is confirmed, as the marks.
+// How to call: mapRain.value -> { places: [{ lat, lng }], text: 'Rain likely · next 2 h' }
+const mapRain = computed(() => (showWeather.value ? itineraryRain(itinerary.value?.stops, weatherOf, weatherBlock.value) : { places: [], text: '' }))
 // The last check did not work, and there is a forecast from before to show next to that.
 const refreshFailed = computed(() => !!check.value?.failed && !!(check.value?.weather || itinerary.value?.weather))
 
@@ -466,7 +471,7 @@ async function endPlan() {
           </template>
 
           <template #map>
-            <PlannerMap :places="mapPlaces" :area="itinerary?.area" route fit-to="places" label="Itinerary map" :selected="selected" @select="selected = $event" />
+            <PlannerMap :places="mapPlaces" :area="itinerary?.area" :rain="mapRain.places" :rain-label="mapRain.text" route fit-to="places" label="Itinerary map" :selected="selected" @select="selected = $event" />
             <CategoryKey :categories="mapPlaces.map((p) => p.category)" />
             <AppButton variant="secondary" small class="map-open" :to="`/sessions/${id}/map`">
               <AppIcon name="expand" />
