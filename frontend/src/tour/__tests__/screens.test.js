@@ -93,7 +93,7 @@ describe('the invite page at a tour checkpoint', () => {
   it('shows them when the finished save is the one the tour shows', async () => {
     // The first save's invite page, with the last checkpoint selected: that one finished, with Darius, Nicole and Faith in it.
     const [id] = t.tour.manifest.story
-    const view = await invitePage(7, id)
+    const view = await invitePage(9, id)
     expect(view.text()).toContain('Frequent hangouts')
     expect(view.all('[data-testid="jio-streak"]').length).toBeGreaterThanOrEqual(3)
   })

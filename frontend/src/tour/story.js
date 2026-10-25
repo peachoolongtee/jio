@@ -1,12 +1,12 @@
 // The demo tour's data: one outing, told in eight checkpoints, and a few side cases outside the story.
 //
 // The story is one outing with the same title and the same four people (Ian hosts, with Darius, Nicole and Faith), saved
-// eight times as a real group would have it at that moment. Each save is its own session in the data layer, built through its
+// ten times as a real group would have it at that moment (the two Start choice checkpoints are the two ways the same outing could go). Each save is its own session in the data layer, built through its
 // public functions (tour/builders.js), so every one is a state a real group could reach and the screens treat it like any
 // other session.
 //
-// Dates. The first six checkpoints are some days before the outing, and the last two are the day itself, so "On the day" is
-// today and shows a live plan. All eight use the times of a session that is on today (todayWindow), so the time line reads
+// Dates. The first eight checkpoints are some days before the outing, and the last two are the day itself, so "On the day" is
+// today and shows a live plan. All ten use the times of a session that is on today (todayWindow), so the time line reads
 // the same at every checkpoint.
 //
 // The side cases are sessions that are not part of the story: one a friend hosts, one where a friend opted out, and one with
@@ -19,7 +19,7 @@ import { HOST_ID } from '@/lib/mock/people.js'
 import { ALBUM, GUEST_SPEC, LONG_SPEC, PENDING_FOR } from './builders.js'
 
 export const STORY_TITLE = 'Catch-up makan with the gang'
-// Days before the outing for the first six checkpoints. The last two are on the day (0).
+// Days before the outing for the first eight checkpoints. The last two are on the day (0).
 const BEFORE = 3
 // Where each person starts from, spread across the island so the fair spot is somewhere in the middle.
 const STARTS = { ian: 'toa-payoh', darius: 'tampines', nicole: 'jurong-east', faith: 'bugis' }
@@ -39,12 +39,27 @@ const steps = {
     await api.inviteFriends(id, ['darius', 'nicole'])
     await api.inviteFriends(id, ['faith'], { pending: true, acceptAfter: PENDING_FOR })
   },
-  // Everyone said yes and the host started the session.
+  // Everyone said yes and the host started the session, choosing to find the fairest spot (the default of the Start choice).
   start: async ({ id, at }) => {
     at('invites')
     await api.inviteFriends(id, ['darius', 'nicole', 'faith'])
     at('start')
-    await api.startSession(id)
+    await api.startSession(id, { meetBy: 'fairest' })
+  },
+  // Everyone said yes. The host has not pressed Start session yet: the next page is the Start choice.
+  allIn: async ({ id, at }) => {
+    at('invites')
+    await api.inviteFriends(id, ['darius', 'nicole', 'faith'])
+  },
+  // Everyone said yes, and the host started the session with "We already know where" and named Bishan: the group goes straight
+  // to choosing places, with no location step.
+  knownPlace: async ({ id, at }) => {
+    at('invites')
+    await api.inviteFriends(id, ['darius', 'nicole', 'faith'])
+    at('start')
+    await api.startSession(id, { meetBy: 'known' })
+    at('known place')
+    await api.setKnownPlace(id, 'bishan')
   },
   // Ian has shared where he starts. The other three have not.
   hostShares: async ({ id, at, share }) => {
@@ -101,13 +116,14 @@ const sequence = (...list) => async (ctx) => {
 // The page each checkpoint opens: the one that shows that state best.
 const page = {
   lobby: (id) => `/sessions/${id}`,
+  start: (id) => `/sessions/${id}/start`,
   invite: (id) => `/sessions/${id}/invite`,
   vote: (id) => `/sessions/${id}/plan`,
   itinerary: (id) => `/sessions/${id}/itinerary`,
   photos: (id) => `/sessions/${id}/photos`,
 }
 
-// The eight checkpoints, in order. name: what the strip calls it. look: one line for the strip about what to look at. path:
+// The ten checkpoints, in order. name: what the strip calls it. look: one line for the strip about what to look at. path:
 // the page it opens for the session with this id.
 export const CHECKPOINTS = [
   {
@@ -123,6 +139,20 @@ export const CHECKPOINTS = [
     look: 'Darius and Nicole said yes. Faith has not answered yet.',
     path: page.invite,
     spec: { day: BEFORE, build: steps.invitesOut },
+  },
+  {
+    key: 'how',
+    name: 'Choosing how to meet',
+    look: 'Everyone said yes. Ian picks how the group chooses the meeting point: the fairest spot, or a place they know.',
+    path: page.start,
+    spec: { day: BEFORE, build: steps.allIn },
+  },
+  {
+    key: 'known',
+    name: 'A place already known',
+    look: 'The other choice: Ian said "We already know where" and named Bishan. The group goes straight to choosing places.',
+    path: page.vote,
+    spec: { day: BEFORE, build: steps.knownPlace },
   },
   {
     key: 'locations',
@@ -183,7 +213,7 @@ const OPTED_OUT_SPEC = {
     at('invites')
     await api.inviteFriends(id, ['darius', 'nicole', 'jonathan'])
     at('start')
-    await api.startSession(id)
+    await api.startSession(id, { meetBy: 'fairest' })
     at('locations')
     await share(id, { ian: 'toa-payoh', darius: 'bishan' })
     at('opt-out')

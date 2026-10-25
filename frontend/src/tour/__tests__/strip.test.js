@@ -20,7 +20,7 @@ vi.mock('@/components/dev/demoPhotos.js', () => ({
 
 const NOW = new Date('2026-10-10T14:20:00')
 const stubPhotos = async (kinds, count) => Array.from({ length: count }, (_, i) => `data:image/jpeg;base64,AAAA${i}`)
-const NAMES = ['Just created', 'Invites out', 'Sharing locations', 'Choosing the spot', 'Voting on places', 'Plan confirmed', 'On the day', 'Finished with photos']
+const NAMES = ['Just created', 'Invites out', 'Choosing how to meet', 'A place already known', 'Sharing locations', 'Choosing the spot', 'Voting on places', 'Plan confirmed', 'On the day', 'Finished with photos']
 
 beforeAll(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
@@ -66,12 +66,12 @@ describe('the strip', () => {
     view = await mountScreen(TourStrip, { plugins: [t.pinia, t.router] })
   })
 
-  it('lists the eight checkpoints in order, by name, and marks the first as current', () => {
+  it('lists the ten checkpoints in order, by name, and marks the first as current', () => {
     const stops = view.all('.tour__stop')
-    expect(stops).toHaveLength(8)
+    expect(stops).toHaveLength(10)
     expect(stops.map((s) => view.text(s))).toEqual(NAMES.map((name, i) => `${i + 1}${name}`))
-    expect(stops.map((s) => s.attrs['aria-current'])).toEqual(['step', ...Array(7).fill(undefined)])
-    expect(view.text('.tour__toggle')).toContain('1 of 8')
+    expect(stops.map((s) => s.attrs['aria-current'])).toEqual(['step', ...Array(9).fill(undefined)])
+    expect(view.text('.tour__toggle')).toContain('1 of 10')
   })
 
   it('names every control for a screen reader, and says it is a demo with sample data', () => {
@@ -82,7 +82,7 @@ describe('the strip', () => {
     expect(view.text('.tour__caption')).toBe('Sample data. Places and times are rough.')
     // The line about what to look at is announced when it changes, and starts with where we are.
     expect(view.one('.tour__look').attrs.role).toBe('status')
-    expect(view.text('.tour__look')).toContain('Checkpoint 1 of 8, Just created.')
+    expect(view.text('.tour__look')).toContain('Checkpoint 1 of 10, Just created.')
   })
 
   it('has nothing before the first checkpoint to go back to', () => {
@@ -93,7 +93,7 @@ describe('the strip', () => {
     await view.click(named(view, 'Next checkpoint'))
     await until(() => t.router.currentRoute.value.path === '/sessions/s2/invite')
     expect(t.store.index).toBe(1)
-    expect(view.all('.tour__stop').map((s) => s.attrs['aria-current'])).toEqual([undefined, 'step', ...Array(6).fill(undefined)])
+    expect(view.all('.tour__stop').map((s) => s.attrs['aria-current'])).toEqual([undefined, 'step', ...Array(8).fill(undefined)])
     expect(view.text('.tour__look')).toContain('Darius and Nicole said yes')
     await view.click(named(view, 'Previous checkpoint'))
     await until(() => t.router.currentRoute.value.path === '/sessions/s1')
@@ -101,11 +101,11 @@ describe('the strip', () => {
   })
 
   it('opens the right page when a checkpoint is pressed, and does not go past the last', async () => {
-    await view.click(view.all('.tour__stop')[4])
-    await until(() => t.router.currentRoute.value.path === '/sessions/s5/plan')
-    expect(view.text('.tour__toggle')).toContain('5 of 8')
-    await view.click(view.all('.tour__stop')[7])
-    await until(() => t.router.currentRoute.value.path === '/sessions/s8/photos')
+    await view.click(view.all('.tour__stop')[6])
+    await until(() => t.router.currentRoute.value.path === '/sessions/s7/plan')
+    expect(view.text('.tour__toggle')).toContain('7 of 10')
+    await view.click(view.all('.tour__stop')[9])
+    await until(() => t.router.currentRoute.value.path === '/sessions/s10/photos')
     expect(named(view, 'Next checkpoint').attrs.disabled).toBeDefined()
     expect(view.errors).toEqual([])
   })
@@ -144,25 +144,25 @@ describe('/demo', () => {
     await until(() => t.router.currentRoute.value.path === '/' && t.router.currentRoute.value.query.meetup === 's1', 80000)
     expect(t.auth.user).toMatchObject({ demo: true, username: 'ian' })
     expect(t.store.live).toBe(true)
-    expect(await t.api.listSessions()).toHaveLength(11)
+    expect(await t.api.listSessions()).toHaveLength(13)
     expect(t.view.errors).toEqual([])
   })
 
   it('shows progress in words while it works', async () => {
     const t = await open({ signedIn: false })
-    await until(() => /Loading the outing: \d+ of 11 sessions/.test(t.view.text()), 40000)
+    await until(() => /Loading the outing: \d+ of 13 sessions/.test(t.view.text()), 40000)
     expect(t.view.has('[role=progressbar]')).toBe(true)
     await until(() => t.router.currentRoute.value.query.meetup === 's1', 80000)
   })
 
   it('asks what to do when the demo account is already there, and carries on from the same checkpoint', async () => {
     const t = await open({ tour: true })
-    t.store.select(5)
+    t.store.select(7)
     expect(t.view.text()).toContain('Demo tour')
     const labels = t.view.all('.btn').map((b) => t.view.text(b))
     expect(labels).toEqual(expect.arrayContaining(['Restart the tour', 'Carry on', 'Go to Home']))
     await t.view.click(t.view.all('.btn').find((b) => t.view.text(b) === 'Carry on'))
-    await until(() => t.router.currentRoute.value.path === '/sessions/s6/itinerary')
+    await until(() => t.router.currentRoute.value.path === '/sessions/s8/itinerary')
   })
 
   it('offers only to start the tour when the demo account has none', async () => {
@@ -195,7 +195,7 @@ describe('/demo', () => {
     photos.fail = true
     const t = await open({ signedIn: false })
     await until(() => t.view.has('[role=alert]'), 80000)
-    expect(t.view.text('[role=alert]')).toMatch(/^Loaded 10 of 11 sessions\. Not finished: "Catch-up makan with the gang" stopped at photos \(Could not load the park photo\.\)/)
+    expect(t.view.text('[role=alert]')).toMatch(/^Loaded 12 of 13 sessions\. Not finished: "Catch-up makan with the gang" stopped at photos \(Could not load the park photo\.\)/)
     expect(t.view.text()).toContain('The demo account was made, and whatever was loaded is in it.')
     expect(t.router.currentRoute.value.path).toBe('/')
     expect(t.store.manifest).toBeNull()
@@ -204,6 +204,6 @@ describe('/demo', () => {
     await t.view.click(t.view.all('.btn').find((b) => t.view.text(b) === 'Try again'))
     await until(() => t.router.currentRoute.value.query.meetup === 's1', 80000)
     expect(t.store.live).toBe(true)
-    expect(await t.api.listSessions()).toHaveLength(11)
+    expect(await t.api.listSessions()).toHaveLength(13)
   })
 })

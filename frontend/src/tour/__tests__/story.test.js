@@ -60,25 +60,25 @@ beforeAll(async () => {
 const stateOf = (session, id) => session.members.find((m) => m.id === id)?.state
 const voters = (session) => [...new Set(Object.values(session.votes).flatMap((byPerson) => Object.keys(byPerson)))].sort()
 
-describe('the story: one outing saved at eight checkpoints', () => {
-  it('makes eight sessions with one title and the same people, then the side cases', () => {
+describe('the story: one outing saved at ten checkpoints', () => {
+  it('makes ten sessions with one title and the same people, then the side cases', () => {
     const { story, all } = first
-    expect(story).toHaveLength(8)
+    expect(story).toHaveLength(10)
     expect(new Set(story.map((s) => s.title)).size).toBe(1)
     expect(story[0].title).toBe('Catch-up makan with the gang')
     expect(story.every((s) => s.hostId === 'ian')).toBe(true)
     // Nobody outside the four is in any save; from the third checkpoint the four are all in.
     for (const s of story) expect(s.members.every((m) => FOUR.includes(m.id))).toBe(true)
     for (const s of story.slice(2)) expect(s.activeIds.sort()).toEqual([...FOUR].sort())
-    expect(all).toHaveLength(8 + 3)
+    expect(all).toHaveLength(10 + 3)
     expect(first.tour.manifest.side).toHaveLength(3)
-    expect(first.tour.manifest.story).toEqual(['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'])
+    expect(first.tour.manifest.story).toEqual(['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10'])
   })
 
-  it('counts the days from now: some days ahead for six saves, then the day itself', () => {
+  it('counts the days from now: some days ahead for eight saves, then the day itself', () => {
     const { story } = first
-    expect(story.slice(0, 6).map((s) => s.date)).toEqual(Array(6).fill(dateAt(3)))
-    expect(story.slice(6).map((s) => s.date)).toEqual([dateAt(0), dateAt(0)])
+    expect(story.slice(0, 8).map((s) => s.date)).toEqual(Array(8).fill(dateAt(3)))
+    expect(story.slice(8).map((s) => s.date)).toEqual([dateAt(0), dateAt(0)])
     expect(new Set(story.map((s) => `${s.start}-${s.end}`)).size).toBe(1)
   })
 
@@ -93,16 +93,17 @@ describe('the story: one outing saved at eight checkpoints', () => {
     expect([stateOf(s, 'darius'), stateOf(s, 'nicole'), stateOf(s, 'faith')]).toEqual(['joined', 'joined', 'invited'])
   })
 
-  it('3. sharing locations: Ian has shared, three have not', () => {
-    const s = first.story[2]
+  it('5. sharing locations: Ian has shared, three have not', () => {
+    const s = first.story[4]
     expect(s.status).toBe('locating')
+    expect(s.meetBy).toBe('fairest')
     expect(Object.keys(s.locations)).toEqual(['ian'])
     expect(waitingFor(s).sort()).toEqual(['darius', 'faith', 'nicole'])
     expect(s.area).toBeNull()
   })
 
-  it('4. choosing the spot: everyone shared, spots listed, a friend added one, friends say which work, the host has not confirmed', () => {
-    const s = first.story[3]
+  it('6. choosing the spot: everyone shared, spots listed, a friend added one, friends say which work, the host has not confirmed', () => {
+    const s = first.story[5]
     expect(s.status).toBe('locating')
     expect(Object.keys(s.locations).sort()).toEqual([...FOUR].sort())
     expect(s.spots.list.length).toBeGreaterThanOrEqual(4)
@@ -113,35 +114,35 @@ describe('the story: one outing saved at eight checkpoints', () => {
     expect(lead.approvalCount).toBeGreaterThanOrEqual(2)
   })
 
-  it('5. voting on places: the spot is set, three have voted, Ian has not', () => {
-    const s = first.story[4]
+  it('7. voting on places: the spot is set, three have voted, Ian has not', () => {
+    const s = first.story[6]
     expect(s.status).toBe('voting')
-    expect(s.meeting.areaId).toBe(first.story[3].spots.preselectedAreaId)
+    expect(s.meeting.areaId).toBe(first.story[5].spots.preselectedAreaId)
     expect(s.meeting.method).toBe('voted')
     expect(voters(s)).toEqual(['darius', 'faith', 'nicole'])
     expect(Object.values(s.options).some((list) => list.length > 0)).toBe(true)
   })
 
-  it('6. plan confirmed: everyone voted, a plan with stops, not yet the day', () => {
-    const s = first.story[5]
+  it('8. plan confirmed: everyone voted, a plan with stops, not yet the day', () => {
+    const s = first.story[7]
     expect(s.status).toBe('confirmed')
     expect(voters(s)).toEqual([...FOUR].sort())
     expect(s.plan.stops.length).toBeGreaterThanOrEqual(2)
     expect(s.isToday).toBe(false)
   })
 
-  it('7. on the day: the same plan, dated today', () => {
-    const s = first.story[6]
+  it('9. on the day: the same plan, dated today', () => {
+    const s = first.story[8]
     expect(s.status).toBe('confirmed')
     expect(s.isToday).toBe(true)
-    expect(s.plan.stops.map((x) => x.venueId)).toEqual(first.story[5].plan.stops.map((x) => x.venueId))
+    expect(s.plan.stops.map((x) => x.venueId)).toEqual(first.story[7].plan.stops.map((x) => x.venueId))
   })
 
-  it('8. finished with photos: completed, an album, JioCoins paid', async () => {
-    const s = first.story[7]
+  it('10. finished with photos: completed, an album, JioCoins paid', async () => {
+    const s = first.story[9]
     expect(s.status).toBe('completed')
     expect(s.photoCount).toBe(8)
-    expect(s.plan.stops.map((x) => x.venueId)).toEqual(first.story[5].plan.stops.map((x) => x.venueId))
+    expect(s.plan.stops.map((x) => x.venueId)).toEqual(first.story[7].plan.stops.map((x) => x.venueId))
     const photos = await first.api.getPhotos(s.id)
     expect(new Set(photos.map((p) => p.personId)).size).toBeGreaterThan(1)
   })
@@ -180,9 +181,9 @@ describe('loading twice', () => {
     const before = summary(first.all)
     await first.tour.start({ now: NOW, makePhotos: stubPhotos })
     const after = await first.api.listSessions()
-    expect(after).toHaveLength(11)
+    expect(after).toHaveLength(13)
     expect(summary(after).sort()).toEqual(before.sort())
-    expect(first.tour.manifest.story).toEqual(['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'])
+    expect(first.tour.manifest.story).toEqual(['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10'])
     expect(await first.api.listRedemptions()).toHaveLength(1)
   })
 })
@@ -192,7 +193,7 @@ describe('what Home lists', () => {
     const { tour, visibleSessions, api } = first
     const sessions = await api.listSessions()
     const sideIds = tour.manifest.side
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 10; i++) {
       tour.select(i)
       const shown = visibleSessions(sessions)
       const fromStory = shown.filter((s) => tour.manifest.story.includes(s.id))
@@ -201,14 +202,14 @@ describe('what Home lists', () => {
       expect(shown).toHaveLength(1 + sideIds.length)
       // Home lists the meetups still going; a finished outing is in the list of past ones instead.
       const going = activeMeetups(shown, NOW).filter((m) => tour.manifest.story.includes(m.id))
-      expect(going).toHaveLength(i === 7 ? 0 : 1)
+      expect(going).toHaveLength(i === 9 ? 0 : 1)
     }
   })
 
   it('selects the story outing first on Home while it is going, because it is the soonest', async () => {
     const { tour, visibleSessions, api } = first
     const sessions = await api.listSessions()
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 9; i++) {
       tour.select(i)
       expect(activeMeetups(visibleSessions(sessions), NOW)[0].id, `checkpoint ${i + 1}`).toBe(tour.manifest.story[i])
     }
@@ -222,7 +223,7 @@ describe('what Home lists', () => {
     expect(visibleSessions(sessions)).toHaveLength(4)
     tour.resume()
     tour.forget()
-    expect(visibleSessions(sessions)).toHaveLength(11)
+    expect(visibleSessions(sessions)).toHaveLength(13)
   })
 })
 
@@ -243,7 +244,7 @@ describe('where each checkpoint opens', () => {
       expect(guardFor(to, auth), path).toBe(true)
       opened.push(path)
     }
-    expect(opened).toEqual(['/sessions/s1', '/sessions/s2/invite', '/sessions/s3', '/sessions/s4', '/sessions/s5/plan', '/sessions/s6/itinerary', '/sessions/s7/itinerary', '/sessions/s8/photos'])
+    expect(opened).toEqual(['/sessions/s1', '/sessions/s2/invite', '/sessions/s3/start', '/sessions/s4/plan', '/sessions/s5', '/sessions/s6', '/sessions/s7/plan', '/sessions/s8/itinerary', '/sessions/s9/itinerary', '/sessions/s10/photos'])
     // Every page is the one that shows that state: the session's own pages for its status.
     const { sessionPath } = await import('../../lib/session.js')
     const all = await t.api.listSessions()
