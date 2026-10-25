@@ -18,7 +18,7 @@
 //   PUT    /api/sessions/:id/stops/order     { stopIds }         E15's order route (host)
 //   GET    /api/sessions/:id/stops/:stopId/swap                  ASSUMED: the indoor swap offered for a stop
 //   GET    /api/sessions/:id/stops/:stopId/choices?category=&start=   ASSUMED: the places that could take a stop's place
-//   PUT    /api/sessions/:id/stops/:stopId/place { venueId, fromVenueId, category?, start? }   ASSUMED: put one in (host)
+//   PUT    /api/sessions/:id/stops/:stopId/place { venueId, seenVenueId, category? }   ASSUMED: put one in (host)
 //   POST   /api/sessions/:id/roam      { current?, categories? } E16 (joined member, confirmed): the list; writes nothing
 //   POST   /api/sessions/:id/proposals { venueId }               E23 (joined member, confirmed)
 //   POST   /api/sessions/:id/proposals/:proposalId/resolve { accept }   E24 (host; the proposer may dismiss their own)
@@ -46,7 +46,7 @@
 import { AREAS } from '../mock/places.js'
 import { VENUES } from '../mock/venues.js'
 import { asBackendVenue, standInConverge } from '../../components/dev/offlinePlanner.js'
-import { distanceKm, fromMinutes } from '../planner/index.js'
+import { buildItinerary, distanceKm, fromMinutes } from '../planner/index.js'
 
 const PLAN_MAX = 8
 const MODES = ['walk', 'mrt', 'car']
@@ -356,10 +356,16 @@ export function registerPlan(kit, routes, PATTERNS) {
     const stop = stopNamed(id, stopId)
     const category = body.category || stop.category
     if (stop.venue_id === body.venueId && stop.category === category) return { status: 200, body: { planVersion: session.plan_version } }
-    if (stop.venue_id !== body.fromVenueId) refuse(409, 'stop_changed', 'That stop has changed.')
+    if (stop.venue_id !== body.seenVenueId) refuse(409, 'stop_changed', 'That stop has changed.')
     if (!VENUES.some((v) => v.id === body.venueId)) refuse(404, 'venue_not_found', 'That place could not be found.')
     if (stopsOf(id).some((x) => x.id !== stop.id && x.venue_id === body.venueId)) refuse(409, 'already_a_stop', 'That place is already in the plan.')
-    const start = Number.isFinite(body.start) ? body.start : stop.not_before_minute ?? stop.planned_start_minute
+    // The stop's start as the itinerary lays it out now (the real server works this out itself and keeps the stop from starting earlier).
+    const laidOut = buildItinerary(
+      stopsOf(id).map((x) => ({ venue: VENUES.find((v) => v.id === x.venue_id), plannedStart: x.planned_start_minute, duration: x.duration_minutes, ...(x.not_before_minute != null ? { notBefore: x.not_before_minute } : {}) })),
+      stopsOf(id).slice(1).map((x) => x.travel_mode ?? undefined),
+      session.plan_start_minute ?? Math.min(...stopsOf(id).map((x) => x.planned_start_minute)),
+    ).stops
+    const start = Math.min(1439, laidOut[stopsOf(id).indexOf(stop)]?.start ?? stop.planned_start_minute)
     if (!rank(session, slotFor(stop, category, start), [body.venueId], session.radius_meters).some((r) => r.venueId === body.venueId)) refuse(422, 'venue_does_not_fit', 'That place does not fit this stop.')
     const all = stopsOf(id)
     const index = all.indexOf(stop)

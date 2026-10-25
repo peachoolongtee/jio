@@ -208,7 +208,7 @@ describe('the calls it makes and the sentences for their refusals', () => {
     await r.reorderStops('s', ['p', 'q'])
     await r.stopSwap('s', 'p')
     await r.stopChoices('s', 'p', { category: 'drink', start: 900 })
-    await r.changeStopPlace('s', 'p', { venueId: 'v2', fromVenueId: 'v1', start: 900 })
+    await r.changeStopPlace('s', 'p', { venueId: 'v2', seenVenueId: 'v1', category: 'drink' })
     await r.roam('s', { categories: ['eat'] })
     await r.propose('s', 'v2')
     await r.resolve('s', 'c', true)
@@ -223,7 +223,7 @@ describe('the calls it makes and the sentences for their refusals', () => {
       ['reorderStops', 's', ['p', 'q']],
       ['stopSwap', 's', 'p'],
       ['stopChoices', 's', 'p', { category: 'drink', start: 900 }],
-      ['changeStopPlace', 's', 'p', { venueId: 'v2', fromVenueId: 'v1', start: 900 }],
+      ['changeStopPlace', 's', 'p', { venueId: 'v2', seenVenueId: 'v1', category: 'drink' }],
       ['roam', 's', { categories: ['eat'] }],
       ['propose', 's', 'v2'],
       ['resolve', 's', 'c', true],

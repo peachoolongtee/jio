@@ -476,7 +476,8 @@ export async function putSessionStopOrder(sessionId, stopIds) {
 // ASSUMED (the design has no route for these three; they are what the browser needs to keep "one way to change a confirmed stop's place"
 // on the server, and the backend half has to build them or turn them down with 404): the indoor place the planner would swap a stop for in
 // the rain, the places that could take a stop's place, and putting one in. The server checks that the place exists and fits the stop's time
-// on its day, that the stop still holds `fromVenueId`, and sets the stop's earliest start to `start` or later.
+// on its day and that the stop still holds `seenVenueId`. (Putting a place in is real: E15's `PUT /stops/:stopId/place` takes exactly
+// { venueId, seenVenueId, category? }; the server keeps the stop's earliest start itself. The swap and choices routes are not built.)
 // How to call: await getSessionStopSwap('3b1f...', '5d0c...') -> { swap: { venueId, name } | null }
 export async function getSessionStopSwap(sessionId, stopId) {
   const { data } = await api.get(sessionPath(sessionId, `/stops/${encodeURIComponent(stopId)}/swap`), { timeout: 8000 })
@@ -488,11 +489,11 @@ export async function getSessionStopChoices(sessionId, stopId, { category, start
   if (!Array.isArray(data?.options)) throw new Error(notJsonMessage())
   return data
 }
-// How to call: await putSessionStopPlace('3b1f...', '5d0c...', { venueId: 'v25', fromVenueId: 'v12', category: 'drink', start: 900 }) -> { planVersion }
-export async function putSessionStopPlace(sessionId, stopId, { venueId, fromVenueId, category, start }) {
+// How to call: await putSessionStopPlace('3b1f...', '5d0c...', { venueId: 'v25', seenVenueId: 'v12', category: 'drink' }) -> { planVersion, changed }
+export async function putSessionStopPlace(sessionId, stopId, { venueId, seenVenueId, category }) {
   const { data } = await api.put(
     sessionPath(sessionId, `/stops/${encodeURIComponent(stopId)}/place`),
-    { venueId, fromVenueId, ...(category ? { category } : {}), ...(Number.isFinite(start) ? { start } : {}) },
+    { venueId, seenVenueId, ...(category ? { category } : {}) },
     { timeout: SESSION_TIMEOUT_MS },
   )
   return data

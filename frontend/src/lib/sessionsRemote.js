@@ -101,6 +101,7 @@ export const WORDS = {
   needConfirmed: 'Only a confirmed plan can be changed.',
   stopGone: 'That stop is not in the plan any more.',
   lastStop: 'A plan needs at least one stop.',
+  noLeg: 'The first stop has no travel into it.',
   planChanged: 'The plan changed. Look at it again.',
   planFull: 'The plan has 8 stops, the most it can hold.',
   alreadyStop: 'That place is already in the plan.',
@@ -155,6 +156,10 @@ const CODE_WORDS = {
   order_stale: WORDS.orderStale,
   stop_not_found: WORDS.stopGone,
   last_stop: WORDS.lastStop,
+  // The server's 409s for a plan that moved under the caller (stops_changed: the list sent is not the plan's; stop_changed: the stop holds another place).
+  stops_changed: WORDS.planChanged,
+  stop_changed: WORDS.planChanged,
+  no_leg: WORDS.noLeg,
   plan_full: WORDS.planFull,
   already_a_stop: WORDS.alreadyStop,
   too_many_proposals: WORDS.tooManyProposals,
@@ -1092,7 +1097,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   }
 
   // ASSUMED routes (see plannerApi.js): the indoor swap offered for a stop, the places that could take a stop's place, and putting one in.
-  // How to call: await stopSwap('3b1f...', '5d0c...'); await stopChoices('3b1f...', '5d0c...', { category: 'drink', start: 900 }); await changeStopPlace('3b1f...', '5d0c...', { venueId: 'v25', fromVenueId: 'v12', start: 900 })
+  // How to call: await stopSwap('3b1f...', '5d0c...'); await stopChoices('3b1f...', '5d0c...', { category: 'drink', start: 900 }); await changeStopPlace('3b1f...', '5d0c...', { venueId: 'v25', seenVenueId: 'v12', category: 'drink' })
   const stopSwap = (sessionId, stopId) => ask(() => backend.stopSwap(sessionId, stopId), { wrong_status: WORDS.needConfirmed, not_found: WORDS.notBuilt })
   const stopChoices = (sessionId, stopId, options) => ask(() => backend.stopChoices(sessionId, stopId, options), { host_only: 'Only the host can replace a stop.', wrong_status: WORDS.needConfirmed, not_found: WORDS.notBuilt })
   const changeStopPlace = (sessionId, stopId, body) =>

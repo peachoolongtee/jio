@@ -674,7 +674,7 @@ describe('changing a stop\'s place, the one way', () => {
     const { options } = await sam.api.replaceChoices(id, drink.slotId, undefined)
     await sam.api.replaceStop(id, drink.slotId, options[0].id, undefined, drink.venue.id)
     const call = callsTo(w, 'stopPlace')[0]
-    expect(call).toMatchObject({ method: 'PUT', path: `/api/sessions/${id}/stops/${drink.stopId}/place`, body: { venueId: options[0].id, fromVenueId: drink.venue.id, category: 'drink', start: drink.start } })
+    expect(call).toMatchObject({ method: 'PUT', path: `/api/sessions/${id}/stops/${drink.stopId}/place`, body: { venueId: options[0].id, seenVenueId: drink.venue.id, category: 'drink' } })
     const mine = await sam.api.getItinerary(id)
     const theirs = await kim.api.getItinerary(id)
     expect(theirs).toEqual(mine)
@@ -735,7 +735,7 @@ describe('changing a stop\'s place, the one way', () => {
     expect(await sam.api.findRainSwap(id, 'no-such-stop')).toBeNull()
     await sam.api.swapOption(id, drink.slotId, drink.venue.id, indoor.id)
     expect(callsTo(w, 'stopPlace')).toHaveLength(1)
-    expect(callsTo(w, 'stopPlace')[0].body).toMatchObject({ venueId: indoor.id, fromVenueId: drink.venue.id })
+    expect(callsTo(w, 'stopPlace')[0].body).toMatchObject({ venueId: indoor.id, seenVenueId: drink.venue.id })
     expect(stopOf(await kim.api.getItinerary(id), 'drink').venue.id).toBe(indoor.id)
     // The same swap again changes nothing.
     w.server.calls.length = 0

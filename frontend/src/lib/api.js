@@ -3855,9 +3855,9 @@ async function changeStopPlace(session, slotId, toId, { fromId, category, last =
   const taken = () => session.plan.stops.some((s) => s.slotId !== slotId && s.venueId === toId)
   if (taken()) throw new Error(`${venueById(toId)?.name || 'This place'} is already in the plan.`)
   // A session on the server: the server checks that the place exists and fits the stop's time on its day, that the stop still holds what the
-  // caller saw, and keeps the stop from starting earlier than the time it was checked for (`start`: where the stop is in the itinerary).
+  // caller saw, and keeps the stop from starting earlier than the time it was checked for (the server's own rule; the browser sends no time).
   if (session.remote) {
-    await remote.changeStopPlace(session.id, current.stopId, { venueId: toId, fromVenueId: seen, category: slot.category, start: slot.start })
+    await remote.changeStopPlace(session.id, current.stopId, { venueId: toId, seenVenueId: seen, category: slot.category })
     return afterServerWrite(session.id, 'options')
   }
   const ranked = await rankSlot({ ...session, date: stopDay(session) }, slot, last ? [slot] : [], [toId])
