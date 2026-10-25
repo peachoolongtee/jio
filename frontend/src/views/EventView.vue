@@ -93,7 +93,13 @@ const loadError = ref('')
 const editing = ref(false)
 const endOpen = ref(false)
 const replanOpen = ref(false)
+// The stop the Delete dialog is about: its key (the server's stop id, else the slot's) and its name, taken when the dialog opens. The key, not the
+// stop's position: a stop moved or deleted on another device meanwhile must not make Delete take a different stop.
 const removing = ref(null)
+// How to call: askRemove(stop)
+function askRemove(stop) {
+  removing.value = { key: stop.stopId ?? stop.slotId, name: stop.venue.name }
+}
 const busy = ref(false)
 const error = ref('')
 const view = ref('list')
@@ -302,9 +308,15 @@ function whenShorterThan(count) {
   })
 }
 async function removeStop() {
-  const index = removing.value
-  const count = itinerary.value?.stops.length ?? 0
+  const target = removing.value
   removing.value = null
+  const stops = itinerary.value?.stops ?? []
+  const index = stops.findIndex((s) => (s.stopId ?? s.slotId) === target?.key)
+  if (index < 0) {
+    error.value = 'That stop is not in the plan any more.'
+    return
+  }
+  const count = stops.length
   await act(() => events.deleteStop(props.id, index))
   if (error.value) return
   await whenShorterThan(count)
@@ -459,7 +471,7 @@ async function endPlan() {
                     >
                       <template v-if="canReplace || canEdit" #actions>
                         <IconButton v-if="canReplace" outline :label="`Replace stop: ${stop.venue.name}`" :data-testid="`replace-${stop.slotId}`" @click="replaceStop(stop)"><AppIcon name="search" /></IconButton>
-                        <IconButton v-if="canEdit" outline :label="`Delete stop: ${stop.venue.name}`" @click="removing = i"><AppIcon name="trash" /></IconButton>
+                        <IconButton v-if="canEdit" outline :label="`Delete stop: ${stop.venue.name}`" @click="askRemove(stop)"><AppIcon name="trash" /></IconButton>
                       </template>
                       <template v-if="canEdit" #handle>
                         <button v-bind="handle" class="drag-handle"><AppIcon name="grip" /></button>
@@ -539,14 +551,14 @@ async function endPlan() {
       <AppButton block variant="secondary" @click="endOpen = false">Not yet</AppButton>
     </ModalDialog>
 
-    <ModalDialog :open="removing !== null" :title="removing !== null && itinerary ? `Delete ${itinerary.stops[removing]?.venue.name}?` : 'Delete stop?'" @update:open="(v) => !v && (removing = null)">
+    <ModalDialog :open="removing !== null" :title="removing ? `Delete ${removing.name}?` : 'Delete stop?'" @update:open="(v) => !v && (removing = null)">
       <AppButton block variant="secondary" @click="removing = null">Keep</AppButton>
       <AppButton block variant="danger" @click="removeStop">Delete</AppButton>
     </ModalDialog>
 
     <ModalDialog v-model:open="replanOpen" title="Re-plan?">
       <template #content>
-        <p class="body-md">Back to voting. Votes are kept.</p>
+        <p class="body-md">Back to voting. Votes are kept unless the meeting area moves.</p>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
       <AppButton block variant="secondary" @click="replanOpen = false">Keep plan</AppButton>

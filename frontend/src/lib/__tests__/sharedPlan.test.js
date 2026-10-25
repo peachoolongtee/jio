@@ -373,14 +373,21 @@ describe('the itinerary on two devices', () => {
 })
 
 describe('a stop whose place cannot be described', () => {
-  it('is said in words by the itinerary and by a change to a stop, instead of failing in the layout', async () => {
+  it('is drawn as "A place that is no longer listed", with the rest of the plan, and can still be replaced', async () => {
     const { w, sam, id } = await confirmed()
     const first = (await sam.api.getItinerary(id)).stops[0]
     w.database.run({ as: SERVICE, kind: 'update', table: 'stops', values: { venue_id: 'a-place-the-server-does-not-list' }, filters: [eq('id', first.stopId)] })
-    await expect(sam.api.getItinerary(id)).rejects.toMatchObject({ message: WORDS.placeMissing, code: 'venue_not_found' })
-    await expect(sam.api.replaceStop(id, first.slotId, 'x', undefined, first.venue.id)).rejects.toMatchObject({ message: WORDS.placeMissing })
-    // The session itself still reads (Home does not need the places).
+    const itinerary = await sam.api.getItinerary(id)
+    expect(itinerary.stops).toHaveLength(4)
+    expect(itinerary.stops[0]).toMatchObject({ stopId: first.stopId, venue: expect.objectContaining({ name: WORDS.placeUnlisted }) })
+    expect(itinerary.stops.slice(1).every((s) => s.venue.name !== WORDS.placeUnlisted)).toBe(true)
+    // Putting a place the server does not know in it is still refused in words; the session itself reads.
+    await expect(sam.api.replaceStop(id, first.slotId, 'x', undefined, 'a-place-the-server-does-not-list')).rejects.toMatchObject({ message: WORDS.noVenue })
     expect((await sam.api.getSession(id)).plan.stops).toHaveLength(4)
+    // Replace lists places for it, and the host can put one in.
+    const { options } = await sam.api.replaceChoices(id, first.slotId, undefined)
+    await sam.api.replaceStop(id, first.slotId, options[0].id, undefined, 'a-place-the-server-does-not-list')
+    expect((await sam.api.getItinerary(id)).stops[0].venue.id).toBe(options[0].id)
   })
 })
 

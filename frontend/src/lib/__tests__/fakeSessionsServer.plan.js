@@ -378,7 +378,7 @@ export function registerPlan(kit, routes, PATTERNS) {
     if (stopsOf(id).some((x) => x.id !== stop.id && x.venue_id === body.venueId)) refuse(409, 'already_a_stop', 'That place is already in the plan.')
     // The stop's start as the itinerary lays it out now (the real server works this out itself and keeps the stop from starting earlier).
     const laidOut = buildItinerary(
-      stopsOf(id).map((x) => ({ venue: VENUES.find((v) => v.id === x.venue_id), plannedStart: x.planned_start_minute, duration: x.duration_minutes, ...(x.not_before_minute != null ? { notBefore: x.not_before_minute } : {}) })),
+      stopsOf(id).map((x) => ({ venue: VENUES.find((v) => v.id === x.venue_id) ?? { lat: 1.3521, lng: 103.8198 }, plannedStart: x.planned_start_minute, duration: x.duration_minutes, ...(x.not_before_minute != null ? { notBefore: x.not_before_minute } : {}) })),
       stopsOf(id).slice(1).map((x) => x.travel_mode ?? undefined),
       session.plan_start_minute ?? Math.min(...stopsOf(id).map((x) => x.planned_start_minute)),
     ).stops

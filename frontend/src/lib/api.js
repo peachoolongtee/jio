@@ -370,7 +370,11 @@ const leaderboardIds = () => (isReal() ? (db.user ? [db.user.id] : []) : PEOPLE.
 const areaById = (id) => AREAS.find((a) => a.id === id)
 // A place by id: the built-in ones, the ones a local account saved with a proposal, and (for a session on the server) the ones the server
 // described for the cards. How to call: venueById('v25') -> { id, name, ... }
-const venueById = (id) => db.venues[id] || VENUES.find((v) => v.id === id) || serverVenues.get(id)
+const venueById = (id) => db.venues[id] || VENUES.find((v) => v.id === id) || serverVenues.get(id) || unlistedVenues.get(id)
+
+// A place in a shared plan that the server cannot describe any more (it left the list since the plan was made), as a stand-in the screens can draw:
+// by id, for the visit, never stored. It sits at the meeting area, indoor (so no rain warning is made for it), and is named for what it is.
+const unlistedVenues = new Map()
 
 // What a person has earned, made when it is first needed (a real person who joined a session of this account).
 // How to call: statsOf('7f3c...') -> { meetups: 0, points: 0, seasonPoints: 0 }
@@ -1335,6 +1339,7 @@ function resetSessionState() {
   repairs.clear()
   dismissedBanners.clear()
   shownBasis.clear()
+  unlistedVenues.clear()
   epoch += 1
   closeChannel()
 }
@@ -3692,8 +3697,13 @@ async function planSession(id) {
   const session = await getSession(id)
   const wanted = [...(session.plan?.stops || []).map((s) => s.venueId), ...(session.proposals || []).map((p) => p.venueId)]
   await ensureVenues(wanted)
-  // A stop whose place the server cannot describe cannot be laid out: say so (the page offers a retry) instead of failing in the layout.
-  if ((session.plan?.stops || []).some((s) => !venueById(s.venueId))) throw Object.assign(new Error(SHARING_WORDS.placeMissing), { code: 'venue_not_found' })
+  // A stop whose place the server cannot describe is drawn as "A place that is no longer listed", with its controls (the host can delete it or
+  // put another place in it), instead of failing the whole plan.
+  const at = session.meeting ? areaById(session.meeting.areaId) : null
+  for (const stop of session.plan?.stops || []) {
+    if (venueById(stop.venueId)) continue
+    unlistedVenues.set(stop.venueId, { id: stop.venueId, name: SHARING_WORDS.placeUnlisted, category: stop.category, area: at?.name ?? '', lat: at?.lat ?? 1.3521, lng: at?.lng ?? 103.8198, price: 0, rating: null, hours: [], serves: [], tags: [], indoor: true, unlisted: true })
+  }
   return session
 }
 

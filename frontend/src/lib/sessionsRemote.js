@@ -90,6 +90,8 @@ export const WORDS = {
   notShared: "That isn't available in a shared session yet.",
   photosLater: 'Photos are not shared yet. They come in a later update.',
   placeMissing: 'A place in the plan could not be found. Try again in a moment.',
+  // The name drawn for a stop whose place the server no longer describes (it left the list since the plan was made).
+  placeUnlisted: 'A place that is no longer listed',
   // A route the server does not have (yet): the stand-in for the parts of stage 5 that the server may not have built.
   notBuilt: 'That is not available yet. Try again after the next update.',
   planClosed: 'The plan can only be confirmed while the group is voting.',
