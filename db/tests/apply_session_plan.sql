@@ -13,8 +13,8 @@
 -- stops as a difference (184 to 195), a travel mode (196 to 198), a stop changed to another place (199 to 202), Roam proposals (203 to 215),
 -- the ledger and finishing the outing (216 to 227), a ledger row already stored and the travel debt (228 to 231), what a member may read
 -- and no browser may write (232 to 241), the suggested order (242 to 248), and opening the plan again, with a stop that is not listed
--- going (249 to 257).
--- Steps 1 to 172 passed on the live project when stage 4 was applied. Steps 1 to 257 were also run, on a local in-memory Postgres (PGlite
+-- going (249 to 257), then a guest opting out of a confirmed plan, with the "Re-plan?" prompt written in the same patch (258 to 269).
+-- Steps 1 to 172 passed on the live project when stage 4 was applied. Steps 258 to 269 add no rule to the function (the migration's text is unchanged): they test what the server's opt-out of a confirmed plan sends. Steps 1 to 269 passed on 26 October 2026 on a fresh build of db/schema.sql and db/policies.sql in a local in-memory Postgres (PGlite 0.3.2, not the live project, not the migration on its own). Steps 1 to 257 were also run, on a local in-memory Postgres (PGlite
 -- 0.4.1, not the live project), once on a fresh build of db/schema.sql and db/policies.sql and once on the live project's state (the
 -- schema of 9 October and the migrations applied since, then stage 5's migration, which was also applied twice and after slice d), and
 -- all passed. The lead runs the whole file on the live project once the stage 5 migration is applied, or in one transaction with the
@@ -205,6 +205,7 @@ declare
   sn uuid := gen_random_uuid();        -- stage 5: voting, the host and g1 (the suggested order is stored here; the travel debt is asked for here)
   sx uuid := gen_random_uuid();        -- stage 5: confirmed, with a ledger row stored already (a finish that got further than its first try)
   sr uuid := gen_random_uuid();        -- stage 5: confirmed, pinned, with stops, a note, a suggestion and a proposal (the plan is opened again)
+  so uuid := gen_random_uuid();        -- stage 5: confirmed, three people, votes and two proposals (a guest opts out of the confirmed plan)
   slot_c_eat uuid;
   slot_c_drink uuid;
   slot_r_eat uuid;
@@ -1302,6 +1303,66 @@ begin
   perform pg_temp.as_server();
   perform pg_temp.expect_hint(257, 'a voting session cannot be confirmed again without stops',
     format('select pg_temp.apply(%L, 12, ''voting'', %L)', sr, '{"session":{"status":"confirmed"}}'), 'stops_missing');
+
+  -- A guest opts out of a confirmed plan (the server's E10 in the confirmed status). In one patch: the person goes out with their votes, the
+  -- proposal they had waiting is dismissed (by them), and the one thing written to the session is the "Re-plan?" prompt. The stops stay.
+  -- so is confirmed with the host, g1 and g2; g1 and g2 each have a proposal waiting.
+  perform pg_temp.as_admin();
+  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version, meeting_area_id, meeting_method,
+                               meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate) values
+    (so, host, 'Opt out', current_date + 1, '10:00', '20:00', 'confirmed', 20, 'bugis', 'chosen', 20, 40, 2, false);
+  insert into public.session_members (session_id, user_id, state) values (so, g1, 'joined'), (so, g2, 'joined');
+  insert into public.slots (session_id, category, start_minute, duration_minutes, picks, is_last) values (so, 'eat', 720, 90, 2, false), (so, 'drink', 840, 60, 2, true);
+  select id into slot_r_eat from public.slots where session_id = so and category = 'eat';
+  select id into slot_r_drink from public.slots where session_id = so and category = 'drink';
+  insert into public.slot_options (slot_id, venue_id, rank, score) values (slot_r_eat, 'a', 1, 5), (slot_r_drink, 'd', 1, 4);
+  insert into public.votes (slot_id, user_id, venue_id) values
+    (slot_r_eat, host, 'a'), (slot_r_eat, g1, 'a'), (slot_r_eat, g2, 'a'), (slot_r_drink, g1, 'd');
+  insert into public.stops (session_id, seq, slot_id, category, venue_id, planned_start_minute, duration_minutes) values
+    (so, 0, slot_r_eat, 'eat', 'a', 720, 90), (so, 1, slot_r_drink, 'drink', 'd', 840, 60);
+  insert into public.stop_proposals (session_id, venue_id, proposed_by) values (so, 'p1', g1), (so, 'p2', g2);
+  select id into proposal_p1 from public.stop_proposals where session_id = so and proposed_by = g1;
+  perform pg_temp.as_server();
+  p := jsonb_build_object(
+    'ops', jsonb_build_array(jsonb_build_object('op', 'opt_out', 'user_id', g1),
+                             jsonb_build_object('op', 'resolve_proposal', 'proposal_id', proposal_p1, 'status', 'dismissed', 'by', g1)),
+    'session', jsonb_build_object('replan', jsonb_build_object('reason', 'Faith opted out. The meeting area would stay at Bugis.',
+                                                                'trigger', jsonb_build_object('kind', 'optout'), 'at', 1)));
+  perform pg_temp.expect_text(258, 'a guest opts out of a confirmed plan: the person, their proposal and the prompt are one write',
+    format('select pg_temp.apply(%L, 20, ''confirmed'', %L::jsonb)', so, p::text), '21');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(259, 'g1 is out and their vote is gone; the other votes stand',
+    format('select (select state from public.session_members where session_id = %L and user_id = %L) || '' '' || (select count(*) from public.votes where slot_id in (%L, %L))', so, g1, slot_r_eat, slot_r_drink),
+    'opted_out 2');
+  perform pg_temp.expect_text(260, 'g1''s proposal was dismissed by g1, and g2''s still waits',
+    format('select string_agg((proposed_by = %L::uuid)::text || '':'' || status || '':'' || coalesce((resolved_by = %L::uuid)::text, ''-''), '','' order by status) from public.stop_proposals where session_id = %L', g1, g1, so),
+    'true:dismissed:true,false:pending:-');
+  perform pg_temp.expect_text(261, 'the plan is as it was: confirmed, with its two stops',
+    format('select status || '' '' || (select count(*) from public.stops where session_id = %L) from public.sessions where id = %L', so, so), 'confirmed 2');
+  perform pg_temp.expect_text(262, 'the prompt is stored on the session, readable by the members',
+    format('select (replan ->> ''reason'') || '' / '' || ((replan -> ''trigger'') ->> ''kind'') from public.sessions where id = %L', so),
+    'Faith opted out. The meeting area would stay at Bugis. / optout');
+  perform pg_temp.as_user(g2);
+  perform pg_temp.expect_text(263, 'a member of the session reads the prompt',
+    format('select replan ->> ''reason'' from public.sessions where id = %L', so), 'Faith opted out. The meeting area would stay at Bugis.');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(264, 'sending the same prompt again changes nothing',
+    format('select pg_temp.apply(%L, 21, ''confirmed'', %L::jsonb)', so, jsonb_build_object('session', p -> 'session')::text), '21');
+  perform pg_temp.expect_error(265, 'a prompt that is not an object is refused',
+    format('select pg_temp.apply(%L, 21, ''confirmed'', %L)', so, '{"session":{"replan":"Faith left"}}'), '22023', 'JSON object or null');
+  perform pg_temp.expect_text(266, 'a second guest going out replaces the prompt',
+    format('select pg_temp.apply(%L, 21, ''confirmed'', %L::jsonb)', so,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'opt_out', 'user_id', g2)),
+                              'session', jsonb_build_object('replan', jsonb_build_object('reason', 'Someone opted out.', 'trigger', jsonb_build_object('kind', 'optout'), 'at', 2)))::text), '22');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(267, 'the prompt is the newer one',
+    format('select replan ->> ''reason'' from public.sessions where id = %L', so), 'Someone opted out.');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(268, 'the host keeps the plan: the prompt goes and the status stays',
+    format('select pg_temp.apply(%L, 22, ''confirmed'', %L)', so, '{"session":{"replan":null}}'), '23');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(269, 'no prompt, still confirmed',
+    format('select status || '' '' || coalesce(replan::text, ''no prompt'') from public.sessions where id = %L', so), 'confirmed no prompt');
 
   raise notice 'ALL STEPS PASSED';
 end;
