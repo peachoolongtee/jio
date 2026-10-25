@@ -189,9 +189,11 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
           <h2 ref="heading" tabindex="-1" class="display-sm">Where is the place?</h2>
           <p class="body-sm text-muted">The group then goes straight to choosing places.</p>
         </div>
-        <TextField v-model="query" label="Search for an area" placeholder="Bishan, Tampines, Jurong East" type="text" autocomplete="off" enterkeyhint="search" :maxlength="40">
-          <template #leading><AppIcon name="search" :size="18" /></template>
-        </TextField>
+        <div class="start__search">
+          <TextField v-model="query" label="Search for an area" placeholder="Bishan, Tampines, Jurong East" type="text" autocomplete="off" enterkeyhint="search" :maxlength="40">
+            <template #leading><AppIcon name="search" :size="18" /></template>
+          </TextField>
+        </div>
         <div class="choices" role="radiogroup" v-radio-group :aria-label="query.trim() ? 'Areas that match' : 'Popular areas'">
           <p class="caption text-muted" aria-hidden="true">{{ query.trim() ? 'Areas that match' : 'Popular areas' }}</p>
           <div v-if="areas.length" class="chips">
@@ -211,7 +213,7 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
 
     <footer class="screen__footer">
       <p class="caption-sm text-muted start__note">{{ note }}</p>
-      <AppButton block :disabled="primaryOff" :aria-busy="busy ? 'true' : undefined" @click="onPrimary">{{ primaryText }}</AppButton>
+      <AppButton class="start__go" block :disabled="primaryOff" :aria-busy="busy ? 'true' : undefined" @click="onPrimary">{{ primaryText }}</AppButton>
     </footer>
   </main>
   <main v-else-if="loadError" class="screen" data-testid="start-load-error">
@@ -240,5 +242,8 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
 .or { display: flex; align-items: center; gap: var(--spacing-md); font: var(--text-caption-sm); color: var(--muted); }
 .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
 .start__note { margin: 0; }
+.start__search { max-width: 560px; }
+/* The longest label ("Ask everyone to share where they start") wraps on a 320px phone instead of being cut off. */
+.start__go.btn { height: auto; min-height: 48px; padding-top: var(--spacing-md); padding-bottom: var(--spacing-md); white-space: normal; text-align: center; line-height: 1.25; }
 @media (min-width: 744px) { .start__note { margin-right: auto; } }
 </style>
