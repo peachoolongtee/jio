@@ -18,6 +18,7 @@
 //   GET    /api/sessions/:id/stops/:stopId/swap                  the indoor swap offered for a stop (joined member, confirmed; reads)
 //   GET    /api/sessions/:id/stops/:stopId/choices?category=     the places that could take a stop's place (host, confirmed; reads; any other query key is a 400)
 //   PUT    /api/sessions/:id/stops/:stopId/place { venueId, seenVenueId, category? }   put one in (host)
+//   PUT    /api/sessions/:id/stops/:stopId/kept-rain { state }   the host keeps a stop in the rain: stored on the session (`weather_kept`)
 //   POST   /api/sessions/:id/roam      { current?, categories? } E16 (joined member, confirmed): the list; writes nothing
 //   POST   /api/sessions/:id/proposals { venueId }               E23 (joined member, confirmed)
 //   POST   /api/sessions/:id/proposals/:proposalId/resolve { accept }   E24 (host; the proposer may dismiss their own)
@@ -180,6 +181,7 @@ export function registerPlan(kit, routes, PATTERNS) {
       status: 'confirmed',
       banner: null,
       replan: null,
+      weather_kept: null,
       plan_start_minute: starts ? Math.min(...Object.values(starts)) : Math.min(...winners.map((w) => w.slot.start_minute)),
       order_reason: starts ? stored.reason : null,
       order_source: starts ? stored.source : null,
@@ -207,7 +209,7 @@ export function registerPlan(kit, routes, PATTERNS) {
         await write({ kind: 'update', table: 'stop_proposals', values: { status: 'dismissed', resolved_at: new Date().toISOString() }, filters: [eq('id', proposal.id)] })
       }
       repriced = await repriceVoting(id, { ...session, status: 'voting' })
-    }, (v) => ({ status: 'voting', replan: null, order_reason: null, order_source: null, order_suggestion: null, plan_start_minute: null, ...repriced.patch(v) }))
+    }, (v) => ({ status: 'voting', replan: null, weather_kept: null, order_reason: null, order_source: null, order_suggestion: null, plan_start_minute: null, ...repriced.patch(v) }))
     return { status: 200, body: { planVersion: version, status: 'voting' } }
   }
 
@@ -236,7 +238,7 @@ export function registerPlan(kit, routes, PATTERNS) {
       for (const proposal of rows('stop_proposals').filter((x) => x.session_id === id && x.status === 'pending')) {
         await write({ kind: 'update', table: 'stop_proposals', values: { status: 'dismissed', resolved_at: new Date().toISOString() }, filters: [eq('id', proposal.id)] })
       }
-    }, () => ({ status: 'completed', completed_at: new Date().toISOString(), replan: null }))
+    }, () => ({ status: 'completed', completed_at: new Date().toISOString(), replan: null, weather_kept: null }))
     return { status: 200, body: { status: 'completed' } }
   }
 
@@ -255,6 +257,13 @@ export function registerPlan(kit, routes, PATTERNS) {
     for (const stop of stopsOf(id).filter((x) => x.not_before_minute != null)) {
       await write({ kind: 'update', table: 'stops', values: { not_before_minute: null }, filters: [eq('id', stop.id)] })
     }
+  }
+
+  // The kept rain warnings of a session without one stop (a stop's place changed, or it went). null when none are left.
+  // How to call: keptWithout(session, '5d0c...') -> { [stopId]: 'showers' } | null
+  const keptWithout = (session, stopId) => {
+    const rest = Object.fromEntries(Object.entries(session.weather_kept ?? {}).filter(([key]) => key !== stopId))
+    return Object.keys(rest).length > 0 ? rest : null
   }
 
   // ── E15: the stops ──
@@ -291,6 +300,7 @@ export function registerPlan(kit, routes, PATTERNS) {
       order_source: null,
       // Deleting the first stop starts the plan where the next one planned to.
       ...(index === 0 ? { plan_start_minute: rest[0].planned_start_minute } : {}),
+      weather_kept: keptWithout(session, stop.id),
     }))
     return { status: 200, body: { planVersion: version } }
   }
@@ -375,8 +385,18 @@ export function registerPlan(kit, routes, PATTERNS) {
       // The stop never starts earlier than the time it was checked for; the legs to and from it go back to their default modes.
       await write({ kind: 'update', table: 'stops', values: { venue_id: body.venueId, category, not_before_minute: Math.min(1439, Math.max(stop.not_before_minute ?? 0, start)), travel_mode: null }, filters: [eq('id', stop.id)] })
       if (all[index + 1]) await write({ kind: 'update', table: 'stops', values: { travel_mode: null }, filters: [eq('id', all[index + 1].id)] })
-    }, () => ({ order_reason: null, order_source: null }))
+    }, () => ({ order_reason: null, order_source: null, weather_kept: keptWithout(session, stop.id) }))
     return { status: 200, body: { planVersion: version } }
+  }
+  routes.keepRain = async (user, id, body, { stop: stopId }) => {
+    const { session } = load(user, id)
+    asHost(session, user)
+    confirmedOnly(session)
+    const stop = stopNamed(id, stopId)
+    if (typeof body.state !== 'string' || !/^[a-z_]{1,24}$/.test(body.state)) refuse(400, 'invalid_input', 'Send the forecast state.')
+    const loaded = loadedOf(session)
+    const version = await apply(id, loaded, async () => {}, () => ({ weather_kept: { ...(session.weather_kept ?? {}), [stop.id]: body.state } }))
+    return { status: 200, body: { planVersion: version, kept: true } }
   }
 
   // ── E16, E23, E24: Roam ──
@@ -415,7 +435,7 @@ export function registerPlan(kit, routes, PATTERNS) {
     if (stops.some((x) => x.venue_id === body.venueId)) refuse(409, 'already_a_stop', 'That place is already in the plan.')
     const waiting = rows('stop_proposals').filter((x) => x.session_id === id && x.status === 'pending')
     const same = waiting.find((x) => x.venue_id === body.venueId)
-    if (same) return { status: 200, body: { id: same.id } }
+    if (same) return { status: 200, body: { planVersion: session.plan_version, id: same.id, applied: false } }
     if (stops.length >= PLAN_MAX) refuse(409, 'plan_full', 'The plan has 8 stops, the most it can hold.')
     if (waiting.length >= PROPOSALS_PER_SESSION || waiting.filter((x) => x.proposed_by === user).length >= PROPOSALS_PER_MEMBER) refuse(409, 'too_many_proposals', 'Too many places are waiting.')
     const loaded = loadedOf(session)
@@ -425,17 +445,17 @@ export function registerPlan(kit, routes, PATTERNS) {
       if (row.error) throw new Error(`The stand-in server could not write a proposal: ${row.error.message}`)
       made = row.data[0].id
     }, () => ({}))
-    return { status: 201, body: { id: made } }
+    return { status: 201, body: { planVersion: rows('sessions').find((x) => x.id === id).plan_version, id: made, applied: true } }
   }
   routes.resolve = async (user, id, body, { proposal: proposalId }) => {
     const { session } = load(user, id)
     confirmedOnly(session)
-    const proposal = rows('stop_proposals').find((x) => x.id === proposalId && x.session_id === id)
-    if (!proposal) refuse(404, 'proposal_not_found', 'That proposal is not there.')
+    // As the real server: a proposal that is not waiting (answered, cleared by a re-plan, or never there) is a 200 with `applied: false`, nothing written.
+    const proposal = rows('stop_proposals').find((x) => x.id === proposalId && x.session_id === id && x.status === 'pending')
+    if (!proposal) return { status: 200, body: { planVersion: session.plan_version, applied: false } }
     const accept = !!body.accept
     if (accept && session.host_id !== user) refuse(403, 'host_only', 'Only the host can add a place to the plan.')
     if (!accept && session.host_id !== user && proposal.proposed_by !== user) refuse(403, 'host_only', 'Only the host, or the person who proposed it, can dismiss it.')
-    if (proposal.status !== 'pending') return { status: 200, body: { planVersion: session.plan_version, status: session.status } }
     const stops = stopsOf(id)
     if (accept && !stops.some((x) => x.venue_id === proposal.venue_id) && stops.length >= PLAN_MAX) refuse(409, 'plan_full', 'The plan has 8 stops, the most it can hold.')
     const loaded = loadedOf(session)
@@ -452,7 +472,7 @@ export function registerPlan(kit, routes, PATTERNS) {
       }
       await write({ kind: 'update', table: 'stop_proposals', values: { status: accept ? 'accepted' : 'dismissed', resolved_at: new Date().toISOString(), resolved_by: user }, filters: [eq('id', proposal.id)] })
     }, () => (accept ? { order_reason: null, order_source: null } : {}))
-    return { status: 200, body: { planVersion: version, status: 'confirmed' } }
+    return { status: 200, body: { planVersion: version, applied: true } }
   }
 
   // The weather at a plan's stops (POST /api/weather/stops, not a session route: the plan's screens ask it for the stops' places and times).
@@ -503,6 +523,7 @@ export function registerPlan(kit, routes, PATTERNS) {
     ['GET', /^\/stops\/([^/]+)\/swap$/, 'stopSwap', ['stop']],
     ['GET', /^\/stops\/([^/]+)\/choices$/, 'stopChoices', ['stop']],
     ['PUT', /^\/stops\/([^/]+)\/place$/, 'stopPlace', ['stop']],
+    ['PUT', /^\/stops\/([^/]+)\/kept-rain$/, 'keepRain', ['stop']],
     ['POST', /^\/roam$/, 'roam'],
     ['POST', /^\/proposals$/, 'propose'],
     ['POST', /^\/proposals\/([^/]+)\/resolve$/, 'resolve', ['proposal']],

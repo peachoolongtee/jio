@@ -40,7 +40,7 @@
 // (`removeMember`, `refreshSpots`, `putSpot`, `deleteSpot`, `confirmSpot`, `knownPlace`, `optOut`, `rejoin`, and from stage 4 `syncPlan`,
 // `setRadius`, `deleteSlot`, `restoreSlots`, `addOption`, `moreOptions`, `swapOption`, `searchSlot`, `venues`, and from stage 5
 // `suggestOrder`, `confirmPlan`, `replan`, `complete`, `patchStop`, `deleteStop`, `reorderStops`, `stopSwap`, `stopChoices`,
-// `changeStopPlace`, `roam`, `propose`, `resolve`), `now()` the clock
+// `changeStopPlace`, `keepRain`, `roam`, `propose`, `resolve`), `now()` the clock
 // in milliseconds.
 // How to call: const remote = createSessionsRemote({ client: () => auth.dataClient(), me: () => currentUserId(), backend, now: Date.now })
 
@@ -398,6 +398,10 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     // The question the server asks after a change to a confirmed plan. Whatever else it holds, the screens read only the sentence.
     const asked = row.replan && typeof row.replan === 'object' && !Array.isArray(row.replan) ? row.replan : null
     const replan = row.status === 'confirmed' && asked ? { reason: typeof asked.reason === 'string' && asked.reason ? asked.reason : 'The group changed.', trigger: asked.trigger ?? null } : null
+    // The rain warnings the host kept (`sessions.weather_kept`, by stop id), as the screens read them: by the stop's slot id, with the forecast's
+    // state it was kept in. Only for the confirmed plan's own stops.
+    const kept = row.weather_kept && typeof row.weather_kept === 'object' && !Array.isArray(row.weather_kept) ? row.weather_kept : {}
+    const weatherDismissed = row.status === 'confirmed' ? Object.fromEntries(stops.filter((x) => typeof kept[x.stopId] === 'string').map((x) => [x.slotId, kept[x.stopId]])) : {}
     const proposals = planning.proposals
       .filter((x) => x.session_id === sid)
       .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))
@@ -405,6 +409,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     return {
       plan,
       replan,
+      ...(Object.keys(weatherDismissed).length > 0 ? { weatherDismissed } : {}),
       proposals: row.status === 'confirmed' ? proposals : [],
       ...(row.status === 'completed' ? { endedBy: 'hand', completedAt: row.completed_at ? Date.parse(row.completed_at) : null } : {}),
     }
@@ -446,7 +451,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   const CHUNK = 100
   // How many channels this factory has opened, for their topics.
   let opened = 0
-  const SESSION_COLUMNS = 'id, host_id, title, date, start_time, end_time, status, created_at, updated_at, plan_version, radius_meters, meeting_area_id, meeting_method, meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, banner, replan, completed_at, order_reason, order_source, plan_start_minute'
+  const SESSION_COLUMNS = 'id, host_id, title, date, start_time, end_time, status, created_at, updated_at, plan_version, radius_meters, meeting_area_id, meeting_method, meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, banner, replan, completed_at, order_reason, order_source, plan_start_minute, weather_kept'
   const MEMBER_COLUMNS = 'session_id, user_id, role, state, joined_at, start_area_id, end_area_id, travel_minutes, updated_at, categories, stay_until'
   // `details` is what the planner said of a slot or a place, and only the Vote page's cards read it, so the reads that Home and the
   // session screens use (list, get) leave it out; readPlan has it.
@@ -1060,10 +1065,13 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   }
 
   // The host asks for the suggested order of the winning places. Nothing is saved by this. Resolves the suggestion (see orderFrom), or null
-  // when there is none. Rejects with a sentence: the host only; the group is no longer voting; fewer than 2 have voted.
-  // How to call: const suggestion = await suggestOrder('3b1f...')
-  async function suggestOrder(sessionId) {
+  // when there is none. `onBasis(basis)` is told the basis of the votes the answer was made for, whether or not there is an order to suggest
+  // (the server hands it out for "none" too), so the host's confirm of the voted order can say which votes it was looking at. Rejects with a
+  // sentence: the host only; the group is no longer voting; fewer than 2 have voted.
+  // How to call: const suggestion = await suggestOrder('3b1f...', { onBasis: (basis) => remember(basis) })
+  async function suggestOrder(sessionId, { onBasis } = {}) {
     const answered = await ask(() => backend.suggestOrder(sessionId), { host_only: 'Only the host can confirm the plan.', wrong_status: WORDS.planClosed })
+    if (BASIS.test(String(answered?.basis))) onBasis?.(answered.basis)
     return orderFrom(answered)
   }
 
@@ -1101,6 +1109,9 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   // How to call: await stopSwap('3b1f...', '5d0c...'); await stopChoices('3b1f...', '5d0c...', { category: 'drink' }); await changeStopPlace('3b1f...', '5d0c...', { venueId: 'v25', seenVenueId: 'v12', category: 'drink' })
   const stopSwap = (sessionId, stopId) => ask(() => backend.stopSwap(sessionId, stopId), { wrong_status: WORDS.needConfirmed, not_found: WORDS.notBuilt })
   const stopChoices = (sessionId, stopId, options) => ask(() => backend.stopChoices(sessionId, stopId, options), { host_only: 'Only the host can replace a stop.', wrong_status: WORDS.needConfirmed, not_found: WORDS.notBuilt })
+  // The host keeps a stop as it is in the rain; the server stores it on the session.
+  // How to call: await keepRain('3b1f...', '5d0c...', 'showers')
+  const keepRain = (sessionId, stopId, state) => ask(() => backend.keepRain(sessionId, stopId, state), { host_only: 'Only the host can dismiss this.', wrong_status: WORDS.needConfirmed, stop_not_found: WORDS.stopGone, not_found: WORDS.notBuilt })
   const changeStopPlace = (sessionId, stopId, body) =>
     ask(() => backend.changeStopPlace(sessionId, stopId, body), {
       host_only: 'Only the host can replace a stop.',
@@ -1206,5 +1217,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, readPlan, readSlotVotes, suggestOrder, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
+  return { list, get, readPlan, readSlotVotes, suggestOrder, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
 }

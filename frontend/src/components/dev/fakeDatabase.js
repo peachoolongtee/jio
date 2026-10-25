@@ -354,6 +354,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       meeting_computed_at: null,
       banner: null,
       replan: null,
+      weather_kept: null,
       completed_at: null,
       order_reason: null,
       order_source: null,

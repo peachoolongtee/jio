@@ -440,6 +440,7 @@ const remote = createSessionsRemote({
     stopSwap: (sessionId, stopId) => planner.getSessionStopSwap(sessionId, stopId),
     stopChoices: (sessionId, stopId, options) => planner.getSessionStopChoices(sessionId, stopId, options),
     changeStopPlace: (sessionId, stopId, body) => planner.putSessionStopPlace(sessionId, stopId, body),
+    keepRain: (sessionId, stopId, state) => planner.putSessionStopRain(sessionId, stopId, state),
     roam: (sessionId, options) => planner.roamSession(sessionId, options),
     propose: (sessionId, venueId) => planner.proposeSessionStop(sessionId, venueId),
     resolve: (sessionId, proposalId, accept) => planner.resolveSessionProposal(sessionId, proposalId, accept),
@@ -512,29 +513,6 @@ function rememberDismissed(sessionId, stamp) {
   }
 }
 
-// The rain warnings the host chose to keep for a session on the server (the Keep button): { [slotId]: the forecast's state when kept }.
-// The press is the host's alone, so it is kept in this browser, under the account, like a dismissed banner; a warning comes back when the
-// forecast changes state (lib/weatherText.js isDismissed). Null when nothing was kept.
-// How to call: keptRain('3b1f...') -> { eat: 'showers' } or null
-const keptRainMemory = new Map()
-function keptRain(sessionId) {
-  const key = `${me()}:${sessionId}`
-  if (keptRainMemory.has(key)) return keptRainMemory.get(key)
-  const saved = parseOrNull(readRaw(`${STORAGE_KEY}:rain:${me()}`) ?? 'null')
-  return isObject(saved) && isObject(saved[sessionId]) ? saved[sessionId] : null
-}
-// How to call: rememberRain('3b1f...', 'eat', 'showers')
-function rememberRain(sessionId, slotId, state) {
-  const next = { ...(keptRain(sessionId) || {}), [slotId]: state }
-  keptRainMemory.set(`${me()}:${sessionId}`, next)
-  const saved = parseOrNull(readRaw(`${STORAGE_KEY}:rain:${me()}`) ?? 'null')
-  try {
-    localStorage.setItem(`${STORAGE_KEY}:rain:${me()}`, JSON.stringify({ ...(isObject(saved) ? saved : {}), [sessionId]: next }))
-  } catch {
-    // Kept in memory for this visit.
-  }
-}
-
 // What the server held of the meeting spots and where people start, kept to areas this app knows (an area it does not know
 // would break every screen that names it), with the labels of other people's places replaced by their area's name.
 // How to call: knownSpots({ list: [...], approvals: {}, suggestions: {}, appMethod: 'fairest' })
@@ -597,8 +575,6 @@ function fromServer(row) {
     spots: knownSpots(row.spots),
     banner,
     photos: [],
-    // The rain warnings the host kept in this browser (the host's press is theirs alone for a session on the server).
-    ...(row.status === 'confirmed' && keptRain(row.id) ? { weatherDismissed: keptRain(row.id) } : {}),
   }
 }
 
@@ -1358,6 +1334,7 @@ function resetSessionState() {
   opened.clear()
   repairs.clear()
   dismissedBanners.clear()
+  shownBasis.clear()
   epoch += 1
   closeChannel()
 }
@@ -3666,7 +3643,11 @@ export async function confirmPlan(id, suggestion = null) {
   // since outdated is refused with 409 `order_stale` (nothing was written); the screen redraws the dialog and the host confirms again.
   if (onServer()) {
     const basis = typeof suggestion?.basis === 'string' ? suggestion.basis : null
-    await remote.confirmPlan(id, basis ? { order: 'suggested', basis } : { order: 'voted' })
+    // The voted order carries the basis of the votes the host was shown (from the last question to the server, for an order or for none), so a
+    // vote that moved a winner since is refused (409 `order_stale`, nothing written) and the host looks again.
+    const seen = shownBasis.get(id)
+    shownBasis.delete(id)
+    await remote.confirmPlan(id, basis ? { order: 'suggested', basis } : { order: 'voted', ...(seen && { basis: seen }) })
     return afterServerWrite(id, 'session')
   }
   await wait(DELAY.plan)
@@ -3891,17 +3872,19 @@ async function swapPlannedStop(session, slotId, fromId, toId) {
 
 
 // The host keeps a stop as it is in the rain. The warning stays dismissed for that stop until the forecast changes state
-// (lib/weatherText.js isDismissed), so `state` is the forecast's state when it was dismissed. Only the host.
+// (lib/weatherText.js isDismissed), so `state` is the forecast's state when it was dismissed. Only the host. For a session on the server it is
+// stored on the session, so everyone's screens agree.
 // How to call: await dismissRainWarning('s1', 'activity', 'showers')
 export async function dismissRainWarning(id, slotId, state) {
-  // A session on the server: the host's press is kept in this browser (the warning comes back when the forecast changes state).
+  // A session on the server: the host's press is stored on the session (`sessions.weather_kept`, by the server), so every member and every
+  // device of the host sees the warning put away; it comes back when the forecast changes state, and goes when the stop's place changes.
   if (onServer()) {
     const session = await planSession(id)
     if (session.hostId !== me()) throw new Error('Only the host can dismiss this.')
-    if (session.status !== 'confirmed' || !session.plan?.stops.some((s) => s.slotId === slotId)) throw new Error('This stop is not in the plan.')
-    rememberRain(id, slotId, stateOf(state))
-    broadcast({ type: 'plan', sessionId: id })
-    return getSession(id)
+    const stop = session.status === 'confirmed' ? session.plan?.stops.find((s) => s.slotId === slotId) : null
+    if (!stop?.stopId) throw new Error('This stop is not in the plan.')
+    await remote.keepRain(id, stop.stopId, stateOf(state))
+    return afterServerWrite(id, 'plan')
   }
   await wait(DELAY.write)
   const session = sessionById(id)
@@ -4018,13 +4001,17 @@ export async function suggestOrder(id) {
   }
 }
 
+// The basis of the votes the host was last shown in the Confirm dialog, by session (what the server said it made its answer for, an order or none).
+// It is a note of what was on screen, not data: it is sent back with the confirm so the server can tell the votes moved, and forgotten at once.
+const shownBasis = new Map()
+
 // The server's suggested order, in the shape the Confirm dialog reads (the local one's, plus the `basis` the confirm sends back). The server
 // sends slot ids, places and starts; the category and the length of each stop are the slot's and the name is the place's, from the plan
 // the dialog was drawn from. Resolves null when the server has no other order to offer, or an answer that cannot be drawn.
 // How to call: const suggestion = await suggestOrderOnServer('3b1f...')
 async function suggestOrderOnServer(id) {
   const asked = epoch
-  const answer = await remote.suggestOrder(id)
+  const answer = await remote.suggestOrder(id, { onBasis: (basis) => shownBasis.set(id, basis) })
   // Asked for by the account before: not used, not shown.
   if (!answer || asked !== epoch) return null
   const plan = newestPlanRead.get(id)?.plan ?? (await planFromServer(id))
@@ -4306,16 +4293,12 @@ export async function proposeStop(id, personId, venueId) {
 // How to call: await resolveProposal('s1', 'pp7', true) -> { ...session, applied: true }
 export async function resolveProposal(id, proposalId, accept) {
   // A session on the server: the host adds the place to the plan or leaves it out; the proposer may take their own back. A proposal that is
-  // no longer there (another device answered it, or a re-plan took it) changes nothing, and the answer says so (`applied: false`).
+  // no longer there (another device answered it, or a re-plan took it) is a 200 from the server with `applied: false`, which changes nothing,
+  // and the answer says so.
   if (onServer()) {
     requireMe()
-    try {
-      await remote.resolve(id, proposalId, accept)
-    } catch (err) {
-      if (err?.code !== 'proposal_not_found') throw err
-      return { ...(await afterServerWrite(id, 'plan')), applied: false }
-    }
-    return { ...(await afterServerWrite(id, 'plan')), applied: true }
+    const answered = await remote.resolve(id, proposalId, accept)
+    return { ...(await afterServerWrite(id, 'plan')), applied: answered?.applied !== false }
   }
   await wait(DELAY.write)
   requireMe()

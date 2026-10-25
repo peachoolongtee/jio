@@ -594,8 +594,9 @@ describe('Roam in a meetup', () => {
     const proposal = (await sam.api.getSession(id)).proposals[0]
     await sam.api.resolveProposal(id, proposal.id, true)
     const stops = rowsOf(w, 'stops').length
+    // A second press: the server answers 200 applied: false (it was decided already), and nothing is written.
     const repeat = await sam.api.resolveProposal(id, proposal.id, true)
-    expect(repeat.applied).toBe(true)
+    expect(repeat.applied).toBe(false)
     const gone = await sam.api.resolveProposal(id, '00000000-0000-4000-8000-0000000000aa', true)
     expect(gone.applied).toBe(false)
     expect(rowsOf(w, 'stops')).toHaveLength(stops)
@@ -760,15 +761,23 @@ describe('changing a stop\'s place, the one way', () => {
     expect(callsTo(w, 'stopPlace')).toEqual([])
   })
 
-  it('keeps a rain warning dismissed for the host until the forecast changes state, in this browser only', async () => {
-    const { sam, kim, id } = await confirmed()
+  it('keeps a rain warning dismissed until the forecast changes state: stored on the session, so every member and device sees it, and the stop\'s place changing clears it', async () => {
+    const { w, sam, kim, id } = await confirmed()
     const drink = stopOf(await sam.api.getItinerary(id), 'drink')
     await expect(kim.api.dismissRainWarning(id, drink.slotId, 'showers')).rejects.toThrow('Only the host can dismiss this.')
     const session = await sam.api.dismissRainWarning(id, drink.slotId, 'showers')
     expect(session.weatherDismissed).toEqual({ [drink.slotId]: 'showers' })
+    expect(callsTo(w, 'keepRain')[0]).toMatchObject({ method: 'PUT', path: `/api/sessions/${id}/stops/${drink.stopId}/kept-rain`, body: { state: 'showers' } })
+    // It is in the database, by the stop, and every reader gets it: the host (a reload) and a guest.
+    expect(sessionRow(w, id).weather_kept).toEqual({ [drink.stopId]: 'showers' })
     expect((await sam.api.getSession(id)).weatherDismissed).toEqual({ [drink.slotId]: 'showers' })
-    expect((await kim.api.getSession(id)).weatherDismissed).toBeUndefined()
+    expect((await kim.api.getSession(id)).weatherDismissed).toEqual({ [drink.slotId]: 'showers' })
     await expect(sam.api.dismissRainWarning(id, 'no-such-stop', 'showers')).rejects.toThrow('This stop is not in the plan.')
+    // The stop's place changes: the warning was about the old place, and goes.
+    const { options } = await sam.api.replaceChoices(id, drink.slotId, undefined)
+    await sam.api.replaceStop(id, drink.slotId, options[0].id, undefined, drink.venue.id)
+    expect(sessionRow(w, id).weather_kept).toBeNull()
+    expect((await kim.api.getSession(id)).weatherDismissed).toBeUndefined()
   })
 
   it('asks the weather at the stops of the plan, for its places and times', async () => {
