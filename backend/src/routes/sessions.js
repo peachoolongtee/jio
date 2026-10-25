@@ -32,6 +32,9 @@ import { sessionSchemas } from './session-schemas.js'
 //   DELETE /api/sessions/:id/stops/:stopId                            the host deletes a stop
 //   PATCH  /api/sessions/:id/stops/:stopId    { travelMode }          the host sets how the group gets to a stop (walk, mrt, car or null)
 //   PUT    /api/sessions/:id/stops/:stopId/place { venueId, seenVenueId, category? }   the host puts another place in a stop
+//   GET    /api/sessions/:id/stops/:stopId/swap                       the indoor place the planner would put in the stop in the rain (a member; reads)
+//   GET    /api/sessions/:id/stops/:stopId/choices?category=          the places that could take the stop's place (the host; reads)
+//   POST   /api/sessions/:id/roam             { current?, categories? } places near where the group is, for "What next?" (a member; reads)
 //   POST   /api/sessions/:id/complete                                 the host finishes the outing; the server writes the travel ledger
 //   POST   /api/sessions/:id/proposals        { venueId }             a member puts a place forward as the next stop
 //   POST   /api/sessions/:id/proposals/:proposalId/resolve { accept } the host adds it (accept) or leaves it out; the proposer may take it back
@@ -55,6 +58,9 @@ import { sessionSchemas } from './session-schemas.js'
 //   replan         { planVersion, status: 'voting' }                 (accept: false: status 'confirmed'; already voting: a no-op)
 //   stops/order, stops/:id DELETE   { planVersion }              stops/:id PATCH { planVersion, travelMode }
 //   stops/:id/place  { planVersion, changed }                    (changed: false when the stop already holds the place)
+//   stops/:id/swap   { swap: { venueId, name } | null }
+//   stops/:id/choices { category, options: [{ venueId, rank, score, votes, details }] }
+//   roam           { status: 'ok', results: [...], notice, weather } or { status: 'empty', reason, hints, results: [] }   (no centre, no needs named)
 //   complete       { planVersion, status: 'completed' }              (a retry after success: the same answer, nothing written)
 //   proposals      201 { planVersion, id, applied: true }, or 200 { planVersion, id, applied: false } when the place is already waiting
 //   proposals/:id/resolve   { planVersion, applied }             (applied: false when it is not waiting any more)
@@ -114,10 +120,12 @@ const needsOf = (lists) => NEEDS.filter((need) => lists.some((list) => Array.isA
 //
 // How to call:
 //   const router = createSessionsRouter({ supabase, sessions, limiter: rateLimit({ windowMs: 60_000, max: 60 }), readLimiter: rateLimit({ windowMs: 60_000, max: 30 }), searchLimiter: rateLimit({ windowMs: 60_000, max: 120 }) })
-export function createSessionsRouter({ supabase, sessions, limiter = null, readLimiter = null, searchLimiter = null }) {
+export function createSessionsRouter({ supabase, sessions, limiter = null, readLimiter = null, searchLimiter = null, plannerLimiter = null }) {
   const router = Router()
   const guard = [requireUser({ supabase }), ...(limiter ? [limiter] : [])]
   const searchGuard = [requireUser({ supabase }), ...(searchLimiter ? [searchLimiter] : [])]
+  // The reads that rank places for a plan (the rain swap, Replace's list, Roam) share the planner routes' limit, so they cost a caller what a ranking does.
+  const rankGuard = [requireUser({ supabase }), ...(plannerLimiter ? [plannerLimiter] : [])]
 
   router.get('/sessions/:id/dietary', requireUser({ supabase }), ...(readLimiter ? [readLimiter] : []), async (req, res, next) => {
     try {
@@ -293,6 +301,22 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
   router.put('/sessions/:id/stops/:stopId/place', ...guard, handle((who, req) => {
     const { venueId, seenVenueId, category } = sessionSchemas.stopPlace.parse(req.body ?? {})
     return sessions.changeStopPlace({ ...who, stopId: sessionSchemas.stopId.parse(req.params.stopId), venueId, seenVenueId, category })
+  }))
+
+  // Reads that rank places for a confirmed plan; they write nothing. Changing a stop is the PUT above.
+  router.get('/sessions/:id/stops/:stopId/swap', ...rankGuard, handle((who, req) => {
+    sessionSchemas.nothing.parse(req.query ?? {})
+    return sessions.stopSwap({ ...who, stopId: sessionSchemas.stopId.parse(req.params.stopId) })
+  }))
+
+  router.get('/sessions/:id/stops/:stopId/choices', ...rankGuard, handle((who, req) => {
+    const { category } = sessionSchemas.stopChoices.parse(req.query ?? {})
+    return sessions.stopChoices({ ...who, stopId: sessionSchemas.stopId.parse(req.params.stopId), category })
+  }))
+
+  router.post('/sessions/:id/roam', ...rankGuard, handle((who, req) => {
+    const { current, categories } = sessionSchemas.roam.parse(req.body ?? {})
+    return sessions.roamNearby({ ...who, current, categories })
   }))
 
   router.post('/sessions/:id/complete', ...guard, handle((who, req) => {

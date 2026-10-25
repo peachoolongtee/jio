@@ -4452,7 +4452,7 @@ async function replaceChoicesOnServer(id, slotId, category) {
   if (session.hostId !== me()) throw new Error('Only the host can replace a stop.')
   if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can have a stop replaced.')
   const { stop, slot, count } = stopSlot(session, slotId, category)
-  const answer = await remote.stopChoices(id, stop.stopId, { category: slot.category, start: slot.start })
+  const answer = await remote.stopChoices(id, stop.stopId, { category: slot.category })
   await ensureVenues(answer.options.map((o) => o.venueId))
   const area = areaById(session.meeting.areaId)
   const options = answer.options.flatMap((o) => {

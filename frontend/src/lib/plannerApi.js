@@ -413,7 +413,7 @@ export async function venuesByIds(ids) {
 // never sends stops, a reason or a source: the server reads the winners, the order and the sentence from its own rows (E12, E22).
 // Each resolves the server's small answer, which is never put into the screens (the session is read again afterwards), and a refusal is
 // an Error whose `code` is the server's: session_not_found, not_joined, host_only, wrong_status, plan_busy, and for these routes
-// not_enough_votes, nothing_to_confirm, order_stale, stop_not_found, last_stop, proposal_not_found, plan_full, already_a_stop,
+// not_enough_votes, nothing_to_confirm, order_stale, stop_not_found, stops_changed, stop_changed, last_stop, proposal_not_found, plan_full, already_a_stop,
 // too_many_proposals, venue_not_found.
 
 // The host asks for the suggested order of the winning places (E22): one question to the server, which may ask the AI under its own
@@ -465,27 +465,27 @@ export async function deleteSessionStop(sessionId, stopId) {
 }
 
 // The host rearranges the stops (E15's order route): `stopIds` is every stop, in the new order. The server rewrites the order and clears
-// the earliest starts, the note and the travel modes. Resolves { planVersion }. A refusal: stop_not_found when the list is not exactly
-// the session's stops.
+// the earliest starts, the note and the travel modes. Resolves { planVersion }. A refusal: stops_changed (409) when the list is not exactly
+// the session's stops, as another device left them (nothing is written).
 // How to call: await putSessionStopOrder('3b1f...', ['5d0c...', '9e41...'])
 export async function putSessionStopOrder(sessionId, stopIds) {
   const { data } = await api.put(sessionPath(sessionId, '/stops/order'), { stopIds }, { timeout: SESSION_TIMEOUT_MS })
   return data
 }
 
-// ASSUMED (the design has no route for these three; they are what the browser needs to keep "one way to change a confirmed stop's place"
-// on the server, and the backend half has to build them or turn them down with 404): the indoor place the planner would swap a stop for in
-// the rain, the places that could take a stop's place, and putting one in. The server checks that the place exists and fits the stop's time
-// on its day and that the stop still holds `seenVenueId`. (Putting a place in is real: E15's `PUT /stops/:stopId/place` takes exactly
-// { venueId, seenVenueId, category? }; the server keeps the stop's earliest start itself. The swap and choices routes are not built.)
+// Changing a confirmed stop's place, the one way (the server's own routes, GET .../stops/:stopId/swap and .../choices, and PUT .../place):
+// the indoor place the planner would swap a stop for in the rain (any member may ask), the places that could take a stop's place (the host
+// only), and putting one in (the host only). The two reads write nothing and the server ranks them for the stop's own time on its day, so the
+// browser sends no time; putting a place in checks that it exists and fits and that the stop still holds `seenVenueId`, and keeps the stop from
+// starting earlier than the time it was checked for.
 // How to call: await getSessionStopSwap('3b1f...', '5d0c...') -> { swap: { venueId, name } | null }
 export async function getSessionStopSwap(sessionId, stopId) {
   const { data } = await api.get(sessionPath(sessionId, `/stops/${encodeURIComponent(stopId)}/swap`), { timeout: 8000 })
   return data
 }
-// How to call: await getSessionStopChoices('3b1f...', '5d0c...', { category: 'drink', start: 900 }) -> { category, options: [{ venueId, rank, score, details, votes }] }
-export async function getSessionStopChoices(sessionId, stopId, { category, start } = {}) {
-  const { data } = await api.get(sessionPath(sessionId, `/stops/${encodeURIComponent(stopId)}/choices`), { params: { ...(category ? { category } : {}), ...(Number.isFinite(start) ? { start } : {}) }, timeout: SESSION_TIMEOUT_MS })
+// How to call: await getSessionStopChoices('3b1f...', '5d0c...', { category: 'drink' }) -> { category, options: [{ venueId, rank, score, details, votes }] }
+export async function getSessionStopChoices(sessionId, stopId, { category } = {}) {
+  const { data } = await api.get(sessionPath(sessionId, `/stops/${encodeURIComponent(stopId)}/choices`), { params: { ...(category ? { category } : {}) }, timeout: SESSION_TIMEOUT_MS })
   if (!Array.isArray(data?.options)) throw new Error(notJsonMessage())
   return data
 }
@@ -652,6 +652,10 @@ export const ROAM_TIMEOUT_MS = 10000
 function toRoamPlace(r, block = null) {
   return {
     ...toOption(r, block),
+    // A session's server names no need (it sends one flag instead of `verify` and `dietUnknown`), so a card still reads lists.
+    verify: r.verify ?? [],
+    dietUnknown: r.dietUnknown ?? [],
+    ...(r.checkNeeds === true ? { checkNeeds: true } : {}),
     id: r.venueId,
     travelMinutes: r.travelMinutes,
     distanceKm: r.distanceKm,

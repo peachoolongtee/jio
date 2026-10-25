@@ -1097,7 +1097,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   // How to call: await setTravelMode('3b1f...', '5d0c...', 'mrt'); await deleteStop('3b1f...', '5d0c...'); await reorderStops('3b1f...', ['9e41...', '5d0c...'])
   const setTravelMode = (sessionId, stopId, mode) => ask(() => backend.patchStop(sessionId, stopId, { travelMode: mode }), { host_only: 'Only the host can change how the group travels.', wrong_status: WORDS.needConfirmed })
   const deleteStop = (sessionId, stopId) => ask(() => backend.deleteStop(sessionId, stopId), { host_only: 'Only the host can delete a stop.', wrong_status: WORDS.needConfirmed })
-  const reorderStops = (sessionId, stopIds) => ask(() => backend.reorderStops(sessionId, stopIds), { host_only: 'Only the host can rearrange the stops.', wrong_status: WORDS.needConfirmed, stop_not_found: WORDS.planChanged })
+  const reorderStops = (sessionId, stopIds) => ask(() => backend.reorderStops(sessionId, stopIds), { host_only: 'Only the host can rearrange the stops.', wrong_status: WORDS.needConfirmed, stops_changed: WORDS.planChanged })
 
   // The ids of a session's stops in order, read afresh: what a move is checked against, so a move made from a list another device has
   // since changed is turned away instead of putting a stop where the person did not mean.
@@ -1108,8 +1108,9 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     return rows.sort((a, b) => a.seq - b.seq).map((x) => x.id)
   }
 
-  // ASSUMED routes (see plannerApi.js): the indoor swap offered for a stop, the places that could take a stop's place, and putting one in.
-  // How to call: await stopSwap('3b1f...', '5d0c...'); await stopChoices('3b1f...', '5d0c...', { category: 'drink', start: 900 }); await changeStopPlace('3b1f...', '5d0c...', { venueId: 'v25', seenVenueId: 'v12', category: 'drink' })
+  // The indoor swap offered for a stop, the places that could take a stop's place, and putting one in (see plannerApi.js). The first two are
+  // reads. `not_found` is a server that does not have the route yet.
+  // How to call: await stopSwap('3b1f...', '5d0c...'); await stopChoices('3b1f...', '5d0c...', { category: 'drink' }); await changeStopPlace('3b1f...', '5d0c...', { venueId: 'v25', seenVenueId: 'v12', category: 'drink' })
   const stopSwap = (sessionId, stopId) => ask(() => backend.stopSwap(sessionId, stopId), { wrong_status: WORDS.needConfirmed, not_found: WORDS.notBuilt })
   const stopChoices = (sessionId, stopId, options) => ask(() => backend.stopChoices(sessionId, stopId, options), { host_only: 'Only the host can replace a stop.', wrong_status: WORDS.needConfirmed, not_found: WORDS.notBuilt })
   const changeStopPlace = (sessionId, stopId, body) =>

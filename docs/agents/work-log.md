@@ -1473,4 +1473,25 @@ The stage 4 two-device check was run on 26 October on `dev` at `056078f`; the re
 
 Results are filled in below as they arrive.
 
+Results of round 34, checked by the lead's session on 26 October:
+
+- **Gaps closed** (`feat/sessions-stage-5-integration` at `2c51420`, five commits).
+  - Three stateless reads, members only and confirmed only, with no Google calls and at most 60 OneMap trips:
+    - `GET /stops/:stopId/swap`;
+    - `GET /stops/:stopId/choices` (host only);
+    - `POST /roam` (E16).
+  - Opting out of a confirmed plan is now allowed. It writes the opt-out, dismisses the person's waiting proposals and raises `sessions.replan`, in one `apply_session_plan` patch. Leaving and removal in `confirmed` are still refused.
+  - A stale reorder answers 409 `stops_changed` on both sides.
+  - The migration is unchanged. SQL steps 258 to 269 were added; all 269 pass on PGlite, not on the live project.
+  - No state is kept in memory.
+  - Checked again by the lead's session, with outbound calls blocked:
+    - backend 1770 passed, 2 skipped, exit 0;
+    - frontend 2500 passed under `TZ=UTC`, exit 0, nothing blocked;
+    - build exit 0.
+- **Rain as layered drops** (`feat/rain-layered-drops`, `ebe7ad6`, two commits).
+  - Tokens, `lib/rainLook.js`, `styles/rain.css`, `RainChip`, `SingaporeMap.vue` and a Leaflet `rain` pane on `PlannerMap.vue`.
+  - The chip says "Rain likely · next 2 h" only for the live two-hour forecast, "Rain likely" for other live forecasts, and "Simulated rain" for the demo.
+  - `DESIGN.md` has a Weather section.
+  - Checked again: frontend 2303 passed (exit 0), also under `TZ=UTC` with outbound calls blocked; build exit 0.
+
 **Added to round 34 the same day.** The lead approved section 2 of the mock-up as drawn: when the host presses Start, two cards, "Find the fairest spot" (the default) or "We already know where" (with "We're here now", which opens Roam). Guests see the choice. It is built by a frontend engineer on `feat/start-choice`, off `feat/sessions-stage-5-integration`, because "We're here now" needs E16 and the new migration must come after stage 5's. The host's choice is stored in a new column on `sessions`. `meeting_method` holds the planner's result, not the host's intent. The live migrations were listed first: nine, the last `jio_apply_session_plan_slots`. Nothing is applied.

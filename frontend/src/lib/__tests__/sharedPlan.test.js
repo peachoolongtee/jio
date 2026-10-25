@@ -271,6 +271,16 @@ describe('the itinerary on two devices', () => {
     expect(stopsInOrder(w, id).map((s) => s.id)).toEqual([seen[1], seen[0], seen[2], seen[3]])
   })
 
+  it('is told 409 stops_changed (not "no such stop") by the server when the list it sends is not the plan\'s, and says the plan changed', async () => {
+    const { w, sam, id } = await confirmed()
+    const seen = (await sam.api.getItinerary(id)).stops.map((s) => s.stopId)
+    // The browser's own check passes (the list is the plan's as it reads it), but the server's plan has lost a stop since.
+    w.database.run({ as: SERVICE, kind: 'delete', table: 'stops', filters: [eq('id', seen[3])] })
+    const failure = await sam.api.api.put(`/api/sessions/${id}/stops/order`, { stopIds: seen }).catch((e) => e)
+    expect(failure).toMatchObject({ code: 'stops_changed', status: 409 })
+    expect(stopsInOrder(w, id).map((s) => s.id)).toEqual(seen.slice(0, 3))
+  })
+
   it('moves nothing for a move to where the stop is, or out of range', async () => {
     const { w, sam, id } = await confirmed()
     await sam.api.reorderStops(id, 1, 1)
@@ -415,12 +425,11 @@ describe('re-planning', () => {
     expect(sessionRow(w, id)).toMatchObject({ status: 'voting', plan_version: version })
   })
 
-  it('asks "Re-plan?" of a plan whose member opted out (where the server allows it) and shows it to everyone', async () => {
+  it('asks "Re-plan?" of a plan whose member opted out and shows it to everyone', async () => {
     const { w, sam, kim, id } = await confirmed()
-    w.server.plan.confirmedOptOut = true
     await kim.api.optOut(id, kim.id)
     const mine = await sam.api.getSession(id)
-    expect(mine.replan).toMatchObject({ reason: 'Kim opted out.' })
+    expect(mine.replan).toMatchObject({ reason: expect.stringMatching(/^Kim opted out\. The meeting area would stay at /) })
     expect(mine.status).toBe('confirmed')
   })
 })
@@ -665,6 +674,14 @@ describe('changing a stop\'s place, the one way', () => {
     expect(options.length).toBeGreaterThan(0)
     const inPlan = new Set(itinerary.stops.map((s) => s.venue.id))
     expect(options.every((o) => !inPlan.has(o.id) && o.venue.name && Array.isArray(o.reasons))).toBe(true)
+  })
+
+  it('asks the server for the list with the kind alone: it ranks for the stop\'s own time, so the browser sends none', async () => {
+    const { w, sam, id } = await confirmed()
+    const drink = stopOf(await sam.api.getItinerary(id), 'drink')
+    await sam.api.replaceChoices(id, drink.slotId, 'activity')
+    expect(callsTo(w, 'stopChoices')[0]).toMatchObject({ method: 'GET', path: `/api/sessions/${id}/stops/${drink.stopId}/choices`, query: { category: 'activity' } })
+    expect(Object.keys(callsTo(w, 'stopChoices')[0].query)).toEqual(['category'])
   })
 
   it('puts the chosen place in the stop for everyone, keeping the stop\'s time, and sends what the host saw', async () => {

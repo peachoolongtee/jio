@@ -207,7 +207,7 @@ describe('the calls it makes and the sentences for their refusals', () => {
     await r.deleteStop('s', 'p')
     await r.reorderStops('s', ['p', 'q'])
     await r.stopSwap('s', 'p')
-    await r.stopChoices('s', 'p', { category: 'drink', start: 900 })
+    await r.stopChoices('s', 'p', { category: 'drink' })
     await r.changeStopPlace('s', 'p', { venueId: 'v2', seenVenueId: 'v1', category: 'drink' })
     await r.roam('s', { categories: ['eat'] })
     await r.propose('s', 'v2')
@@ -222,7 +222,7 @@ describe('the calls it makes and the sentences for their refusals', () => {
       ['deleteStop', 's', 'p'],
       ['reorderStops', 's', ['p', 'q']],
       ['stopSwap', 's', 'p'],
-      ['stopChoices', 's', 'p', { category: 'drink', start: 900 }],
+      ['stopChoices', 's', 'p', { category: 'drink' }],
       ['changeStopPlace', 's', 'p', { venueId: 'v2', seenVenueId: 'v1', category: 'drink' }],
       ['roam', 's', { categories: ['eat'] }],
       ['propose', 's', 'v2'],
@@ -244,7 +244,7 @@ describe('the calls it makes and the sentences for their refusals', () => {
     ['setTravelMode', ['s', 'p', 'walk'], 'stop_not_found', WORDS.stopGone],
     ['deleteStop', ['s', 'p'], 'last_stop', WORDS.lastStop],
     ['deleteStop', ['s', 'p'], 'host_only', 'Only the host can delete a stop.'],
-    ['reorderStops', ['s', ['p']], 'stop_not_found', WORDS.planChanged],
+    ['reorderStops', ['s', ['p']], 'stops_changed', WORDS.planChanged],
     ['reorderStops', ['s', ['p']], 'host_only', 'Only the host can rearrange the stops.'],
     ['changeStopPlace', ['s', 'p', {}], 'venue_does_not_fit', WORDS.doesNotFit],
     ['changeStopPlace', ['s', 'p', {}], 'stop_changed', WORDS.planChanged],

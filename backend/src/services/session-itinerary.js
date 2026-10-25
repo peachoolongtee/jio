@@ -22,6 +22,9 @@ import { optionsOf, windowOf } from './session-slots.js'
 // The most stops a plan holds (the database's limit, MAX.stops in routes/plan-schemas.js).
 export const MAX_STOPS = 8
 
+// How long a stop added from a Roam proposal lasts, and the length Roam ranks places for, in minutes.
+export const ROAM_MINUTES = 60
+
 // Is this stop one added from a Roam proposal (no slot)? Such a stop keeps its earliest start when the order changes.
 //
 // How to call:

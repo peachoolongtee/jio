@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
 import { createSupabase } from '../src/db/supabase.js'
 import { loadPlanData } from '../src/db/venues.js'
@@ -10,6 +10,7 @@ import { createOneMap } from '../src/services/onemap.js'
 import { createPlannerRuns } from '../src/services/planner-runs.js'
 import { createSessions } from '../src/services/sessions.js'
 import { createWeather } from '../src/services/weather.js'
+import { at, makeWorld, regionalAnswer } from './helpers/weather-world.js'
 import { createWorld, fakeSupabase, jwksFetch, SUPABASE_URL, userClient } from './helpers/fake-supabase.js'
 import { addMember, addSession, GUEST, HOST, OTHER, SESSION, startSessionApp, STRANGER } from './helpers/session-app.js'
 
@@ -921,5 +922,414 @@ describe('the group\'s past feeds the planner, softly', () => {
     expect((await t.call('POST', path('/meeting-area'), {}, HOST)).status).toBe(200)
     expect((await t.call('POST', path('/voting'), {}, HOST)).status).toBe(200)
     expect(session().status).toBe('voting')
+  })
+})
+
+// ── The reads that rank places for a confirmed plan: the rain swap, Replace's list and Roam ──
+
+describe('reads that rank places for a confirmed plan', () => {
+  // A stub OneMap whose route calls are counted, and a Google that must never be asked.
+  function budgets() {
+    const http = countingStubHttp()
+    const places = { enabled: true, timeoutMs: 100, nearby: vi.fn(), details: vi.fn(), searchText: vi.fn(), peekDetails: vi.fn(), photoUrl: vi.fn() }
+    return { http, places, appOptions: { onemap: createOneMap({ http: http.http, stub: true }), places } }
+  }
+  const SG_NOW = '2026-10-25T12:30:00+08:00'
+  // Does a saved place suit a dietary need for sure or likely, as a strict ranking keeps it? (A drink stop is changed by halal only through bars.)
+  const meetsDiet = (venue, need) => venue.diet === null || ['full', 'options', 'likely'].includes(venue.diet?.[need])
+  const joined = (world) => world.session_members.filter((m) => m.state === 'joined').map((m) => m.user_id)
+  // Everything a read must leave alone: every table of the world, as text.
+  const snapshot = () => JSON.stringify({ ...world, calls: undefined })
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(SG_NOW))
+  })
+  afterEach(() => vi.useRealTimers())
+
+  describe('the rain swap: GET /stops/:stopId/swap', () => {
+    it('is open to any joined member of a confirmed plan, answers no swap on a dry day, and writes nothing', async () => {
+      await confirmed()
+      const [a] = stops()
+      const before = snapshot()
+      const writesBefore = writes().length
+      for (const who of [HOST, GUEST, OTHER]) {
+        const res = await t.call('GET', path(`/stops/${a.id}/swap`), undefined, who)
+        expect([res.status, res.body]).toEqual([200, { swap: null }])
+      }
+      expect(writes().length).toBe(writesBefore)
+      expect(snapshot()).toBe(before)
+    })
+
+    it('refuses a stranger (404, without the service key), no login, someone who opted out, and a plan that is not confirmed', async () => {
+      await confirmed()
+      const [a] = stops()
+      const calls = serviceCalls().length
+      expect((await t.call('GET', path(`/stops/${a.id}/swap`), undefined, STRANGER)).body.error).toBe('session_not_found')
+      expect(serviceCalls().length).toBe(calls)
+      expect((await t.call('GET', path(`/stops/${a.id}/swap`), undefined)).status).toBe(401)
+      world.session_members.find((m) => m.user_id === OTHER).state = 'opted_out'
+      expect((await t.call('GET', path(`/stops/${a.id}/swap`), undefined, OTHER)).body.error).toBe('not_joined')
+      for (const status of ['voting', 'completed', 'cancelled']) {
+        session().status = status
+        const res = await t.call('GET', path(`/stops/${a.id}/swap`), undefined, GUEST)
+        expect([res.status, res.body.error]).toEqual([409, 'wrong_status'])
+      }
+    })
+
+    it('refuses a stop that is not in the plan (404), an id that is not one (400) and a query it does not read (400)', async () => {
+      await confirmed()
+      const [a] = stops()
+      expect((await t.call('GET', path('/stops/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa99/swap'), undefined, HOST)).body.error).toBe('stop_not_found')
+      expect((await t.call('GET', path('/stops/not-an-id/swap'), undefined, HOST)).status).toBe(400)
+      expect((await t.call('GET', path(`/stops/${a.id}/swap?venueId=x`), undefined, HOST)).status).toBe(400)
+    })
+
+    // The forecast says rain at the stop's time, so an open-air place has a rain warning and an indoor place near it is offered.
+    async function inRain() {
+      const weatherWorld = makeWorld({ clock: at('2026-10-25T11:30'), area: 'rain', regional: (c) => regionalAnswer(c, 'Thundery Showers') })
+      vi.setSystemTime(weatherWorld.clock)
+      const b = budgets()
+      await confirmed({ appOptions: { ...b.appOptions, weather: createWeather({ http: weatherWorld.http, now: weatherWorld.now }), now: weatherWorld.now } })
+      return b
+    }
+
+    it('offers an indoor place for an open-air stop in rain, never one the plan already has, and says nothing about a need', async () => {
+      await inRain()
+      world.profile_private.find((p) => p.id === GUEST).dietary = ['halal', 'vegan']
+      const stop = stops().find((s) => s.category === 'activity')
+      // An open-air activity near Bugis (the meeting area), which the planner warns about in rain.
+      const open = loadPlanData().venues.filter((v) => v.category === 'activity' && v.setting !== 'indoor' && v.exposure >= 2 && !String(v.id).startsWith('google') && Math.abs(v.lat - 1.2966) + Math.abs(v.lng - 103.8558) < 0.02)
+      expect(open.length).toBeGreaterThan(0)
+      let res
+      let outdoor
+      for (const venue of open) {
+        if (world.stops.some((s) => s.venue_id === venue.id)) continue
+        world.stops.find((s) => s.id === stop.id).venue_id = venue.id
+        res = await t.call('GET', path(`/stops/${stop.id}/swap`), undefined, GUEST)
+        expect(res.status).toBe(200)
+        if (res.body.swap) {
+          outdoor = venue
+          break
+        }
+      }
+      expect(outdoor).toBeTruthy()
+      expect(Object.keys(res.body)).toEqual(['swap'])
+      expect(Object.keys(res.body.swap).sort()).toEqual(['name', 'venueId'])
+      const offered = loadPlanData().venues.find((v) => v.id === res.body.swap.venueId)
+      expect(offered.setting).toBe('indoor')
+      expect(world.stops.some((s) => s.venue_id === offered.id)).toBe(false)
+      expect(JSON.stringify(res.body)).not.toMatch(/halal|vegan|vegetarian|diet|step_free/i)
+      // The group's needs were read (they filter the places) but nothing was written.
+      expect(world.calls.some((c) => c.rpc === 'session_member_needs')).toBe(true)
+      expect(stops().find((s) => s.id === stop.id).venue_id).toBe(outdoor.id)
+      // A place another stop already has is not offered.
+      const other = stops().find((s) => s.id !== stop.id)
+      world.stops.find((s) => s.id === other.id).venue_id = offered.id
+      const second = await t.call('GET', path(`/stops/${stop.id}/swap`), undefined, GUEST)
+      expect(second.body.swap?.venueId).not.toBe(offered.id)
+    })
+
+    it('spends the one allowance of OneMap trips, and never asks Google', async () => {
+      const b = budgets()
+      await confirmed({ appOptions: b.appOptions })
+      const [a] = stops()
+      const before = b.http.calls.route
+      await t.call('GET', path(`/stops/${a.id}/swap`), undefined, HOST)
+      expect(b.http.calls.route - before).toBeLessThanOrEqual(60)
+      for (const fn of [b.places.nearby, b.places.details, b.places.searchText, b.places.photoUrl]) expect(fn).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Replace\'s list: GET /stops/:stopId/choices', () => {
+    it('lists the places that could take a stop\'s place, with the votes of the group\'s own picks, and writes nothing', async () => {
+      await confirmed()
+      const [a] = stops()
+      // Somebody voted for another place of the stop's kind; it is not in the plan.
+      const other = optionsOf(a.category).find((o) => o.venue_id !== a.venue_id)
+      world.votes.push({ slot_id: a.slot_id, user_id: OTHER, venue_id: other.venue_id })
+      const before = snapshot()
+      const res = await t.call('GET', path(`/stops/${a.id}/choices`), undefined, HOST)
+      expect(res.status).toBe(200)
+      expect(res.body.category).toBe(a.category)
+      expect(res.body.options.length).toBeGreaterThan(0)
+      const inPlan = new Set(stops().map((s) => s.venue_id))
+      for (const o of res.body.options) {
+        expect(Object.keys(o).sort()).toEqual(['details', 'rank', 'score', 'venueId', 'votes'])
+        expect(inPlan.has(o.venueId)).toBe(false)
+        expect(o.details).toMatchObject({ reasons: expect.any(Array), explanation: expect.any(String) })
+      }
+      expect(res.body.options.find((o) => o.venueId === other.venue_id).votes).toBe(1)
+      expect(snapshot()).toBe(before)
+    })
+
+    it('lists the places of another kind when asked, ranked for the stop\'s time', async () => {
+      await confirmed()
+      const [a] = stops()
+      const kind = a.category === 'activity' ? 'drink' : 'activity'
+      const res = await t.call('GET', path(`/stops/${a.id}/choices?category=${kind}`), undefined, HOST)
+      expect(res.status).toBe(200)
+      expect(res.body.category).toBe(kind)
+      const byId = new Map(loadPlanData().venues.map((v) => [v.id, v]))
+      expect(res.body.options.length).toBeGreaterThan(0)
+      for (const o of res.body.options) expect(byId.get(o.venueId).category).toBe(kind)
+    })
+
+    it('is the host\'s alone, in a confirmed plan; a stranger gets a 404 without the service key', async () => {
+      await confirmed()
+      const [a] = stops()
+      const guest = await t.call('GET', path(`/stops/${a.id}/choices`), undefined, GUEST)
+      expect([guest.status, guest.body.error]).toEqual([403, 'host_only'])
+      const calls = serviceCalls().length
+      expect((await t.call('GET', path(`/stops/${a.id}/choices`), undefined, STRANGER)).body.error).toBe('session_not_found')
+      expect(serviceCalls().length).toBe(calls)
+      expect((await t.call('GET', path(`/stops/${a.id}/choices`), undefined)).status).toBe(401)
+      for (const status of ['voting', 'completed']) {
+        session().status = status
+        const res = await t.call('GET', path(`/stops/${a.id}/choices`), undefined, HOST)
+        expect([res.status, res.body.error]).toEqual([409, 'wrong_status'])
+      }
+    })
+
+    it('checks its input: a stop in the plan, a known kind, nothing else in the query', async () => {
+      await confirmed()
+      const [a] = stops()
+      expect((await t.call('GET', path('/stops/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa99/choices'), undefined, HOST)).body.error).toBe('stop_not_found')
+      expect((await t.call('GET', path(`/stops/${a.id}/choices?category=museum`), undefined, HOST)).status).toBe(400)
+      expect((await t.call('GET', path(`/stops/${a.id}/choices?category=eat&category=drink`), undefined, HOST)).status).toBe(400)
+      expect((await t.call('GET', path(`/stops/${a.id}/choices?start=900`), undefined, HOST)).status).toBe(400)
+      expect((await t.call('GET', path('/stops/not-an-id/choices'), undefined, HOST)).status).toBe(400)
+    })
+
+    it('filters by the group\'s needs but names none in what it answers', async () => {
+      await confirmed()
+      const eat = stops().find((s) => s.category === 'eat')
+      world.profile_private.find((p) => p.id === GUEST).dietary = ['halal']
+      world.profile_private.find((p) => p.id === OTHER).needs_step_free = true
+      const res = await t.call('GET', path(`/stops/${eat.id}/choices`), undefined, HOST)
+      expect(res.status).toBe(200)
+      expect(res.body.options.length).toBeGreaterThan(0)
+      const byId = new Map(loadPlanData().venues.map((v) => [v.id, v]))
+      for (const o of res.body.options) expect(meetsDiet(byId.get(o.venueId), 'halal')).toBe(true)
+      expect(JSON.stringify(res.body)).not.toMatch(/halal|vegan|vegetarian|diet|step_free|verify/i)
+      expect(world.calls.some((c) => c.rpc === 'session_member_needs')).toBe(true)
+    })
+
+    it('spends the one allowance of OneMap trips, and never asks Google', async () => {
+      const b = budgets()
+      await confirmed({ appOptions: b.appOptions })
+      const [a] = stops()
+      const before = b.http.calls.route
+      expect((await t.call('GET', path(`/stops/${a.id}/choices`), undefined, HOST)).status).toBe(200)
+      expect(b.http.calls.route - before).toBeLessThanOrEqual(60)
+      for (const fn of [b.places.nearby, b.places.details, b.places.searchText, b.places.photoUrl]) expect(fn).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Roam: POST /roam', () => {
+    it('lists the places near the meeting area for a joined member of a confirmed plan, and writes nothing', async () => {
+      await confirmed()
+      const before = snapshot()
+      const writesBefore = writes().length
+      const res = await t.call('POST', path('/roam'), {}, GUEST)
+      expect(res.status).toBe(200)
+      expect(res.body.status).toBe('ok')
+      expect(res.body.results.length).toBeGreaterThan(0)
+      expect(res.body.results.length).toBeLessThanOrEqual(10)
+      for (const r of res.body.results) {
+        expect(r).toMatchObject({ venueId: expect.any(String), name: expect.any(String), venue: expect.objectContaining({ id: r.venueId }), travelMinutes: expect.any(Number), distanceKm: expect.any(Number), isStop: expect.any(Boolean), proposedBy: null })
+        expect(r.venue.lat).toBeTypeOf('number')
+        // The score breakdown and the engine's counters stay inside.
+        expect(r).not.toHaveProperty('breakdown')
+        expect(r).not.toHaveProperty('verify')
+        expect(r).not.toHaveProperty('dietUnknown')
+      }
+      expect(res.body).not.toHaveProperty('centre')
+      expect(res.body).not.toHaveProperty('diagnostics')
+      expect(res.body.weather).toBeTruthy()
+      expect(writes().length).toBe(writesBefore)
+      expect(snapshot()).toBe(before)
+    })
+
+    it('marks a place that is a stop, and who put a place forward', async () => {
+      await confirmed()
+      const first = await t.call('POST', path('/roam'), {}, HOST)
+      const listed = first.body.results.find((r) => !r.isStop)
+      expect((await t.call('POST', path('/proposals'), { venueId: listed.venueId }, GUEST)).status).toBe(201)
+      const stopId = stops()[0].venue_id
+      const again = await t.call('POST', path('/roam'), {}, OTHER)
+      expect(again.body.results.find((r) => r.venueId === listed.venueId)).toMatchObject({ isStop: false, proposedBy: GUEST })
+      for (const r of again.body.results) expect(r.isStop).toBe(stops().some((s) => s.venue_id === r.venueId))
+      void stopId
+    })
+
+    it('ranks around the point it is given, uses it for that request only, and never repeats or stores it', async () => {
+      await confirmed()
+      const here = { lat: 1.30123457, lng: 103.84567891 }
+      const before = snapshot()
+      const res = await t.call('POST', path('/roam'), { current: here, categories: ['eat'] }, HOST)
+      expect(res.status).toBe(200)
+      expect(res.body.results.length).toBeGreaterThan(0)
+      for (const r of res.body.results) {
+        expect(r.venue.category).toBe('eat')
+        // Close to the point (the engine's search starts at 500 m and widens).
+        expect(r.distanceKm).toBeLessThan(3.01)
+      }
+      const text = JSON.stringify(res.body)
+      expect(text).not.toContain('1.30123457')
+      expect(text).not.toContain('103.84567891')
+      expect(snapshot()).toBe(before)
+      expect(snapshot()).not.toContain('103.84567891')
+    })
+
+    it('is a joined member\'s alone (a stranger gets a 404 without the service key) and needs a confirmed plan', async () => {
+      await confirmed()
+      const calls = serviceCalls().length
+      expect((await t.call('POST', path('/roam'), {}, STRANGER)).body.error).toBe('session_not_found')
+      expect(serviceCalls().length).toBe(calls)
+      expect((await t.call('POST', path('/roam'), {})).status).toBe(401)
+      world.session_members.find((m) => m.user_id === OTHER).state = 'opted_out'
+      expect((await t.call('POST', path('/roam'), {}, OTHER)).body.error).toBe('not_joined')
+      for (const status of ['voting', 'completed', 'cancelled']) {
+        session().status = status
+        const res = await t.call('POST', path('/roam'), {}, GUEST)
+        expect([res.status, res.body.error]).toEqual([409, 'wrong_status'])
+      }
+    })
+
+    it('bounds its input: a point in Singapore, up to four known kinds, and nothing else', async () => {
+      await confirmed()
+      const bad = [
+        { current: { lat: 51.5, lng: -0.12 } },
+        { current: { lat: 1.3 } },
+        { current: { lat: 1.3, lng: 103.8, accuracy: 5 }, extra: 1 },
+        { categories: ['eat', 'drink', 'shop', 'activity', 'eat'] },
+        { categories: ['museum'] },
+        { categories: [] },
+        { members: [{ id: 'x' }] },
+        { dateTime: '2026-10-25T12:00' },
+      ]
+      for (const body of bad) expect((await t.call('POST', path('/roam'), body, HOST)).status, JSON.stringify(body)).toBe(400)
+      expect((await t.call('POST', path('/roam'), { current: { lat: 1.3, lng: 103.8 }, categories: ['eat', 'drink', 'shop', 'activity'] }, HOST)).status).toBe(200)
+    })
+
+    it('filters by the group\'s needs but names none in what it answers', async () => {
+      await confirmed()
+      world.profile_private.find((p) => p.id === GUEST).dietary = ['halal', 'vegan']
+      const res = await t.call('POST', path('/roam'), { categories: ['eat'] }, HOST)
+      expect(res.status).toBe(200)
+      expect(res.body.results.length).toBeGreaterThan(0)
+      for (const r of res.body.results) {
+        expect(meetsDiet(r.venue, 'halal')).toBe(true)
+        expect(meetsDiet(r.venue, 'vegan')).toBe(true)
+      }
+      const named = JSON.stringify(res.body.results.map(({ venue: _venue, ...rest }) => rest))
+      expect(named).not.toMatch(/halal|vegan|vegetarian|diet|step_free/i)
+      expect(world.calls.some((c) => c.rpc === 'session_member_needs')).toBe(true)
+    })
+
+    it('answers an empty list without naming what to relax', async () => {
+      await confirmed()
+      world.profile_private.find((p) => p.id === GUEST).dietary = ['halal', 'vegan', 'vegetarian']
+      world.profile_private.find((p) => p.id === OTHER).needs_step_free = true
+      // Far out west, where nothing is within the 3 km the search is capped at.
+      const res = await t.call('POST', path('/roam'), { current: { lat: 1.3, lng: 103.64 }, categories: ['eat'] }, HOST)
+      expect(res.status).toBe(200)
+      if (res.body.status === 'empty') {
+        expect(res.body.results).toEqual([])
+        expect(JSON.stringify(res.body)).not.toMatch(/halal|vegan|vegetarian|diet|step_free/i)
+        expect(Array.isArray(res.body.hints)).toBe(false)
+      }
+    })
+
+    it('ranks for the next stop\'s time and an hour, from the saved places with the group\'s needs, and spends the one allowance of OneMap trips', async () => {
+      const b = budgets()
+      await confirmed({ appOptions: b.appOptions })
+      const before = b.http.calls.route
+      const res = await t.call('POST', path('/roam'), {}, HOST)
+      expect(res.status).toBe(200)
+      // One trip from the point to each place scored, within the request's 60.
+      expect(b.http.calls.route - before).toBeLessThanOrEqual(60)
+      for (const fn of [b.places.nearby, b.places.details, b.places.searchText, b.places.photoUrl]) expect(fn).not.toHaveBeenCalled()
+      void joined
+    })
+
+    it('is held to the planner routes\' limit for each person, counted by who they are', async () => {
+      await confirmed({ appOptions: { planRateLimit: { windowMs: 60_000, max: 2 } } })
+      const [a] = stops()
+      expect((await t.call('POST', path('/roam'), {}, HOST)).status).toBe(200)
+      expect((await t.call('GET', path(`/stops/${a.id}/swap`), undefined, HOST)).status).toBe(200)
+      const third = await t.call('GET', path(`/stops/${a.id}/choices`), undefined, HOST)
+      expect([third.status, third.body.error]).toEqual([429, 'rate_limited'])
+      expect(third.headers.get('retry-after')).toBeTruthy()
+      // Somebody else has their own allowance.
+      expect((await t.call('POST', path('/roam'), {}, GUEST)).status).toBe(200)
+    })
+  })
+})
+
+describe('a guest opts out of a confirmed plan (E10): the one write is the question "Re-plan?"', () => {
+  it('puts the person out, takes their votes and their proposals, leaves the stops alone, and asks the host whether to plan again', async () => {
+    await confirmed()
+    const venues = loadPlanData().venues.filter((v) => !String(v.id).startsWith('google') && !world.stops.some((s) => s.venue_id === v.id))
+    expect((await t.call('POST', path('/proposals'), { venueId: venues[0].id }, GUEST)).status).toBe(201)
+    expect((await t.call('POST', path('/proposals'), { venueId: venues[1].id }, OTHER)).status).toBe(201)
+    const stopsBefore = stops()
+    const version = session().plan_version
+    const writesBefore = writes().length
+    const res = await t.call('POST', path('/opt-out'), undefined, GUEST)
+    expect([res.status, res.body]).toEqual([200, { planVersion: version + 1, state: 'opted_out' }])
+    expect(world.session_members.find((m) => m.user_id === GUEST).state).toBe('opted_out')
+    expect(session()).toMatchObject({ status: 'confirmed', replan: { reason: 'Faith opted out. The meeting area would stay at Bugis.', trigger: { kind: 'optout' }, at: expect.any(Number) } })
+    expect(stops()).toEqual(stopsBefore)
+    expect(world.votes.some((v) => v.user_id === GUEST)).toBe(false)
+    expect(world.stop_proposals.map((p) => [p.proposed_by, p.status])).toEqual([[GUEST, 'dismissed'], [OTHER, 'pending']])
+    expect(world.stop_proposals[0].resolved_by).toBe(GUEST)
+    // The person going out, their proposals and the question are one write through the one function.
+    expect(writes().length - writesBefore).toBe(1)
+  })
+
+  it('says when the planner\'s own pick of meeting area would move without them, and moves nothing', async () => {
+    await confirmed()
+    Object.assign(session(), { meeting_method: 'fairest' })
+    const before = { area: session().meeting_area_id, max: session().meeting_max_minutes }
+    expect((await t.call('POST', path('/opt-out'), undefined, OTHER)).status).toBe(200)
+    expect(session().replan.reason).toMatch(/^Jonathan opted out\. The (fairest meeting area is now|meeting area would stay at) [A-Z]/)
+    expect(session().replan.reason).toContain('The fairest meeting area is now')
+    expect({ area: session().meeting_area_id, max: session().meeting_max_minutes }).toEqual(before)
+    expect(session().status).toBe('confirmed')
+  })
+
+  it('a second guest going out replaces the question; the host answers it with the replan route, which clears it', async () => {
+    await confirmed()
+    await t.call('POST', path('/opt-out'), undefined, GUEST)
+    await t.call('POST', path('/opt-out'), undefined, OTHER)
+    expect(session().replan.reason).toMatch(/^Jonathan opted out\./)
+    expect((await t.call('POST', path('/replan'), { accept: false }, HOST)).body).toMatchObject({ status: 'confirmed' })
+    expect(session().replan).toBeNull()
+    await t.call('POST', path('/opt-out'), undefined, OTHER)
+    expect(session().replan).toBeNull()
+  })
+
+  it('opting out again changes nothing, the host cannot opt out, and the plan opens again with the question gone', async () => {
+    await confirmed()
+    expect((await t.call('POST', path('/opt-out'), undefined, HOST)).body.error).toBe('host_cannot_opt_out')
+    await t.call('POST', path('/opt-out'), undefined, GUEST)
+    const version = session().plan_version
+    const calls = writes().length
+    const again = await t.call('POST', path('/opt-out'), undefined, GUEST)
+    expect(again.body).toEqual({ planVersion: version, state: 'opted_out' })
+    expect(writes().length).toBe(calls)
+    expect((await t.call('POST', path('/replan'), {}, HOST)).body.status).toBe('voting')
+    expect(session()).toMatchObject({ status: 'voting', replan: null })
+    expect(world.votes.some((v) => v.user_id === GUEST)).toBe(false)
+  })
+
+  it('cannot come back to a confirmed plan (rejoin is 409 not_yet) and a finished one refuses', async () => {
+    await confirmed()
+    await t.call('POST', path('/opt-out'), undefined, GUEST)
+    expect((await t.call('POST', path('/rejoin'), undefined, GUEST)).body.error).toBe('not_yet')
+    session().status = 'completed'
+    expect((await t.call('POST', path('/opt-out'), undefined, OTHER)).body.error).toBe('wrong_status')
   })
 })

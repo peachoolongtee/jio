@@ -329,7 +329,7 @@ describe('what the cards say of dietary needs: the server names none, and the br
 })
 
 describe('opting out, rejoining and a paused session', () => {
-  it('takes the person\'s votes when they opt out, lets them rejoin while voting, and refuses it once confirmed in words', async () => {
+  it('takes the person\'s votes when they opt out, lets them rejoin while voting, and once confirmed asks "Re-plan?" and refuses a rejoin in words', async () => {
     const { w, sam, kim, id, plan } = await voting({ known: 'bugis' })
     const eat = bySlot(plan, 'eat')
     await kim.api.vote(id, eat.id, kim.id, eat.options[0].id)
@@ -338,9 +338,11 @@ describe('opting out, rejoining and a paused session', () => {
     expect(rows(w, 'votes').map((v) => v.user_id)).toEqual([sam.id])
     await kim.api.rejoinSession(id)
     expect(rows(w, 'session_members').find((m) => m.user_id === kim.id).state).toBe('joined')
-    // The plan is confirmed (stage 5 does this; here the row is set): opting out and rejoining are not possible any more.
+    // The plan is confirmed (here the row is set): opting out is allowed and writes only the question "Re-plan?", and rejoining is not possible.
     rows(w, 'sessions')[0].status = 'confirmed'
-    await expect(kim.api.optOut(id, kim.id)).rejects.toMatchObject({ code: 'not_yet', message: "You can't opt out once the plan is confirmed." })
+    await kim.api.optOut(id, kim.id)
+    expect(rows(w, 'sessions')[0]).toMatchObject({ status: 'confirmed', replan: { reason: expect.stringMatching(/ opted out\./), trigger: { kind: 'optout' } } })
+    expect(rows(w, 'session_members').find((m) => m.user_id === kim.id).state).toBe('opted_out')
     await expect(kim.api.rejoinSession(id)).rejects.toMatchObject({ code: 'not_yet', message: "You can't rejoin once the plan is confirmed." })
   })
 
