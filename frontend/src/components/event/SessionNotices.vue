@@ -11,7 +11,8 @@ export function votesClearedBanner(session) {
 <script setup>
 // The notices at the top of every session screen:
 //   - Votes cleared, while voting, when the meeting area moved and took the votes with it (dismissible)
-//   - Re-plan? after Confirmed, when a location changes or someone opts out
+//   - Re-plan? after Confirmed, when a location changes or someone opts out. On the server only the host answers it (the others are told
+//     who decides); a refusal or a failure is one line under the question, with the buttons still there to try again.
 //   - Not enough people, when an opt-out leaves fewer than 2
 //   - Cancelled
 //   - Closed, for an outing completed two days past its end with no confirmed plan (lib/api.js settleOutings)
@@ -24,13 +25,18 @@ import AppButton from '../ui/AppButton.vue'
 import BannerNote from '../ui/BannerNote.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
 import { CANCEL_OUTING, NO_COINS, isPaused } from '@/lib/session.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({ session: { type: Object, required: true } })
 const router = useRouter()
 const events = useEventsStore()
+const auth = useAuthStore()
 const cancelOpen = ref(false)
 const busy = ref(false)
+const replanError = ref('')
+// Who answers "Re-plan?": anyone in a session of this browser; only the host in a shared one (the server's rule).
+const mayAnswer = computed(() => !props.session.remote || props.session.hostId === auth.myId)
 
 const paused = computed(() => isPaused(props.session))
 const clearedBanner = computed(() => votesClearedBanner(props.session))
@@ -48,8 +54,15 @@ async function dismissBanner() {
 
 async function answerReplan(accept) {
   busy.value = true
-  await events.respondReplan(props.session.id, accept)
-  busy.value = false
+  replanError.value = ''
+  try {
+    await events.respondReplan(props.session.id, accept)
+  } catch (e) {
+    replanError.value = e.message
+    return
+  } finally {
+    busy.value = false
+  }
   if (accept) router.push(`/sessions/${props.session.id}/plan`)
 }
 
@@ -71,7 +84,9 @@ async function cancel() {
 
     <BannerNote v-if="session.replan && session.status === 'confirmed'" tone="warning" icon="warning">
       <strong>Re-plan?</strong> {{ session.replan.reason }}
-      <template #actions>
+      <template v-if="!mayAnswer"> {{ session.hostName || 'The host' }} decides.</template>
+      <template v-if="replanError"><span class="replan-error text-error" role="alert" data-testid="replan-error">{{ replanError }}</span></template>
+      <template v-if="mayAnswer" #actions>
         <AppButton small :disabled="busy" @click="answerReplan(true)">Re-plan</AppButton>
         <AppButton small variant="secondary" :disabled="busy" @click="answerReplan(false)">Keep plan</AppButton>
       </template>
@@ -95,4 +110,5 @@ async function cancel() {
 
 <style scoped>
 .notices { display: flex; flex-direction: column; gap: var(--spacing-sm); }
+.replan-error { display: block; }
 </style>

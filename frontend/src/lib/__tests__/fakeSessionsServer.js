@@ -36,6 +36,10 @@
 // exact place, and opting out or leaving takes the person's approvals and suggestion with them. Travel is a straight-line
 // estimate, 5 minutes and 4 per km, so a test can compute what it expects.
 //
+// Stage 5 (the plan on the server, ticket 130) adds the routes of ./fakeSessionsServer.plan.js: the suggested order (E22), the confirm
+// (E12), re-planning (E13), ending the outing and its ledger (E14), the stops (E15 and its order route), changing a stop's place (ASSUMED)
+// and Roam (E16, E23, E24). Its list of paths and its hooks are at the top of that file.
+//
 // Hooks for a test: `server.down = true` (no answer at all, like a lost connection), `server.after.<route> = async () => {}` (run after
 // the server has read the session and before it writes, so another change can land in between), `server.calls` (every request).
 // How to call: const server = fakeSessionsServer(database); app.api.api.defaults.adapter = server.adapter
@@ -45,6 +49,7 @@ import { AREAS } from '../mock/places.js'
 import { VENUES } from '../mock/venues.js'
 import { asBackendVenue, standInConverge, standInSearch } from '../../components/dev/offlinePlanner.js'
 import { OPTIONS_MAX, distanceKm, fromMinutes, reconcileOptions, toMinutes } from '../planner/index.js'
+import { registerPlan } from './fakeSessionsServer.plan.js'
 
 const OPEN = ['inviting', 'locating']
 const SUGGESTIONS_MAX = 8
@@ -672,8 +677,16 @@ export function fakeSessionsServer(database) {
     ['POST', /^\/slots\/([^/]+)\/options\/([^/]+)\/swap$/, 'swapOption', ['slot', 'venue']],
     ['GET', /^\/slots\/([^/]+)\/venue-search$/, 'venueSearch', ['slot']],
   ]
+  // Stage 5: the plan, the itinerary, finishing and Roam (./fakeSessionsServer.plan.js) add their routes and paths here.
+  registerPlan(
+    { rows, sessionOf, memberOf, write, eq, refuse, load, apply, after, server, repriceVoting, rank, areaOf, slotsOf, optionsOf, tripMinutes, located, pricing, nameOf: (id) => database.getProfiles([id])[id]?.display_name },
+    routes,
+    PATTERNS,
+  )
   function route(method, path) {
     if (method === 'GET' && path === '/api/venues') return { name: 'venues', id: null }
+    const outside = server.plan?.routeOutsideSessions(method, path)
+    if (outside) return outside
     const m = /^\/api\/sessions\/([^/]+)(\/.*)?$/.exec(path)
     if (!m) return null
     const [, id, tail = ''] = m

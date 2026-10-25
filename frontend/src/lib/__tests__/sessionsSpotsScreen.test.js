@@ -359,7 +359,7 @@ describe('the banner about marks that went with a spot', () => {
 })
 
 describe('the Vote page of a shared session', () => {
-  it('lists the places the server offered, names the confirmed spot as the area, and stops at the plan (stage 4: sessionsVotingScreen.test.js has the rest)', async () => {
+  it('lists the places the server offered, names the confirmed spot as the area, and has Confirm plan for the host, with nothing about a next update (stage 4: sessionsVotingScreen.test.js has the rest)', async () => {
     const { w, sam, id } = await locating()
     const first = (await sam.api.getSession(id)).spots.list[0]
     await sam.api.confirmSpot(id, first.areaId)
@@ -369,8 +369,10 @@ describe('the Vote page of a shared session', () => {
     expect(view.errors).toEqual([])
     expect(view.has('[data-testid=voting-next]')).toBe(false)
     expect(view.text()).toContain(`Walking times are from ${first.area.name}`)
-    expect(view.text(view.one('[data-testid=confirm-next]'))).toContain('Confirming the plan with friends comes in the next update.')
-    expect(view.text()).not.toContain('Confirm plan')
+    // Stage 5: the host (this is Sam's page) has Confirm plan, disabled until two people have voted; stage 4's note is gone.
+    expect(view.has('[data-testid=confirm-next]')).toBe(false)
+    expect(view.text()).not.toContain('comes in the next update')
+    expect(view.text()).toContain('Needs 2 voters')
     expect(view.has('[data-testid=plan-error]')).toBe(false)
   })
 })

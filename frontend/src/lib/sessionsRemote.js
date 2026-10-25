@@ -23,13 +23,24 @@
 // session's version, which is read again. `details` (what the planner said of each slot and place) is read only for the Vote page
 // (`readPlan`), not for the list Home uses; and the votes are read so that the 1,000 rows one answer can hold never cuts any off.
 //
+// Stage 5 adds the plan: the itinerary (`stops`, in order, with each stop's earliest start and how the group gets to it, and the session's
+// order columns: the sentence about the order and who chose it, and when the plan starts), the places members have put forward as the
+// next stop (`stop_proposals`, pending ones only), the "Re-plan?" question (`sessions.replan`) and, once the outing is over, a person's own
+// travel ledger row. They are read here for a session that is confirmed or completed (`outingOf`) and answered in the shape the local data
+// layer keeps a plan in (`plan: { stops, modes, startAt, aiNote }`, `proposals`, `replan`), so the screens and the rules that lay the
+// itinerary out do not change. Everything that changes the plan is a call to the Jio server: the suggested order and the confirm (the
+// browser sends only which order it saw and that order's `basis`, never stops, a reason or a source), re-planning, ending the outing,
+// moving, deleting and timing stops, changing a stop's place, and Roam (the list, proposing, answering a proposal).
+//
 // Another member's exact place is never read, shown or kept: `session_member_places` is read with the person's own id and
 // only its two labels, so what comes back is the person's own, and everyone else's start is the area name. The table is
 // not listened to. A person who is not a member is shown only the preview of an invite (title, date, times, the host's name).
 //
 // `client()` is the Supabase client (or null), `me()` the signed-in user's id, `backend` the calls to the Jio server
 // (`removeMember`, `refreshSpots`, `putSpot`, `deleteSpot`, `confirmSpot`, `knownPlace`, `optOut`, `rejoin`, and from stage 4 `syncPlan`,
-// `setRadius`, `deleteSlot`, `restoreSlots`, `addOption`, `moreOptions`, `swapOption`, `searchSlot`, `venues`), `now()` the clock
+// `setRadius`, `deleteSlot`, `restoreSlots`, `addOption`, `moreOptions`, `swapOption`, `searchSlot`, `venues`, and from stage 5
+// `suggestOrder`, `confirmPlan`, `replan`, `complete`, `patchStop`, `deleteStop`, `reorderStops`, `stopSwap`, `stopChoices`,
+// `changeStopPlace`, `roam`, `propose`, `resolve`), `now()` the clock
 // in milliseconds.
 // How to call: const remote = createSessionsRemote({ client: () => auth.dataClient(), me: () => currentUserId(), backend, now: Date.now })
 
@@ -75,8 +86,30 @@ export const WORDS = {
   notIn: 'Only people in this session can do that.',
   hostOptOut: 'The host cannot opt out.',
   busy: 'Jio is busy with another change to this session. Try again in a moment.',
-  // What stops at the next stage: confirming the plan, the itinerary and finishing, with friends. Shown where a real account's session reaches it.
-  comesNext: 'Confirming the plan with friends comes in the next update.',
+  // Stage 5: the plan, the itinerary and finishing.
+  notShared: "That isn't available in a shared session yet.",
+  photosLater: 'Photos are not shared yet. They come in a later update.',
+  placeMissing: 'A place in the plan could not be found. Try again in a moment.',
+  // A route the server does not have (yet): the stand-in for the parts of stage 5 that the server may not have built.
+  notBuilt: 'That is not available yet. Try again after the next update.',
+  planClosed: 'The plan can only be confirmed while the group is voting.',
+  notEnoughVotes: 'At least 2 people need to vote first.',
+  nothingToConfirm: 'Vote for at least one place first.',
+  orderStale: 'The votes changed, so the suggested order changed too. Look at it again and confirm.',
+  orderChanged: 'The votes changed, so the order below was updated.',
+  hostPlan: 'Only the host can do that to the plan.',
+  needConfirmed: 'Only a confirmed plan can be changed.',
+  stopGone: 'That stop is not in the plan any more.',
+  lastStop: 'A plan needs at least one stop.',
+  noLeg: 'The first stop has no travel into it.',
+  planChanged: 'The plan changed. Look at it again.',
+  planFull: 'The plan has 8 stops, the most it can hold.',
+  alreadyStop: 'That place is already in the plan.',
+  tooManyProposals: 'Too many places are waiting. Take one back, or ask the host to decide on them.',
+  proposalGone: 'That proposal is no longer there.',
+  completeClosed: 'Only a confirmed plan can be ended.',
+  alreadyCompleted: 'This outing has already finished.',
+  roamClosed: 'Places can be proposed once the plan is confirmed.',
   // Stage 4: voting on places.
   votesClosed: 'Votes are read-only once the plan is confirmed.',
   placesClosed: 'Places can only change while the group is voting.',
@@ -118,6 +151,19 @@ const CODE_WORDS = {
   venue_does_not_fit: WORDS.doesNotFit,
   option_not_found: WORDS.optionGone,
   no_meeting_area: WORDS.noMeetingArea,
+  not_enough_votes: WORDS.notEnoughVotes,
+  nothing_to_confirm: WORDS.nothingToConfirm,
+  order_stale: WORDS.orderStale,
+  stop_not_found: WORDS.stopGone,
+  last_stop: WORDS.lastStop,
+  // The server's 409s for a plan that moved under the caller (stops_changed: the list sent is not the plan's; stop_changed: the stop holds another place).
+  stops_changed: WORDS.planChanged,
+  stop_changed: WORDS.planChanged,
+  no_leg: WORDS.noLeg,
+  plan_full: WORDS.planFull,
+  already_a_stop: WORDS.alreadyStop,
+  too_many_proposals: WORDS.tooManyProposals,
+  proposal_not_found: WORDS.proposalGone,
 }
 
 // A refusal from the Jio server as an Error with a sentence fit to show, its code kept on `code` and the HTTP status (when the
@@ -158,7 +204,7 @@ export function plain(error, fallback = WORDS.notSaved) {
 }
 
 // Nothing read for planning yet. How to call: toSession(row, members, invites, NO_PLANNING)
-const NO_PLANNING = { spots: [], suggestions: [], approvals: [], places: [], slots: [], options: [], votes: [] }
+const NO_PLANNING = { spots: [], suggestions: [], approvals: [], places: [], slots: [], options: [], votes: [], stops: [], proposals: [] }
 
 // How to call: const remote = createSessionsRemote({ client, me, backend, now })
 export function createSessionsRemote({ client, me, backend = {}, now = Date.now } = {}) {
@@ -327,6 +373,43 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
+  // What the itinerary and the Roam page read of one session, from the rows read for it: the plan (the stops in order, how the group gets to
+  // each from the one before, when the plan starts, and the sentence about the order with who chose it), the "Re-plan?" question, the
+  // places members have put forward, and how the outing ended. The plan is the local data layer's own shape, `{ stops, modes, startAt,
+  // aiNote }`, so the rules that lay the itinerary out run on it unchanged; each stop also carries its row's `stopId`. A stop made from a
+  // proposal has no slot (`slot_id` is null) and is named `roam-<id>`, as the local layer names it. It is a plan only once confirmed.
+  // How to call: outingOf(row, planning) -> { plan, replan, proposals, endedBy, completedAt }
+  function outingOf(row, planning) {
+    const sid = row.id
+    const rows = planning.stops.filter((x) => x.session_id === sid).sort((a, b) => a.seq - b.seq)
+    const stops = rows.map((x) => ({
+      stopId: x.id,
+      slotId: x.slot_id ?? `roam-${x.id}`,
+      category: x.category,
+      venueId: x.venue_id,
+      plannedStart: x.planned_start_minute,
+      duration: x.duration_minutes,
+      ...(x.not_before_minute != null ? { notBefore: x.not_before_minute } : {}),
+    }))
+    const noted = typeof row.order_reason === 'string' && row.order_reason && ['ai', 'rules'].includes(row.order_source)
+    const plan = ['confirmed', 'completed'].includes(row.status) && stops.length
+      ? { stops, modes: rows.slice(1).map((x) => x.travel_mode ?? undefined), startAt: row.plan_start_minute ?? null, aiNote: noted ? { reason: row.order_reason, source: row.order_source } : null }
+      : null
+    // The question the server asks after a change to a confirmed plan. Whatever else it holds, the screens read only the sentence.
+    const asked = row.replan && typeof row.replan === 'object' && !Array.isArray(row.replan) ? row.replan : null
+    const replan = row.status === 'confirmed' && asked ? { reason: typeof asked.reason === 'string' && asked.reason ? asked.reason : 'The group changed.', trigger: asked.trigger ?? null } : null
+    const proposals = planning.proposals
+      .filter((x) => x.session_id === sid)
+      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))
+      .map((x) => ({ id: x.id, venueId: x.venue_id, by: x.proposed_by, at: Date.parse(x.created_at) }))
+    return {
+      plan,
+      replan,
+      proposals: row.status === 'confirmed' ? proposals : [],
+      ...(row.status === 'completed' ? { endedBy: 'hand', completedAt: row.completed_at ? Date.parse(row.completed_at) : null } : {}),
+    }
+  }
+
   // A session as the screens keep it, from its rows. The host first, then the people who joined in the order they came, then
   // the people invited by name who have not answered (only while the session is inviting: when it starts, invitations nobody
   // answered lapse). A person who opted out stays on the list in that state.
@@ -354,6 +437,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
       planVersion: Number(row.plan_version) || 0,
       ...planningOf(row, memberRows, planning, me()),
       ...planOf(row, memberRows, planning),
+      ...outingOf(row, planning),
       remote: true,
     }
   }
@@ -362,7 +446,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   const CHUNK = 100
   // How many channels this factory has opened, for their topics.
   let opened = 0
-  const SESSION_COLUMNS = 'id, host_id, title, date, start_time, end_time, status, created_at, updated_at, plan_version, radius_meters, meeting_area_id, meeting_method, meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, banner'
+  const SESSION_COLUMNS = 'id, host_id, title, date, start_time, end_time, status, created_at, updated_at, plan_version, radius_meters, meeting_area_id, meeting_method, meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, banner, replan, completed_at, order_reason, order_source, plan_start_minute'
   const MEMBER_COLUMNS = 'session_id, user_id, role, state, joined_at, start_area_id, end_area_id, travel_minutes, updated_at, categories, stay_until'
   // `details` is what the planner said of a slot or a place, and only the Vote page's cards read it, so the reads that Home and the
   // session screens use (list, get) leave it out; readPlan has it.
@@ -371,6 +455,10 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   const WITH_DETAILS = (columns) => `${columns}, details`
   const VOTE_COLUMNS = 'slot_id, user_id, venue_id, updated_at'
   const INVITE_COLUMNS = 'session_id, invitee_id, revoked, declined_at, uses, expires_at, created_at'
+  // The itinerary and the proposals waiting. A stop's `travel_mode` is how the group gets to it from the stop before.
+  const STOP_COLUMNS = 'id, session_id, seq, slot_id, category, venue_id, planned_start_minute, duration_minutes, travel_mode, not_before_minute'
+  const PROPOSAL_COLUMNS = 'id, session_id, venue_id, proposed_by, created_at'
+  const LEDGER_COLUMNS = 'session_id, minutes_in, minutes_between, minutes_home, total_minutes, delta_from_mean'
   const SPOT_COLUMNS = 'session_id, area_id, rank, worst_minutes, mean_minutes, travel_minutes, approximate, computed_at'
   const SUGGESTION_COLUMNS = 'session_id, user_id, area_id, here, created_at'
   const APPROVAL_COLUMNS = 'session_id, area_id, user_id, created_at'
@@ -380,20 +468,36 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   // The rows of spots, suggestions, approvals and the person's own places for the sessions that have got past inviting, a
   // hundred sessions at a time. The exact places are asked for with the person's own id, so only their own row is ever read.
   // How to call: const planning = await readPlanning(['3b1f...'])
-  async function readPlanning(ids, planIds = [], { details = false } = {}) {
+  async function readPlanning(ids, planIds = [], { details = false, outing = [] } = {}) {
     if (!ids.length) return NO_PLANNING
     const mine = who()
     const chunks = []
     for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK))
     const all = async (build) => (await Promise.all(chunks.map(build))).flatMap((answered) => answer(answered, WORDS.notLoaded))
-    const [spots, suggestions, approvals, places, plan] = await Promise.all([
+    const [spots, suggestions, approvals, places, plan, made] = await Promise.all([
       all((chunk) => db().from('session_spots').select(SPOT_COLUMNS).in('session_id', chunk)),
       all((chunk) => db().from('spot_suggestions').select(SUGGESTION_COLUMNS).in('session_id', chunk)),
       all((chunk) => db().from('spot_approvals').select(APPROVAL_COLUMNS).in('session_id', chunk)),
       all((chunk) => db().from('session_member_places').select(PLACE_LABELS).eq('user_id', mine).in('session_id', chunk)),
       readPlanRows(planIds, { details }),
+      readOuting(outing),
     ])
-    return { spots, suggestions, approvals, places, ...plan }
+    return { spots, suggestions, approvals, places, ...plan, ...made }
+  }
+
+  // The stops of some sessions and the places waiting to be added to them, a hundred sessions at a time. Pending proposals only: one that
+  // was answered is a stop, or was left out.
+  // How to call: const { stops, proposals } = await readOuting(['3b1f...'])
+  async function readOuting(sessionIds) {
+    if (!sessionIds.length) return { stops: [], proposals: [] }
+    const chunks = []
+    for (let i = 0; i < sessionIds.length; i += CHUNK) chunks.push(sessionIds.slice(i, i + CHUNK))
+    const all = async (build) => (await Promise.all(chunks.map(build))).flatMap((answered) => answer(answered, WORDS.notLoaded))
+    const [stops, proposals] = await Promise.all([
+      all((chunk) => db().from('stops').select(STOP_COLUMNS).in('session_id', chunk)),
+      all((chunk) => db().from('stop_proposals').select(PROPOSAL_COLUMNS).eq('status', 'pending').in('session_id', chunk)),
+    ])
+    return { stops, proposals }
   }
 
   // The slots of some sessions, then the places offered in them and the votes for them, a hundred at a time (the votes by the rows they
@@ -457,6 +561,9 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   // The sessions that can have slots, places and votes to read: those the group is voting in or has gone on from.
   // How to call: withPlan(rows) -> ['3b1f...']
   const withPlan = (rows) => rows.filter((r) => ['voting', 'confirmed', 'completed'].includes(r.status)).map((r) => r.id)
+  // The sessions that can have stops and proposals to read: those the plan is confirmed for, or the outing has finished.
+  // How to call: withOuting(rows) -> ['3b1f...']
+  const withOuting = (rows) => rows.filter((r) => ['confirmed', 'completed'].includes(r.status)).map((r) => r.id)
 
   // Every session the person is in, newest first, in a few reads for all of them.
   // How to call: const sessions = await list()
@@ -471,7 +578,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     const [members, invites, planning] = await Promise.all([
       Promise.all(chunks.map((chunk) => db().from('session_members').select(MEMBER_COLUMNS).in('session_id', chunk))),
       Promise.all(chunks.map((chunk) => db().from('invites').select(INVITE_COLUMNS).in('session_id', chunk))),
-      readPlanning(planned(rows), withPlan(rows), { details: false }),
+      readPlanning(planned(rows), withPlan(rows), { details: false, outing: withOuting(rows) }),
     ])
     const memberRows = members.flatMap((answered) => answer(answered, WORDS.notLoaded))
     const inviteRows = invites.flatMap((answered) => answer(answered, WORDS.notLoaded))
@@ -491,7 +598,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     ])
     const row = answer(found, WORDS.notLoaded)
     if (!row) throw Object.assign(new Error('This session does not exist.'), { code: 'not_found' })
-    const planning = await readPlanning(planned([row]), withPlan([row]), { details: false })
+    const planning = await readPlanning(planned([row]), withPlan([row]), { details: false, outing: withOuting([row]) })
     return toSession(row, answer(members, WORDS.notLoaded), answer(invites, WORDS.notLoaded), planning)
   }
 
@@ -928,6 +1035,98 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
+  // ── The plan: the suggested order, the confirm, the itinerary, finishing ──
+
+  // The 64 hex characters of an order's basis (a hash of the winners and the session's day and times, made by the server).
+  const BASIS = /^[0-9a-f]{64}$/
+
+  // The server's suggested order as the Confirm dialog reads it, or null when the server has none to offer or its answer is not one the
+  // dialog can show: `{ basis, order: [slotId], stops: [{ slotId, venueId, start }], reason, source }`. The server sends no names, categories
+  // or lengths; the caller fills those in from the slots it holds. A malformed answer is no suggestion (the voted order stays), never a guess.
+  // How to call: orderFrom({ status: 'ok', basis: 'a3f9...', order: ['a'], stops: [{ slotId: 'a', venueId: 'v1', start: 600 }], reason: 'Shops first.', source: 'ai' })
+  function orderFrom(answered) {
+    if (answered?.status !== 'ok' || !BASIS.test(String(answered.basis))) return null
+    const { order, stops } = answered
+    if (!Array.isArray(order) || !Array.isArray(stops) || !order.length || order.length !== stops.length || order.length > 8) return null
+    const whole = stops.every((x, i) => x && typeof x.slotId === 'string' && x.slotId === order[i] && typeof x.venueId === 'string' && Number.isFinite(x.start) && x.start >= 0 && x.start < 2880)
+    if (!whole || new Set(order).size !== order.length) return null
+    return {
+      basis: answered.basis,
+      order: [...order],
+      stops: stops.map((x) => ({ slotId: x.slotId, venueId: x.venueId, start: x.start })),
+      reason: typeof answered.reason === 'string' ? answered.reason : '',
+      source: answered.source === 'ai' ? 'ai' : 'rules',
+    }
+  }
+
+  // The host asks for the suggested order of the winning places. Nothing is saved by this. Resolves the suggestion (see orderFrom), or null
+  // when there is none. Rejects with a sentence: the host only; the group is no longer voting; fewer than 2 have voted.
+  // How to call: const suggestion = await suggestOrder('3b1f...')
+  async function suggestOrder(sessionId) {
+    const answered = await ask(() => backend.suggestOrder(sessionId), { host_only: 'Only the host can confirm the plan.', wrong_status: WORDS.planClosed })
+    return orderFrom(answered)
+  }
+
+  // The host confirms the plan. `order` is 'voted', or 'suggested' with the `basis` of the suggestion the host was shown; the server writes
+  // the stops itself, from its own rows, and refuses a basis that is no longer its own (`code` 'order_stale', 409: it did nothing).
+  // Resolves the server's small answer.
+  // How to call: await confirmPlan('3b1f...', { order: 'suggested', basis: 'a3f9...' })
+  const confirmPlan = (sessionId, { order = 'voted', basis } = {}) => ask(() => backend.confirmPlan(sessionId, { order, basis }), { host_only: 'Only the host can confirm the plan.', wrong_status: WORDS.planClosed })
+
+  // The host takes the plan back to voting (`accept`), or only turns the "Re-plan?" question off.
+  // How to call: await replan('3b1f...', true)
+  const replan = (sessionId, accept = true) => ask(() => backend.replan(sessionId, accept), { host_only: 'Only the host can re-plan.', wrong_status: WORDS.needConfirmed })
+
+  // The host ends the outing; the server writes everyone's travel ledger row.
+  // How to call: await complete('3b1f...')
+  const complete = (sessionId) => ask(() => backend.complete(sessionId), { host_only: 'Only the host can finish the outing.', wrong_status: WORDS.completeClosed })
+
+  // The host sets how the group gets to a stop, deletes a stop, or rearranges all of them (`stopIds`, every stop in the new order).
+  // How to call: await setTravelMode('3b1f...', '5d0c...', 'mrt'); await deleteStop('3b1f...', '5d0c...'); await reorderStops('3b1f...', ['9e41...', '5d0c...'])
+  const setTravelMode = (sessionId, stopId, mode) => ask(() => backend.patchStop(sessionId, stopId, { travelMode: mode }), { host_only: 'Only the host can change how the group travels.', wrong_status: WORDS.needConfirmed })
+  const deleteStop = (sessionId, stopId) => ask(() => backend.deleteStop(sessionId, stopId), { host_only: 'Only the host can delete a stop.', wrong_status: WORDS.needConfirmed })
+  const reorderStops = (sessionId, stopIds) => ask(() => backend.reorderStops(sessionId, stopIds), { host_only: 'Only the host can rearrange the stops.', wrong_status: WORDS.needConfirmed, stop_not_found: WORDS.planChanged })
+
+  // The ids of a session's stops in order, read afresh: what a move is checked against, so a move made from a list another device has
+  // since changed is turned away instead of putting a stop where the person did not mean.
+  // How to call: const ids = await stopIds('3b1f...') -> ['5d0c...', '9e41...']
+  async function stopIds(sessionId) {
+    who()
+    const rows = answer(await db().from('stops').select('id, seq').eq('session_id', sessionId), WORDS.notLoaded)
+    return rows.sort((a, b) => a.seq - b.seq).map((x) => x.id)
+  }
+
+  // ASSUMED routes (see plannerApi.js): the indoor swap offered for a stop, the places that could take a stop's place, and putting one in.
+  // How to call: await stopSwap('3b1f...', '5d0c...'); await stopChoices('3b1f...', '5d0c...', { category: 'drink', start: 900 }); await changeStopPlace('3b1f...', '5d0c...', { venueId: 'v25', seenVenueId: 'v12', category: 'drink' })
+  const stopSwap = (sessionId, stopId) => ask(() => backend.stopSwap(sessionId, stopId), { wrong_status: WORDS.needConfirmed, not_found: WORDS.notBuilt })
+  const stopChoices = (sessionId, stopId, options) => ask(() => backend.stopChoices(sessionId, stopId, options), { host_only: 'Only the host can replace a stop.', wrong_status: WORDS.needConfirmed, not_found: WORDS.notBuilt })
+  const changeStopPlace = (sessionId, stopId, body) =>
+    ask(() => backend.changeStopPlace(sessionId, stopId, body), {
+      host_only: 'Only the host can replace a stop.',
+      wrong_status: WORDS.needConfirmed,
+      venue_does_not_fit: WORDS.doesNotFit,
+      stop_changed: WORDS.planChanged,
+      not_found: WORDS.notBuilt,
+    })
+
+  // Roam. The list of places near the group (nothing is written), a place put forward as the next stop, and the answer to a proposal.
+  // `propose` resolves { id, existing } (`existing` when that place was already waiting); `resolve` the server's small answer.
+  // How to call: const list = await roam('3b1f...', { current, categories }); await propose('3b1f...', 'v25'); await resolve('3b1f...', 'c7ae...', true)
+  const roam = (sessionId, options) => ask(() => backend.roam(sessionId, options), { wrong_status: WORDS.roamClosed, not_found: WORDS.notBuilt })
+  const propose = (sessionId, venueId) => ask(() => backend.propose(sessionId, venueId), { wrong_status: WORDS.roamClosed, not_found: WORDS.notBuilt })
+  const resolve = (sessionId, proposalId, accept) => ask(() => backend.resolve(sessionId, proposalId, accept), { host_only: 'Only the host can add a place to the plan.', wrong_status: WORDS.roamClosed, not_found: WORDS.notBuilt })
+
+  // The person's own row of the travel ledger for a finished outing: how long they spent getting there, between stops and home, and how that
+  // compares with the group's average (minutes more, or fewer when negative). Their row only, whatever the rules let them read. Resolves
+  // { minutesIn, minutesBetween, minutesHome, total, delta }, or null while there is none.
+  // How to call: const ledger = await myLedger('3b1f...')
+  async function myLedger(sessionId) {
+    const mine = who()
+    const row = answer(await db().from('commute_ledger').select(LEDGER_COLUMNS).eq('session_id', sessionId).eq('user_id', mine).maybeSingle(), WORDS.notLoaded)
+    if (!row) return null
+    return { minutesIn: row.minutes_in, minutesBetween: row.minutes_between, minutesHome: row.minutes_home, total: row.total_minutes ?? row.minutes_in + row.minutes_between + row.minutes_home, delta: Number(row.delta_from_mean) || 0 }
+  }
+
   // ── Live updates ──────────────────────────────────────────────────────────
 
   // Listen for changes to the person's sessions, on one channel: the sessions they can read, who is in them, invitations
@@ -941,6 +1140,8 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   //                                                   the session it knows, and ignores a slot it does not know);
   //   { kind: 'approval-deleted', sessionId }         a "Works for me" was taken back or removed somewhere (keys only; the
   //                                                   caller keeps those in sessions it knows);
+  //   { kind: 'stop-deleted', stopId }                a stop of some itinerary was removed (its key only; the caller maps it to
+  //                                                   the session it knows, and ignores a stop it does not know);
   //   { kind: 'invitations' }                         an invitation to this person changed;
   //   { kind: 'resync' }                              the channel has connected: what happened before it did is read again.
   // Returns a function that closes the channel.
@@ -979,6 +1180,14 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
         const slotId = p.new?.slot_id || p.old?.slot_id
         if (slotId) onChange({ kind: 'vote', slotId })
       })
+      // The itinerary: a stop added, changed or removed. An insert or update names its session; a delete carries only the stop's key and
+      // reaches everyone who listens, so the caller keeps only the stops it knows. (The proposals and the ledger are not published: they
+      // change with the session's version, which is the sessions row above.)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stops' }, (p) => {
+        const sessionId = p.new?.session_id
+        if (sessionId) onChange({ kind: 'session', sessionId })
+        else if (p.old?.id) onChange({ kind: 'stop-deleted', stopId: p.old.id })
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'invites', filter: `invitee_id=eq.${mine}` }, () => onChange({ kind: 'invitations' }))
       // The host's own links and invitations: one declined, one used, one turned off or run out (on another device too).
       .on('postgres_changes', { event: '*', schema: 'public', table: 'invites', filter: `created_by=eq.${mine}` }, (p) => {
@@ -996,5 +1205,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, readPlan, readSlotVotes, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
+  return { list, get, readPlan, readSlotVotes, suggestOrder, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
 }

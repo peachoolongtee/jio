@@ -4,7 +4,7 @@
 //   - A pin for the meeting area. No one's start is shown.
 //   - Tapping a pin opens a small card with the stop's name, time and price tier.
 // It is a mobile screen; on desktop the itinerary already shows the map, and this is its expanded view.
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import CategoryIcon from '@/components/ui/CategoryIcon.vue'
@@ -15,6 +15,7 @@ import StatusPill from '@/components/ui/StatusPill.vue'
 import PlannerMap from '@/components/map/PlannerMap.vue'
 import NotFoundView from './NotFoundView.vue'
 import { timeAndDuration } from '@/lib/planner/format.js'
+import { watchSessions } from '@/lib/api.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({ id: { type: String, required: true } })
@@ -42,7 +43,13 @@ async function load() {
     else loadError.value = err?.message || 'The map could not be loaded.'
   }
 }
-onMounted(load)
+// A shared session's stops move on the map as they change on another device (a no-op for the demo and local accounts).
+let stopWatching = () => {}
+onMounted(() => {
+  stopWatching = watchSessions()
+  load()
+})
+onBeforeUnmount(() => stopWatching())
 watch(() => props.id, load)
 
 const session = computed(() => events.byId[props.id])
