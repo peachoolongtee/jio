@@ -683,6 +683,51 @@
           "#fec07f",
           "#feebd8"
         ]
+      },
+      "rain-wash": {
+        "role": "secondary",
+        "displayName": "Rain wash",
+        "canonical": "#4f7aa6",
+        "tonalRamp": [
+          "#0a0f15",
+          "#1c2b3b",
+          "#2c455d",
+          "#3d5e80",
+          "#517ca9",
+          "#7c9ec1",
+          "#b3c7db",
+          "#e3ebf2"
+        ]
+      },
+      "rain-streak": {
+        "role": "secondary",
+        "displayName": "Rain streak",
+        "canonical": "#6f9bc8",
+        "tonalRamp": [
+          "#080f16",
+          "#182b3f",
+          "#264564",
+          "#345e89",
+          "#457cb5",
+          "#739ec9",
+          "#aec7e0",
+          "#e1eaf4"
+        ]
+      },
+      "rain-text": {
+        "role": "secondary",
+        "displayName": "Rain text",
+        "canonical": "#2a4866",
+        "tonalRamp": [
+          "#090f16",
+          "#192b3d",
+          "#284562",
+          "#375e86",
+          "#497db1",
+          "#769ec6",
+          "#b0c7de",
+          "#e2ebf3"
+        ]
       }
     },
     "typographyMeta": {
@@ -800,7 +845,116 @@
         "name": "desktop",
         "value": "1128px"
       }
-    ]
+    ],
+    "weather": {
+      "name": "Layered drops",
+      "files": {
+        "look": "frontend/src/lib/rainLook.js",
+        "styles": "frontend/src/styles/rain.css",
+        "chip": "frontend/src/components/weather/RainChip.vue"
+      },
+      "tokens": [
+        {
+          "name": "rain-wash",
+          "value": "#4f7aa6",
+          "purpose": "The tint over a rainy area: 40% in the middle, 28% at half way, 10% near the edge, nothing at it. Feathered, never a hard circle."
+        },
+        {
+          "name": "rain-streak",
+          "value": "#6f9bc8",
+          "purpose": "The drops, 0.38, 0.6 and 0.85 opacity for the far, middle and near layer."
+        },
+        {
+          "name": "rain-text",
+          "value": "#2a4866",
+          "purpose": "Chip text and icon on white: 9.5:1."
+        }
+      ],
+      "darkMode": "None: the app has no dark theme, so each token has one value.",
+      "layers": [
+        {
+          "name": "far",
+          "strokeWidth": 0.8,
+          "opacity": 0.38,
+          "tile": [
+            9,
+            12
+          ],
+          "seconds": 1.7,
+          "travelPx": 12
+        },
+        {
+          "name": "mid",
+          "strokeWidth": 1,
+          "opacity": 0.6,
+          "tile": [
+            14,
+            20
+          ],
+          "seconds": 1.1,
+          "travelPx": 20
+        },
+        {
+          "name": "near",
+          "strokeWidth": 1.5,
+          "opacity": 0.85,
+          "tile": [
+            22,
+            34
+          ],
+          "seconds": 0.65,
+          "travelPx": 34
+        }
+      ],
+      "composition": "A feathered radial wash and the three layers of drops clipped by a feathered mask that ends at 66/72 of the wash radius. Patterns, not nodes: three rectangles for each patch. Under the routes, pins and markers; no pointer events; tiles and attribution untouched.",
+      "chip": {
+        "component": "RainChip",
+        "shadow": "shadow-float",
+        "height": "32px",
+        "icon": "rain",
+        "color": "rain-text",
+        "background": "canvas",
+        "interactive": false,
+        "words": [
+          {
+            "when": "live forecast, two-hour area basis",
+            "text": "Rain likely · next 2 h"
+          },
+          {
+            "when": "live forecast, any other basis",
+            "text": "Rain likely"
+          },
+          {
+            "when": "simulated forecast",
+            "text": "Simulated rain"
+          },
+          {
+            "when": "unavailable, outside the window or not known",
+            "text": "No chip"
+          }
+        ]
+      },
+      "motion": {
+        "rain-in": "900ms ease-out, opacity only, once when the rain first appears",
+        "rain-fall": "linear and endless, transform only; one tile of the pattern each loop",
+        "rain-chip-in": "600ms ease-out after 200ms, opacity and a 4px rise",
+        "reducedMotion": "No falling and no fade: the wash and the drops are drawn still, so the meaning is not lost."
+      },
+      "screens": [
+        {
+          "screen": "Home",
+          "component": "SingaporeMap",
+          "source": "useHomeRain (outings within two hours)",
+          "textEquivalent": "The status line under the greeting; the map and chip are aria-hidden."
+        },
+        {
+          "screen": "Itinerary and full-screen plan map",
+          "component": "PlannerMap",
+          "source": "the stops' weather (itineraryRain)",
+          "textEquivalent": "The chip is inside the map region and is read with it."
+        }
+      ]
+    }
   },
   "components": [
     {
@@ -908,6 +1062,11 @@
         "name": "The Flat At Rest Rule",
         "body": "A card has a hairline and no shadow. It lifts by 2px with `--shadow-float` on hover only when the whole card is a link (`SessionCard`, `PlaceCard`). A card that cannot be clicked does not lift.",
         "section": "elevation"
+      },
+      {
+        "name": "The Rain Look Rule",
+        "body": "Rain on a map is the blue wash and three layers of drops of `--rain-wash` and `--rain-streak`, under everything else on the map, with a white `RainChip` that says where the forecast came from. It is information, never an action, and the chip says \"next 2 h\" only for the live two-hour forecast. Under reduced motion it stands still.",
+        "section": "motion"
       }
     ],
     "dos": [
