@@ -1447,3 +1447,27 @@ Stage 4 is merged (#182) and its migration is live. Its two-device check waits f
 | Stage 5 in the browser (#130) | frontend engineer | `feat/sessions-stage-5-frontend` | The plan confirm, the itinerary, reorder, delete, travel mode, replan, end the outing and the ledger for a real account, live on the other device. Roam proposals if the server half builds them. |
 
 Results are filled in below as they arrive.
+
+Results of round 33:
+
+- **Server half** (`feat/sessions-stage-5`, `5e8d33d`): one migration, `20261023000000`, which folds in `20261011000300`, with SQL test steps 173 to 257. Routes E12, E13, E14, E15, E22, E23 and E24. E16 is not built. Backend suite: 1741 passed. Nothing has been applied.
+- **Browser half** (`feat/sessions-stage-5-frontend`, `15a657c`): the first agent died on a network error with its ten commits intact. A second agent finished the work and added one commit.
+  - Frontend: 2493 passed, also with `TZ=UTC` and with outbound calls blocked.
+  - Backend: 1642 passed. Build succeeded.
+  - It assumes three routes the server does not have: `GET /stops/:stopId/swap`, `GET /stops/:stopId/choices` and `POST /roam`. Each shows "not available yet".
+  - Nothing on the server writes a non-null `sessions.replan`.
+
+## Round 34: stage 5 joined and reconciled (2026-10-26)
+
+The two halves merged with no conflicts on `feat/sessions-stage-5-integration`.
+
+The stage 4 two-device check was run on 26 October on `dev` at `056078f`; the results are on #129.
+- **Passed:** votes, moves and take-backs live on both devices; an added place reaching the other device in 5 to 10 seconds; the radius, its banner and Auto; a reload with no planner run.
+- **Not reachable on screen:** a guest opting out once voting starts.
+- **Not checked:** swap, remove, a changed start.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Close the gaps between the halves | backend implementer | `feat/sessions-stage-5-integration` | Build the three routes the browser expects: the rain swap list, Replace's list, and E16 Roam nearby for a shared session. All three are reads from the planner's pool, with no write. Make the server write `sessions.replan` where the local version raises it. Bring the browser's stand-in server in line. Every suite runs in any time zone with outbound calls blocked. Nothing is applied. |
+
+Results are filled in below as they arrive.
