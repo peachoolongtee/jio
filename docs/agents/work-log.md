@@ -1469,5 +1469,6 @@ The stage 4 two-device check was run on 26 October on `dev` at `056078f`; the re
 | Piece | Agent | Branch | Brief, in short |
 |---|---|---|---|
 | Close the gaps between the halves | backend implementer | `feat/sessions-stage-5-integration` | Build the three routes the browser expects: the rain swap list, Replace's list, and E16 Roam nearby for a shared session. All three are reads from the planner's pool, with no write. Make the server write `sessions.replan` where the local version raises it. Bring the browser's stand-in server in line. Every suite runs in any time zone with outbound calls blocked. Nothing is applied. |
+| Rain as layered drops (the lead picked B from the mock-up, 26 October) | frontend engineer | `feat/rain-layered-drops`, off `dev` | Three tokens (`--rain-wash`, `--rain-streak`, `--rain-text`). The rain patch becomes a feathered blue wash with three layers of falling drops (far, middle, near) under the route and pins, a 900 ms fade in, and a white chip "Rain likely · next 2 h". The same layer goes on the session map. Motion stops under reduced motion. `DESIGN.md` gets a weather section. |
 
 Results are filled in below as they arrive.
