@@ -25,6 +25,10 @@ export const MAX_STOPS = 8
 // How long a stop added from a Roam proposal lasts, and the length Roam ranks places for, in minutes.
 export const ROAM_MINUTES = 60
 
+// How many places a member may have waiting for the host, and the session in all (the function checks the same under its lock).
+export const PROPOSALS_PER_MEMBER = 3
+export const PROPOSALS_PER_SESSION = 10
+
 // Is this stop one added from a Roam proposal (no slot)? Such a stop keeps its earliest start when the order changes.
 //
 // How to call:

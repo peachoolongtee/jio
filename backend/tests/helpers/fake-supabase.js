@@ -63,7 +63,7 @@ const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestion
 //                       session_member_needs reads (no client may read them as a table)
 //   failNeeds           true: session_member_needs fails as a database error
 //   failDebt            true: session_travel_debt fails as a database error (the function is not on the project yet, say)
-//   failPast            true: the signed-in user's reads of finished outings (the sessions with a status filter, and the stops) fail as a database error
+//   failPast            true: the server's read of the finished outings of the group (the members' outings, a read of session_members by user) fails as a database error
 //
 // How to call:
 //   const world = createWorld()
@@ -815,7 +815,7 @@ function query(world, table, who) {
   }
   const execute = () => {
     const rows = world[table]
-    if (op.kind === 'select' && who !== null && world.failPast && ((table === 'sessions' && op.filters.some(([column]) => column === 'status')) || table === 'stops')) {
+    if (op.kind === 'select' && world.failPast && table === 'session_members' && op.filters.some(([column]) => column === 'user_id')) {
       return { data: null, error: dbError('XX000', 'boom') }
     }
     if (op.kind === 'select') {

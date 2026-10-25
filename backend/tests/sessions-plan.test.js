@@ -170,7 +170,7 @@ describe('the suggested order (E22)', () => {
     const drink = optionsOf('drink')[0].venue_id
     await vote(HOST, 'drink', drink)
     const res = await t.call('POST', path('/order/suggest'), undefined, HOST)
-    expect(res.body).toEqual({ status: 'none', why: 'one_movable' })
+    expect(res.body).toEqual({ status: 'none', why: 'one_movable', basis: expect.stringMatching(/^[0-9a-f]{64}$/) })
     expect(session().order_suggestion ?? null).toBeNull()
   })
 
@@ -862,18 +862,27 @@ describe('the group\'s past feeds the planner, softly', () => {
     }
   })
 
-  it('reads the finished outings as the caller (never the service key) and only the newest 30 of the last 60 days', async () => {
-    const { sessions, as } = await serviceFor()
+  it('reads the finished outings with the service key for every joined member, so what is stored does not depend on who asked', async () => {
+    const { sessions, runs, as } = await serviceFor()
     pastOuting('99999999-9999-4999-8999-999999999991')
     // An outing of other people and an old one are not read for this group.
     pastOuting('99999999-9999-4999-8999-999999999992', { people: [OTHER, STRANGER], venue: 'stranger-place' })
     pastOuting('99999999-9999-4999-8999-999999999993', { completedAt: '2026-05-01T20:00:00.000Z', venue: 'old-place' })
-    world.calls.length = 0
-    await sessions.syncPlan(as(HOST))
-    const past = world.calls.filter((c) => ['stops', 'session_members', 'sessions'].includes(c.table) && c.filters?.includes('status'))
-    expect(past.length).toBeGreaterThan(0)
-    expect(past.every((c) => c.who === HOST)).toBe(true)
-    expect(world.calls.some((c) => c.table === 'stops' && c.who === null && c.filters.includes('session_id') && !c.filters.includes('id'))).toBe(false)
+    const historyAfter = async (who) => {
+      runs.runWithTravel.mockClear()
+      world.calls.length = 0
+      await sessions.syncPlan(as(who))
+      const seen = runs.runWithTravel.mock.calls.filter(([, , run]) => run.name === 'converge').map(([, planData]) => planData.visitHistory)
+      return { seen, past: world.calls.filter((c) => ['stops', 'session_members', 'sessions'].includes(c.table) && c.filters?.includes('status')) }
+    }
+    const byHost = await historyAfter(HOST)
+    const byGuest = await historyAfter(GUEST)
+    expect(byHost.seen.length).toBeGreaterThan(0)
+    expect(byHost.seen[0]).toEqual([{ groupId: SESSION, venueId: 'ya-kun-kaya-toast', date: '2026-10-10' }])
+    // The same history whoever asked, read by the server's own key: not as the caller.
+    expect(byGuest.seen).toEqual(byHost.seen)
+    expect(byHost.past.length).toBeGreaterThan(0)
+    expect(byHost.past.every((c) => c.who === null)).toBe(true)
   })
 
   it('plans without it when the travel debt function is not on the project, or the finished outings cannot be read', async () => {
@@ -1331,5 +1340,288 @@ describe('a guest opts out of a confirmed plan (E10): the one write is the quest
     expect((await t.call('POST', path('/rejoin'), undefined, GUEST)).body.error).toBe('not_yet')
     session().status = 'completed'
     expect((await t.call('POST', path('/opt-out'), undefined, OTHER)).body.error).toBe('wrong_status')
+  })
+})
+
+// ── The review's server rules ──
+
+describe('confirming reads the votes again, under the lock', () => {
+  it('turns away a confirm whose tally moved after the host looked and before the write: 409 order_stale, nothing written', async () => {
+    await start()
+    const winners = await voteForThree()
+    const other = optionsOf('eat').map((o) => o.venue_id).find((id) => id !== winners.eat)
+    // Just before the function, two votes move the winner of eat (a vote is a direct write that takes no lock of the server's).
+    world.hooks.beforeApply = () => {
+      world.hooks.beforeApply = undefined
+      world.votes.find((v) => v.user_id === GUEST && v.slot_id === slotOf('eat').id).venue_id = other
+      world.votes.push({ slot_id: slotOf('eat').id, user_id: OTHER, venue_id: other })
+    }
+    const res = await t.call('POST', path('/confirm'), {}, HOST)
+    expect([res.status, res.body.error]).toEqual([409, 'order_stale'])
+    expect(session().status).toBe('voting')
+    expect(world.stops).toHaveLength(0)
+    // The host looks again: the new winner is the stop.
+    const again = await t.call('POST', path('/confirm'), {}, HOST)
+    expect(again.status).toBe(200)
+    expect(stops().find((s) => s.category === 'eat').venue_id).toBe(other)
+  })
+
+  it('takes a tie for a leader, and counts only joined people\'s votes', async () => {
+    await start()
+    const ids = optionsOf('eat').map((o) => o.venue_id)
+    await vote(HOST, 'eat', ids[0])
+    await vote(GUEST, 'eat', ids[1])
+    // OTHER opts out after voting for the second place: a vote of somebody not joined does not count.
+    await vote(OTHER, 'eat', ids[1])
+    world.session_members.find((m) => m.user_id === OTHER).state = 'opted_out'
+    const res = await t.call('POST', path('/confirm'), {}, HOST)
+    expect(res.status).toBe(200)
+    expect([ids[0], ids[1]]).toContain(stops()[0].venue_id)
+  })
+
+  it('takes the basis the host was shown for the voted order too: a basis that is not the votes\' is 409 order_stale and writes nothing', async () => {
+    await start()
+    await voteForThree()
+    const wrong = await t.call('POST', path('/confirm'), { order: 'voted', basis: '0'.repeat(64) }, HOST)
+    expect([wrong.status, wrong.body.error]).toEqual([409, 'order_stale'])
+    expect(world.stops).toHaveLength(0)
+    const shown = (await t.call('POST', path('/order/suggest'), undefined, HOST)).body
+    expect(shown.basis).toMatch(/^[0-9a-f]{64}$/)
+    const ok = await t.call('POST', path('/confirm'), { order: 'voted', basis: shown.basis }, HOST)
+    expect(ok.status).toBe(200)
+    expect(session().status).toBe('confirmed')
+  })
+
+  it('hands the basis out even when there is no order to suggest, so a plan of one movable stop can be confirmed with it', async () => {
+    await start()
+    const ids = optionsOf('eat').map((o) => o.venue_id)
+    await vote(HOST, 'eat', ids[0])
+    await vote(GUEST, 'eat', ids[0])
+    const none = (await t.call('POST', path('/order/suggest'), undefined, HOST)).body
+    expect(none).toMatchObject({ status: 'none', basis: expect.stringMatching(/^[0-9a-f]{64}$/) })
+    expect((await t.call('POST', path('/confirm'), { order: 'voted', basis: none.basis }, HOST)).status).toBe(200)
+  })
+})
+
+describe('a stop kept in the rain is stored on the session (PUT /stops/:stopId/kept-rain)', () => {
+  it('is the host\'s alone, in a confirmed plan, and is stored in sessions.weather_kept', async () => {
+    await confirmed()
+    const [a, b] = stops()
+    const guest = await t.call('PUT', path(`/stops/${a.id}/kept-rain`), { state: 'showers' }, GUEST)
+    expect([guest.status, guest.body.error]).toEqual([403, 'host_only'])
+    const calls = serviceCalls().length
+    expect((await t.call('PUT', path(`/stops/${a.id}/kept-rain`), { state: 'showers' }, STRANGER)).status).toBe(404)
+    expect(serviceCalls().length).toBe(calls)
+    const res = await t.call('PUT', path(`/stops/${a.id}/kept-rain`), { state: 'showers' }, HOST)
+    expect([res.status, res.body]).toEqual([200, { planVersion: expect.any(Number), kept: true }])
+    expect(session().weather_kept).toEqual({ [a.id]: 'showers' })
+    await t.call('PUT', path(`/stops/${b.id}/kept-rain`), { state: 'thundery' }, HOST)
+    expect(session().weather_kept).toEqual({ [a.id]: 'showers', [b.id]: 'thundery' })
+    // The same again changes nothing.
+    const before = writes().length
+    await t.call('PUT', path(`/stops/${a.id}/kept-rain`), { state: 'showers' }, HOST)
+    expect(writes().length).toBe(before)
+  })
+
+  it('checks its input and the plan\'s status', async () => {
+    await confirmed()
+    const [a] = stops()
+    for (const body of [{}, { state: '' }, { state: 'Showers!' }, { state: 'x'.repeat(25) }, { state: 'showers', extra: 1 }]) {
+      expect((await t.call('PUT', path(`/stops/${a.id}/kept-rain`), body, HOST)).status, JSON.stringify(body)).toBe(400)
+    }
+    expect((await t.call('PUT', path('/stops/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa99/kept-rain'), { state: 'showers' }, HOST)).body.error).toBe('stop_not_found')
+    session().status = 'voting'
+    expect((await t.call('PUT', path(`/stops/${a.id}/kept-rain`), { state: 'showers' }, HOST)).body.error).toBe('wrong_status')
+  })
+
+  it('goes when the stop\'s place changes, when the stop is deleted, and when the plan is opened again', async () => {
+    await confirmed()
+    const [a, b, c] = stops()
+    for (const stop of [a, b, c]) await t.call('PUT', path(`/stops/${stop.id}/kept-rain`), { state: 'showers' }, HOST)
+    // Another place in stop b.
+    const candidates = loadPlanData().venues.filter((v) => v.category === b.category && !String(v.id).startsWith('google') && !world.stops.some((s) => s.venue_id === v.id))
+    let changed = false
+    for (const venue of candidates) {
+      const res = await t.call('PUT', path(`/stops/${b.id}/place`), { venueId: venue.id, seenVenueId: b.venue_id }, HOST)
+      if (res.status === 200) {
+        changed = true
+        break
+      }
+    }
+    expect(changed).toBe(true)
+    expect(session().weather_kept).toEqual({ [a.id]: 'showers', [c.id]: 'showers' })
+    expect((await t.call('DELETE', path(`/stops/${a.id}`), undefined, HOST)).status).toBe(200)
+    expect(session().weather_kept).toEqual({ [c.id]: 'showers' })
+    expect((await t.call('POST', path('/replan'), {}, HOST)).body.status).toBe('voting')
+    expect(session().weather_kept ?? null).toBeNull()
+  })
+})
+
+describe('the outing\'s day', () => {
+  const day = (iso) => new Date(iso)
+
+  it('is not finished before its day (409 before_the_day), and can be on and after it', async () => {
+    await confirmed()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(day('2026-10-24T09:00:00+08:00'))
+      const early = await t.call('POST', path('/complete'), {}, HOST)
+      expect([early.status, early.body.error]).toEqual([409, 'before_the_day'])
+      expect(session().status).toBe('confirmed')
+      vi.setSystemTime(day('2026-10-25T09:00:00+08:00'))
+      expect((await t.call('POST', path('/complete'), {}, HOST)).status).toBe(200)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('finishes the day after too (the clock is later than the outing)', async () => {
+    await confirmed()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(day('2026-10-27T09:00:00+08:00'))
+      expect((await t.call('POST', path('/complete'), {}, HOST)).status).toBe(200)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('looks for places near the group only on the day of the outing (409 wrong_day)', async () => {
+    await confirmed()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(day('2026-10-24T20:00:00+08:00'))
+      expect((await t.call('POST', path('/roam'), {}, HOST)).body.error).toBe('wrong_day')
+      vi.setSystemTime(day('2026-10-26T08:00:00+08:00'))
+      expect((await t.call('POST', path('/roam'), {}, HOST)).body.error).toBe('wrong_day')
+      vi.setSystemTime(day('2026-10-25T12:00:00+08:00'))
+      expect((await t.call('POST', path('/roam'), {}, HOST)).status).toBe(200)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('adds a proposed stop no earlier than now on the day, and no earlier than the last stop ends on any other day', async () => {
+    await confirmed()
+    const venue = loadPlanData().venues.find((v) => !String(v.id).startsWith('google') && !world.stops.some((s) => s.venue_id === v.id))
+    const proposal = (await t.call('POST', path('/proposals'), { venueId: venue.id }, GUEST)).body
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(day('2026-10-25T21:30:00+08:00'))
+      expect((await t.call('POST', path(`/proposals/${proposal.id}/resolve`), { accept: true }, HOST)).status).toBe(200)
+      expect(stops().at(-1).not_before_minute).toBeGreaterThanOrEqual(21 * 60 + 30)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not take the clock for the plan\'s time when the outing is on another day', async () => {
+    await confirmed()
+    const lastEnd = stops().at(-1).planned_start_minute + stops().at(-1).duration_minutes
+    const venue = loadPlanData().venues.find((v) => !String(v.id).startsWith('google') && !world.stops.some((s) => s.venue_id === v.id))
+    const proposal = (await t.call('POST', path('/proposals'), { venueId: venue.id }, GUEST)).body
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(day('2026-10-20T22:30:00+08:00'))
+      expect((await t.call('POST', path(`/proposals/${proposal.id}/resolve`), { accept: true }, HOST)).status).toBe(200)
+      expect(stops().at(-1).not_before_minute).toBeLessThan(22 * 60 + 30)
+      expect(stops().at(-1).not_before_minute).toBeGreaterThanOrEqual(Math.min(1439, lastEnd) - 200)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('proposals that arrive together', () => {
+  it('a proposal the function refuses does not refuse the others written with it: each is done again on its own', async () => {
+    await confirmed()
+    const venues = loadPlanData().venues.filter((v) => !String(v.id).startsWith('google') && !world.stops.some((s) => s.venue_id === v.id))
+    // Eight waiting already (3 + 3 + 2): room for two more in the session, as the run's copy sees it.
+    const seed = (who, n, from) => {
+      for (let i = 0; i < n; i += 1) world.stop_proposals.push({ id: `bbbbbbbb-bbbb-4bbb-8bbb-${String(from + i).padStart(12, '0')}`, session_id: SESSION, venue_id: venues[from + i].id, proposed_by: who, status: 'pending', created_at: `t${from + i}`, resolved_at: null, resolved_by: null })
+    }
+    seed(HOST, 3, 0)
+    seed(GUEST, 2, 3)
+    seed(OTHER, 3, 5)
+    // The first run is held while it loads; both proposals wait and share the next run. Meanwhile a ninth proposal lands (a race the run's copy
+    // cannot see), so the function refuses the batch's second proposal; the first must still be made.
+    let release
+    const held = new Promise((resolve) => { release = resolve })
+    let first = true
+    world.hooks.beforeRead = ({ table }) => {
+      if (table !== 'sessions' || !first) return undefined
+      first = false
+      return held
+    }
+    let landed = false
+    world.hooks.beforeApply = () => {
+      if (landed) return
+      landed = true
+      world.stop_proposals.push({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-999999999999', session_id: SESSION, venue_id: venues[20].id, proposed_by: HOST, status: 'pending', created_at: 't99', resolved_at: null, resolved_by: null })
+    }
+    setTimeout(() => release(), 60)
+    const answers = await Promise.all([
+      t.call('PATCH', path(`/stops/${stops()[0].id}`), { travelMode: 'car' }, HOST).catch(() => null),
+      t.call('POST', path('/proposals'), { venueId: venues[10].id }, GUEST),
+      t.call('POST', path('/proposals'), { venueId: venues[11].id }, OTHER),
+    ])
+    const proposed = answers.slice(1)
+    expect(proposed.map((a) => a.status).sort()).toEqual([201, 409])
+    expect(proposed.find((a) => a.status === 409).body.error).toBe('too_many_proposals')
+    expect(world.stop_proposals.filter((p) => p.status === 'pending')).toHaveLength(10)
+  })
+
+  it('refuses a proposal into a full plan or past the limits before the function sees it (the run\'s own copy knows)', async () => {
+    await confirmed()
+    const venues = loadPlanData().venues.filter((v) => !String(v.id).startsWith('google') && !world.stops.some((s) => s.venue_id === v.id))
+    for (let i = 0; i < 3; i += 1) expect((await t.call('POST', path('/proposals'), { venueId: venues[i].id }, GUEST)).status).toBe(201)
+    const calls = writes().length
+    const fourth = await t.call('POST', path('/proposals'), { venueId: venues[3].id }, GUEST)
+    expect([fourth.status, fourth.body.error]).toEqual([409, 'too_many_proposals'])
+    expect(writes().length).toBe(calls)
+  })
+})
+
+describe('Roam keeps nothing of where the group is', () => {
+  it('does not use the route cache: the same request routes again, and a point is never read from or put in the cache', async () => {
+    const http = countingStubHttp()
+    await confirmed({ appOptions: { onemap: createOneMap({ http: http.http, stub: true }) } })
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-10-25T12:30:00+08:00'))
+      const here = { current: { lat: 1.3521, lng: 103.8198 }, categories: ['eat'] }
+      const before = http.calls.route
+      expect((await t.call('POST', path('/roam'), here, HOST)).status).toBe(200)
+      const first = http.calls.route - before
+      expect((await t.call('POST', path('/roam'), here, HOST)).status).toBe(200)
+      const second = http.calls.route - before - first
+      expect(first).toBeGreaterThan(0)
+      expect(second).toBe(first)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('a stop changed to another kind of place', () => {
+  it('does not keep the new place as an option of the old kind\'s slot: the old place leaves, nothing is added', async () => {
+    await confirmed()
+    const drink = stops().find((s) => s.category === 'drink')
+    const optionsBefore = world.slot_options.filter((o) => o.slot_id === drink.slot_id).map((o) => o.venue_id)
+    expect(optionsBefore).toContain(drink.venue_id)
+    const activities = loadPlanData().venues.filter((v) => v.category === 'activity' && !String(v.id).startsWith('google') && !world.stops.some((s) => s.venue_id === v.id))
+    let venue
+    for (const candidate of activities) {
+      const res = await t.call('PUT', path(`/stops/${drink.id}/place`), { venueId: candidate.id, seenVenueId: drink.venue_id, category: 'activity' }, HOST)
+      if (res.status === 200) {
+        venue = candidate
+        break
+      }
+    }
+    expect(venue).toBeTruthy()
+    const optionsAfter = world.slot_options.filter((o) => o.slot_id === drink.slot_id).map((o) => o.venue_id)
+    expect(optionsAfter).not.toContain(venue.id)
+    expect(optionsAfter).not.toContain(drink.venue_id)
+    expect(stops().find((s) => s.id === drink.id)).toMatchObject({ category: 'activity', venue_id: venue.id })
   })
 })
