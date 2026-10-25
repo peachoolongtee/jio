@@ -317,6 +317,22 @@ begin
 end;
 $sessions_order_checks$;
 
+-- The rain warnings the host chose to keep ("Keep" on a stop in the rain), { "<stop id>": "<forecast state>" }, at most 8 and short. Server only
+-- (a browser has no update on this column); the warning comes back when the forecast changes state. It belongs to the confirmed plan: it is
+-- cleared when a stop's place changes, and when the plan is opened again or finished.
+alter table public.sessions add column if not exists weather_kept jsonb;
+do $weather_kept_checks$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'weather_kept_shape' and conrelid = 'public.sessions'::regclass
+  ) then
+    alter table public.sessions add constraint weather_kept_shape
+      check (weather_kept is null or (jsonb_typeof(weather_kept) = 'object' and octet_length(weather_kept::text) <= 1000));
+  end if;
+end;
+$weather_kept_checks$;
+
 -- Who is in a session and what they want to do. Every member can read every row here, so it holds
 -- only what the group may see: the area someone starts from, never the exact place.
 -- A member edits their own areas and picks while the session is open. state, role and
@@ -1014,6 +1030,9 @@ declare
   v_max integer;
   v_venues bigint;
   stop_row public.stops%rowtype;
+  kept_new jsonb;
+  kept_changed boolean := false;
+  v_stale boolean;
 begin
   if patch is null or jsonb_typeof(patch) <> 'object' then
     raise exception 'The plan must be a JSON object.' using errcode = '22023';
@@ -1033,7 +1052,7 @@ begin
     end if;
     select keys.k into unknown_key
     from jsonb_object_keys(patch -> 'session') as keys(k)
-    where keys.k not in ('status', 'meeting', 'banner', 'radius_meters', 'replan', 'plan_start_minute', 'order_note', 'order_suggestion')
+    where keys.k not in ('status', 'meeting', 'banner', 'radius_meters', 'replan', 'plan_start_minute', 'order_note', 'order_suggestion', 'weather_kept')
     limit 1;
     if unknown_key is not null then
       raise exception 'The session part of the plan has a part this function does not know: %.', unknown_key using errcode = '22023';
@@ -1075,9 +1094,11 @@ begin
   end if;
   reopened := s.status = 'confirmed' and new_status = 'voting';
 
-  -- Rule 5: a pin only with a confirm. Setting 'voted' or 'chosen' needs the move to voting in this patch, or the same pin
-  -- (method and area) already stored.
-  if (meeting ->> 'method') in ('voted', 'chosen') and new_status = s.status
+  -- Rule 5: a pin only with a confirm. Setting 'voted' or 'chosen' needs the host's move from inviting or locating to voting in this
+  -- patch, or the same pin (method and area) already stored. (Stage 5's moves, voting to confirmed, confirmed to voting and confirmed to
+  -- completed, never set a pin.)
+  if (meeting ->> 'method') in ('voted', 'chosen')
+     and not (s.status in ('inviting', 'locating') and new_status = 'voting')
      and not (s.meeting_method is not distinct from (meeting ->> 'method')
               and s.meeting_area_id is not distinct from (meeting ->> 'area_id')) then
     raise exception 'A meeting area is pinned only when the host confirms it.'
@@ -1094,7 +1115,8 @@ begin
   -- while the session is confirmed (after this patch); the suggested order only while it is voting (it is cleared by opening the plan
   -- again, which this function does itself); the ledger only with the move to completed. Confirming needs stops.
   if (patch ? 'stops' or patch ? 'stop_options' or nullif(sp -> 'plan_start_minute', 'null'::jsonb) is not null
-      or nullif(sp -> 'order_note', 'null'::jsonb) is not null) and new_status <> 'confirmed' then
+      or nullif(sp -> 'order_note', 'null'::jsonb) is not null
+      or nullif(sp -> 'weather_kept', 'null'::jsonb) is not null) and new_status <> 'confirmed' then
     raise exception 'The stops and the order of the plan are written only while the session is confirmed.'
       using errcode = 'P0001', hint = 'stops_status';
   end if;
@@ -1105,6 +1127,10 @@ begin
   if patch ? 'ledger' and not (s.status = 'confirmed' and new_status = 'completed') then
     raise exception 'The ledger is written only when the outing is finished.'
       using errcode = 'P0001', hint = 'ledger_status';
+  end if;
+  if s.status = 'confirmed' and new_status = 'completed' and not (patch ? 'ledger') then
+    raise exception 'Finishing the outing needs its ledger.'
+      using errcode = 'P0001', hint = 'ledger_missing';
   end if;
   if s.status = 'voting' and new_status = 'confirmed'
      and (not (patch ? 'stops') or jsonb_typeof(patch -> 'stops') <> 'array' or jsonb_array_length(patch -> 'stops') = 0) then
@@ -1235,6 +1261,9 @@ begin
         -- proposal becomes is in the same patch's stops. One already answered changes nothing.
         if not (s.status = 'confirmed' and new_status = 'confirmed') then
           raise exception 'A proposal is answered only while the plan is confirmed.' using errcode = 'P0001', hint = 'proposal_status';
+        end if;
+        if (op ->> 'status') is distinct from 'accepted' and (op ->> 'status') is distinct from 'dismissed' then
+          raise exception 'A proposal is answered as accepted or dismissed.' using errcode = '22023';
         end if;
         update public.stop_proposals p
         set status = op ->> 'status', resolved_at = now(), resolved_by = nullif(op ->> 'by', '')::uuid
@@ -1425,7 +1454,8 @@ begin
         raise exception 'Each stop must be a JSON object.' using errcode = '22023';
       end if;
       if nullif(item ->> 'slot_id', '') is not null
-         and not exists (select 1 from public.slots sl where sl.id = (item ->> 'slot_id')::uuid and sl.session_id = sid) then
+         and not exists (select 1 from public.slots sl where sl.id = (item ->> 'slot_id')::uuid and sl.session_id = sid
+                         and (not sl.deleted or s.status <> 'voting')) then
         raise exception 'A stop names a slot that is not in this session.' using errcode = 'P0001', hint = 'stop_slot';
       end if;
       if nullif(item ->> 'id', '') is not null then
@@ -1473,6 +1503,31 @@ begin
     ) then
       raise exception 'A stop is not one of the places the group could vote for.' using errcode = 'P0001', hint = 'stop_not_option';
     end if;
+    -- Confirming, and the votes are read again under the session's lock: every stop must still be a leader of its slot (a tie is a
+    -- leader), counting only joined people's votes, and every slot somebody voted in must have its stop. A vote cast after the host
+    -- looked at the tally and before the lock moves the leader, and the host is told to look again. (votes_guard_status below keeps a
+    -- browser's vote out once the plan is confirmed.)
+    if s.status = 'voting' and new_status = 'confirmed' then
+      with tally as (
+        select v.slot_id, v.venue_id, count(*) as n
+        from public.votes v
+        join public.slots sl on sl.id = v.slot_id and sl.session_id = sid and not sl.deleted
+        join public.session_members m on m.session_id = sid and m.user_id = v.user_id and m.state = 'joined'
+        group by v.slot_id, v.venue_id
+      )
+      select exists (
+        select 1 from public.stops st
+        where st.session_id = sid and st.slot_id is not null
+          and coalesce((select t.n from tally t where t.slot_id = st.slot_id and t.venue_id = st.venue_id), 0)
+              < greatest(1, (select coalesce(max(t.n), 0) from tally t where t.slot_id = st.slot_id))
+      ) or exists (
+        select 1 from tally t
+        where not exists (select 1 from public.stops st where st.session_id = sid and st.slot_id = t.slot_id)
+      ) into v_stale;
+      if v_stale then
+        raise exception 'The votes changed while the plan was being confirmed.' using errcode = 'P0001', hint = 'stale_tally';
+      end if;
+    end if;
   end if;
 
   -- The details of a place put in a stop (a replaced stop): the new place is kept as an option of the stop's slot with what the
@@ -1492,14 +1547,17 @@ begin
         get diagnostics hit = row_count;
         if hit > 0 then changed := true; end if;
       end if;
-      insert into public.slot_options as o (slot_id, venue_id, rank, score, source, added_by, details)
-      values (v_slot, item ->> 'venue_id', (item ->> 'rank')::integer, (item ->> 'score')::numeric,
-              coalesce(item ->> 'source', 'planner'), (item ->> 'added_by')::uuid, coalesce(item -> 'details', '{}'::jsonb))
-      on conflict (slot_id, venue_id) do update
-        set rank = excluded.rank, score = excluded.score, details = excluded.details
-        where (o.rank, o.score, o.details) is distinct from (excluded.rank, excluded.score, excluded.details);
-      get diagnostics hit = row_count;
-      if hit > 0 then changed := true; end if;
+      -- A stop changed to another kind of place has no place to keep in this slot: only the old place leaves ("venue_id" is null).
+      if nullif(item ->> 'venue_id', '') is not null then
+        insert into public.slot_options as o (slot_id, venue_id, rank, score, source, added_by, details)
+        values (v_slot, item ->> 'venue_id', (item ->> 'rank')::integer, (item ->> 'score')::numeric,
+                coalesce(item ->> 'source', 'planner'), (item ->> 'added_by')::uuid, coalesce(item -> 'details', '{}'::jsonb))
+        on conflict (slot_id, venue_id) do update
+          set rank = excluded.rank, score = excluded.score, details = excluded.details
+          where (o.rank, o.score, o.details) is distinct from (excluded.rank, excluded.score, excluded.details);
+        get diagnostics hit = row_count;
+        if hit > 0 then changed := true; end if;
+      end if;
     end loop;
   end if;
 
@@ -1515,6 +1573,10 @@ begin
     ) then
       raise exception 'The ledger names someone who is not a joined member.' using errcode = 'P0001', hint = 'ledger_member';
     end if;
+    if (select count(*) from jsonb_array_elements(patch -> 'ledger') e)
+       <> (select count(distinct (e ->> 'user_id')::uuid) from jsonb_array_elements(patch -> 'ledger') e) then
+      raise exception 'The ledger names somebody twice.' using errcode = 'P0001', hint = 'ledger_duplicate';
+    end if;
     if (select coalesce(sum((e ->> 'delta_from_mean')::numeric), 0) from jsonb_array_elements(patch -> 'ledger') e) <> 0 then
       raise exception 'The ledger''s deltas must sum to zero.' using errcode = 'P0001', hint = 'ledger_sum';
     end if;
@@ -1525,6 +1587,10 @@ begin
     on conflict (session_id, user_id) do nothing;
     get diagnostics hit = row_count;
     if hit > 0 then changed := true; end if;
+    -- The stored ledger, rows that were there already included, still sums to zero.
+    if (select coalesce(sum(l.delta_from_mean), 0) from public.commute_ledger l where l.session_id = sid) <> 0 then
+      raise exception 'The ledger''s deltas must sum to zero.' using errcode = 'P0001', hint = 'ledger_sum';
+    end if;
   end if;
 
   -- Rule 3: the session section is a change only where a value differs from the stored row. The meeting is compared as it would
@@ -1579,6 +1645,13 @@ begin
   if sp ? 'plan_start_minute' then
     start_changed := s.plan_start_minute is distinct from (sp ->> 'plan_start_minute')::integer;
   end if;
+  if sp ? 'weather_kept' then
+    kept_new := nullif(sp -> 'weather_kept', 'null'::jsonb);
+    if kept_new is not null and jsonb_typeof(kept_new) <> 'object' then
+      raise exception 'The kept rain warnings must be a JSON object or null.' using errcode = '22023';
+    end if;
+    kept_changed := s.weather_kept is distinct from kept_new;
+  end if;
   if sp ? 'replan' then
     replan_new := nullif(sp -> 'replan', 'null'::jsonb);
     if replan_new is not null and jsonb_typeof(replan_new) <> 'object' then
@@ -1587,7 +1660,7 @@ begin
     replan_changed := s.replan is distinct from replan_new;
   end if;
   if meeting_changed or travel_changed or banner_changed or radius_changed or banner_text is not null
-     or note_changed or suggestion_changed or start_changed or replan_changed then
+     or note_changed or suggestion_changed or start_changed or replan_changed or kept_changed then
     changed := true;
   end if;
   if not changed then
@@ -1632,6 +1705,11 @@ begin
     replan = case when s.status = 'confirmed' and new_status <> 'confirmed' then null
                   when s.status = 'voting' and new_status = 'confirmed' then null
                   when sp ? 'replan' then replan_new else replan end,
+    -- The rain warnings the host kept belong to the confirmed plan's stops: they go when the plan is opened again or ends, and when it
+    -- is confirmed afresh.
+    weather_kept = case when s.status = 'confirmed' and new_status <> 'confirmed' then null
+                        when s.status = 'voting' and new_status = 'confirmed' then null
+                        when sp ? 'weather_kept' then kept_new else weather_kept end,
     completed_at = case when s.status = 'confirmed' and new_status = 'completed' then now() else completed_at end,
     plan_version = plan_version + 1
   where id = sid;
@@ -1641,6 +1719,38 @@ end;
 $$;
 
 -- ── Triggers ────────────────────────────────────────────────────────────
+
+-- A vote and the host's confirm of the plan take the session's lock in turn. A vote is a direct write that takes no lock of its own, so one
+-- could commit just after apply_session_plan read the tally and moved the session to confirmed. After every change to a vote made by a signed-in
+-- person, this takes a shared lock on the vote's session (apply_session_plan holds an exclusive one while it writes) and refuses unless the
+-- session is still voting: a vote either lands before the confirm, which then sees it, or is refused. The server's own deletes of votes (opting
+-- out, a moved meeting area, a removed place, opening the plan again) are made with the service key, which has no signed-in person, and pass.
+create or replace function public.votes_guard_status()
+returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_status text;
+begin
+  if (select auth.uid()) is null then
+    return null;
+  end if;
+  select s.status into v_status
+  from public.slots sl
+  join public.sessions s on s.id = sl.session_id
+  where sl.id = coalesce(new.slot_id, old.slot_id)
+  for share of s;
+  if v_status is distinct from 'voting' then
+    raise exception 'Votes can only be cast while the session is voting.' using errcode = 'P0001', hint = 'votes_status';
+  end if;
+  return null;
+end;
+$$;
+revoke execute on function public.votes_guard_status() from public, anon, authenticated;
+
+drop trigger if exists votes_guard_status on public.votes;
+create trigger votes_guard_status after insert or update or delete on public.votes
+  for each row execute function public.votes_guard_status();
 
 -- Keeps updated_at current on every change.
 create or replace function public.set_updated_at()

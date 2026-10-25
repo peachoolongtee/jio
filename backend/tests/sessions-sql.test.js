@@ -78,7 +78,7 @@ describe('the function in the migration and in db/schema.sql', () => {
   it('refuses a part of the plan it does not know, ignores a swap of a place for itself and writes only the minutes that differ', () => {
     const sql = functionOf(read(MIGRATION))
     expect(sql).toContain("keys.k not in ('ops', 'spots', 'slots', 'stops', 'stop_options', 'ledger', 'session', 'loaded_at', 'recomputed', 'banner_text')")
-    expect(sql).toContain("keys.k not in ('status', 'meeting', 'banner', 'radius_meters', 'replan', 'plan_start_minute', 'order_note', 'order_suggestion')")
+    expect(sql).toContain("keys.k not in ('status', 'meeting', 'banner', 'radius_meters', 'replan', 'plan_start_minute', 'order_note', 'order_suggestion', 'weather_kept')")
     expect(sql).toContain("if (op ->> 'from') is not distinct from (op ->> 'to') then")
     expect(sql).toMatch(/and m\.travel_minutes is distinct from case/)
   })
@@ -90,6 +90,7 @@ describe('the function in the migration and in db/schema.sql', () => {
     for (const hint of [
       'stops_status', 'order_status', 'ledger_status', 'stops_missing', 'not_enough_votes', 'too_many_stops', 'stop_slot', 'stop_missing', 'last_stop', 'stop_order',
       'stop_duplicate', 'stop_not_option', 'ledger_member', 'ledger_sum', 'proposal_status', 'proposal_member', 'already_a_stop', 'plan_full', 'too_many_proposals',
+      'stale_tally', 'ledger_missing', 'ledger_duplicate',
     ]) expect(sql).toContain(`hint = '${hint}'`)
     for (const op of ['propose', 'resolve_proposal']) expect(sql).toContain(`when '${op}' then`)
   })
@@ -108,6 +109,9 @@ describe('the function in the migration and in db/schema.sql', () => {
       '-- (The two-people check for leaving inviting comes after the ops below.)',
       "if not (s.status in ('inviting', 'locating') and new_status = 'voting')",
       "or coalesce(meeting ->> 'area_id', '') = '' then",
+      "-- Rule 5: a pin only with a confirm. Setting 'voted' or 'chosen' needs the move to voting in this patch, or the same pin",
+      '-- (method and area) already stored.',
+      "if (meeting ->> 'method') in ('voted', 'chosen') and new_status = s.status",
       '-- Rule 7: votes are cleared only in a voting session. The meeting area moved, so every vote is for a place that no',
       '-- longer belongs to it.',
       'if meeting_changed or travel_changed or banner_changed or radius_changed or banner_text is not null then',
@@ -119,6 +123,21 @@ describe('the function in the migration and in db/schema.sql', () => {
     const slice = read(SLICE_D)
     const body = slice.slice(slice.indexOf('-- ── Columns and checks on sessions'))
     expect(read(MIGRATION)).toContain(body.trim())
+  })
+
+  // The vote guard and the kept rain warnings are in the migration and in a fresh build alike, the same text.
+  it('carries the vote guard and sessions.weather_kept in the migration and in db/schema.sql, the same text', () => {
+    const guard = (sql) => {
+      const start = sql.indexOf('create or replace function public.votes_guard_status()')
+      return sql.slice(start, sql.indexOf('for each row execute function public.votes_guard_status();', start) + 'for each row execute function public.votes_guard_status();'.length)
+    }
+    expect(guard(read('db/schema.sql'))).toBe(guard(read(MIGRATION)))
+    expect(guard(read(MIGRATION))).toContain('for share of s')
+    for (const sql of [read(MIGRATION), read('db/schema.sql')]) {
+      expect(sql).toContain('alter table public.sessions add column if not exists weather_kept jsonb;')
+      expect(sql).toContain('constraint weather_kept_shape')
+      expect(sql).toContain('create trigger votes_guard_status after insert or update or delete on public.votes')
+    }
   })
 
   it('needs to be applied before the stage 5 backend runs, and says so', () => {
@@ -192,6 +211,6 @@ describe('the SQL files', () => {
     const sql = read('db/tests/apply_session_plan.sql').replace(/^\s*--.*$/gm, '')
     const steps = [...sql.matchAll(/pg_temp\.expect_(?:error|ok|count|text|hint)\((\d+),/g)].map((m) => Number(m[1]))
     expect(steps).toEqual(Array.from({ length: steps.length }, (_, i) => i + 1))
-    expect(steps.length).toBeGreaterThan(257 - 1)
+    expect(steps.length).toBeGreaterThan(300 - 1)
   })
 })
