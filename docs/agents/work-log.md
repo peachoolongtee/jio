@@ -1436,3 +1436,14 @@ Results are filled in below as they arrive.
   - **Applied** at the lead's word ("apply") as `jio_apply_session_plan_slots`, checksum-guarded (md5 5d3df7e8…). It folds in `20261011000200`. Afterwards: `slots.details` exists; both venue-id checks are 160; signed-in and anonymous calls are refused 42501; a typo is refused 22023.
   - **Run by the lead's agent before merging, exit codes read:** backend 1642 passed (2 skipped), also with outbound calls blocked; frontend 2281 passed under four time zones and with outbound calls blocked; build. Live checks: `votes` follows a swap (`ON UPDATE CASCADE`), and `votes` is in the Realtime publication.
 - **Not verified:** two real people voting on two devices (the next check).
+
+## Round 33: stage 5 on the server (2026-10-23)
+
+Stage 4 is merged (#182) and its migration is live. Its two-device check waits for the lead. The lead said "start stage 5".
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Stage 5 on the server (#130) | backend implementer | `feat/sessions-stage-5` | #125 slice d: E22 the suggested order (AI under its budget, from stored rows), E12 the confirm (writes stops; a stale order is refused), E13 replan, E14 end the outing (host only; the ledger computed by the server from stored rows), E15 stop edits and the order route; E16, E23 and E24 (Roam proposals) if time allows. History in recommendations comes back fail-soft (the lessons of the held #164). `20261011000300` is folded into one new migration with `apply_session_plan` extended. Nothing is applied. |
+| Stage 5 in the browser (#130) | frontend engineer | `feat/sessions-stage-5-frontend` | The plan confirm, the itinerary, reorder, delete, travel mode, replan, end the outing and the ledger for a real account, live on the other device. Roam proposals if the server half builds them. |
+
+Results are filled in below as they arrive.
