@@ -358,6 +358,50 @@ describe('the itinerary', () => {
     expect(view.text(view.one('[data-testid=ledger-card]'))).toContain('Total')
   })
 
+  it('keeps "Try again" on the page while the new read is out (disabled, so focus is not lost), with a live region that was there from the start', async () => {
+    const { view, w, sam, id } = await drawn({ host: false, day: true })
+    w.gate.hold = (op) => {
+      if (op.table === 'commute_ledger') throw new Error('Cannot reach the database.')
+      return null
+    }
+    await sam.api.endPlan(id)
+    await until(() => view.has('[data-testid=ledger-none]'))
+    // The live region is on the page already (empty when the card was drawn, then it says what is happening).
+    const status = view.one('[data-testid=ledger-status]')
+    expect(status.attrs.role).toBe('status')
+    expect(view.text(status)).toBe('Could not load your travel.')
+    const retry = view.one('[data-testid=ledger-retry]')
+    let release
+    const held = new Promise((resolve) => { release = resolve })
+    w.gate.hold = (op) => (op.table === 'commute_ledger' ? held : null)
+    const pressed = view.click(retry)
+    await until(() => !!view.one('[data-testid=ledger-retry]')?.disabled)
+    // The same button, still there, and disabled while the read is out.
+    expect(view.one('[data-testid=ledger-retry]')).toBe(retry)
+    expect(view.text(view.one('[data-testid=ledger-status]'))).toBe('Loading your travel')
+    w.gate.hold = null
+    release()
+    await pressed
+    await until(() => view.has('[data-testid=ledger-compare]'))
+  })
+
+  it('says to a person with no row that no travel was recorded for them, with no retry that could never succeed', async () => {
+    const { view, w, sam, kim, id } = await drawn({ host: false, day: true })
+    // Kim has no row: the server writes one only for people who were in the outing with a start.
+    w.database.tables.session_members.find((m) => m.user_id === kim.id).travel_minutes = null
+    const original = w.database.run.bind(w.database)
+    w.gate.hold = null
+    await sam.api.endPlan(id)
+    await until(() => view.has('[data-testid=ledger-compare]'))
+    w.database.run({ as: SERVICE, kind: 'delete', table: 'commute_ledger', filters: [eq('user_id', kim.id)] })
+    void original
+    // Read again (a reload): the answer has no row, and the card says so.
+    const { useEventsStore } = await import('../../stores/events.js')
+    await useEventsStore().loadLedger(id)
+    await until(() => view.text(view.one('[data-testid=ledger-none]')) === 'No travel was recorded for you.')
+    expect(view.has('[data-testid=ledger-retry]')).toBe(false)
+  })
+
   it('draws a finished outing without the ledger of anyone else: only the person\'s own totals', async () => {
     const { view, w, sam, kim, id } = await drawn({ host: false, day: true })
     await sam.api.endPlan(id)

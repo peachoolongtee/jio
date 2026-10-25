@@ -393,7 +393,7 @@ async function endPlan() {
           Long trip home: {{ trip.name }}, about {{ trip.minutes }} min
         </BannerNote>
 
-        <LedgerCard v-if="remote && status === 'completed'" :ledger="ledgerState?.row ?? null" :loading="ledgerLoading" :failed="!!ledgerState?.failed" @retry="loadLedger" />
+        <LedgerCard v-if="remote && status === 'completed'" :ledger="ledgerState?.row ?? null" :loading="ledgerLoading" :failed="!!ledgerState?.failed" :loaded="!!ledgerState" @retry="loadLedger" />
 
         <!-- Photos from the day: always here once the plan is set, so it is clear where to add them. -->
         <RouterLink v-if="!remote" :to="`/sessions/${id}/photos`" class="photos-cta">
