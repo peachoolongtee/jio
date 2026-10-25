@@ -249,6 +249,14 @@ create index if not exists sessions_host_id_idx on public.sessions (host_id);
 -- clients know when to refetch. Server only.
 alter table public.sessions add column if not exists plan_version bigint not null default 0;
 
+-- How the host chose to pick the meeting point: 'fairest' (everyone shares where they start and the planner finds a fair
+-- spot) or 'known' (the host names the area and the group goes straight to choosing places). Null on a session that
+-- started before the choice existed, and read as 'fairest'. It is the host's intent, written by the host in the update
+-- that starts the session; meeting_method above is the planner's result and stays the server's.
+alter table public.sessions
+  add column if not exists meet_by text
+    constraint sessions_meet_by_check check (meet_by in ('fairest', 'known'));
+
 -- meeting_method also accepts 'voted' and 'chosen' on a sessions table that may already exist, so it is a
 -- guarded constraint as well as part of the table definition above. The old check is dropped by what it
 -- checks, not by its name, and the new one is added under the name Postgres gave the old one.
@@ -1741,6 +1749,8 @@ create or replace trigger invites_check_insert before insert on public.invites
 --   - The only status changes are starting (inviting → locating, with at least two people joined)
 --     and cancelling. Voting, confirmed and completed are set by the server after the planner has run.
 --   - The date and times can change only while the session is still "inviting".
+--   - meet_by (how the host picks the meeting point) is set in the update that starts the session, and can change while
+--     the session is locating. It can never be cleared. The row-level rule already makes the host the only one who updates.
 create or replace function public.guard_session_changes()
 returns trigger
 language plpgsql set search_path = ''
@@ -1769,6 +1779,15 @@ begin
   if old.status <> 'inviting'
      and (new.date, new.start_time, new.end_time) is distinct from (old.date, old.start_time, old.end_time) then
     raise exception 'The date and times can only change before the session starts.' using errcode = '42501';
+  end if;
+
+  if new.meet_by is distinct from old.meet_by then
+    if new.meet_by is null then
+      raise exception 'How to pick the meeting point cannot be cleared.' using errcode = '42501';
+    end if;
+    if not (old.status = 'inviting' and new.status = 'locating') and not (old.status = 'locating' and new.status = 'locating') then
+      raise exception 'How to pick the meeting point can only be chosen as the session starts or while it is locating.' using errcode = '42501';
+    end if;
   end if;
 
   return new;

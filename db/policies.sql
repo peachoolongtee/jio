@@ -108,10 +108,11 @@ grant all
      public.slots, public.slot_options, public.votes, public.stops, public.commute_ledger, public.route_cache
   to service_role;
 
--- A host creates a session, renames it, moves its date and times, starts it and cancels it.
+-- A host creates a session, renames it, moves its date and times, starts it (saying how the group will pick the meeting
+-- point: meet_by) and cancels it.
 -- The trigger guard_session_changes decides which of those are allowed when.
 grant insert (host_id, title, date, start_time, end_time) on public.sessions to authenticated;
-grant update (title, date, start_time, end_time, status) on public.sessions to authenticated;
+grant update (title, date, start_time, end_time, status, meet_by) on public.sessions to authenticated;
 
 -- A member edits their own areas and picks. Not their role, their state or their travel time.
 grant update (start_area_id, end_area_id, categories, stay_until) on public.session_members to authenticated;

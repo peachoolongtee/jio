@@ -22,6 +22,10 @@ _Avoid_: Vote (a vote is for a place), like, upvote
 A meeting area the host sets directly because the group has already decided where to meet. It skips the spot list and goes straight to choosing what to do.
 _Avoid_: Fixed location, skip mode
 
+**Start choice**:
+How the host decides to pick the meeting point, made when they press Start session: find the fairest spot (everyone shares where they start and Jio finds a fair meeting point, the default) or "We already know where" (the host names the area and the group goes straight to choosing places). Guests see which one the host chose. It is the host's intent; the planner's own result is the meeting method. Stored as `sessions.meet_by`, which is null on a session that started before the choice and reads as the fairest spot.
+_Avoid_: Mode, meeting method (that is the planner's result), route
+
 ### Roam
 
 **Roam**:
