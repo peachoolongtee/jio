@@ -102,7 +102,8 @@ export const groupConstraints = (needs) => (needs.some((n) => n.needs_step_free)
 // How to call:
 //   rankingInput({ sessionId, date, slot: { category: 'eat', start_minute: 720, duration_minutes: 90 }, members, centre, currentIds: [], constraints: [], radiusMeters: 1000, weatherCase: 'live' })
 // `last` ranks the slot as the plan's last stop (a place far from an MRT station then counts against it); a voting slot is never ranked so.
-export function rankingInput({ sessionId, date, slot, members, centre, currentIds, constraints, radiusMeters, weatherCase, last = false }) {
+// `exclude` are places the ranking leaves out whatever they score (the other stops of a plan, when a stop is being replaced).
+export function rankingInput({ sessionId, date, slot, members, centre, currentIds, constraints, radiusMeters, weatherCase, last = false, exclude = [] }) {
   return {
     members,
     overrides: {},
@@ -112,7 +113,7 @@ export function rankingInput({ sessionId, date, slot, members, centre, currentId
     durationMinutes: slot.duration_minutes,
     categories: [slot.category],
     groupConstraints: constraints,
-    excludeVenueIds: [],
+    excludeVenueIds: exclude,
     currentOptionIds: currentIds,
     unknownPolicy: 'lenient',
     dietPolicy: 'strict',
@@ -230,6 +231,51 @@ export function slotDetails(ranking, optionCount) {
     empty: ranking.empty,
     moreAvailable: ranking.rankedIds.length > optionCount,
     weather: ranking.weather,
+  }
+}
+
+// Minutes to one decimal place, as the stateless planner answers them. How to call: oneDecimal(12.34) // 12.3
+const oneDecimal = (minutes) => (Number.isFinite(minutes) ? Math.round(minutes * 10) / 10 : null)
+
+// The engine's Roam answer as a session's members may read it (POST /api/sessions/:id/roam). It leaves out where the group is (`centre`: the
+// caller's own point is used for one request and not repeated), the score breakdown, the engine's counters, and the names of needs: a result's
+// `verify` and `dietUnknown` (which name the needs a place only likely meets) become the one flag `checkNeeds`, and an empty answer's hints
+// (which say which need or constraint to drop) are cut down to the distances. Each place says whether it is already a stop (`isStop`) and who
+// put it forward as the next stop, if anyone (`proposedBy`, a member's id, which every member can read in stop_proposals anyway).
+//
+// How to call:
+//   roamReply(answer, { weather, stopVenueIds: new Set(['a']), proposedBy: new Map([['b', userId]]) })
+//   // { status: 'ok', results: [{ rank, venueId, name, venue, score, travelMinutes, distanceKm, ..., isStop, proposedBy }], notice, weather }
+export function roamReply(answer, { weather, stopVenueIds, proposedBy }) {
+  if (answer.status !== 'ok') {
+    const hints = {}
+    for (const key of ['nearestKm', 'widenToKm']) if (Number.isFinite(answer.hints?.[key])) hints[key] = answer.hints[key]
+    return { status: 'empty', reason: answer.reason ?? null, hints, results: [], weather }
+  }
+  return {
+    status: 'ok',
+    results: answer.results.map((r) => ({
+      rank: r.rank,
+      venueId: r.venueId,
+      name: r.name,
+      venue: r.venue,
+      score: finiteOrNull(r.score),
+      travelMinutes: oneDecimal(r.travelMinutes),
+      distanceKm: finiteOrNull(r.distanceKm),
+      walkMinutes: oneDecimal(r.walkMinutes),
+      crowd: r.crowd ?? null,
+      reasons: r.reasons ?? [],
+      warnings: r.warnings ?? [],
+      swap: r.swap ?? null,
+      ...(r.weather ? { weather: r.weather } : {}),
+      explanation: r.explanation ?? '',
+      approximate: !!r.approximate,
+      ...((r.verify?.length ?? 0) + (r.dietUnknown?.length ?? 0) > 0 ? { checkNeeds: true } : {}),
+      isStop: stopVenueIds.has(r.venueId),
+      proposedBy: proposedBy.get(r.venueId) ?? null,
+    })),
+    notice: answer.notice ?? null,
+    weather,
   }
 }
 

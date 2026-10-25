@@ -198,6 +198,8 @@ export function createApp({
       limiter: sessionLimiter,
       readLimiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null,
       searchLimiter: venueRateLimit ? rateLimit(venueRateLimit) : null,
+      // The rain swap, Replace's list and Roam rank places, so they count with the planner routes.
+      plannerLimiter: limiter,
     }))
     // The saved places behind a voting session's cards: GET /api/venues?ids=. Needs a login, then a limit per person of its own.
     app.use('/api', createVenuesRouter({ supabase, data: planData, limiter: venueRateLimit ? rateLimit(venueRateLimit) : null }))

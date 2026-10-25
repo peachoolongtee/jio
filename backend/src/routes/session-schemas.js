@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { CATEGORIES, OPTIONS_MAX } from '../planner/slot-plan.js'
-import { MAX } from './plan-schemas.js'
+import { categoryList, MAX, pointInput } from './plan-schemas.js'
 
 // Request checks for the session endpoints (routes/sessions.js). Every id and body is checked here before anything is read or
 // written, so the service only ever sees input of the right shape and size. A body takes exactly the fields listed: an extra
@@ -63,6 +63,11 @@ export const sessionSchemas = {
   stopOrder: z.object({ stopIds: z.array(uuid).min(1).max(MAX.stops) }).strict(),
   // PUT /api/sessions/:id/stops/:stopId/place. `seenVenueId` is the place the caller saw in the stop.
   stopPlace: z.object({ venueId, seenVenueId: venueId, category: z.enum(CATEGORIES).optional() }).strict(),
+  // GET /api/sessions/:id/stops/:stopId/choices?category=  (the kind of place to list; the stop's own when left out)
+  stopChoices: z.object({ category: z.enum(CATEGORIES).optional() }).strict(),
+  // POST /api/sessions/:id/roam. `current` is where the group is now, used for this one request and never stored; left out, the
+  // meeting area's centre. `categories` narrows the list (up to 4 kinds).
+  roam: z.object({ current: pointInput.optional(), categories: categoryList }).strict(),
   // POST /api/sessions/:id/proposals
   proposal: z.object({ venueId }).strict(),
   // A proposal in a path.
