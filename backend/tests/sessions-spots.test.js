@@ -851,7 +851,7 @@ describe('POST /api/sessions/:id/opt-out and /rejoin (E10, E11)', () => {
     expect(session().plan_version).toBe(version)
   })
 
-  it('works in inviting, locating and voting; confirmed is the plan stage (409 not_yet), finished is 409 wrong_status', async () => {
+  it('works in inviting, locating, voting and confirmed (which asks "Re-plan?", see sessions-plan.test.js); rejoining a confirmed plan is 409 not_yet, finished is 409 wrong_status', async () => {
     await listed()
     session().status = 'inviting'
     expect((await t.call('POST', path('/opt-out'), undefined, OTHER)).status).toBe(200)
@@ -860,7 +860,8 @@ describe('POST /api/sessions/:id/opt-out and /rejoin (E10, E11)', () => {
     expect((await t.call('POST', path('/opt-out'), undefined, OTHER)).body).toMatchObject({ state: 'opted_out' })
     expect((await t.call('POST', path('/rejoin'), undefined, OTHER)).body).toMatchObject({ state: 'joined' })
     session().status = 'confirmed'
-    expect((await t.call('POST', path('/opt-out'), undefined, OTHER)).body.error).toBe('not_yet')
+    expect((await t.call('POST', path('/opt-out'), undefined, OTHER)).body).toMatchObject({ state: 'opted_out' })
+    expect(session().replan).toMatchObject({ trigger: { kind: 'optout' } })
     expect((await t.call('POST', path('/rejoin'), undefined, OTHER)).body.error).toBe('not_yet')
     for (const status of ['completed', 'cancelled']) {
       session().status = status
