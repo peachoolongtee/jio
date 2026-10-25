@@ -2505,10 +2505,19 @@ export async function inviteFriends(id, personIds, { pending = false, acceptAfte
   return touch(session, 'session')
 }
 
-export async function startSession(id) {
-  // A session on the server starts with the host's own write: inviting to locating, with two people in (the database checks).
+// The ways a host can choose to pick the meeting point when the session starts (the Start choice): everyone shares where they
+// start and the planner finds a fair spot, or the host names the area. A session with neither (started before the choice
+// existed) reads as 'fairest'.
+export const MEET_BY = ['fairest', 'known']
+
+// Start a session. `meetBy` ('fairest' or 'known') is the host's choice of how the group picks the meeting point; it is saved with
+// the start, and the guests see it. Left out, nothing is saved for it. A session on the server is started by the host's own write
+// of status and meet_by together (the database checks the host and the two people).
+// How to call: await startSession('s1', { meetBy: 'known' })
+export async function startSession(id, { meetBy } = {}) {
+  if (meetBy !== undefined && !MEET_BY.includes(meetBy)) throw new Error('Choose how to pick the meeting point.')
   if (onServer()) {
-    await remote.start(id)
+    await remote.start(id, { meetBy })
     return afterServerWrite(id, 'session')
   }
   await wait(DELAY.write)
@@ -2517,7 +2526,18 @@ export async function startSession(id) {
   // Invites nobody accepted yet lapse: the session goes ahead with whoever is in.
   session.members = session.members.filter((m) => m.state !== 'invited')
   session.status = 'locating'
+  if (meetBy) session.meetBy = meetBy
   return touch(session, 'session')
+}
+
+// On the server, while the group is choosing where to meet, record that the host named the place themselves before the known place
+// is set, so the record of their choice agrees with what they did. Does nothing when it is already 'known' or the session is past
+// locating (the database would refuse it). A session of this browser is marked inside setKnownPlace's own write instead, so a
+// failure takes it back with the rest.
+// How to call: await noteKnownChoice('3b1f...')
+async function noteKnownChoice(id) {
+  const last = newestRead.get(id)?.session
+  if (last && last.status === 'locating' && last.meetBy !== 'known' && last.hostId === me()) await remote.setMeetBy(id, 'known')
 }
 
 // ── A real account's meeting spots are on the server ───────────────────────
@@ -2829,6 +2849,7 @@ export async function confirmSpot(id, areaId) {
 export async function setKnownPlace(id, areaId) {
   if (onServer()) {
     if (!areaById(areaId)) throw new Error(SHARING_WORDS.noArea)
+    await noteKnownChoice(id)
     await remote.knownPlace(id, areaId)
     return afterServerWrite(id, 'session')
   }
@@ -2848,6 +2869,7 @@ export async function setKnownPlace(id, areaId) {
     session.spots = { ...emptySpots(), list: [{ areaId, by: session.hostId, here: false, worstMinutes: priced.worstMinutes, meanMinutes: priced.meanMinutes, exactWorst: priced.exactWorst, times: { ...priced.times }, approximate: priced.approximate }] }
     session.meeting = meeting
     session.status = 'voting'
+    session.meetBy = 'known'
     session.banner = null
     await syncOptions(session)
     return touch(session, 'session')

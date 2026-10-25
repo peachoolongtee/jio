@@ -431,6 +431,8 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
       end: hhmm(row.end_time),
       hostId: row.host_id,
       status: row.status,
+      // How the host chose to pick the meeting point ('fairest' or 'known'); null on a session that started before the choice.
+      meetBy: row.meet_by || null,
       createdAt: Date.parse(row.created_at),
       updatedAt: Date.parse(row.updated_at),
       members: [...joined, ...invited],
@@ -446,7 +448,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   const CHUNK = 100
   // How many channels this factory has opened, for their topics.
   let opened = 0
-  const SESSION_COLUMNS = 'id, host_id, title, date, start_time, end_time, status, created_at, updated_at, plan_version, radius_meters, meeting_area_id, meeting_method, meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, banner, replan, completed_at, order_reason, order_source, plan_start_minute'
+  const SESSION_COLUMNS = 'id, host_id, title, date, start_time, end_time, status, meet_by, created_at, updated_at, plan_version, radius_meters, meeting_area_id, meeting_method, meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, banner, replan, completed_at, order_reason, order_source, plan_start_minute'
   const MEMBER_COLUMNS = 'session_id, user_id, role, state, joined_at, start_area_id, end_area_id, travel_minutes, updated_at, categories, stay_until'
   // `details` is what the planner said of a slot or a place, and only the Vote page's cards read it, so the reads that Home and the
   // session screens use (list, get) leave it out; readPlan has it.
@@ -659,12 +661,22 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   }
 
   // The host starts the session: it goes from inviting to locating, where people say where they start and the group chooses where
-  // to meet. The database allows it only to the host, and only with two joined people; its sentence says so.
-  // How to call: await start('3b1f...')
-  async function start(sessionId) {
+  // to meet. The database allows it only to the host, and only with two joined people; its sentence says so. `meetBy` ('fairest' or
+  // 'known') is the host's choice of how to pick the meeting point, written in the same update; left out, nothing is written for it.
+  // How to call: await start('3b1f...', { meetBy: 'known' })
+  async function start(sessionId, { meetBy } = {}) {
     who()
-    const rows = answer(await db().from('sessions').update({ status: 'locating' }).eq('id', sessionId).select('id'), WORDS.notSaved)
+    const values = meetBy ? { status: 'locating', meet_by: meetBy } : { status: 'locating' }
+    const rows = answer(await db().from('sessions').update(values).eq('id', sessionId).select('id'), WORDS.notSaved)
     if (!rows.length) throw Object.assign(new Error('Only the host can start a session.'), { code: 'host_only' })
+  }
+
+  // The host changes how the group picks the meeting point while the session is locating (the database refuses it at any other
+  // time). How to call: await setMeetBy('3b1f...', 'known')
+  async function setMeetBy(sessionId, meetBy) {
+    who()
+    const rows = answer(await db().from('sessions').update({ meet_by: meetBy }).eq('id', sessionId).select('id'), WORDS.notSaved)
+    if (!rows.length) throw Object.assign(new Error('Only the host can choose how to pick the meeting point.'), { code: 'host_only' })
   }
 
   // ── Invite links ──────────────────────────────────────────────────────────
@@ -1205,5 +1217,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, readPlan, readSlotVotes, suggestOrder, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
+  return { list, get, readPlan, readSlotVotes, suggestOrder, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, roam, propose, resolve, myLedger, create, update, cancel, start, setMeetBy, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
 }

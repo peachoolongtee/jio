@@ -17,13 +17,13 @@
 //   - who may read each row (a member reads their session, a host reads every invite of theirs, an invitee reads their own
 //     invitations, a member reads the pending personal invitations of their session), and who may write which columns:
 //     a signed-in user inserts a session (as the host) and an invite (as its creator, for a session they host), updates a
-//     session's title, date, times and status (host only), and revokes an invite (host only, and it cannot be undone). A member
+//     session's title, date, times, status and meet_by (host only), and revokes an invite (host only, and it cannot be undone). A member
 //     updates their own `start_area_id`, `end_area_id`, `categories` and `stay_until` while joined and the session is open, and
 //     keeps their own exact place the same way. The browser has no insert or delete on `session_members`. The service key does anything;
 //   - the triggers: the host's member row on a new session, the checks before an invite is made (the session is open, a
 //     personal invitation is not for the host or a member, at most 30 open ones), and `guard_session_changes` (a finished
 //     session is frozen; the only status changes are start, with two joined people, and cancel; the date and times change
-//     only while inviting);
+//     only while inviting; meet_by is set as the session starts or while it is locating, and never cleared);
 //   - the functions `invite_preview`, `join_session`, `my_invitations` and `decline_invite`, with the same answers and
 //     errors (P0002 for any link that is not good, 28000 when not signed in, P0001 with hint session_full at 30 people);
 //   - `apply_session_plan`, the one function the server writes a session's plan through (the service key only): the version and
@@ -103,7 +103,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const OPEN = ['inviting', 'locating', 'voting']
 const MAX_JOINED = 30
 const GRANTS = {
-  sessions: { insert: ['host_id', 'title', 'date', 'start_time', 'end_time'], update: ['title', 'date', 'start_time', 'end_time', 'status'] },
+  sessions: { insert: ['host_id', 'title', 'date', 'start_time', 'end_time'], update: ['title', 'date', 'start_time', 'end_time', 'status', 'meet_by'] },
   invites: { insert: ['session_id', 'created_by', 'expires_at', 'invitee_id'], update: ['revoked'] },
   session_members: { insert: [], update: ['start_area_id', 'end_area_id', 'categories', 'stay_until'] },
   session_member_places: { insert: ['session_id', 'user_id', ...PLACE_COLUMNS], update: PLACE_COLUMNS, delete: true },
@@ -304,6 +304,8 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       throw new DbError('23514', 'new row for relation "sessions" violates check constraint "sessions_status_check"')
     }
     if (!(row.end_time > row.start_time)) throw new DbError('23514', 'new row for relation "sessions" violates check constraint "sessions_check"')
+    // How the host picks the meeting point (db/schema.sql): 'fairest', 'known', or null on a session that started before the choice.
+    if (row.meet_by != null && !['fairest', 'known'].includes(row.meet_by)) throw new DbError('23514', 'new row for relation "sessions" violates check constraint "sessions_meet_by_check"')
     // The order columns of stage 5 (db/schema.sql): a one-sentence reason of 1 to 200 characters and its source, set or null together; the
     // plan's start a minute of the day; a suggestion no larger than 4000 bytes with a 64-character hex basis and at most 8 slot ids.
     if (row.order_reason != null && !(typeof row.order_reason === 'string' && row.order_reason.length >= 1 && row.order_reason.length <= 200)) throw new DbError('23514', 'new row for relation "sessions" violates check constraint "order_reason_length"')
@@ -332,6 +334,13 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     if (old.status !== 'inviting' && (next.date !== old.date || next.start_time !== old.start_time || next.end_time !== old.end_time)) {
       throw new DbError('42501', 'The date and times can only change before the session starts.', { status: 403 })
     }
+    // meet_by is set as the session starts or while it is locating, and is never cleared.
+    if (next.meet_by !== old.meet_by) {
+      if (next.meet_by == null) throw new DbError('42501', 'How to pick the meeting point cannot be cleared.', { status: 403 })
+      const starting = old.status === 'inviting' && next.status === 'locating'
+      const locating = old.status === 'locating' && next.status === 'locating'
+      if (!starting && !locating) throw new DbError('42501', 'How to pick the meeting point can only be chosen as the session starts or while it is locating.', { status: 403 })
+    }
   }
 
   // How to call: insertSession(uid, { host_id, title, date, start_time, end_time })
@@ -347,6 +356,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       radius_meters: null,
       meeting_area_id: null,
       meeting_method: null,
+      meet_by: null,
       meeting_max_minutes: null,
       meeting_total_minutes: null,
       meeting_count: null,
