@@ -117,7 +117,8 @@ describe('the Confirm plan dialog', () => {
     await until(() => hasTabs(view))
     await view.click(pressExact(view, 'Confirm'))
     await until(() => router.currentRoute.value.path === `/sessions/${id}/itinerary`)
-    expect(w.server.calls.find((c) => c.route === 'confirmPlan').body).toEqual({ order: 'voted' })
+    // The voted order goes with the basis of the votes the dialog was drawn from, so a vote that moved a winner meanwhile is turned away.
+    expect(w.server.calls.find((c) => c.route === 'confirmPlan').body).toEqual({ order: 'voted', basis: expect.stringMatching(/^[0-9a-f]{64}$/) })
   })
 
   it('keeps the dialog open with the reason in words and Confirm still there, when the server cannot be reached; and confirms on the second press', async () => {

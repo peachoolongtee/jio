@@ -32,7 +32,7 @@ afterAll(() => {
 
 // The confirmed Saturday outing (12:00 to 20:00, Ian and Jonathan), the store loaded while it was still going, Home drawn after.
 // How to call: const t = await openHomeAt('2026-10-10T20:30:00+08:00')
-async function openHomeAt(iso) {
+async function openHomeAt(iso, { shared = false } = {}) {
   const { text } = await confirmedSave()
   const api = await loadApi({ data: { [STORAGE_KEY]: text } })
   const pinia = createPinia()
@@ -44,6 +44,8 @@ async function openHomeAt(iso) {
   // The person was on another page: the store holds the outing as it was at 15:00.
   await events.loadSessions()
   expect(events.sessions[0].status).toBe('confirmed')
+  // A shared outing (of the server): nothing finishes it by a clock.
+  if (shared) events.sessions = events.sessions.map((s) => ({ ...s, remote: true }))
   at(iso)
   const { routes } = await import('@/router/routes.js')
   const stub = { render: () => null }
@@ -60,6 +62,15 @@ describe('Home, opened with the list already loaded', () => {
     await until(() => events.sessions[0].status === 'completed')
     expect(events.sessions[0]).toMatchObject({ endedBy: 'auto', paid: true })
     expect(JSON.parse(api.storage.store[STORAGE_KEY]).sessions[0].status).toBe('completed')
+    view.unmount()
+  })
+
+  it('does not finish a shared outing by a clock: it stays confirmed, and Home says it stays open until its host finishes it', async () => {
+    const { events, view } = await openHomeAt('2026-10-10T20:30:00+08:00', { shared: true })
+    await view.tick()
+    await view.tick()
+    expect(events.sessions[0].status).toBe('confirmed')
+    expect(view.text('[data-testid="home-overdue"]')).toContain('has passed its end time. It stays open until its host finishes it.')
     view.unmount()
   })
 

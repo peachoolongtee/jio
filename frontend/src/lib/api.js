@@ -16,7 +16,7 @@ import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
-import { dueEnding, earnsCoins, itineraryAction, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
+import { dueEnding, earnsCoins, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
 import { combineWeather, stateOf, venueSetting, weatherFrom } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
@@ -2259,6 +2259,8 @@ function summary(session, { warm = true } = {}) {
     activeIds: activeIds(session),
     areaName: session.meeting ? areaById(session.meeting.areaId).name : '',
     isToday: isSessionDay(session),
+    // The day has passed on a shared outing: nothing finishes it by itself, so its host may from the day on (lib/session.js itineraryAction).
+    pastDay: !!session.remote && session.date < todayKey(),
     findingMeeting: finding.has(session.id),
     findingSpots: findingSpots.has(session.id),
     spots: spotsView(session),
@@ -4138,7 +4140,7 @@ function clearProposals(session) {
 function assertRoamOpen(session) {
   if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
   if (session.status !== 'confirmed' || !session.plan) throw new Error('Places can be proposed once the plan is confirmed.')
-  if (itineraryAction({ status: session.status, isToday: isSessionDay(session) }) !== 'finish') throw new Error('Places can be proposed on the day of the outing.')
+  if (!isSessionDay(session)) throw new Error('Places can be proposed on the day of the outing.')
 }
 
 // The stops of the plan with their times, as the itinerary lays them out.

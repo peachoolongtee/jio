@@ -54,6 +54,9 @@ const PROPOSALS_PER_MEMBER = 3
 const PROPOSALS_PER_SESSION = 10
 const PROPOSED_MINUTES = 60
 
+// Singapore's date now. How to call: singaporeDay() -> '2026-10-10'
+const singaporeDay = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)
+
 // A sha-256 as 64 hex characters. How to call: await sha256('text') -> 'a3f9...'
 async function sha256(text) {
   const bytes = new TextEncoder().encode(text)
@@ -136,7 +139,7 @@ export function registerPlan(kit, routes, PATTERNS) {
     }
     const made = suggestionFor(winners)
     await after.suggestOrder?.(id)
-    if (!made) return { status: 200, body: { status: 'none', why: 'nothing_to_arrange' } }
+    if (!made) return { status: 200, body: { status: 'none', why: 'nothing_to_arrange', basis } }
     const loaded = loadedOf(session)
     await apply(id, loaded, async () => {}, () => ({ order_suggestion: { basis, order: made.order, starts: made.starts ?? {}, reason: made.reason, source: made.source, at: new Date().toISOString() } }))
     return { status: 200, body: { status: 'ok', basis, order: made.order, stops: stopsOfOrder(made), reason: made.reason, source: made.source } }
@@ -156,6 +159,8 @@ export function registerPlan(kit, routes, PATTERNS) {
     if (body.basis !== undefined && !/^[0-9a-f]{64}$/.test(String(body.basis))) refuse(400, 'invalid_input', 'The basis is 64 hex characters.')
     const basis = await basisOf(session, winners)
     const stored = session.order_suggestion
+    // As the real server: a basis the host was shown (for the voted order too) must be the votes' own now, else nothing is written.
+    if (body.basis !== undefined && body.basis !== basis) refuse(409, 'order_stale', 'The votes changed since you looked. Look at them again.')
     // Suggested: recomputed from the winners at this moment; the body's basis and the stored one must both equal it, else nothing is written.
     if (order === 'suggested' && !(body.basis === basis && stored?.basis === basis)) refuse(409, 'order_stale', 'The votes changed since that order was suggested.')
     await after.confirmPlan?.(id)
@@ -219,6 +224,8 @@ export function registerPlan(kit, routes, PATTERNS) {
     asHost(session, user)
     if (session.status === 'completed') return { status: 200, body: { status: 'completed' } }
     confirmedOnly(session)
+    // As the real server: the outing is not finished before its day (the clock is Singapore's).
+    if (session.date > singaporeDay()) refuse(409, 'before_the_day', 'The outing can be finished from its day.')
     const loaded = loadedOf(session)
     await after.complete?.(id)
     const people = rows('session_members').filter((m) => m.session_id === id && m.state === 'joined')
@@ -403,6 +410,7 @@ export function registerPlan(kit, routes, PATTERNS) {
   routes.roam = async (user, id, body) => {
     const { session } = load(user, id)
     confirmedOnly(session)
+    if (session.date !== singaporeDay()) refuse(409, 'wrong_day', 'Places near the group can be looked up on the day of the outing.')
     const centre = body.current ? { lat: body.current.lat, lng: body.current.lng } : areaOf(session.meeting_area_id)
     const categories = body.categories?.length ? body.categories : ['eat', 'drink', 'activity']
     const stops = stopsOf(id)

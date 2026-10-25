@@ -154,6 +154,9 @@ const CODE_WORDS = {
   not_enough_votes: WORDS.notEnoughVotes,
   nothing_to_confirm: WORDS.nothingToConfirm,
   order_stale: WORDS.orderStale,
+  // The outing's day: it cannot be finished before it, and Roam looks only on it.
+  before_the_day: 'This outing can be finished from its day.',
+  wrong_day: 'Places near the group can be looked up on the day of the outing.',
   stop_not_found: WORDS.stopGone,
   last_stop: WORDS.lastStop,
   // The server's 409s for a plan that moved under the caller (stops_changed: the list sent is not the plan's; stop_changed: the stop holds another place).

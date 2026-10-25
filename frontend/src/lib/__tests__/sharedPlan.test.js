@@ -360,6 +360,7 @@ describe('the itinerary on two devices', () => {
     const { sam, id } = await voted()
     expect(await sam.api.getItinerary(id)).toBeNull()
     await sam.api.confirmPlan(id)
+    vi.setSystemTime(ON_THE_DAY)
     await sam.api.endPlan(id)
     expect((await sam.api.getItinerary(id)).stops).toHaveLength(4)
   })
@@ -435,8 +436,15 @@ describe('re-planning', () => {
 })
 
 describe('ending the outing', () => {
+  // The server finishes an outing from its day on: confirmed the day before, as the other tests, then it is the day.
+  const confirmedOnTheDay = async (...args) => {
+    const world = await confirmed(...args)
+    vi.setSystemTime(ON_THE_DAY)
+    return world
+  }
+
   it('is the host\'s, finishes it for everyone, and each person reads their own ledger row, not the other\'s', async () => {
-    const { w, sam, kim, id } = await confirmed()
+    const { w, sam, kim, id } = await confirmedOnTheDay()
     expect(await sam.api.getLedger(id)).toBeNull()
     await sam.api.endPlan(id)
     expect(callsTo(w, 'complete')[0]).toMatchObject({ method: 'POST', path: `/api/sessions/${id}/complete`, body: {} })
@@ -457,7 +465,7 @@ describe('ending the outing', () => {
   })
 
   it('pays no JioCoins and raises no stats event: those are kept in each browser', async () => {
-    const { sam, id } = await confirmed()
+    const { sam, id } = await confirmedOnTheDay()
     const heard = []
     sam.api.subscribe((event) => heard.push(event.type))
     const session = await sam.api.endPlan(id)
@@ -467,7 +475,7 @@ describe('ending the outing', () => {
   })
 
   it('is one finish when pressed twice: no second ledger row', async () => {
-    const { w, sam, id } = await confirmed()
+    const { w, sam, id } = await confirmedOnTheDay()
     await sam.api.endPlan(id)
     await sam.api.endPlan(id)
     expect(rowsOf(w, 'commute_ledger')).toHaveLength(2)
@@ -476,12 +484,15 @@ describe('ending the outing', () => {
   it('writes a row for each person who is in the session, and none for one who is not', async () => {
     const { w, sam, kim, lee, id } = await voted({ third: true })
     await sam.api.confirmPlan(id)
+    vi.setSystemTime(ON_THE_DAY)
     await sam.api.endPlan(id)
     expect(new Set(rowsOf(w, 'commute_ledger').map((r) => r.user_id))).toEqual(new Set([sam.id, kim.id, lee.id]))
     // A person who opted out of an earlier plan is not given a row: the ledger is for those who were there.
+    vi.setSystemTime(new Date('2026-10-09T02:00:00Z'))
     const second = await voted({ third: true })
     await second.lee.api.optOut(second.id, second.lee.id)
     await second.sam.api.confirmPlan(second.id)
+    vi.setSystemTime(ON_THE_DAY)
     await second.sam.api.endPlan(second.id)
     expect(new Set(rowsOf(second.w, 'commute_ledger').map((r) => r.user_id))).toEqual(new Set([second.sam.id, second.kim.id]))
   })
@@ -493,7 +504,7 @@ describe('ending the outing', () => {
   })
 
   it('says it could not read the ledger, and has none for a local outing', async () => {
-    const { w, sam, id } = await confirmed()
+    const { w, sam, id } = await confirmedOnTheDay()
     await sam.api.endPlan(id)
     w.gate.hold = (op) => {
       if (op.table === 'commute_ledger') throw new Error('Cannot reach the database.')
@@ -1033,6 +1044,7 @@ describe('live', () => {
     await vi.waitFor(() => expect(events.itineraries[id].legs[0].mode).toBe('car'))
     await sam.api.deleteStop(id, 3, { stopId: seen[3] })
     await vi.waitFor(() => expect(events.itineraries[id].stops).toHaveLength(3))
+    vi.setSystemTime(ON_THE_DAY)
     await sam.api.endPlan(id)
     await vi.waitFor(() => expect(events.byId[id].status).toBe('completed'))
     await events.loadLedger(id)
