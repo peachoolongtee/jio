@@ -427,11 +427,13 @@ export async function suggestSessionOrder(sessionId) {
 }
 
 // The host confirms the plan (E12). `order` is 'voted' (the winners in the order of their slots) or 'suggested' with the `basis` of the
-// suggestion the host saw; a basis that is no longer the server's own is refused with 409 `order_stale` and nothing is written.
+// suggestion the host saw. A `basis` may go with the voted order too (the one the server gave when the host looked at the votes): one that is
+// no longer the votes' own is refused with 409 `order_stale` and nothing is written, so what the host saw is what is saved. The server also
+// reads the tally again under its lock and refuses a stop that is no longer a leader of its slot, with the same code.
 // Resolves { planVersion, status, stops: n }.
 // How to call: await confirmSessionPlan('3b1f...', { order: 'suggested', basis: 'a3f9...' })
 export async function confirmSessionPlan(sessionId, { order = 'voted', basis } = {}) {
-  const { data } = await api.post(sessionPath(sessionId, '/confirm'), order === 'suggested' ? { order, basis } : { order }, { timeout: SESSION_TIMEOUT_MS })
+  const { data } = await api.post(sessionPath(sessionId, '/confirm'), order === 'suggested' || basis ? { order, basis } : { order }, { timeout: SESSION_TIMEOUT_MS })
   return data
 }
 
@@ -489,6 +491,13 @@ export async function getSessionStopChoices(sessionId, stopId, { category } = {}
   if (!Array.isArray(data?.options)) throw new Error(notJsonMessage())
   return data
 }
+// The host keeps a stop as it is in the rain (the Keep button): stored on the session by the server, so every device sees the warning put away.
+// `state` is the forecast's state when it was pressed. Resolves { planVersion, kept: true }. A refusal: host_only, wrong_status, stop_not_found.
+// How to call: await putSessionStopRain('3b1f...', '5d0c...', 'showers')
+export async function putSessionStopRain(sessionId, stopId, state) {
+  const { data } = await api.put(sessionPath(sessionId, `/stops/${encodeURIComponent(stopId)}/kept-rain`), { state }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
 // How to call: await putSessionStopPlace('3b1f...', '5d0c...', { venueId: 'v25', seenVenueId: 'v12', category: 'drink' }) -> { planVersion, changed }
 export async function putSessionStopPlace(sessionId, stopId, { venueId, seenVenueId, category }) {
   const { data } = await api.put(
@@ -512,16 +521,17 @@ export async function roamSession(sessionId, { current, categories } = {}) {
   return roamAnswer(data)
 }
 
-// A member puts a place forward as the next stop (E23). Resolves { id } (201), or { id } again with 200 when that place is already
-// waiting. A refusal: wrong_status, venue_not_found, already_a_stop, too_many_proposals, plan_full.
+// A member puts a place forward as the next stop (E23). Resolves { planVersion, id, applied: true, existing: false } (201), or `applied: false,
+// existing: true` with the first proposal's id when that place is already waiting (200). A refusal: wrong_status, venue_not_found, already_a_stop, too_many_proposals, plan_full.
 // How to call: await proposeSessionStop('3b1f...', 'v25')
 export async function proposeSessionStop(sessionId, venueId) {
   const { data, status } = await api.post(sessionPath(sessionId, '/proposals'), { venueId }, { timeout: SESSION_TIMEOUT_MS })
   return { ...data, existing: status === 200 }
 }
 
-// The host adds a proposal to the plan or leaves it out; the person who proposed it may dismiss it (E24). A repeat is a no-op.
-// Resolves { planVersion, status }. A refusal: host_only, proposal_not_found, plan_full.
+// The host adds a proposal to the plan or leaves it out; the person who proposed it may dismiss it (E24). Resolves { planVersion, applied }:
+// `applied` is false (still a 200) when the proposal is not waiting any more (answered, cleared by a re-plan or a finished outing, or never
+// there), and nothing was written. A refusal: host_only, plan_full.
 // How to call: await resolveSessionProposal('3b1f...', 'c7ae...', true)
 export async function resolveSessionProposal(sessionId, proposalId, accept) {
   const { data } = await api.post(sessionPath(sessionId, `/proposals/${encodeURIComponent(proposalId)}/resolve`), { accept: !!accept }, { timeout: SESSION_TIMEOUT_MS })

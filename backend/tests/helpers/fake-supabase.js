@@ -63,7 +63,7 @@ const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestion
 //                       session_member_needs reads (no client may read them as a table)
 //   failNeeds           true: session_member_needs fails as a database error
 //   failDebt            true: session_travel_debt fails as a database error (the function is not on the project yet, say)
-//   failPast            true: the signed-in user's reads of finished outings (the sessions with a status filter, and the stops) fail as a database error
+//   failPast            true: the server's read of the finished outings of the group (the members' outings, a read of session_members by user) fails as a database error
 //
 // How to call:
 //   const world = createWorld()
@@ -180,7 +180,15 @@ function checkOrder({ note, suggestion }) {
 
 // The parts of a plan the function knows (anything else is refused with 22023), and of its session part.
 const PLAN_KEYS = ['ops', 'spots', 'slots', 'stops', 'stop_options', 'ledger', 'session', 'loaded_at', 'recomputed', 'banner_text']
-const SESSION_PLAN_KEYS = ['status', 'meeting', 'banner', 'radius_meters', 'replan', 'plan_start_minute', 'order_note', 'order_suggestion']
+const SESSION_PLAN_KEYS = ['status', 'meeting', 'banner', 'radius_meters', 'replan', 'plan_start_minute', 'order_note', 'order_suggestion', 'weather_kept']
+
+// The exact sum of decimal numbers, as the database's numeric column adds them: in millionths, in BigInt, so 0.1 + 0.2 is 0.3.
+//
+// How to call:
+//   decimalSum([0.1, 0.2, -0.3]) // 0n
+function decimalSum(values) {
+  return values.reduce((sum, value) => sum + BigInt(Math.round(Number(value) * 1e6)), 0n)
+}
 
 // A JavaScript twin of apply_session_plan(sid, expected_version, expected_status, patch). Returns the new version, null when the
 // session moved on, or the current version when nothing changed. Throws a database error object for the rules and the checks.
@@ -271,8 +279,8 @@ function apply(world, session, patch) {
     changed = true
   }
   const reopened = session.status === 'confirmed' && newStatus === 'voting'
-  // Rule 5: a pin only with a confirm: the move to voting in this patch, or the same pin already stored.
-  if (['voted', 'chosen'].includes(meeting?.method) && !moving && !(session.meeting_method === meeting.method && (session.meeting_area_id ?? null) === (meeting.area_id ?? null))) {
+  // Rule 5: a pin only with the host's confirm: the move from inviting or locating to voting in this patch, or the same pin already stored.
+  if (['voted', 'chosen'].includes(meeting?.method) && !(['inviting', 'locating'].includes(session.status) && newStatus === 'voting') && !(session.meeting_method === meeting.method && (session.meeting_area_id ?? null) === (meeting.area_id ?? null))) {
     throw dbError('P0001', 'A meeting area is pinned only when the host confirms it.', 'pin_without_confirm')
   }
   // Rule 7: slots and options are written only while the session is voting (after this patch).
@@ -283,7 +291,7 @@ function apply(world, session, patch) {
   // Rule 8 (stage 5): the stops, a stop's place details, the order note and the plan's start only while confirmed (after this patch); the
   // suggested order only while voting; the ledger only with the move to completed; confirming needs stops.
   const given = (key) => has(sp, key) && sp[key] !== null
-  if ((has(patch, 'stops') || has(patch, 'stop_options') || given('plan_start_minute') || given('order_note')) && newStatus !== 'confirmed') {
+  if ((has(patch, 'stops') || has(patch, 'stop_options') || given('plan_start_minute') || given('order_note') || given('weather_kept')) && newStatus !== 'confirmed') {
     throw dbError('P0001', 'The stops and the order of the plan are written only while the session is confirmed.', 'stops_status')
   }
   if (given('order_suggestion') && !(session.status === 'voting' && newStatus === 'voting')) {
@@ -291,6 +299,9 @@ function apply(world, session, patch) {
   }
   if (has(patch, 'ledger') && !(session.status === 'confirmed' && newStatus === 'completed')) {
     throw dbError('P0001', 'The ledger is written only when the outing is finished.', 'ledger_status')
+  }
+  if (session.status === 'confirmed' && newStatus === 'completed' && !has(patch, 'ledger')) {
+    throw dbError('P0001', 'Finishing the outing needs its ledger.', 'ledger_missing')
   }
   if (session.status === 'voting' && newStatus === 'confirmed' && !(Array.isArray(patch.stops) && patch.stops.length > 0)) {
     throw dbError('P0001', 'A plan needs at least one stop before it can be confirmed.', 'stops_missing')
@@ -408,7 +419,7 @@ function apply(world, session, patch) {
       }
     } else if (op.op === 'resolve_proposal') {
       if (!(session.status === 'confirmed' && newStatus === 'confirmed')) throw dbError('P0001', 'A proposal is answered only while the plan is confirmed.', 'proposal_status')
-      if (!['accepted', 'dismissed'].includes(op.status)) throw dbError('23514', 'stop_proposals check failed: status')
+      if (!['accepted', 'dismissed'].includes(op.status)) throw dbError('22023', 'A proposal is answered as accepted or dismissed.')
       const proposal = world.stop_proposals.find((x) => x.session_id === sid && sameValue(x.id, op.proposal_id) && x.status === 'pending')
       if (proposal) {
         Object.assign(proposal, { status: op.status, resolved_at: tick(world), resolved_by: op.by ?? null })
@@ -562,7 +573,7 @@ function apply(world, session, patch) {
     }
     for (const item of patch.stops) {
       if (item === null || typeof item !== 'object' || Array.isArray(item)) throw dbError('22023', 'Each stop must be a JSON object.')
-      if (item.slot_id && !slotsOfSession().some((x) => sameValue(x.id, item.slot_id))) throw dbError('P0001', 'A stop names a slot that is not in this session.', 'stop_slot')
+      if (item.slot_id && !slotsOfSession().some((x) => sameValue(x.id, item.slot_id) && (!x.deleted || session.status !== 'voting'))) throw dbError('P0001', 'A stop names a slot that is not in this session.', 'stop_slot')
       const next = {
         seq: item.seq,
         slot_id: item.slot_id || null,
@@ -597,6 +608,21 @@ function apply(world, session, patch) {
     if (session.status === 'voting' && mine.some((x) => !x.slot_id || !world.slot_options.some((o) => o.slot_id === x.slot_id && o.venue_id === x.venue_id))) {
       throw dbError('P0001', 'A stop is not one of the places the group could vote for.', 'stop_not_option')
     }
+    // Confirming: the votes are read again under the lock. Every stop is a leader of its slot (a tie is a leader), counting only joined people,
+    // and every slot somebody voted in has its stop.
+    if (session.status === 'voting' && newStatus === 'confirmed') {
+      const joined = new Set(world.session_members.filter((m) => m.session_id === sid && m.state === 'joined').map((m) => m.user_id))
+      const tally = new Map()
+      for (const slot of slotsOfSession().filter((x) => !x.deleted)) {
+        const counts = new Map()
+        for (const v of world.votes.filter((x) => x.slot_id === slot.id && joined.has(x.user_id))) counts.set(v.venue_id, (counts.get(v.venue_id) ?? 0) + 1)
+        tally.set(slot.id, counts)
+      }
+      const stale =
+        mine.some((x) => x.slot_id && (tally.get(x.slot_id)?.get(x.venue_id) ?? 0) < Math.max(1, ...(tally.get(x.slot_id)?.values() ?? []))) ||
+        [...tally].some(([slotId, counts]) => counts.size > 0 && !mine.some((x) => x.slot_id === slotId))
+      if (stale) throw dbError('P0001', 'The votes changed while the plan was being confirmed.', 'stale_tally')
+    }
   }
   if (has(patch, 'stop_options')) {
     if (!Array.isArray(patch.stop_options)) throw dbError('22023', 'The stop options must be a JSON list.')
@@ -604,6 +630,8 @@ function apply(world, session, patch) {
       const slot = slotsOfSession().find((x) => sameValue(x.id, item.slot_id))
       if (!slot) throw dbError('P0001', 'A stop option names a slot that is not in this session.', 'stop_slot')
       if (item.replaces && item.replaces !== item.venue_id) changed = dropOptions(slot.id, (o) => o.venue_id === item.replaces) || changed
+      // A stop changed to another kind of place has no place to keep in this slot: only the old place leaves.
+      if (!item.venue_id) continue
       const next = { slot_id: slot.id, venue_id: item.venue_id, rank: item.rank ?? null, score: item.score ?? null, source: item.source ?? 'planner', added_by: item.added_by ?? null, details: item.details ?? {} }
       checkOption(world, next)
       const existing = world.slot_options.find((o) => o.slot_id === slot.id && o.venue_id === item.venue_id)
@@ -621,8 +649,8 @@ function apply(world, session, patch) {
     if (patch.ledger.some((e) => !world.session_members.some((m) => m.session_id === sid && sameValue(m.user_id, e.user_id) && m.state === 'joined'))) {
       throw dbError('P0001', 'The ledger names someone who is not a joined member.', 'ledger_member')
     }
-    // In cents, so that the sum is exact as it is in the database's numeric column.
-    if (patch.ledger.reduce((sum, e) => sum + Math.round(Number(e.delta_from_mean) * 100), 0) !== 0) throw dbError('P0001', "The ledger's deltas must sum to zero.", 'ledger_sum')
+    if (new Set(patch.ledger.map((e) => String(e.user_id).toLowerCase())).size !== patch.ledger.length) throw dbError('P0001', 'The ledger names somebody twice.', 'ledger_duplicate')
+    if (decimalSum(patch.ledger.map((e) => e.delta_from_mean)) !== 0n) throw dbError('P0001', "The ledger's deltas must sum to zero.", 'ledger_sum')
     for (const e of patch.ledger) {
       const row = { session_id: sid, user_id: e.user_id, minutes_in: e.minutes_in, minutes_between: e.minutes_between ?? 0, minutes_home: e.minutes_home, delta_from_mean: Number(e.delta_from_mean) }
       checkLedger(row)
@@ -630,6 +658,8 @@ function apply(world, session, patch) {
       world.commute_ledger.push({ ...row, total_minutes: row.minutes_in + row.minutes_between + row.minutes_home, created_at: tick(world) })
       changed = true
     }
+    // The stored ledger, rows that were there already included, still sums to zero.
+    if (decimalSum(world.commute_ledger.filter((x) => x.session_id === sid).map((x) => x.delta_from_mean)) !== 0n) throw dbError('P0001', "The ledger's deltas must sum to zero.", 'ledger_sum')
   }
 
   // Rule 3: the session section is a change only where a value differs from the stored row (the meeting as it would be written).
@@ -660,7 +690,9 @@ function apply(world, session, patch) {
   const suggestionChanged = has(sp, 'order_suggestion') && !isDeepStrictEqual(session.order_suggestion ?? null, suggestionNew)
   const startChanged = has(sp, 'plan_start_minute') && (session.plan_start_minute ?? null) !== (sp.plan_start_minute ?? null)
   const replanChanged = has(sp, 'replan') && !isDeepStrictEqual(session.replan ?? null, sp.replan ?? null)
-  if (meetingChanged || travelChanged || bannerChanged || radiusChanged || bannerText !== null || noteChanged || suggestionChanged || startChanged || replanChanged) changed = true
+  if (has(sp, 'weather_kept') && sp.weather_kept !== null && (typeof sp.weather_kept !== 'object' || Array.isArray(sp.weather_kept))) throw dbError('22023', 'The kept rain warnings must be a JSON object or null.')
+  const keptChanged = has(sp, 'weather_kept') && !isDeepStrictEqual(session.weather_kept ?? null, sp.weather_kept ?? null)
+  if (meetingChanged || travelChanged || bannerChanged || radiusChanged || bannerText !== null || noteChanged || suggestionChanged || startChanged || replanChanged || keptChanged) changed = true
   if (!changed) return Number(session.plan_version)
 
   if (has(sp, 'meeting') && meeting && typeof meeting === 'object' && meeting.travel) {
@@ -685,6 +717,8 @@ function apply(world, session, patch) {
   }
   if ((wasConfirmed && newStatus !== 'confirmed') || (session.status === 'voting' && newStatus === 'confirmed')) session.replan = null
   else if (has(sp, 'replan')) session.replan = sp.replan ?? null
+  if ((wasConfirmed && newStatus !== 'confirmed') || (session.status === 'voting' && newStatus === 'confirmed')) session.weather_kept = null
+  else if (has(sp, 'weather_kept')) session.weather_kept = sp.weather_kept ?? null
   if (wasConfirmed && newStatus === 'completed') session.completed_at = tick(world)
   session.status = newStatus
   if (radiusChanged) session.radius_meters = sp.radius_meters ?? null
@@ -781,7 +815,7 @@ function query(world, table, who) {
   }
   const execute = () => {
     const rows = world[table]
-    if (op.kind === 'select' && who !== null && world.failPast && ((table === 'sessions' && op.filters.some(([column]) => column === 'status')) || table === 'stops')) {
+    if (op.kind === 'select' && world.failPast && table === 'session_members' && op.filters.some(([column]) => column === 'user_id')) {
       return { data: null, error: dbError('XX000', 'boom') }
     }
     if (op.kind === 'select') {

@@ -130,14 +130,29 @@ async function load() {
 
 async function start() {
   missing.value = false
+  loadError.value = ''
+  loading.value = true
   try {
     await events.loadSession(props.id)
-  } catch {
-    missing.value = true
+  } catch (e) {
+    // "Not found" only for a session that is not there (or not this person's): any other failure (no network, a slow server) is a
+    // reason to try again, not a reason to say the page does not exist.
+    if (e?.code === 'not_found') {
+      missing.value = true
+    } else {
+      loadError.value = e?.message || 'Could not load this outing.'
+      loading.value = false
+    }
     return
   }
   if (open.value) await load()
   else loading.value = false
+}
+
+// Retry from the failure panel: ask for the places again, or for the session first if that is what failed.
+// How to call: retry()
+function retry() {
+  return events.byId[props.id] ? load() : start()
 }
 // A shared session's plan and proposals arrive live while this page is open, so a place put forward elsewhere shows as proposed here
 // (a no-op for the demo and local accounts).
@@ -314,7 +329,7 @@ const actionFor = (place) => placeAction(place, { myId: myId.value, blocked: blo
           <SkeletonRow v-for="n in 3" :key="n" avatar :lines="3" />
         </div>
         <EmptyState v-else-if="loadError" title="Could not load places" :text="loadError" role="alert" data-testid="roam-failed">
-          <AppButton variant="secondary" @click="load">Retry</AppButton>
+          <AppButton variant="secondary" @click="retry">Retry</AppButton>
         </EmptyState>
         <EmptyState v-else-if="!places.length" :title="ROAM_WORDS.empty" :text="ROAM_WORDS.emptyText" data-testid="roam-empty">
           <AppButton v-if="kind" variant="secondary" @click="pickKind('')">Show all kinds</AppButton>
@@ -348,9 +363,15 @@ const actionFor = (place) => placeAction(place, { myId: myId.value, blocked: blo
     <PlaceDetail v-if="detail" :place="detail.place" :reviews="detail.reviews" :outing="outing" :from="detailFrom" @close="closePlace" />
     <LocationSheet v-model:open="pickerOpen" which="spot" :title="ROAM_WORDS.pick" @select="pickArea" />
   </main>
-  <main v-else class="screen" data-testid="roam-view">
+  <!-- The session has not been read: a skeleton while it is asked for, and a failure with Retry when it could not be (not "not found": that is only for a session that is not there). -->
+  <main v-else class="screen" :aria-busy="loadError ? undefined : 'true'" data-testid="roam-session-pending">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
-      <SkeletonRow v-for="n in 4" :key="n" avatar />
+      <EmptyState v-if="loadError" title="Could not load this outing" :text="loadError" role="alert" data-testid="roam-session-failed">
+        <AppButton variant="secondary" @click="retry">Retry</AppButton>
+      </EmptyState>
+      <template v-else>
+        <SkeletonRow v-for="n in 4" :key="n" avatar />
+      </template>
     </div>
   </main>
 </template>

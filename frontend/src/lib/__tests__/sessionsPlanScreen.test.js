@@ -117,7 +117,8 @@ describe('the Confirm plan dialog', () => {
     await until(() => hasTabs(view))
     await view.click(pressExact(view, 'Confirm'))
     await until(() => router.currentRoute.value.path === `/sessions/${id}/itinerary`)
-    expect(w.server.calls.find((c) => c.route === 'confirmPlan').body).toEqual({ order: 'voted' })
+    // The voted order goes with the basis of the votes the dialog was drawn from, so a vote that moved a winner meanwhile is turned away.
+    expect(w.server.calls.find((c) => c.route === 'confirmPlan').body).toEqual({ order: 'voted', basis: expect.stringMatching(/^[0-9a-f]{64}$/) })
   })
 
   it('keeps the dialog open with the reason in words and Confirm still there, when the server cannot be reached; and confirms on the second press', async () => {
@@ -181,7 +182,7 @@ describe('the Confirm plan dialog', () => {
     const kim = w.database.tables.session_members.find((m) => m.role !== 'host' && m.user_id !== lee.id).user_id
     for (const user of [kim, lee.id]) w.database.run({ as: SERVICE, kind: 'update', table: 'votes', values: { venue_id: plan.slots[0].options[1].id }, filters: [eq('slot_id', plan.slots[0].id), eq('user_id', user)] })
     await view.click(pressExact(view, 'Confirm'))
-    await until(() => view.has('[data-testid=order-stale]'))
+    await until(() => view.text(view.one('[data-testid=order-stale]')) !== '')
     expect(view.text(view.one('[data-testid=order-stale]'))).toBe('The votes changed, so the suggested order changed too. Look at it again and confirm.')
     expect(dialogText(view)).toContain('Confirm plan?')
     expect(w.database.tables.stops).toEqual([])
@@ -205,10 +206,11 @@ describe('the Confirm plan dialog', () => {
     await until(() => !!press(view, 'Confirm plan'))
     await view.click(press(view, 'Confirm plan'))
     await until(() => hasTabs(view))
-    expect(view.has('[data-testid=order-stale]')).toBe(false)
+    // The live region is there from the start and empty.
+    expect(view.text(view.one('[data-testid=order-stale]'))).toBe('')
     const kim = w.database.tables.session_members.find((m) => m.role !== 'host' && m.user_id !== lee.id).user_id
     for (const user of [kim, lee.id]) w.database.run({ as: SERVICE, kind: 'update', table: 'votes', values: { venue_id: plan.slots[0].options[1].venue_id ?? plan.slots[0].options[1].id }, filters: [eq('slot_id', plan.slots[0].id), eq('user_id', user)] })
-    await until(() => view.has('[data-testid=order-stale]'))
+    await until(() => view.text(view.one('[data-testid=order-stale]')) !== '')
     expect(view.text(view.one('[data-testid=order-stale]'))).toBe('The votes changed, so the order below was updated.')
   })
 
@@ -269,6 +271,23 @@ describe('the itinerary', () => {
     void id
   })
 
+  it('deletes the stop the dialog was opened for, even when another device moved the stops while it was open', async () => {
+    const { view, w, sam, id } = await drawn()
+    await view.click(view.one('button[aria-label="Edit itinerary"]'))
+    const target = names(view)[1]
+    const targetVenue = w.database.tables.stops.find((s) => s.seq === 1).venue_id
+    await view.click(view.one(`button[aria-label="Delete stop: ${target}"]`))
+    // The host's other device moves that stop to the front before Delete is pressed: position 1 is now another stop.
+    const seen = (await sam.api.getItinerary(id)).stops.map((s) => s.stopId)
+    await sam.api.reorderStops(id, 1, 0, { seen })
+    await until(() => names(view)[0] === target)
+    expect(dialogText(view)).toContain(`Delete ${target}?`)
+    await view.click(pressExact(view, 'Delete'))
+    await until(() => w.database.tables.stops.length === 3)
+    expect(w.database.tables.stops.some((s) => s.venue_id === targetVenue)).toBe(false)
+    await until(() => !names(view).includes(target))
+  })
+
   it('says why a change the server refused did not happen, in one line above the stops, and shows the plan as stored', async () => {
     const { view, w } = await drawn()
     await view.click(view.one('button[aria-label="Edit itinerary"]'))
@@ -280,6 +299,25 @@ describe('the itinerary', () => {
     await until(() => view.all('p[role=alert]').some((p) => view.text(p) === 'That stop is not in the plan any more.'))
     await until(() => names(view).length === 3)
     expect(names(view)).not.toContain(target)
+  })
+
+  it('draws a stop whose place the server cannot describe as "A place that is no longer listed", and keeps the host\'s controls for it', async () => {
+    const world = await confirmed({ hostLast: true })
+    const gone = world.w.database.tables.stops.find((s) => s.seq === 1)
+    world.w.database.run({ as: SERVICE, kind: 'update', table: 'stops', values: { venue_id: 'a-place-the-server-does-not-list' }, filters: [eq('id', gone.id)] })
+    const { view } = await draw('EventView', `/sessions/${world.id}/itinerary`, world.id)
+    await until(() => view.has('.stop'))
+    expect(view.has('[data-testid=plan-load-error]')).toBe(false)
+    expect(names(view)).toHaveLength(4)
+    expect(names(view)[1]).toBe('A place that is no longer listed')
+    await view.click(view.one('button[aria-label="Edit itinerary"]'))
+    // The host can still take it out, and put another place in it.
+    expect(view.has('button[aria-label="Delete stop: A place that is no longer listed"]')).toBe(true)
+    expect(view.all('button').some((b) => (b.attrs['aria-label'] || '').includes('A place that is no longer listed') && /Replace/.test(b.attrs['aria-label'] || ''))).toBe(true)
+    await view.click(view.one('button[aria-label="Delete stop: A place that is no longer listed"]'))
+    await view.click(pressExact(view, 'Delete'))
+    await until(() => world.w.database.tables.stops.length === 3)
+    expect(view.errors).toEqual([])
   })
 
   it('says it could not load the plan, with Retry, and draws it after', async () => {
@@ -355,6 +393,50 @@ describe('the itinerary', () => {
     await view.click(view.one('[data-testid=ledger-retry]'))
     await until(() => view.has('[data-testid=ledger-compare]'))
     expect(view.text(view.one('[data-testid=ledger-card]'))).toContain('Total')
+  })
+
+  it('keeps "Try again" on the page while the new read is out (disabled, so focus is not lost), with a live region that was there from the start', async () => {
+    const { view, w, sam, id } = await drawn({ host: false, day: true })
+    w.gate.hold = (op) => {
+      if (op.table === 'commute_ledger') throw new Error('Cannot reach the database.')
+      return null
+    }
+    await sam.api.endPlan(id)
+    await until(() => view.has('[data-testid=ledger-none]'))
+    // The live region is on the page already (empty when the card was drawn, then it says what is happening).
+    const status = view.one('[data-testid=ledger-status]')
+    expect(status.attrs.role).toBe('status')
+    expect(view.text(status)).toBe('Could not load your travel.')
+    const retry = view.one('[data-testid=ledger-retry]')
+    let release
+    const held = new Promise((resolve) => { release = resolve })
+    w.gate.hold = (op) => (op.table === 'commute_ledger' ? held : null)
+    const pressed = view.click(retry)
+    await until(() => !!view.one('[data-testid=ledger-retry]')?.disabled)
+    // The same button, still there, and disabled while the read is out.
+    expect(view.one('[data-testid=ledger-retry]')).toBe(retry)
+    expect(view.text(view.one('[data-testid=ledger-status]'))).toBe('Loading your travel')
+    w.gate.hold = null
+    release()
+    await pressed
+    await until(() => view.has('[data-testid=ledger-compare]'))
+  })
+
+  it('says to a person with no row that no travel was recorded for them, with no retry that could never succeed', async () => {
+    const { view, w, sam, kim, id } = await drawn({ host: false, day: true })
+    // Kim has no row: the server writes one only for people who were in the outing with a start.
+    w.database.tables.session_members.find((m) => m.user_id === kim.id).travel_minutes = null
+    const original = w.database.run.bind(w.database)
+    w.gate.hold = null
+    await sam.api.endPlan(id)
+    await until(() => view.has('[data-testid=ledger-compare]'))
+    w.database.run({ as: SERVICE, kind: 'delete', table: 'commute_ledger', filters: [eq('user_id', kim.id)] })
+    void original
+    // Read again (a reload): the answer has no row, and the card says so.
+    const { useEventsStore } = await import('../../stores/events.js')
+    await useEventsStore().loadLedger(id)
+    await until(() => view.text(view.one('[data-testid=ledger-none]')) === 'No travel was recorded for you.')
+    expect(view.has('[data-testid=ledger-retry]')).toBe(false)
   })
 
   it('draws a finished outing without the ledger of anyone else: only the person\'s own totals', async () => {

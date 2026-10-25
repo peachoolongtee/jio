@@ -134,9 +134,10 @@ export const useEventsStore = defineStore('events', () => {
   }
 
   // Only the newest load of an itinerary applies, so an older answer never overwrites a newer one.
-  async function loadItinerary(id) {
+  // `session` is a session just read (a live update has the one it loaded): the itinerary is laid out from it, without reading the session again.
+  async function loadItinerary(id, session = null) {
     const ticket = (itinerarySeq[id] = (itinerarySeq[id] || 0) + 1)
-    const itinerary = await api.getItinerary(id)
+    const itinerary = await api.getItinerary(id, session ? { session } : undefined)
     if (ticket !== itinerarySeq[id]) return itineraries.value[id]
     itineraries.value = { ...itineraries.value, [id]: itinerary }
     return itinerary
@@ -470,8 +471,8 @@ export const useEventsStore = defineStore('events', () => {
           await loadSession(event.sessionId, { votesOnly: true })
           return
         }
-        await loadSession(event.sessionId)
-        if (itineraries.value[event.sessionId] !== undefined) await loadItinerary(event.sessionId)
+        const session = await loadSession(event.sessionId)
+        if (itineraries.value[event.sessionId] !== undefined) await loadItinerary(event.sessionId, session)
         if (event.type === 'photos' && photos.value[event.sessionId] !== undefined) await loadPhotos(event.sessionId)
       } catch (err) {
         // A shared session the person is not in any more (they left, or the host removed them) is dropped, and a screen on

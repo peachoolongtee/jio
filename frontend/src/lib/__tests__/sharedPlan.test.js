@@ -360,8 +360,27 @@ describe('the itinerary on two devices', () => {
     const { sam, id } = await voted()
     expect(await sam.api.getItinerary(id)).toBeNull()
     await sam.api.confirmPlan(id)
+    vi.setSystemTime(ON_THE_DAY)
     await sam.api.endPlan(id)
     expect((await sam.api.getItinerary(id)).stops).toHaveLength(4)
+  })
+
+  it('lays the itinerary out from a session just read, and answers the rain swap and the weather check from the session already held: no second read', async () => {
+    const { w, sam, id } = await confirmed()
+    const session = await sam.api.getSession(id)
+    const reads = () => w.ops.filter((o) => o.kind === 'select' && ['sessions', 'stops'].includes(o.table)).length
+    let before = reads()
+    const itinerary = await sam.api.getItinerary(id, { session })
+    expect(reads()).toBe(before)
+    expect(itinerary.stops).toHaveLength(4)
+    // Without one it reads the session, as before.
+    before = reads()
+    await sam.api.getItinerary(id)
+    expect(reads()).toBeGreaterThan(before)
+    before = reads()
+    await sam.api.findRainSwap(id, itinerary.stops[0].slotId)
+    await sam.api.checkStopWeather(id)
+    expect(reads()).toBe(before)
   })
 
   it('is "does not exist" for a session the person is not in', async () => {
@@ -372,14 +391,21 @@ describe('the itinerary on two devices', () => {
 })
 
 describe('a stop whose place cannot be described', () => {
-  it('is said in words by the itinerary and by a change to a stop, instead of failing in the layout', async () => {
+  it('is drawn as "A place that is no longer listed", with the rest of the plan, and can still be replaced', async () => {
     const { w, sam, id } = await confirmed()
     const first = (await sam.api.getItinerary(id)).stops[0]
     w.database.run({ as: SERVICE, kind: 'update', table: 'stops', values: { venue_id: 'a-place-the-server-does-not-list' }, filters: [eq('id', first.stopId)] })
-    await expect(sam.api.getItinerary(id)).rejects.toMatchObject({ message: WORDS.placeMissing, code: 'venue_not_found' })
-    await expect(sam.api.replaceStop(id, first.slotId, 'x', undefined, first.venue.id)).rejects.toMatchObject({ message: WORDS.placeMissing })
-    // The session itself still reads (Home does not need the places).
+    const itinerary = await sam.api.getItinerary(id)
+    expect(itinerary.stops).toHaveLength(4)
+    expect(itinerary.stops[0]).toMatchObject({ stopId: first.stopId, venue: expect.objectContaining({ name: WORDS.placeUnlisted }) })
+    expect(itinerary.stops.slice(1).every((s) => s.venue.name !== WORDS.placeUnlisted)).toBe(true)
+    // Putting a place the server does not know in it is still refused in words; the session itself reads.
+    await expect(sam.api.replaceStop(id, first.slotId, 'x', undefined, 'a-place-the-server-does-not-list')).rejects.toMatchObject({ message: WORDS.noVenue })
     expect((await sam.api.getSession(id)).plan.stops).toHaveLength(4)
+    // Replace lists places for it, and the host can put one in.
+    const { options } = await sam.api.replaceChoices(id, first.slotId, undefined)
+    await sam.api.replaceStop(id, first.slotId, options[0].id, undefined, 'a-place-the-server-does-not-list')
+    expect((await sam.api.getItinerary(id)).stops[0].venue.id).toBe(options[0].id)
   })
 })
 
@@ -435,8 +461,15 @@ describe('re-planning', () => {
 })
 
 describe('ending the outing', () => {
+  // The server finishes an outing from its day on: confirmed the day before, as the other tests, then it is the day.
+  const confirmedOnTheDay = async (...args) => {
+    const world = await confirmed(...args)
+    vi.setSystemTime(ON_THE_DAY)
+    return world
+  }
+
   it('is the host\'s, finishes it for everyone, and each person reads their own ledger row, not the other\'s', async () => {
-    const { w, sam, kim, id } = await confirmed()
+    const { w, sam, kim, id } = await confirmedOnTheDay()
     expect(await sam.api.getLedger(id)).toBeNull()
     await sam.api.endPlan(id)
     expect(callsTo(w, 'complete')[0]).toMatchObject({ method: 'POST', path: `/api/sessions/${id}/complete`, body: {} })
@@ -457,7 +490,7 @@ describe('ending the outing', () => {
   })
 
   it('pays no JioCoins and raises no stats event: those are kept in each browser', async () => {
-    const { sam, id } = await confirmed()
+    const { sam, id } = await confirmedOnTheDay()
     const heard = []
     sam.api.subscribe((event) => heard.push(event.type))
     const session = await sam.api.endPlan(id)
@@ -467,7 +500,7 @@ describe('ending the outing', () => {
   })
 
   it('is one finish when pressed twice: no second ledger row', async () => {
-    const { w, sam, id } = await confirmed()
+    const { w, sam, id } = await confirmedOnTheDay()
     await sam.api.endPlan(id)
     await sam.api.endPlan(id)
     expect(rowsOf(w, 'commute_ledger')).toHaveLength(2)
@@ -476,12 +509,15 @@ describe('ending the outing', () => {
   it('writes a row for each person who is in the session, and none for one who is not', async () => {
     const { w, sam, kim, lee, id } = await voted({ third: true })
     await sam.api.confirmPlan(id)
+    vi.setSystemTime(ON_THE_DAY)
     await sam.api.endPlan(id)
     expect(new Set(rowsOf(w, 'commute_ledger').map((r) => r.user_id))).toEqual(new Set([sam.id, kim.id, lee.id]))
     // A person who opted out of an earlier plan is not given a row: the ledger is for those who were there.
+    vi.setSystemTime(new Date('2026-10-09T02:00:00Z'))
     const second = await voted({ third: true })
     await second.lee.api.optOut(second.id, second.lee.id)
     await second.sam.api.confirmPlan(second.id)
+    vi.setSystemTime(ON_THE_DAY)
     await second.sam.api.endPlan(second.id)
     expect(new Set(rowsOf(second.w, 'commute_ledger').map((r) => r.user_id))).toEqual(new Set([second.sam.id, second.kim.id]))
   })
@@ -493,7 +529,7 @@ describe('ending the outing', () => {
   })
 
   it('says it could not read the ledger, and has none for a local outing', async () => {
-    const { w, sam, id } = await confirmed()
+    const { w, sam, id } = await confirmedOnTheDay()
     await sam.api.endPlan(id)
     w.gate.hold = (op) => {
       if (op.table === 'commute_ledger') throw new Error('Cannot reach the database.')
@@ -594,8 +630,9 @@ describe('Roam in a meetup', () => {
     const proposal = (await sam.api.getSession(id)).proposals[0]
     await sam.api.resolveProposal(id, proposal.id, true)
     const stops = rowsOf(w, 'stops').length
+    // A second press: the server answers 200 applied: false (it was decided already), and nothing is written.
     const repeat = await sam.api.resolveProposal(id, proposal.id, true)
-    expect(repeat.applied).toBe(true)
+    expect(repeat.applied).toBe(false)
     const gone = await sam.api.resolveProposal(id, '00000000-0000-4000-8000-0000000000aa', true)
     expect(gone.applied).toBe(false)
     expect(rowsOf(w, 'stops')).toHaveLength(stops)
@@ -760,15 +797,23 @@ describe('changing a stop\'s place, the one way', () => {
     expect(callsTo(w, 'stopPlace')).toEqual([])
   })
 
-  it('keeps a rain warning dismissed for the host until the forecast changes state, in this browser only', async () => {
-    const { sam, kim, id } = await confirmed()
+  it('keeps a rain warning dismissed until the forecast changes state: stored on the session, so every member and device sees it, and the stop\'s place changing clears it', async () => {
+    const { w, sam, kim, id } = await confirmed()
     const drink = stopOf(await sam.api.getItinerary(id), 'drink')
     await expect(kim.api.dismissRainWarning(id, drink.slotId, 'showers')).rejects.toThrow('Only the host can dismiss this.')
     const session = await sam.api.dismissRainWarning(id, drink.slotId, 'showers')
     expect(session.weatherDismissed).toEqual({ [drink.slotId]: 'showers' })
+    expect(callsTo(w, 'keepRain')[0]).toMatchObject({ method: 'PUT', path: `/api/sessions/${id}/stops/${drink.stopId}/kept-rain`, body: { state: 'showers' } })
+    // It is in the database, by the stop, and every reader gets it: the host (a reload) and a guest.
+    expect(sessionRow(w, id).weather_kept).toEqual({ [drink.stopId]: 'showers' })
     expect((await sam.api.getSession(id)).weatherDismissed).toEqual({ [drink.slotId]: 'showers' })
-    expect((await kim.api.getSession(id)).weatherDismissed).toBeUndefined()
+    expect((await kim.api.getSession(id)).weatherDismissed).toEqual({ [drink.slotId]: 'showers' })
     await expect(sam.api.dismissRainWarning(id, 'no-such-stop', 'showers')).rejects.toThrow('This stop is not in the plan.')
+    // The stop's place changes: the warning was about the old place, and goes.
+    const { options } = await sam.api.replaceChoices(id, drink.slotId, undefined)
+    await sam.api.replaceStop(id, drink.slotId, options[0].id, undefined, drink.venue.id)
+    expect(sessionRow(w, id).weather_kept).toBeNull()
+    expect((await kim.api.getSession(id)).weatherDismissed).toBeUndefined()
   })
 
   it('asks the weather at the stops of the plan, for its places and times', async () => {
@@ -1024,6 +1069,7 @@ describe('live', () => {
     await vi.waitFor(() => expect(events.itineraries[id].legs[0].mode).toBe('car'))
     await sam.api.deleteStop(id, 3, { stopId: seen[3] })
     await vi.waitFor(() => expect(events.itineraries[id].stops).toHaveLength(3))
+    vi.setSystemTime(ON_THE_DAY)
     await sam.api.endPlan(id)
     await vi.waitFor(() => expect(events.byId[id].status).toBe('completed'))
     await events.loadLedger(id)

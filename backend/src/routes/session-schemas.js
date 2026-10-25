@@ -68,6 +68,8 @@ export const sessionSchemas = {
   // POST /api/sessions/:id/roam. `current` is where the group is now, used for this one request and never stored; left out, the
   // meeting area's centre. `categories` narrows the list (up to 4 kinds).
   roam: z.object({ current: pointInput.optional(), categories: categoryList }).strict(),
+  // PUT /api/sessions/:id/stops/:stopId/kept-rain. `state` is the forecast's state the host kept the stop in (a short lower-case word).
+  keepRain: z.object({ state: z.string().regex(/^[a-z_]{1,24}$/) }).strict(),
   // POST /api/sessions/:id/proposals
   proposal: z.object({ venueId }).strict(),
   // A proposal in a path.

@@ -932,7 +932,8 @@ async function keepDialog(e) {
           Could not get a suggested order.
           <AppButton variant="tertiary" underline small data-testid="order-retry" @click="retryOrder">Try again</AppButton>
         </p>
-        <p v-if="staleNote" class="caption-sm text-muted dialog-line" role="status" data-testid="order-stale">{{ staleNote }}</p>
+        <!-- A live region that is on the page from the start, empty, so that what is put in it is announced; it takes no room until it has words. -->
+        <p v-if="shared" :class="staleNote ? 'caption-sm text-muted dialog-line' : 'sr-only'" role="status" data-testid="order-stale">{{ staleNote }}</p>
         <p v-if="confirmError" class="body-sm text-error dialog-line" role="alert" data-testid="confirm-error">{{ confirmError }}</p>
       </template>
       <AppButton block :disabled="busy" @click="confirm">Confirm</AppButton>

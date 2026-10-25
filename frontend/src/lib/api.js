@@ -16,7 +16,7 @@ import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
-import { dueEnding, earnsCoins, itineraryAction, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
+import { dueEnding, earnsCoins, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
 import { combineWeather, stateOf, venueSetting, weatherFrom } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
@@ -370,7 +370,11 @@ const leaderboardIds = () => (isReal() ? (db.user ? [db.user.id] : []) : PEOPLE.
 const areaById = (id) => AREAS.find((a) => a.id === id)
 // A place by id: the built-in ones, the ones a local account saved with a proposal, and (for a session on the server) the ones the server
 // described for the cards. How to call: venueById('v25') -> { id, name, ... }
-const venueById = (id) => db.venues[id] || VENUES.find((v) => v.id === id) || serverVenues.get(id)
+const venueById = (id) => db.venues[id] || VENUES.find((v) => v.id === id) || serverVenues.get(id) || unlistedVenues.get(id)
+
+// A place in a shared plan that the server cannot describe any more (it left the list since the plan was made), as a stand-in the screens can draw:
+// by id, for the visit, never stored. It sits at the meeting area, indoor (so no rain warning is made for it), and is named for what it is.
+const unlistedVenues = new Map()
 
 // What a person has earned, made when it is first needed (a real person who joined a session of this account).
 // How to call: statsOf('7f3c...') -> { meetups: 0, points: 0, seasonPoints: 0 }
@@ -440,6 +444,7 @@ const remote = createSessionsRemote({
     stopSwap: (sessionId, stopId) => planner.getSessionStopSwap(sessionId, stopId),
     stopChoices: (sessionId, stopId, options) => planner.getSessionStopChoices(sessionId, stopId, options),
     changeStopPlace: (sessionId, stopId, body) => planner.putSessionStopPlace(sessionId, stopId, body),
+    keepRain: (sessionId, stopId, state) => planner.putSessionStopRain(sessionId, stopId, state),
     roam: (sessionId, options) => planner.roamSession(sessionId, options),
     propose: (sessionId, venueId) => planner.proposeSessionStop(sessionId, venueId),
     resolve: (sessionId, proposalId, accept) => planner.resolveSessionProposal(sessionId, proposalId, accept),
@@ -490,6 +495,9 @@ const searchedNames = new Map()
 // has none). The server's banner is the group's, so dismissing it is this person's alone: it is kept in this browser, under
 // the account, and a newer banner (another stamp) shows again.
 const dismissedBanners = new Map()
+// The basis of the votes the host was last shown in the Confirm dialog, by session (what the server said it made its answer for, an order or none).
+// It is a note of what was on screen, not data: it is sent back with the confirm so the server can tell the votes moved, and forgotten at once.
+const shownBasis = new Map()
 // The server writes `at` (the time it was written, in milliseconds) on every banner, so a newer banner always has a new stamp; the
 // version is only the fallback for a banner without one.
 // How to call: bannerStamp({ at: 1760000000000 }, 4) -> 1760000000000
@@ -507,29 +515,6 @@ function rememberDismissed(sessionId, stamp) {
   const saved = parseOrNull(readRaw(`${STORAGE_KEY}:banners:${me()}`) ?? 'null')
   try {
     localStorage.setItem(`${STORAGE_KEY}:banners:${me()}`, JSON.stringify({ ...(isObject(saved) ? saved : {}), [sessionId]: stamp }))
-  } catch {
-    // Kept in memory for this visit.
-  }
-}
-
-// The rain warnings the host chose to keep for a session on the server (the Keep button): { [slotId]: the forecast's state when kept }.
-// The press is the host's alone, so it is kept in this browser, under the account, like a dismissed banner; a warning comes back when the
-// forecast changes state (lib/weatherText.js isDismissed). Null when nothing was kept.
-// How to call: keptRain('3b1f...') -> { eat: 'showers' } or null
-const keptRainMemory = new Map()
-function keptRain(sessionId) {
-  const key = `${me()}:${sessionId}`
-  if (keptRainMemory.has(key)) return keptRainMemory.get(key)
-  const saved = parseOrNull(readRaw(`${STORAGE_KEY}:rain:${me()}`) ?? 'null')
-  return isObject(saved) && isObject(saved[sessionId]) ? saved[sessionId] : null
-}
-// How to call: rememberRain('3b1f...', 'eat', 'showers')
-function rememberRain(sessionId, slotId, state) {
-  const next = { ...(keptRain(sessionId) || {}), [slotId]: state }
-  keptRainMemory.set(`${me()}:${sessionId}`, next)
-  const saved = parseOrNull(readRaw(`${STORAGE_KEY}:rain:${me()}`) ?? 'null')
-  try {
-    localStorage.setItem(`${STORAGE_KEY}:rain:${me()}`, JSON.stringify({ ...(isObject(saved) ? saved : {}), [sessionId]: next }))
   } catch {
     // Kept in memory for this visit.
   }
@@ -597,8 +582,6 @@ function fromServer(row) {
     spots: knownSpots(row.spots),
     banner,
     photos: [],
-    // The rain warnings the host kept in this browser (the host's press is theirs alone for a session on the server).
-    ...(row.status === 'confirmed' && keptRain(row.id) ? { weatherDismissed: keptRain(row.id) } : {}),
   }
 }
 
@@ -1358,6 +1341,8 @@ function resetSessionState() {
   opened.clear()
   repairs.clear()
   dismissedBanners.clear()
+  shownBasis.clear()
+  unlistedVenues.clear()
   epoch += 1
   closeChannel()
 }
@@ -2282,6 +2267,8 @@ function summary(session, { warm = true } = {}) {
     activeIds: activeIds(session),
     areaName: session.meeting ? areaById(session.meeting.areaId).name : '',
     isToday: isSessionDay(session),
+    // The day has passed on a shared outing: nothing finishes it by itself, so its host may from the day on (lib/session.js itineraryAction).
+    pastDay: !!session.remote && session.date < todayKey(),
     findingMeeting: finding.has(session.id),
     findingSpots: findingSpots.has(session.id),
     spots: spotsView(session),
@@ -3678,7 +3665,11 @@ export async function confirmPlan(id, suggestion = null) {
   // since outdated is refused with 409 `order_stale` (nothing was written); the screen redraws the dialog and the host confirms again.
   if (onServer()) {
     const basis = typeof suggestion?.basis === 'string' ? suggestion.basis : null
-    await remote.confirmPlan(id, basis ? { order: 'suggested', basis } : { order: 'voted' })
+    // The voted order carries the basis of the votes the host was shown (from the last question to the server, for an order or for none), so a
+    // vote that moved a winner since is refused (409 `order_stale`, nothing written) and the host looks again.
+    const seen = shownBasis.get(id)
+    shownBasis.delete(id)
+    await remote.confirmPlan(id, basis ? { order: 'suggested', basis } : { order: 'voted', ...(seen && { basis: seen }) })
     return afterServerWrite(id, 'session')
   }
   await wait(DELAY.plan)
@@ -3716,22 +3707,48 @@ export async function confirmPlan(id, suggestion = null) {
 
 // The session of the server a plan screen is about, read afresh, with the places of its stops and proposals described (the cards and the
 // layout need them). Rejects with the sentence for a failure to read either, which the screen shows with a retry.
-// How to call: const session = await planSession('3b1f...')
-async function planSession(id) {
-  const session = await getSession(id)
+// `known` is a session just read by the caller (a live update read it and asks for the itinerary at once): it is used as it is, so one event is
+// one read of the session, not two.
+// How to call: const session = await planSession('3b1f...'); const same = await planSession('3b1f...', justRead)
+async function planSession(id, known = null) {
+  const session = known ?? (await getSession(id))
+  await describePlaces(session)
+  return session
+}
+
+// The session as last read (the newest handed out), with its places described, for a question that does not need a read of its own (the rain swap, the
+// weather check): it asks the server only for a place it does not know, and reads the session afresh only when none was read. Rejects as planSession does.
+// How to call: const session = await planSessionHeld('3b1f...')
+async function planSessionHeld(id) {
+  const held = newestRead.get(id)?.session
+  if (!held) return planSession(id)
+  const session = clone(held)
+  await describePlaces(session)
+  return session
+}
+
+// Asks for the places of a session's stops and proposals that the server has not described yet (once each), and stands in for a stop's place the
+// server cannot describe. Rejects with the sentence for a failure to read.
+// How to call: await describePlaces(session)
+async function describePlaces(session) {
   const wanted = [...(session.plan?.stops || []).map((s) => s.venueId), ...(session.proposals || []).map((p) => p.venueId)]
   await ensureVenues(wanted)
-  // A stop whose place the server cannot describe cannot be laid out: say so (the page offers a retry) instead of failing in the layout.
-  if ((session.plan?.stops || []).some((s) => !venueById(s.venueId))) throw Object.assign(new Error(SHARING_WORDS.placeMissing), { code: 'venue_not_found' })
-  return session
+  // A stop whose place the server cannot describe is drawn as "A place that is no longer listed", with its controls (the host can delete it or
+  // put another place in it), instead of failing the whole plan.
+  const at = session.meeting ? areaById(session.meeting.areaId) : null
+  for (const stop of session.plan?.stops || []) {
+    if (venueById(stop.venueId)) continue
+    unlistedVenues.set(stop.venueId, { id: stop.venueId, name: SHARING_WORDS.placeUnlisted, category: stop.category, area: at?.name ?? '', lat: at?.lat ?? 1.3521, lng: at?.lng ?? 103.8198, price: 0, rating: null, hours: [], serves: [], tags: [], indoor: true, unlisted: true })
+  }
 }
 
 // The itinerary of a confirmed or finished plan: the stops laid out in time (a meal at its time, a shop after it opens), the travel between
 // them, the end, and each person's trip home. A session on the server is read from the database (planSession) and laid out by the same
 // rules as a local one, from the same shape of plan; each stop also carries its `stopId`, which is what the server's routes name.
 // How to call: await getItinerary('3b1f...')
-export async function getItinerary(id) {
-  if (onServer()) return itineraryView(await planSession(id))
+// `session` may be a session of the server the caller has just read (a live update): it is laid out as it is, without reading it again.
+export async function getItinerary(id, { session } = {}) {
+  if (onServer()) return itineraryView(await planSession(id, session ?? null))
   await wait(DELAY.read)
   return itineraryView(sessionById(id))
 }
@@ -3795,7 +3812,7 @@ function localStart(day, minutes) {
 // How to call: await checkStopWeather('s1')
 export async function checkStopWeather(id) {
   if (!onServer()) await wait(DELAY.read)
-  const session = onServer() ? await planSession(id) : sessionById(id)
+  const session = onServer() ? await planSessionHeld(id) : sessionById(id)
   const stops = timedStops(session).flatMap((s) => {
     const venue = venueById(s.venueId)
     if (!venue) return []
@@ -3828,7 +3845,7 @@ const slotOfStop = (stop) => ({ id: stop.slotId, category: stop.category, start:
 export async function findRainSwap(id, slotId) {
   // A session on the server: the server's own ranking of the stop's place at its time; the indoor place it offers, or none.
   if (onServer()) {
-    const session = await planSession(id)
+    const session = await planSessionHeld(id)
     const stop = session.plan?.stops.find((s) => s.slotId === slotId)
     if (!stop) return null
     const answer = await remote.stopSwap(id, stop.stopId)
@@ -3903,17 +3920,19 @@ async function swapPlannedStop(session, slotId, fromId, toId) {
 
 
 // The host keeps a stop as it is in the rain. The warning stays dismissed for that stop until the forecast changes state
-// (lib/weatherText.js isDismissed), so `state` is the forecast's state when it was dismissed. Only the host.
+// (lib/weatherText.js isDismissed), so `state` is the forecast's state when it was dismissed. Only the host. For a session on the server it is
+// stored on the session, so everyone's screens agree.
 // How to call: await dismissRainWarning('s1', 'activity', 'showers')
 export async function dismissRainWarning(id, slotId, state) {
-  // A session on the server: the host's press is kept in this browser (the warning comes back when the forecast changes state).
+  // A session on the server: the host's press is stored on the session (`sessions.weather_kept`, by the server), so every member and every
+  // device of the host sees the warning put away; it comes back when the forecast changes state, and goes when the stop's place changes.
   if (onServer()) {
     const session = await planSession(id)
     if (session.hostId !== me()) throw new Error('Only the host can dismiss this.')
-    if (session.status !== 'confirmed' || !session.plan?.stops.some((s) => s.slotId === slotId)) throw new Error('This stop is not in the plan.')
-    rememberRain(id, slotId, stateOf(state))
-    broadcast({ type: 'plan', sessionId: id })
-    return getSession(id)
+    const stop = session.status === 'confirmed' ? session.plan?.stops.find((s) => s.slotId === slotId) : null
+    if (!stop?.stopId) throw new Error('This stop is not in the plan.')
+    await remote.keepRain(id, stop.stopId, stateOf(state))
+    return afterServerWrite(id, 'plan')
   }
   await wait(DELAY.write)
   const session = sessionById(id)
@@ -4036,7 +4055,7 @@ export async function suggestOrder(id) {
 // How to call: const suggestion = await suggestOrderOnServer('3b1f...')
 async function suggestOrderOnServer(id) {
   const asked = epoch
-  const answer = await remote.suggestOrder(id)
+  const answer = await remote.suggestOrder(id, { onBasis: (basis) => shownBasis.set(id, basis) })
   // Asked for by the account before: not used, not shown.
   if (!answer || asked !== epoch) return null
   const plan = newestPlanRead.get(id)?.plan ?? (await planFromServer(id))
@@ -4163,7 +4182,7 @@ function clearProposals(session) {
 function assertRoamOpen(session) {
   if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
   if (session.status !== 'confirmed' || !session.plan) throw new Error('Places can be proposed once the plan is confirmed.')
-  if (itineraryAction({ status: session.status, isToday: isSessionDay(session) }) !== 'finish') throw new Error('Places can be proposed on the day of the outing.')
+  if (!isSessionDay(session)) throw new Error('Places can be proposed on the day of the outing.')
 }
 
 // The stops of the plan with their times, as the itinerary lays them out.
@@ -4318,16 +4337,12 @@ export async function proposeStop(id, personId, venueId) {
 // How to call: await resolveProposal('s1', 'pp7', true) -> { ...session, applied: true }
 export async function resolveProposal(id, proposalId, accept) {
   // A session on the server: the host adds the place to the plan or leaves it out; the proposer may take their own back. A proposal that is
-  // no longer there (another device answered it, or a re-plan took it) changes nothing, and the answer says so (`applied: false`).
+  // no longer there (another device answered it, or a re-plan took it) is a 200 from the server with `applied: false`, which changes nothing,
+  // and the answer says so.
   if (onServer()) {
     requireMe()
-    try {
-      await remote.resolve(id, proposalId, accept)
-    } catch (err) {
-      if (err?.code !== 'proposal_not_found') throw err
-      return { ...(await afterServerWrite(id, 'plan')), applied: false }
-    }
-    return { ...(await afterServerWrite(id, 'plan')), applied: true }
+    const answered = await remote.resolve(id, proposalId, accept)
+    return { ...(await afterServerWrite(id, 'plan')), applied: answered?.applied !== false }
   }
   await wait(DELAY.write)
   requireMe()

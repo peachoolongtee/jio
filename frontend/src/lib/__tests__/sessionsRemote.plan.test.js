@@ -190,7 +190,7 @@ describe('the calls it makes and the sentences for their refusals', () => {
       if (refuse) throw refuse
       return { planVersion: 3, status: 'x' }
     }
-    const names = ['confirmPlan', 'replan', 'complete', 'patchStop', 'deleteStop', 'reorderStops', 'stopSwap', 'stopChoices', 'changeStopPlace', 'roam', 'propose', 'resolve', 'suggestOrder']
+    const names = ['confirmPlan', 'replan', 'complete', 'patchStop', 'deleteStop', 'reorderStops', 'stopSwap', 'stopChoices', 'changeStopPlace', 'keepRain', 'roam', 'propose', 'resolve', 'suggestOrder']
     return { calls, backend: Object.fromEntries(names.map((n) => [n, call(n)])) }
   }
   const remote = (backend) => createSessionsRemote({ client: () => ({}), me: () => 'u1', backend })
@@ -209,6 +209,7 @@ describe('the calls it makes and the sentences for their refusals', () => {
     await r.stopSwap('s', 'p')
     await r.stopChoices('s', 'p', { category: 'drink' })
     await r.changeStopPlace('s', 'p', { venueId: 'v2', seenVenueId: 'v1', category: 'drink' })
+    await r.keepRain('s', 'p', 'showers')
     await r.roam('s', { categories: ['eat'] })
     await r.propose('s', 'v2')
     await r.resolve('s', 'c', true)
@@ -224,6 +225,7 @@ describe('the calls it makes and the sentences for their refusals', () => {
       ['stopSwap', 's', 'p'],
       ['stopChoices', 's', 'p', { category: 'drink' }],
       ['changeStopPlace', 's', 'p', { venueId: 'v2', seenVenueId: 'v1', category: 'drink' }],
+      ['keepRain', 's', 'p', 'showers'],
       ['roam', 's', { categories: ['eat'] }],
       ['propose', 's', 'v2'],
       ['resolve', 's', 'c', true],
@@ -249,6 +251,8 @@ describe('the calls it makes and the sentences for their refusals', () => {
     ['changeStopPlace', ['s', 'p', {}], 'venue_does_not_fit', WORDS.doesNotFit],
     ['changeStopPlace', ['s', 'p', {}], 'stop_changed', WORDS.planChanged],
     ['changeStopPlace', ['s', 'p', {}], 'already_a_stop', WORDS.alreadyStop],
+    ['keepRain', ['s', 'p', 'showers'], 'host_only', 'Only the host can dismiss this.'],
+    ['keepRain', ['s', 'p', 'showers'], 'wrong_status', WORDS.needConfirmed],
     ['propose', ['s', 'v'], 'plan_full', WORDS.planFull],
     ['propose', ['s', 'v'], 'too_many_proposals', WORDS.tooManyProposals],
     ['propose', ['s', 'v'], 'already_a_stop', WORDS.alreadyStop],
@@ -265,6 +269,7 @@ describe('the calls it makes and the sentences for their refusals', () => {
     ['stopSwap', ['s', 'p']],
     ['stopChoices', ['s', 'p', {}]],
     ['changeStopPlace', ['s', 'p', {}]],
+    ['keepRain', ['s', 'p', 'showers']],
     ['roam', ['s', {}]],
     ['propose', ['s', 'v']],
     ['resolve', ['s', 'c', true]],
@@ -308,7 +313,10 @@ describe('the stops now, and the person\'s own ledger row', () => {
 
   it('reads the person\'s own ledger row, and only that, though the rules let a member read the others\'', async () => {
     const { w, sam, kim, id } = await confirmed()
+    // The server finishes an outing from its day on (the plan is for 10 October 2026).
+    vi.setSystemTime(new Date('2026-10-10T04:00:00Z'))
     await sam.api.endPlan(id)
+    vi.setSystemTime(new Date('2026-10-09T02:00:00Z'))
     expect(rowsOf(w, 'commute_ledger')).toHaveLength(2)
     w.ops.length = 0
     const mine = await asPerson(kim).myLedger(id)

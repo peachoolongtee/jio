@@ -63,7 +63,7 @@ export async function loadState(service, id) {
       .select(
         'id, host_id, status, plan_version, date, start_time, end_time, radius_meters, banner, meeting_area_id, meeting_method, ' +
           'meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, ' +
-          'order_reason, order_source, order_suggestion, plan_start_minute, replan, completed_at',
+          'order_reason, order_source, order_suggestion, plan_start_minute, replan, weather_kept, completed_at',
       )
       .eq('id', id)
       .maybeSingle(),
@@ -135,24 +135,58 @@ export async function loadDebts(service, id) {
   return new Map((rows ?? []).map((r) => [String(r.user_id).toLowerCase(), Number(r.debt_minutes)]).filter(([, debt]) => Number.isFinite(debt)))
 }
 
-// The caller's own recent finished outings, for the places the group has been to lately: the completed sessions the CALLER is in (the
-// database's own rules decide, so nobody else's session is ever read), the newest `limit` completed since `since`, with their members and
-// their stops. Three small reads, each bounded. THROWS on any failure (the caller plans without history when it does).
+// The finished outings that any of these people were in, for the places the group has been to lately: the completed sessions since `since` that
+// one of `userIds` was a joined member of, the newest `limit`, with their members and their stops. Read with the service key, so the answer is the
+// same whoever asked (the planner stores a ranking for the whole group); the caller keeps only what at least two of the group did together
+// (services/session-history.js), and only places and days leave it. Reads are in chunks of ids, each bounded. THROWS on any failure (the caller
+// plans without history when it does).
 //
 // How to call:
-//   const { sessions, members, stops } = await loadPastOutings(req.supabase, { since: '2026-08-24T00:00:00.000Z', limit: 30 })
-export async function loadPastOutings(client, { since, limit }) {
-  const sessions = unwrap(
-    await client.from('sessions').select('id, date, completed_at').eq('status', 'completed').gte('completed_at', since).order('completed_at', { ascending: false }).limit(limit),
-    'the finished outings',
-  ) ?? []
+//   const { sessions, members, stops } = await loadPastOutings(supabase.service, { since: '2026-08-24T00:00:00.000Z', limit: 30, userIds: [a, b] })
+export async function loadPastOutings(service, { since, limit, userIds }) {
+  if (userIds.length === 0) return { sessions: [], members: [], stops: [] }
+  const mine = unwrap(await service.from('session_members').select('session_id').in('user_id', userIds).eq('state', 'joined').limit(2000), "the group's outings") ?? []
+  const wanted = [...new Set(mine.map((m) => m.session_id))]
+  const found = []
+  for (let i = 0; i < wanted.length; i += 100) {
+    const rows = unwrap(
+      await service.from('sessions').select('id, date, completed_at').in('id', wanted.slice(i, i + 100)).eq('status', 'completed').gte('completed_at', since),
+      'the finished outings',
+    ) ?? []
+    found.push(...rows)
+  }
+  const sessions = found.sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at))).slice(0, limit)
   if (sessions.length === 0) return { sessions: [], members: [], stops: [] }
   const ids = sessions.map((s) => s.id)
   const [members, stops] = await Promise.all([
-    client.from('session_members').select('session_id, user_id, state').in('session_id', ids),
-    client.from('stops').select('session_id, venue_id').in('session_id', ids),
+    service.from('session_members').select('session_id, user_id, state').in('session_id', ids),
+    service.from('stops').select('session_id, venue_id').in('session_id', ids),
   ])
-  return { sessions, members: unwrap(members, 'the finished outings\' members') ?? [], stops: unwrap(stops, 'the finished outings\' stops') ?? [] }
+  return { sessions, members: unwrap(members, "the finished outings' members") ?? [], stops: unwrap(stops, "the finished outings' stops") ?? [] }
+}
+
+// Checks that the database has what stage 5 needs, so a backend started before the migration fails at once, loudly, naming the migration
+// (and not on the first request of every session, in every status). Only a missing column or table is fatal; a database that cannot be
+// reached gives an Error with `unreachable: true`, which the caller logs as a warning, since requests would fail on their own.
+//
+// How to call:
+//   await checkPlanSchema(supabase.service) // resolves when the schema is there; else throws an Error naming the migration file
+export async function checkPlanSchema(service) {
+  const migration = 'db/migrations/20261023000000_jio_apply_session_plan_stops.sql'
+  const probes = [
+    ['sessions', 'order_suggestion, plan_start_minute, order_reason, order_source, weather_kept'],
+    ['stops', 'not_before_minute'],
+    ['stop_proposals', 'id'],
+  ]
+  for (const [table, columns] of probes) {
+    const { error } = await service.from(table).select(columns).limit(1)
+    if (!error) continue
+    // 42703 undefined column, 42P01 undefined table, PGRST204 and PGRST205 the same through PostgREST's schema cache.
+    if (['42703', '42P01', 'PGRST204', 'PGRST205'].includes(error.code)) {
+      throw new Error(`The database does not have what stage 5 of the sessions needs (${table}: ${error.message}). Apply ${migration} before this server runs.`)
+    }
+    throw Object.assign(new Error(`Could not check the database for stage 5 (${table}: ${error.message}).`), { unreachable: true })
+  }
 }
 
 // People's names, for the sentence a notice carries. A person with no profile row is left out.

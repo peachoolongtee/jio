@@ -32,6 +32,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   DELETE /api/sessions/:id/stops/:stopId                            the host deletes a stop
 //   PATCH  /api/sessions/:id/stops/:stopId    { travelMode }          the host sets how the group gets to a stop (walk, mrt, car or null)
 //   PUT    /api/sessions/:id/stops/:stopId/place { venueId, seenVenueId, category? }   the host puts another place in a stop
+//   PUT    /api/sessions/:id/stops/:stopId/kept-rain { state }        the host keeps a stop in the rain (stored on the session)
 //   GET    /api/sessions/:id/stops/:stopId/swap                       the indoor place the planner would put in the stop in the rain (a member; reads)
 //   GET    /api/sessions/:id/stops/:stopId/choices?category=          the places that could take the stop's place (the host; reads)
 //   POST   /api/sessions/:id/roam             { current?, categories? } places near where the group is, for "What next?" (a member; reads)
@@ -58,6 +59,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   replan         { planVersion, status: 'voting' }                 (accept: false: status 'confirmed'; already voting: a no-op)
 //   stops/order, stops/:id DELETE   { planVersion }              stops/:id PATCH { planVersion, travelMode }
 //   stops/:id/place  { planVersion, changed }                    (changed: false when the stop already holds the place)
+//   stops/:id/kept-rain { planVersion, kept: true }
 //   stops/:id/swap   { swap: { venueId, name } | null }
 //   stops/:id/choices { category, options: [{ venueId, rank, score, votes, details }] }
 //   roam           { status: 'ok', results: [...], notice, weather } or { status: 'empty', reason, hints, results: [] }   (no centre, no needs named)
@@ -301,6 +303,11 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
   router.put('/sessions/:id/stops/:stopId/place', ...guard, handle((who, req) => {
     const { venueId, seenVenueId, category } = sessionSchemas.stopPlace.parse(req.body ?? {})
     return sessions.changeStopPlace({ ...who, stopId: sessionSchemas.stopId.parse(req.params.stopId), venueId, seenVenueId, category })
+  }))
+
+  router.put('/sessions/:id/stops/:stopId/kept-rain', ...guard, handle((who, req) => {
+    const { state } = sessionSchemas.keepRain.parse(req.body ?? {})
+    return sessions.keepRain({ ...who, stopId: sessionSchemas.stopId.parse(req.params.stopId), state })
   }))
 
   // Reads that rank places for a confirmed plan; they write nothing. Changing a stop is the PUT above.

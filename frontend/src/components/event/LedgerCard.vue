@@ -2,9 +2,11 @@
 // "Your travel": the person's own row of the travel ledger for a finished outing on the server. How long they spent getting there, between
 // stops and getting home, and how that compares with the group's average. Only the signed-in person's own row is ever passed in; what the
 // others travelled is not shown here.
-//   <LedgerCard :ledger="{ minutesIn: 25, minutesBetween: 10, minutesHome: 30, total: 65, delta: 4 }" />
-// States: `loading` (placeholder rows), `ledger` null with `failed` (could not load, with Try again), `ledger` null (not worked out yet,
-// with Try again), and the row. Estimates say "about".
+//   <LedgerCard :ledger="{ minutesIn: 25, minutesBetween: 10, minutesHome: 30, total: 65, delta: 4 }" :loaded="true" />
+// States: placeholder rows while the first read is out (`loading`, or not `loaded` yet); `failed` (could not load, with Try again, which stays
+// on the page and is only disabled while the new read is out, so focus is never lost); the row; and, once the read has answered with no row,
+// "No travel was recorded for you." with no retry (the server writes every row when it finishes the outing, so a missing row is a person who
+// was not in it: opted out, or no start). One live region is on the page from the start, empty, and says what is happening. Estimates say "about".
 import { computed } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import SkeletonRow from '../ui/SkeletonRow.vue'
@@ -13,6 +15,8 @@ const props = defineProps({
   ledger: { type: Object, default: null },
   loading: { type: Boolean, default: false },
   failed: { type: Boolean, default: false },
+  // The server has answered at least once (with a row or with none).
+  loaded: { type: Boolean, default: false },
 })
 defineEmits(['retry'])
 
@@ -29,6 +33,11 @@ const rows = computed(() => {
   ]
 })
 // How the total compares with the group's average, in words.
+// What the live region says: that the read is out, or that it failed. Empty otherwise (it is on the page from the start, so it announces).
+const announcement = computed(() => {
+  if (props.loading) return 'Loading your travel'
+  return props.failed ? 'Could not load your travel.' : ''
+})
 // How to call: compare(4) -> 'About 4 min more than the group\'s average.'
 const compare = computed(() => {
   const delta = props.ledger?.delta
@@ -39,13 +48,10 @@ const compare = computed(() => {
 </script>
 
 <template>
-  <section class="ledger" aria-labelledby="ledger-title" data-testid="ledger-card">
+  <section class="ledger" aria-labelledby="ledger-title" :aria-busy="loading ? 'true' : undefined" data-testid="ledger-card">
     <h2 id="ledger-title" class="title-md">Your travel</h2>
-    <div v-if="loading && !ledger" class="stack gap-md" data-testid="ledger-loading">
-      <SkeletonRow :lines="2" />
-      <p class="sr-only" role="status">Loading your travel</p>
-    </div>
-    <template v-else-if="ledger">
+    <p class="sr-only" role="status" data-testid="ledger-status">{{ announcement }}</p>
+    <template v-if="ledger">
       <dl class="ledger__rows">
         <div v-for="row in rows" :key="row.label" class="ledger__row" :class="{ 'ledger__row--total': row.strong }">
           <dt class="body-sm">{{ row.label }}</dt>
@@ -54,10 +60,14 @@ const compare = computed(() => {
       </dl>
       <p class="caption-sm text-muted" data-testid="ledger-compare">{{ compare }}</p>
     </template>
-    <div v-else class="ledger__none">
-      <p class="body-sm text-muted" :role="failed ? 'alert' : undefined" data-testid="ledger-none">{{ failed ? 'Could not load your travel.' : 'Your travel is not worked out yet.' }}</p>
+    <div v-else-if="failed" class="ledger__none">
+      <p class="body-sm text-muted" data-testid="ledger-none">Could not load your travel.</p>
       <AppButton small variant="secondary" :disabled="loading" data-testid="ledger-retry" @click="$emit('retry')">Try again</AppButton>
     </div>
+    <div v-else-if="loading || !loaded" class="stack gap-md" aria-hidden="true" data-testid="ledger-loading">
+      <SkeletonRow :lines="2" />
+    </div>
+    <p v-else class="body-sm text-muted" data-testid="ledger-none">No travel was recorded for you.</p>
   </section>
 </template>
 

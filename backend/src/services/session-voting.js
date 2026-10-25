@@ -149,6 +149,8 @@ export function createVoting({ data, areasById, runs }) {
     const { result, travel } = await runs.runWithTravel(input, planData, roam, () => ({
       maxTrips: ctx.allowance.trips,
       deadlineMs: Math.max(0, ctx.allowance.deadlineAt - Date.now()),
+      // The point is a person's position: its routes are not read from or put in the route cache, so nothing of it stays in this process.
+      cache: false,
     }))
     spend(ctx.allowance, travel)
     return { result, weather: weatherNote(resolved.weather) }
