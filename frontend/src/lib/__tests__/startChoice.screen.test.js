@@ -143,6 +143,15 @@ describe('the host\'s choice screen', () => {
   })
 })
 
+describe('a stale device', () => {
+  it('cannot rewrite the choice of a session that already started on another device', async () => {
+    const { w, sam, id } = await started()
+    await sam.api.startSession(id, { meetBy: 'known' })
+    await expect(sam.api.startSession(id, { meetBy: 'fairest' })).rejects.toThrow('Only the host can start a session, and only once.')
+    expect(row(w, id)).toMatchObject({ status: 'locating', meet_by: 'known' })
+  })
+})
+
 describe('the follow-up for "We already know where"', () => {
   it('lists the popular areas, finds an area by search, and names the chosen one on the button', async () => {
     const { id } = await started()
@@ -251,18 +260,27 @@ describe('what a guest reads on the Locate step', () => {
     expect(row(w, id).meet_by).toBe('known')
   })
 
-  it('follows a change of the host\'s mind made while locating, live', async () => {
+  it('keeps "fairest" when the host\'s "We already have a place" fails, so nobody reads "chose the place" for a place that was never set', async () => {
     const { w, sam, id } = await started({ guest: true })
     await sam.api.startSession(id, { meetBy: 'fairest' })
     const { view } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
     await until(() => view.text().includes('Sam chose to find the fairest spot.'))
-    // The host says "We already have a place" and the name of the place is not saved (no connection to the server).
-    await sam.api.getSession(id)
     w.server.down = true
     await expect(sam.api.setKnownPlace(id, 'orchard')).rejects.toThrow()
     w.server.down = false
-    expect(row(w, id).meet_by).toBe('known')
-    await until(() => view.text().includes('Sam chose the place.'))
+    // The browser wrote nothing for the choice: the server records it together with the place.
+    expect(row(w, id)).toMatchObject({ status: 'locating', meet_by: 'fairest' })
+    await view.tick()
+    expect(view.text()).toContain('Sam chose to find the fairest spot.')
+  })
+
+  it('has the server record "known" with the place when the host switches while locating, with no extra write from the browser', async () => {
+    const { w, sam, id } = await started({ guest: true })
+    await sam.api.startSession(id, { meetBy: 'fairest' })
+    w.ops.length = 0
+    await sam.api.setKnownPlace(id, 'orchard')
+    expect(row(w, id)).toMatchObject({ status: 'voting', meet_by: 'known', meeting_area_id: 'orchard' })
+    expect(w.ops.some((op) => op.kind === 'update' && op.table === 'sessions')).toBe(false)
   })
 
   it('says nothing for a session that started before the choice existed', async () => {

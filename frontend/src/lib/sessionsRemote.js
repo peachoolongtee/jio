@@ -667,16 +667,9 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   async function start(sessionId, { meetBy } = {}) {
     who()
     const values = meetBy ? { status: 'locating', meet_by: meetBy } : { status: 'locating' }
-    const rows = answer(await db().from('sessions').update(values).eq('id', sessionId).select('id'), WORDS.notSaved)
-    if (!rows.length) throw Object.assign(new Error('Only the host can start a session.'), { code: 'host_only' })
-  }
-
-  // The host changes how the group picks the meeting point while the session is locating (the database refuses it at any other
-  // time). How to call: await setMeetBy('3b1f...', 'known')
-  async function setMeetBy(sessionId, meetBy) {
-    who()
-    const rows = answer(await db().from('sessions').update({ meet_by: meetBy }).eq('id', sessionId).select('id'), WORDS.notSaved)
-    if (!rows.length) throw Object.assign(new Error('Only the host can choose how to pick the meeting point.'), { code: 'host_only' })
+    // Only a session that is still inviting: a stale device cannot rewrite the choice of one that started on another.
+    const rows = answer(await db().from('sessions').update(values).eq('id', sessionId).eq('status', 'inviting').select('id'), WORDS.notSaved)
+    if (!rows.length) throw Object.assign(new Error('Only the host can start a session, and only once.'), { code: 'host_only' })
   }
 
   // ── Invite links ──────────────────────────────────────────────────────────
@@ -1218,5 +1211,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, readPlan, readSlotVotes, suggestOrder, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, roam, propose, resolve, myLedger, create, update, cancel, start, setMeetBy, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
+  return { list, get, readPlan, readSlotVotes, suggestOrder, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
 }

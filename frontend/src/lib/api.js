@@ -2530,16 +2530,6 @@ export async function startSession(id, { meetBy } = {}) {
   return touch(session, 'session')
 }
 
-// On the server, while the group is choosing where to meet, record that the host named the place themselves before the known place
-// is set, so the record of their choice agrees with what they did. Does nothing when it is already 'known' or the session is past
-// locating (the database would refuse it). A session of this browser is marked inside setKnownPlace's own write instead, so a
-// failure takes it back with the rest.
-// How to call: await noteKnownChoice('3b1f...')
-async function noteKnownChoice(id) {
-  const last = newestRead.get(id)?.session
-  if (last && last.status === 'locating' && last.meetBy !== 'known' && last.hostId === me()) await remote.setMeetBy(id, 'known')
-}
-
 // ── A real account's meeting spots are on the server ───────────────────────
 
 // Read a session of the server again after a write of this person's, tell the screens, and answer with it. The server's own
@@ -2849,7 +2839,7 @@ export async function confirmSpot(id, areaId) {
 export async function setKnownPlace(id, areaId) {
   if (onServer()) {
     if (!areaById(areaId)) throw new Error(SHARING_WORDS.noArea)
-    await noteKnownChoice(id)
+    // The server records the host's choice itself, after the known place is written (the browser writes nothing more for it here).
     await remote.knownPlace(id, areaId)
     return afterServerWrite(id, 'session')
   }

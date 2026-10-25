@@ -439,6 +439,8 @@ export function fakeSessionsServer(database) {
         const times = priced ? Object.values(priced.travel).map(Math.round) : []
         return { status: 'voting', meeting_area_id: body.areaId, meeting_method: 'chosen', meeting_max_minutes: times.length ? Math.max(...times) : 0, meeting_total_minutes: times.reduce((sum, m) => sum + m, 0), meeting_count: times.length, meeting_approximate: false, banner: null }
       })
+      // As the real server: once the known place is written, it records that the host named the place (sessions.meet_by), if not already.
+      if (session.meet_by !== 'known') await write({ kind: 'update', table: 'sessions', values: { meet_by: 'known' }, filters: [eq('id', id)] })
       return { status: 200, body: { planVersion: version, status: 'voting' } }
     },
     // E10

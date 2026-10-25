@@ -810,6 +810,8 @@ function query(world, table, who) {
       }
       const found = rows.filter(matches)
       if (op.kind === 'update') {
+        // A project without the meet_by migration: the column is not there to write.
+        if (world.refuseMeetBy && table === 'sessions' && 'meet_by' in op.patch) return { data: null, error: dbError('42703', 'column "meet_by" of relation "sessions" does not exist') }
         for (const row of found) {
           const denied = refuseWrite({ ...row, ...op.patch }, 'update')
           if (denied) return { data: null, error: denied }

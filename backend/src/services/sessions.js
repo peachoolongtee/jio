@@ -477,6 +477,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
         patch.ops.length === 0 && patch.spots === undefined && !patch.session && patch.slots === undefined &&
         patch.stops === undefined && patch.stop_options === undefined && patch.ledger === undefined
       let version = Number(state.session.plan_version)
+      let applied = false
       if (!nothingToWrite) {
         // Asked again now: a run may have joined the line while the planner worked, and its jobs would be done again on newer inputs.
         if (handable() && handOver(live.map(({ job }) => job))) return
@@ -488,6 +489,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           )
           if (written === null) continue // the session moved on while the spots were worked out: load again
           version = written
+          applied = true
         } catch (err) {
           if (!(err instanceof PlanRefused)) throw err
           const error = refusalOf(err.hint)
@@ -495,6 +497,8 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           return
         }
       }
+      // What a job records after its change was written (never when nothing was written, or the write was refused).
+      if (applied) for (const { prepared } of live) if (prepared.afterApply) await prepared.afterApply()
       for (const { job, prepared } of live) {
         try {
           job.settle.resolve(await within(Promise.resolve(prepared.answer({ version, rows: rows ?? draft.spots, lost, skipped, state, draft, plan: plan?.info })), dbDeadlineMs, 'reading the result'))
@@ -525,6 +529,8 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   //            `meeting` works the meeting area out again, `rank` ranks the slots (all of them, or those categories; a kind with no slot yet is
   //            always ranked), `trigger` names the change for the notice, `radius` makes the notice the radius's. A job that changes options
   //            itself (add, swap, remove) changes the draft's slots, options and votes in `prepare` and marks `draft.dirty`.
+  //   afterApply  () => a promise: something to record once the write has gone through (the host's Start choice after a known place).
+  //            It must not fail the request, which has already succeeded.
   //   pure     true when the job only works the session out again from what is stored; such a run may move to a newer one waiting behind it
   //   answer   ({ version, rows, lost, skipped, state, draft, plan }) => the JSON the endpoint answers with
 
@@ -925,6 +931,32 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     )
   }
 
+  // Records that the host named the place themselves (`sessions.meet_by = 'known'`), for the guests' line on the Locate step. Done by the
+  // server after the known place was written, with the service key (the database lets the server write the column at any time), and only
+  // when it is not 'known' already. It is a second write, not part of apply_session_plan (that function is not changed for it), so it can
+  // fail on its own: it then says so in the log, at most once a minute, and the known place stands. The session is voting by then, where the
+  // record only matters for the host's own history. A project without the column (its migration not applied) answers an error here and
+  // nothing else is affected.
+  //
+  // How to call:
+  //   await recordKnownChoice('3b1f...')
+  let lastChoiceWarning = 0
+  async function recordKnownChoice(id) {
+    try {
+      const read = await within(service.from('sessions').select('meet_by').eq('id', id).maybeSingle(), dbDeadlineMs, 'reading how the host chose')
+      if (read.error) throw read.error
+      if (!read.data || read.data.meet_by === 'known') return
+      const wrote = await within(service.from('sessions').update({ meet_by: 'known' }).eq('id', id), dbDeadlineMs, 'recording how the host chose')
+      if (wrote.error) throw wrote.error
+    } catch (err) {
+      const at = Date.now()
+      if (at - lastChoiceWarning > 60_000) {
+        lastChoiceWarning = at
+        console.warn(`The host's choice was not recorded (${typeof err?.code === 'string' ? err.code : (err?.name ?? 'Error')}). Has db/migrations/20261026000000_jio_session_meet_by.sql been applied?`)
+      }
+    }
+  }
+
   // PUT /api/sessions/:id/known-place: the host sets the meeting area straight away because the group has already decided (E21),
   // from inviting or locating to voting. The list becomes that one area, suggestions and approvals are cleared, and the area is
   // pinned (`chosen`): a later change of start moves the travel times, never the area. One planner run prices the area for the
@@ -975,6 +1007,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
             spots: [row],
             session: { status: 'voting', banner: null, meeting },
             plan: { rank: 'all' },
+            afterApply: () => recordKnownChoice(lower(id)),
             answer: ({ version }) => ({ planVersion: version, status: 'voting' }),
           }
         },

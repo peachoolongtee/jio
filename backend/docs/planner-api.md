@@ -884,6 +884,8 @@ Errors: 403 `host_only`, 403 `not_joined`, 404 `spot_not_found` (not on the list
 
 The host sets the meeting area straight away because the group has already decided. Body `{ "areaId": "bugis" }`. Status `inviting` or `locating`, with at least two joined members. The list becomes that one area (`rank` null), suggestions and approvals are cleared, the meeting area is written with method `chosen` (pinned: a later change of start moves the times, never the area), and the status becomes `voting`. One planner run prices the area for the members who have shared a start (at most one route call per member); with none, the times are zero. The slots and their places are made in the same write, as above (with nobody located, everyone is planned for as starting at the place).
 
+After the write has gone through, the server records the host's Start choice: `sessions.meet_by = 'known'` (service key, only when it is not 'known' already). It is a second statement after `apply_session_plan`, which is not changed for it, so the browser writes nothing for the choice on this path and a failed place leaves it as it was. If that statement fails (for instance the migration `20261026000000_jio_session_meet_by.sql` is not applied), the place stands, the answer is still 200, and a warning naming the migration is logged at most once a minute.
+
 200 `{ "planVersion": 9, "status": "voting" }`. Setting the same place again answers the same 200 and writes nothing. Errors: 403 `host_only`, 403 `not_joined`, 409 `needs_two_people`, 409 `wrong_status`, 422 `unknown_area`.
 
 ### POST /api/sessions/:id/opt-out and POST /api/sessions/:id/rejoin

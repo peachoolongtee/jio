@@ -130,7 +130,7 @@ describe('a real account\'s session is a row in the database', () => {
     expect(w.database.tables.sessions[0].status).toBe('inviting')
     await kim.api.joinWithLink((await sam.api.makeInviteLink(id)).token)
     // A guest has no say in starting it.
-    await expect(kim.api.startSession(id)).rejects.toThrow('Only the host can start a session.')
+    await expect(kim.api.startSession(id)).rejects.toThrow('Only the host can start a session, and only once.')
     expect(w.database.tables.sessions[0].status).toBe('inviting')
     const started = await sam.api.startSession(id)
     expect(started.status).toBe('locating')

@@ -783,6 +783,43 @@ describe('PUT /api/sessions/:id/known-place (E21)', () => {
     expect(spots()).toEqual([])
   })
 
+  it('records the host\'s choice (sessions.meet_by = known) with the service key after the place is written, and only when it is not known already', async () => {
+    await start()
+    const res = await t.call('PUT', path('/known-place'), { areaId: 'bugis' }, HOST)
+    expect(res.status).toBe(200)
+    expect(session().meet_by).toBe('known')
+    // The place first, then the record: a failed place leaves no record behind.
+    const order = world.calls.filter((c) => c.rpc === 'apply_session_plan' || (c.table === 'sessions' && c.kind === 'update'))
+    expect(order.map((c) => c.rpc ?? c.kind)).toEqual(['apply_session_plan', 'update'])
+    // Already known (the Start screen wrote it with the start): no second write.
+    await start()
+    session().meet_by = 'known'
+    await t.call('PUT', path('/known-place'), { areaId: 'bugis' }, HOST)
+    expect(world.calls.filter((c) => c.table === 'sessions' && c.kind === 'update')).toEqual([])
+    expect(session().meet_by).toBe('known')
+  })
+
+  it('leaves the choice alone when the known place is refused', async () => {
+    await start()
+    session().meet_by = 'fairest'
+    const res = await t.call('PUT', path('/known-place'), { areaId: 'atlantis' }, HOST)
+    expect(res.status).toBe(422)
+    expect(session().meet_by).toBe('fairest')
+    expect(world.calls.filter((c) => c.table === 'sessions' && c.kind === 'update')).toEqual([])
+  })
+
+  it('still answers 200 and keeps the place when the choice cannot be recorded (the column is not there yet)', async () => {
+    await start()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // A database that refuses the write of the unknown column, as one without the migration would.
+    world.refuseMeetBy = true
+    const res = await t.call('PUT', path('/known-place'), { areaId: 'bugis' }, HOST)
+    expect(res.status).toBe(200)
+    expect(session()).toMatchObject({ status: 'voting', meeting_area_id: 'bugis' })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('20261026000000_jio_session_meet_by.sql'))
+    warn.mockRestore()
+  })
+
   it('answers a repeat of the same place with the same answer, and another place after it with 409', async () => {
     await start()
     const first = await t.call('PUT', path('/known-place'), { areaId: 'bugis' }, HOST)
