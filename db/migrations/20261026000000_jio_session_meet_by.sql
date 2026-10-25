@@ -22,12 +22,31 @@
 -- has it now, so a project that has applied the teammate's 20261024000000 (a separate trigger that refuses past dates) is not
 -- changed by it.
 --
+-- Expected function text. The body of guard_session_changes (the text between the dollar quotes, as pg_proc.prosrc holds it) has these
+-- md5 sums:
+--   1adfb46c33ab0cf8317f7dcb5bcd43d3   the version before this migration (db/schema.sql up to stage 5)
+--   85fb1fd6bde6b50f2d4f8f056f6ad289   the version this migration installs
+-- The block below stops the migration if the live function is neither, for instance because someone edited it by hand in the SQL
+-- editor: replacing it would silently throw their change away. Running the migration a second time passes (the live one is then the
+-- second). backend/tests/sessions-sql.test.js checks that the sums here are those of the text in this file and in db/schema.sql.
+--
 -- Run it once as ONE transaction. Idempotent. db/schema.sql and db/policies.sql carry the same statements. Test it first with
 -- db/tests/session_meet_by_access.sql inside a transaction that rolls back.
 
 alter table public.sessions
   add column if not exists meet_by text
     constraint sessions_meet_by_check check (meet_by in ('fairest', 'known'));
+
+do $guard_check$
+declare
+  live text;
+begin
+  select md5(prosrc) into live from pg_proc where oid = 'public.guard_session_changes()'::regprocedure;
+  if live is null or live not in ('1adfb46c33ab0cf8317f7dcb5bcd43d3', '85fb1fd6bde6b50f2d4f8f056f6ad289') then
+    raise exception 'guard_session_changes on this project is not the text this migration expects (md5 %). Compare it with db/schema.sql before applying.', live;
+  end if;
+end;
+$guard_check$;
 
 create or replace function public.guard_session_changes()
 returns trigger

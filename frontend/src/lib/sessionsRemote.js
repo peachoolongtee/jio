@@ -123,6 +123,8 @@ export const WORDS = {
   rejoinClosed: "You can't rejoin once the plan is confirmed.",
   optOutClosed: "You can't opt out once the plan is confirmed.",
   // 409 no_meeting_area: voting is paused because nobody has shared where they start (the meeting area was taken away).
+  // 42703 on sessions.meet_by: the database is one migration behind the app.
+  needsMeetBy: 'The database needs an update before sessions can load (db/migrations/20261026000000_jio_session_meet_by.sql). Ask whoever runs the project to apply it.',
   noMeetingArea: 'Places open once two people have shared where they start.',
 }
 
@@ -192,6 +194,8 @@ export function plain(error, fallback = WORDS.notSaved) {
   const text = String(error?.message ?? '')
   let message = fallback
   if (error?.status === 0 || /failed to fetch|network|timed out|load failed/i.test(text)) message = WORDS.offline
+  // The project does not have the column the app now reads: its migration has not been applied. Say which, so it is found quickly.
+  else if (['42703', 'PGRST204'].includes(code) && /meet_by/.test(text)) message = WORDS.needsMeetBy
   else if (code === 'P0002') message = WORDS.linkDead
   else if (code === 'P0001' && error?.hint === 'session_full') message = WORDS.full
   else if (code === '28000') message = WORDS.signedOut

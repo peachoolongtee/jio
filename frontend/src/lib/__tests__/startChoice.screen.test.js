@@ -348,3 +348,29 @@ describe('what the host reads on the Locate step', () => {
     expect(view.has('[data-testid=meet-by-pending]')).toBe(false)
   })
 })
+
+describe('a database one migration behind', () => {
+  it('names the migration when the meet_by column is missing, instead of "could not load"', async () => {
+    const { plain } = await import('../sessionsRemote.js')
+    const error = { code: '42703', message: 'column sessions.meet_by does not exist' }
+    expect(plain(error).message).toContain('20261026000000_jio_session_meet_by.sql')
+    expect(plain({ code: 'PGRST204', message: "Could not find the 'meet_by' column of 'sessions' in the schema cache" }).message).toContain('20261026000000_jio_session_meet_by.sql')
+    // Any other missing column says what it always did.
+    expect(plain({ code: '42703', message: 'column sessions.zzz does not exist' }).message).not.toContain('meet_by')
+  })
+
+  it('shows that sentence on the session page, with a retry, when the read fails for that reason', async () => {
+    const { w, id } = await started()
+    const { view } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
+    await until(() => view.has('[data-testid=group-detail-view]') && view.text().includes('Kim'))
+    // The same project, now without the column: every read of a session asks for it.
+    const run = w.database.run
+    w.database.run = (op) => (op.table === 'sessions' && op.kind === 'select' && String(op.columns).includes('meet_by')
+      ? { data: null, error: { code: '42703', message: 'column sessions.meet_by does not exist', status: 400 } }
+      : run(op))
+    const again = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
+    await until(() => again.view.has('[data-testid=session-load-error]'))
+    expect(again.view.text()).toContain('20261026000000_jio_session_meet_by.sql')
+    expect(press(again.view, 'Retry')).toBeTruthy()
+  })
+})

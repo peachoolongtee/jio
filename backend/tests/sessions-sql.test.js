@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { loadPlanData } from '../src/db/venues.js'
@@ -193,5 +194,43 @@ describe('the SQL files', () => {
     const steps = [...sql.matchAll(/pg_temp\.expect_(?:error|ok|count|text|hint)\((\d+),/g)].map((m) => Number(m[1]))
     expect(steps).toEqual(Array.from({ length: steps.length }, (_, i) => i + 1))
     expect(steps.length).toBeGreaterThan(257 - 1)
+  })
+})
+
+describe('the meet_by migration', () => {
+  const MEET_BY = 'db/migrations/20261026000000_jio_session_meet_by.sql'
+  // The text between the dollar quotes of guard_session_changes, as pg_proc.prosrc holds it.
+  const guardBody = (sql) => {
+    const start = sql.indexOf('create or replace function public.guard_session_changes()')
+    const from = sql.indexOf('as $$', start) + 5
+    return sql.slice(from, sql.indexOf('$$;', from))
+  }
+  const md5 = (text) => createHash('md5').update(text).digest('hex')
+
+  it('carries the same guard as db/schema.sql, and the md5 it says it installs', () => {
+    const migration = read(MEET_BY)
+    expect(guardBody(migration)).toBe(guardBody(read('db/schema.sql')))
+    const sums = [...migration.matchAll(/^--\s+([0-9a-f]{32})\s/gm)].map((m) => m[1])
+    expect(sums).toHaveLength(2)
+    expect(sums[1]).toBe(md5(guardBody(migration)))
+    // The block that checks the live function names both sums, in the same order.
+    expect(migration).toContain(`not in ('${sums[0]}', '${sums[1]}')`)
+  })
+
+  it('says the sum of the text it replaces: the guard as stage 5 left it, without the meet_by rule', () => {
+    const migration = read(MEET_BY)
+    const [before] = [...migration.matchAll(/^--\s+([0-9a-f]{32})\s/gm)].map((m) => m[1])
+    // The old text is the new one without the meet_by block.
+    const now = guardBody(migration)
+    const old = now.replace(/\n {2}if new\.meet_by is distinct from old\.meet_by then[\s\S]*?\n {2}end if;\n(?=\n {2}return new;)/, '')
+    expect(old).not.toBe(now)
+    expect(md5(old)).toBe(before)
+  })
+
+  it('balances its quotes and brackets, and grants the column to signed-in users only through the one update grant', () => {
+    expect(unbalanced(read(MEET_BY))).toBeNull()
+    expect(unbalanced(read('db/tests/session_meet_by_access.sql'))).toBeNull()
+    expect(read(MEET_BY)).toContain('grant update (meet_by) on public.sessions to authenticated;')
+    expect(read('db/policies.sql')).toContain('grant update (title, date, start_time, end_time, status, meet_by) on public.sessions to authenticated;')
   })
 })

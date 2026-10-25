@@ -132,6 +132,14 @@ begin
 end;
 $$;
 
+-- Call the server's plan function as the current role; answers its result as text ('null' for null).
+--   select pg_temp.apply('<session id>', 0, 'locating', '{"ops": []}');
+create function pg_temp.apply(sid uuid, ver bigint, st text, patch jsonb) returns text language plpgsql as $$
+begin
+  return coalesce(public.apply_session_plan(sid, ver, st, patch)::text, 'null');
+end;
+$$;
+
 do $test$
 declare
   host uuid := gen_random_uuid();        -- hosts every session below
@@ -238,6 +246,24 @@ begin
   perform pg_temp.as_admin();
   perform pg_temp.expect_text(27, 'and it is stored',
     format('select meet_by from public.sessions where id = %L', s_vote), 'known');
+
+  -- ── apply_session_plan leaves the choice alone (it needs the stage 5 migration, which these steps assume) ──
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(28, 'a write of a plan to a session whose meet_by is set goes through and raises the version',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L::jsonb)', s_vote, '{"session":{"banner":{"text":"Hello","at":1,"approvalsRemoved":true}}}'), '1');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(29, 'and meet_by is what it was (the function does not write the column)',
+    format('select meet_by from public.sessions where id = %L', s_vote), 'known');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(30, 'a known place written by the function moves a locating session to voting',
+    format('select pg_temp.apply(%L, 0, ''locating'', %L::jsonb)', s_loc,
+      '{"session":{"status":"voting","banner":null,"meeting":{"area_id":"bugis","method":"chosen","max_minutes":0,"total_minutes":0,"count":0,"approximate":false,"travel":{}}}}'), '1');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(31, 'and leaves meet_by as the host set it, for the server to record afterwards (the backend does, with the service key)',
+    format('select meet_by from public.sessions where id = %L', s_loc), 'fairest');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_ok(32, 'which the server may then do: it is let through the guard even in voting',
+    format('update public.sessions set meet_by = ''known'' where id = %L', s_loc), 1);
 
   raise notice 'ALL STEPS PASSED';
 end;
