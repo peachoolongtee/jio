@@ -12,6 +12,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   DELETE /api/sessions/:id/spots/mine                               take the caller's suggestion back
 //   POST   /api/sessions/:id/voting           { areaId? }             the host confirms a spot (the preselected one if none is named)
 //   PUT    /api/sessions/:id/known-place      { areaId }              the host sets the area straight away
+//   POST   /api/sessions/:id/change-meeting-place { meetBy, areaId?, planVersion? } the host lets the meeting area go (from voting or confirmed) and starts the choice again
 //   POST   /api/sessions/:id/opt-out                                  the caller steps out
 //   POST   /api/sessions/:id/rejoin                                   the caller comes back
 //   DELETE /api/sessions/:id/members/me                               the caller leaves
@@ -36,6 +37,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   GET    /api/sessions/:id/stops/:stopId/swap                       the indoor place the planner would put in the stop in the rain (a member; reads)
 //   GET    /api/sessions/:id/stops/:stopId/choices?category=          the places that could take the stop's place (the host; reads)
 //   POST   /api/sessions/:id/roam             { current?, categories? } places near where the group is, for "What next?" (a member; reads)
+//   GET    /api/sessions/:id/trips-home                               the minutes each person needs to get home from the last stop (a member; reads)
 //   POST   /api/sessions/:id/complete                                 the host finishes the outing; the server writes the travel ledger
 //   POST   /api/sessions/:id/proposals        { venueId }             a member puts a place forward as the next stop
 //   POST   /api/sessions/:id/proposals/:proposalId/resolve { accept } the host adds it (accept) or leaves it out; the proposer may take it back
@@ -46,6 +48,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   meeting-area   while voting: meetingAreaId is the area (null when paused), moved and votesCleared say what happened to it
 //   voting         { planVersion, status: 'voting', meetingAreaId, method, slotCount }   (the slots and their places are made in the same write)
 //   known-place    { planVersion, status: 'voting' }
+//   change-meeting-place   { planVersion, status: 'locating' | 'voting', meetBy }   ('known' goes on to voting at the area named)
 //   opt-out        { planVersion, state: 'opted_out' }        rejoin { planVersion, state: 'joined' }
 //   members/me     { planVersion, left: true }                members/:userId { planVersion, removed: true }
 //   plan/sync      { planVersion, changed }                   radius { planVersion, radiusMeters }
@@ -53,8 +56,9 @@ import { sessionSchemas } from './session-schemas.js'
 //   options POST   201 { planVersion, added: true }, or 200 { planVersion, added: false } when the place is already there
 //   options/more   { planVersion, added: [venueId] }          swap { planVersion, swapped }
 //   venue-search   { results: [{ venueId, name, area, category, source, matchedStall, walkMinutes, distanceKm, fits, unfit, added }] }
-//   order/suggest  { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], reason, source: 'ai' | 'rules' }
-//                  or { status: 'none', why: 'no_stops' | 'one_movable' | 'no_order_fits' | 'unknown_place' }
+//   order/suggest  { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], voted: [{ slotId, category, venueId, start, duration }], reason, source: 'ai' | 'rules' }
+//                  or { status: 'none', why: 'no_stops' | 'one_movable' | 'no_order_fits' | 'unknown_place', basis?, voted }
+//                  `stops` and `voted` are the stops of the suggested and of the voted order as a confirm would store them, each with its stored start
 //   confirm        { planVersion, status: 'confirmed', stops: n }   (confirming again: the same answer, nothing written)
 //   replan         { planVersion, status: 'voting' }                 (accept: false: status 'confirmed'; already voting: a no-op)
 //   stops/order, stops/:id DELETE   { planVersion }              stops/:id PATCH { planVersion, travelMode }
@@ -63,6 +67,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   stops/:id/swap   { swap: { venueId, name } | null }
 //   stops/:id/choices { category, options: [{ venueId, rank, score, votes, details }] }
 //   roam           { status: 'ok', results: [...], notice, weather } or { status: 'empty', reason, hints, results: [] }   (no centre, no needs named)
+//   trips-home     { trips: [{ userId, minutes }], approximate }     (the same minutes the finished outing's ledger keeps as `minutes_home`)
 //   complete       { planVersion, status: 'completed' }              (a retry after success: the same answer, nothing written)
 //   proposals      201 { planVersion, id, applied: true }, or 200 { planVersion, id, applied: false } when the place is already waiting
 //   proposals/:id/resolve   { planVersion, applied }             (applied: false when it is not waiting any more)
@@ -77,7 +82,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   404 session_not_found (also for a session the caller is not in), member_not_found, spot_not_found, slot_not_found, venue_not_found,
 //       option_not_found, stop_not_found
 //   409 wrong_status, not_yet (work of a later stage: a confirmed plan), session_closed and session_started (leave and remove), no_spots,
-//       too_many_spots, needs_two_people, area_pinned, no_meeting_area (voting is paused), slot_full, plan_busy (with Retry-After: 1),
+//       too_many_spots, needs_two_people, area_pinned, stale_plan (change-meeting-place: the caller's planVersion is out of date), no_meeting_area (voting is paused), slot_full, plan_busy (with Retry-After: 1),
 //       not_enough_votes, nothing_to_confirm, order_stale (the suggested order is for stops the votes no longer make), stops_changed (the
 //       stops are not the plan's), stop_changed (the stop no longer holds the place the caller saw), last_stop, no_leg (the first stop),
 //       already_a_stop, plan_full, too_many_proposals
@@ -212,6 +217,11 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
     return sessions.setKnownPlace({ ...who, areaId })
   }))
 
+  router.post('/sessions/:id/change-meeting-place', ...guard, handle((who, req) => {
+    const { meetBy, areaId, planVersion } = sessionSchemas.changeMeetingPlace.parse(req.body ?? {})
+    return sessions.changeMeetingPlace({ ...who, meetBy, areaId, planVersion })
+  }))
+
   router.post('/sessions/:id/opt-out', ...guard, handle((who, req) => {
     sessionSchemas.nothing.parse(req.body ?? {})
     return sessions.optOut(who)
@@ -324,6 +334,12 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
   router.post('/sessions/:id/roam', ...rankGuard, handle((who, req) => {
     const { current, categories } = sessionSchemas.roam.parse(req.body ?? {})
     return sessions.roamNearby({ ...who, current, categories })
+  }))
+
+  // The minutes home of a confirmed plan: the computation the ledger uses when the outing is finished. A read, counted with the planner's.
+  router.get('/sessions/:id/trips-home', ...rankGuard, handle((who, req) => {
+    sessionSchemas.nothing.parse(req.query ?? {})
+    return sessions.tripsHome(who)
   }))
 
   router.post('/sessions/:id/complete', ...guard, handle((who, req) => {

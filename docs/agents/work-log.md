@@ -1518,3 +1518,36 @@ Results of round 34, checked by the lead's session on 26 October:
 **The start choice's live trial, 26 October 2026.** The lead's session ran the migration `20261026000000` (its live-guard check passed against `1adfb46c33ab0cf8317f7dcb5bcd43d3`) and all 32 steps of `db/tests/session_meet_by_access.sql` in one rolled-back transaction, through the Supabase tool.
 - It reached the final query, so every step passed.
 - Nothing was left: no `meet_by` column, the guard unchanged, 5 sessions.
+
+## Round 35: stage 5's two-device findings, and a way back after the meeting place or plan is set (2026-10-26)
+
+Stage 5's two-device check passed end to end on 26 October (results on #130), with four findings. The lead said: fix 1 to 4, and add "an escape functionality to change the meeting location or itinerary after I've set it". Design by the lead's session, at the lead's "go with your recommendation":
+- **Who and when:** the host only, while voting or confirmed.
+- **"Change plan"** offers two ways back:
+  - **"Choose places again":** the existing re-open (confirmed to voting), which keeps the votes.
+  - **"Change meeting place":** back to locating, with the same two cards as Start. It clears the meeting area, slots, places, votes, stops, the order note and suggestion, pending proposals, the re-plan prompt and kept rain. It keeps everyone's starts.
+- **Safeguards:** a confirm names what is lost; guests see it live with a banner naming the host.
+- **The new rule:** it is one server action through `apply_session_plan`, and the only way a chosen meeting area may be released.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Fix the check's findings 1 to 4 | implementer (full stack) | `fix/stage-5-check-findings`, off `dev` | Stored stop times recomputed on every stop write. The confirm dialog shows the order and times that are saved, with the voted and suggested order. Stale notices go. "Trips home" agrees with the ledger. |
+| Change meeting place / change plan | implementer (full stack) | `feat/change-meeting-place`, off `dev` | A new migration `20261027000000` replaces `apply_session_plan` with the voting/confirmed to locating move. Its guard accepts the live body md5 `0b045589c032e034636cfc0e59306559`. A server route, the data layer, the "Change plan" screens and the guest banner, with SQL steps. Nothing is applied. |
+
+Results of round 35, checked by the lead's session on 26 October:
+
+- **The check's findings** (`fix/stage-5-check-findings`, `46434a3`).
+  - All four were fixed, then an independent review's two major findings and six minor ones were fixed too:
+    - the itinerary waited for the trips home;
+    - times past midnight were clamped in the dialog;
+    - smaller items: the voted basis on a retry, the server's refusal shown in the dialog, the first-stop deletion starting at the next stop's voted time (by the lead's decision), focus, tests, and one fallback point.
+  - Checked again: backend 1814 passed, frontend 2624 passed under `TZ=UTC`, outbound calls blocked, build exit 0.
+- **Change meeting place** (`feat/change-meeting-place`, `bda05eb`).
+  - One op, `release_meeting`, in `apply_session_plan` (migration `20261027000000`, SQL steps 301 to 343) and `POST /api/sessions/:id/change-meeting-place`.
+  - "Change plan" is on Vote and the Itinerary. Guests follow a release on every session screen.
+  - An independent review passed it with eight minor findings, all fixed: a deadlock retry, the members' minutes left alone, a stale `planVersion` refused, the two-write gap, wording, close while busy, one shared follower, and the guard checking `meet_by`.
+- **Merged together** at `76a5c81`: backend 1857 passed, frontend 2695 passed, plainly and under `TZ=UTC`, outbound calls blocked, build exit 0.
+- **On the live project.**
+  - The lead ran the migration and all 343 steps rolled back in the SQL editor, and they passed.
+  - The tool's classifier refused the apply through the migration tool, so the lead applied the checksum-guarded file in the SQL editor. It is not in the migration history.
+  - Checked afterwards: `apply_session_plan` md5 is `c2b499a44f51d9fe4c3db2afb66eb22b` (the reviewed stripped body), `authenticated` cannot run it, and there are 6 sessions.

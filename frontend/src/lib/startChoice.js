@@ -32,10 +32,47 @@ export const POPULAR_AREAS = ['bishan', 'tampines', 'jurong-east', 'bugis', 'orc
 // How to call: meetByOf({ meetBy: null }) -> 'fairest'
 export const meetByOf = (session) => (session?.meetBy === 'known' ? 'known' : 'fairest')
 
+// The notice the group reads when the host changed the meeting place (the server writes the same words; backend/src/services/session-plan.js
+// releasedBannerText). It names the host and nobody else, and says what went. `status` is what the session was (voting or confirmed), `hadVotes`
+// whether anyone had voted, `placeName` the new area when the host named it.
+// How to call: releasedNotice({ hostName: 'Ian', status: 'confirmed', hadVotes: true }) -> 'Ian changed the meeting place, so the votes and the plan were cleared.'
+export function releasedNotice({ hostName, status, hadVotes, placeName = null }) {
+  // With no votes there is nothing to say about them: the places to vote on were cleared, and with a named area they are chosen again there.
+  const gone = status === 'confirmed' ? 'the votes and the plan were cleared' : hadVotes ? 'the votes were cleared' : placeName ? 'the places to vote on were chosen again' : 'the places to vote on were cleared'
+  return `${hostName} changed the meeting place${placeName ? ` to ${placeName}` : ''}, so ${gone}.`
+}
+
+// The words of the host's "Change plan" choices and of the question that comes first. What is lost is named in plain words; what stays is said too.
+export const CHANGE_PLAN = {
+  button: 'Change plan',
+  title: 'Change plan',
+  text: 'What do you want to change?',
+  // The re-plan works the meeting area out again: a chosen one stays, the planner's own pick may move, and then the votes go (the notice says so).
+  again: { title: 'Choose places again', text: 'Back to voting. The stops go; the votes stay unless the meeting area moves.' },
+  place: { title: 'Change meeting place', text: 'Pick the meeting area again. Everyone keeps where they start.' },
+  confirmTitle: 'Change the meeting place?',
+  // Shown before anything is lost. The plan is only named when there is one.
+  lost: (confirmed) => [
+    'everyone\'s votes',
+    'the places to vote on',
+    'the "Works for me" marks and the suggested spots',
+    ...(confirmed ? ['the itinerary\'s stops and any proposed places'] : []),
+  ],
+  keeps: 'Everyone\'s starting places are kept.',
+  keep: 'Keep the meeting place',
+  go: 'Choose a new meeting place',
+}
+
 // The words on the host's main button on the choice screen, and the note under it.
 // How to call: startLabel('known') -> 'Choose the area'
 export const startLabel = (choice) => (choice === 'known' ? 'Choose the area' : 'Ask everyone to share where they start')
 export const START_NOTE = 'Guests see that you chose this.'
+// The same, when the host is changing the meeting place after it was set (views/StartView.vue with `change`). The starts are kept, so the first
+// choice does not ask anyone to share them again; the note says what the button will clear.
+// How to call: changeLabel('fairest') -> 'Work out the spots again'
+export const changeLabel = (choice) => (choice === 'known' ? 'Choose the area' : 'Work out the spots again')
+export const CHANGE_NOTE = 'This clears the votes and the plan. Everyone keeps where they start.'
+export const CHANGE_HEAD = { title: 'How do you want to pick the new meeting point?', text: 'Nothing changes until you press the button below.' }
 
 // The follow-up's button: named for the area, or for using where the person is.
 // How to call: whereLabel({ name: 'Bishan' }) -> 'Meet at Bishan'; whereLabel(null, true) -> 'Use my location'

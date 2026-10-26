@@ -42,6 +42,15 @@ async function threeVoted() {
   return world
 }
 
+// The itinerary with its trips home: the itinerary comes at once, and the trips the server works out arrive after (`onTrips`).
+// How to call: const itinerary = await itineraryWithTrips(sam.api, id)
+async function itineraryWithTrips(api, id) {
+  let late = null
+  const view = await api.getItinerary(id, { onTrips: (answer) => { late = answer } })
+  await vi.waitFor(() => expect(view.trips.length > 0 || late !== null).toBe(true))
+  return late ? { ...view, trips: late.trips, tripsApproximate: late.tripsApproximate } : view
+}
+
 describe('the suggested order', () => {
   it('gives the host both orders: the winners as voted, and a suggestion of the server\'s own with its basis, asking for it with an empty body', async () => {
     const { w, sam, id, plan } = await voted()
@@ -88,16 +97,28 @@ describe('the suggested order', () => {
   it('is none when there is nothing to arrange (fewer than two stops that can move), and the dialog keeps the voted order', async () => {
     const { w, sam, id } = await voted()
     w.server.plan.suggest = null
-    expect(await sam.api.suggestOrder(id)).toBeNull()
+    // No other order, but the dialog still gets the voted one as the server will store it, with the places' names.
+    const none = await sam.api.suggestOrder(id)
+    expect(none.stops).toBeUndefined()
+    expect(none.order).toBeUndefined()
+    expect(none.voted.length).toBeGreaterThan(0)
+    expect(none.voted.every((s) => typeof s.name === 'string' && s.name && Number.isInteger(s.start) && Number.isInteger(s.duration) && typeof s.category === 'string')).toBe(true)
   })
 
-  it('is none for an answer it cannot draw (a place the server cannot describe, or a slot the plan does not have)', async () => {
+  it('shows a place it cannot describe as unlisted, and is none for an answer it cannot draw (a slot the plan does not have)', async () => {
     const { w, sam, id } = await voted()
     const named = (winners, venueId, slotId) => ({ order: winners.map((x) => x.slot.id), starts: {}, stops: winners.map((x, i) => ({ slotId: i === 0 ? slotId ?? x.slot.id : x.slot.id, venueId: i === 0 ? venueId ?? x.option.venue_id : x.option.venue_id, start: 600 })), reason: 'x', source: 'rules' })
+    const noSuggestion = (answer) => {
+      expect(answer.stops).toBeUndefined()
+      expect(answer.voted.length).toBeGreaterThan(0)
+    }
     w.server.plan.suggest = (winners) => named(winners, 'no-such-place')
-    expect(await sam.api.suggestOrder(id)).toBeNull()
+    // A place Jio cannot describe is shown as unlisted: the order is the server's and the host may confirm it, only the name is missing.
+    const unlisted = await sam.api.suggestOrder(id)
+    expect(unlisted.stops[0].name).toBe('A place that is no longer listed')
+    expect(unlisted.voted.length).toBeGreaterThan(0)
     w.server.plan.suggest = (winners) => ({ ...named(winners, undefined, 'no-such-slot'), order: winners.map((x, i) => (i === 0 ? 'no-such-slot' : x.slot.id)) })
-    expect(await sam.api.suggestOrder(id)).toBeNull()
+    noSuggestion(await sam.api.suggestOrder(id))
   })
 
   it('drops the answer when the account changed while it was out', async () => {
@@ -251,8 +272,8 @@ describe('the itinerary on two devices', () => {
     const call = callsTo(w, 'stopOrder')[0]
     expect(call).toMatchObject({ method: 'PUT', path: `/api/sessions/${id}/stops/order` })
     expect(call.body).toEqual({ stopIds: [seen[1], seen[2], seen[0], seen[3]] })
-    const mine = await sam.api.getItinerary(id)
-    const theirs = await kim.api.getItinerary(id)
+    const mine = await itineraryWithTrips(sam.api, id)
+    const theirs = await itineraryWithTrips(kim.api, id)
     expect(theirs).toEqual(mine)
     expect(mine.stops.map((s) => s.stopId)).toEqual([seen[1], seen[2], seen[0], seen[3]])
     expect(mine.aiNote).toBeNull()
@@ -325,8 +346,8 @@ describe('the itinerary on two devices', () => {
     const mode = before.legs[0].mode === 'car' ? 'walk' : 'car'
     await sam.api.setTravelMode(id, 0, mode, { stopId: before.stops[1].stopId })
     expect(callsTo(w, 'patchStop')[0]).toMatchObject({ method: 'PATCH', path: `/api/sessions/${id}/stops/${before.stops[1].stopId}`, body: { travelMode: mode } })
-    const mine = await sam.api.getItinerary(id)
-    const theirs = await kim.api.getItinerary(id)
+    const mine = await itineraryWithTrips(sam.api, id)
+    const theirs = await itineraryWithTrips(kim.api, id)
     expect(theirs).toEqual(mine)
     expect(mine.legs[0].mode).toBe(mode)
     expect(mine.legs[0].minutes).toBe(before.legs[0].options[mode])
@@ -859,7 +880,7 @@ describe('what the other person never sees', () => {
 
   it('shows each person the area the other starts from, never the place, on the itinerary\'s starts and trips home', async () => {
     const { sam, kim, id } = await confirmed()
-    const itinerary = await kim.api.getItinerary(id)
+    const itinerary = await itineraryWithTrips(kim.api, id)
     expect(itinerary.starts.map((s) => [s.id, s.area.id]).sort()).toEqual([[sam.id, 'tampines'], [kim.id, 'bishan']].sort())
     expect(itinerary.trips.map((t) => t.place).sort()).toEqual(['Bishan', 'Tampines'].sort())
     expect(JSON.stringify(itinerary)).not.toMatch(/Mall, level 2|Bishan St 12/)
@@ -873,6 +894,43 @@ describe('what the other person never sees', () => {
     expect(w.subscriptions.map((s) => s.table)).toEqual(expect.arrayContaining(['sessions', 'stops']))
     expect(w.subscriptions.some((s) => ['commute_ledger', 'stop_proposals', 'session_member_places'].includes(s.table))).toBe(false)
     stop()
+  })
+})
+
+describe('the trips home', () => {
+  it('are told to the newest question only: an older answer never replaces a newer one', async () => {
+    const { w, sam, id } = await confirmed()
+    let release
+    const held = new Promise((resolve) => { release = resolve })
+    w.server.after.tripsHome = () => held
+    const told = []
+    const first = await sam.api.getItinerary(id, { onTrips: (answer) => told.push(['first', answer.key]) })
+    expect(first.trips).toEqual([])
+    // The plan changes (the last stop goes): a newer question with another key.
+    const stopId = first.stops.at(-1).stopId
+    await sam.api.deleteStop(id, first.stops.length - 1, { stopId })
+    w.server.after.tripsHome = undefined
+    const second = await sam.api.getItinerary(id, { onTrips: (answer) => told.push(['second', answer.key]) })
+    expect(second.tripsKey).not.toBe(first.tripsKey)
+    await vi.waitFor(() => expect(told.some(([who]) => who === 'second')).toBe(true))
+    release()
+    await vi.waitFor(() => expect(callsTo(w, 'tripsHome')).toHaveLength(2))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(told.map(([who]) => who)).toEqual(['second'])
+  })
+
+  it('are approximate when the server says so, and asked again after a few minutes so they can become the routed ones', async () => {
+    const { w, sam, id } = await confirmed()
+    const first = await itineraryWithTrips(sam.api, id)
+    expect(first.tripsApproximate).toBe(true)
+    // Not again at once, whatever else the plan's reads are.
+    await sam.api.getItinerary(id)
+    expect(callsTo(w, 'tripsHome')).toHaveLength(1)
+    vi.setSystemTime(new Date(Date.now() + 6 * 60 * 1000))
+    const again = await sam.api.getItinerary(id, { onTrips: () => {} })
+    // The figures known are shown at once while the new question is out.
+    expect(again.trips.length).toBe(first.trips.length)
+    await vi.waitFor(() => expect(callsTo(w, 'tripsHome')).toHaveLength(2))
   })
 })
 

@@ -26,6 +26,14 @@ _Avoid_: Fixed location, skip mode
 How the host decides to pick the meeting point, made when they press Start session: find the fairest spot (everyone shares where they start and Jio finds a fair meeting point, the default) or "We already know where" (the host names the area and the group goes straight to choosing places). Guests see which one the host chose. It is the host's intent; the planner's own result is the meeting method. Stored as `sessions.meet_by`, which is null on a session that started before the choice and reads as the fairest spot.
 _Avoid_: Mode, meeting method (that is the planner's result), route
 
+**Change plan**:
+The host's way back after the meeting place or the plan is set, on the Vote and Itinerary screens while the session is voting or confirmed. It offers "Choose places again" (from a confirmed plan only: back to voting at the same meeting area, the stops go and the votes stay) and "Change meeting place". Locating, completed and cancelled sessions never offer it.
+_Avoid_: Undo, reset, escape
+
+**Change meeting place**:
+The host lets the meeting area go and picks it again, with the same two cards as Start. It clears everyone's votes, the places to vote on and, with a plan, its stops and proposed places; everyone's starting places are kept. The group is told in a notice that names the host. The session returns to locating, or goes straight to voting when the host names the area.
+_Avoid_: Re-plan (that opens a confirmed plan for voting again and keeps the meeting area), restart
+
 ### Roam
 
 **Roam**:

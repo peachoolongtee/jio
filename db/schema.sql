@@ -981,16 +981,24 @@ $$;
 -- status the server loaded are still current, so a late answer never undoes the host's confirm. It also enforces the rules JavaScript
 -- must not be trusted with: only the host's confirm or known place moves a status (inviting or locating to voting, with an area), and
 -- leaving inviting needs two joined members after the patch's ops; a pinned meeting area ('voted' or 'chosen') is never moved by a
--- recompute, and is set only with that confirm; the host is never opted out or removed; slots, options and their votes are written only
+-- recompute, and is set only with that confirm (the one way to let it go is the op "release_meeting", below); the host is never opted out or removed; slots, options and their votes are written only
 -- while the session is voting; the plan's moves are voting to confirmed (stops, and two joined people who voted), confirmed to voting
 -- (the plan is opened again) and confirmed to completed (the ledger, whose deltas sum to zero); stops are written only while the
 -- session is confirmed; and the version rises, and anything is written, only when a value differs from the stored row. Spots get the
 -- time the server loaded its inputs (loaded_at) as their computed_at. Options and stops are written as a difference, so a kept option
 -- keeps its votes. Returns the version after the write, or null when the session moved on. The server only (the service key); a browser
 -- cannot call it.
+-- Changing the meeting place (20261027000000): the op { "op": "release_meeting", "meet_by": "fairest" | "known" } is the only way a voting
+-- or confirmed session goes back to locating, and that move is allowed only with it (the op is refused on any other move, hint
+-- release_status). In the one write it lets the meeting area go (every meeting_* column), deletes the slots
+-- (their options and votes go with them) and the stops, the spots with their approvals and suggestions, clears the order note, the
+-- suggested order, the plan's start, the "Re-plan?" prompt and the kept rain warnings, dismisses the proposals still waiting, records the
+-- host's new choice in sessions.meet_by, and clears the banner unless the patch brings its own. The patch may bring "spots" (worked out
+-- again from the starts that are kept) and a "banner" ({ text }) in the same write; it must not bring a meeting (release_meeting).
 -- The patch is described in db/migrations/20261020000000_jio_apply_session_plan.sql (stage 3),
--- db/migrations/20261022000000_jio_apply_session_plan_slots.sql (stage 4: slots, options, votes, the radius) and
--- db/migrations/20261023000000_jio_apply_session_plan_stops.sql (stage 5: the plan, its order, Roam proposals, finishing).
+-- db/migrations/20261022000000_jio_apply_session_plan_slots.sql (stage 4: slots, options, votes, the radius),
+-- db/migrations/20261023000000_jio_apply_session_plan_stops.sql (stage 5: the plan, its order, Roam proposals, finishing) and
+-- db/migrations/20261027000000_jio_change_meeting_place.sql (the host changes the meeting place).
 --   const { data } = await serviceClient.rpc('apply_session_plan', { sid, expected_version: 4, expected_status: 'locating', patch })
 create or replace function public.apply_session_plan(sid uuid, expected_version bigint, expected_status text, patch jsonb)
 returns bigint
@@ -1041,6 +1049,8 @@ declare
   kept_new jsonb;
   kept_changed boolean := false;
   v_stale boolean;
+  released boolean := false;
+  release_by text;
 begin
   if patch is null or jsonb_typeof(patch) <> 'object' then
     raise exception 'The plan must be a JSON object.' using errcode = '22023';
@@ -1069,6 +1079,19 @@ begin
   sp := coalesce(patch -> 'session', '{}'::jsonb);
   meeting := sp -> 'meeting';
 
+  -- Rule 9, the lock order. A release deletes the session's votes and the slots' options. A guest's vote locks its own row, and the option it
+  -- names through the foreign key, BEFORE its trigger (votes_guard_status) waits for a shared lock on the session; if this function took the
+  -- session's lock first and then reached for those rows, each side would wait for the other and the database would end one with 40P01. So a
+  -- release locks the votes and then the options of the session first, in a fixed order, and only then the session: a guest's write either
+  -- finishes before this (and its trigger waits for nobody) or waits for these rows and then finds them gone. (A release can still meet another
+  -- server write on the same session in another process in the opposite order; the server retries once on 40P01 and 40001.)
+  if coalesce(jsonb_typeof(patch -> 'ops') = 'array' and exists (
+    select 1 from jsonb_array_elements(patch -> 'ops') o where o ->> 'op' = 'release_meeting'
+  ), false) then
+    perform 1 from public.votes v join public.slots sl on sl.id = v.slot_id where sl.session_id = sid order by v.slot_id, v.user_id for update of v;
+    perform 1 from public.slot_options o join public.slots sl on sl.id = o.slot_id where sl.session_id = sid order by o.slot_id, o.venue_id for update of o;
+  end if;
+
   -- The session is locked until this function returns, so two writes cannot interleave.
   select * into s from public.sessions where id = sid for update;
   if not found or s.plan_version <> expected_version or s.status <> expected_status then
@@ -1080,8 +1103,29 @@ begin
   stamp := least(coalesce(nullif(patch ->> 'loaded_at', '')::timestamptz, now()), now());
   new_status := coalesce(sp ->> 'status', s.status);
 
-  -- Rule 4: a pinned meeting area stays.
-  if sp ? 'meeting' and s.meeting_method in ('voted', 'chosen')
+  -- Rule 9: the host changes the meeting place. The op releases the meeting area and sends the session back to locating, and nothing else
+  -- may do either: it is valid only on a move from voting or confirmed to locating (hint release_status), and that move is valid only with
+  -- it (Rule 1 below). It carries the host's new choice of how the meeting point is picked. It cannot come with a meeting of its own.
+  released := coalesce(jsonb_typeof(patch -> 'ops') = 'array' and exists (
+    select 1 from jsonb_array_elements(patch -> 'ops') o where o ->> 'op' = 'release_meeting'
+  ), false);
+  if released then
+    if not (s.status in ('voting', 'confirmed') and new_status = 'locating') then
+      raise exception 'The meeting area is released only by moving a voting or confirmed session back to locating.'
+        using errcode = 'P0001', hint = 'release_status';
+    end if;
+    if nullif(sp -> 'meeting', 'null'::jsonb) is not null then
+      raise exception 'A released session has no meeting area, so the patch cannot bring one.'
+        using errcode = 'P0001', hint = 'release_meeting';
+    end if;
+    select o ->> 'meet_by' into release_by from jsonb_array_elements(patch -> 'ops') o where o ->> 'op' = 'release_meeting' limit 1;
+    if release_by is distinct from 'fairest' and release_by is distinct from 'known' then
+      raise exception 'A release says how the meeting point is picked again: fairest or known.' using errcode = '22023';
+    end if;
+  end if;
+
+  -- Rule 4: a pinned meeting area stays (unless the host is releasing it, Rule 9).
+  if sp ? 'meeting' and s.meeting_method in ('voted', 'chosen') and not released
      and ((meeting ->> 'area_id') is distinct from s.meeting_area_id
           or (meeting ->> 'method') is distinct from s.meeting_method) then
     raise exception 'The meeting area was chosen and cannot be changed by a recompute.'
@@ -1090,11 +1134,13 @@ begin
 
   -- Rule 1: the moves are the host's confirm (or known place), from inviting or locating to voting, with an area; and, from stage 5,
   -- the plan's: the host's confirm of the stops (voting to confirmed), opening the plan again (confirmed to voting) and finishing
-  -- the outing (confirmed to completed). (The two-people check for leaving inviting comes after the ops below.)
+  -- the outing (confirmed to completed); and, with the op "release_meeting" (Rule 9), voting or confirmed back to locating. (The two-people
+  -- check for leaving inviting comes after the ops below.)
   if new_status <> s.status then
     if not ((s.status in ('inviting', 'locating') and new_status = 'voting' and coalesce(meeting ->> 'area_id', '') <> '')
             or (s.status = 'voting' and new_status = 'confirmed')
-            or (s.status = 'confirmed' and new_status in ('voting', 'completed'))) then
+            or (s.status = 'confirmed' and new_status in ('voting', 'completed'))
+            or (released and s.status in ('voting', 'confirmed') and new_status = 'locating')) then
       raise exception 'A session cannot go from % to % this way.', s.status, new_status
         using errcode = 'P0001', hint = 'status_transition';
     end if;
@@ -1213,6 +1259,19 @@ begin
         delete from public.votes v using public.slots sl where sl.id = v.slot_id and sl.session_id = sid;
         get diagnostics hit = row_count;
         if hit > 0 then changed := true; end if;
+      when 'release_meeting' then
+        -- Rule 9. Everything that belonged to the meeting place goes in this one write; the starts and ends people shared, their exact
+        -- places, their picks and who is in the session stay. The votes are deleted first, then the slots (the options go by foreign key).
+        delete from public.votes v using public.slots sl where sl.id = v.slot_id and sl.session_id = sid;
+        delete from public.slots sl where sl.session_id = sid;
+        delete from public.stops st where st.session_id = sid;
+        delete from public.spot_approvals a where a.session_id = sid;
+        delete from public.spot_suggestions g where g.session_id = sid;
+        delete from public.session_spots x where x.session_id = sid;
+        -- (The members' own minutes to the old area are left as they are: nothing reads them while the session is locating, the next
+        -- confirm writes them again, and writing them here would move every member's updated_at past the new spots' computed_at, which a
+        -- page reads as "the spots were not worked out again".)
+        changed := true;
       when 'swap_option' then
         -- Rule 7 again. The place changes in place, so the votes for it follow it; when the other place is already an option, the
         -- votes move to it and this one goes.
@@ -1632,6 +1691,15 @@ begin
     else
       banner_changed := s.banner is distinct from banner_new;
     end if;
+    -- A release always brings its notice afresh, with a new time, even when the words match the stored ones (an earlier release by the
+    -- same host), so a person who dismissed that one is told again.
+    if released and banner_new is not null then
+      banner_changed := true;
+    end if;
+  elsif released then
+    -- A release that brings no notice clears the old one: it was about the meeting place that has just gone.
+    banner_new := null;
+    banner_changed := s.banner is not null;
   end if;
   if sp ? 'radius_meters' then
     radius_changed := s.radius_meters is distinct from (sp ->> 'radius_meters')::integer;
@@ -1691,14 +1759,16 @@ begin
   update public.sessions set
     status = new_status,
     radius_meters = case when radius_changed then (sp ->> 'radius_meters')::integer else radius_meters end,
-    meeting_area_id = case when meeting_changed then meeting ->> 'area_id' else meeting_area_id end,
-    meeting_method = case when meeting_changed then meeting ->> 'method' else meeting_method end,
-    meeting_max_minutes = case when meeting_changed then round((meeting ->> 'max_minutes')::numeric)::integer else meeting_max_minutes end,
-    meeting_total_minutes = case when meeting_changed then round((meeting ->> 'total_minutes')::numeric)::integer else meeting_total_minutes end,
-    meeting_count = case when meeting_changed then round((meeting ->> 'count')::numeric)::integer else meeting_count end,
-    meeting_approximate = case when meeting_changed then (meeting ->> 'approximate')::boolean else meeting_approximate end,
-    meeting_computed_at = case when meeting_changed and meeting ->> 'area_id' is not null then now()
+    meeting_area_id = case when released then null when meeting_changed then meeting ->> 'area_id' else meeting_area_id end,
+    meeting_method = case when released then null when meeting_changed then meeting ->> 'method' else meeting_method end,
+    meeting_max_minutes = case when released then null when meeting_changed then round((meeting ->> 'max_minutes')::numeric)::integer else meeting_max_minutes end,
+    meeting_total_minutes = case when released then null when meeting_changed then round((meeting ->> 'total_minutes')::numeric)::integer else meeting_total_minutes end,
+    meeting_count = case when released then null when meeting_changed then round((meeting ->> 'count')::numeric)::integer else meeting_count end,
+    meeting_approximate = case when released then null when meeting_changed then (meeting ->> 'approximate')::boolean else meeting_approximate end,
+    meeting_computed_at = case when released then null
+                               when meeting_changed and meeting ->> 'area_id' is not null then now()
                                when meeting_changed then null else meeting_computed_at end,
+    meet_by = case when released then release_by else meet_by end,
     banner = case
       when banner_text is not null then jsonb_build_object('text', banner_text, 'at', (extract(epoch from now()) * 1000)::bigint, 'approvalsRemoved', true)
       when banner_changed and banner_stamped then banner_new || jsonb_build_object('at', (extract(epoch from now()) * 1000)::bigint)
@@ -1706,16 +1776,18 @@ begin
       else banner end,
     -- Opening the plan again clears what belonged to the confirmed plan: the order note, the suggested order, the plan's start and
     -- the prompt. Leaving or entering confirmed clears the prompt too. Finishing the outing stamps its time once.
-    order_reason = case when reopened then null when sp ? 'order_note' then note_new ->> 'reason' else order_reason end,
-    order_source = case when reopened then null when sp ? 'order_note' then note_new ->> 'source' else order_source end,
-    order_suggestion = case when reopened then null when sp ? 'order_suggestion' then suggestion_new else order_suggestion end,
-    plan_start_minute = case when reopened then null when sp ? 'plan_start_minute' then (sp ->> 'plan_start_minute')::integer else plan_start_minute end,
-    replan = case when s.status = 'confirmed' and new_status <> 'confirmed' then null
+    order_reason = case when reopened or released then null when sp ? 'order_note' then note_new ->> 'reason' else order_reason end,
+    order_source = case when reopened or released then null when sp ? 'order_note' then note_new ->> 'source' else order_source end,
+    order_suggestion = case when reopened or released then null when sp ? 'order_suggestion' then suggestion_new else order_suggestion end,
+    plan_start_minute = case when reopened or released then null when sp ? 'plan_start_minute' then (sp ->> 'plan_start_minute')::integer else plan_start_minute end,
+    replan = case when released then null
+                  when s.status = 'confirmed' and new_status <> 'confirmed' then null
                   when s.status = 'voting' and new_status = 'confirmed' then null
                   when sp ? 'replan' then replan_new else replan end,
     -- The rain warnings the host kept belong to the confirmed plan's stops: they go when the plan is opened again or ends, and when it
     -- is confirmed afresh.
-    weather_kept = case when s.status = 'confirmed' and new_status <> 'confirmed' then null
+    weather_kept = case when released then null
+                        when s.status = 'confirmed' and new_status <> 'confirmed' then null
                         when s.status = 'voting' and new_status = 'confirmed' then null
                         when sp ? 'weather_kept' then kept_new else weather_kept end,
     completed_at = case when s.status = 'confirmed' and new_status = 'completed' then now() else completed_at end,

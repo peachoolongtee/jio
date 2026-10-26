@@ -310,6 +310,19 @@ export async function putSessionKnownPlace(sessionId, areaId) {
   return data
 }
 
+// The host changes the meeting place from voting or confirmed (design: "Change plan"). `meetBy: 'fairest'` takes the session back to locating and
+// has the spots worked out again; `meetBy: 'known'` with an `areaId` goes on to voting at that area. Resolves { planVersion, status, meetBy }.
+// Refusals: host_only, wrong_status, unknown_area, session_not_found; if naming the area fails after the release the Error carries the failure's
+// code and the session is on Locate (read it again).
+// `planVersion` is the version of the session the person saw: the server refuses (409 stale_plan, nothing written) when it has moved on, so a retry
+// never wipes votes cast since.
+// How to call: await changeSessionMeetingPlace('3b1f...', { meetBy: 'known', areaId: 'bugis', planVersion: 12 })
+export async function changeSessionMeetingPlace(sessionId, { meetBy, areaId, planVersion }) {
+  const body = { meetBy, ...(meetBy === 'known' ? { areaId } : {}), ...(Number.isInteger(planVersion) ? { planVersion } : {}) }
+  const { data } = await api.post(sessionPath(sessionId, '/change-meeting-place'), body, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
 // The person opts out of a session but keeps their place in it (E10), and comes back (E11). Both resolve { planVersion, state }.
 // How to call: await optOutOfSession('3b1f...'); await rejoinSession('3b1f...')
 export async function optOutOfSession(sessionId) {
@@ -417,12 +430,23 @@ export async function venuesByIds(ids) {
 // too_many_proposals, venue_not_found.
 
 // The host asks for the suggested order of the winning places (E22): one question to the server, which may ask the AI under its own
-// budget. Resolves { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], reason, source } or { status: 'none', why }.
+// budget. Resolves { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], voted: [{ slotId, category, venueId, start,
+// duration }], reason, source } or { status: 'none', why, basis, voted }. `voted` and `stops` are the stops of the voted and of the suggested
+// order as a confirm would store them, each with the start that is stored for it.
 // A refusal: host_only, wrong_status, not_enough_votes.
 // How to call: const answer = await suggestSessionOrder('3b1f...')
 export async function suggestSessionOrder(sessionId) {
   const { data } = await api.post(sessionPath(sessionId, '/order/suggest'), {}, { timeout: ARRANGE_TIMEOUT_MS + 10000 })
   if (data?.status !== 'ok' && data?.status !== 'none') throw new Error(notJsonMessage())
+  return data
+}
+
+// The minutes each person needs to get home from the last stop of a confirmed plan: the computation the finished outing's ledger keeps as
+// `minutes_home`. A member asks; nothing is written. Resolves { trips: [{ userId, minutes }], approximate }.
+// How to call: const { trips } = await getSessionTripsHome('3b1f...') // [{ userId: '9a2c...', minutes: 31 }]
+export async function getSessionTripsHome(sessionId) {
+  const { data } = await api.get(sessionPath(sessionId, '/trips-home'), { timeout: SESSION_TIMEOUT_MS })
+  if (!Array.isArray(data?.trips)) throw new Error(notJsonMessage())
   return data
 }
 

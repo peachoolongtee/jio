@@ -207,6 +207,14 @@ describe('moving or deleting a stop by hand', () => {
     for (const stop of savedPlan(api, id).stops) expect(stop).not.toHaveProperty('notBefore')
   })
 
+  it('starts the plan with the next stop at its own voted time when the first stop is deleted', async () => {
+    const { api, id } = await confirmedWithSuggestion()
+    const second = savedPlan(api, id).stops[1]
+    await api.deleteStop(id, 0)
+    expect(savedPlan(api, id).startAt).toBe(second.plannedStart)
+    expect((await api.getItinerary(id)).stops[0].start).toBe(second.plannedStart)
+  })
+
   it('keeps the note when a stop is moved to where it already is', async () => {
     const { api, id } = await confirmedWithSuggestion()
     await api.reorderStops(id, 1, 1)

@@ -10,6 +10,10 @@
 //                                     known place (events.setKnownPlace), and takes the host on to choosing places.
 // The choice is saved with the start (sessions.meet_by), so every guest sees it. The step is in the address, so the browser's back
 // button and a reload both work; the cards' choice is kept while the page is open.
+// With the prop `change` (the route /sessions/:id/change-place) the same two screens serve the host who is changing the meeting place after it was
+// set: the session is voting or confirmed (not inviting), the cards are the same, the main buttons say what they do ("Work out the spots again",
+// "Meet at <area>"), nothing is changed until the last button (events.changeMeetingPlace: the votes, the places to vote on and the plan are cleared,
+// everyone's starts are kept), and the back arrow goes to the Vote or Itinerary screen the host came from.
 // Loading, not found and failed loads have their own states. A person who is not the host, or a session that has gone past inviting, goes
 // back to the session page. If the follow-up fails after the session has started (the choice is already saved), this page stays open on
 // the follow-up, and pressing the button again names the area without starting twice.
@@ -29,11 +33,11 @@ import NotFoundView from './NotFoundView.vue'
 import * as api from '@/lib/api.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { vRadioGroup } from '@/lib/radioGroup.js'
-import { CHOICES, HERE_NOTE, START_NOTE, WHERE_NOTE, areaHere, findAreas, startLabel, whereLabel } from '@/lib/startChoice.js'
+import { CHANGE_HEAD, CHANGE_NOTE, CHOICES, HERE_NOTE, START_NOTE, WHERE_NOTE, areaHere, changeLabel, findAreas, startLabel, whereLabel } from '@/lib/startChoice.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
-const props = defineProps({ id: { type: String, required: true } })
+const props = defineProps({ id: { type: String, required: true }, change: { type: Boolean, default: false } })
 
 const route = useRoute()
 const router = useRouter()
@@ -90,11 +94,15 @@ onBeforeUnmount(() => stopWatching())
 watch(() => props.id, load)
 
 const sessionPath = computed(() => `/sessions/${props.id}`)
+// This page's own address, and where the host came from (the Itinerary for a plan, the Vote screen before it).
+const pagePath = computed(() => `${sessionPath.value}/${props.change ? 'change-place' : 'start'}`)
+const cameFrom = computed(() => `${sessionPath.value}/${session.value?.status === 'confirmed' ? 'itinerary' : 'plan'}`)
 // Who may be here: the host of a session that is inviting with two people in, or that started with "We already know where" and has not
 // got its area yet (a retry). Everyone else belongs on the session page. Not while a save is running: it moves the session on itself.
 const allowed = computed(() => {
   const s = session.value
   if (!s || !isHost.value) return false
+  if (props.change) return ['voting', 'confirmed'].includes(s.status)
   if (s.status === 'inviting') return (s.activeIds || []).length >= 2
   return s.status === 'locating' && s.meetBy === 'known' && step.value === 'where'
 })
@@ -109,7 +117,7 @@ watch(step, async () => {
 })
 
 // The back button at the top left: from the follow-up to the choice, from the choice to the session's page.
-const back = computed(() => (step.value === 'where' ? `${sessionPath.value}/start` : sessionPath.value))
+const back = computed(() => (step.value === 'where' ? pagePath.value : props.change ? cameFrom.value : sessionPath.value))
 
 // Run a save with the busy flag on; the flag is cleared whatever happens, and a failure is the screen's error line.
 // How to call: await run(() => events.start(props.id, { meetBy: 'fairest' }))
@@ -122,6 +130,12 @@ async function run(fn) {
     return true
   } catch (e) {
     error.value = e.message
+    // The change went through as far as releasing the meeting area (only the naming of the new area failed): the session is locating again, so
+    // this page is no longer the host's. They go to Locate, where the store shows what went wrong and "We already have a place" finishes it.
+    if (e?.released) {
+      leaving.value = true
+      router.replace(sessionPath.value)
+    }
     return false
   } finally {
     busy.value = false
@@ -130,7 +144,7 @@ async function run(fn) {
 
 // Is this page still the one on screen, so a finished save may take the host on? False once it was left.
 // How to call: if (stillHere()) await router.replace(...)
-const stillHere = () => !cancelled && router.currentRoute.value.path === `${sessionPath.value}/start`
+const stillHere = () => !cancelled && router.currentRoute.value.path === pagePath.value
 
 // The main button of the first screen. The fairest spot starts the session and the host stays on its page, now the Locate step; the
 // other choice goes on to the follow-up without saving anything yet.
@@ -138,11 +152,12 @@ const stillHere = () => !cancelled && router.currentRoute.value.path === `${sess
 async function choose() {
   if (choice.value === 'known') {
     error.value = ''
-    await router.push({ path: `${sessionPath.value}/start`, query: { where: '1' } })
+    await router.push({ path: pagePath.value, query: { where: '1' } })
     return
   }
   const ok = await run(async () => {
-    await events.start(props.id, { meetBy: 'fairest' })
+    if (props.change) await events.changeMeetingPlace(props.id, { meetBy: 'fairest' })
+    else await events.start(props.id, { meetBy: 'fairest' })
     leaving.value = true
   })
   if (ok && stillHere()) await router.replace(sessionPath.value)
@@ -157,16 +172,20 @@ async function meet() {
     const areaId = hereNow.value ? (await areaHere(typeof navigator === 'undefined' ? null : navigator.geolocation, api.placeFromCoords)).areaId : where.value
     // The host went back while the browser was asking: nothing is started.
     if (cancelled) return
-    if (session.value?.status === 'inviting') await events.start(props.id, { meetBy: 'known' })
-    await events.setKnownPlace(props.id, areaId)
+    if (props.change) {
+      await events.changeMeetingPlace(props.id, { meetBy: 'known', areaId })
+    } else {
+      if (session.value?.status === 'inviting') await events.start(props.id, { meetBy: 'known' })
+      await events.setKnownPlace(props.id, areaId)
+    }
     done = true
     leaving.value = true
   })
   if (ok && done && stillHere()) await router.replace(`${sessionPath.value}/plan`)
 }
 
-const primary = computed(() => (step.value === 'how' ? startLabel(choice.value) : whereLabel(chosenArea.value, hereNow.value)))
-const note = computed(() => (step.value === 'how' ? START_NOTE : hereNow.value ? HERE_NOTE : WHERE_NOTE))
+const primary = computed(() => (step.value === 'how' ? (props.change ? changeLabel(choice.value) : startLabel(choice.value)) : whereLabel(chosenArea.value, hereNow.value)))
+const note = computed(() => (props.change ? CHANGE_NOTE : step.value === 'how' ? START_NOTE : hereNow.value ? HERE_NOTE : WHERE_NOTE))
 const onPrimary = () => (step.value === 'how' ? choose() : meet())
 const primaryOff = computed(() => busy.value || (step.value === 'where' && !hereNow.value && !chosenArea.value))
 const primaryText = computed(() => (busy.value ? (step.value === 'where' && hereNow.value ? 'Finding where you are…' : 'Saving…') : primary.value))
@@ -181,8 +200,8 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
       <!-- 1. How to pick the meeting point. -->
       <template v-if="step === 'how'">
         <div class="head">
-          <h2 ref="heading" tabindex="-1" class="display-sm">How do you want to pick the meeting point?</h2>
-          <p class="body-sm text-muted">Everyone sees which one you choose.</p>
+          <h2 ref="heading" tabindex="-1" class="display-sm">{{ change ? CHANGE_HEAD.title : 'How do you want to pick the meeting point?' }}</h2>
+          <p class="body-sm text-muted">{{ change ? CHANGE_HEAD.text : 'Everyone sees which one you choose.' }}</p>
         </div>
         <div class="choices" role="radiogroup" v-radio-group aria-label="How to pick the meeting point">
           <ChoiceCard v-for="c in CHOICES" :key="c.key" :selected="choice === c.key" :disabled="busy" :icon="c.icon" @click="choice = c.key">
@@ -198,7 +217,7 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
       <template v-else>
         <div class="head">
           <h2 ref="heading" tabindex="-1" class="display-sm">Where is the place?</h2>
-          <p class="body-sm text-muted">The group then goes straight to choosing places.</p>
+          <p class="body-sm text-muted">{{ change ? 'The group then votes on places around it. Votes and the plan are cleared.' : 'The group then goes straight to choosing places.' }}</p>
         </div>
         <div class="start__search">
           <TextField v-model="query" label="Search for an area" placeholder="Bishan, Tampines, Jurong East" type="text" autocomplete="off" enterkeyhint="search" :maxlength="40">

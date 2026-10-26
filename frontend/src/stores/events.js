@@ -6,6 +6,9 @@ import { currentUserId } from '@/lib/currentUser.js'
 import { whileLoading } from '@/lib/pageLoading.js'
 import { moveItem } from '@/lib/planner/itinerary.js'
 
+// The server's refusals of the suggested order that are said to the host in words, not as a failure to get it.
+const REFUSALS = ['not_enough_votes', 'wrong_status', 'host_only', 'session_not_found']
+
 // Who a session in Locating is waiting for: the people in it who have not set where they start. The meeting area
 // appears once this is empty. How to call: waitingFor(session) -> ['faith']
 export function waitingFor(session) {
@@ -137,7 +140,13 @@ export const useEventsStore = defineStore('events', () => {
   // `session` is a session just read (a live update has the one it loaded): the itinerary is laid out from it, without reading the session again.
   async function loadItinerary(id, session = null) {
     const ticket = (itinerarySeq[id] = (itinerarySeq[id] || 0) + 1)
-    const itinerary = await api.getItinerary(id, session ? { session } : undefined)
+    // The itinerary is drawn at once; trips home the server still has to work out (OneMap) arrive later through `onTrips`, and are put in only
+    // if this is still the newest load and the itinerary shown is the one they were asked for.
+    const onTrips = (late) => {
+      const shown = itineraries.value[id]
+      if (ticket === itinerarySeq[id] && shown?.tripsKey === late.key) itineraries.value = { ...itineraries.value, [id]: { ...shown, trips: late.trips, tripsApproximate: late.tripsApproximate } }
+    }
+    const itinerary = await api.getItinerary(id, { ...(session ? { session } : {}), onTrips })
     if (ticket !== itinerarySeq[id]) return itineraries.value[id]
     itineraries.value = { ...itineraries.value, [id]: itinerary }
     return itinerary
@@ -192,6 +201,26 @@ export const useEventsStore = defineStore('events', () => {
   const approveMySpot = (id, areaId, on) => act(api.approveSpot)(id, currentUserId(), areaId, on)
   const confirmSpot = confirmingWith(api.confirmSpot)
   const setKnownPlace = confirmingWith(api.setKnownPlace)
+  // The host changes the meeting place from voting or confirmed. If naming the area fails AFTER the release went through (the session is
+  // locating again), the error is kept here by session id, so Locate, where the host lands, can show it instead of it being lost to the
+  // redirect. How to call: await changeMeetingPlace('s1', { meetBy: 'known', areaId: 'bugis' })
+  const placeFailure = ref({})
+  const changeMeetingPlace = async (id, body) => {
+    try {
+      const done = await act(api.changeMeetingPlace)(id, body)
+      dismissPlaceFailure(id)
+      return done
+    } catch (err) {
+      if (err?.released) placeFailure.value = { ...placeFailure.value, [id]: err.message || 'The meeting area could not be set.' }
+      throw err
+    }
+  }
+  // How to call: dismissPlaceFailure('s1')
+  const dismissPlaceFailure = (id) => {
+    if (!(id in placeFailure.value)) return
+    const { [id]: _gone, ...rest } = placeFailure.value
+    placeFailure.value = rest
+  }
   const cancel = act(api.cancelSession)
   // The host carries on without a member who has not shared where they start (they opt out of this session).
   const optOut = act(api.optOut)
@@ -256,8 +285,10 @@ export const useEventsStore = defineStore('events', () => {
         if (ticket === orderSeq[id]) entry({ answer })
         return answer
       })
-      .catch(() => {
-        if (ticket === orderSeq[id]) entry({ failed: true })
+      .catch((err) => {
+        // A refusal of the server (fewer than two voters, the group no longer voting) is kept to be said in words; any other failure is not.
+        const refusal = REFUSALS.includes(err?.code) && typeof err.message === 'string' ? err.message : ''
+        if (ticket === orderSeq[id]) entry({ failed: true, refusal })
         return null
       })
     orderPending[id] = pending
@@ -489,6 +520,6 @@ export const useEventsStore = defineStore('events', () => {
     sessions, byId, itineraries, ledgers, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
     loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, dropSession,
     loadSessions, loadSession, loadItinerary, loadLedger, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
-    confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, forgetOrder, addPhoto, deletePhoto,
+    confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, changeMeetingPlace, placeFailure, dismissPlaceFailure, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, forgetOrder, addPhoto, deletePhoto,
   }
 })

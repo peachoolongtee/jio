@@ -278,8 +278,8 @@ const hostName = computed(() => nameOf(session.value?.hostId) || 'the host')
 // area, so the card does not claim one.
 const peopleSession = computed(() => (choosing.value ? { ...session.value, meeting: null } : session.value))
 const hasMeetingTrips = computed(() => Object.keys(session.value?.meeting?.times || {}).length > 0)
-// Approvals that went with a spot that left the list: the data layer leaves a banner that says so.
-const approvalsBanner = computed(() => (choosing.value && session.value?.banner?.approvalsRemoved ? session.value.banner : null))
+// Approvals that went with a spot that left the list, or the host changing the meeting place (`released`): the data layer leaves a banner that says so.
+const approvalsBanner = computed(() => (choosing.value && (session.value?.banner?.approvalsRemoved || session.value?.banner?.released) ? session.value.banner : null))
 async function dismissBanner() {
   try {
     await events.dismissBanner(props.id)
@@ -319,6 +319,9 @@ const startPath = computed(() => `/sessions/${props.id}/start`)
 // have not named the area yet. Nothing for a session that started before the choice existed.
 const meetByNote = computed(() => (session.value ? guestLine(session.value, hostName.value, auth.myId) : null))
 const hostPending = computed(() => (session.value ? hostPendingLine(session.value, auth.myId) : null))
+// The host's change of the meeting place released the area, but naming the new one failed: the error is kept by the store, because the screen
+// the host changed it on was left for this one. Shown to the host only, while the group is still choosing where to meet.
+const placeFailure = computed(() => (isHost.value && choosing.value ? events.placeFailure[props.id] || '' : ''))
 </script>
 
 <template>
@@ -332,7 +335,10 @@ const hostPending = computed(() => (session.value ? hostPendingLine(session.valu
       <BannerNote v-if="approvalsBanner" icon="info" dismissible @dismiss="dismissBanner">{{ approvalsBanner.text }}</BannerNote>
       <!-- The host's choice of how to pick the meeting point, for a guest while the group is choosing where to meet. -->
       <BannerNote v-if="meetByNote" icon="info" data-testid="meet-by-note"><strong>{{ meetByNote.title }}.</strong> {{ meetByNote.text }}</BannerNote>
-      <BannerNote v-else-if="hostPending" icon="info" data-testid="meet-by-pending">{{ hostPending }}</BannerNote>
+      <BannerNote v-if="placeFailure" tone="error" icon="warning" role="alert" dismissible data-testid="place-failure" @dismiss="events.dismissPlaceFailure(props.id)">
+        The meeting place was released, but the new area could not be set: {{ placeFailure }}
+      </BannerNote>
+      <BannerNote v-if="!meetByNote && hostPending" icon="info" data-testid="meet-by-pending">{{ hostPending }}</BannerNote>
 
       <!-- Inviting: who is in, whether the session can start, and Start session below. A shared session that was called off
            while it was still inviting shows the same list, read-only, under the "Session cancelled" note. -->

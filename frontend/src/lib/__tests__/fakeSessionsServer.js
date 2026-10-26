@@ -12,6 +12,7 @@
 //   PUT    /api/sessions/:id/known-place    { areaId }            E21
 //   POST   /api/sessions/:id/opt-out, /rejoin                      E10, E11
 //   DELETE /api/sessions/:id/members/:userId|me                   E25 (leave, remove)
+//   POST   /api/sessions/:id/change-meeting-place { meetBy, areaId? }   the host lets the meeting area go (voting or confirmed)
 //
 // Stage 4 (voting, ticket 129; the design's E3 to E9, E17, E18, and E1 in voting) adds, on the same terms:
 //   POST   /api/sessions/:id/plan/sync                                E3: slots and places worked out again from people's picks
@@ -50,6 +51,7 @@ import { VENUES } from '../mock/venues.js'
 import { asBackendVenue, standInConverge, standInSearch } from '../../components/dev/offlinePlanner.js'
 import { OPTIONS_MAX, distanceKm, fromMinutes, reconcileOptions, toMinutes } from '../planner/index.js'
 import { registerPlan } from './fakeSessionsServer.plan.js'
+import { releasedNotice } from '../startChoice.js'
 
 const OPEN = ['inviting', 'locating']
 const SUGGESTIONS_MAX = 8
@@ -443,6 +445,45 @@ export function fakeSessionsServer(database) {
       if (session.meet_by !== 'known') await write({ kind: 'update', table: 'sessions', values: { meet_by: 'known' }, filters: [eq('id', id)] })
       return { status: 200, body: { planVersion: version, status: 'voting' } }
     },
+    // The host changes the meeting place: the release in one write (the votes, the slots with their places, the stops, the spots with their
+    // approvals and suggestions, the members' minutes and the plan's columns go; the pending proposals are dismissed; the host's choice is stored;
+    // the notice names the host), then, for 'fairest', the spots worked out again from the kept starts in the same write, and for 'known' the
+    // known place with the notice brought along. SIMPLER than the real server: the notice of the known place is a second small write.
+    async changeMeetingPlace(user, id, body) {
+      const { session } = load(user, id)
+      if (session.host_id !== user) refuse(403, 'host_only', 'Only the host can change the meeting place.')
+      if (!['voting', 'confirmed'].includes(session.status)) refuse(409, 'wrong_status', 'The meeting place can only be changed while the group is voting or has a plan.')
+      if (!['fairest', 'known'].includes(body.meetBy) || (body.meetBy === 'known') !== (body.areaId !== undefined) || Object.keys(body).some((k) => !['meetBy', 'areaId', 'planVersion'].includes(k))) {
+        refuse(400, 'invalid_input', 'Send "fairest", or "known" with an area.')
+      }
+      if (body.meetBy === 'known' && !AREAS.some((a) => a.id === body.areaId)) refuse(422, 'unknown_area', 'That area is not one Jio knows.')
+      // As the real server: a stale planVersion is refused, and a repeat of 'known' for the area the session is voting at, with no vote cast, is a no-op.
+      if (body.planVersion !== undefined && body.planVersion !== session.plan_version) refuse(409, 'stale_plan', 'The session changed since you looked at it. Look at it again.')
+      const noVotes = !rows('votes').some((v) => slotsOf(id).some((s) => s.id === v.slot_id))
+      if (body.meetBy === 'known' && session.status === 'voting' && session.meet_by === 'known' && session.meeting_method === 'chosen' && session.meeting_area_id === body.areaId && noVotes) {
+        return { status: 200, body: { planVersion: session.plan_version, status: 'voting', meetBy: 'known' } }
+      }
+      const loaded = { status: session.status, version: session.plan_version }
+      const hostName = database.getProfiles([user])[user]?.display_name || 'Someone'
+      const facts = { hostName, status: session.status, hadVotes: rows('votes').some((v) => slotsOf(id).some((s) => s.id === v.slot_id)) }
+      await after.changeMeetingPlace?.(id)
+      const version = await apply(id, loaded, async () => {
+        for (const table of ['slots', 'stops', 'spot_approvals', 'spot_suggestions', 'session_spots']) await write({ kind: 'delete', table, filters: [eq('session_id', id)] })
+        for (const proposal of rows('stop_proposals').filter((x) => x.session_id === id && x.status === 'pending')) {
+          await write({ kind: 'update', table: 'stop_proposals', values: { status: 'dismissed', resolved_at: new Date().toISOString() }, filters: [eq('id', proposal.id)] })
+        }
+        if (body.meetBy === 'fairest') await relist(id)
+      }, (v) => ({
+        status: 'locating', meet_by: body.meetBy, banner: { text: releasedNotice(facts), at: Date.now() + v, released: true },
+        meeting_area_id: null, meeting_method: null, meeting_max_minutes: null, meeting_total_minutes: null, meeting_count: null, meeting_approximate: null, meeting_computed_at: null,
+        order_reason: null, order_source: null, order_suggestion: null, plan_start_minute: null, replan: null, weather_kept: null,
+      }))
+      if (body.meetBy === 'fairest') return { status: 200, body: { planVersion: version, status: 'locating', meetBy: 'fairest' } }
+      const known = await routes.knownPlace(user, id, { areaId: body.areaId })
+      const notice = { text: releasedNotice({ ...facts, placeName: AREAS.find((a) => a.id === body.areaId).name }), at: Date.now(), released: true, votesCleared: true }
+      await write({ kind: 'update', table: 'sessions', values: { banner: notice }, filters: [eq('id', id)] })
+      return { status: 200, body: { planVersion: known.body.planVersion, status: 'voting', meetBy: 'known' } }
+    },
     // E10
     async optOut(user, id) {
       const { session, member } = load(user, id, { joined: false })
@@ -667,6 +708,7 @@ export function fakeSessionsServer(database) {
     ['DELETE', /^\/spots\/mine$/, 'deleteSpot'],
     ['POST', /^\/voting$/, 'confirm'],
     ['PUT', /^\/known-place$/, 'knownPlace'],
+    ['POST', /^\/change-meeting-place$/, 'changeMeetingPlace'],
     ['POST', /^\/opt-out$/, 'optOut'],
     ['POST', /^\/rejoin$/, 'rejoin'],
     ['DELETE', /^\/members\/([^/]+)$/, 'removeMember', ['who']],

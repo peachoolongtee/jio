@@ -862,15 +862,28 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     // Never later than the database's clock, as least(loaded_at, now()) in the SQL.
     stamp = Math.min(stamp, now())
 
-    // Rule 4: a pinned meeting area stays.
-    if (has(sp, 'meeting') && ['voted', 'chosen'].includes(s.meeting_method) && ((meeting?.area_id ?? null) !== s.meeting_area_id || (meeting?.method ?? null) !== s.meeting_method)) {
+    // Rule 9 (db/migrations/20261027000000_jio_change_meeting_place.sql): the host changes the meeting place. The op releases the meeting area and
+    // sends the session back to locating; it is valid only on that move (from voting or confirmed), and that move is valid only with it. It
+    // names the host's new choice, and the patch brings no meeting of its own.
+    const releaseOp = Array.isArray(patch.ops) ? patch.ops.find((o) => o?.op === 'release_meeting') : undefined
+    const released = releaseOp !== undefined
+    if (released) {
+      if (!(['voting', 'confirmed'].includes(s.status) && (sp.status ?? s.status) === 'locating')) {
+        throw ruleBroken('release_status', 'The meeting area is released only by moving a voting or confirmed session back to locating.')
+      }
+      if (sp.meeting !== undefined && sp.meeting !== null) throw ruleBroken('release_meeting', 'A released session has no meeting area, so the patch cannot bring one.')
+      if (!['fairest', 'known'].includes(releaseOp.meet_by)) throw new DbError('22023', 'A release says how the meeting point is picked again: fairest or known.')
+    }
+
+    // Rule 4: a pinned meeting area stays (unless the host is releasing it, Rule 9).
+    if (!released && has(sp, 'meeting') && ['voted', 'chosen'].includes(s.meeting_method) && ((meeting?.area_id ?? null) !== s.meeting_area_id || (meeting?.method ?? null) !== s.meeting_method)) {
       throw ruleBroken('area_pinned', 'The meeting area was chosen and cannot be changed by a recompute.')
     }
     // Rule 1: the only move is inviting or locating to voting, with an area. (The two-people check comes after the ops.)
     let changed = false
     const newStatus = sp.status ?? s.status
     if (newStatus !== s.status) {
-      if (!(['inviting', 'locating'].includes(s.status) && newStatus === 'voting') || !meeting?.area_id) {
+      if ((!(['inviting', 'locating'].includes(s.status) && newStatus === 'voting') || !meeting?.area_id) && !(released && ['voting', 'confirmed'].includes(s.status) && newStatus === 'locating')) {
         throw ruleBroken('status_transition', `A session cannot go from ${s.status} to ${newStatus} this way.`)
       }
       changed = true
@@ -961,6 +974,16 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
         // The meeting area moved, so every vote is for a place that no longer belongs to it. Only in a voting session.
         if (s.status !== 'voting') throw ruleBroken('slots_status', 'Votes are cleared only while the session is voting.')
         changed = dropVotes(() => true) || changed
+      } else if (op.op === 'release_meeting') {
+        // Rule 9: everything that belonged to the meeting place goes in this write; starts, ends, exact places, picks and members stay.
+        dropVotes(() => true)
+        dropRows('slots', () => true)
+        dropRows('stops', () => true)
+        dropRows('spot_approvals', () => true)
+        dropRows('spot_suggestions', () => true)
+        dropRows('session_spots', () => true)
+        // (The members' own minutes are left as they are: a write would move their updated_at past the new spots' computed_at, and a page reads that as stale.)
+        changed = true
       } else if (op.op === 'swap_option') {
         if (s.status !== 'voting') throw ruleBroken('slots_status', 'An option is swapped only while the session is voting.')
         const slot = tables.slots.find((sl) => sl.session_id === sid && sl.category === op.category)
@@ -1142,7 +1165,10 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     // A banner sent without its time is stamped by the database's clock when it is written, so a newer notice always has a later
     // `at` than an older one. It differs from the stored one only apart from that time.
     const stampedBanner = has(sp, 'banner') && sp.banner !== null && typeof sp.banner === 'object' && !has(sp.banner, 'at')
-    const bannerChanged = has(sp, 'banner') && !sameJson(stampedBanner && s.banner ? (({ at: _at, ...rest }) => rest)(s.banner) : s.banner ?? null, sp.banner ?? null)
+    // A release brings its notice afresh (always a change), and a release with none clears the old one.
+    const bannerChanged = released
+      ? (has(sp, 'banner') && sp.banner != null ? true : (s.banner ?? null) !== null)
+      : has(sp, 'banner') && !sameJson(stampedBanner && s.banner ? (({ at: _at, ...rest }) => rest)(s.banner) : s.banner ?? null, sp.banner ?? null)
     // A joined member whose stored minutes differ from the new ones counts as a change (when they have stored minutes at all): two
     // people can swap their times with the longest trip, the total and the count the same.
     const travelChanged = has(sp, 'meeting') && meeting && typeof meeting === 'object' && !!meeting.travel &&
@@ -1170,11 +1196,18 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       }
     }
     // Leaving confirmed, or entering it, clears the prompt; otherwise the patch's prompt is kept.
-    if ((s.status === 'confirmed' && newStatus !== 'confirmed') || (s.status === 'voting' && newStatus === 'confirmed')) s.replan = null
+    // Pending proposals are dismissed whenever a session leaves confirmed (the stage 5 rule), and the plan's own columns go with a release.
+    if (s.status === 'confirmed' && newStatus !== 'confirmed') {
+      for (const p of tables.stop_proposals.filter((x) => x.session_id === sid && x.status === 'pending')) Object.assign(p, { status: 'dismissed', resolved_at: iso(now()) })
+    }
+    if (released || (s.status === 'confirmed' && newStatus !== 'confirmed') || (s.status === 'voting' && newStatus === 'confirmed')) s.replan = null
     else if (has(sp, 'replan')) s.replan = sp.replan ?? null
+    if (released) Object.assign(s, { order_reason: null, order_source: null, order_suggestion: null, plan_start_minute: null, weather_kept: null, meet_by: releaseOp.meet_by })
     s.status = newStatus
     if (radiusChanged) s.radius_meters = sp.radius_meters ?? null
-    if (meetingChanged) {
+    if (released) {
+      Object.assign(s, { meeting_area_id: null, meeting_method: null, meeting_max_minutes: null, meeting_total_minutes: null, meeting_count: null, meeting_approximate: null, meeting_computed_at: null })
+    } else if (meetingChanged) {
       s.meeting_area_id = meeting?.area_id ?? null
       s.meeting_method = meeting?.method ?? null
       s.meeting_max_minutes = meeting ? rounded(meeting.max_minutes) : null

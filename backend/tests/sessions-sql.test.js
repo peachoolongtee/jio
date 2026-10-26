@@ -10,6 +10,7 @@ import { MAX } from '../src/routes/plan-schemas.js'
 const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')
 const STAGE4 = 'db/migrations/20261022000000_jio_apply_session_plan_slots.sql'
 const MIGRATION = 'db/migrations/20261023000000_jio_apply_session_plan_stops.sql'
+const RELEASE = 'db/migrations/20261027000000_jio_change_meeting_place.sql'
 const SLICE_D = 'db/migrations/20261011000300_jio_session_plan.sql'
 
 const functionOf = (sql) => {
@@ -53,12 +54,12 @@ function unbalanced(sql) {
 }
 
 describe('the function in the migration and in db/schema.sql', () => {
-  it('is the same text', () => {
-    expect(functionOf(read('db/schema.sql'))).toBe(functionOf(read(MIGRATION)))
+  it('is the same text as the newest migration that replaces it (the change of meeting place)', () => {
+    expect(functionOf(read('db/schema.sql'))).toBe(functionOf(read(RELEASE)))
   })
 
   it('is granted to the server only, in the migration and in db/policies.sql', () => {
-    for (const sql of [read(MIGRATION), read('db/policies.sql')]) {
+    for (const sql of [read(MIGRATION), read(RELEASE), read('db/policies.sql')]) {
       expect(sql).toMatch(/revoke execute on function[^;]*public\.apply_session_plan\(uuid, bigint, text, jsonb\)[^;]*from public, anon, authenticated/)
       expect(sql).toMatch(/grant execute on function[^;]*public\.apply_session_plan\(uuid, bigint, text, jsonb\)[^;]*to service_role/)
     }
@@ -198,7 +199,7 @@ describe('the limit on a place\'s id', () => {
 
 describe('the SQL files', () => {
   it('balance: every quote, bracket and dollar quote closes', () => {
-    for (const file of [MIGRATION, STAGE4, 'db/tests/apply_session_plan.sql', 'db/schema.sql', 'db/policies.sql']) expect(unbalanced(read(file)), file).toBeNull()
+    for (const file of [MIGRATION, RELEASE, STAGE4, 'db/tests/apply_session_plan.sql', 'db/schema.sql', 'db/policies.sql']) expect(unbalanced(read(file)), file).toBeNull()
   })
 
   it('the unbalanced() guard itself catches a missing quote and a missing bracket', () => {
@@ -251,5 +252,86 @@ describe('the meet_by migration', () => {
     expect(unbalanced(read('db/tests/session_meet_by_access.sql'))).toBeNull()
     expect(read(MEET_BY)).toContain('grant update (meet_by) on public.sessions to authenticated;')
     expect(read('db/policies.sql')).toContain('grant update (title, date, start_time, end_time, status, meet_by) on public.sessions to authenticated;')
+  })
+})
+
+describe('the change of meeting place migration', () => {
+  const body = (sql) => {
+    const fn = functionOf(sql)
+    const from = fn.indexOf('as $$') + 5
+    return fn.slice(from, fn.indexOf('\n$$;', from) + 1)
+  }
+  const md5 = (text) => createHash('md5').update(text).digest('hex')
+  // What the live project holds for stage 5: the body without its comment lines and blank lines, with the line break after the opening quote.
+  const stripped = (text) => `\n${text.split('\n').filter((line) => !/^\s*--/.test(line) && line.trim() !== '').join('\n')}\n`
+
+  it('names the four sums it accepts, and they are those of the stage 5 text (live and file) and of its own text (with comments and without)', () => {
+    const migration = read(RELEASE)
+    const sums = [...migration.matchAll(/^--\s+([0-9a-f]{32})\s/gm)].map((m) => m[1])
+    expect(sums).toHaveLength(4)
+    expect(sums).toEqual([
+      md5(stripped(body(read(MIGRATION)))),
+      md5(body(read(MIGRATION))),
+      md5(body(migration)),
+      md5(stripped(body(migration))),
+    ])
+    // The sum of the live stage 5 body is the one CLAUDE.md records (the body was sent without its comment lines).
+    expect(sums[0]).toBe('0b045589c032e034636cfc0e59306559')
+    expect(migration).toContain(`not in ('${sums[0]}', '${sums[1]}', '${sums[2]}', '${sums[3]}')`)
+    expect(md5(body(read('db/schema.sql')))).toBe(sums[2])
+  })
+
+  it('changes nothing of the stage 5 function but the lines that let a release through', () => {
+    const before = functionOf(read(MIGRATION)).split('\n')
+    const after = new Set(functionOf(read(RELEASE)).split('\n'))
+    expect(before.filter((line) => !after.has(line)).map((line) => line.trim())).toEqual([
+      '-- Rule 4: a pinned meeting area stays.',
+      "if sp ? 'meeting' and s.meeting_method in ('voted', 'chosen')",
+      '-- the outing (confirmed to completed). (The two-people check for leaving inviting comes after the ops below.)',
+      "or (s.status = 'confirmed' and new_status in ('voting', 'completed'))) then",
+      "meeting_area_id = case when meeting_changed then meeting ->> 'area_id' else meeting_area_id end,",
+      "meeting_method = case when meeting_changed then meeting ->> 'method' else meeting_method end,",
+      "meeting_max_minutes = case when meeting_changed then round((meeting ->> 'max_minutes')::numeric)::integer else meeting_max_minutes end,",
+      "meeting_total_minutes = case when meeting_changed then round((meeting ->> 'total_minutes')::numeric)::integer else meeting_total_minutes end,",
+      "meeting_count = case when meeting_changed then round((meeting ->> 'count')::numeric)::integer else meeting_count end,",
+      "meeting_approximate = case when meeting_changed then (meeting ->> 'approximate')::boolean else meeting_approximate end,",
+      "meeting_computed_at = case when meeting_changed and meeting ->> 'area_id' is not null then now()",
+      "order_reason = case when reopened then null when sp ? 'order_note' then note_new ->> 'reason' else order_reason end,",
+      "order_source = case when reopened then null when sp ? 'order_note' then note_new ->> 'source' else order_source end,",
+      "order_suggestion = case when reopened then null when sp ? 'order_suggestion' then suggestion_new else order_suggestion end,",
+      "plan_start_minute = case when reopened then null when sp ? 'plan_start_minute' then (sp ->> 'plan_start_minute')::integer else plan_start_minute end,",
+      "replan = case when s.status = 'confirmed' and new_status <> 'confirmed' then null",
+      "weather_kept = case when s.status = 'confirmed' and new_status <> 'confirmed' then null",
+    ])
+  })
+
+  it('has the one op, its two hints and the status rule, and Rule 4 and Rule 5 are still there', () => {
+    const sql = functionOf(read(RELEASE))
+    expect(sql).toContain("when 'release_meeting' then")
+    for (const hint of ['release_status', 'release_meeting', 'area_pinned', 'pin_without_confirm', 'status_transition']) expect(sql).toContain(`hint = '${hint}'`)
+    expect(sql).toContain("or (released and s.status in ('voting', 'confirmed') and new_status = 'locating')) then")
+    expect(sql).toContain("if not (s.status in ('voting', 'confirmed') and new_status = 'locating') then")
+  })
+
+  it('stops when sessions.meet_by is missing (the function writes it), and the release locks the votes and the options before the session', () => {
+    const migration = read(RELEASE)
+    expect(migration).toContain("table_name = 'sessions' and column_name = 'meet_by'")
+    expect(migration.indexOf("column_name = 'meet_by'")).toBeLessThan(migration.indexOf('create or replace function public.apply_session_plan'))
+    const sql = functionOf(migration)
+    const votes = sql.indexOf('for update of v;')
+    const options = sql.indexOf('for update of o;')
+    const session = sql.indexOf('from public.sessions where id = sid for update;')
+    expect(votes).toBeGreaterThan(0)
+    expect(votes).toBeLessThan(options)
+    expect(options).toBeLessThan(session)
+    // The release does not write the members' rows (a write would make every page think the spots are stale).
+    expect(sql).not.toMatch(/update public\.session_members m set travel_minutes = null/)
+    expect(migration).toContain('retries once on 40P01 and 40001')
+  })
+
+  it('says it must be applied before the route runs, and what stays', () => {
+    const migration = read(RELEASE)
+    expect(migration).toContain('MUST BE APPLIED BEFORE THE BACKEND THAT HAS POST /api/sessions/:id/change-meeting-place')
+    expect(migration).toContain('It keeps:')
   })
 })

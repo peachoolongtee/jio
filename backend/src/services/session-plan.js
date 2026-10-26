@@ -271,6 +271,22 @@ export function meetingBannerText({ previousName, nextName, kind, name }) {
   return describeChange(kind, name)
 }
 
+// The notice the group reads when the host changed the meeting place: it names the host (and nobody else) and says what went, in plain words.
+// `status` is what the session was (voting or confirmed), `hadVotes` whether anyone had voted, `placeName` the new area when the host named it.
+//
+// How to call:
+//   releasedBannerText({ hostName: 'Ian', status: 'confirmed', hadVotes: true })
+//   // "Ian changed the meeting place, so the votes and the plan were cleared."
+//   releasedBannerText({ hostName: 'Ian', status: 'voting', hadVotes: false, placeName: 'Bugis' })
+//   // "Ian changed the meeting place to Bugis, so the places to vote on were chosen again."
+//   releasedBannerText({ hostName: 'Ian', status: 'voting', hadVotes: false })
+//   // "Ian changed the meeting place, so the places to vote on were cleared."
+export function releasedBannerText({ hostName, status, hadVotes, placeName = null }) {
+  // With no votes there is nothing to say about them: the places to vote on were cleared, and with a named area they are chosen again there.
+  const gone = status === 'confirmed' ? 'the votes and the plan were cleared' : hadVotes ? 'the votes were cleared' : placeName ? 'the places to vote on were chosen again' : 'the places to vote on were cleared'
+  return `${hostName} changed the meeting place${placeName ? ` to ${placeName}` : ''}, so ${gone}.`
+}
+
 // The engine's work for pricing one area, for a host's "we already have a place". It asks the engine's travel function for each
 // member's trip from their start to the area centre, and falls back to the estimate (marking the result approximate) where there
 // is no real time, exactly as the engine does. The estimate is the one the travel layer hands in (`deps.estimateMinutes`, the table

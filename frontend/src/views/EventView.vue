@@ -61,6 +61,7 @@ import SplitView from '@/components/ui/SplitView.vue'
 import ToastMessage from '@/components/ui/ToastMessage.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
+import ChangePlan from '@/components/event/ChangePlan.vue'
 import ProposedStops from '@/components/event/ProposedStops.vue'
 import StopCard from '@/components/event/StopCard.vue'
 import CategoryKey from '@/components/map/CategoryKey.vue'
@@ -123,6 +124,10 @@ const confirmedLine = computed(() => {
   return `Everyone in the group can see the itinerary now.${summary}`
 })
 function dismissConfirmed() {
+  // Focus on the card (the Dismiss button) goes with it when it is taken away, whether the person pressed it or the plan changed under them:
+  // it moves to the list of stops first, so it is not lost to the top of the page.
+  const active = typeof document === 'undefined' ? null : document.activeElement
+  if (active?.closest?.('.celebrate')) timeline.value?.focus()
   justConfirmed.value = false
   announcement.value = ''
   clearConfirmedFlag()
@@ -268,7 +273,11 @@ watch(
   () => justConfirmed.value && confirmed.value && !!itinerary.value,
   (ready) => {
     clearTimeout(announceTimer)
-    if (!ready) return
+    // The words are about the plan as it was confirmed: they go when it is no longer confirmed.
+    if (!ready) {
+      announcement.value = ''
+      return
+    }
     announceTimer = setTimeout(() => {
       announcement.value = `Plan confirmed. ${confirmedLine.value}`
     }, 400)
@@ -276,6 +285,14 @@ watch(
   { immediate: true },
 )
 onBeforeUnmount(() => clearTimeout(announceTimer))
+// "Plan confirmed" (the card and the words read out) describes the plan at the moment it was confirmed. A stop moved, added, deleted or
+// replaced, a changed leg, or the end of the outing makes it untrue, so it goes then, whoever made the change.
+watch(stopsKey, (key, was) => {
+  if (justConfirmed.value && was && key !== was) dismissConfirmed()
+})
+watch(confirmed, (is) => {
+  if (!is && justConfirmed.value) dismissConfirmed()
+})
 
 // The latest pictures for the strip, from the events store (a session summary has only photoCount). A failed load
 // only leaves the strip without thumbnails; the count and the link stay.
@@ -384,6 +401,7 @@ async function endPlan() {
 
     <div class="screen__body">
       <SessionNotices :session="session" />
+      <ChangePlan :session="session" />
       <WeatherSource v-if="showWeather" :block="weatherBlock" banner />
       <RainBanners v-if="today && itinerary" :session="session" :itinerary="itinerary" :my-id="myId" />
 
@@ -510,14 +528,14 @@ async function endPlan() {
               <details v-if="itinerary.trips.length" class="home">
                 <summary class="home__summary">
                   <span class="title-sm">Trips home</span>
-                  <span class="caption-sm text-muted">Longest about {{ Math.max(...itinerary.trips.map((t) => t.minutes)) }} min</span>
+                  <span class="caption-sm text-muted">Longest {{ itinerary.tripsApproximate !== false ? 'about ' : '' }}{{ Math.max(...itinerary.trips.map((t) => t.minutes)) }} min</span>
                   <AppIcon name="chevron-down" class="home__chevron" />
                 </summary>
                 <ul class="home__list">
                   <li v-for="trip in itinerary.trips" :key="trip.id" class="home__row" :class="{ 'is-long': trip.long }">
                     <span class="body-sm">{{ trip.name }}</span>
                     <span class="caption-sm text-muted truncate">{{ trip.place }}</span>
-                    <span class="caption home__min">about {{ trip.minutes }} min</span>
+                    <span class="caption home__min">{{ itinerary.tripsApproximate !== false ? 'about ' : '' }}{{ trip.minutes }} min</span>
                   </li>
                 </ul>
               </details>

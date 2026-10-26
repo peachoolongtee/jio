@@ -24,6 +24,7 @@ import {
   PROPOSALS_PER_SESSION,
   reorderedRows,
   ROAM_MINUTES,
+  shownStops,
   startOf,
   suggestionFits,
   timedRows,
@@ -51,6 +52,7 @@ import {
   preselectedSpot,
   priceAreaRun,
   relistedRows,
+  releasedBannerText,
   spotRowsFrom,
   suggestedAreaIds,
 } from './session-plan.js'
@@ -280,8 +282,23 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   const voting = createVoting({ data, areasById, runs })
   // Reads something the planner can do without, within this service's database deadline (see createSoftly).
   const soft = createSoftly(dbDeadlineMs)
-  // A saved place by its id (undefined when it is not one), for the timing of a plan.
-  const ctxVenue = (venueId) => voting.venues.get(venueId)
+  // The places of a draft's stops for laying the itinerary out: a place Jio does not know stands where the meeting area is, as it does on the
+  // screens, so the legs to and from it (and so every start after it) are the same on both sides. (Without a meeting area, the centre of Singapore.)
+  //
+  // How to call:
+  //   timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops))
+  function layoutVenue(draft) {
+    const area = areasById.get(draft.session.meeting_area_id)
+    return (venueId) => voting.venues.get(venueId) ?? (area ? { lat: area.lat, lng: area.lng } : undefined)
+  }
+  // When each voted stop of a draft was voted to start, by slot, for the plan to start at when its first stop goes.
+  //
+  // How to call:
+  //   withoutStop(draft.stops, stopId, draft.session, layoutVenue(draft), votedStartsOf(draft))
+  const votedStartsOf = (draft) => {
+    const starts = new Map(votedStops(draft).map((s) => [s.slotId, s.plannedStart]))
+    return (slotId) => starts.get(slotId) ?? null
+  }
 
   // ── Admission ──────────────────────────────────────────────────────────
 
@@ -991,9 +1008,12 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   // members who have shared a start; with none, the times are zero. The session needs two people, as it does to start. As with
   // confirming a spot, the slots and their places are made in the same write. Setting the same place again is a no-op.
   //
+  // `notice` is an optional banner for the group ({ text, released: true, votesCleared: true }), which the host's change of the meeting place
+  // brings so that the group is told in the same write that the place moved; without it the banner is cleared, as for any known place.
+  //
   // How to call:
   //   await sessions.setKnownPlace({ client: req.supabase, id, userId: req.user.id, areaId: 'bugis' }) // { planVersion, status: 'voting' }
-  function setKnownPlace({ client, id, userId, areaId }) {
+  function setKnownPlace({ client, id, userId, areaId, notice = null }) {
     userId = lower(userId)
     requireArea(areaId)
     const alreadySet = (state) => state.session.status === 'voting' && state.session.meeting_method === 'chosen' && state.session.meeting_area_id === areaId
@@ -1033,7 +1053,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
             ops: [{ op: 'clear_approvals' }, { op: 'clear_suggestions' }],
             needs: 'none',
             spots: [row],
-            session: { status: 'voting', banner: null, meeting },
+            session: { status: 'voting', banner: notice, meeting },
             plan: { rank: 'all' },
             afterApply: () => recordKnownChoice(lower(id)),
             answer: ({ version }) => ({ planVersion: version, status: 'voting' }),
@@ -1041,6 +1061,83 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
         },
       },
     )
+  }
+
+  // POST /api/sessions/:id/change-meeting-place: the host lets the meeting area go (from voting or confirmed) and picks it again, the way a
+  // session starts: `meetBy: 'fairest'` works the spots out again from the starts people already shared, and `meetBy: 'known'` names the area
+  // (`areaId`) and goes straight to voting there. The release is ONE write (the op `release_meeting`): the session goes back to locating, the
+  // meeting area, the slots with their places and votes, the stops, the order note and suggestion, the plan's start, the prompt, the kept rain
+  // warnings, the spots with their approvals and suggestions, and the members' minutes to the old area all go, pending proposals are dismissed,
+  // `meet_by` is set to the new choice, and the group gets a banner that names the host. Starts, ends, exact places and picks stay. It is the
+  // only way a chosen area is released; every other path still answers `area_pinned`.
+  // 'fairest' works the spots out in the same write, so the group never sees an empty list. 'known' is then a second write, the known place
+  // (setKnownPlace) with the banner brought along; if that one fails the session stays on Locate with the host's choice recorded, and the host
+  // names the area there ("We already have a place"). Nothing is held in memory between the two.
+  //
+  // THE GAP between the two writes of 'known' (and what is done about it): between the release and the known place the session is `locating` for
+  // a moment, so a guest's page may see that state (the shared follower in lib/followRelease.js waits briefly and looks again, and goes back to
+  // Vote when the session is voting at the new area), and the group has no spot list in that moment ('fairest' has none missing: its spots are in
+  // the release's own write). If the second write fails the host is told on Locate, where they name the area themselves.
+  //
+  // A retry must not wipe what happened since: the browser sends the `planVersion` it saw, and a stale one is 409 `stale_plan` with nothing
+  // written. Without one, a repeat of 'known' that names the area the session is already voting at, chosen by the host's own 'known', with no vote
+  // cast yet, is a no-op that answers 200 (nothing to clear, and nothing written).
+  //
+  // Refused: not the host (403 host_only), a session that is not voting or confirmed (409 wrong_status), a stale `planVersion` (409 stale_plan), an
+  // unknown area (422).
+  //
+  // How to call:
+  //   await sessions.changeMeetingPlace({ client: req.supabase, id, userId: req.user.id, meetBy: 'known', areaId: 'bugis', planVersion: 12 })
+  //   // { planVersion, status: 'voting', meetBy: 'known' }
+  async function changeMeetingPlace({ client, id, userId, meetBy, areaId, planVersion }) {
+    userId = lower(userId)
+    if (meetBy === 'known') requireArea(areaId)
+    const check = (state) => {
+      requireJoined(state, userId)
+      requireHost(state, userId, 'change the meeting place')
+      requireStatus(state, ['voting', 'confirmed'], { what: 'change the meeting place' })
+      if (planVersion !== undefined && Number(state.session.plan_version) !== planVersion) {
+        throw refuse(409, 'stale_plan', 'The session changed since you looked at it. Look at it again.')
+      }
+    }
+    let repeat = false
+    // The notice of the known place, which replaces the one the release leaves (it names the new area), worked out inside the job.
+    let notice = null
+    const released = await submit(
+      { client, id, userId },
+      {
+        exclusive: true,
+        check,
+        prepare: async (draft) => {
+          check(draft)
+          const s = draft.session
+          if (meetBy === 'known' && s.status === 'voting' && s.meet_by === 'known' && s.meeting_method === 'chosen' && s.meeting_area_id === areaId && draft.votes.length === 0) {
+            repeat = true
+            return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, status: 'voting', meetBy: 'known' }) }
+          }
+          repeat = false
+          const hostName = await nameFor(userId)
+          const facts = { hostName, status: draft.session.status, hadVotes: draft.votes.length > 0 }
+          const text = releasedBannerText(facts)
+          if (meetBy === 'known') notice = { text: releasedBannerText({ ...facts, placeName: areaName(areaId) }), released: true, votesCleared: true }
+          // The draft as the function leaves the session, so the spots are worked out from the starts that stay.
+          Object.assign(draft.session, {
+            status: 'locating', meet_by: meetBy, banner: { text, released: true },
+            meeting_area_id: null, meeting_method: null, meeting_max_minutes: null, meeting_total_minutes: null, meeting_count: null, meeting_approximate: null,
+            order_reason: null, order_source: null, order_suggestion: null, plan_start_minute: null, replan: null, weather_kept: null,
+          })
+          Object.assign(draft, { slots: [], options: [], votes: [], stops: [], proposals: [], spots: [], suggestions: [], approvals: [] })
+          return {
+            ops: [{ op: 'release_meeting', meet_by: meetBy }],
+            needs: meetBy === 'fairest' ? 'recompute' : 'none',
+            session: { status: 'locating', banner: { text, released: true } },
+            answer: ({ version }) => ({ planVersion: version, status: 'locating', meetBy }),
+          }
+        },
+      },
+    )
+    if (meetBy === 'fairest' || repeat) return released
+    return { ...(await setKnownPlace({ client, id, userId, areaId, notice })), meetBy }
   }
 
   // ── Voting: the radius, the slots and the places ───────────────────────
@@ -1391,10 +1488,14 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   // The browser sends nothing but the request: the stops, the sentence and who chose it all come from stored rows. Only the names, kinds,
   // opening hours and settings of the places, the times, and whether it rains go to the AI provider, never anything about a person.
   //
+  // The answer also says what a confirm would store, so the Confirm dialog shows exactly that: `voted` is the stops of the voted order and
+  // `stops` those of the suggested one, each with the start that is stored for it (laid out with the travel between the stops, the same
+  // rows a confirm writes), and the `basis` is what a confirm of either order must send back. An answer of `none` still has `voted`.
+  //
   // How to call:
   //   await sessions.suggestOrder({ client: req.supabase, id, userId: req.user.id })
-  //   // { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], reason, source: 'ai' | 'rules' }
-  //   // or { status: 'none', why: 'one_movable' | 'no_order_fits' | 'no_stops' | 'unknown_place' }
+  //   // { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], voted: [{ slotId, category, venueId, start, duration }], reason, source: 'ai' | 'rules' }
+  //   // or { status: 'none', why: 'one_movable' | 'no_order_fits' | 'no_stops' | 'unknown_place', basis, voted }
   async function suggestOrder({ client, id, userId }) {
     userId = lower(userId)
     id = lower(id)
@@ -1411,24 +1512,28 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
       check(draft)
       if (votersOf(draft) < 2) throw refuse(409, 'not_enough_votes', 'At least two people need to vote before an order can be suggested.')
       const stops = votedStops(draft)
-      if (stops.length === 0) return { status: 'none', why: 'no_stops' }
+      if (stops.length === 0) return { status: 'none', why: 'no_stops', voted: [] }
       const basis = basisOf(draft.session, stops)
+      const venueOf = layoutVenue(draft)
+      // What a confirm of the voted order would store, and (below) of the suggested one: their stops with the laid-out starts.
+      const voted = shownStops(stops, venueOf)
       const answerOf = (stored) => ({
         status: 'ok',
         basis,
         order: stored.order,
-        stops: stored.order.map((slotId) => ({ slotId, venueId: stops.find((s) => s.slotId === slotId).venueId, start: stored.starts[slotId] })),
+        stops: shownStops(stops, venueOf, stored).map(({ slotId, venueId, start }) => ({ slotId, venueId, start })),
+        voted,
         reason: stored.reason,
         source: stored.source,
       })
       // The same stops as the stored suggestion: nothing to work out, nothing to write, no AI call.
       const stored = state.session.order_suggestion
       if (stored?.basis === basis && suggestionFits(stops, stored)) return answerOf(stored)
-      if (stops.some((s) => !voting.venues.has(s.venueId))) return { status: 'none', why: 'unknown_place', basis }
-      if (stops.filter((s) => s.category !== 'eat').length < 2) return { status: 'none', why: 'one_movable', basis }
+      if (stops.some((s) => !voting.venues.has(s.venueId))) return { status: 'none', why: 'unknown_place', basis, voted }
+      if (stops.filter((s) => s.category !== 'eat').length < 2) return { status: 'none', why: 'one_movable', basis, voted }
       const { candidates } = arrangeCandidates(arrangeInput(stops, (venueId) => voting.venues.get(venueId), draft.session))
       const { options } = freshCandidates(candidates, [], { includeCurrent: true })
-      if (options.length === 0) return { status: 'none', why: 'no_order_fits', basis }
+      if (options.length === 0) return { status: 'none', why: 'no_order_fits', basis, voted }
       // The AI never throws because it is down, slow or over budget: it falls back to the rules.
       const choice = ai ? await ai.choose({ options, rain: currentScenario() === 'rain' }) : { index: 0, reason: 'Every place is open and every meal is on time in this order.', source: 'rules' }
       const chosen = options[choice.index] ?? options[0]
@@ -1503,7 +1608,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
             }
             suggestion = stored
           }
-          const { rows, planStart } = confirmedRows(stops, (venueId) => voting.venues.get(venueId), suggestion)
+          const { rows, planStart } = confirmedRows(stops, layoutVenue(draft), suggestion)
           const note = suggestion ? { reason: suggestion.reason, source: suggestion.source === 'ai' ? 'ai' : 'rules' } : null
           return {
             ops: [],
@@ -1574,7 +1679,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           check(draft)
           stopOf(draft, stopId)
           if (draft.stops.length <= 1) throw refuse(409, 'last_stop', 'A plan needs at least one stop.')
-          const result = withoutStop(draft.stops, stopId, draft.session, ctxVenue)
+          const result = withoutStop(draft.stops, stopId, draft.session, layoutVenue(draft), votedStartsOf(draft))
           return stopsJob(draft, result, { clearKept: stopId }, ({ version }) => ({ planVersion: version }))
         },
       },
@@ -1596,7 +1701,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
         prepare: (draft) => {
           check(draft)
           stopOf(draft, stopId)
-          const result = withMode(draft.stops, stopId, mode, draft.session, ctxVenue)
+          const result = withMode(draft.stops, stopId, mode, draft.session, layoutVenue(draft))
           if (!result) throw refuse(409, 'no_leg', 'The first stop has no leg before it.')
           draft.stops = result.rows.map((r) => ({ ...r }))
           return {
@@ -1626,7 +1731,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
         check,
         prepare: (draft) => {
           check(draft)
-          const result = reorderedRows(draft.stops, stopIds, draft.session, ctxVenue)
+          const result = reorderedRows(draft.stops, stopIds, draft.session, layoutVenue(draft))
           if (!result) throw refuse(409, 'stops_changed', 'The plan has changed. Look at it again.')
           // The same order: the modes and earliest starts stay as they are.
           if (stopIds.every((stopId, i) => draft.stops[i].id === stopId)) return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version }) }
@@ -1664,12 +1769,12 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           if (row.venue_id !== seenVenueId) throw refuse(409, 'stop_changed', 'That stop has changed. Look at the plan again.')
           if (draft.stops.some((s) => s.id !== row.id && s.venue_id === venueId)) throw refuse(409, 'already_a_stop', `${venue.name} is already in the plan.`)
           const index = draft.stops.indexOf(row)
-          const startedAt = timedRows(draft.stops, ctxVenue, startOf(draft.session, draft.stops)).timed[index].start
+          const startedAt = timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops)).timed[index].start
           const slot = { category: kind, start_minute: Math.min(1439, startedAt), duration_minutes: row.duration_minutes }
           requireMeetingArea(draft)
           const ranking = await voting.rankSlot(draft, slot, [venueId], ctx, { last: index === draft.stops.length - 1 })
           if (!ranking.current.has(venueId)) throw refuse(422, 'venue_does_not_fit', `${venue.name} does not fit this stop.`)
-          const result = withPlace(draft.stops, stopId, { venueId, category: kind, startedAt: Math.min(1439, startedAt) }, draft.session, ctxVenue)
+          const result = withPlace(draft.stops, stopId, { venueId, category: kind, startedAt: Math.min(1439, startedAt) }, draft.session, layoutVenue(draft))
           // The new place is kept as an option of the stop's slot only when it is of the slot's own kind; for another kind the old place just
           // leaves the slot's options (a place of one kind is not a choice for another kind's slot).
           const slotKind = row.slot_id ? draft.slots.find((sl) => sl.id === row.slot_id)?.category : null
@@ -1722,7 +1827,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   //   const { slot, last } = stopSlotOf(draft, row, 'drink') // { slot: { category, start_minute, duration_minutes }, last: false }
   function stopSlotOf(draft, row, category) {
     const index = draft.stops.indexOf(row)
-    const startedAt = timedRows(draft.stops, ctxVenue, startOf(draft.session, draft.stops)).timed[index].start
+    const startedAt = timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops)).timed[index].start
     return { slot: { category, start_minute: Math.min(1439, startedAt), duration_minutes: row.duration_minutes }, last: index === draft.stops.length - 1 }
   }
 
@@ -1789,7 +1894,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     const area = areasById.get(draft.session.meeting_area_id)
     const here = current ? { lat: current.lat, lng: current.lng } : { lat: area.lat, lng: area.lng }
     const nowMinutes = singaporeMinutes()
-    const endedAt = draft.stops.length ? (timedRows(draft.stops, ctxVenue, startOf(draft.session, draft.stops)).timed.at(-1)?.end ?? 0) : 0
+    const endedAt = draft.stops.length ? (timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops)).timed.at(-1)?.end ?? 0) : 0
     const dateTime = `${singaporeDay()}T${fromMinutes(Math.min(1439, Math.max(endedAt, nowMinutes)))}`
     const { result, weather } = await voting.roamAround(draft, { current: here, categories, dateTime, minutes: ROAM_MINUTES }, ctx)
     return roamReply(result, {
@@ -1807,7 +1912,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   function homeDateTime(draft) {
     const date = String(draft.session.date).slice(0, 10)
     if (date < singaporeDay() || draft.stops.length === 0) return undefined
-    const endedAt = timedRows(draft.stops, ctxVenue, startOf(draft.session, draft.stops)).timed.at(-1)?.end ?? 0
+    const endedAt = timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops)).timed.at(-1)?.end ?? 0
     return `${date}T${fromMinutes(Math.min(1439, endedAt))}`
   }
 
@@ -1838,6 +1943,50 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     )
   }
 
+  // The minutes each person needs to get home: from the last stop to the centre of the area they end the day in (the area they start in when
+  // they named no other), leaving when the last stop ends on the outing's day. They are routed by OneMap through the shared runs, inside the
+  // request's allowance, with the planner's estimate where a trip cannot be routed. The people are the ones the ledger has a row for
+  // (ledgerPeople), and the trips are routed together or estimated together, so this is one computation: finishing the outing writes these
+  // minutes as `minutes_home`, and the itinerary of a confirmed plan shows these same minutes (GET .../trips-home). `approximate` is true when
+  // any of them is an estimate.
+  //
+  // How to call:
+  //   const { people, minutes, approximate } = await homeMinutes(draft, allowance) // minutes: { <user id>: 31 }
+  async function homeMinutes(draft, allowance) {
+    const people = ledgerPeople(draft.members)
+    const last = draft.stops.at(-1)
+    const lastVenue = last ? voting.venues.get(last.venue_id) : null
+    const ends = people.map((m) => ({ id: lower(m.user_id), area: areasById.get(m.end_area_id) ?? areasById.get(m.start_area_id) })).filter((p) => p.area)
+    if (!lastVenue || ends.length === 0) return { people, minutes: {}, approximate: false }
+    const input = {
+      from: { id: lastVenue.id, lat: lastVenue.lat, lng: lastVenue.lng },
+      people: ends.map((p) => ({ id: p.id, end: { lat: p.area.lat, lng: p.area.lng } })),
+      // The way home leaves when the last stop ends, on the outing's day (the planner's default, now, once that day has passed).
+      dateTime: homeDateTime(draft),
+    }
+    const { result, travel } = await runs.runWithTravel(input, data, homeTripsRun, () => ({
+      maxTrips: allowance.trips,
+      deadlineMs: Math.max(0, allowance.deadlineAt - Date.now()),
+    }))
+    spend(allowance, travel)
+    return { people, minutes: result.minutes, approximate: travel.source === 'estimate' || travel.estimated > 0 || travel.failed > 0 }
+  }
+
+  // GET /api/sessions/:id/trips-home: the minutes each person needs to get home from the last stop, for the itinerary of a confirmed plan. A
+  // joined member asks, while the plan is confirmed. It is the computation the ledger of the finished outing uses (homeMinutes), not a second
+  // estimate, so the two cannot disagree except by what the routes themselves say at another hour. Each trip is { userId, minutes }: an area
+  // is all the server knows of where a person ends the day, and a member already sees the areas people end in. Nothing is written.
+  //
+  // How to call:
+  //   await sessions.tripsHome({ client: req.supabase, id, userId: req.user.id }) // { trips: [{ userId, minutes }], approximate }
+  async function tripsHome({ client, id, userId }) {
+    userId = lower(userId)
+    const { draft } = await readDraft({ client, id, userId, check: confirmedMemberCheck(userId, 'see the trips home') })
+    const allowance = { trips: MAX_ROUTED_TRIPS_PER_REQUEST, deadlineAt: Date.now() + routingDeadlineMs }
+    const { minutes, approximate } = await homeMinutes(draft, allowance)
+    return { trips: Object.entries(minutes).map(([user, m]) => ({ userId: user, minutes: Math.max(0, Math.round(m)) })), approximate }
+  }
+
   // POST /api/sessions/:id/complete: the host finishes the outing (E14), confirmed to completed. The server works the travel ledger out from
   // stored rows, never from the browser: for each joined person who has minutes in (stored when the meeting spot was confirmed), the minutes in,
   // the minutes between stops (the stored leg minutes), and the minutes home, routed from the last stop to the centre of the area they end the
@@ -1864,26 +2013,8 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           if (draft.session.status === 'completed') return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, status: 'completed' }) }
           // The outing cannot be finished before its day (409 before_the_day): until then it has not happened.
           if (String(draft.session.date).slice(0, 10) > singaporeDay()) throw refuse(409, 'before_the_day', 'The outing can be finished from its day.')
-          const people = ledgerPeople(draft.members)
           const between = minutesBetween(draft.stops)
-          const last = draft.stops.at(-1)
-          const lastVenue = last ? voting.venues.get(last.venue_id) : null
-          const ends = people.map((m) => ({ id: lower(m.user_id), area: areasById.get(m.end_area_id) ?? areasById.get(m.start_area_id) })).filter((p) => p.area)
-          let home = {}
-          if (lastVenue && ends.length > 0) {
-            const input = {
-              from: { id: lastVenue.id, lat: lastVenue.lat, lng: lastVenue.lng },
-              people: ends.map((p) => ({ id: p.id, end: { lat: p.area.lat, lng: p.area.lng } })),
-              // The way home leaves when the last stop ends, on the outing's day (the planner's default, now, once that day has passed).
-              dateTime: homeDateTime(draft),
-            }
-            const { result, travel } = await runs.runWithTravel(input, data, homeTripsRun, () => ({
-              maxTrips: allowance.trips,
-              deadlineMs: Math.max(0, allowance.deadlineAt - Date.now()),
-            }))
-            spend(allowance, travel)
-            home = result.minutes
-          }
+          const { people, minutes: home } = await homeMinutes(draft, allowance)
           const ledger = ledgerFor(people.map((m) => ({ userId: lower(m.user_id), minutesIn: m.travel_minutes, minutesBetween: between, minutesHome: home[lower(m.user_id)] ?? 0 })))
           draft.session.status = 'completed'
           return { ops: [], needs: 'none', session: { status: 'completed', replan: null }, ledger, answer: ({ version }) => ({ planVersion: version, status: 'completed' }) }
@@ -1973,11 +2104,11 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           }
           if (draft.stops.length >= MAX_STOPS) throw refuse(409, 'plan_full', `A plan holds up to ${MAX_STOPS} stops.`)
           answered()
-          const timed = draft.stops.length ? timedRows(draft.stops, ctxVenue, startOf(draft.session, draft.stops)).timed : []
+          const timed = draft.stops.length ? timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops)).timed : []
           const endedAt = timed.at(-1)?.end ?? null
           // Not before now, but only on the day of the outing: on any other day the clock says nothing about the plan's times.
           const notBefore = Math.max(endedAt ?? 0, onTheDay(draft.session) ? singaporeMinutes() : 0)
-          const result = withAddedStop(draft.stops, { venueId: proposal.venue_id, category: venue.category, notBefore, duration: ROAM_MINUTES, endedAt }, draft.session, ctxVenue)
+          const result = withAddedStop(draft.stops, { venueId: proposal.venue_id, category: venue.category, notBefore, duration: ROAM_MINUTES, endedAt }, draft.session, layoutVenue(draft))
           return { ...stopsJob(draft, result, {}, answer), ops }
         },
       },
@@ -1993,6 +2124,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     removeMember,
     confirmSpot,
     setKnownPlace,
+    changeMeetingPlace,
     syncPlan,
     setRadius,
     deleteSlot,
@@ -2013,6 +2145,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     roamNearby,
     keepRain,
     completeOuting,
+    tripsHome,
     proposeStop,
     resolveProposal,
     queue,

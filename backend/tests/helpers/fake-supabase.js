@@ -11,6 +11,7 @@ import { isDeepStrictEqual } from 'node:util'
 // `applySessionPlan` below is a JavaScript twin of the SQL function in db/migrations/20261020000000_jio_apply_session_plan.sql (stage 3)
 // as extended by db/migrations/20261022000000_jio_apply_session_plan_slots.sql (stage 4: slots, options, votes, the radius) and
 // db/migrations/20261023000000_jio_apply_session_plan_stops.sql (stage 5: the plan's stops, their order, proposals, finishing and the ledger).
+// and db/migrations/20261027000000_jio_change_meeting_place.sql (the op `release_meeting`: the host changes the meeting place).
 // It is a second implementation of the same rules, so the real function must still be tested on the live project
 // (db/tests/apply_session_plan.sql); the point of the twin is that the server's code can be tested offline.
 //
@@ -264,8 +265,20 @@ function apply(world, session, patch) {
   const newStatus = sp.status ?? session.status
   const moving = newStatus !== session.status
 
-  // Rule 4: a pinned meeting area stays.
-  if (has(sp, 'meeting') && ['voted', 'chosen'].includes(session.meeting_method) && ((meeting?.area_id ?? null) !== session.meeting_area_id || (meeting?.method ?? null) !== session.meeting_method)) {
+  // Rule 9: the host changes the meeting place. The op releases the meeting area and sends the session back to locating; it is valid only on
+  // that move (from voting or confirmed), and that move is valid only with it. It names the host's new choice, and brings no meeting.
+  const releaseOp = Array.isArray(patch.ops) ? patch.ops.find((o) => o?.op === 'release_meeting') : undefined
+  const released = releaseOp !== undefined
+  if (released) {
+    if (!(['voting', 'confirmed'].includes(session.status) && newStatus === 'locating')) {
+      throw dbError('P0001', 'The meeting area is released only by moving a voting or confirmed session back to locating.', 'release_status')
+    }
+    if (sp.meeting !== undefined && sp.meeting !== null) throw dbError('P0001', 'A released session has no meeting area, so the patch cannot bring one.', 'release_meeting')
+    if (!['fairest', 'known'].includes(releaseOp.meet_by)) throw dbError('22023', 'A release says how the meeting point is picked again: fairest or known.')
+  }
+
+  // Rule 4: a pinned meeting area stays (unless the host is releasing it, Rule 9).
+  if (!released && has(sp, 'meeting') && ['voted', 'chosen'].includes(session.meeting_method) && ((meeting?.area_id ?? null) !== session.meeting_area_id || (meeting?.method ?? null) !== session.meeting_method)) {
     throw dbError('P0001', 'The meeting area was chosen and cannot be changed by a recompute.', 'area_pinned')
   }
   // Rule 1: the moves are inviting or locating to voting (with an area), and the plan's: voting to confirmed, confirmed to voting (the
@@ -274,7 +287,8 @@ function apply(world, session, patch) {
     const allowed =
       (['inviting', 'locating'].includes(session.status) && newStatus === 'voting' && !!meeting?.area_id) ||
       (session.status === 'voting' && newStatus === 'confirmed') ||
-      (session.status === 'confirmed' && ['voting', 'completed'].includes(newStatus))
+      (session.status === 'confirmed' && ['voting', 'completed'].includes(newStatus)) ||
+      (released && ['voting', 'confirmed'].includes(session.status) && newStatus === 'locating')
     if (!allowed) throw dbError('P0001', `A session cannot go from ${session.status} to ${newStatus} this way.`, 'status_transition')
     changed = true
   }
@@ -384,6 +398,18 @@ function apply(world, session, patch) {
     } else if (op.op === 'clear_votes') {
       if (!(session.status === 'voting' || reopened)) throw dbError('P0001', 'Votes are cleared only while the session is voting.', 'slots_status')
       changed = dropVotes(() => true) || changed
+    } else if (op.op === 'release_meeting') {
+      // Rule 9: everything that belonged to the meeting place goes in this write; starts, ends, exact places, picks and members stay.
+      const mySlots = new Set(slotsOfSession().map((x) => x.id))
+      world.votes = world.votes.filter((v) => !mySlots.has(v.slot_id))
+      world.slot_options = world.slot_options.filter((o) => !mySlots.has(o.slot_id))
+      world.slots = world.slots.filter((x) => x.session_id !== sid)
+      world.stops = world.stops.filter((x) => x.session_id !== sid)
+      dropApprovals(() => true)
+      dropSuggestions(() => true)
+      world.session_spots = world.session_spots.filter((x) => x.session_id !== sid)
+      // (The members' own minutes are left as they are: a write would move their updated_at past the new spots' computed_at.)
+      changed = true
     } else if (op.op === 'swap_option') {
       if (session.status !== 'voting') throw dbError('P0001', 'An option is swapped only while the session is voting.', 'slots_status')
       const slot = slotsOfSession().find((x) => x.category === op.category)
@@ -669,7 +695,10 @@ function apply(world, session, patch) {
   // A banner sent without its time is stamped with the database's clock when written, and differs from the stored one only apart from it.
   const stamped = has(sp, 'banner') && sp.banner !== null && typeof sp.banner === 'object' && !has(sp.banner, 'at')
   const storedBanner = session.banner ?? null
-  const bannerChanged = has(sp, 'banner') && !isDeepStrictEqual(stamped && storedBanner ? (({ at: _at, ...rest }) => rest)(storedBanner) : storedBanner, sp.banner ?? null)
+  // A release brings its notice afresh (always a change), and a release with none clears the old one.
+  const bannerChanged = released
+    ? has(sp, 'banner') && sp.banner !== null ? true : storedBanner !== null
+    : has(sp, 'banner') && !isDeepStrictEqual(stamped && storedBanner ? (({ at: _at, ...rest }) => rest)(storedBanner) : storedBanner, sp.banner ?? null)
   // A joined member whose stored minutes differ from the new ones counts as a change (when they have stored minutes at all).
   const travelChanged =
     has(sp, 'meeting') && meeting && typeof meeting === 'object' && !!meeting.travel &&
@@ -703,26 +732,26 @@ function apply(world, session, patch) {
     }
   }
   // The checks the database makes on the new values (db/schema.sql), before anything is kept.
-  checkOrder({ note: has(sp, 'order_note') && !reopened ? noteNew : null, suggestion: has(sp, 'order_suggestion') && !reopened ? suggestionNew : null })
+  checkOrder({ note: has(sp, 'order_note') && !reopened && !released ? noteNew : null, suggestion: has(sp, 'order_suggestion') && !reopened && !released ? suggestionNew : null })
   if (has(sp, 'plan_start_minute') && sp.plan_start_minute !== null && !(Number.isInteger(sp.plan_start_minute) && sp.plan_start_minute >= 0 && sp.plan_start_minute <= 1439)) {
     throw dbError('23514', 'sessions check failed: plan_start_minute_range')
   }
   const wasConfirmed = session.status === 'confirmed'
-  if (reopened) {
+  if (reopened || released) {
     Object.assign(session, { order_reason: null, order_source: null, order_suggestion: null, plan_start_minute: null })
   } else {
     if (has(sp, 'order_note')) Object.assign(session, { order_reason: noteNew?.reason ?? null, order_source: noteNew?.source ?? null })
     if (has(sp, 'order_suggestion')) session.order_suggestion = suggestionNew
     if (has(sp, 'plan_start_minute')) session.plan_start_minute = sp.plan_start_minute ?? null
   }
-  if ((wasConfirmed && newStatus !== 'confirmed') || (session.status === 'voting' && newStatus === 'confirmed')) session.replan = null
+  if (released || (wasConfirmed && newStatus !== 'confirmed') || (session.status === 'voting' && newStatus === 'confirmed')) session.replan = null
   else if (has(sp, 'replan')) session.replan = sp.replan ?? null
-  if ((wasConfirmed && newStatus !== 'confirmed') || (session.status === 'voting' && newStatus === 'confirmed')) session.weather_kept = null
+  if (released || (wasConfirmed && newStatus !== 'confirmed') || (session.status === 'voting' && newStatus === 'confirmed')) session.weather_kept = null
   else if (has(sp, 'weather_kept')) session.weather_kept = sp.weather_kept ?? null
   if (wasConfirmed && newStatus === 'completed') session.completed_at = tick(world)
   session.status = newStatus
   if (radiusChanged) session.radius_meters = sp.radius_meters ?? null
-  if (meetingChanged) {
+  if (meetingChanged && !released) {
     session.meeting_area_id = meeting?.area_id ?? null
     session.meeting_method = meeting?.method ?? null
     session.meeting_max_minutes = nextMeeting[2]
@@ -730,6 +759,9 @@ function apply(world, session, patch) {
     session.meeting_count = nextMeeting[4]
     session.meeting_approximate = nextMeeting[5]
     session.meeting_computed_at = meeting?.area_id ? tick(world) : null
+  }
+  if (released) {
+    Object.assign(session, { meeting_area_id: null, meeting_method: null, meeting_max_minutes: null, meeting_total_minutes: null, meeting_count: null, meeting_approximate: null, meeting_computed_at: null, meet_by: releaseOp.meet_by })
   }
   if (bannerText !== null) session.banner = { text: bannerText, at: world.t, approvalsRemoved: true }
   else if (bannerChanged && stamped) {
