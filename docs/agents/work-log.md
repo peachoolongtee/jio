@@ -1495,3 +1495,18 @@ Results of round 34, checked by the lead's session on 26 October:
   - Checked again: frontend 2303 passed (exit 0), also under `TZ=UTC` with outbound calls blocked; build exit 0.
 
 **Added to round 34 the same day.** The lead approved section 2 of the mock-up as drawn: when the host presses Start, two cards, "Find the fairest spot" (the default) or "We already know where" (with "We're here now", which opens Roam). Guests see the choice. It is built by a frontend engineer on `feat/start-choice`, off `feat/sessions-stage-5-integration`, because "We're here now" needs E16 and the new migration must come after stage 5's. The host's choice is stored in a new column on `sessions`. `meeting_method` holds the planner's result, not the host's intent. The live migrations were listed first: nine, the last `jio_apply_session_plan_slots`. Nothing is applied.
+
+**Stage 5's live trial, 26 October 2026.**
+- **Review fixes:** stage 5's were checked again by the lead's session at `9b0ac50`:
+  - backend 1790 passed and 2 skipped;
+  - frontend 2515 passed under `TZ=UTC`;
+  - both with outbound calls blocked, and the build succeeded.
+- **The run:** the lead ran the migration `20261023000000` (md5 `5b59a4cb3795251a2738a0b4b9879563`) followed by all 300 steps of `db/tests/apply_session_plan.sql` in the Supabase SQL editor, as one transaction ending in `rollback`, with a fingerprint check on the three new functions after the migration.
+  - It reached the final query, so the fingerprints matched and all 300 steps passed.
+  - That query showed nothing left: no `weather_kept` column, no `votes_guard_status` trigger, no `stop_proposals` table, `apply_session_plan` still the stage 4 body (md5 `42042fe539dd80484d879c7d8e78141f`), and 5 sessions as before.
+- **A failed route first:** an earlier attempt to send the same 160 KB batch through the Supabase tool was cut off part-way and never ran; the live project was unchanged.
+- **The start choice** (`feat/start-choice`, with stage 5's fixes merged in at `84ec6ed`) was checked by the lead's session:
+  - backend 1796 passed;
+  - frontend 2562 passed, plainly and under `TZ=UTC`;
+  - outbound calls blocked; the build succeeded.
+- **The order from here:** apply stage 5, then trial `20261026000000` (its tests need stage 5), then apply it, then merge into `dev`.
