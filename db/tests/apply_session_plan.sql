@@ -14,6 +14,11 @@
 -- the ledger and finishing the outing (216 to 227), a ledger row already stored and the travel debt (228 to 231), what a member may read
 -- and no browser may write (232 to 241), the suggested order (242 to 248), and opening the plan again, with a stop that is not listed
 -- going (249 to 257), then a guest opting out of a confirmed plan, with the "Re-plan?" prompt written in the same patch (258 to 269).
+-- Steps 301 onwards are the change of meeting place (db/migrations/20261027000000_jio_change_meeting_place.sql): the op "release_meeting" and
+-- the moves it allows (301 to 310 refuse every other move and status, 311 to 315 its arguments and what may not come with it, 316 to 318 keep
+-- area_pinned on every other path, 319 to 323 the refusals writing nothing, late writes and browsers), the release from voting (324 to 332) and
+-- from confirmed (333 to 336), from an area the planner picked (337, 338), and the usual paths after a release (339 to 343). They passed on a
+-- fresh build and on the stage 5 state with the migration applied once and twice, in a local in-memory Postgres (PGlite), not the live project.
 -- Steps 1 to 172 passed on the live project when stage 4 was applied. Steps 258 to 269 add no rule to the function (the migration's text is unchanged): they test what the server's opt-out of a confirmed plan sends. Steps 1 to 269 passed on 26 October 2026 on a fresh build of db/schema.sql and db/policies.sql in a local in-memory Postgres (PGlite 0.3.2, not the live project, not the migration on its own). Steps 1 to 257 were also run, on a local in-memory Postgres (PGlite
 -- 0.4.1, not the live project), once on a fresh build of db/schema.sql and db/policies.sql and once on the live project's state (the
 -- schema of 9 October and the migrations applied since, then stage 5's migration, which was also applied twice and after slice d), and
@@ -207,6 +212,18 @@ declare
   sr uuid := gen_random_uuid();        -- stage 5: confirmed, pinned, with stops, a note, a suggestion and a proposal (the plan is opened again)
   sq uuid := gen_random_uuid();        -- stage 5, review: voting, the host, g1 and g2 (the confirm reads the tally again under the lock)
   so uuid := gen_random_uuid();        -- stage 5: confirmed, three people, votes and two proposals (a guest opts out of the confirmed plan)
+  sd uuid := gen_random_uuid();        -- the host changes the meeting place: voting, pinned at Bugis, slots, votes, approvals, three people with starts
+  se uuid := gen_random_uuid();        -- the same, confirmed: stops, a note, a start, a prompt, a kept rain warning and two proposals
+  sf uuid := gen_random_uuid();        -- the same, voting at an area the planner picked, with no notice
+  sg uuid := gen_random_uuid();        -- the same, cancelled
+  sh uuid := gen_random_uuid();        -- the same, completed
+  si uuid := gen_random_uuid();        -- the same, inviting
+  slot_d_eat uuid;
+  slot_d_drink uuid;
+  slot_e_eat uuid;
+  slot_e_drink uuid;
+  stop_e uuid;
+  rel jsonb;
   slot_c_eat uuid;
   slot_c_drink uuid;
   slot_r_eat uuid;
@@ -1513,6 +1530,202 @@ begin
   perform pg_temp.as_admin();
   perform pg_temp.expect_text(300, 'voting, with nothing kept',
     format('select status || '' '' || coalesce(weather_kept::text, ''none'') from public.sessions where id = %L', so), 'voting none');
+
+  -- ── Changing the meeting place (steps 301 onwards; db/migrations/20261027000000_jio_change_meeting_place.sql) ──────────────────────────
+  -- The op "release_meeting" is the only way a voting or confirmed session goes back to locating, and the only way a chosen meeting area is let
+  -- go. sd is voting, pinned at Bugis, with two slots, votes, a suggested order, approvals, a suggestion and three people who have shared their
+  -- starts. se is confirmed with the same and stops, a note, a start, a "Re-plan?" prompt, a kept rain warning and two proposals. sf is voting
+  -- with an area the planner picked and no notice. sg is cancelled and sh completed.
+  perform pg_temp.as_admin();
+  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version, radius_meters, meeting_area_id, meeting_method,
+                               meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, meeting_computed_at, banner,
+                               order_suggestion, meet_by) values
+    (sd, host, 'Moving', current_date + 1, '10:00', '20:00', 'voting', 3, 1000, 'bugis', 'chosen', 30, 75, 3, false, now(),
+     '{"text":"An old notice.","at":1,"votesCleared":true}', jsonb_build_object('basis', repeat('d', 64), 'order', jsonb_build_array()), 'known'),
+    (se, host, 'Moving too', current_date + 1, '10:00', '20:00', 'confirmed', 5, null, 'bugis', 'voted', 30, 75, 3, false, now(),
+     '{"text":"Another old notice.","at":2}', null, 'fairest'),
+    (sf, host, 'Moving, unpinned', current_date + 1, '10:00', '20:00', 'voting', 1, null, 'bugis', 'fairest', 30, 75, 2, false, now(), null, null, null),
+    (sg, host, 'Called off', current_date + 1, '10:00', '20:00', 'cancelled', 1, null, null, null, null, null, null, null, null, null, null, null),
+    (sh, host, 'Done', current_date + 1, '10:00', '20:00', 'completed', 1, null, 'bugis', 'chosen', 30, 75, 2, false, now(), null, null, null),
+    (si, host, 'Not started', current_date + 1, '10:00', '20:00', 'inviting', 0, null, null, null, null, null, null, null, null, null, null, null);
+  insert into public.session_members (session_id, user_id, state, start_area_id, end_area_id, categories, travel_minutes) values
+    (sd, g1, 'joined', 'clementi', 'clementi', '{eat,drink}', 30), (sd, g2, 'joined', 'bishan', null, '{eat}', 25),
+    (se, g1, 'joined', 'clementi', null, '{eat,drink}', 30), (se, g2, 'joined', 'bishan', null, '{eat}', 25),
+    (sf, g1, 'joined', 'clementi', null, '{eat}', 30), (sg, g1, 'joined', null, null, '{}', null), (sh, g1, 'joined', null, null, '{}', null);
+  update public.session_members set start_area_id = 'tampines', travel_minutes = 20 where session_id in (sd, se) and user_id = host;
+  insert into public.session_member_places (session_id, user_id, start_label, start_lat, start_lng) values (sd, g1, 'Clementi Mall', 1.3151, 103.7649);
+  insert into public.session_spots (session_id, area_id, rank, worst_minutes, mean_minutes) values
+    (sd, 'bugis', 1, 30, 25), (sd, 'orchard', 2, 32, 26), (se, 'bugis', 1, 30, 25);
+  insert into public.spot_approvals (session_id, area_id, user_id) values (sd, 'bugis', g1), (sd, 'bugis', g2), (se, 'bugis', g1);
+  insert into public.spot_suggestions (session_id, user_id, area_id) values (sd, g2, 'orchard');
+  insert into public.slots (session_id, category, start_minute, duration_minutes, picks, is_last) values
+    (sd, 'eat', 720, 90, 2, false), (sd, 'drink', 840, 60, 2, true), (se, 'eat', 720, 90, 2, false), (se, 'drink', 840, 60, 2, true),
+    (sf, 'eat', 720, 90, 1, true);
+  select id into slot_d_eat from public.slots where session_id = sd and category = 'eat';
+  select id into slot_d_drink from public.slots where session_id = sd and category = 'drink';
+  select id into slot_e_eat from public.slots where session_id = se and category = 'eat';
+  select id into slot_e_drink from public.slots where session_id = se and category = 'drink';
+  insert into public.slot_options (slot_id, venue_id, rank, score) values
+    (slot_d_eat, 'a', 1, 5), (slot_d_eat, 'b', 2, 6), (slot_d_drink, 'd', 1, 4),
+    (slot_e_eat, 'a', 1, 5), (slot_e_drink, 'd', 1, 4);
+  insert into public.votes (slot_id, user_id, venue_id) values
+    (slot_d_eat, host, 'a'), (slot_d_eat, g1, 'a'), (slot_d_drink, g2, 'd'), (slot_e_eat, host, 'a'), (slot_e_eat, g1, 'a');
+  insert into public.stops (session_id, seq, slot_id, category, venue_id, planned_start_minute, duration_minutes) values
+    (se, 0, slot_e_eat, 'eat', 'a', 720, 90), (se, 1, slot_e_drink, 'drink', 'd', 840, 60);
+  select id into stop_e from public.stops where session_id = se and seq = 0;
+  update public.sessions set order_reason = 'Meals stay at mealtimes.', order_source = 'rules', plan_start_minute = 720,
+                             replan = jsonb_build_object('reason', 'someone opted out'), weather_kept = jsonb_build_object(stop_e::text, 'showers')
+  where id = se;
+  insert into public.stop_proposals (session_id, venue_id, proposed_by) values (se, 'p1', g1);
+  insert into public.stop_proposals (session_id, venue_id, proposed_by, status, resolved_at, resolved_by) values (se, 'p2', g2, 'accepted', now(), host);
+  rel := jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'release_meeting', 'meet_by', 'fairest')),
+                            'session', jsonb_build_object('status', 'locating'));
+
+  -- Refused: the move needs the op, and the op needs the move.
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(301, 'a voting session does not go back to locating without the op',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L)', sd, '{"session":{"status":"locating"}}'), 'status_transition');
+  perform pg_temp.expect_hint(302, 'nor does a confirmed one',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L)', se, '{"session":{"status":"locating"}}'), 'status_transition');
+  perform pg_temp.expect_hint(303, 'the op in a patch that stays in voting is refused',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L)', sd, '{"ops":[{"op":"release_meeting","meet_by":"fairest"}]}'), 'release_status');
+  perform pg_temp.expect_hint(304, 'and in the patch that opens a confirmed plan again',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L)', se, '{"ops":[{"op":"release_meeting","meet_by":"fairest"}],"session":{"status":"voting"}}'), 'release_status');
+  perform pg_temp.expect_hint(305, 'and in the patch that confirms the plan',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L)', sd, '{"ops":[{"op":"release_meeting","meet_by":"fairest"}],"session":{"status":"confirmed"}}'), 'release_status');
+  perform pg_temp.expect_hint(306, 'and in the patch that finishes the outing',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L)', se, '{"ops":[{"op":"release_meeting","meet_by":"fairest"}],"session":{"status":"completed"},"ledger":[]}'), 'release_status');
+  perform pg_temp.expect_hint(307, 'a locating session cannot be released: it has no meeting area to let go',
+    format('select pg_temp.apply(%L, 1, ''locating'', %L::jsonb)', s5, rel::text), 'release_status');
+  perform pg_temp.expect_hint(308, 'an inviting session cannot be released',
+    format('select pg_temp.apply(%L, 0, ''inviting'', %L::jsonb)', si, rel::text), 'release_status');
+  perform pg_temp.expect_hint(309, 'a completed session cannot be released',
+    format('select pg_temp.apply(%L, 1, ''completed'', %L::jsonb)', sh, rel::text), 'release_status');
+  perform pg_temp.expect_hint(310, 'a cancelled session cannot be released',
+    format('select pg_temp.apply(%L, 1, ''cancelled'', %L::jsonb)', sg, rel::text), 'release_status');
+  perform pg_temp.expect_error(311, 'the op says how the meeting point is picked again: without it, 22023',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L)', sd, '{"ops":[{"op":"release_meeting"}],"session":{"status":"locating"}}'), '22023', 'fairest or known');
+  perform pg_temp.expect_error(312, 'and anything but fairest or known is refused',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L)', sd, '{"ops":[{"op":"release_meeting","meet_by":"anywhere"}],"session":{"status":"locating"}}'), '22023', 'fairest or known');
+  perform pg_temp.expect_hint(313, 'a release cannot bring a meeting area of its own',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L)', sd,
+           '{"ops":[{"op":"release_meeting","meet_by":"known"}],"session":{"status":"locating","meeting":{"area_id":"orchard","method":"chosen","max_minutes":20,"total_minutes":40,"count":2,"approximate":false}}}'),
+    'release_meeting');
+  perform pg_temp.expect_hint(314, 'a release cannot bring slots (they belong to a voting session)',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L)', sd, '{"ops":[{"op":"release_meeting","meet_by":"fairest"}],"session":{"status":"locating"},"slots":[]}'), 'slots_status');
+  perform pg_temp.expect_hint(315, 'nor stops (they belong to a confirmed one)',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L)', sd, '{"ops":[{"op":"release_meeting","meet_by":"fairest"}],"session":{"status":"locating"},"stops":[]}'), 'stops_status');
+  perform pg_temp.expect_hint(316, 'area_pinned still holds on every other path: a recompute cannot move a chosen area',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L)', sd,
+           '{"session":{"meeting":{"area_id":"orchard","method":"fairest","max_minutes":20,"total_minutes":40,"count":2,"approximate":false}}}'), 'area_pinned');
+  perform pg_temp.expect_hint(317, 'nor can a recompute clear it, without the op',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L)', sd, '{"session":{"meeting":null}}'), 'area_pinned');
+  perform pg_temp.expect_hint(318, 'a voted area is pinned too',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L)', se, '{"session":{"meeting":{"area_id":"orchard","method":"voted","max_minutes":20,"total_minutes":40,"count":2,"approximate":false}}}'),
+    'area_pinned');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(319, 'the refusals wrote nothing: both sessions are as they were',
+    format('select (select status || '' '' || plan_version || '' '' || meeting_area_id || '' '' || meet_by || '' '' || (banner ->> ''text'') from public.sessions where id = %L) || '' | '' ||'
+           || ' (select status || '' '' || plan_version || '' '' || meeting_area_id from public.sessions where id = %L) || '' | '' ||'
+           || ' (select count(*) from public.slots where session_id in (%L, %L)) || '' '' || (select count(*) from public.votes where slot_id in (%L, %L, %L, %L)) || '' '' ||'
+           || ' (select count(*) from public.stops where session_id = %L) || '' '' || (select count(*) from public.session_spots where session_id in (%L, %L))',
+           sd, se, sd, se, slot_d_eat, slot_d_drink, slot_e_eat, slot_e_drink, se, sd, se),
+    'voting 3 bugis known An old notice. | confirmed 5 bugis | 4 5 2 3');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(320, 'a late release (the version moved on) answers null and writes nothing',
+    format('select pg_temp.apply(%L, 2, ''voting'', %L::jsonb)', sd, rel::text), 'null');
+  perform pg_temp.expect_text(321, 'and so does one for a status the session has left',
+    format('select pg_temp.apply(%L, 3, ''confirmed'', %L::jsonb)', sd, rel::text), 'null');
+  -- A browser can do neither: not the function, and not the move.
+  perform pg_temp.as_user(host);
+  perform pg_temp.expect_error(322, 'the host''s own browser cannot move the session back to locating',
+    format('update public.sessions set status = ''locating'' where id = %L', sd), '42501');
+  perform pg_temp.expect_error(323, 'and cannot call the function',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', sd, rel::text), '42501');
+  perform pg_temp.as_server();
+
+  -- The release from voting, with the notice and the spots worked out again from the kept starts, in the one write.
+  perform pg_temp.expect_text(324, 'a pinned voting session is released: the version rises once',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', sd,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'release_meeting', 'meet_by', 'fairest')),
+                              'session', jsonb_build_object('status', 'locating', 'banner', jsonb_build_object('text', 'Ian changed the meeting place, so the votes were cleared.', 'released', true)),
+                              'spots', jsonb_build_array(
+                                jsonb_build_object('area_id', 'clementi', 'rank', 1, 'worst_minutes', 25, 'mean_minutes', 20, 'travel_minutes', jsonb_build_object()),
+                                jsonb_build_object('area_id', 'bishan', 'rank', 2, 'worst_minutes', 27, 'mean_minutes', 22, 'travel_minutes', jsonb_build_object())),
+                              'recomputed', true, 'loaded_at', now())::text), '4');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(325, 'the session is locating and every meeting column is empty',
+    format('select status || '' '' || coalesce(meeting_area_id, ''-'') || '' '' || coalesce(meeting_method, ''-'') || '' '' || coalesce(meeting_max_minutes::text, ''-'') || '' '' ||'
+           || ' coalesce(meeting_total_minutes::text, ''-'') || '' '' || coalesce(meeting_count::text, ''-'') || '' '' || coalesce(meeting_approximate::text, ''-'') || '' '' ||'
+           || ' coalesce(meeting_computed_at::text, ''-'') from public.sessions where id = %L', sd),
+    'locating - - - - - - -');
+  perform pg_temp.expect_text(326, 'the host''s new choice is stored, and the radius and the version are as they should be',
+    format('select meet_by || '' '' || radius_meters || '' '' || plan_version from public.sessions where id = %L', sd), 'fairest 1000 4');
+  perform pg_temp.expect_count(327, 'no slot, option, vote or stop is left',
+    format('select (select count(*) from public.slots where session_id = %L) + (select count(*) from public.slot_options where slot_id in (%L, %L))'
+           || ' + (select count(*) from public.votes where slot_id in (%L, %L)) + (select count(*) from public.stops where session_id = %L)',
+           sd, slot_d_eat, slot_d_drink, slot_d_eat, slot_d_drink, sd), 0);
+  perform pg_temp.expect_text(328, 'the old spots, approvals and suggestions went; the list is the two the patch brought',
+    format('select (select count(*) from public.session_spots where session_id = %L and area_id in (''clementi'', ''bishan'')) || '' '' ||'
+           || ' (select count(*) from public.session_spots where session_id = %L) || '' '' || (select count(*) from public.spot_approvals where session_id = %L)'
+           || ' || '' '' || (select count(*) from public.spot_suggestions where session_id = %L)', sd, sd, sd, sd), '2 2 0 0');
+  perform pg_temp.expect_text(329, 'the minutes to the old area went; the starts, ends and picks that people shared stayed',
+    format('select count(*) filter (where travel_minutes is not null) || '' '' || count(*) filter (where start_area_id is not null) || '' '' ||'
+           || ' count(*) filter (where end_area_id is not null) || '' '' || count(*) filter (where cardinality(categories) > 0) || '' '' ||'
+           || ' (select count(*) from public.session_member_places where session_id = %L) from public.session_members where session_id = %L', sd, sd), '0 3 1 2 1');
+  perform pg_temp.expect_text(330, 'the order note, the suggested order, the plan''s start, the prompt and the kept warnings are empty',
+    format('select coalesce(order_reason, ''-'') || coalesce(order_source, ''-'') || coalesce(order_suggestion::text, ''-'') || coalesce(plan_start_minute::text, ''-'')'
+           || ' || coalesce(replan::text, ''-'') || coalesce(weather_kept::text, ''-'') from public.sessions where id = %L', sd), '------');
+  perform pg_temp.expect_text(331, 'the notice replaced the old one, flagged, and stamped with the database''s clock',
+    format('select (banner ->> ''text'') || '' '' || (banner ->> ''released'') || '' '' || ((banner ->> ''at'')::bigint > 1000000000000)::text from public.sessions where id = %L', sd),
+    'Ian changed the meeting place, so the votes were cleared. true true');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(332, 'the same release again is a late write: null',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', sd, rel::text), 'null');
+
+  -- The release from confirmed, with no notice and no spots (the host chose "We already know where").
+  perform pg_temp.expect_text(333, 'a confirmed plan is released: the stops go with the slots',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L::jsonb)', se,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'release_meeting', 'meet_by', 'known')), 'session', jsonb_build_object('status', 'locating'))::text), '6');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(334, 'it is locating with the choice "known", nothing kept from the plan, and no notice (the old one was about the old place)',
+    format('select status || '' '' || meet_by || '' '' || coalesce(meeting_area_id, ''-'') || '' '' || coalesce(banner::text, ''-'') || '' '' || coalesce(order_reason, ''-'') || '' '' ||'
+           || ' coalesce(plan_start_minute::text, ''-'') || '' '' || coalesce(replan::text, ''-'') || '' '' || coalesce(weather_kept::text, ''-'') from public.sessions where id = %L', se),
+    'locating known - - - - - -');
+  perform pg_temp.expect_count(335, 'no stop, slot, option, vote, spot or approval is left',
+    format('select (select count(*) from public.stops where session_id = %L) + (select count(*) from public.slots where session_id = %L)'
+           || ' + (select count(*) from public.votes where slot_id in (%L, %L)) + (select count(*) from public.session_spots where session_id = %L)'
+           || ' + (select count(*) from public.spot_approvals where session_id = %L)', se, se, slot_e_eat, slot_e_drink, se, se), 0);
+  perform pg_temp.expect_text(336, 'the proposal still waiting was dismissed; the one already accepted is as it was',
+    format('select count(*) filter (where status = ''pending'') || '' '' || count(*) filter (where status = ''dismissed'') || '' '' || count(*) filter (where status = ''accepted'')'
+           || ' from public.stop_proposals where session_id = %L', se), '0 1 1');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(337, 'a voting session whose area the planner picked is released too, with nothing else in the patch',
+    format('select pg_temp.apply(%L, 1, ''voting'', %L::jsonb)', sf, rel::text), '2');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(338, 'and is locating with no area, no slot and the choice stored',
+    format('select status || '' '' || coalesce(meeting_area_id, ''-'') || '' '' || meet_by || '' '' || (select count(*) from public.slots where session_id = %L) from public.sessions where id = %L', sf, sf),
+    'locating - fairest 0');
+
+  -- After a release the usual paths work, and the rules about a chosen area are the same again.
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(339, 'a meeting area cannot be pinned on a locating session without the host''s move to voting',
+    format('select pg_temp.apply(%L, 4, ''locating'', %L)', sd, '{"session":{"meeting":{"area_id":"bugis","method":"chosen","max_minutes":20,"total_minutes":40,"count":2,"approximate":false}}}'),
+    'pin_without_confirm');
+  perform pg_temp.expect_text(340, 'the known place moves the released session straight to voting at a new area',
+    format('select pg_temp.apply(%L, 4, ''locating'', %L)', sd,
+           '{"ops":[{"op":"clear_approvals"},{"op":"clear_suggestions"}],"spots":[{"area_id":"orchard","rank":1,"worst_minutes":20,"mean_minutes":18}],"session":{"status":"voting","banner":null,"meeting":{"area_id":"orchard","method":"chosen","max_minutes":20,"total_minutes":55,"count":3,"approximate":false}}}'),
+    '5');
+  perform pg_temp.expect_hint(341, 'the new area is pinned again: a recompute cannot move it',
+    format('select pg_temp.apply(%L, 5, ''voting'', %L)', sd, '{"session":{"meeting":{"area_id":"bugis","method":"fairest","max_minutes":20,"total_minutes":40,"count":2,"approximate":false}}}'), 'area_pinned');
+  perform pg_temp.expect_text(342, 'and the host can change the place again: the second release from voting',
+    format('select pg_temp.apply(%L, 5, ''voting'', %L::jsonb)', sd,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'release_meeting', 'meet_by', 'known')),
+                              'session', jsonb_build_object('status', 'locating', 'banner', jsonb_build_object('text', 'Ian changed the meeting place, so the votes were cleared.', 'released', true)))::text), '6');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(343, 'the same words are written again by the second release (always as a fresh notice; one transaction has one clock, so the time cannot be compared here)',
+    format('select (banner ->> ''text'') || '' '' || meet_by || '' '' || (select count(*) from public.session_spots where session_id = %L) from public.sessions where id = %L', sd, sd),
+    'Ian changed the meeting place, so the votes were cleared. known 0');
 
   raise notice 'ALL STEPS PASSED';
 end;
