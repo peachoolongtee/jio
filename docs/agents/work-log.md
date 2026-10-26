@@ -1510,3 +1510,11 @@ Results of round 34, checked by the lead's session on 26 October:
   - frontend 2562 passed, plainly and under `TZ=UTC`;
   - outbound calls blocked; the build succeeded.
 - **The order from here:** apply stage 5, then trial `20261026000000` (its tests need stage 5), then apply it, then merge into `dev`.
+
+**Stage 5 applied, 26 October 2026,** at the lead's word.
+- **How:** through the Supabase migration tool, as `20261026002554 jio_apply_session_plan_stops`. The file's statements, without its comment lines (md5 `f0ea0196626f5b27edf25b52ceee0e6b`), were sent inside a guard that refused to run unless the text's md5 matched.
+- **Checked afterwards:** the five `sessions` columns and `stops.not_before_minute` are there, as are the `votes_guard_status` trigger and `stop_proposals` with row-level security on. The fingerprints of the three functions match the trial. `authenticated` still cannot run `apply_session_plan`. There are 5 sessions, as before.
+
+**The start choice's live trial, 26 October 2026.** The lead's session ran the migration `20261026000000` (its live-guard check passed against `1adfb46c33ab0cf8317f7dcb5bcd43d3`) and all 32 steps of `db/tests/session_meet_by_access.sql` in one rolled-back transaction, through the Supabase tool.
+- It reached the final query, so every step passed.
+- Nothing was left: no `meet_by` column, the guard unchanged, 5 sessions.
