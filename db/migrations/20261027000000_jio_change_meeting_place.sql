@@ -32,6 +32,9 @@
 --   The patch may bring "spots" (the list worked out again from the kept starts, written in the same call with the usual rules, so a
 --   guest never sees an empty list between the two) and "session": { "status": "locating", "banner": { "text": ... } }. It may not bring "slots",
 --   "stops", "stop_options" or "ledger" (refused as before: they belong to other statuses).
+--   The gap: that holds for "fairest". For "known" the backend runs this release and then the known place as TWO writes, so for a moment between
+--   them the session is locating with no spot list (a guest's page waits briefly and looks again, and the host sees the error on Locate if the
+--   second write fails); the release itself is atomic either way.
 --
 -- Every other rule is unchanged: Rule 4 (a pinned meeting area is never moved by a recompute: area_pinned) and Rule 5 (a pin only with the
 -- host's confirm) still hold on every other path, and browsers still cannot call the function or move a status backwards
