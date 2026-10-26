@@ -499,6 +499,11 @@ const dismissedBanners = new Map()
 // The basis of the votes the host was last shown in the Confirm dialog, by session (what the server said it made its answer for, an order or none).
 // It is a note of what was on screen, not data: it is sent back with the confirm so the server can tell the votes moved, and forgotten at once.
 const shownBasis = new Map()
+
+// The minutes home of a session on the server already asked for, by what they depend on (the plan's last stop and where each person ends the
+// day), so the unrelated live updates of a plan do not ask again. A failed question is not kept.
+const tripsHomeAsked = new Map()
+
 // The server writes `at` (the time it was written, in milliseconds) on every banner, so a newer banner always has a new stamp; the
 // version is only the fallback for a banner without one.
 // How to call: bannerStamp({ at: 1760000000000 }, 4) -> 1760000000000
@@ -3757,10 +3762,6 @@ export async function getItinerary(id, { session } = {}) {
   await wait(DELAY.read)
   return itineraryView(sessionById(id))
 }
-
-// The minutes home of a session on the server already asked for, by what they depend on (the plan's last stop and where each person ends the
-// day), so the unrelated live updates of a plan do not ask again. A failed question is not kept.
-const tripsHomeAsked = new Map()
 
 // The itinerary of a session on the server with its trips home from the server, the figures the finished outing's travel ledger keeps, not an
 // estimate of the screen's own: the two would not agree. A confirmed plan asks the server (`GET .../trips-home`); a finished outing shows none
