@@ -408,7 +408,7 @@ function apply(world, session, patch) {
       dropApprovals(() => true)
       dropSuggestions(() => true)
       world.session_spots = world.session_spots.filter((x) => x.session_id !== sid)
-      for (const m of world.session_members.filter((row) => row.session_id === sid)) m.travel_minutes = null
+      // (The members' own minutes are left as they are: a write would move their updated_at past the new spots' computed_at.)
       changed = true
     } else if (op.op === 'swap_option') {
       if (session.status !== 'voting') throw dbError('P0001', 'An option is swapped only while the session is voting.', 'slots_status')

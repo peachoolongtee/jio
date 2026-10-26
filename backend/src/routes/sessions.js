@@ -12,7 +12,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   DELETE /api/sessions/:id/spots/mine                               take the caller's suggestion back
 //   POST   /api/sessions/:id/voting           { areaId? }             the host confirms a spot (the preselected one if none is named)
 //   PUT    /api/sessions/:id/known-place      { areaId }              the host sets the area straight away
-//   POST   /api/sessions/:id/change-meeting-place { meetBy, areaId? } the host lets the meeting area go (from voting or confirmed) and starts the choice again
+//   POST   /api/sessions/:id/change-meeting-place { meetBy, areaId?, planVersion? } the host lets the meeting area go (from voting or confirmed) and starts the choice again
 //   POST   /api/sessions/:id/opt-out                                  the caller steps out
 //   POST   /api/sessions/:id/rejoin                                   the caller comes back
 //   DELETE /api/sessions/:id/members/me                               the caller leaves
@@ -79,7 +79,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   404 session_not_found (also for a session the caller is not in), member_not_found, spot_not_found, slot_not_found, venue_not_found,
 //       option_not_found, stop_not_found
 //   409 wrong_status, not_yet (work of a later stage: a confirmed plan), session_closed and session_started (leave and remove), no_spots,
-//       too_many_spots, needs_two_people, area_pinned, no_meeting_area (voting is paused), slot_full, plan_busy (with Retry-After: 1),
+//       too_many_spots, needs_two_people, area_pinned, stale_plan (change-meeting-place: the caller's planVersion is out of date), no_meeting_area (voting is paused), slot_full, plan_busy (with Retry-After: 1),
 //       not_enough_votes, nothing_to_confirm, order_stale (the suggested order is for stops the votes no longer make), stops_changed (the
 //       stops are not the plan's), stop_changed (the stop no longer holds the place the caller saw), last_stop, no_leg (the first stop),
 //       already_a_stop, plan_full, too_many_proposals
@@ -215,8 +215,8 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
   }))
 
   router.post('/sessions/:id/change-meeting-place', ...guard, handle((who, req) => {
-    const { meetBy, areaId } = sessionSchemas.changeMeetingPlace.parse(req.body ?? {})
-    return sessions.changeMeetingPlace({ ...who, meetBy, areaId })
+    const { meetBy, areaId, planVersion } = sessionSchemas.changeMeetingPlace.parse(req.body ?? {})
+    return sessions.changeMeetingPlace({ ...who, meetBy, areaId, planVersion })
   }))
 
   router.post('/sessions/:id/opt-out', ...guard, handle((who, req) => {

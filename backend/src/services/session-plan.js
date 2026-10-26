@@ -279,8 +279,11 @@ export function meetingBannerText({ previousName, nextName, kind, name }) {
 //   // "Ian changed the meeting place, so the votes and the plan were cleared."
 //   releasedBannerText({ hostName: 'Ian', status: 'voting', hadVotes: false, placeName: 'Bugis' })
 //   // "Ian changed the meeting place to Bugis, so the places to vote on were chosen again."
+//   releasedBannerText({ hostName: 'Ian', status: 'voting', hadVotes: false })
+//   // "Ian changed the meeting place, so the places to vote on were cleared."
 export function releasedBannerText({ hostName, status, hadVotes, placeName = null }) {
-  const gone = status === 'confirmed' ? 'the votes and the plan were cleared' : hadVotes ? 'the votes were cleared' : 'the places to vote on were chosen again'
+  // With no votes there is nothing to say about them: the places to vote on were cleared, and with a named area they are chosen again there.
+  const gone = status === 'confirmed' ? 'the votes and the plan were cleared' : hadVotes ? 'the votes were cleared' : placeName ? 'the places to vote on were chosen again' : 'the places to vote on were cleared'
   return `${hostName} changed the meeting place${placeName ? ` to ${placeName}` : ''}, so ${gone}.`
 }
 

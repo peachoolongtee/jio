@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { applySessionPlan, createWorld, userClient } from './helpers/fake-supabase.js'
+import { applyPlan, PlanRefused } from '../src/db/sessions.js'
 import { addMember, addSession, GUEST, HOST, OTHER, SESSION, startSessionApp, STRANGER } from './helpers/session-app.js'
 
 // The host changes the meeting place (POST /api/sessions/:id/change-meeting-place), tested without the network: the one write that releases
@@ -66,6 +67,7 @@ describe('"fairest": the session goes back to locating and the spots are worked 
     world.spot_suggestions.push({ session_id: SESSION, user_id: GUEST, area_id: 'orchard', here: false, created_at: 'x' })
     world.spot_approvals.push({ session_id: SESSION, area_id: 'orchard', user_id: GUEST, created_at: 'x' })
     const before = writes().length
+    const minutesBefore = JSON.stringify(world.session_members.map((m) => m.travel_minutes))
     const res = await change({ meetBy: 'fairest' })
     expect(res.status).toBe(200)
     expect(res.body).toMatchObject({ status: 'locating', meetBy: 'fairest', planVersion: expect.any(Number) })
@@ -82,12 +84,14 @@ describe('"fairest": the session goes back to locating and the spots are worked 
     expect(world.spot_suggestions).toHaveLength(0)
     expect(world.spot_approvals).toHaveLength(0)
     // The list is worked out again from the starts that stay, in the same write, so there is never an empty list between the two.
-    const areas = world.session_spots.filter((s) => s.session_id === SESSION).map((s) => s.area_id)
-    expect(areas.length).toBeGreaterThanOrEqual(3)
-    expect(areas).not.toContain('orchard-not-listed')
+    const spots = world.session_spots.filter((s) => s.session_id === SESSION)
+    expect(spots.length).toBeGreaterThanOrEqual(3)
+    // The stale row planted above is gone: every spot now was written by this release.
+    expect(spots.every((s) => s.computed_at !== 'old')).toBe(true)
     // Starts and ends stay; the minutes to the old area went.
     expect(world.session_members.map((m) => m.start_area_id).sort()).toEqual(['bishan', 'clementi', 'tampines'])
-    expect(world.session_members.every((m) => m.travel_minutes === null)).toBe(true)
+    // Members' rows are not written by the release (it would make every page think the spots are stale).
+    expect(JSON.stringify(world.session_members.map((m) => m.travel_minutes))).toBe(minutesBefore)
   })
 
   it('from confirmed: the stops go too, the note, the start, the prompt and the kept warnings clear, the proposals are dismissed, and the notice says the plan went', async () => {
@@ -104,7 +108,7 @@ describe('"fairest": the session goes back to locating and the spots are worked 
   it('says the places were chosen again when nobody had voted', async () => {
     await start()
     await change({ meetBy: 'fairest' })
-    expect(session().banner.text).toBe('Ian changed the meeting place, so the places to vote on were chosen again.')
+    expect(session().banner.text).toBe('Ian changed the meeting place, so the places to vote on were cleared.')
   })
 
   it('names the host and nobody else, and reads no exact place', async () => {
@@ -195,6 +199,103 @@ describe('"known": the area is named and the group goes straight to voting there
   })
 })
 
+describe('a retry, and a database that ends a write to break a deadlock', () => {
+  it('a stale planVersion is 409 stale_plan and writes nothing; the current one goes through', async () => {
+    await start()
+    await voteForThree()
+    const version = Number(session().plan_version)
+    const before = writes().length
+    const stale = await change({ meetBy: 'known', areaId: 'orchard', planVersion: version - 1 })
+    expect(stale.status).toBe(409)
+    expect(stale.body.error).toBe('stale_plan')
+    expect(writes().length).toBe(before)
+    expect(world.votes.length).toBeGreaterThan(0)
+    expect((await change({ meetBy: 'known', areaId: 'orchard', planVersion: version })).status).toBe(200)
+    expect(session().meeting_area_id).toBe('orchard')
+  })
+
+  it('a retry of "known" after it went through is a no-op while nobody has voted, and wipes nothing once someone has', async () => {
+    await start()
+    await voteForThree()
+    expect((await change({ meetBy: 'known', areaId: 'orchard' })).status).toBe(200)
+    const writesAfter = writes().length
+    const version = session().plan_version
+    // The client timed out and asks again, naming the same area: nothing to clear, nothing written, 200.
+    const again = await change({ meetBy: 'known', areaId: 'orchard' })
+    expect(again.status).toBe(200)
+    expect(again.body).toMatchObject({ status: 'voting', meetBy: 'known' })
+    expect(writes().length).toBe(writesAfter)
+    expect(session().plan_version).toBe(version)
+    // Someone votes in the new round; a second retry with the version the host saw is refused, and its votes stay.
+    const venue = world.slot_options.filter((o) => o.slot_id === slotOf('eat').id)[0].venue_id
+    await userClient(world, GUEST).from('votes').insert({ slot_id: slotOf('eat').id, user_id: GUEST, venue_id: venue })
+    const retried = await change({ meetBy: 'known', areaId: 'orchard', planVersion: Number(version) - 1 })
+    expect(retried.body.error).toBe('stale_plan')
+    expect(world.votes).toHaveLength(1)
+  })
+
+  it('tries a write once more when the database ended it for a deadlock (40P01), and says so only if the second try fails too', async () => {
+    await start()
+    await voteForThree()
+    let applies = 0
+    world.hooks.beforeApply = () => {
+      applies += 1
+      if (applies === 1) throw Object.assign({ code: '40P01', message: 'deadlock detected' })
+    }
+    const res = await change({ meetBy: 'fairest' })
+    expect(res.status).toBe(200)
+    expect(applies).toBe(2)
+    expect(session().status).toBe('locating')
+  })
+
+  it('answers 500 and writes nothing when the deadlock comes twice', async () => {
+    await start()
+    await voteForThree()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    world.hooks.beforeApply = () => {
+      throw { code: '40001', message: 'could not serialize access' }
+    }
+    const res = await change({ meetBy: 'fairest' })
+    expect(res.status).toBe(500)
+    expect(session().status).toBe('voting')
+    expect(world.votes.length).toBeGreaterThan(0)
+  })
+})
+
+describe('applyPlan on its own: the retry', () => {
+  const service = (answers) => {
+    const calls = []
+    return { calls, rpc: async (name, args) => (calls.push({ name, args }), answers[Math.min(calls.length - 1, answers.length - 1)]) }
+  }
+  const asked = [{ version: 3, status: 'voting' }, { ops: [] }]
+
+  it.each(['40P01', '40001'])('tries again once after %s, with the same version and status, and answers the second result', async (code) => {
+    const db = service([{ data: null, error: { code, message: 'x' } }, { data: 4, error: null }])
+    expect(await applyPlan(db, 'sid', ...asked)).toBe(4)
+    expect(db.calls).toHaveLength(2)
+    expect(db.calls[1].args).toEqual(db.calls[0].args)
+    expect(db.calls[0].args).toMatchObject({ expected_version: 3, expected_status: 'voting' })
+  })
+
+  it('gives up after the second failure, and never retries a rule or any other error', async () => {
+    const twice = service([{ data: null, error: { code: '40P01', message: 'x' } }])
+    await expect(applyPlan(twice, 'sid', ...asked)).rejects.toThrow(/40P01/)
+    expect(twice.calls).toHaveLength(2)
+    const rule = service([{ data: null, error: { code: 'P0001', hint: 'area_pinned', message: 'x' } }])
+    await expect(applyPlan(rule, 'sid', ...asked)).rejects.toBeInstanceOf(PlanRefused)
+    expect(rule.calls).toHaveLength(1)
+    const other = service([{ data: null, error: { code: 'XX000', message: 'boom' } }])
+    await expect(applyPlan(other, 'sid', ...asked)).rejects.toThrow(/XX000/)
+    expect(other.calls).toHaveLength(1)
+  })
+
+  it('a null answer (the session moved on) is not an error and is not retried', async () => {
+    const db = service([{ data: null, error: null }])
+    expect(await applyPlan(db, 'sid', ...asked)).toBeNull()
+    expect(db.calls).toHaveLength(1)
+  })
+})
+
 describe('who may, and when', () => {
   it('is the host\'s alone: a guest is 403, a stranger is 404 before the service key is used, nobody is 401', async () => {
     await start()
@@ -233,6 +334,7 @@ describe('the body', () => {
     ['"fairest" with an area', { meetBy: 'fairest', areaId: 'bugis' }],
     ['"known" with no area', { meetBy: 'known' }],
     ['an extra field', { meetBy: 'fairest', note: 'x' }],
+    ['a version that is not a whole number', { meetBy: 'fairest', planVersion: 1.5 }],
     ['an area that is not text', { meetBy: 'known', areaId: 4 }],
   ])('refuses %s with 400 and the one error shape', async (_label, body) => {
     await start()

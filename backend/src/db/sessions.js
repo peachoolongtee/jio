@@ -15,6 +15,9 @@
 //   const state = await loadState(supabase.service, id)
 //   const version = await applyPlan(supabase.service, id, { version: state.session.plan_version, status: state.session.status }, patch)
 
+// The database errors a write is tried again after (deadlock detected, serialization failure). How to call: RETRYABLE.has('40P01') // true
+const RETRYABLE = new Set(['40P01', '40001'])
+
 // Thrown when apply_session_plan refuses a write on purpose (a rule, not a failure). `hint` is the rule's short name.
 //
 // How to catch it:
@@ -61,7 +64,7 @@ export async function loadState(service, id) {
     await service
       .from('sessions')
       .select(
-        'id, host_id, status, plan_version, date, start_time, end_time, radius_meters, banner, meeting_area_id, meeting_method, ' +
+        'id, host_id, status, meet_by, plan_version, date, start_time, end_time, radius_meters, banner, meeting_area_id, meeting_method, ' +
           'meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, ' +
           'order_reason, order_source, order_suggestion, plan_start_minute, replan, weather_kept, completed_at',
       )
@@ -206,12 +209,12 @@ export async function loadNames(service, ids) {
 // How to call:
 //   const version = await applyPlan(service, id, { version: 4, status: 'locating' }, { ops: [], spots: [] }) // 5, or null
 export async function applyPlan(service, id, { version, status }, patch) {
-  const { data, error } = await service.rpc('apply_session_plan', {
-    sid: id,
-    expected_version: version,
-    expected_status: status,
-    patch,
-  })
+  const call = () => service.rpc('apply_session_plan', { sid: id, expected_version: version, expected_status: status, patch })
+  let { data, error } = await call()
+  // The database ended this write to break a deadlock (40P01) or a serialization clash (40001), which a release can meet when a guest's vote is
+  // in flight: nothing was written, so it is tried once more with the same version and status (the function answers null if the session moved
+  // on, which makes the caller load it again). A second failure is the caller's.
+  if (error && RETRYABLE.has(error.code)) ({ data, error } = await call())
   if (error) {
     // A rule the function enforces raises an exception with a hint; anything else is a failure of the database.
     if (error.code === 'P0001' && error.hint) throw new PlanRefused(error.message, error.hint)

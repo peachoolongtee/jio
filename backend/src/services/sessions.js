@@ -1058,19 +1058,33 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   // (setKnownPlace) with the banner brought along; if that one fails the session stays on Locate with the host's choice recorded, and the host
   // names the area there ("We already have a place"). Nothing is held in memory between the two.
   //
-  // Refused: not the host (403 host_only), a session that is not voting or confirmed (409 wrong_status), an unknown area (422).
+  // THE GAP between the two writes of 'known' (and what is done about it): between the release and the known place the session is `locating` for
+  // a moment, so a guest's page may see that state (the shared follower in lib/followRelease.js waits briefly and looks again, and goes back to
+  // Vote when the session is voting at the new area), and the group has no spot list in that moment ('fairest' has none missing: its spots are in
+  // the release's own write). If the second write fails the host is told on Locate, where they name the area themselves.
+  //
+  // A retry must not wipe what happened since: the browser sends the `planVersion` it saw, and a stale one is 409 `stale_plan` with nothing
+  // written. Without one, a repeat of 'known' that names the area the session is already voting at, chosen by the host's own 'known', with no vote
+  // cast yet, is a no-op that answers 200 (nothing to clear, and nothing written).
+  //
+  // Refused: not the host (403 host_only), a session that is not voting or confirmed (409 wrong_status), a stale `planVersion` (409 stale_plan), an
+  // unknown area (422).
   //
   // How to call:
-  //   await sessions.changeMeetingPlace({ client: req.supabase, id, userId: req.user.id, meetBy: 'known', areaId: 'bugis' })
+  //   await sessions.changeMeetingPlace({ client: req.supabase, id, userId: req.user.id, meetBy: 'known', areaId: 'bugis', planVersion: 12 })
   //   // { planVersion, status: 'voting', meetBy: 'known' }
-  async function changeMeetingPlace({ client, id, userId, meetBy, areaId }) {
+  async function changeMeetingPlace({ client, id, userId, meetBy, areaId, planVersion }) {
     userId = lower(userId)
     if (meetBy === 'known') requireArea(areaId)
     const check = (state) => {
       requireJoined(state, userId)
       requireHost(state, userId, 'change the meeting place')
       requireStatus(state, ['voting', 'confirmed'], { what: 'change the meeting place' })
+      if (planVersion !== undefined && Number(state.session.plan_version) !== planVersion) {
+        throw refuse(409, 'stale_plan', 'The session changed since you looked at it. Look at it again.')
+      }
     }
+    let repeat = false
     // The notice of the known place, which replaces the one the release leaves (it names the new area), worked out inside the job.
     let notice = null
     const released = await submit(
@@ -1080,6 +1094,12 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
         check,
         prepare: async (draft) => {
           check(draft)
+          const s = draft.session
+          if (meetBy === 'known' && s.status === 'voting' && s.meet_by === 'known' && s.meeting_method === 'chosen' && s.meeting_area_id === areaId && draft.votes.length === 0) {
+            repeat = true
+            return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, status: 'voting', meetBy: 'known' }) }
+          }
+          repeat = false
           const hostName = await nameFor(userId)
           const facts = { hostName, status: draft.session.status, hadVotes: draft.votes.length > 0 }
           const text = releasedBannerText(facts)
@@ -1091,7 +1111,6 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
             order_reason: null, order_source: null, order_suggestion: null, plan_start_minute: null, replan: null, weather_kept: null,
           })
           Object.assign(draft, { slots: [], options: [], votes: [], stops: [], proposals: [], spots: [], suggestions: [], approvals: [] })
-          for (const member of draft.members) member.travel_minutes = null
           return {
             ops: [{ op: 'release_meeting', meet_by: meetBy }],
             needs: meetBy === 'fairest' ? 'recompute' : 'none',
@@ -1101,7 +1120,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
         },
       },
     )
-    if (meetBy === 'fairest') return released
+    if (meetBy === 'fairest' || repeat) return released
     return { ...(await setKnownPlace({ client, id, userId, areaId, notice })), meetBy }
   }
 
