@@ -12,6 +12,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   DELETE /api/sessions/:id/spots/mine                               take the caller's suggestion back
 //   POST   /api/sessions/:id/voting           { areaId? }             the host confirms a spot (the preselected one if none is named)
 //   PUT    /api/sessions/:id/known-place      { areaId }              the host sets the area straight away
+//   POST   /api/sessions/:id/change-meeting-place { meetBy, areaId? } the host lets the meeting area go (from voting or confirmed) and starts the choice again
 //   POST   /api/sessions/:id/opt-out                                  the caller steps out
 //   POST   /api/sessions/:id/rejoin                                   the caller comes back
 //   DELETE /api/sessions/:id/members/me                               the caller leaves
@@ -46,6 +47,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   meeting-area   while voting: meetingAreaId is the area (null when paused), moved and votesCleared say what happened to it
 //   voting         { planVersion, status: 'voting', meetingAreaId, method, slotCount }   (the slots and their places are made in the same write)
 //   known-place    { planVersion, status: 'voting' }
+//   change-meeting-place   { planVersion, status: 'locating' | 'voting', meetBy }   ('known' goes on to voting at the area named)
 //   opt-out        { planVersion, state: 'opted_out' }        rejoin { planVersion, state: 'joined' }
 //   members/me     { planVersion, left: true }                members/:userId { planVersion, removed: true }
 //   plan/sync      { planVersion, changed }                   radius { planVersion, radiusMeters }
@@ -210,6 +212,11 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
   router.put('/sessions/:id/known-place', ...guard, handle((who, req) => {
     const { areaId } = sessionSchemas.knownPlace.parse(req.body ?? {})
     return sessions.setKnownPlace({ ...who, areaId })
+  }))
+
+  router.post('/sessions/:id/change-meeting-place', ...guard, handle((who, req) => {
+    const { meetBy, areaId } = sessionSchemas.changeMeetingPlace.parse(req.body ?? {})
+    return sessions.changeMeetingPlace({ ...who, meetBy, areaId })
   }))
 
   router.post('/sessions/:id/opt-out', ...guard, handle((who, req) => {

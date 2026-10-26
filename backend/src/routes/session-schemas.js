@@ -32,6 +32,11 @@ export const sessionSchemas = {
   knownPlace: z.object({ areaId }).strict(),
   // POST /api/sessions/:id/opt-out, /rejoin and /plan/sync take no body. A body, if sent, must be empty.
   nothing: z.object({}).strict(),
+  // POST /api/sessions/:id/change-meeting-place. `meetBy` is how the meeting point is picked again; "known" names the area (`areaId`), "fairest" does not.
+  changeMeetingPlace: z
+    .object({ meetBy: z.enum(['fairest', 'known']), areaId: areaId.optional() })
+    .strict()
+    .refine((body) => (body.meetBy === 'known') === (body.areaId !== undefined), { message: 'send an area with "known", and none with "fairest"', path: ['areaId'] }),
   // A slot in a path.
   slotId: uuid,
   // A place in a path (swap).

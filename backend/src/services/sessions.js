@@ -51,6 +51,7 @@ import {
   preselectedSpot,
   priceAreaRun,
   relistedRows,
+  releasedBannerText,
   spotRowsFrom,
   suggestedAreaIds,
 } from './session-plan.js'
@@ -991,9 +992,12 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   // members who have shared a start; with none, the times are zero. The session needs two people, as it does to start. As with
   // confirming a spot, the slots and their places are made in the same write. Setting the same place again is a no-op.
   //
+  // `notice` is an optional banner for the group ({ text, released: true, votesCleared: true }), which the host's change of the meeting place
+  // brings so that the group is told in the same write that the place moved; without it the banner is cleared, as for any known place.
+  //
   // How to call:
   //   await sessions.setKnownPlace({ client: req.supabase, id, userId: req.user.id, areaId: 'bugis' }) // { planVersion, status: 'voting' }
-  function setKnownPlace({ client, id, userId, areaId }) {
+  function setKnownPlace({ client, id, userId, areaId, notice = null }) {
     userId = lower(userId)
     requireArea(areaId)
     const alreadySet = (state) => state.session.status === 'voting' && state.session.meeting_method === 'chosen' && state.session.meeting_area_id === areaId
@@ -1033,7 +1037,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
             ops: [{ op: 'clear_approvals' }, { op: 'clear_suggestions' }],
             needs: 'none',
             spots: [row],
-            session: { status: 'voting', banner: null, meeting },
+            session: { status: 'voting', banner: notice, meeting },
             plan: { rank: 'all' },
             afterApply: () => recordKnownChoice(lower(id)),
             answer: ({ version }) => ({ planVersion: version, status: 'voting' }),
@@ -1041,6 +1045,64 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
         },
       },
     )
+  }
+
+  // POST /api/sessions/:id/change-meeting-place: the host lets the meeting area go (from voting or confirmed) and picks it again, the way a
+  // session starts: `meetBy: 'fairest'` works the spots out again from the starts people already shared, and `meetBy: 'known'` names the area
+  // (`areaId`) and goes straight to voting there. The release is ONE write (the op `release_meeting`): the session goes back to locating, the
+  // meeting area, the slots with their places and votes, the stops, the order note and suggestion, the plan's start, the prompt, the kept rain
+  // warnings, the spots with their approvals and suggestions, and the members' minutes to the old area all go, pending proposals are dismissed,
+  // `meet_by` is set to the new choice, and the group gets a banner that names the host. Starts, ends, exact places and picks stay. It is the
+  // only way a chosen area is released; every other path still answers `area_pinned`.
+  // 'fairest' works the spots out in the same write, so the group never sees an empty list. 'known' is then a second write, the known place
+  // (setKnownPlace) with the banner brought along; if that one fails the session stays on Locate with the host's choice recorded, and the host
+  // names the area there ("We already have a place"). Nothing is held in memory between the two.
+  //
+  // Refused: not the host (403 host_only), a session that is not voting or confirmed (409 wrong_status), an unknown area (422).
+  //
+  // How to call:
+  //   await sessions.changeMeetingPlace({ client: req.supabase, id, userId: req.user.id, meetBy: 'known', areaId: 'bugis' })
+  //   // { planVersion, status: 'voting', meetBy: 'known' }
+  async function changeMeetingPlace({ client, id, userId, meetBy, areaId }) {
+    userId = lower(userId)
+    if (meetBy === 'known') requireArea(areaId)
+    const check = (state) => {
+      requireJoined(state, userId)
+      requireHost(state, userId, 'change the meeting place')
+      requireStatus(state, ['voting', 'confirmed'], { what: 'change the meeting place' })
+    }
+    // The notice of the known place, which replaces the one the release leaves (it names the new area), worked out inside the job.
+    let notice = null
+    const released = await submit(
+      { client, id, userId },
+      {
+        exclusive: true,
+        check,
+        prepare: async (draft) => {
+          check(draft)
+          const hostName = await nameFor(userId)
+          const facts = { hostName, status: draft.session.status, hadVotes: draft.votes.length > 0 }
+          const text = releasedBannerText(facts)
+          if (meetBy === 'known') notice = { text: releasedBannerText({ ...facts, placeName: areaName(areaId) }), released: true, votesCleared: true }
+          // The draft as the function leaves the session, so the spots are worked out from the starts that stay.
+          Object.assign(draft.session, {
+            status: 'locating', meet_by: meetBy, banner: { text, released: true },
+            meeting_area_id: null, meeting_method: null, meeting_max_minutes: null, meeting_total_minutes: null, meeting_count: null, meeting_approximate: null,
+            order_reason: null, order_source: null, order_suggestion: null, plan_start_minute: null, replan: null, weather_kept: null,
+          })
+          Object.assign(draft, { slots: [], options: [], votes: [], stops: [], proposals: [], spots: [], suggestions: [], approvals: [] })
+          for (const member of draft.members) member.travel_minutes = null
+          return {
+            ops: [{ op: 'release_meeting', meet_by: meetBy }],
+            needs: meetBy === 'fairest' ? 'recompute' : 'none',
+            session: { status: 'locating', banner: { text, released: true } },
+            answer: ({ version }) => ({ planVersion: version, status: 'locating', meetBy }),
+          }
+        },
+      },
+    )
+    if (meetBy === 'fairest') return released
+    return { ...(await setKnownPlace({ client, id, userId, areaId, notice })), meetBy }
   }
 
   // ── Voting: the radius, the slots and the places ───────────────────────
@@ -1993,6 +2055,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     removeMember,
     confirmSpot,
     setKnownPlace,
+    changeMeetingPlace,
     syncPlan,
     setRadius,
     deleteSlot,
