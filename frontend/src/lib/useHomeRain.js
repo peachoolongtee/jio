@@ -57,5 +57,5 @@ export function useHomeRain({ meetups, now, simulated, ask, check = {} }) {
   })
   onBeforeUnmount(() => schedule.stop())
 
-  return { view: computed(() => (outings.value.length ? rainView(outings.value, answer.value) : null)), failed }
+  return { view: computed(() => (outings.value.length ? rainView(outings.value, answer.value, now.value) : null)), failed }
 }

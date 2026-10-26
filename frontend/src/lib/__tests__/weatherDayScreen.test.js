@@ -38,13 +38,28 @@ vi.mock('../../components/event/SessionHeader.vue', async () => {
 vi.mock('../../components/event/SessionNotices.vue', stand('div'))
 vi.mock('../../components/event/ProposedStops.vue', stand('div'))
 vi.mock('../../components/event/TravelConnector.vue', stand('div'))
-vi.mock('../../components/map/PlannerMap.vue', stand('div'))
+// The map records the rain it is given, so a test can read what the screen asked it to draw.
+const mapSeen = vi.hoisted(() => ({ rain: [], rainLabel: '' }))
+vi.mock('../../components/map/PlannerMap.vue', async () => {
+  const { defineComponent, h } = await import('vue')
+  return {
+    default: defineComponent({
+      inheritAttrs: false,
+      props: ['rain', 'rainLabel'],
+      setup: (p) => () => {
+        mapSeen.rain = p.rain
+        mapSeen.rainLabel = p.rainLabel
+        return h('div')
+      },
+    }),
+  }
+})
 vi.mock('../../components/map/CategoryKey.vue', stand('div'))
 vi.mock('../../components/ui/ModalDialog.vue', stand('div'))
 vi.mock('../../components/ui/ToastMessage.vue', stand('div'))
 vi.mock('../../components/ui/SplitView.vue', async () => {
   const { defineComponent, h } = await import('vue')
-  return { default: defineComponent({ setup: (_p, { slots }) => () => h('div', slots.list?.()) }) }
+  return { default: defineComponent({ setup: (_p, { slots }) => () => h('div', [slots.list?.(), slots.map?.()]) }) }
 })
 vi.mock('../../components/ui/SortableList.vue', async () => {
   const { defineComponent, h } = await import('vue')
@@ -60,6 +75,7 @@ vi.stubGlobal('localStorage', fakeStorage())
 vi.stubGlobal('window', { history: { state: null, replaceState() {} } })
 const api = await import('../api.js')
 const { default: EventView } = await import('../../views/EventView.vue')
+const { default: SessionMapView } = await import('../../views/SessionMapView.vue')
 const { useEventsStore } = await import('../../stores/events.js')
 const { usePlannerStore } = await import('../../stores/planner.js')
 const { useAuthStore } = await import('../../stores/auth.js')
@@ -508,5 +524,90 @@ describe('"Simulate rain"', () => {
     await vi.advanceTimersByTimeAsync(100)
     expect(banners(page)).toHaveLength(0)
     expect(page.text()).not.toContain('Simulated forecast')
+  })
+})
+
+describe('the rain on the itinerary\'s map', () => {
+  // The plan's activity stop is outdoor with showers; the forecast is current from 09:30 to 11:30 and it is 10:00.
+  it('draws a patch where rain is likely, with the chip for the live two-hour forecast', async () => {
+    await open()
+    expect(mapSeen.rain).toEqual([{ lat: PARK.lat, lng: PARK.lng }])
+    expect(mapSeen.rainLabel).toBe('Rain likely · next 2 h')
+  })
+
+  it('draws none for a plan that is not confirmed, or for dry weather', async () => {
+    await open({ session: session({ status: 'inviting' }) })
+    expect(mapSeen.rain).toEqual([])
+    await open({ itinerary: itinerary({ stops: stops([wx('dry', { rainLikely: false }), wx('cloudy')]) }) })
+    expect(mapSeen.rain).toEqual([])
+  })
+
+  it('stops drawing the rain when the forecast it came from has run out, and not before', async () => {
+    api.checkStopWeather.mockImplementation(async () => ({ checkedAt: Date.now(), stops: { eat: wx('dry', { rainLikely: false }), activity: wx('showers') }, weather: BLOCK }))
+    await open({ session: session({ isToday: true }) })
+    expect(mapSeen.rain).toHaveLength(1)
+    // The forecast ends at 11:30; the clock moves on, but a check each half hour returns the same old answer.
+    await vi.advanceTimersByTimeAsync(89 * MIN)
+    expect(mapSeen.rain).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(2 * MIN)
+    expect(mapSeen.rain).toEqual([])
+    expect(mapSeen.rainLabel).toBe('')
+  })
+
+  it('says "Simulated rain" for the demo\'s forecast, which does not run out', async () => {
+    conditions.rain = true
+    api.checkStopWeather.mockImplementation(async () => ({ checkedAt: Date.now(), stops: { eat: wx('showers', SIM), activity: wx('showers', SIM) }, weather: SIM }))
+    await open({ session: session({ isToday: true }), itinerary: itinerary({ weather: SIM, stops: stops([wx('showers', SIM), wx('showers', SIM)]) }) })
+    expect(mapSeen.rainLabel).toBe('Simulated rain')
+    await vi.advanceTimersByTimeAsync(5 * 60 * MIN)
+    expect(mapSeen.rain.length).toBeGreaterThan(0)
+  })
+
+  it('draws nothing from a plan\'s kept forecast that was stored hours ago', async () => {
+    vi.setSystemTime(new Date('2026-10-10T14:00:00+08:00'))
+    await open()
+    expect(mapSeen.rain).toEqual([])
+    expect(mapSeen.rainLabel).toBe('')
+  })
+})
+
+describe('the rain on the full-screen map', () => {
+  const openMap = async (over = {}) => {
+    Object.assign(state, over)
+    const page = mount(SessionMapView, { id: 's1' }, [pinia])
+    pages.push(page)
+    await vi.advanceTimersByTimeAsync(50)
+    return page
+  }
+  const source = (page) => page.all().filter((el) => el.props['data-testid'] === 'weather-source')
+
+  it('draws the rain with the chip, and the source line with its licence notice, as the itinerary does', async () => {
+    const page = await openMap()
+    expect(mapSeen.rain).toEqual([{ lat: PARK.lat, lng: PARK.lng }])
+    expect(mapSeen.rainLabel).toBe('Rain likely · next 2 h')
+    expect(source(page)).toHaveLength(1)
+    expect(page.text()).toContain('NEA forecast, 09:30')
+    expect(page.text()).toContain('About this forecast')
+  })
+
+  it('says it is simulated in the source line when the rain is the demo\'s', async () => {
+    const page = await openMap({ itinerary: itinerary({ weather: SIM, stops: stops([wx('showers', SIM), wx('showers', SIM)]) }) })
+    expect(mapSeen.rainLabel).toBe('Simulated rain')
+    expect(page.text()).toContain('Simulated forecast')
+  })
+
+  it('shows neither rain nor the source line once the plan\'s kept forecast has run out', async () => {
+    vi.setSystemTime(new Date('2026-10-10T14:00:00+08:00'))
+    const page = await openMap()
+    expect(mapSeen.rain).toEqual([])
+    expect(source(page)).toHaveLength(0)
+  })
+
+  it('asks for the check on the day once when it opens alone on the day of a confirmed plan, and not otherwise', async () => {
+    await openMap({ session: session({ isToday: true }) })
+    expect(api.checkStopWeather).toHaveBeenCalledTimes(1)
+    api.checkStopWeather.mockClear()
+    await openMap()
+    expect(api.checkStopWeather).not.toHaveBeenCalled()
   })
 })

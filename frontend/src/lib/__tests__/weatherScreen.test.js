@@ -138,31 +138,47 @@ describe('the voting card\'s rain mark', () => {
 
 describe('the rain on Home\'s map', () => {
   const layers = (page) => page.all('g').filter((g) => g.props['data-testid'] === 'map-rain')
+  const falls = (page) => page.all('rect').filter((r) => (r.props.class || '').includes('rain-fall'))
 
-  it('is not there without rain: no layer, no strokes', () => {
+  it('is not there without rain: no layer, no drops', () => {
     const page = mount(SingaporeMap, { routes: [] })
     expect(layers(page)).toHaveLength(0)
-    expect(page.all('rect').filter((r) => (r.props.class || '').includes('sgmap__drift'))).toHaveLength(0)
+    expect(falls(page)).toHaveLength(0)
     expect(mount(SingaporeMap, { routes: [], rain: [] }).all('g').some((g) => g.props['data-testid'] === 'map-rain')).toBe(false)
   })
 
-  it('is one patch for each place where rain is likely, clipped to about a forecast area, under the routes', () => {
+  it('is one patch for each place where rain is likely: a feathered wash and three layers of drops under a feathered mask, under the routes', () => {
     const page = mount(SingaporeMap, {
       routes: [{ from: { lat: 1.33, lng: 103.74 }, to: { lat: 1.35, lng: 103.85 } }],
       rain: [{ lat: 1.3508, lng: 103.8485 }, { lat: 1.3496, lng: 103.9568 }],
     })
     expect(layers(page)).toHaveLength(1)
-    const patches = page.all('rect').filter((r) => (r.props.class || '').includes('sgmap__drift'))
-    expect(patches).toHaveLength(2)
-    const clips = page.all('clipPath')
-    expect(clips).toHaveLength(2)
-    expect(page.attr(clips[0].children[0], 'r')).toBe('40')
+    expect(page.all('g').filter((g) => g.props['data-testid'] === 'map-rain-patch')).toHaveLength(2)
+    // Three layers of drops in each patch, far to near, each falling by one tile of its pattern.
+    expect(falls(page)).toHaveLength(6)
+    expect(falls(page).slice(0, 3).map((r) => r.props.class.split(' ').pop())).toEqual(['rain-fall--far', 'rain-fall--mid', 'rain-fall--near'])
+    // A soft edge, not a hard circle: a mask for each patch, no clip path, and the old wash and strokes are gone.
+    expect(page.all('mask')).toHaveLength(2)
+    expect(page.all('clipPath')).toHaveLength(0)
+    expect(page.all('rect').some((r) => (r.props.class || '').includes('sgmap__drift'))).toBe(false)
     // It is drawn before the first route, so the routes and the meeting point stay on top of it.
     const order = page.all('g')
     const rainAt = order.findIndex((g) => g.props['data-testid'] === 'map-rain')
     const routeAt = order.findIndex((g) => (g.props.style || g.props['style']) !== undefined && g !== order[rainAt] && g.children.some((c) => (c.props.class || '').includes('sgmap__route')))
     expect(rainAt).toBeGreaterThan(-1)
     expect(routeAt).toBeGreaterThan(rainAt)
+  })
+
+  it('fades in, unless told not to: a map drawn again for the same rain does not fade it out and in', () => {
+    const fades = (page) => page.all('g').filter((g) => g.props['data-testid'] === 'map-rain-patch').map((g) => (g.props.class || '').includes('rain-in'))
+    const rain = [{ lat: 1.35, lng: 103.85 }, { lat: 1.36, lng: 103.9 }]
+    expect(fades(mount(SingaporeMap, { routes: [], rain }))).toEqual([true, true])
+    expect(fades(mount(SingaporeMap, { routes: [], rain, fadeRain: false }))).toEqual([false, false])
+  })
+
+  it('draws no more patches than the limit', () => {
+    const rain = Array.from({ length: 12 }, (_, i) => ({ lat: 1.3 + i * 0.01, lng: 103.85 }))
+    expect(mount(SingaporeMap, { routes: [], rain }).all('g').filter((g) => g.props['data-testid'] === 'map-rain-patch')).toHaveLength(6)
   })
 
   it('is inside a map that is hidden from screen readers: the words for it are on the page, not here', () => {

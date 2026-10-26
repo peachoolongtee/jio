@@ -9,6 +9,7 @@ import { TOUR_BUILT, tourMisconfigured } from './lib/tourFlag.js'
 // Design system: tokens first, then the base styles that use them.
 import './styles/tokens.css'
 import './styles/app.css'
+import './styles/rain.css'
 
 // A production build with no Supabase settings would let anyone "sign up" into an account that lives only in their
 // browser. It shows a plain "not available" screen instead, with no router and so no way into the app; the one line for
