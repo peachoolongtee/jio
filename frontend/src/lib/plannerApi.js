@@ -430,12 +430,23 @@ export async function venuesByIds(ids) {
 // too_many_proposals, venue_not_found.
 
 // The host asks for the suggested order of the winning places (E22): one question to the server, which may ask the AI under its own
-// budget. Resolves { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], reason, source } or { status: 'none', why }.
+// budget. Resolves { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], voted: [{ slotId, category, venueId, start,
+// duration }], reason, source } or { status: 'none', why, basis, voted }. `voted` and `stops` are the stops of the voted and of the suggested
+// order as a confirm would store them, each with the start that is stored for it.
 // A refusal: host_only, wrong_status, not_enough_votes.
 // How to call: const answer = await suggestSessionOrder('3b1f...')
 export async function suggestSessionOrder(sessionId) {
   const { data } = await api.post(sessionPath(sessionId, '/order/suggest'), {}, { timeout: ARRANGE_TIMEOUT_MS + 10000 })
   if (data?.status !== 'ok' && data?.status !== 'none') throw new Error(notJsonMessage())
+  return data
+}
+
+// The minutes each person needs to get home from the last stop of a confirmed plan: the computation the finished outing's ledger keeps as
+// `minutes_home`. A member asks; nothing is written. Resolves { trips: [{ userId, minutes }], approximate }.
+// How to call: const { trips } = await getSessionTripsHome('3b1f...') // [{ userId: '9a2c...', minutes: 31 }]
+export async function getSessionTripsHome(sessionId) {
+  const { data } = await api.get(sessionPath(sessionId, '/trips-home'), { timeout: SESSION_TIMEOUT_MS })
+  if (!Array.isArray(data?.trips)) throw new Error(notJsonMessage())
   return data
 }
 

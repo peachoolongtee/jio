@@ -13,11 +13,17 @@ import { optionsOf, windowOf } from './session-slots.js'
 //   voted stop  { slotId, category, venueId, plannedStart, duration }                   what a confirm would make, in the voted order
 //   stop row    { id?, seq, slot_id, category, venue_id, planned_start_minute, duration_minutes, travel_mode, travel_minutes, not_before_minute }
 // A stop with no slot (slot_id null) was added from a Roam proposal; the others come from a slot the group voted on.
+// In a stored stop `planned_start_minute` is where the stop starts in the laid-out itinerary (laidOutRows): every function below that
+// answers rows to store answers them laid out, so the database holds the times the screens draw. (A voted stop, before it is laid out, carries
+// the start its slot gave it.)
 //
 // How to call:
 //   const stops = votedStops(draft)                       // the stops confirming would make
 //   const basis = basisOf(draft.session, stops)            // the hash a suggestion is made for
 //   const rows = confirmedRows(stops, venueOf)             // the stop rows a confirm writes
+
+// The last minute a column of minutes holds (23:59).
+const LAST_MINUTE = 1439
 
 // The most stops a plan holds (the database's limit, MAX.stops in routes/plan-schemas.js).
 export const MAX_STOPS = 8
@@ -157,7 +163,9 @@ const pointOf = (venueOf, venueId) => {
 }
 
 // The stops as the itinerary times them: each starts after the one before it plus the leg between them, never before its earliest start.
-// The plan starts at `startAt` (else the first stop's planned start). Answers the rows with `start` and `end`, and the legs.
+// The plan starts at `startAt` (else the first stop's stored start, which is read only then). Starts are not limited to the day: a plan that
+// runs past midnight has starts of 1440 and more here, though a stored start is kept to 1439 (see laidOutRows). Answers the rows with `start`
+// and `end`, and the legs.
 //
 // How to call:
 //   const { timed, legs } = timedRows(rows, venueOf, 720)   // timed[i].start, legs[i].minutes
@@ -173,25 +181,40 @@ export function timedRows(rows, venueOf, startAt) {
   return { timed: timed.map(({ row, start, end }) => ({ ...row, start, end })), legs }
 }
 
-// The rows with the minutes of the leg into each stop filled in, from the places and the mode chosen for the leg (the default when none).
-// The first stop has no leg into it. A leg to a place that is not known has none.
+// The rows as the itinerary lays them out, ready to store, and the starts as laid out. In the rows every stop's `planned_start_minute` is the
+// start the screens draw (the plan's start for the first stop, then each stop after the one before it plus the leg between them, never
+// before its earliest start), and the minutes of the leg into each stop are filled in, from the places and the mode chosen for the leg (the
+// default when none). The first stop has no leg into it. Every write of the stops goes through this, so the stored times are never older than
+// the order, the modes and the places stored beside them.
+//
+// A session cannot cross midnight (its end is after its start), but a plan can: the legs and the lengths of the stops can carry the last
+// stops past 24:00. The column holds 0 to 1439, so a stored start is kept to 1439 (23:59), which is a floor and not the time: the true start is
+// `starts[i]`, which can be 1440 or more, and it is always worked out again from the plan's start, the lengths and the legs, never read back
+// from a stored `planned_start_minute`. (Nothing reads one as the time of a stop after the first: the layout uses it only for the first stop
+// of a plan that has no stored start, and a dialog or a screen shows `starts`, not the rows.)
 //
 // How to call:
-//   withTravelMinutes(rows, venueOf, 720)
-export function withTravelMinutes(rows, venueOf, startAt) {
-  const { legs } = timedRows(rows, venueOf, startAt)
-  return rows.map((r, i) => {
-    const known = i > 0 && pointOf(venueOf, r.venue_id) && pointOf(venueOf, rows[i - 1].venue_id)
-    return { ...r, travel_minutes: known ? legs[i - 1].minutes : null }
-  })
+//   const { rows: stored, starts } = layoutRows(rows, venueOf, 720) // stored[i].planned_start_minute is starts[i] kept to the day; stored[i].travel_minutes the leg into it
+export function layoutRows(rows, venueOf, startAt) {
+  const { timed, legs } = timedRows(rows, venueOf, startAt)
+  return {
+    rows: rows.map((r, i) => {
+      const known = i > 0 && pointOf(venueOf, r.venue_id) && pointOf(venueOf, rows[i - 1].venue_id)
+      return { ...r, planned_start_minute: Math.min(LAST_MINUTE, timed[i].start), travel_minutes: known ? legs[i - 1].minutes : null }
+    }),
+    starts: timed.map((t) => t.start),
+  }
 }
 
-// The stop rows a confirm writes. The voted order gives every stop no earliest start. A suggested order puts the stops in the suggested order
-// with its start as each stop's earliest start, so a meal keeps its time and a shop waits to open. The plan starts when the first voted
-// stop does.
+// The same rows without the starts. How to call: laidOutRows(rows, venueOf, 720)
+export const laidOutRows = (rows, venueOf, startAt) => layoutRows(rows, venueOf, startAt).rows
+
+// The stop rows a confirm writes, laid out (planned_start_minute is where each stop starts). The voted order gives every stop no earliest
+// start. A suggested order puts the stops in the suggested order with its start as each stop's earliest start, so a meal keeps its time and a
+// shop waits to open. The plan starts when the first voted stop does.
 //
 // How to call:
-//   confirmedRows(stops, venueOf, { order: [slotId...], starts: { [slotId]: 600 } }) // the suggestion; leave it out for the voted order
+//   confirmedRows(stops, venueOf, { order: [slotId...], starts: { [slotId]: 600 } }) // { rows, starts, planStart }; leave the suggestion out for the voted order
 export function confirmedRows(stops, venueOf, suggestion = null) {
   const planStart = stops[0]?.plannedStart ?? null
   const bySlot = new Map(stops.map((s) => [s.slotId, s]))
@@ -205,9 +228,24 @@ export function confirmedRows(stops, venueOf, suggestion = null) {
     duration_minutes: s.duration,
     travel_mode: null,
     travel_minutes: null,
-    not_before_minute: suggestion ? suggestion.starts[s.slotId] : null,
+    // A suggested start can reach past the day; the column cannot, and an earliest start kept to 23:59 still holds the stop back.
+    not_before_minute: suggestion ? Math.min(LAST_MINUTE, suggestion.starts[s.slotId]) : null,
   }))
-  return { rows: withTravelMinutes(rows, venueOf, planStart), planStart }
+  return { ...layoutRows(rows, venueOf, planStart), planStart }
+}
+
+// The stops a confirm would write, as the Confirm dialog draws them: in the order they would be stored, each with the start that would be
+// stored for it (the laid-out start, not the slot's or the suggestion's own, and not kept to the day: past midnight it reads 1440 and more,
+// as the itinerary draws it). The same rows as confirmedRows, so what the host is shown is what is saved.
+//
+// How to call:
+//   shownStops(stops, venueOf)                                     // the voted order
+//   shownStops(stops, venueOf, { order: [slotId...], starts: {} }) // the suggested one
+//   // [{ slotId, category: 'eat', venueId: 'ya-kun-kaya-toast', start: 720, duration: 90 }, ...]
+export function shownStops(stops, venueOf, suggestion = null) {
+  const { rows, starts } = confirmedRows(stops, venueOf, suggestion)
+  // The start is the laid-out one, which can pass midnight; the stored column keeps it to 23:59.
+  return rows.map((r, i) => ({ slotId: r.slot_id, category: r.category, venueId: r.venue_id, start: starts[i], duration: r.duration_minutes }))
 }
 
 // Renumbers rows 0, 1, 2 ... in the order given.
@@ -234,24 +272,31 @@ export function reorderedRows(rows, ids, session, venueOf) {
   if (ids.length !== rows.length || new Set(ids).size !== ids.length || ids.some((id) => !byId.has(id))) return null
   const planStart = startOf(session, rows)
   const next = renumber(ids.map((id) => withoutOrderTime({ ...byId.get(id), travel_mode: null })))
-  return { rows: withTravelMinutes(next, venueOf, planStart), planStart }
+  return { rows: laidOutRows(next, venueOf, planStart), planStart }
 }
 
 // The plan without one stop. The legs either side merge into one that starts with its default mode; a stop's earliest start from the order
-// goes; and when the first stop goes the plan starts when the next one does (its own earliest start if it was added from a proposal, else its
-// planned start). Answers { rows, planStart }, or null when there is no such stop or it is the only one.
+// goes; and when the first stop goes the plan starts the next stop at the time it was voted for (`votedStartOf(slotId)`, null when it is not
+// known; the start of the next stop as it was laid out then, if so), or at its own earliest start if it was added from a proposal, so the plan
+// does not open with a gap the group never chose. Answers { rows, planStart }, or null when there is no such stop or it is the only one.
 //
 // How to call:
-//   withoutStop(rows, stopId, session, venueOf)
-export function withoutStop(rows, stopId, session, venueOf) {
+//   withoutStop(rows, stopId, session, venueOf, (slotId) => 840)
+export function withoutStop(rows, stopId, session, venueOf, votedStartOf = () => null) {
   const index = rows.findIndex((r) => r.id === stopId)
   if (index < 0 || rows.length <= 1) return null
   const kept = renumber(rows.filter((_, i) => i !== index).map(withoutOrderTime))
   // The stop now at the removed stop's place arrives by a new leg, which starts with its default mode.
   if (index < kept.length) kept[index] = { ...kept[index], travel_mode: null }
   const first = rows.filter((_, i) => i !== index)[0]
-  const planStart = index === 0 ? (isRoamStop(first) && first.not_before_minute !== null ? first.not_before_minute : first.planned_start_minute) : startOf(session, rows)
-  return { rows: withTravelMinutes(kept, venueOf, planStart), planStart }
+  let planStart = startOf(session, rows)
+  if (index === 0) {
+    // Where the next stop was laid out (not its stored start, which is kept to the day) is the fallback.
+    const laid = timedRows(rows, venueOf, planStart).timed[1].start
+    planStart = isRoamStop(first) ? (first.not_before_minute ?? laid) : (votedStartOf(first.slot_id) ?? laid)
+  }
+  planStart = Math.min(LAST_MINUTE, planStart)
+  return { rows: laidOutRows(kept, venueOf, planStart), planStart }
 }
 
 // The plan with the mode of the leg into one stop set (null for the default). The first stop has no leg into it, so it is null for that.
@@ -264,7 +309,7 @@ export function withMode(rows, stopId, mode, session, venueOf) {
   if (index < 1 || (mode !== null && !TRAVEL_MODES.includes(mode))) return null
   const planStart = startOf(session, rows)
   const next = rows.map((r, i) => (i === index ? { ...r, travel_mode: mode } : r))
-  return { rows: withTravelMinutes(next, venueOf, planStart), planStart }
+  return { rows: laidOutRows(next, venueOf, planStart), planStart }
 }
 
 // The plan with one stop holding another place (and, if asked, another kind): the stop keeps its start and length; its earliest start is
@@ -281,7 +326,7 @@ export function withPlace(rows, stopId, { venueId, category, startedAt }, sessio
     if (i === index) return { ...r, venue_id: venueId, category, not_before_minute: Math.max(r.not_before_minute ?? 0, startedAt), travel_mode: null }
     return i === index + 1 ? { ...r, travel_mode: null } : r
   })
-  return { rows: withTravelMinutes(next, venueOf, planStart), planStart }
+  return { rows: laidOutRows(next, venueOf, planStart), planStart }
 }
 
 // The plan with a proposed place added as the last stop, in the place's own category, for `duration` minutes. It has no slot and no planned
@@ -306,5 +351,5 @@ export function withAddedStop(rows, { venueId, category, notBefore, duration, en
       not_before_minute: Math.min(1439, notBefore),
     },
   ]
-  return { rows: withTravelMinutes(next, venueOf, planStart), planStart }
+  return { rows: laidOutRows(next, venueOf, planStart), planStart }
 }

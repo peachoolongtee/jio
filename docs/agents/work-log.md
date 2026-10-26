@@ -1518,3 +1518,18 @@ Results of round 34, checked by the lead's session on 26 October:
 **The start choice's live trial, 26 October 2026.** The lead's session ran the migration `20261026000000` (its live-guard check passed against `1adfb46c33ab0cf8317f7dcb5bcd43d3`) and all 32 steps of `db/tests/session_meet_by_access.sql` in one rolled-back transaction, through the Supabase tool.
 - It reached the final query, so every step passed.
 - Nothing was left: no `meet_by` column, the guard unchanged, 5 sessions.
+
+## Round 35: stage 5's two-device findings, and a way back after the meeting place or plan is set (2026-10-26)
+
+Stage 5's two-device check passed end to end on 26 October (results on #130), with four findings. The lead said: fix 1 to 4, and add "an escape functionality to change the meeting location or itinerary after I've set it". Design by the lead's session, at the lead's "go with your recommendation":
+- **Who and when:** the host only, while voting or confirmed.
+- **"Change plan"** offers two ways back:
+  - **"Choose places again":** the existing re-open (confirmed to voting), which keeps the votes.
+  - **"Change meeting place":** back to locating, with the same two cards as Start. It clears the meeting area, slots, places, votes, stops, the order note and suggestion, pending proposals, the re-plan prompt and kept rain. It keeps everyone's starts.
+- **Safeguards:** a confirm names what is lost; guests see it live with a banner naming the host.
+- **The new rule:** it is one server action through `apply_session_plan`, and the only way a chosen meeting area may be released.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Fix the check's findings 1 to 4 | implementer (full stack) | `fix/stage-5-check-findings`, off `dev` | Stored stop times recomputed on every stop write. The confirm dialog shows the order and times that are saved, with the voted and suggested order. Stale notices go. "Trips home" agrees with the ledger. |
+| Change meeting place / change plan | implementer (full stack) | `feat/change-meeting-place`, off `dev` | A new migration `20261027000000` replaces `apply_session_plan` with the voting/confirmed to locating move. Its guard accepts the live body md5 `0b045589c032e034636cfc0e59306559`. A server route, the data layer, the "Change plan" screens and the guest banner, with SQL steps. Nothing is applied. |
