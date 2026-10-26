@@ -126,6 +126,7 @@ function routingOrderWithNamedAreas(candidates, { shortlistSize, protectedShortl
 //   deadlineMs      - The most time to wait for OneMap in total. Default ROUTING_DEADLINE_MS.
 //   estimate        - A function (a, b) => minutes that guesses a trip: to rank the candidates and to fill in the trips with no real
 //                     route. Default: the straight line. See planner/area-times.js.
+//   cache           - false does not read or keep the routes (for trips from a person's position, which must not stay in this process). Default true.
 //   concurrency     - How many of this request's trips are in flight at once. Default 6. The shared budget in
 //                     services/onemap.js caps the whole server at 6 as well.
 export async function runWithRealTravel({
@@ -139,6 +140,7 @@ export async function runWithRealTravel({
   deadlineMs = ROUTING_DEADLINE_MS,
   concurrency = 6,
   estimate = null,
+  cache = true,
 }) {
   // `estimate(a, b)` guesses the minutes of a trip, to rank the candidates and to fill in the trips that get no real route. Left out,
   // the straight-line guess is used (the engine's own). It is handed on to the engine as `estimateMinutes`.
@@ -199,7 +201,9 @@ export async function runWithRealTravel({
     const looked = candidate.tripKeys.map((key) => {
       const { a, b } = trips.get(key)
       // A OneMap service without peekRoute (a test double) cannot tell, so every trip counts as a call.
-      return [key, onemap.peekRoute ? onemap.peekRoute(a, b, dateTime) : { kind: 'call' }]
+      const plan = onemap.peekRoute ? onemap.peekRoute(a, b, dateTime) : { kind: 'call' }
+      // Without the cache, a trip that was answered before is asked again: its answer is not kept, so none can be read.
+      return [key, !cache && plan.kind === 'cached' ? { kind: 'call' } : plan]
     })
     const cost = looked.filter(([, plan]) => plan.kind === 'call').length
     // A candidate that needs calls must fit whole. Once one did not, no later one that needs calls is tried:
@@ -237,7 +241,7 @@ export async function runWithRealTravel({
           if (closed) return // The deadline passed while this trip waited its turn: do not spend a call on it.
           const { a, b } = trips.get(key)
           try {
-            const m = await onemap.routeMinutes(a, b, dateTime)
+            const m = cache ? await onemap.routeMinutes(a, b, dateTime) : await onemap.routeMinutes(a, b, dateTime, { cache: false })
             if (closed) return
             if (m === null || m === undefined) outcome.set(key, 'failed')
             else {

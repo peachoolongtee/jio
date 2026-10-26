@@ -1436,3 +1436,85 @@ Results are filled in below as they arrive.
   - **Applied** at the lead's word ("apply") as `jio_apply_session_plan_slots`, checksum-guarded (md5 5d3df7e8…). It folds in `20261011000200`. Afterwards: `slots.details` exists; both venue-id checks are 160; signed-in and anonymous calls are refused 42501; a typo is refused 22023.
   - **Run by the lead's agent before merging, exit codes read:** backend 1642 passed (2 skipped), also with outbound calls blocked; frontend 2281 passed under four time zones and with outbound calls blocked; build. Live checks: `votes` follows a swap (`ON UPDATE CASCADE`), and `votes` is in the Realtime publication.
 - **Not verified:** two real people voting on two devices (the next check).
+
+## Round 33: stage 5 on the server (2026-10-23)
+
+Stage 4 is merged (#182) and its migration is live. Its two-device check waits for the lead. The lead said "start stage 5".
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Stage 5 on the server (#130) | backend implementer | `feat/sessions-stage-5` | #125 slice d: E22 the suggested order (AI under its budget, from stored rows), E12 the confirm (writes stops; a stale order is refused), E13 replan, E14 end the outing (host only; the ledger computed by the server from stored rows), E15 stop edits and the order route; E16, E23 and E24 (Roam proposals) if time allows. History in recommendations comes back fail-soft (the lessons of the held #164). `20261011000300` is folded into one new migration with `apply_session_plan` extended. Nothing is applied. |
+| Stage 5 in the browser (#130) | frontend engineer | `feat/sessions-stage-5-frontend` | The plan confirm, the itinerary, reorder, delete, travel mode, replan, end the outing and the ledger for a real account, live on the other device. Roam proposals if the server half builds them. |
+
+Results are filled in below as they arrive.
+
+Results of round 33:
+
+- **Server half** (`feat/sessions-stage-5`, `5e8d33d`): one migration, `20261023000000`, which folds in `20261011000300`, with SQL test steps 173 to 257. Routes E12, E13, E14, E15, E22, E23 and E24. E16 is not built. Backend suite: 1741 passed. Nothing has been applied.
+- **Browser half** (`feat/sessions-stage-5-frontend`, `15a657c`): the first agent died on a network error with its ten commits intact. A second agent finished the work and added one commit.
+  - Frontend: 2493 passed, also with `TZ=UTC` and with outbound calls blocked.
+  - Backend: 1642 passed. Build succeeded.
+  - It assumes three routes the server does not have: `GET /stops/:stopId/swap`, `GET /stops/:stopId/choices` and `POST /roam`. Each shows "not available yet".
+  - Nothing on the server writes a non-null `sessions.replan`.
+
+## Round 34: stage 5 joined and reconciled (2026-10-26)
+
+The two halves merged with no conflicts on `feat/sessions-stage-5-integration`.
+
+The stage 4 two-device check was run on 26 October on `dev` at `056078f`; the results are on #129.
+- **Passed:** votes, moves and take-backs live on both devices; an added place reaching the other device in 5 to 10 seconds; the radius, its banner and Auto; a reload with no planner run.
+- **Not reachable on screen:** a guest opting out once voting starts.
+- **Not checked:** swap, remove, a changed start.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Close the gaps between the halves | backend implementer | `feat/sessions-stage-5-integration` | Build the three routes the browser expects: the rain swap list, Replace's list, and E16 Roam nearby for a shared session. All three are reads from the planner's pool, with no write. Make the server write `sessions.replan` where the local version raises it. Bring the browser's stand-in server in line. Every suite runs in any time zone with outbound calls blocked. Nothing is applied. |
+| Rain as layered drops (the lead picked B from the mock-up, 26 October) | frontend engineer | `feat/rain-layered-drops`, off `dev` | Three tokens (`--rain-wash`, `--rain-streak`, `--rain-text`). The rain patch becomes a feathered blue wash with three layers of falling drops (far, middle, near) under the route and pins, a 900 ms fade in, and a white chip "Rain likely · next 2 h". The same layer goes on the session map. Motion stops under reduced motion. `DESIGN.md` gets a weather section. |
+
+Results are filled in below as they arrive.
+
+Results of round 34, checked by the lead's session on 26 October:
+
+- **Gaps closed** (`feat/sessions-stage-5-integration` at `2c51420`, five commits).
+  - Three stateless reads, members only and confirmed only, with no Google calls and at most 60 OneMap trips:
+    - `GET /stops/:stopId/swap`;
+    - `GET /stops/:stopId/choices` (host only);
+    - `POST /roam` (E16).
+  - Opting out of a confirmed plan is now allowed. It writes the opt-out, dismisses the person's waiting proposals and raises `sessions.replan`, in one `apply_session_plan` patch. Leaving and removal in `confirmed` are still refused.
+  - A stale reorder answers 409 `stops_changed` on both sides.
+  - The migration is unchanged. SQL steps 258 to 269 were added; all 269 pass on PGlite, not on the live project.
+  - No state is kept in memory.
+  - Checked again by the lead's session, with outbound calls blocked:
+    - backend 1770 passed, 2 skipped, exit 0;
+    - frontend 2500 passed under `TZ=UTC`, exit 0, nothing blocked;
+    - build exit 0.
+- **Rain as layered drops** (`feat/rain-layered-drops`, `ebe7ad6`, two commits).
+  - Tokens, `lib/rainLook.js`, `styles/rain.css`, `RainChip`, `SingaporeMap.vue` and a Leaflet `rain` pane on `PlannerMap.vue`.
+  - The chip says "Rain likely · next 2 h" only for the live two-hour forecast, "Rain likely" for other live forecasts, and "Simulated rain" for the demo.
+  - `DESIGN.md` has a Weather section.
+  - Checked again: frontend 2303 passed (exit 0), also under `TZ=UTC` with outbound calls blocked; build exit 0.
+
+**Added to round 34 the same day.** The lead approved section 2 of the mock-up as drawn: when the host presses Start, two cards, "Find the fairest spot" (the default) or "We already know where" (with "We're here now", which opens Roam). Guests see the choice. It is built by a frontend engineer on `feat/start-choice`, off `feat/sessions-stage-5-integration`, because "We're here now" needs E16 and the new migration must come after stage 5's. The host's choice is stored in a new column on `sessions`. `meeting_method` holds the planner's result, not the host's intent. The live migrations were listed first: nine, the last `jio_apply_session_plan_slots`. Nothing is applied.
+
+**Stage 5's live trial, 26 October 2026.**
+- **Review fixes:** stage 5's were checked again by the lead's session at `9b0ac50`:
+  - backend 1790 passed and 2 skipped;
+  - frontend 2515 passed under `TZ=UTC`;
+  - both with outbound calls blocked, and the build succeeded.
+- **The run:** the lead ran the migration `20261023000000` (md5 `5b59a4cb3795251a2738a0b4b9879563`) followed by all 300 steps of `db/tests/apply_session_plan.sql` in the Supabase SQL editor, as one transaction ending in `rollback`, with a fingerprint check on the three new functions after the migration.
+  - It reached the final query, so the fingerprints matched and all 300 steps passed.
+  - That query showed nothing left: no `weather_kept` column, no `votes_guard_status` trigger, no `stop_proposals` table, `apply_session_plan` still the stage 4 body (md5 `42042fe539dd80484d879c7d8e78141f`), and 5 sessions as before.
+- **A failed route first:** an earlier attempt to send the same 160 KB batch through the Supabase tool was cut off part-way and never ran; the live project was unchanged.
+- **The start choice** (`feat/start-choice`, with stage 5's fixes merged in at `84ec6ed`) was checked by the lead's session:
+  - backend 1796 passed;
+  - frontend 2562 passed, plainly and under `TZ=UTC`;
+  - outbound calls blocked; the build succeeded.
+- **The order from here:** apply stage 5, then trial `20261026000000` (its tests need stage 5), then apply it, then merge into `dev`.
+
+**Stage 5 applied, 26 October 2026,** at the lead's word.
+- **How:** through the Supabase migration tool, as `20261026002554 jio_apply_session_plan_stops`. The file's statements, without its comment lines (md5 `f0ea0196626f5b27edf25b52ceee0e6b`), were sent inside a guard that refused to run unless the text's md5 matched.
+- **Checked afterwards:** the five `sessions` columns and `stops.not_before_minute` are there, as are the `votes_guard_status` trigger and `stop_proposals` with row-level security on. The fingerprints of the three functions match the trial. `authenticated` still cannot run `apply_session_plan`. There are 5 sessions, as before.
+
+**The start choice's live trial, 26 October 2026.** The lead's session ran the migration `20261026000000` (its live-guard check passed against `1adfb46c33ab0cf8317f7dcb5bcd43d3`) and all 32 steps of `db/tests/session_meet_by_access.sql` in one rolled-back transaction, through the Supabase tool.
+- It reached the final query, so every step passed.
+- Nothing was left: no `meet_by` column, the guard unchanged, 5 sessions.

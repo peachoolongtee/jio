@@ -17,13 +17,13 @@
 //   - who may read each row (a member reads their session, a host reads every invite of theirs, an invitee reads their own
 //     invitations, a member reads the pending personal invitations of their session), and who may write which columns:
 //     a signed-in user inserts a session (as the host) and an invite (as its creator, for a session they host), updates a
-//     session's title, date, times and status (host only), and revokes an invite (host only, and it cannot be undone). A member
+//     session's title, date, times, status and meet_by (host only), and revokes an invite (host only, and it cannot be undone). A member
 //     updates their own `start_area_id`, `end_area_id`, `categories` and `stay_until` while joined and the session is open, and
 //     keeps their own exact place the same way. The browser has no insert or delete on `session_members`. The service key does anything;
 //   - the triggers: the host's member row on a new session, the checks before an invite is made (the session is open, a
 //     personal invitation is not for the host or a member, at most 30 open ones), and `guard_session_changes` (a finished
 //     session is frozen; the only status changes are start, with two joined people, and cancel; the date and times change
-//     only while inviting);
+//     only while inviting; meet_by is set as the session starts or while it is locating, and never cleared);
 //   - the functions `invite_preview`, `join_session`, `my_invitations` and `decline_invite`, with the same answers and
 //     errors (P0002 for any link that is not good, 28000 when not signed in, P0001 with hint session_full at 30 people);
 //   - `apply_session_plan`, the one function the server writes a session's plan through (the service key only): the version and
@@ -37,6 +37,19 @@
 //     `session_spots` and `spot_suggestions` are not published: a subscriber to them hears nothing. An insert or update reaches only a subscriber who may read the row, and passes the
 //     subscriber's filter. A delete is not filtered by access rules, carries only the row's key, and, as Supabase cannot
 //     filter deletes, is NOT delivered to a subscriber who gave a filter (the stricter reading, so code cannot lean on it).
+//
+// Stage 5 (the plan on the server, ticket 130) adds the tables `stops`, `commute_ledger` and `stop_proposals` and the order columns of
+// `sessions` (`order_reason`, `order_source`, `order_suggestion`, `plan_start_minute`, `replan`, `completed_at`), as db/schema.sql has them
+// (checks, the deferred unique key on (session_id, seq), one pending proposal per place, a proposal going with its proposer, a stop's
+// slot set to null when the slot goes). Members read `stops` and `stop_proposals` (and a person's own ledger row, and every row of a
+// session they are in, as the policy `commute_ledger_select` says); only the server writes them, and `stops` is in the Realtime publication
+// (`commute_ledger` and `stop_proposals` are not). The status moves to `confirmed` and `completed` are the server's (the stand-in lets the
+// service key set any status the table allows, which is what the trigger leaves to it).
+// ASSUMED (no migration of stage 5 is written yet, so these are this stand-in's reading, to be reconciled with the backend half): the
+// server writes the plan through direct table writes here, where the real one will extend `apply_session_plan` with stops, ledger,
+// proposals and the order columns. The patch's parts for those are therefore NOT ported, except two: `session.replan` and the op `resolve_proposal`
+// (a guest opting out of a confirmed plan sends both): `apply_session_plan` here still knows only the stage 3 and 4 parts besides, and the stand-in server (lib/__tests__/fakeSessionsServer.js) writes the stage 5 rows itself. The shapes of
+// `order_suggestion` ({ basis, order, starts, reason, source, at }) and of `replan` ({ reason, trigger, at }) are from the design (#125, #80).
 //
 // Stage 4 of `apply_session_plan` is a port of db/migrations/20261022000000_jio_apply_session_plan_slots.sql (and of its JavaScript
 // twin, backend/tests/helpers/fake-supabase.js): the ops `clear_votes` and `swap_option`, `opt_out` and `remove_member` taking the
@@ -57,7 +70,7 @@
 // leaves nothing behind.
 //
 // What it does NOT model: the planner columns of `sessions` beyond what stages 3 and 4 read (meeting_*, banner, plan_version and
-// radius_meters are there; replan is not), `stops` and the other tables, the table `profile_private` itself (only the function over
+// radius_meters and replan are there), `stops` and the other tables, the table `profile_private` itself (only the function over
 // it), the 30-day
 // ceiling on how far ahead `expires_at` may be set beyond what the check says, row locks and concurrent transactions (one
 // call runs to the end before the next), Postgres's exact error texts beyond the ones the app reads, Realtime's connection
@@ -79,15 +92,18 @@ const PRIMARY_KEY = {
   slots: ['id'],
   slot_options: ['slot_id', 'venue_id'],
   votes: ['slot_id', 'user_id'],
+  stops: ['id'],
+  commute_ledger: ['session_id', 'user_id'],
+  stop_proposals: ['id'],
 }
 // The tables the supabase_realtime publication carries (db/policies.sql). The others raise no live events.
-const PUBLISHED = new Set(['sessions', 'session_members', 'invites', 'spot_approvals', 'slots', 'slot_options', 'votes'])
+const PUBLISHED = new Set(['sessions', 'session_members', 'invites', 'spot_approvals', 'slots', 'slot_options', 'votes', 'stops'])
 const PLACE_COLUMNS = ['start_label', 'start_lat', 'start_lng', 'end_label', 'end_lat', 'end_lng']
 const DAY_MS = 24 * 60 * 60 * 1000
 const OPEN = ['inviting', 'locating', 'voting']
 const MAX_JOINED = 30
 const GRANTS = {
-  sessions: { insert: ['host_id', 'title', 'date', 'start_time', 'end_time'], update: ['title', 'date', 'start_time', 'end_time', 'status'] },
+  sessions: { insert: ['host_id', 'title', 'date', 'start_time', 'end_time'], update: ['title', 'date', 'start_time', 'end_time', 'status', 'meet_by'] },
   invites: { insert: ['session_id', 'created_by', 'expires_at', 'invitee_id'], update: ['revoked'] },
   session_members: { insert: [], update: ['start_area_id', 'end_area_id', 'categories', 'stay_until'] },
   session_member_places: { insert: ['session_id', 'user_id', ...PLACE_COLUMNS], update: PLACE_COLUMNS, delete: true },
@@ -97,6 +113,10 @@ const GRANTS = {
   slots: { insert: [], update: [] },
   slot_options: { insert: [], update: [] },
   votes: { insert: ['slot_id', 'user_id', 'venue_id'], update: ['venue_id'], delete: true },
+  // Stage 5: members read these three and write nothing (db/policies.sql grants select only).
+  stops: { insert: [], update: [] },
+  commute_ledger: { insert: [], update: [] },
+  stop_proposals: { insert: [], update: [] },
 }
 
 // A database error as the client reports it: { message, code, details, hint }, with the HTTP status PostgREST would use.
@@ -125,6 +145,9 @@ const UUID_COLUMNS = {
   slots: ['id', 'session_id'],
   slot_options: ['slot_id'],
   votes: ['slot_id', 'user_id'],
+  stops: ['id', 'session_id', 'slot_id'],
+  commute_ledger: ['session_id', 'user_id'],
+  stop_proposals: ['id', 'session_id', 'proposed_by', 'resolved_by'],
 }
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -171,7 +194,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
   // The private planner needs of each person, as `profile_private` holds them (home_area_id, dietary, budget_max_per_person,
   // needs_step_free). Nobody reads them as a table; only `session_member_needs()` does, for the service key.
   const privateNeeds = new Map(Object.entries(needs).map(([id, row]) => [id, structuredClone(row)]))
-  const tables = { sessions: [], session_members: [], invites: [], session_member_places: [], session_spots: [], spot_suggestions: [], spot_approvals: [], slots: [], slot_options: [], votes: [] }
+  const tables = { sessions: [], session_members: [], invites: [], session_member_places: [], session_spots: [], spot_suggestions: [], spot_approvals: [], slots: [], slot_options: [], votes: [], stops: [], commute_ledger: [], stop_proposals: [] }
   const subscribers = new Set()
   // The events of the statement being run, or null outside one.
   let queue = null
@@ -212,6 +235,10 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     if (table === 'session_member_places') return row.user_id === as
     // Options and votes: a member of the slot's session reads them all (my_slot_ids()).
     if (table === 'slot_options' || table === 'votes') return inSlot(as, row.slot_id)
+    // The itinerary, the ledger and the proposals: every member reads them (my_session_ids()); a person also reads their own ledger row
+    // (commute_ledger_select).
+    if (table === 'stops' || table === 'stop_proposals') return isMember(as, row.session_id)
+    if (table === 'commute_ledger') return row.user_id === as || isMember(as, row.session_id)
     if (table === 'invites') {
       if (isHost(as, row.session_id) || row.invitee_id === as) return true
       const pending = row.invitee_id != null && !row.revoked && row.declined_at == null && row.uses === 0 && Date.parse(row.expires_at) > now()
@@ -277,6 +304,19 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       throw new DbError('23514', 'new row for relation "sessions" violates check constraint "sessions_status_check"')
     }
     if (!(row.end_time > row.start_time)) throw new DbError('23514', 'new row for relation "sessions" violates check constraint "sessions_check"')
+    // How the host picks the meeting point (db/schema.sql): 'fairest', 'known', or null on a session that started before the choice.
+    if (row.meet_by != null && !['fairest', 'known'].includes(row.meet_by)) throw new DbError('23514', 'new row for relation "sessions" violates check constraint "sessions_meet_by_check"')
+    // The order columns of stage 5 (db/schema.sql): a one-sentence reason of 1 to 200 characters and its source, set or null together; the
+    // plan's start a minute of the day; a suggestion no larger than 4000 bytes with a 64-character hex basis and at most 8 slot ids.
+    if (row.order_reason != null && !(typeof row.order_reason === 'string' && row.order_reason.length >= 1 && row.order_reason.length <= 200)) throw new DbError('23514', 'new row for relation "sessions" violates check constraint "order_reason_length"')
+    if (row.order_source != null && !['ai', 'rules'].includes(row.order_source)) throw new DbError('23514', 'new row for relation "sessions" violates check constraint "order_source_values"')
+    if ((row.order_reason == null) !== (row.order_source == null)) throw new DbError('23514', 'new row for relation "sessions" violates check constraint "order_note_pair"')
+    if (row.plan_start_minute != null && !(Number.isInteger(row.plan_start_minute) && row.plan_start_minute >= 0 && row.plan_start_minute <= 1439)) throw new DbError('23514', 'new row for relation "sessions" violates check constraint "plan_start_minute_range"')
+    if (row.order_suggestion != null) {
+      const o = row.order_suggestion
+      const ok = typeof o === 'object' && !Array.isArray(o) && JSON.stringify(o).length <= 4000 && /^[0-9a-f]{64}$/.test(String(o.basis)) && Array.isArray(o.order) && o.order.length <= 8
+      if (!ok) throw new DbError('23514', 'new row for relation "sessions" violates check constraint "order_suggestion_shape"')
+    }
   }
 
   // guard_session_changes: for everyone but the server.
@@ -294,6 +334,13 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     if (old.status !== 'inviting' && (next.date !== old.date || next.start_time !== old.start_time || next.end_time !== old.end_time)) {
       throw new DbError('42501', 'The date and times can only change before the session starts.', { status: 403 })
     }
+    // meet_by is set as the session starts or while it is locating, and is never cleared.
+    if (next.meet_by !== old.meet_by) {
+      if (next.meet_by == null) throw new DbError('42501', 'How to pick the meeting point cannot be cleared.', { status: 403 })
+      const starting = old.status === 'inviting' && next.status === 'locating'
+      const locating = old.status === 'locating' && next.status === 'locating'
+      if (!starting && !locating) throw new DbError('42501', 'How to pick the meeting point can only be chosen as the session starts or while it is locating.', { status: 403 })
+    }
   }
 
   // How to call: insertSession(uid, { host_id, title, date, start_time, end_time })
@@ -309,12 +356,20 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       radius_meters: null,
       meeting_area_id: null,
       meeting_method: null,
+      meet_by: null,
       meeting_max_minutes: null,
       meeting_total_minutes: null,
       meeting_count: null,
       meeting_approximate: null,
       meeting_computed_at: null,
       banner: null,
+      replan: null,
+      weather_kept: null,
+      completed_at: null,
+      order_reason: null,
+      order_source: null,
+      order_suggestion: null,
+      plan_start_minute: null,
       plan_version: 0,
       created_at: iso(now()),
       updated_at: iso(now()),
@@ -467,14 +522,21 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       publish(table, 'DELETE', row)
       const children = []
       if (table === 'sessions') {
-        for (const child of ['session_members', 'invites', 'session_member_places', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots']) children.push([child, tables[child].filter((r) => r.session_id === row.id)])
+        for (const child of ['session_members', 'invites', 'session_member_places', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'stops', 'commute_ledger', 'stop_proposals']) children.push([child, tables[child].filter((r) => r.session_id === row.id)])
       } else if (table === 'session_members') {
         for (const child of ['session_member_places', 'spot_suggestions', 'spot_approvals']) children.push([child, tables[child].filter((r) => r.session_id === row.session_id && r.user_id === row.user_id)])
+        // A proposal goes with its proposer (the foreign key to the member row cascades).
+        children.push(['stop_proposals', tables.stop_proposals.filter((r) => r.session_id === row.session_id && r.proposed_by === row.user_id)])
       } else if (table === 'session_spots') {
         children.push(['spot_approvals', tables.spot_approvals.filter((r) => r.session_id === row.session_id && r.area_id === row.area_id)])
       } else if (table === 'slots') {
-        // A removed slot takes its options, and they take the votes for them (on delete cascade).
+        // A removed slot takes its options, and they take the votes for them (on delete cascade). The stops made from it keep standing, with
+        // no slot (on delete set null).
         children.push(['slot_options', tables.slot_options.filter((r) => r.slot_id === row.id)])
+        for (const stop of tables.stops.filter((r) => r.slot_id === row.id)) {
+          stop.slot_id = null
+          publish('stops', 'UPDATE', stop)
+        }
       } else if (table === 'slot_options') {
         children.push(['votes', tables.votes.filter((r) => r.slot_id === row.slot_id && r.venue_id === row.venue_id)])
       }
@@ -503,8 +565,10 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       if (table === 'slots') return insertSlot(v)
       if (table === 'slot_options') return insertOption(v)
       if (['session_spots', 'spot_suggestions'].includes(table)) return insertSpotRow(table, v)
+      if (['stops', 'commute_ledger', 'stop_proposals'].includes(table)) return insertPlanRow(table, v)
       throw new Error('The stand-in lets only the server insert into session_members (the trigger and join_session do it).')
     })
+    if (table === 'stops') checkStopSeq()
     if (!op.returning) return { data: null, error: null, status: 201 }
     // RETURNING applies the select policy to the new rows: one the person may not read fails the whole statement.
     if (made.some((r) => !self.canSee(as, table, r))) throw rlsRefused(table)
@@ -602,6 +666,64 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     return row
   }
 
+  // ── Stage 5: the itinerary, the ledger and the proposals ────────────────
+
+  // The checks of one row of `stops`, `commute_ledger` or `stop_proposals`, as db/schema.sql has them.
+  // How to call: checkPlanRow('stops', { session_id, seq: 0, category: 'eat', venue_id: 'v25', planned_start_minute: 720, duration_minutes: 60 })
+  function checkPlanRow(table, row) {
+    const bad = (name) => new DbError('23514', `new row for relation "${table}" violates check constraint "${name}"`)
+    if (!sessionOf(row.session_id)) throw new DbError('23503', `insert or update on table "${table}" violates foreign key constraint "${table}_session_id_fkey"`)
+    if (table === 'stops') {
+      if (!(Number.isInteger(row.seq) && row.seq >= 0)) throw bad('stops_seq_check')
+      if (row.slot_id != null && !slotOf(row.slot_id)) throw new DbError('23503', 'insert or update on table "stops" violates foreign key constraint "stops_slot_id_fkey"')
+      if (row.category != null && !['eat', 'drink', 'shop', 'activity'].includes(row.category)) throw bad('stops_category_check')
+      if (typeof row.venue_id !== 'string' || row.venue_id.length < 1 || row.venue_id.length > 160) throw bad('stops_venue_id_check')
+      if (!(Number.isInteger(row.planned_start_minute) && row.planned_start_minute >= 0 && row.planned_start_minute <= 1439)) throw bad('stops_planned_start_minute_check')
+      if (!(Number.isInteger(row.duration_minutes) && row.duration_minutes >= 1 && row.duration_minutes <= 720)) throw bad('stops_duration_minutes_check')
+      if (row.travel_mode != null && !['walk', 'mrt', 'car'].includes(row.travel_mode)) throw bad('stops_travel_mode_check')
+      if (row.not_before_minute != null && !(Number.isInteger(row.not_before_minute) && row.not_before_minute >= 0 && row.not_before_minute <= 1439)) throw bad('not_before_minute_range')
+    } else if (table === 'commute_ledger') {
+      if (!profiles[row.user_id]) throw new DbError('23503', 'insert or update on table "commute_ledger" violates foreign key constraint "commute_ledger_user_id_fkey"')
+      for (const column of ['minutes_in', 'minutes_between', 'minutes_home']) if (!(Number.isInteger(row[column]) && row[column] >= 0)) throw bad(`commute_ledger_${column}_check`)
+      if (typeof row.delta_from_mean !== 'number' || !Number.isFinite(row.delta_from_mean)) throw new DbError('23502', 'null value in column "delta_from_mean" of relation "commute_ledger" violates not-null constraint')
+    } else {
+      if (typeof row.venue_id !== 'string' || row.venue_id.length < 1 || row.venue_id.length > 160) throw bad('stop_proposals_venue_id_check')
+      if (!['pending', 'accepted', 'dismissed'].includes(row.status)) throw bad('stop_proposals_status_check')
+      if ((row.status === 'pending') !== (row.resolved_at == null)) throw bad('stop_proposals_check')
+      if (row.resolved_by != null && row.resolved_at == null) throw bad('stop_proposals_check1')
+      if (!isMember(row.proposed_by, row.session_id)) throw new DbError('23503', 'insert or update on table "stop_proposals" violates foreign key constraint "stop_proposals_session_id_proposed_by_fkey"')
+    }
+  }
+
+  // The key (session_id, seq) of `stops` is unique but deferred: checked at the end of the statement, so stops can swap places in one go.
+  // How to call: checkStopSeq() throws 23505 when two stops of a session share a place in the order
+  function checkStopSeq() {
+    const seen = new Set()
+    for (const stop of tables.stops) {
+      const key = `${stop.session_id}:${stop.seq}`
+      if (seen.has(key)) throw new DbError('23505', 'duplicate key value violates unique constraint "stops_session_id_seq_key"', { status: 409 })
+      seen.add(key)
+    }
+  }
+
+  // The server writes these (the service key only; the grants keep the browser out).
+  // How to call: insertPlanRow('stops', { session_id, seq: 0, slot_id, category: 'eat', venue_id: 'v25', planned_start_minute: 720, duration_minutes: 60 })
+  function insertPlanRow(table, values) {
+    let row
+    if (table === 'stops') row = { id: newId(), slot_id: null, category: null, travel_mode: null, travel_minutes: null, arrived_at: null, not_before_minute: null, created_at: iso(now()), ...structuredClone(values) }
+    else if (table === 'commute_ledger') row = { minutes_in: 0, minutes_between: 0, minutes_home: 0, delta_from_mean: 0, created_at: iso(now()), ...structuredClone(values) }
+    else row = { id: newId(), status: 'pending', created_at: iso(now()), resolved_at: null, resolved_by: null, ...structuredClone(values) }
+    checkPlanRow(table, row)
+    if (table === 'commute_ledger') row.total_minutes = row.minutes_in + row.minutes_between + row.minutes_home
+    if (tables[table].some((r) => PRIMARY_KEY[table].every((c) => r[c] === row[c]))) throw new DbError('23505', `duplicate key value violates unique constraint "${table}_pkey"`, { status: 409 })
+    if (table === 'stop_proposals' && row.status === 'pending' && tables.stop_proposals.some((r) => r.session_id === row.session_id && r.venue_id === row.venue_id && r.status === 'pending')) {
+      throw new DbError('23505', 'duplicate key value violates unique constraint "stop_proposals_one_pending_idx"', { status: 409 })
+    }
+    tables[table].push(row)
+    publish(table, 'INSERT', row)
+    return row
+  }
+
   // The row-level "using" rule of an update: which rows this identity may change. A host changes their session and its invites;
   // a member changes their own row (and their own exact place) while they are joined and the session is open.
   // How to call: mayChange(uid, 'session_members', row) -> true
@@ -656,6 +778,12 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       } else if (table === 'slots') {
         checkSlot(next)
         next.updated_at = iso(now())
+      } else if (['stops', 'commute_ledger', 'stop_proposals'].includes(table)) {
+        checkPlanRow(table, next)
+        if (table === 'commute_ledger') next.total_minutes = next.minutes_in + next.minutes_between + next.minutes_home
+        if (table === 'stop_proposals' && next.status === 'pending' && tables.stop_proposals.some((r) => r !== old && r.session_id === next.session_id && r.venue_id === next.venue_id && r.status === 'pending')) {
+          throw new DbError('23505', 'duplicate key value violates unique constraint "stop_proposals_one_pending_idx"', { status: 409 })
+        }
       }
       return { old, next }
     })
@@ -663,6 +791,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       Object.assign(old, next)
       publish(table, 'UPDATE', old)
     }
+    if (table === 'stops') checkStopSeq()
     if (!op.returning) return { data: null, error: null, status: 204 }
     // As for an insert: RETURNING a changed row the person may not read fails the statement.
     if (done.some(({ old }) => !self.canSee(as, table, old))) throw rlsRefused(table)
@@ -716,7 +845,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     if (unknownKey !== undefined) throw new DbError('22023', `The plan has a part this function does not know: ${unknownKey}.`)
     if (has(patch, 'session')) {
       if (patch.session === null || typeof patch.session !== 'object' || Array.isArray(patch.session)) throw new DbError('22023', 'The session part of the plan must be a JSON object.')
-      const unknownSessionKey = Object.keys(patch.session).find((k) => !['status', 'meeting', 'banner', 'radius_meters'].includes(k))
+      const unknownSessionKey = Object.keys(patch.session).find((k) => !['status', 'meeting', 'banner', 'radius_meters', 'replan'].includes(k))
       if (unknownSessionKey !== undefined) throw new DbError('22023', `The session part of the plan has a part this function does not know: ${unknownSessionKey}.`)
     }
     const sp = patch.session ?? {}
@@ -863,6 +992,17 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
             }
             changed = true
           }
+        }
+      } else if (op.op === 'resolve_proposal') {
+        // Stage 5, only the part a guest opting out of a confirmed plan needs: the proposals they had waiting are dismissed in the same
+        // write (migration 20261023000000). Only while the plan stays confirmed; one already answered changes nothing.
+        if (!(s.status === 'confirmed' && newStatus === 'confirmed')) throw ruleBroken('proposal_status', 'A proposal is answered only while the plan is confirmed.')
+        if (!['accepted', 'dismissed'].includes(op.status)) throw new DbError('23514', 'new row for relation "stop_proposals" violates check constraint "stop_proposals_status_check"')
+        const waiting = tables.stop_proposals.find((x) => x.session_id === sid && x.id === op.proposal_id && x.status === 'pending')
+        if (waiting) {
+          Object.assign(waiting, { status: op.status, resolved_at: iso(now()), resolved_by: op.by ?? null })
+          publish('stop_proposals', 'UPDATE', waiting)
+          changed = true
         }
       } else {
         throw new DbError('22023', `Unknown operation ${op.op}.`)
@@ -1013,7 +1153,12 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     if (radiusChanged && sp.radius_meters != null && !(Number.isInteger(sp.radius_meters) && sp.radius_meters >= 100 && sp.radius_meters <= 3000)) {
       throw new DbError('23514', 'new row for relation "sessions" violates check constraint "sessions_radius_meters_check"')
     }
-    if (meetingChanged || travelChanged || bannerChanged || radiusChanged || bannerText !== null) changed = true
+    // The "plan again?" prompt a guest's opting out of a confirmed plan writes: an object or null, a change only where it differs.
+    if (has(sp, 'replan') && sp.replan != null && (typeof sp.replan !== 'object' || Array.isArray(sp.replan))) {
+      throw new DbError('22023', 'The re-plan prompt must be a JSON object or null.')
+    }
+    const replanChanged = has(sp, 'replan') && !sameJson(s.replan ?? null, sp.replan ?? null)
+    if (meetingChanged || travelChanged || bannerChanged || radiusChanged || bannerText !== null || replanChanged) changed = true
     if (!changed) return Number(s.plan_version)
 
     // Each joined member's own minutes to the confirmed area.
@@ -1024,6 +1169,9 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
         if ((m.travel_minutes ?? null) !== minutes) changeMember(m, { travel_minutes: minutes })
       }
     }
+    // Leaving confirmed, or entering it, clears the prompt; otherwise the patch's prompt is kept.
+    if ((s.status === 'confirmed' && newStatus !== 'confirmed') || (s.status === 'voting' && newStatus === 'confirmed')) s.replan = null
+    else if (has(sp, 'replan')) s.replan = sp.replan ?? null
     s.status = newStatus
     if (radiusChanged) s.radius_meters = sp.radius_meters ?? null
     if (meetingChanged) {

@@ -104,8 +104,9 @@ describe('the lobby, for the host', () => {
     expect(view.text(rows[1])).toContain('Joined')
     expect(view.text(rows[1])).not.toContain('(you)')
     // Two people are in, so the host can start it, and nothing says it is held.
-    const start = press(view, 'Start session')
-    expect(start.disabled).toBe(false)
+    // Start session is a link to the Start choice, where the host says how to pick the meeting point; pressing it saves nothing.
+    const start = view.all('a').find((a) => view.text(a).includes('Start session'))
+    expect(start.attrs.href).toBe(`/sessions/${id}/start`)
     expect(view.has('#start-held')).toBe(false)
     expect(view.all('p').filter((p) => view.text(p).includes('comes in the next update'))).toHaveLength(0)
     // The host can take Kim out, and has no Leave.

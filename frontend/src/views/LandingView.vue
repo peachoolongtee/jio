@@ -23,7 +23,8 @@
 // A failed load of the meetups or of the nearby places shows a message with a Retry button, never a skeleton for ever.
 // An outing past its end time with no confirmed plan gets a banner that says when it closes by itself (lib/session.js
 // overdueOuting). A confirmed one finishes by itself: when its end time passes while Home is open, the list is read again,
-// which completes it (lib/api.js settleOutings).
+// which completes it (lib/api.js settleOutings). A shared outing is finished by its host, from its day on, so past its end time it gets a
+// banner of its own that says so (nothing closes it by a clock).
 // "Already out? Find something nearby" (RoamFromHome) sits under the meetups, or alone under the band when there are none,
 // for a local account: it starts a light meetup around one area and opens its Roam list (ticket #98).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -140,7 +141,7 @@ const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAre
 const overdue = computed(() =>
   meetups.value.flatMap((s) => {
     const late = overdueOuting(s, now.value)
-    return late && !dueEnding(s, now.value) ? [{ session: s, closes: singaporeDayTime(late.closesAt) }] : []
+    return late && !dueEnding(s, now.value) ? [{ session: s, closes: late.closesAt ? singaporeDayTime(late.closesAt) : null }] : []
   }),
 )
 // A confirmed outing whose end time has passed: reading the list again finishes it and pays its coins (lib/api.js settleOutings).
@@ -467,7 +468,8 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
     <div class="screen__body home__body">
       <InvitationList />
       <BannerNote v-for="o in overdue" :key="o.session.id" tone="warning" icon="clock" data-testid="home-overdue">
-        {{ o.session.title }} has passed its end time without a confirmed plan. It closes by itself on {{ o.closes }}.
+        <template v-if="o.closes">{{ o.session.title }} has passed its end time without a confirmed plan. It closes by itself on {{ o.closes }}.</template>
+        <template v-else>{{ o.session.title }} has passed its end time. It stays open until its host finishes it.</template>
         <template #actions><AppButton variant="secondary" small :to="sessionPath(o.session)">Open outing</AppButton></template>
       </BannerNote>
       <BannerNote v-if="missingPlace" tone="warning" icon="warning" dismissible @dismiss="missingPlace = false">That place could not be found.</BannerNote>

@@ -234,7 +234,7 @@ const loadShowcaseData = () => act('showcase', async () => {
   }
 })
 
-// Replace the sessions with the demo tour (tour/): one outing in eight checkpoints, and a few side cases. The strip appears
+// Replace the sessions with the demo tour (tour/): one outing in ten checkpoints, and a few side cases. The strip appears
 // on every screen and the lists show the selected checkpoint. This panel closes on the way, since Home is where it starts.
 // How to call: startTheTour()
 const startTheTour = () => act('tour', async () => {
@@ -308,7 +308,7 @@ const setCondition = (key, value) => planner.setCondition(key, value)
       <AppButton block variant="secondary" :disabled="!!running" @click="askShowcase = true">
         {{ running === 'showcase' ? 'Loading showcase data' : 'Load showcase data' }}
       </AppButton>
-      <p class="body-sm text-muted">The demo tour is the same idea told as one outing: eight checkpoints in a strip at the top of every screen, and a few side cases. It also replaces your sessions. Outside development it is at /demo.</p>
+      <p class="body-sm text-muted">The demo tour is the same idea told as one outing: ten checkpoints in a strip at the top of every screen, and a few side cases. It also replaces your sessions. Outside development it is at /demo.</p>
       <AppButton block variant="secondary" :disabled="!!running" @click="startTheTour">
         {{ running === 'tour' ? 'Loading the tour' : 'Start the tour' }}
       </AppButton>

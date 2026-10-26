@@ -67,6 +67,12 @@ export function addSession(world, { id = SESSION, host = HOST, status = 'locatin
     meeting_approximate: null,
     meeting_computed_at: null,
     banner: null,
+    replan: null,
+    order_reason: null,
+    order_source: null,
+    order_suggestion: null,
+    plan_start_minute: null,
+    completed_at: null,
   })
 }
 

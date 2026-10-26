@@ -16,7 +16,7 @@ import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
-import { dueEnding, earnsCoins, itineraryAction, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
+import { dueEnding, earnsCoins, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
 import { combineWeather, stateOf, venueSetting, weatherFrom } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
@@ -368,7 +368,13 @@ const personById = (id) => PEOPLE.find((p) => p.id === id)
 // How to call: leaderboardIds() -> ['ian', 'darius', ...]
 const leaderboardIds = () => (isReal() ? (db.user ? [db.user.id] : []) : PEOPLE.filter((p) => !isCommunity(p.id) || db.friends.includes(p.id)).map((p) => p.id))
 const areaById = (id) => AREAS.find((a) => a.id === id)
-const venueById = (id) => db.venues[id] || VENUES.find((v) => v.id === id)
+// A place by id: the built-in ones, the ones a local account saved with a proposal, and (for a session on the server) the ones the server
+// described for the cards. How to call: venueById('v25') -> { id, name, ... }
+const venueById = (id) => db.venues[id] || VENUES.find((v) => v.id === id) || serverVenues.get(id) || unlistedVenues.get(id)
+
+// A place in a shared plan that the server cannot describe any more (it left the list since the plan was made), as a stand-in the screens can draw:
+// by id, for the visit, never stored. It sits at the meeting area, indoor (so no rain warning is made for it), and is named for what it is.
+const unlistedVenues = new Map()
 
 // What a person has earned, made when it is first needed (a real person who joined a session of this account).
 // How to call: statsOf('7f3c...') -> { meetups: 0, points: 0, seasonPoints: 0 }
@@ -428,6 +434,20 @@ const remote = createSessionsRemote({
     swapOption: (sessionId, slotId, fromId, toId) => planner.swapSessionOption(sessionId, slotId, fromId, toId),
     searchSlot: (sessionId, slotId, q) => planner.searchSessionSlot(sessionId, slotId, q),
     venues: (ids) => planner.venuesByIds(ids),
+    suggestOrder: (sessionId) => planner.suggestSessionOrder(sessionId),
+    confirmPlan: (sessionId, body) => planner.confirmSessionPlan(sessionId, body),
+    replan: (sessionId, accept) => planner.replanSession(sessionId, accept),
+    complete: (sessionId) => planner.completeSession(sessionId),
+    patchStop: (sessionId, stopId, body) => planner.patchSessionStop(sessionId, stopId, body),
+    deleteStop: (sessionId, stopId) => planner.deleteSessionStop(sessionId, stopId),
+    reorderStops: (sessionId, stopIds) => planner.putSessionStopOrder(sessionId, stopIds),
+    stopSwap: (sessionId, stopId) => planner.getSessionStopSwap(sessionId, stopId),
+    stopChoices: (sessionId, stopId, options) => planner.getSessionStopChoices(sessionId, stopId, options),
+    changeStopPlace: (sessionId, stopId, body) => planner.putSessionStopPlace(sessionId, stopId, body),
+    keepRain: (sessionId, stopId, state) => planner.putSessionStopRain(sessionId, stopId, state),
+    roam: (sessionId, options) => planner.roamSession(sessionId, options),
+    propose: (sessionId, venueId) => planner.proposeSessionStop(sessionId, venueId),
+    resolve: (sessionId, proposalId, accept) => planner.resolveSessionProposal(sessionId, proposalId, accept),
   },
 })
 
@@ -447,6 +467,19 @@ function rememberSlots(sessionId, slotRows) {
 function forgetSlots(sessionId) {
   for (const [slotId, owner] of [...slotSessions]) if (owner === sessionId) slotSessions.delete(slotId)
 }
+// The session of each stop of an itinerary this account has read, by stop id, so a live delete of a stop (which carries only the stop's key)
+// is read as a change to the session it belonged to. A stop nobody here has read is ignored: whatever creates it raises the session's version.
+const stopSessions = new Map()
+// Remember the stops of a session as last handed out, in place of any it had before. Called only where a read is the newest handed out.
+// How to call: rememberStops('3b1f...', read.plan)
+function rememberStops(sessionId, plan) {
+  forgetStops(sessionId)
+  for (const stop of plan?.stops || []) if (stop.stopId) stopSessions.set(stop.stopId, sessionId)
+}
+// How to call: forgetStops('3b1f...')
+function forgetStops(sessionId) {
+  for (const [stopId, owner] of [...stopSessions]) if (owner === sessionId) stopSessions.delete(stopId)
+}
 // The rows of each session of the server as last handed out by a read, before they were made into what the screens keep, so that a live
 // vote can be folded in by reading the votes alone (getSession with `votesOnly`).
 const heldRows = new Map()
@@ -462,6 +495,9 @@ const searchedNames = new Map()
 // has none). The server's banner is the group's, so dismissing it is this person's alone: it is kept in this browser, under
 // the account, and a newer banner (another stamp) shows again.
 const dismissedBanners = new Map()
+// The basis of the votes the host was last shown in the Confirm dialog, by session (what the server said it made its answer for, an order or none).
+// It is a note of what was on screen, not data: it is sent back with the confirm so the server can tell the votes moved, and forgotten at once.
+const shownBasis = new Map()
 // The server writes `at` (the time it was written, in milliseconds) on every banner, so a newer banner always has a new stamp; the
 // version is only the fallback for a banner without one.
 // How to call: bannerStamp({ at: 1760000000000 }, 4) -> 1760000000000
@@ -522,8 +558,9 @@ function repairSpots(read) {
     .catch(() => {})
 }
 
-// A session read from the server, completed with the fields that belong to the later stages (votes, the plan), all empty,
-// so that summary() makes the same shape as for a local session. Where people start, the meeting area, the spots and the
+// A session read from the server, in the shape summary() makes a summary of for a local session: the plan (the stops, how the group
+// travels between them, when it starts and the sentence about the order), the "Re-plan?" question and the places waiting to be added come
+// from the server's rows. Where people start, the meeting area, the spots and the
 // banner are the server's. The banner is hidden once this person dismissed it.
 // How to call: summary(fromServer(await remote.get(id)))
 function fromServer(row) {
@@ -543,9 +580,7 @@ function fromServer(row) {
     locations: knownLocations(row.locations),
     meeting: meeting && areaById(meeting.areaId) ? meeting : null,
     spots: knownSpots(row.spots),
-    plan: null,
     banner,
-    replan: null,
     photos: [],
   }
 }
@@ -619,6 +654,7 @@ function openChannel() {
       if (change.mine) {
         serverMembers.delete(change.sessionId)
         forgetSlots(change.sessionId)
+        forgetStops(change.sessionId)
         heldRows.delete(change.sessionId)
         newestPlanRead.delete(change.sessionId)
         broadcast({ type: 'session-gone', sessionId: change.sessionId })
@@ -628,6 +664,10 @@ function openChannel() {
       // reach this browser as deletes only (they carry no session, and cannot be filtered) and are ignored.
       const sessionId = slotSessions.get(change.slotId)
       if (sessionId) readSoon(sessionId, { votesOnly: true })
+    } else if (change.kind === 'stop-deleted') {
+      // A stop was removed somewhere; only a stop of an itinerary this account has read is read again.
+      const sessionId = stopSessions.get(change.stopId)
+      if (sessionId) readSoon(sessionId)
     } else if (change.kind === 'approval-deleted') {
       // Like a deleted membership: it reaches everyone who listens, and only a session this account knows is read again.
       if (serverMembers.has(change.sessionId)) readSoon(change.sessionId)
@@ -692,7 +732,7 @@ function warmPeople(ids) {
 
 function sessionById(id) {
   const session = db.sessions.find((s) => s.id === id)
-  if (!session && serverMembers.has(id)) throw new Error(SHARING_WORDS.comesNext)
+  if (!session && serverMembers.has(id)) throw new Error(SHARING_WORDS.notShared)
   if (!session) throw Object.assign(new Error('This session does not exist.'), { code: 'not_found' })
   settleInvites(session)
   return session
@@ -1301,6 +1341,8 @@ function resetSessionState() {
   opened.clear()
   repairs.clear()
   dismissedBanners.clear()
+  shownBasis.clear()
+  unlistedVenues.clear()
   epoch += 1
   closeChannel()
 }
@@ -2225,6 +2267,8 @@ function summary(session, { warm = true } = {}) {
     activeIds: activeIds(session),
     areaName: session.meeting ? areaById(session.meeting.areaId).name : '',
     isToday: isSessionDay(session),
+    // The day has passed on a shared outing: nothing finishes it by itself, so its host may from the day on (lib/session.js itineraryAction).
+    pastDay: !!session.remote && session.date < todayKey(),
     findingMeeting: finding.has(session.id),
     findingSpots: findingSpots.has(session.id),
     spots: spotsView(session),
@@ -2256,6 +2300,7 @@ export async function listSessions() {
     // below, for each session whose read is the newest.
     const listed = new Set(read.map((row) => row.id))
     for (const [slotId, sessionId] of [...slotSessions]) if (!listed.has(sessionId)) slotSessions.delete(slotId)
+    for (const [stopId, sessionId] of [...stopSessions]) if (!listed.has(sessionId)) stopSessions.delete(stopId)
     for (const id of [...heldRows.keys()]) if (!listed.has(id)) heldRows.delete(id)
     const rows = read.map((row) => ({ row, session: fromServer(row) }))
     announceCoMembers()
@@ -2265,6 +2310,7 @@ export async function listSessions() {
       newest(session.id, ticket, session.planVersion, () => {
         heldRows.set(row.id, row)
         rememberSlots(row.id, row.slotRows)
+        rememberStops(row.id, row.plan)
         return summary(session, { warm: false })
       }),
     )
@@ -2298,14 +2344,22 @@ export async function getSession(id, { votesOnly = false } = {}) {
         newestPlanRead.delete(id)
         heldRows.delete(id)
         forgetSlots(id)
+        forgetStops(id)
       }
       throw err
     }
     // Read for the account before: not kept, not shown.
     if (asked !== epoch) throw Object.assign(new Error('That was read for another account.'), { code: 'stale' })
+    // The places of the stops and of the proposals waiting are described so the plan and Roam can draw them. A session read does not fail
+    // for want of them: the screens that need them (the itinerary) ask again and say so.
+    if (!votesOnly) {
+      await ensureVenues([...(read.plan?.stops || []).map((s) => s.venueId), ...(read.proposals || []).map((p) => p.venueId)]).catch(() => {})
+      if (asked !== epoch) throw Object.assign(new Error('That was read for another account.'), { code: 'stale' })
+    }
     const session = newest(id, ticket, read.planVersion, () => {
       heldRows.set(id, read)
       rememberSlots(id, read.slotRows)
+      rememberStops(id, read.plan)
       return summary(fromServer(read))
     })
     announceCoMembers()
@@ -2438,10 +2492,19 @@ export async function inviteFriends(id, personIds, { pending = false, acceptAfte
   return touch(session, 'session')
 }
 
-export async function startSession(id) {
-  // A session on the server starts with the host's own write: inviting to locating, with two people in (the database checks).
+// The ways a host can choose to pick the meeting point when the session starts (the Start choice): everyone shares where they
+// start and the planner finds a fair spot, or the host names the area. A session with neither (started before the choice
+// existed) reads as 'fairest'.
+export const MEET_BY = ['fairest', 'known']
+
+// Start a session. `meetBy` ('fairest' or 'known') is the host's choice of how the group picks the meeting point; it is saved with
+// the start, and the guests see it. Left out, nothing is saved for it. A session on the server is started by the host's own write
+// of status and meet_by together (the database checks the host and the two people).
+// How to call: await startSession('s1', { meetBy: 'known' })
+export async function startSession(id, { meetBy } = {}) {
+  if (meetBy !== undefined && !MEET_BY.includes(meetBy)) throw new Error('Choose how to pick the meeting point.')
   if (onServer()) {
-    await remote.start(id)
+    await remote.start(id, { meetBy })
     return afterServerWrite(id, 'session')
   }
   await wait(DELAY.write)
@@ -2450,6 +2513,7 @@ export async function startSession(id) {
   // Invites nobody accepted yet lapse: the session goes ahead with whoever is in.
   session.members = session.members.filter((m) => m.state !== 'invited')
   session.status = 'locating'
+  if (meetBy) session.meetBy = meetBy
   return touch(session, 'session')
 }
 
@@ -2762,6 +2826,7 @@ export async function confirmSpot(id, areaId) {
 export async function setKnownPlace(id, areaId) {
   if (onServer()) {
     if (!areaById(areaId)) throw new Error(SHARING_WORDS.noArea)
+    // The server records the host's choice itself, after the known place is written (the browser writes nothing more for it here).
     await remote.knownPlace(id, areaId)
     return afterServerWrite(id, 'session')
   }
@@ -2781,6 +2846,7 @@ export async function setKnownPlace(id, areaId) {
     session.spots = { ...emptySpots(), list: [{ areaId, by: session.hostId, here: false, worstMinutes: priced.worstMinutes, meanMinutes: priced.meanMinutes, exactWorst: priced.exactWorst, times: { ...priced.times }, approximate: priced.approximate }] }
     session.meeting = meeting
     session.status = 'voting'
+    session.meetBy = 'known'
     session.banner = null
     await syncOptions(session)
     return touch(session, 'session')
@@ -2976,6 +3042,7 @@ export async function leaveSession(id) {
   forgetSlots(id)
   heldRows.delete(id)
   newestPlanRead.delete(id)
+  forgetStops(id)
   broadcast({ type: 'session-gone', sessionId: id })
 }
 
@@ -3254,6 +3321,9 @@ export async function addOption(id, slotId, venueId) {
 // How to call: await swapOption('s1', 'activity', 'east-coast-park', 'toa-payoh-library')
 export async function swapOption(id, slotId, fromId, toId) {
   if (onServer()) {
+    // A confirmed plan's stop is changed the one way there is (changeStopPlace); only while voting is it a swap of the group's options.
+    const session = await planSession(id)
+    if (session.status === 'confirmed' && session.plan?.stops.some((s) => s.slotId === slotId)) return swapPlannedStop(session, slotId, fromId, toId)
     await remote.swapOption(id, slotId, fromId, toId)
     return afterServerWrite(id, 'options')
   }
@@ -3590,6 +3660,18 @@ export async function getPlan(id, { votesOnly = false } = {}) {
 // exactly the stops this confirm makes and its times belong to its order (P.suggestionFits); otherwise (a tie came out
 // differently) the plan keeps the voted order.
 export async function confirmPlan(id, suggestion = null) {
+  // A session on the server: the host confirms and the server writes the stops from its own rows. The browser says only which order it
+  // showed (the voted one, or the suggested one by its `basis`), never the stops, the reason or the source. A suggestion the votes have
+  // since outdated is refused with 409 `order_stale` (nothing was written); the screen redraws the dialog and the host confirms again.
+  if (onServer()) {
+    const basis = typeof suggestion?.basis === 'string' ? suggestion.basis : null
+    // The voted order carries the basis of the votes the host was shown (from the last question to the server, for an order or for none), so a
+    // vote that moved a winner since is refused (409 `order_stale`, nothing written) and the host looks again.
+    const seen = shownBasis.get(id)
+    shownBasis.delete(id)
+    await remote.confirmPlan(id, basis ? { order: 'suggested', basis } : { order: 'voted', ...(seen && { basis: seen }) })
+    return afterServerWrite(id, 'session')
+  }
   await wait(DELAY.plan)
   const session = sessionById(id)
   const ids = activeIds(session)
@@ -3623,9 +3705,56 @@ export async function confirmPlan(id, suggestion = null) {
   return touch(session, 'session')
 }
 
-export async function getItinerary(id) {
+// The session of the server a plan screen is about, read afresh, with the places of its stops and proposals described (the cards and the
+// layout need them). Rejects with the sentence for a failure to read either, which the screen shows with a retry.
+// `known` is a session just read by the caller (a live update read it and asks for the itinerary at once): it is used as it is, so one event is
+// one read of the session, not two.
+// How to call: const session = await planSession('3b1f...'); const same = await planSession('3b1f...', justRead)
+async function planSession(id, known = null) {
+  const session = known ?? (await getSession(id))
+  await describePlaces(session)
+  return session
+}
+
+// The session as last read (the newest handed out), with its places described, for a question that does not need a read of its own (the rain swap, the
+// weather check): it asks the server only for a place it does not know, and reads the session afresh only when none was read. Rejects as planSession does.
+// How to call: const session = await planSessionHeld('3b1f...')
+async function planSessionHeld(id) {
+  const held = newestRead.get(id)?.session
+  if (!held) return planSession(id)
+  const session = clone(held)
+  await describePlaces(session)
+  return session
+}
+
+// Asks for the places of a session's stops and proposals that the server has not described yet (once each), and stands in for a stop's place the
+// server cannot describe. Rejects with the sentence for a failure to read.
+// How to call: await describePlaces(session)
+async function describePlaces(session) {
+  const wanted = [...(session.plan?.stops || []).map((s) => s.venueId), ...(session.proposals || []).map((p) => p.venueId)]
+  await ensureVenues(wanted)
+  // A stop whose place the server cannot describe is drawn as "A place that is no longer listed", with its controls (the host can delete it or
+  // put another place in it), instead of failing the whole plan.
+  const at = session.meeting ? areaById(session.meeting.areaId) : null
+  for (const stop of session.plan?.stops || []) {
+    if (venueById(stop.venueId)) continue
+    unlistedVenues.set(stop.venueId, { id: stop.venueId, name: SHARING_WORDS.placeUnlisted, category: stop.category, area: at?.name ?? '', lat: at?.lat ?? 1.3521, lng: at?.lng ?? 103.8198, price: 0, rating: null, hours: [], serves: [], tags: [], indoor: true, unlisted: true })
+  }
+}
+
+// The itinerary of a confirmed or finished plan: the stops laid out in time (a meal at its time, a shop after it opens), the travel between
+// them, the end, and each person's trip home. A session on the server is read from the database (planSession) and laid out by the same
+// rules as a local one, from the same shape of plan; each stop also carries its `stopId`, which is what the server's routes name.
+// How to call: await getItinerary('3b1f...')
+// `session` may be a session of the server the caller has just read (a live update): it is laid out as it is, without reading it again.
+export async function getItinerary(id, { session } = {}) {
+  if (onServer()) return itineraryView(await planSession(id, session ?? null))
   await wait(DELAY.read)
-  const session = sessionById(id)
+  return itineraryView(sessionById(id))
+}
+
+// How to call: itineraryView(session) -> { stops, weather, legs, end, trips, aiNote, area, starts } or null for a session with no plan
+function itineraryView(session) {
   if (!session.plan) return null
   const stops = session.plan.stops.map((s) => ({ ...s, venue: venueById(s.venueId) }))
   const startAt = session.plan.startAt ?? Math.min(...session.plan.stops.map((s) => s.plannedStart))
@@ -3641,7 +3770,7 @@ export async function getItinerary(id) {
   // How to call: keptWeather(timed[0]) -> { state: 'dry', ... } or null
   const keptWeather = (s) => session.confirmedRanking?.[s.slotId]?.[s.venue?.id]?.weather ?? null
   return {
-    stops: timed.map((s, index) => ({ index, slotId: s.slotId, category: s.category, venue: clone(s.venue), start: s.start, end: s.end, duration: s.duration, open: s.open, withinWindow: s.withinWindow, withinStay: s.withinStay, weather: keptWeather(s) })),
+    stops: timed.map((s, index) => ({ index, slotId: s.slotId, ...(s.stopId ? { stopId: s.stopId } : {}), category: s.category, venue: clone(s.venue), start: s.start, end: s.end, duration: s.duration, open: s.open, withinWindow: s.withinWindow, withinStay: s.withinStay, weather: keptWeather(s) })),
     // Where the kept forecast came from, once for all stops, or null.
     weather: combineWeather(timed.map(keptWeather)),
     legs,
@@ -3682,8 +3811,8 @@ function localStart(day, minutes) {
 // Resolves { checkedAt, stops: { [slotId]: weather object }, weather: the answer's block }.
 // How to call: await checkStopWeather('s1')
 export async function checkStopWeather(id) {
-  await wait(DELAY.read)
-  const session = sessionById(id)
+  if (!onServer()) await wait(DELAY.read)
+  const session = onServer() ? await planSessionHeld(id) : sessionById(id)
   const stops = timedStops(session).flatMap((s) => {
     const venue = venueById(s.venueId)
     if (!venue) return []
@@ -3714,6 +3843,16 @@ const slotOfStop = (stop) => ({ id: stop.slotId, category: stop.category, start:
 // written. Resolves { id, name } or null; a failed request throws.
 // How to call: await findRainSwap('s1', 'activity') -> { id: 'toa-payoh-library', name: 'Toa Payoh Public Library' }
 export async function findRainSwap(id, slotId) {
+  // A session on the server: the server's own ranking of the stop's place at its time; the indoor place it offers, or none.
+  if (onServer()) {
+    const session = await planSessionHeld(id)
+    const stop = session.plan?.stops.find((s) => s.slotId === slotId)
+    if (!stop) return null
+    const answer = await remote.stopSwap(id, stop.stopId)
+    const swap = answer?.swap
+    if (!swap || typeof swap.venueId !== 'string') return null
+    return { id: swap.venueId, name: String(swap.name ?? '') }
+  }
   await wait(DELAY.read)
   const session = sessionById(id)
   const stop = timedStops(session).find((s) => s.slotId === slotId)
@@ -3740,10 +3879,16 @@ async function changeStopPlace(session, slotId, toId, { fromId, category, last =
   if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can have a stop replaced.')
   const { stop: current, slot } = stopSlot(session, slotId, category)
   const seen = fromId ?? current.venueId
-  if (current.venueId === toId && current.category === slot.category) return summary(session)
+  if (current.venueId === toId && current.category === slot.category) return session.remote ? getSession(session.id) : summary(session)
   if (current.venueId !== seen) throw new Error('That stop has changed. Look at the plan again.')
   const taken = () => session.plan.stops.some((s) => s.slotId !== slotId && s.venueId === toId)
   if (taken()) throw new Error(`${venueById(toId)?.name || 'This place'} is already in the plan.`)
+  // A session on the server: the server checks that the place exists and fits the stop's time on its day, that the stop still holds what the
+  // caller saw, and keeps the stop from starting earlier than the time it was checked for (the server's own rule; the browser sends no time).
+  if (session.remote) {
+    await remote.changeStopPlace(session.id, current.stopId, { venueId: toId, seenVenueId: seen, category: slot.category })
+    return afterServerWrite(session.id, 'options')
+  }
   const ranked = await rankSlot({ ...session, date: stopDay(session) }, slot, last ? [slot] : [], [toId])
   const found = [...ranked.current, ...ranked.options].find((o) => o.venue.id === toId)
   if (!found) throw new Error(`${venueById(toId)?.name || 'That place'} does not fit this stop.${verb === 'replace' ? ' Choose another place.' : ''}`)
@@ -3775,9 +3920,20 @@ async function swapPlannedStop(session, slotId, fromId, toId) {
 
 
 // The host keeps a stop as it is in the rain. The warning stays dismissed for that stop until the forecast changes state
-// (lib/weatherText.js isDismissed), so `state` is the forecast's state when it was dismissed. Only the host.
+// (lib/weatherText.js isDismissed), so `state` is the forecast's state when it was dismissed. Only the host. For a session on the server it is
+// stored on the session, so everyone's screens agree.
 // How to call: await dismissRainWarning('s1', 'activity', 'showers')
 export async function dismissRainWarning(id, slotId, state) {
+  // A session on the server: the host's press is stored on the session (`sessions.weather_kept`, by the server), so every member and every
+  // device of the host sees the warning put away; it comes back when the forecast changes state, and goes when the stop's place changes.
+  if (onServer()) {
+    const session = await planSession(id)
+    if (session.hostId !== me()) throw new Error('Only the host can dismiss this.')
+    const stop = session.status === 'confirmed' ? session.plan?.stops.find((s) => s.slotId === slotId) : null
+    if (!stop?.stopId) throw new Error('This stop is not in the plan.')
+    await remote.keepRain(id, stop.stopId, stateOf(state))
+    return afterServerWrite(id, 'plan')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   if (session.hostId !== me()) throw new Error('Only the host can dismiss this.')
@@ -3786,7 +3942,23 @@ export async function dismissRainWarning(id, slotId, state) {
   return touch(session, 'plan')
 }
 
-export async function setTravelMode(id, legIndex, mode) {
+// Which stop of a session on the server is at `index` in the plan the person last saw, for the routes that name a stop. `seen` is the stop
+// ids the caller drew its list from (when it knows them), which are the stops the index means.
+// How to call: stopIdAt(newestRead.get(id)?.session, 2) -> '5d0c...'
+function stopIdAt(session, index, seen) {
+  const id = (seen || (session?.plan?.stops || []).map((s) => s.stopId))[index]
+  if (!id) throw Object.assign(new Error(SHARING_WORDS.stopGone), { code: 'stop_not_found' })
+  return id
+}
+
+// How the group gets to the stop after leg `legIndex`: 'walk', 'mrt' or 'car'. On the server this is the host's, and `stopId` (the stop
+// the leg leads to, which the itinerary carries) says which stop, so a plan another device has changed is never written to by position.
+// How to call: await setTravelMode('s1', 0, 'mrt'); await setTravelMode('3b1f...', 0, 'mrt', { stopId: '5d0c...' })
+export async function setTravelMode(id, legIndex, mode, { stopId } = {}) {
+  if (onServer()) {
+    await remote.setTravelMode(id, stopId ?? stopIdAt(newestRead.get(id)?.session, legIndex + 1), mode)
+    return afterServerWrite(id, 'plan')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   planOf(session)
@@ -3859,6 +4031,7 @@ function wouldConfirm(session) {
 // How to call: const suggestion = await suggestOrder('s1')
 //   suggestion // { order: ['activity', 'eat', 'shop'], stops: [{ slotId, category, venueId, name, start, duration }], reason, source }
 export async function suggestOrder(id) {
+  if (onServer()) return suggestOrderOnServer(id)
   const session = sessionById(id)
   if (session.status !== 'voting') return null
   const stops = wouldConfirm(session)
@@ -3876,9 +4049,39 @@ export async function suggestOrder(id) {
   }
 }
 
+// The server's suggested order, in the shape the Confirm dialog reads (the local one's, plus the `basis` the confirm sends back). The server
+// sends slot ids, places and starts; the category and the length of each stop are the slot's and the name is the place's, from the plan
+// the dialog was drawn from. Resolves null when the server has no other order to offer, or an answer that cannot be drawn.
+// How to call: const suggestion = await suggestOrderOnServer('3b1f...')
+async function suggestOrderOnServer(id) {
+  const asked = epoch
+  const answer = await remote.suggestOrder(id, { onBasis: (basis) => shownBasis.set(id, basis) })
+  // Asked for by the account before: not used, not shown.
+  if (!answer || asked !== epoch) return null
+  const plan = newestPlanRead.get(id)?.plan ?? (await planFromServer(id))
+  await ensureVenues(answer.stops.map((s) => s.venueId))
+  if (asked !== epoch) return null
+  const stops = answer.stops.map((s) => {
+    const slot = plan.slots.find((x) => x.id === s.slotId)
+    const venue = serverVenues.get(s.venueId)
+    return slot && venue ? { slotId: s.slotId, category: slot.category, venueId: s.venueId, name: venue.name, start: s.start, duration: slot.duration } : null
+  })
+  if (stops.some((s) => !s)) return null
+  return { order: answer.order, basis: answer.basis, stops, reason: P.cleanReason(answer.reason), source: answer.source === 'ai' ? 'ai' : 'rules' }
+}
+
 // Rearrange the itinerary: move the stop at `from` to `to`. The plan keeps its start time and every stop is
 // re-timed after the one before it. Travel modes go back to their defaults, because the legs are new pairs.
-export async function reorderStops(id, from, to) {
+// On the server the move is the host's, and `seen` (the stop ids as the caller drew its list) is checked against the stops now: a move made
+// from a list another device has since changed is turned away (`plan_changed`) and nothing is written.
+export async function reorderStops(id, from, to, { seen } = {}) {
+  if (onServer()) {
+    const now = await remote.stopIds(id)
+    if (seen && (seen.length !== now.length || seen.some((stopId, i) => stopId !== now[i]))) throw Object.assign(new Error(SHARING_WORDS.planChanged), { code: 'plan_changed' })
+    if (from === to || from < 0 || to < 0 || from >= now.length || to >= now.length) return getSession(id)
+    await remote.reorderStops(id, P.moveItem(now, from, to))
+    return afterServerWrite(id, 'plan')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can be rearranged.')
@@ -3900,7 +4103,13 @@ function withoutAiTime(stop) {
   return rest
 }
 
-export async function deleteStop(id, index) {
+// On the server the stop is named by `stopId` (the itinerary carries it), and deleting one that is gone already is "that stop is not in
+// the plan any more", not a delete of whichever stop took its place.
+export async function deleteStop(id, index, { stopId } = {}) {
+  if (onServer()) {
+    await remote.deleteStop(id, stopId ?? stopIdAt(newestRead.get(id)?.session, index))
+    return afterServerWrite(id, 'plan')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   const { stops, modes = [] } = planOf(session)
@@ -3973,7 +4182,7 @@ function clearProposals(session) {
 function assertRoamOpen(session) {
   if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
   if (session.status !== 'confirmed' || !session.plan) throw new Error('Places can be proposed once the plan is confirmed.')
-  if (itineraryAction({ status: session.status, isToday: isSessionDay(session) }) !== 'finish') throw new Error('Places can be proposed on the day of the outing.')
+  if (!isSessionDay(session)) throw new Error('Places can be proposed on the day of the outing.')
 }
 
 // The stops of the plan with their times, as the itinerary lays them out.
@@ -3984,6 +4193,43 @@ function timedStops(session) {
   const windowEnd = windowOf(session).windowEnd
   const stayUntil = P.groupStayUntil(activePrefs(session), windowEnd)
   return P.buildItinerary(stops.map((s) => ({ ...s, venue: venueById(s.venueId) })), modes, startAt, { windowEnd, stayUntil }).stops
+}
+
+// "What next?" for a session on the server: the server ranks the places near the group (its own view of the group's needs), the list is
+// centred on the meeting area unless `point` ({ lat, lng }, "Use my location") says otherwise (sent for this one request, never stored), and
+// each place is marked as the plan and the proposals stand now. The people's dietary needs are the server's business here: the answer
+// names none. Nothing is written.
+// How to call: await roamOnServer('3b1f...', { point: { lat: 1.3521, lng: 103.8198 }, categories: ['eat'] })
+async function roamOnServer(id, { point, categories } = {}) {
+  const session = await planSession(id)
+  assertRoamOpen(session)
+  if (!session.meeting) throw new Error('There is no meeting area yet.')
+  const own = point !== undefined && point !== null
+  if (own && !(Number.isFinite(point.lat) && Number.isFinite(point.lng) && P.inSingapore(point))) throw new Error('That place is outside Singapore. Pick an area instead.')
+  const answer = await remote.roam(id, { current: own ? { lat: point.lat, lng: point.lng } : undefined, categories })
+  // The cards of the places listed are known now, so a place proposed from the list can be drawn at once.
+  for (const place of answer.places) if (place.venue) serverVenues.set(place.id, place.venue)
+  // The plan and the proposals as they stand now (read afresh by the answer's own time, not the page's).
+  const now = await planSession(id)
+  const meetingArea = areaById(now.meeting.areaId)
+  const here = own ? { lat: point.lat, lng: point.lng } : { lat: meetingArea.lat, lng: meetingArea.lng }
+  const stopIds = (now.plan?.stops || []).map((s) => s.venueId)
+  const proposals = proposalsOf(now)
+  const area = own ? areaForPoint(here) : meetingArea
+  return {
+    centre: { areaId: area.id, areaName: area.name },
+    places: answer.places.map((place) => {
+      const { state, proposal } = placeState(place.id, place.isStop ? [...stopIds, place.id] : stopIds, proposals)
+      return { ...place, state, proposal: proposal ? { id: proposal.id, by: proposal.by, byName: nameOf(proposal.by) } : null }
+    }),
+    empty: answer.empty,
+    widened: answer.widened,
+    dietary: [],
+    unconfirmed: false,
+    dietFew: false,
+    ...(answer.weather ? { weather: combineWeather([answer.weather]) } : {}),
+    blocked: proposeBlock({ stops: stopIds.length, mine: proposals.filter((p) => p.by === me()).length, total: proposals.length }),
+  }
 }
 
 // "What next?": ranked places near where the group is, for a plan that is under way. The list is centred on the meeting
@@ -3999,6 +4245,7 @@ function timedStops(session) {
 // `dietary` (the group's needs, no names), `unconfirmed`, and `dietFew` when fewer than 3 food places fit.
 // How to call: await roamNearby('s1', { point: { lat: 1.3521, lng: 103.8198 }, categories: ['eat'] })
 export async function roamNearby(id, { point, categories, unconfirmed = false } = {}) {
+  if (onServer()) return roamOnServer(id, { point, categories })
   await wait(DELAY.read)
   const session = sessionById(id)
   assertRoamOpen(session)
@@ -4050,6 +4297,13 @@ export async function roamNearby(id, { point, categories, unconfirmed = false } 
 // (8 stops) takes no more. The place must be one the planner sent in this visit, or one already known.
 // How to call: await proposeStop('s1', 'faith', 'v25')
 export async function proposeStop(id, personId, venueId) {
+  // A session on the server: the server checks the place exists, is not in the plan, and the limits (3 a person, 10 a session, 8 stops).
+  if (onServer()) {
+    requireMe(personId)
+    if (personId !== me()) throw new Error(SHARING_WORDS.notAllowed)
+    const made = await remote.propose(id, venueId)
+    return { ...(await afterServerWrite(id, 'plan')), applied: !made.existing }
+  }
   await wait(DELAY.write)
   requireMe(personId)
   const session = sessionById(id)
@@ -4082,6 +4336,14 @@ export async function proposeStop(id, personId, venueId) {
 // only decides whether new places can be proposed (assertRoamOpen), not whether the host may answer those already waiting.
 // How to call: await resolveProposal('s1', 'pp7', true) -> { ...session, applied: true }
 export async function resolveProposal(id, proposalId, accept) {
+  // A session on the server: the host adds the place to the plan or leaves it out; the proposer may take their own back. A proposal that is
+  // no longer there (another device answered it, or a re-plan took it) is a 200 from the server with `applied: false`, which changes nothing,
+  // and the answer says so.
+  if (onServer()) {
+    requireMe()
+    const answered = await remote.resolve(id, proposalId, accept)
+    return { ...(await afterServerWrite(id, 'plan')), applied: answered?.applied !== false }
+  }
   await wait(DELAY.write)
   requireMe()
   const session = sessionById(id)
@@ -4187,7 +4449,47 @@ function stopSlot(session, slotId, category) {
 // votes the group gave it in that category (0 for a place nobody voted on). Only the host. Throws unless the plan is
 // confirmed and has this stop.
 // How to call: const { stop, options } = await replaceChoices('s1', 'drink', 'activity')
+// What could take a confirmed stop's place on the server: its own ranking for the stop's time on its day (every place the group voted on in
+// that category among them, with its votes), as cards. The people who voted for a place are not named here, only how many did.
+// How to call: await replaceChoicesOnServer('3b1f...', 'drink', 'activity')
+async function replaceChoicesOnServer(id, slotId, category) {
+  const session = await planSession(id)
+  if (session.hostId !== me()) throw new Error('Only the host can replace a stop.')
+  if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can have a stop replaced.')
+  const { stop, slot, count } = stopSlot(session, slotId, category)
+  const answer = await remote.stopChoices(id, stop.stopId, { category: slot.category })
+  await ensureVenues(answer.options.map((o) => o.venueId))
+  const area = areaById(session.meeting.areaId)
+  const options = answer.options.flatMap((o) => {
+    const venue = serverVenues.get(o.venueId)
+    if (!venue) return []
+    const d = o.details && typeof o.details === 'object' ? o.details : {}
+    const weather = weatherFrom(d.weather)
+    return [{
+      id: o.venueId,
+      venue: clone(venue),
+      score: Number(o.score) || 0,
+      walk: d.walkMinutes ?? P.walkMinutes(area, venue),
+      distanceM: Math.round(P.distanceKm(area, venue) * 1000),
+      reasons: d.reasons ?? [],
+      warnings: d.warnings ?? [],
+      votes: Number(o.votes) || 0,
+      voters: [],
+      swap: null,
+      explanation: d.explanation ?? '',
+      dietUnknown: [],
+      verify: [],
+      checkNeeds: d.checkNeeds === true,
+      approximate: !!d.approximate,
+      ...(weather ? { weather } : {}),
+    }]
+  })
+  options.sort((a, b) => b.votes - a.votes || a.score - b.score)
+  return { stop: { slotId, category: stop.category, venue: clone(venueById(stop.venueId)), start: slot.start, time: slot.time, duration: stop.duration }, category: answer.category, stopCount: count, options }
+}
+
 export async function replaceChoices(id, slotId, category) {
+  if (onServer()) return replaceChoicesOnServer(id, slotId, category)
   await wait(DELAY.plan)
   const session = sessionById(id)
   if (session.hostId !== me()) throw new Error('Only the host can replace a stop.')
@@ -4243,14 +4545,19 @@ export async function replaceChoices(id, slotId, category) {
 // stop keeps its start and length (see changeStopPlace).
 // How to call: await replaceStop('s1', 'drink', 'cdc_560160', 'activity', 'cdc_100001')
 export async function replaceStop(id, slotId, venueId, category, seenId) {
-  await wait(DELAY.write)
-  const session = sessionById(id)
+  if (!onServer()) await wait(DELAY.write)
+  const session = onServer() ? await planSession(id) : sessionById(id)
   const isLast = session.plan?.stops.at(-1)?.slotId === slotId
   return changeStopPlace(session, slotId, venueId, { fromId: seenId, category, last: isLast, verb: 'replace' })
 }
 
 // After Confirmed, a change asks "Re-plan?". Accepting returns the session to Voting; declining keeps the plan.
 export async function respondReplan(id, accept) {
+  // On the server the question is the host's to answer: re-planning takes the plan back to voting, and "keep the plan" only turns it off.
+  if (onServer()) {
+    await remote.replan(id, !!accept)
+    return afterServerWrite(id, 'session')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   const trigger = session.replan?.trigger || null
@@ -4263,6 +4570,10 @@ export async function respondReplan(id, accept) {
 
 // Edit → Re-plan from the itinerary.
 export async function replan(id) {
+  if (onServer()) {
+    await remote.replan(id, true)
+    return afterServerWrite(id, 'session')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   return orUndo(session, async () => {
@@ -4297,13 +4608,30 @@ async function reopenVoting(session, trigger) {
   session.banner = { text: cleared ? `${text} ${VOTES_CLEARED}` : text, at: Date.now(), ...(cleared ? { votesCleared: true } : {}) }
 }
 
+// On the server only the host ends the outing, and the server writes everyone's travel ledger row (getLedger). No coins are paid: JioCoins
+// are kept in each browser, and a finished outing cannot pay the people who are not in this one.
 export async function endPlan(id) {
+  if (onServer()) {
+    await remote.complete(id)
+    return afterServerWrite(id, 'session')
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   if (session.status === 'completed') throw new Error('This outing has already finished.')
   if (session.status !== 'confirmed') throw new Error('Only a confirmed plan can be ended.')
   if (completeOuting(session, 'hand')) emit({ type: 'stats' })
   return touch(session, 'session')
+}
+
+// The signed-in person's own travel ledger row for a finished outing on the server: { minutesIn, minutesBetween, minutesHome, total, delta }
+// (`delta` is minutes more than the group's average, or fewer when negative), or null while there is none (the outing is not finished, or the
+// server wrote none). A local outing keeps no ledger: null. Their row only, whatever else the rules let them read.
+// How to call: const ledger = await getLedger('3b1f...')
+export async function getLedger(id) {
+  if (!onServer()) return null
+  const asked = epoch
+  const row = await remote.myLedger(id)
+  return asked === epoch ? row : null
 }
 
 // Completes an outing. `how` is kept as `endedBy`: 'hand' ("Finish outing"), 'auto' (its end time passed) or 'closed' (two days
@@ -4365,6 +4693,8 @@ function settleOutings(now = new Date()) {
 
 // Everyone in a session can post up to PHOTOS_MAX pictures. src is a data URL (see image.js).
 export async function addPhoto(id, personId, src) {
+  // Photos are not on the server yet: they would need their own private storage (the design leaves them out), so a session of the server says so.
+  if (onServer() && !db.sessions.some((s) => s.id === id)) throw new Error(SHARING_WORDS.photosLater)
   await wait(DELAY.write)
   requireMe(personId)
   const session = sessionById(id)
@@ -4381,12 +4711,14 @@ export async function addPhoto(id, personId, src) {
 // (the strip on the session and the card thumbnails). A session summary has only photoCount.
 // How to call: await getPhotos('s1') or await getPhotos('s1', { latest: 4 })
 export async function getPhotos(id, { latest } = {}) {
+  if (onServer() && !db.sessions.some((s) => s.id === id)) return []
   await wait(DELAY.read)
   const photos = sessionById(id).photos || []
   return (latest ? photos.slice(-latest) : photos).map((p) => ({ ...p, name: nameOf(p.personId) }))
 }
 
 export async function deletePhoto(id, photoId) {
+  if (onServer() && !db.sessions.some((s) => s.id === id)) throw new Error(SHARING_WORDS.photosLater)
   await wait(DELAY.write)
   const session = sessionById(id)
   session.photos = (session.photos || []).filter((p) => p.id !== photoId)

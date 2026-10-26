@@ -104,6 +104,9 @@ const categories = z
   .transform((c) => [...new Set(c)])
   .optional()
 
+// The point and the list of kinds the session endpoints take for Roam (routes/session-schemas.js): the same checks, the same bounds.
+export { point as pointInput, categories as categoryList }
+
 const memberFields = {
   id: text(),
   name: z.string().max(MAX.text).optional(),

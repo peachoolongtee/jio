@@ -49,14 +49,14 @@ describe('the tour loaded late in the evening', () => {
 
   it('has a "today" window that is already over when it is loaded', async () => {
     const list = await loaded.api.listSessions()
-    const today = story(list, loaded.tour)[6]
+    const today = story(list, loaded.tour)[8]
     expect(today.end < '23:30').toBe(true)
     expect(today.date).toBe('2026-10-10')
   })
 
   it('keeps "On the day" a plan under way, with "Finish outing" offered, not finished at once', async () => {
     const list = await loaded.api.listSessions()
-    const [, , , , , , today, finished] = story(list, loaded.tour)
+    const [, , , , , , , , today, finished] = story(list, loaded.tour)
     expect(today).toMatchObject({ status: 'confirmed', isToday: true, end: '23:00' })
     expect(itineraryAction(today)).toBe('finish')
     expect(today.endedBy).toBeUndefined()
@@ -68,11 +68,11 @@ describe('the tour loaded late in the evening', () => {
     for (const iso of ['2026-10-11T00:30:00+08:00', '2026-10-11T09:00:00+08:00', '2026-10-15T09:00:00+08:00']) {
       vi.setSystemTime(new Date(iso))
       const list = await loaded.api.listSessions()
-      const [, , , , , confirmed, today] = story(list, loaded.tour)
+      const [, , , , , , , confirmed, today] = story(list, loaded.tour)
       expect(today.status, iso).toBe('confirmed')
       expect(confirmed.status, iso).toBe('confirmed')
       // The side cases and earlier saves, none of them closed two days past their end with no plan.
-      expect(list.filter((s) => s.status === 'completed').map((s) => s.id)).toEqual([loaded.tour.manifest.story[7]])
+      expect(list.filter((s) => s.status === 'completed').map((s) => s.id)).toEqual([loaded.tour.manifest.story[9]])
     }
     expect(JSON.parse(loaded.api.storage.store['jio-demo-v1']).stats.ian.points).toBe(before)
   })
@@ -84,7 +84,7 @@ describe('the tour loaded in the morning', () => {
     for (const iso of ['2026-10-10T08:05:00+08:00', '2026-10-10T13:31:00+08:00', '2026-10-10T22:00:00+08:00']) {
       vi.setSystemTime(new Date(iso))
       const list = await api.listSessions()
-      const today = story(list, tour)[6]
+      const today = story(list, tour)[8]
       expect(today.status, iso).toBe('confirmed')
       expect(itineraryAction(today), iso).toBe('finish')
     }

@@ -38,7 +38,7 @@ async function startApp() {
   const app = createApp(App).use(pinia).use(router)
   const start = () => app.mount('#app')
   if (TOUR_BUILT) {
-    // The demo tour reads its saved state first, so the lists never flash all eight saves of the story.
+    // The demo tour reads its saved state first, so the lists never flash all ten saves of the story.
     import('./tour/install.js').then(({ installTour }) => installTour(pinia)).catch((err) => console.error('Jio: the demo tour could not start.', err)).then(start)
   } else {
     start()

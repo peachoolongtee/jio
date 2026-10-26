@@ -9,8 +9,16 @@
 -- and a stop, and 161 refused. Steps 151 to 172 are its smaller rules: a swap of a place for itself changes nothing (151 and 152), a part
 -- of the plan or of the session that the function does not know is refused with 22023 (153 to 157), a member's minutes are written only
 -- where they differ (158 to 162), and the checks on a place's id are dropped by what they check, whatever they are called (163 to 172).
--- They have not been run against Postgres yet (there is none here); the lead runs the whole file once the migration is applied, or in
--- one transaction with the migration's statements before it.
+-- Steps 173 onwards are stage 5's (db/migrations/20261023000000_jio_apply_session_plan_stops.sql): the confirm of the stops (173 to 183),
+-- stops as a difference (184 to 195), a travel mode (196 to 198), a stop changed to another place (199 to 202), Roam proposals (203 to 215),
+-- the ledger and finishing the outing (216 to 227), a ledger row already stored and the travel debt (228 to 231), what a member may read
+-- and no browser may write (232 to 241), the suggested order (242 to 248), and opening the plan again, with a stop that is not listed
+-- going (249 to 257), then a guest opting out of a confirmed plan, with the "Re-plan?" prompt written in the same patch (258 to 269).
+-- Steps 1 to 172 passed on the live project when stage 4 was applied. Steps 258 to 269 add no rule to the function (the migration's text is unchanged): they test what the server's opt-out of a confirmed plan sends. Steps 1 to 269 passed on 26 October 2026 on a fresh build of db/schema.sql and db/policies.sql in a local in-memory Postgres (PGlite 0.3.2, not the live project, not the migration on its own). Steps 1 to 257 were also run, on a local in-memory Postgres (PGlite
+-- 0.4.1, not the live project), once on a fresh build of db/schema.sql and db/policies.sql and once on the live project's state (the
+-- schema of 9 October and the migrations applied since, then stage 5's migration, which was also applied twice and after slice d), and
+-- all passed. The lead runs the whole file on the live project once the stage 5 migration is applied, or in one transaction with the
+-- migration's statements before it.
 --
 -- How to run: after the migration (or a fresh build), run this whole file as ONE batch, in the SQL editor
 -- or with   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/apply_session_plan.sql
@@ -21,7 +29,9 @@
 --
 -- Expected error codes: 42501 = permission denied, 23514 = check constraint, 23505 = unique, 23502 = not null, 22023 = bad parameter
 -- value, P0001 = a rule of the function (with a hint: area_pinned, pin_without_confirm, host_member, needs_two_people,
--- status_transition, slots_status, slot_missing).
+-- status_transition, slots_status, slot_missing, and from stage 5 stops_status, order_status, ledger_status, stops_missing, not_enough_votes,
+-- too_many_stops, stop_slot, stop_missing, last_stop, stop_order, stop_duplicate, stop_not_option, ledger_member, ledger_sum, proposal_status,
+-- proposal_member, already_a_stop, plan_full, too_many_proposals).
 
 begin;
 
@@ -191,6 +201,25 @@ declare
   s5 uuid := gen_random_uuid();        -- locating, no meeting yet (a pin only with a confirm; the host stays)
   sv uuid := gen_random_uuid();        -- voting, an unpinned meeting at Bugis (the slot steps)
   sl uuid := gen_random_uuid();        -- locating, the host and g1 (a confirm that makes the slots in the same call)
+  sc uuid := gen_random_uuid();        -- stage 5: voting, the host, g1 and g2 joined, two slots with options (the plan's confirm, edits and finish)
+  sn uuid := gen_random_uuid();        -- stage 5: voting, the host and g1 (the suggested order is stored here; the travel debt is asked for here)
+  sx uuid := gen_random_uuid();        -- stage 5: confirmed, with a ledger row stored already (a finish that got further than its first try)
+  sr uuid := gen_random_uuid();        -- stage 5: confirmed, pinned, with stops, a note, a suggestion and a proposal (the plan is opened again)
+  sq uuid := gen_random_uuid();        -- stage 5, review: voting, the host, g1 and g2 (the confirm reads the tally again under the lock)
+  so uuid := gen_random_uuid();        -- stage 5: confirmed, three people, votes and two proposals (a guest opts out of the confirmed plan)
+  slot_c_eat uuid;
+  slot_c_drink uuid;
+  slot_r_eat uuid;
+  slot_q_eat uuid;
+  slot_q_drink uuid;
+  slot_q_shop uuid;
+  slot_q_dead uuid;
+  stop_kept uuid;
+  slot_r_drink uuid;
+  proposal_p1 uuid;
+  stops_json jsonb;
+  stops_swapped jsonb;
+  ver5 bigint;
   slot_eat uuid;
   slot_drink uuid;
   u uuid;
@@ -943,6 +972,547 @@ begin
     'slot_options_venue_id_checktrue stops_venue_id_checktrue');
   perform pg_temp.expect_error(172, 'and 161 is still refused',
     format('insert into public.stops (session_id, seq, venue_id, planned_start_minute, duration_minutes) values (%L, 2, %L, 720, 90)', sl, repeat('y', 161)), '23514');
+
+
+  -- ── Stage 5: the plan (20261023000000_jio_apply_session_plan_stops.sql) ──────────────────────────────────────────────────────────
+  -- sc is voting with two slots, the host, g1 and g2 joined, and g1 alone has voted. The confirm needs stops and two voters.
+  perform pg_temp.as_admin();
+  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version, meeting_area_id, meeting_method,
+                               meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate) values
+    (sc, host, 'Plan', current_date + 1, '10:00', '20:00', 'voting', 3, 'bugis', 'fairest', 20, 40, 2, false),
+    (sn, host, 'Order', current_date + 1, '10:00', '20:00', 'voting', 0, 'bugis', 'fairest', 20, 40, 2, false);
+  insert into public.session_members (session_id, user_id, state) values (sc, g1, 'joined'), (sc, g2, 'joined'), (sn, g1, 'joined');
+  insert into public.slots (session_id, category, start_minute, duration_minutes, picks, is_last) values
+    (sc, 'eat', 720, 90, 3, false), (sc, 'drink', 840, 60, 3, true);
+  select id into slot_c_eat from public.slots where session_id = sc and category = 'eat';
+  select id into slot_c_drink from public.slots where session_id = sc and category = 'drink';
+  insert into public.slot_options (slot_id, venue_id, rank, score) values
+    (slot_c_eat, 'a', 1, 5), (slot_c_eat, 'b', 2, 6), (slot_c_drink, 'd', 1, 4), (slot_c_drink, 'e', 2, 5);
+  insert into public.votes (slot_id, user_id, venue_id) values (slot_c_eat, g1, 'a'), (slot_c_drink, g1, 'd');
+  p := jsonb_build_object(
+    'session', jsonb_build_object('status', 'confirmed', 'banner', null, 'plan_start_minute', 720,
+      'order_note', jsonb_build_object('reason', 'Meals stay at mealtimes.', 'source', 'rules')),
+    'stops', jsonb_build_array(
+      jsonb_build_object('seq', 0, 'slot_id', slot_c_eat, 'category', 'eat', 'venue_id', 'a', 'planned_start_minute', 720,
+                         'duration_minutes', 90, 'travel_mode', null, 'travel_minutes', null, 'not_before_minute', 720),
+      jsonb_build_object('seq', 1, 'slot_id', slot_c_drink, 'category', 'drink', 'venue_id', 'd', 'planned_start_minute', 840,
+                         'duration_minutes', 60, 'travel_mode', null, 'travel_minutes', 12, 'not_before_minute', null)));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(173, 'one voter is not enough to confirm',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', sc, p::text), 'not_enough_votes');
+  perform pg_temp.as_admin();
+  insert into public.votes (slot_id, user_id, venue_id) values (slot_c_eat, host, 'a');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(174, 'a confirm without stops is refused',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', sc, '{"session":{"status":"confirmed"}}'), 'stops_missing');
+  perform pg_temp.expect_hint(175, 'a stop that is not one of the places the group voted among is refused',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', sc,
+           jsonb_build_object('session', jsonb_build_object('status', 'confirmed'), 'stops', jsonb_build_array(
+             jsonb_build_object('seq', 0, 'slot_id', slot_c_eat, 'category', 'eat', 'venue_id', 'zzz', 'planned_start_minute', 720, 'duration_minutes', 90)))::text),
+    'stop_not_option');
+  perform pg_temp.expect_hint(176, 'a stop in a slot of another session is refused',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', sc,
+           jsonb_build_object('session', jsonb_build_object('status', 'confirmed'), 'stops', jsonb_build_array(
+             jsonb_build_object('seq', 0, 'slot_id', slot_eat, 'category', 'eat', 'venue_id', 'a', 'planned_start_minute', 720, 'duration_minutes', 90)))::text),
+    'stop_slot');
+  perform pg_temp.expect_hint(177, 'stops are written only while the session is confirmed',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', sc, jsonb_build_object('stops', p -> 'stops')::text), 'stops_status');
+  perform pg_temp.expect_hint(178, 'voting cannot move to completed',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', sc, '{"session":{"status":"completed"}}'), 'status_transition');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(179, 'and nothing was written by the refusals: still voting, no stops, version 3',
+    format('select status || '' '' || (select count(*) from public.stops where session_id = %L) || '' '' || plan_version from public.sessions where id = %L', sc, sc), 'voting 0 3');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(180, 'the confirm is written and the version goes up',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', sc, p::text), '4');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(181, 'the session is confirmed with its note, its start and no notice',
+    format('select status || '' '' || plan_start_minute || '' '' || order_reason || '' '' || order_source || '' '' || coalesce(banner::text, ''no banner'') from public.sessions where id = %L', sc),
+    'confirmed 720 Meals stay at mealtimes. rules no banner');
+  perform pg_temp.expect_text(182, 'the stops are in order, with their earliest starts and minutes',
+    format('select string_agg(seq || '':'' || venue_id || '':'' || planned_start_minute || '':'' || coalesce(not_before_minute::text, ''-'') || '':'' || coalesce(travel_minutes::text, ''-''), '','' order by seq) from public.stops where session_id = %L', sc),
+    '0:a:720:720:-,1:d:840:-:12');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(183, 'the same confirm again is late (the session is confirmed now) and answers null',
+    format('select pg_temp.apply(%L, 3, ''voting'', %L::jsonb)', sc, p::text), 'null');
+
+  -- Stops are a difference: the same rows change nothing; a new order, a place twice, a gap and a full or empty list are refused.
+  perform pg_temp.as_admin();
+  select jsonb_agg(jsonb_build_object('id', id, 'seq', seq, 'slot_id', slot_id, 'category', category, 'venue_id', venue_id,
+                                      'planned_start_minute', planned_start_minute, 'duration_minutes', duration_minutes, 'travel_mode', travel_mode,
+                                      'travel_minutes', travel_minutes, 'not_before_minute', not_before_minute) order by seq)
+    into stops_json from public.stops where session_id = sc;
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(184, 'the same stops again change nothing and do not raise the version',
+    format('select pg_temp.apply(%L, 4, ''confirmed'', %L::jsonb)', sc, jsonb_build_object('stops', stops_json)::text), '4');
+  select jsonb_agg(jsonb_set(e, '{seq}', to_jsonb(1 - (e ->> 'seq')::int)) order by ord) into stops_swapped from jsonb_array_elements(stops_json) with ordinality as t(e, ord);
+  perform pg_temp.expect_text(185, 'the two stops swap places in one call, and clearing the note is a change',
+    format('select pg_temp.apply(%L, 4, ''confirmed'', %L::jsonb)', sc,
+           jsonb_build_object('stops', stops_swapped, 'session', jsonb_build_object('order_note', null))::text), '5');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(186, 'the drink is first now, and the note is gone',
+    format('select (select string_agg(venue_id, '','' order by seq) from public.stops where session_id = %L) || '' '' || coalesce(order_reason || order_source, ''no note'') from public.sessions where id = %L', sc, sc),
+    'd,a no note');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(187, 'two stops with one number are refused',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L::jsonb)', sc,
+           jsonb_build_object('stops', (select jsonb_agg(jsonb_set(e, '{seq}', '0') order by ord) from jsonb_array_elements(stops_swapped) with ordinality as t(e, ord)))::text), 'stop_order');
+  perform pg_temp.expect_hint(188, 'a gap in the numbers is refused',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L::jsonb)', sc,
+           jsonb_build_object('stops', (select jsonb_agg(jsonb_set(e, '{seq}', to_jsonb(2 * (e ->> 'seq')::int)) order by ord) from jsonb_array_elements(stops_swapped) with ordinality as t(e, ord)))::text), 'stop_order');
+  perform pg_temp.expect_hint(189, 'a place cannot be two stops',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L::jsonb)', sc,
+           jsonb_build_object('stops', (select jsonb_agg(jsonb_set(e, '{venue_id}', '"a"') order by ord) from jsonb_array_elements(stops_swapped) with ordinality as t(e, ord)))::text), 'stop_duplicate');
+  perform pg_temp.expect_hint(190, 'nine stops are too many',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L::jsonb)', sc,
+           jsonb_build_object('stops', (select jsonb_agg(jsonb_build_object('seq', n, 'category', 'drink', 'venue_id', 'v' || n, 'planned_start_minute', 900, 'duration_minutes', 60)) from generate_series(0, 8) n))::text), 'too_many_stops');
+  perform pg_temp.expect_hint(191, 'a confirmed plan keeps at least one stop',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L)', sc, '{"stops":[]}'), 'last_stop');
+  perform pg_temp.expect_hint(192, 'a stop that is not in this session is refused',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L::jsonb)', sc,
+           jsonb_build_object('stops', jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'seq', 0, 'category', 'drink', 'venue_id', 'v', 'planned_start_minute', 900, 'duration_minutes', 60)))::text), 'stop_missing');
+  perform pg_temp.expect_error(193, 'a note with a sentence and no source breaks the pair check',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L)', sc, '{"session":{"order_note":{"reason":"x"}}}'), '23514');
+  perform pg_temp.expect_hint(194, 'a suggested order is stored only while voting',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L::jsonb)', sc,
+           jsonb_build_object('session', jsonb_build_object('order_suggestion', jsonb_build_object('basis', repeat('a', 64), 'order', jsonb_build_array())))::text), 'order_status');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(195, 'none of those refusals wrote anything: version 5 and two stops',
+    format('select plan_version || '' '' || (select count(*) from public.stops where session_id = %L) from public.sessions where id = %L', sc, sc), '5 2');
+
+  -- A travel mode is one stop's: how the group gets to it from the stop before.
+  perform pg_temp.as_server();
+  perform pg_temp.expect_error(196, 'a travel mode that is not walk, mrt or car breaks the check',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L::jsonb)', sc,
+           jsonb_build_object('stops', (select jsonb_agg(jsonb_set(e, '{travel_mode}', '"bike"') order by ord) from jsonb_array_elements(stops_swapped) with ordinality as t(e, ord)))::text), '23514');
+  perform pg_temp.expect_text(197, 'a travel mode is written, and raises the version',
+    format('select pg_temp.apply(%L, 5, ''confirmed'', %L::jsonb)', sc,
+           jsonb_build_object('stops', (select jsonb_agg(case when e ->> 'venue_id' = 'a' then jsonb_set(e, '{travel_mode}', '"car"') else e end order by ord) from jsonb_array_elements(stops_swapped) with ordinality as t(e, ord)))::text), '6');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(198, 'it is on the stop that is arrived at, and the other stop has none',
+    format('select string_agg(venue_id || coalesce(travel_mode, ''-''), '','' order by seq) from public.stops where session_id = %L', sc), 'd-,acar');
+
+  -- A stop's place is changed in place: the stop, the slot's options and the votes for the old place move together.
+  select jsonb_agg(jsonb_build_object('id', id, 'seq', seq, 'slot_id', slot_id, 'category', category,
+                                      'venue_id', case when venue_id = 'a' then 'b' else venue_id end,
+                                      'planned_start_minute', planned_start_minute, 'duration_minutes', duration_minutes, 'travel_mode', travel_mode,
+                                      'travel_minutes', travel_minutes, 'not_before_minute', case when venue_id = 'a' then 735 else not_before_minute end) order by seq)
+    into stops_json from public.stops where session_id = sc;
+  p := jsonb_build_object('stops', stops_json, 'stop_options', jsonb_build_array(
+    jsonb_build_object('slot_id', slot_c_eat, 'venue_id', 'b', 'rank', 2, 'score', 6, 'details', jsonb_build_object('note', 'kept'), 'replaces', 'a')));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(199, 'a stop is changed to another place with the old place leaving the options',
+    format('select pg_temp.apply(%L, 6, ''confirmed'', %L::jsonb)', sc, p::text), '7');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(200, 'the options are b alone, the votes for a went with it, and the stop holds b from 12:15',
+    format('select (select string_agg(venue_id, '','' order by venue_id) from public.slot_options where slot_id = %L) || '' '''
+           || ' || (select count(*) from public.votes where slot_id = %L) || '' '' || (select venue_id || not_before_minute from public.stops where session_id = %L and slot_id = %L)',
+           slot_c_eat, slot_c_eat, sc, slot_c_eat), 'b 0 b735');
+  perform pg_temp.expect_text(201, 'the new place keeps what the planner said about it',
+    format('select details ->> ''note'' from public.slot_options where slot_id = %L and venue_id = ''b''', slot_c_eat), 'kept');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(202, 'a stop option in another session''s slot is refused',
+    format('select pg_temp.apply(%L, 7, ''confirmed'', %L::jsonb)', sc,
+           jsonb_build_object('stop_options', jsonb_build_array(jsonb_build_object('slot_id', slot_eat, 'venue_id', 'b')))::text), 'stop_slot');
+
+  -- Roam proposals: a joined member proposes, the host answers, and the limits are kept under the lock.
+  perform pg_temp.as_admin();
+  select plan_version into ver5 from public.sessions where id = sc;
+  proposal_p1 := gen_random_uuid();
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(203, 'a joined member proposes a place, with the id the server chose for it',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'propose', 'id', proposal_p1, 'user_id', g2, 'venue_id', 'p1')))::text), (ver5 + 1)::text);
+  perform pg_temp.expect_text(204, 'the same place again changes nothing and does not raise the version',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 1, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'propose', 'user_id', g1, 'venue_id', 'p1')))::text), (ver5 + 1)::text);
+  perform pg_temp.expect_hint(205, 'a place that is already a stop cannot be proposed',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 1, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'propose', 'user_id', g1, 'venue_id', 'b')))::text), 'already_a_stop');
+  perform pg_temp.expect_hint(206, 'somebody who is not in the session cannot propose',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 1, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'propose', 'user_id', stranger, 'venue_id', 'p9')))::text), 'proposal_member');
+  perform pg_temp.expect_text(207, 'two more from one member in one call',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 1,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'propose', 'user_id', g2, 'venue_id', 'p2'), jsonb_build_object('op', 'propose', 'user_id', g2, 'venue_id', 'p3')))::text), (ver5 + 2)::text);
+  perform pg_temp.expect_hint(208, 'a fourth waiting for one member is refused',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 2, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'propose', 'user_id', g2, 'venue_id', 'p4')))::text), 'too_many_proposals');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_count(209, 'three are waiting', format('select count(*) from public.stop_proposals where session_id = %L and status = ''pending''', sc), 3);
+  select jsonb_agg(jsonb_build_object('id', id, 'seq', seq, 'slot_id', slot_id, 'category', category, 'venue_id', venue_id,
+                                      'planned_start_minute', planned_start_minute, 'duration_minutes', duration_minutes, 'travel_mode', travel_mode,
+                                      'travel_minutes', travel_minutes, 'not_before_minute', not_before_minute) order by seq)
+    into stops_json from public.stops where session_id = sc;
+  p := jsonb_build_object(
+    'ops', jsonb_build_array(jsonb_build_object('op', 'resolve_proposal', 'proposal_id', proposal_p1, 'status', 'accepted', 'by', host)),
+    'stops', stops_json || jsonb_build_array(jsonb_build_object('seq', 2, 'category', 'drink', 'venue_id', 'p1', 'planned_start_minute', 1000, 'duration_minutes', 60, 'not_before_minute', 1000)));
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(210, 'the host accepts one: the proposal is answered and the stop is added in the same write',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 2, p::text), (ver5 + 3)::text);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(211, 'the proposal is accepted by the host, and the new stop has no slot',
+    format('select status || '' '' || (resolved_by = %L)::text || '' '' || (select count(*) from public.stops where session_id = %L and slot_id is null) from public.stop_proposals where id = %L', host, sc, proposal_p1),
+    'accepted true 1');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(212, 'answering it again changes nothing',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 3,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'resolve_proposal', 'proposal_id', proposal_p1, 'status', 'dismissed', 'by', host)))::text), (ver5 + 3)::text);
+  perform pg_temp.expect_hint(213, 'a place is proposed only while the plan is confirmed',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L::jsonb)', sn, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'propose', 'user_id', g1, 'venue_id', 'p1')))::text), 'proposal_status');
+  perform pg_temp.as_admin();
+  select jsonb_agg(jsonb_build_object('id', id, 'seq', seq, 'slot_id', slot_id, 'category', category, 'venue_id', venue_id,
+                                      'planned_start_minute', planned_start_minute, 'duration_minutes', duration_minutes, 'travel_mode', travel_mode,
+                                      'travel_minutes', travel_minutes, 'not_before_minute', not_before_minute) order by seq)
+    into stops_json from public.stops where session_id = sc;
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(214, 'five more stops fill the plan to eight',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 3,
+           jsonb_build_object('stops', stops_json || (select jsonb_agg(jsonb_build_object('seq', n, 'category', 'drink', 'venue_id', 'q' || n, 'planned_start_minute', 1100, 'duration_minutes', 30)) from generate_series(3, 7) n))::text), (ver5 + 4)::text);
+  perform pg_temp.expect_hint(215, 'and a full plan takes no more proposals',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 4, jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'propose', 'user_id', g1, 'venue_id', 'p9')))::text), 'plan_full');
+
+  -- The ledger comes with the move to completed, and only then.
+  p := jsonb_build_object('session', jsonb_build_object('status', 'completed'), 'ledger', jsonb_build_array(
+    jsonb_build_object('user_id', host, 'minutes_in', 20, 'minutes_between', 10, 'minutes_home', 30, 'delta_from_mean', -10),
+    jsonb_build_object('user_id', g1, 'minutes_in', 50, 'minutes_between', 10, 'minutes_home', 30, 'delta_from_mean', 20),
+    jsonb_build_object('user_id', g2, 'minutes_in', 30, 'minutes_between', 10, 'minutes_home', 20, 'delta_from_mean', -10)));
+  perform pg_temp.expect_hint(216, 'a ledger without the move to completed is refused',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 4, jsonb_build_object('ledger', p -> 'ledger')::text), 'ledger_status');
+  perform pg_temp.expect_hint(217, 'deltas that do not sum to zero are refused',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 4, jsonb_set(p, '{ledger,2,delta_from_mean}', '-9')::text), 'ledger_sum');
+  perform pg_temp.expect_hint(218, 'a ledger row for somebody who is not a joined member is refused',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 4,
+           jsonb_build_object('session', jsonb_build_object('status', 'completed'), 'ledger', jsonb_build_array(jsonb_build_object('user_id', stranger, 'minutes_in', 1, 'minutes_home', 1, 'delta_from_mean', 0)))::text), 'ledger_member');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(219, 'and those refusals wrote nothing: still confirmed, no ledger',
+    format('select status || '' '' || (select count(*) from public.commute_ledger where session_id = %L) from public.sessions where id = %L', sc, sc), 'confirmed 0');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(220, 'finishing writes the ledger and the status together',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 4, p::text), (ver5 + 5)::text);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(221, 'the outing is completed, with its time, and no prompt',
+    format('select status || '' '' || (completed_at is not null)::text || '' '' || coalesce(replan::text, ''no prompt'') from public.sessions where id = %L', sc), 'completed true no prompt');
+  perform pg_temp.expect_text(222, 'the ledger holds each person''s own minutes, and the total is worked out by the database',
+    format('select string_agg(minutes_in || ''+'' || minutes_between || ''+'' || minutes_home || ''='' || total_minutes, '','' order by minutes_in) from public.commute_ledger where session_id = %L', sc),
+    '20+10+30=60,30+10+20=60,50+10+30=90');
+  perform pg_temp.expect_text(223, 'the deltas sum to zero',
+    format('select sum(delta_from_mean)::text from public.commute_ledger where session_id = %L', sc), '0');
+  perform pg_temp.expect_count(224, 'the proposals still waiting were dismissed', format('select count(*) from public.stop_proposals where session_id = %L and status = ''dismissed''', sc), 2);
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(225, 'a retry of the finish is late and answers null',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', sc, ver5 + 4, p::text), 'null');
+  perform pg_temp.expect_hint(226, 'a finished outing never moves again',
+    format('select pg_temp.apply(%L, %s, ''completed'', %L)', sc, ver5 + 5, '{"session":{"status":"voting"}}'), 'status_transition');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_count(227, 'and the ledger is as it was', format('select count(*) from public.commute_ledger where session_id = %L', sc), 3);
+
+  -- A ledger names each person once. (The ledger and the status are written together in one transaction, so a ledger row stored with a
+  -- confirmed session cannot happen; sx is made so by hand to show that a repeated name is refused whatever is stored.)
+  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version) values (sx, host, 'Earlier', current_date, '10:00', '20:00', 'confirmed', 4);
+  insert into public.session_members (session_id, user_id, state) values (sx, g1, 'joined');
+  insert into public.commute_ledger (session_id, user_id, minutes_in, minutes_between, minutes_home, delta_from_mean) values (sx, host, 5, 0, 5, 7);
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(228, 'a ledger that names somebody twice is refused, even when the deltas sum to zero',
+    format('select pg_temp.apply(%L, 4, ''confirmed'', %L::jsonb)', sx,
+           jsonb_build_object('session', jsonb_build_object('status', 'completed'), 'ledger', jsonb_build_array(
+             jsonb_build_object('user_id', g1, 'minutes_in', 10, 'minutes_home', 10, 'delta_from_mean', -5),
+             jsonb_build_object('user_id', g1, 'minutes_in', 10, 'minutes_home', 10, 'delta_from_mean', 5)))::text), 'ledger_duplicate');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(229, 'and nothing was written: still confirmed, and only the stored row of the host',
+    format('select status || '' '' || (select count(*) from public.commute_ledger where session_id = %L) from public.sessions where id = %L', sx, sx), 'confirmed 1');
+
+  -- Travel debt: the sum of a person's deltas in their other sessions in the last 90 days, for the server only.
+  perform pg_temp.expect_text(230, 'only the server may ask for the travel debt',
+    'select (has_function_privilege(''service_role'', ''public.session_travel_debt(uuid)'', ''execute'')'
+    || ' and not has_function_privilege(''authenticated'', ''public.session_travel_debt(uuid)'', ''execute'')'
+    || ' and not has_function_privilege(''anon'', ''public.session_travel_debt(uuid)'', ''execute''))::text', 'true');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(231, 'g1 travelled more than the others in the sessions before sn: 20, the host -10 and 7 are -3',
+    format('select string_agg((user_id = %L::uuid)::text || '':'' || debt_minutes, '','' order by debt_minutes) from public.session_travel_debt(%L)', g1, sn), 'false:-3,true:20');
+
+  -- What a member of the session may read, and what no browser may write.
+  perform pg_temp.as_user(g1);
+  perform pg_temp.expect_count(232, 'a member reads the session''s ledger rows (minutes only, no place)', format('select count(*) from public.commute_ledger where session_id = %L', sc), 3);
+  perform pg_temp.expect_count(233, 'and its proposals', format('select count(*) from public.stop_proposals where session_id = %L', sc), 3);
+  perform pg_temp.expect_count(234, 'and its stops', format('select count(*) from public.stops where session_id = %L', sc), 8);
+  perform pg_temp.as_user(stranger);
+  perform pg_temp.expect_count(235, 'a stranger reads none of it', format('select (select count(*) from public.commute_ledger where session_id = %L) + (select count(*) from public.stop_proposals where session_id = %L) + (select count(*) from public.stops where session_id = %L)', sc, sc, sc), 0);
+  perform pg_temp.as_user(host);
+  perform pg_temp.expect_error(236, 'the host cannot write a stop directly',
+    format('insert into public.stops (session_id, seq, venue_id, planned_start_minute, duration_minutes) values (%L, 20, ''x'', 600, 30)', sc), '42501');
+  perform pg_temp.expect_error(237, 'nor change one', format('update public.stops set venue_id = ''x'' where session_id = %L', sc), '42501');
+  perform pg_temp.expect_error(238, 'nor write the ledger', format('insert into public.commute_ledger (session_id, user_id) values (%L, %L)', sn, host), '42501');
+  perform pg_temp.expect_error(239, 'nor a proposal', format('insert into public.stop_proposals (session_id, venue_id, proposed_by) values (%L, ''x'', %L)', sc, host), '42501');
+  perform pg_temp.expect_error(240, 'nor the suggested order of the session', format('update public.sessions set order_suggestion = %L where id = %L', '{"basis":"x"}', sn), '42501');
+  perform pg_temp.expect_error(241, 'nor the plan''s start', format('update public.sessions set plan_start_minute = 600 where id = %L', sn), '42501');
+
+  -- The suggested order is stored while voting, kept as it is when sent again, and shaped by the table's own check.
+  perform pg_temp.as_server();
+  p := jsonb_build_object('session', jsonb_build_object('order_suggestion', jsonb_build_object('basis', repeat('b', 64),
+    'order', jsonb_build_array(slot_c_drink, slot_c_eat), 'starts', jsonb_build_object(slot_c_drink::text, 700, slot_c_eat::text, 720),
+    'reason', 'Drinks first keeps lunch on time.', 'source', 'rules', 'at', 1)));
+  perform pg_temp.expect_text(242, 'a suggested order is stored while voting',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L::jsonb)', sn, p::text), '1');
+  perform pg_temp.expect_text(243, 'sent again it changes nothing',
+    format('select pg_temp.apply(%L, 1, ''voting'', %L::jsonb)', sn, p::text), '1');
+  perform pg_temp.expect_error(244, 'a basis that is not 64 hex characters breaks the shape check',
+    format('select pg_temp.apply(%L, 1, ''voting'', %L)', sn, '{"session":{"order_suggestion":{"basis":"nope","order":[]}}}'), '23514');
+  perform pg_temp.expect_hint(245, 'the order note is written only while confirmed',
+    format('select pg_temp.apply(%L, 1, ''voting'', %L)', sn, '{"session":{"order_note":{"reason":"x","source":"ai"}}}'), 'stops_status');
+  perform pg_temp.expect_text(246, 'clearing the suggestion is a change',
+    format('select pg_temp.apply(%L, 1, ''voting'', %L)', sn, '{"session":{"order_suggestion":null}}'), '2');
+  perform pg_temp.expect_error(247, 'a part of the plan that is misspelt is still refused',
+    format('select pg_temp.apply(%L, 2, ''voting'', %L)', sn, '{"stopz":[]}'), '22023', 'stopz');
+  perform pg_temp.expect_error(248, 'and so is a part of the session',
+    format('select pg_temp.apply(%L, 2, ''voting'', %L)', sn, '{"session":{"order_reasons":"x"}}'), '22023', 'order_reasons');
+
+  -- Opening the plan again. sr is confirmed, pinned at Bugis, with two stops, a note, a suggestion, a start, a prompt, a proposal and two votes.
+  perform pg_temp.as_admin();
+  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version, meeting_area_id, meeting_method,
+                               meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate, order_reason, order_source,
+                               order_suggestion, plan_start_minute, replan) values
+    (sr, host, 'Again', current_date + 1, '10:00', '20:00', 'confirmed', 10, 'bugis', 'chosen', 20, 40, 2, false, 'Meals stay at mealtimes.', 'rules',
+     jsonb_build_object('basis', repeat('c', 64), 'order', jsonb_build_array()), 720, jsonb_build_object('reason', 'start'));
+  insert into public.session_members (session_id, user_id, state) values (sr, g1, 'joined');
+  insert into public.slots (session_id, category, start_minute, duration_minutes, picks, is_last) values (sr, 'eat', 720, 90, 2, false), (sr, 'drink', 840, 60, 2, true);
+  select id into slot_r_eat from public.slots where session_id = sr and category = 'eat';
+  select id into slot_r_drink from public.slots where session_id = sr and category = 'drink';
+  insert into public.slot_options (slot_id, venue_id, rank, score) values (slot_r_eat, 'a', 1, 5), (slot_r_drink, 'd', 1, 4);
+  insert into public.votes (slot_id, user_id, venue_id) values (slot_r_eat, host, 'a'), (slot_r_eat, g1, 'a');
+  insert into public.stops (session_id, seq, slot_id, category, venue_id, planned_start_minute, duration_minutes) values
+    (sr, 0, slot_r_eat, 'eat', 'a', 720, 90), (sr, 1, slot_r_drink, 'drink', 'd', 840, 60);
+  insert into public.stop_proposals (session_id, venue_id, proposed_by) values (sr, 'p1', g1);
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(249, 'votes are not cleared in a confirmed session that stays confirmed',
+    format('select pg_temp.apply(%L, 10, ''confirmed'', %L)', sr, '{"ops":[{"op":"clear_votes"}]}'), 'slots_status');
+  perform pg_temp.expect_hint(250, 'slots are not written in a confirmed session that stays confirmed',
+    format('select pg_temp.apply(%L, 10, ''confirmed'', %L)', sr, '{"slots":[]}'), 'slots_status');
+  perform pg_temp.as_admin();
+  select jsonb_agg(jsonb_build_object('id', id, 'seq', seq, 'slot_id', slot_id, 'category', category, 'venue_id', venue_id,
+                                      'planned_start_minute', planned_start_minute, 'duration_minutes', duration_minutes, 'travel_mode', travel_mode,
+                                      'travel_minutes', travel_minutes, 'not_before_minute', not_before_minute) order by seq)
+    into stops_json from public.stops where session_id = sr and seq = 0;
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(251, 'a stop that is not listed goes',
+    format('select pg_temp.apply(%L, 10, ''confirmed'', %L::jsonb)', sr, jsonb_build_object('stops', stops_json)::text), '11');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_count(252, 'one stop is left, the first', format('select count(*) from public.stops where session_id = %L and venue_id = ''a''', sr), 1);
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(253, 'a list whose numbers do not start at 0 is refused',
+    format('select pg_temp.apply(%L, 11, ''confirmed'', %L::jsonb)', sr, jsonb_build_object('stops', (select jsonb_agg(jsonb_set(e, '{seq}', '1')) from jsonb_array_elements(stops_json) e))::text), 'stop_order');
+  perform pg_temp.expect_text(254, 'the plan is opened again with the votes cleared, in one write',
+    format('select pg_temp.apply(%L, 11, ''confirmed'', %L)', sr, '{"session":{"status":"voting","banner":null},"ops":[{"op":"clear_votes"}]}'), '12');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(255, 'it is voting, with no stops, no note, no suggestion, no start and no prompt',
+    format('select status || '' '' || (select count(*) from public.stops where session_id = %L) || '' '' || coalesce(order_reason, ''-'') || '' '' || coalesce(order_suggestion::text, ''-'')'
+           || ' || '' '' || coalesce(plan_start_minute::text, ''-'') || '' '' || coalesce(replan::text, ''-'') from public.sessions where id = %L', sr, sr),
+    'voting 0 - - - -');
+  perform pg_temp.expect_text(256, 'the proposal was dismissed, the votes were cleared, and the options stay',
+    format('select (select status from public.stop_proposals where session_id = %L) || '' '' || (select count(*) from public.votes where slot_id in (%L, %L)) || '' '''
+           || ' || (select count(*) from public.slot_options where slot_id in (%L, %L))', sr, slot_r_eat, slot_r_drink, slot_r_eat, slot_r_drink),
+    'dismissed 0 2');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(257, 'a voting session cannot be confirmed again without stops',
+    format('select pg_temp.apply(%L, 12, ''voting'', %L)', sr, '{"session":{"status":"confirmed"}}'), 'stops_missing');
+
+  -- A guest opts out of a confirmed plan (the server's E10 in the confirmed status). In one patch: the person goes out with their votes, the
+  -- proposal they had waiting is dismissed (by them), and the one thing written to the session is the "Re-plan?" prompt. The stops stay.
+  -- so is confirmed with the host, g1 and g2; g1 and g2 each have a proposal waiting.
+  perform pg_temp.as_admin();
+  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version, meeting_area_id, meeting_method,
+                               meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate) values
+    (so, host, 'Opt out', current_date + 1, '10:00', '20:00', 'confirmed', 20, 'bugis', 'chosen', 20, 40, 2, false);
+  insert into public.session_members (session_id, user_id, state) values (so, g1, 'joined'), (so, g2, 'joined');
+  insert into public.slots (session_id, category, start_minute, duration_minutes, picks, is_last) values (so, 'eat', 720, 90, 2, false), (so, 'drink', 840, 60, 2, true);
+  select id into slot_r_eat from public.slots where session_id = so and category = 'eat';
+  select id into slot_r_drink from public.slots where session_id = so and category = 'drink';
+  insert into public.slot_options (slot_id, venue_id, rank, score) values (slot_r_eat, 'a', 1, 5), (slot_r_drink, 'd', 1, 4);
+  insert into public.votes (slot_id, user_id, venue_id) values
+    (slot_r_eat, host, 'a'), (slot_r_eat, g1, 'a'), (slot_r_eat, g2, 'a'), (slot_r_drink, g1, 'd');
+  insert into public.stops (session_id, seq, slot_id, category, venue_id, planned_start_minute, duration_minutes) values
+    (so, 0, slot_r_eat, 'eat', 'a', 720, 90), (so, 1, slot_r_drink, 'drink', 'd', 840, 60);
+  insert into public.stop_proposals (session_id, venue_id, proposed_by) values (so, 'p1', g1), (so, 'p2', g2);
+  select id into proposal_p1 from public.stop_proposals where session_id = so and proposed_by = g1;
+  perform pg_temp.as_server();
+  p := jsonb_build_object(
+    'ops', jsonb_build_array(jsonb_build_object('op', 'opt_out', 'user_id', g1),
+                             jsonb_build_object('op', 'resolve_proposal', 'proposal_id', proposal_p1, 'status', 'dismissed', 'by', g1)),
+    'session', jsonb_build_object('replan', jsonb_build_object('reason', 'Faith opted out. The meeting area would stay at Bugis.',
+                                                                'trigger', jsonb_build_object('kind', 'optout'), 'at', 1)));
+  perform pg_temp.expect_text(258, 'a guest opts out of a confirmed plan: the person, their proposal and the prompt are one write',
+    format('select pg_temp.apply(%L, 20, ''confirmed'', %L::jsonb)', so, p::text), '21');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(259, 'g1 is out and their vote is gone; the other votes stand',
+    format('select (select state from public.session_members where session_id = %L and user_id = %L) || '' '' || (select count(*) from public.votes where slot_id in (%L, %L))', so, g1, slot_r_eat, slot_r_drink),
+    'opted_out 2');
+  perform pg_temp.expect_text(260, 'g1''s proposal was dismissed by g1, and g2''s still waits',
+    format('select string_agg((proposed_by = %L::uuid)::text || '':'' || status || '':'' || coalesce((resolved_by = %L::uuid)::text, ''-''), '','' order by status) from public.stop_proposals where session_id = %L', g1, g1, so),
+    'true:dismissed:true,false:pending:-');
+  perform pg_temp.expect_text(261, 'the plan is as it was: confirmed, with its two stops',
+    format('select status || '' '' || (select count(*) from public.stops where session_id = %L) from public.sessions where id = %L', so, so), 'confirmed 2');
+  perform pg_temp.expect_text(262, 'the prompt is stored on the session, readable by the members',
+    format('select (replan ->> ''reason'') || '' / '' || ((replan -> ''trigger'') ->> ''kind'') from public.sessions where id = %L', so),
+    'Faith opted out. The meeting area would stay at Bugis. / optout');
+  perform pg_temp.as_user(g2);
+  perform pg_temp.expect_text(263, 'a member of the session reads the prompt',
+    format('select replan ->> ''reason'' from public.sessions where id = %L', so), 'Faith opted out. The meeting area would stay at Bugis.');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(264, 'sending the same prompt again changes nothing',
+    format('select pg_temp.apply(%L, 21, ''confirmed'', %L::jsonb)', so, jsonb_build_object('session', p -> 'session')::text), '21');
+  perform pg_temp.expect_error(265, 'a prompt that is not an object is refused',
+    format('select pg_temp.apply(%L, 21, ''confirmed'', %L)', so, '{"session":{"replan":"Faith left"}}'), '22023', 'JSON object or null');
+  perform pg_temp.expect_text(266, 'a second guest going out replaces the prompt',
+    format('select pg_temp.apply(%L, 21, ''confirmed'', %L::jsonb)', so,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'opt_out', 'user_id', g2)),
+                              'session', jsonb_build_object('replan', jsonb_build_object('reason', 'Someone opted out.', 'trigger', jsonb_build_object('kind', 'optout'), 'at', 2)))::text), '22');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(267, 'the prompt is the newer one',
+    format('select replan ->> ''reason'' from public.sessions where id = %L', so), 'Someone opted out.');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(268, 'the host keeps the plan: the prompt goes and the status stays',
+    format('select pg_temp.apply(%L, 22, ''confirmed'', %L)', so, '{"session":{"replan":null}}'), '23');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(269, 'no prompt, still confirmed',
+    format('select status || '' '' || coalesce(replan::text, ''no prompt'') from public.sessions where id = %L', so), 'confirmed no prompt');
+
+  -- ── The review's rules: the tally is read again under the lock, a vote cannot land after the confirm, a pin only with the host's confirm,
+  -- a ledger names each person once and sums to zero, the rain the host kept ──────────────────────────────────────────────────────────
+  -- sq is voting with four slots: eat (a, b), drink (d, e), shop (f, nobody voted) and a deleted one (x). The host and g1 voted a for eat,
+  -- and the host d and g1 e for drink (a tie); g2 then votes b through the rules a browser meets.
+  perform pg_temp.as_admin();
+  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version, meeting_area_id, meeting_method,
+                               meeting_max_minutes, meeting_total_minutes, meeting_count, meeting_approximate) values
+    (sq, host, 'Tally', current_date + 1, '10:00', '20:00', 'voting', 0, 'bugis', 'fairest', 20, 40, 3, false);
+  insert into public.session_members (session_id, user_id, state) values (sq, g1, 'joined'), (sq, g2, 'joined');
+  insert into public.slots (session_id, category, start_minute, duration_minutes, picks, is_last, deleted) values
+    (sq, 'eat', 720, 90, 3, false, false), (sq, 'drink', 840, 60, 3, false, false), (sq, 'shop', 960, 60, 3, false, false), (sq, 'activity', 1020, 60, 3, true, true);
+  select id into slot_q_eat from public.slots where session_id = sq and category = 'eat';
+  select id into slot_q_drink from public.slots where session_id = sq and category = 'drink';
+  select id into slot_q_shop from public.slots where session_id = sq and category = 'shop';
+  select id into slot_q_dead from public.slots where session_id = sq and category = 'activity';
+  insert into public.slot_options (slot_id, venue_id, rank, score) values
+    (slot_q_eat, 'a', 1, 5), (slot_q_eat, 'b', 2, 6), (slot_q_drink, 'd', 1, 4), (slot_q_drink, 'e', 2, 5), (slot_q_shop, 'f', 1, 3), (slot_q_dead, 'x', 1, 3);
+  insert into public.votes (slot_id, user_id, venue_id) values
+    (slot_q_eat, host, 'a'), (slot_q_eat, g1, 'a'), (slot_q_drink, host, 'd'), (slot_q_drink, g1, 'e');
+  perform pg_temp.as_user(g2);
+  perform pg_temp.expect_ok(270, 'a signed-in person votes while the session is voting (the vote guard lets it through)',
+    format('insert into public.votes (slot_id, user_id, venue_id) values (%L, %L, ''b'')', slot_q_eat, g2), 1);
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(271, 'a stop that is not a leader of its slot is refused: the tally moved after the host looked at it',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L::jsonb)', sq,
+           jsonb_build_object('session', jsonb_build_object('status', 'confirmed'), 'stops', jsonb_build_array(
+             jsonb_build_object('seq', 0, 'slot_id', slot_q_eat, 'category', 'eat', 'venue_id', 'b', 'planned_start_minute', 720, 'duration_minutes', 90),
+             jsonb_build_object('seq', 1, 'slot_id', slot_q_drink, 'category', 'drink', 'venue_id', 'd', 'planned_start_minute', 840, 'duration_minutes', 60)))::text),
+    'stale_tally');
+  perform pg_temp.expect_hint(272, 'a slot that somebody voted in must have its stop',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L::jsonb)', sq,
+           jsonb_build_object('session', jsonb_build_object('status', 'confirmed'), 'stops', jsonb_build_array(
+             jsonb_build_object('seq', 0, 'slot_id', slot_q_eat, 'category', 'eat', 'venue_id', 'a', 'planned_start_minute', 720, 'duration_minutes', 90)))::text),
+    'stale_tally');
+  perform pg_temp.expect_hint(273, 'a stop for a slot nobody voted in is refused',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L::jsonb)', sq,
+           jsonb_build_object('session', jsonb_build_object('status', 'confirmed'), 'stops', jsonb_build_array(
+             jsonb_build_object('seq', 0, 'slot_id', slot_q_eat, 'category', 'eat', 'venue_id', 'a', 'planned_start_minute', 720, 'duration_minutes', 90),
+             jsonb_build_object('seq', 1, 'slot_id', slot_q_drink, 'category', 'drink', 'venue_id', 'd', 'planned_start_minute', 840, 'duration_minutes', 60),
+             jsonb_build_object('seq', 2, 'slot_id', slot_q_shop, 'category', 'shop', 'venue_id', 'f', 'planned_start_minute', 960, 'duration_minutes', 60)))::text),
+    'stale_tally');
+  perform pg_temp.expect_hint(274, 'a stop for a deleted slot is refused',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L::jsonb)', sq,
+           jsonb_build_object('session', jsonb_build_object('status', 'confirmed'), 'stops', jsonb_build_array(
+             jsonb_build_object('seq', 0, 'slot_id', slot_q_eat, 'category', 'eat', 'venue_id', 'a', 'planned_start_minute', 720, 'duration_minutes', 90),
+             jsonb_build_object('seq', 1, 'slot_id', slot_q_dead, 'category', 'activity', 'venue_id', 'x', 'planned_start_minute', 1020, 'duration_minutes', 60)))::text),
+    'stop_slot');
+  perform pg_temp.expect_hint(275, 'a stop with no slot cannot be a confirmed vote',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L::jsonb)', sq,
+           jsonb_build_object('session', jsonb_build_object('status', 'confirmed'), 'stops', jsonb_build_array(
+             jsonb_build_object('seq', 0, 'slot_id', slot_q_eat, 'category', 'eat', 'venue_id', 'a', 'planned_start_minute', 720, 'duration_minutes', 90),
+             jsonb_build_object('seq', 1, 'category', 'drink', 'venue_id', 'd', 'planned_start_minute', 840, 'duration_minutes', 60)))::text),
+    'stop_not_option');
+  perform pg_temp.expect_hint(276, 'a meeting area is not pinned by the plan''s confirm',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L::jsonb)', sq,
+           jsonb_build_object('session', jsonb_build_object('status', 'confirmed', 'meeting', jsonb_build_object('area_id', 'bugis', 'method', 'chosen',
+                                'max_minutes', 20, 'total_minutes', 40, 'count', 3, 'approximate', false)),
+                              'stops', jsonb_build_array(
+             jsonb_build_object('seq', 0, 'slot_id', slot_q_eat, 'category', 'eat', 'venue_id', 'a', 'planned_start_minute', 720, 'duration_minutes', 90),
+             jsonb_build_object('seq', 1, 'slot_id', slot_q_drink, 'category', 'drink', 'venue_id', 'd', 'planned_start_minute', 840, 'duration_minutes', 60)))::text),
+    'pin_without_confirm');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(277, 'and the refusals wrote nothing: still voting, no stops, version 0',
+    format('select status || '' '' || (select count(*) from public.stops where session_id = %L) || '' '' || plan_version from public.sessions where id = %L', sq, sq), 'voting 0 0');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(278, 'a tie is a leader: the confirm takes a for eat (2 votes of 3) and e for drink (1 each)',
+    format('select pg_temp.apply(%L, 0, ''voting'', %L::jsonb)', sq,
+           jsonb_build_object('session', jsonb_build_object('status', 'confirmed'), 'stops', jsonb_build_array(
+             jsonb_build_object('seq', 0, 'slot_id', slot_q_eat, 'category', 'eat', 'venue_id', 'a', 'planned_start_minute', 720, 'duration_minutes', 90),
+             jsonb_build_object('seq', 1, 'slot_id', slot_q_drink, 'category', 'drink', 'venue_id', 'e', 'planned_start_minute', 840, 'duration_minutes', 60)))::text), '1');
+  perform pg_temp.expect_hint(279, 'finishing without a ledger is refused',
+    format('select pg_temp.apply(%L, 1, ''confirmed'', %L)', sq, '{"session":{"status":"completed"}}'), 'ledger_missing');
+  perform pg_temp.expect_text(280, 'an empty ledger finishes the outing (nobody had minutes in)',
+    format('select pg_temp.apply(%L, 1, ''confirmed'', %L)', sq, '{"session":{"status":"completed"},"ledger":[]}'), '2');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(281, 'it is completed with no ledger rows',
+    format('select status || '' '' || (select count(*) from public.commute_ledger where session_id = %L) from public.sessions where id = %L', sq, sq), 'completed 0');
+
+  -- The vote guard. so is confirmed. A signed-in person (a claim on the session) cannot add, take back or change a vote on it, even where the
+  -- row-level rules did not stop them a moment before (the project owner here, who bypasses them); the server, which has no signed-in person, can.
+  select plan_version into ver from public.sessions where id = so;
+  perform pg_temp.as_admin();
+  perform set_config('request.jwt.claim.sub', host::text, true);
+  perform pg_temp.expect_error(282, 'a vote is refused once the session is confirmed',
+    format('insert into public.votes (slot_id, user_id, venue_id) values (%L, %L, ''d'')', slot_r_drink, host), 'P0001', 'Votes can only be cast while the session is voting');
+  perform pg_temp.expect_error(283, 'and so is taking one back',
+    format('delete from public.votes where slot_id = %L and user_id = %L', slot_r_eat, host), 'P0001', 'Votes can only be cast');
+  perform pg_temp.expect_hint(284, 'the hint is votes_status',
+    format('delete from public.votes where slot_id = %L and user_id = %L', slot_r_eat, host), 'votes_status');
+  perform set_config('request.jwt.claim.sub', '', true);
+  perform pg_temp.expect_ok(285, 'the server''s own delete of a vote (no signed-in person) goes through',
+    format('delete from public.votes where slot_id = %L and user_id = %L', slot_r_eat, host), 1);
+
+  -- A prompt is not a pin; the stage 5 moves never pin a meeting area; stops are not written with a re-open; a proposal is answered as
+  -- accepted or dismissed; and an opted-out member cannot propose.
+  perform pg_temp.as_server();
+  perform pg_temp.expect_hint(286, 'a pin cannot be set when the plan is opened again',
+    format('select pg_temp.apply(%L, 4, ''confirmed'', %L)', sx,
+           '{"session":{"status":"voting","meeting":{"area_id":"orchard","method":"chosen","max_minutes":20,"total_minutes":40,"count":2,"approximate":false}}}'), 'pin_without_confirm');
+  perform pg_temp.expect_hint(287, 'stops cannot be written in the patch that opens the plan again',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L)', so, ver, '{"session":{"status":"voting"},"stops":[]}'), 'stops_status');
+  perform pg_temp.expect_error(288, 'a proposal is answered as accepted or dismissed, never pending',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', so, ver,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'resolve_proposal', 'proposal_id', (select id from public.stop_proposals where session_id = so and status = 'pending' limit 1), 'status', 'pending', 'by', host)))::text),
+    '22023', 'accepted or dismissed');
+  perform pg_temp.expect_hint(289, 'a member who opted out cannot propose a place',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', so, ver,
+           jsonb_build_object('ops', jsonb_build_array(jsonb_build_object('op', 'propose', 'user_id', g1, 'venue_id', 'zz')))::text), 'proposal_member');
+  perform pg_temp.expect_hint(290, 'a ledger that does not sum to zero with the rows already stored is refused',
+    format('select pg_temp.apply(%L, 4, ''confirmed'', %L::jsonb)', sx,
+           jsonb_build_object('session', jsonb_build_object('status', 'completed'), 'ledger', jsonb_build_array(
+             jsonb_build_object('user_id', g1, 'minutes_in', 10, 'minutes_home', 10, 'delta_from_mean', 0)))::text), 'ledger_sum');
+
+  -- The rain warnings the host kept: stored on the session by the server, one state per stop, cleared when the plan is opened again.
+  select id into stop_kept from public.stops where session_id = so and seq = 0;
+  perform pg_temp.expect_text(291, 'the host keeps a stop in the rain: written with the plan''s version',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', so, ver, jsonb_build_object('session', jsonb_build_object('weather_kept', jsonb_build_object(stop_kept::text, 'showers')))::text), (ver + 1)::text);
+  perform pg_temp.expect_text(292, 'the same again changes nothing',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', so, ver + 1, jsonb_build_object('session', jsonb_build_object('weather_kept', jsonb_build_object(stop_kept::text, 'showers')))::text), (ver + 1)::text);
+  perform pg_temp.expect_error(293, 'a list is not a set of kept warnings',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L)', so, ver + 1, '{"session":{"weather_kept":["showers"]}}'), '22023', 'JSON object or null');
+  perform pg_temp.expect_hint(294, 'kept warnings are written only while the plan is confirmed',
+    format('select pg_temp.apply(%L, 2, ''voting'', %L)', sn, '{"session":{"weather_kept":{"a":"showers"}}}'), 'stops_status');
+  perform pg_temp.as_user(host);
+  perform pg_temp.expect_error(295, 'a browser cannot write the kept warnings',
+    format('update public.sessions set weather_kept = %L where id = %L', '{"a":"x"}', so), '42501');
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(296, 'and they are stored on the session',
+    format('select (weather_kept ->> %L) from public.sessions where id = %L', stop_kept::text, so), 'showers');
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(297, 'a stop changed to another kind of place: only the old place leaves the slot''s options (no venue to keep)',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L::jsonb)', so, ver + 1,
+           jsonb_build_object('stop_options', jsonb_build_array(jsonb_build_object('slot_id', slot_r_eat, 'venue_id', null, 'replaces', 'a')))::text), (ver + 2)::text);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_count(298, 'the slot has no option left, and the stop is as it was',
+    format('select (select count(*) from public.slot_options where slot_id = %L) + (select count(*) from public.stops where session_id = %L and venue_id = ''a'')', slot_r_eat, so), 1);
+  perform pg_temp.as_server();
+  perform pg_temp.expect_text(299, 'opening the plan again clears the kept warnings with the prompt',
+    format('select pg_temp.apply(%L, %s, ''confirmed'', %L)', so, ver + 2, '{"session":{"status":"voting"}}'), (ver + 3)::text);
+  perform pg_temp.as_admin();
+  perform pg_temp.expect_text(300, 'voting, with nothing kept',
+    format('select status || '' '' || coalesce(weather_kept::text, ''none'') from public.sessions where id = %L', so), 'voting none');
 
   raise notice 'ALL STEPS PASSED';
 end;

@@ -1,9 +1,10 @@
 <script setup>
 // The session: people, locations and the meeting spot (the Locate step).
 //   Inviting  the people list with an Invite button. Below 2 people the main button is "Invite friends";
-//             from 2 people (including Ian) it is "Start session". In a shared session (one kept on the server) only the host
+//             from 2 people (including Ian) it is "Start session", which opens the Start choice (how to pick the meeting point;
+//             views/StartView.vue) and starts the session from there. In a shared session (one kept on the server) only the host
 //             starts it; a guest sees who it is waiting for and Leave session, and a refusal is said under the list
-//   Locating  Ian's start and end, then "Where to meet": the meeting spots (the app's three and each member's own
+//   Locating  Ian's start and end (a guest first reads what the host chose: "Ian chose to find the fairest spot"), then "Where to meet": the meeting spots (the app's three and each member's own
 //             suggestion) with everyone's travel time, "Works for me" on each, and a map with a pin for every spot.
 //             From two starts on the list opens; the host confirms a spot at any time ("Confirm <area>", the one
 //             main action; others see who they are waiting for) or sets a known place ("We already have a place").
@@ -46,6 +47,7 @@ import { watchSessions } from '@/lib/api.js'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
 import { directionsUrl } from '@/lib/maps.js'
 import { locateNext } from '@/lib/session.js'
+import { guestLine, hostPendingLine } from '@/lib/startChoice.js'
 import { TRAVEL_TONES } from '@/lib/planner/travel.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore, waitingFor } from '@/stores/events.js'
@@ -309,9 +311,14 @@ watch(() => [props.id, status.value], async ([id, now], [beforeId, before]) => {
   if (!at || at === document.body || at.closest?.('[role="dialog"], .screen__footer')) nextButton.value?.$el?.focus?.({ preventScroll: true })
 })
 
-// Start the session. It opens on this page, now the Locate step.
-// How to call: startSession()
-const startSession = () => run(() => events.start(props.id))
+// Start session opens the Start choice (views/StartView.vue): the host says how to pick the meeting point, and the start is saved with
+// that choice, so the session opens on this page, now the Locate step. Nothing is saved by pressing this.
+const startPath = computed(() => `/sessions/${props.id}/start`)
+
+// What the host chose, told to the guests on the Locate step; and the host's own reminder when they chose "We already know where" and
+// have not named the area yet. Nothing for a session that started before the choice existed.
+const meetByNote = computed(() => (session.value ? guestLine(session.value, hostName.value, auth.myId) : null))
+const hostPending = computed(() => (session.value ? hostPendingLine(session.value, auth.myId) : null))
 </script>
 
 <template>
@@ -323,6 +330,9 @@ const startSession = () => run(() => events.start(props.id))
       <p class="sr-only" role="status">{{ announcement }}</p>
       <SessionNotices :session="session" />
       <BannerNote v-if="approvalsBanner" icon="info" dismissible @dismiss="dismissBanner">{{ approvalsBanner.text }}</BannerNote>
+      <!-- The host's choice of how to pick the meeting point, for a guest while the group is choosing where to meet. -->
+      <BannerNote v-if="meetByNote" icon="info" data-testid="meet-by-note"><strong>{{ meetByNote.title }}.</strong> {{ meetByNote.text }}</BannerNote>
+      <BannerNote v-else-if="hostPending" icon="info" data-testid="meet-by-pending">{{ hostPending }}</BannerNote>
 
       <!-- Inviting: who is in, whether the session can start, and Start session below. A shared session that was called off
            while it was still inviting shows the same list, read-only, under the "Session cancelled" note. -->
@@ -477,7 +487,7 @@ const startSession = () => run(() => events.start(props.id))
     <footer v-if="status !== 'cancelled' && !(status === 'completed' && !session.plan)" class="screen__footer">
       <!-- A shared session (one kept on the server) is started by its host; a guest waits, or leaves. -->
       <template v-if="status === 'inviting' && session.remote">
-        <AppButton v-if="isHost && active.length >= 2" next block :disabled="busy" @click="startSession">Start session</AppButton>
+        <AppButton v-if="isHost && active.length >= 2" next block :disabled="busy" :to="startPath">Start session</AppButton>
         <AppButton v-else-if="isHost" block @click="inviteOpen = true">Invite friends</AppButton>
         <template v-else>
           <p class="body-sm text-muted lobby__held">Waiting for {{ hostName }} to start the session.</p>
@@ -485,7 +495,7 @@ const startSession = () => run(() => events.start(props.id))
         </template>
       </template>
       <AppButton v-else-if="status === 'inviting' && active.length < 2" block @click="inviteOpen = true">Invite friends</AppButton>
-      <AppButton v-else-if="status === 'inviting'" next block :disabled="busy" @click="startSession">Start session</AppButton>
+      <AppButton v-else-if="status === 'inviting'" next block :disabled="busy" :to="startPath">Start session</AppButton>
       <SpotConfirm
         v-else-if="status === 'locating'"
         :session="session"

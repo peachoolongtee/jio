@@ -286,7 +286,7 @@ begin
   perform pg_temp.expect_error(53, 'a venue id cannot be empty', format(
     'insert into public.stop_proposals (session_id, venue_id, proposed_by) values (%L, '''', %L)', s, host), '23514');
   perform pg_temp.expect_error(54, 'a venue id has a length limit', format(
-    'insert into public.stop_proposals (session_id, venue_id, proposed_by) values (%L, %L, %L)', s, repeat('v', 81), host), '23514');
+    'insert into public.stop_proposals (session_id, venue_id, proposed_by) values (%L, %L, %L)', s, repeat('v', 161), host), '23514');
   perform pg_temp.expect_error(55, 'a status is pending, accepted or dismissed', format(
     'update public.stop_proposals set status = ''maybe'', resolved_at = now() where session_id = %L and venue_id = ''venue_a''', s), '23514');
   perform pg_temp.expect_error(56, 'a resolution needs a time', format(

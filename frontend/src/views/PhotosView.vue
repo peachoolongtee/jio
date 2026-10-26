@@ -9,6 +9,8 @@
 //   - "Add photos" sits above the line (the Rausch camera floats while there are none). A session holds up to
 //     PHOTOS_MAX photos. Your own photos can be deleted in the viewer, after a question to make sure.
 //   - The pictures are not part of the session summary (it has photoCount): they load with events.loadPhotos.
+//   - A session on the server has no photos yet (they would need storage of their own, a later update): the page says so, with the way
+//     back to the itinerary, and offers no camera.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -51,7 +53,8 @@ let toDelete = null
 
 const session = computed(() => events.byId[props.id])
 // An outing that closed by itself never had a plan, so photos stay shut for it (lib/api.js addPhoto refuses too).
-const open = computed(() => ['confirmed', 'completed'].includes(session.value?.status) && session.value?.endedBy !== 'closed')
+const photosOff = computed(() => !!session.value?.remote)
+const open = computed(() => ['confirmed', 'completed'].includes(session.value?.status) && session.value?.endedBy !== 'closed' && !photosOff.value)
 // undefined until the pictures have loaded.
 const loaded = computed(() => events.photos[props.id])
 
@@ -169,7 +172,10 @@ async function confirmDelete() {
       <SessionNotices :session="session" />
       <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
 
-      <EmptyState v-if="!open" title="Photos open once the plan is confirmed" text="Everyone in the session can post pictures from the day after that.">
+      <EmptyState v-if="photosOff" title="Photos are not shared yet" text="They come in a later update. Everyone in the session will be able to post pictures from the day." data-testid="photos-later">
+        <AppButton variant="secondary" :to="`/sessions/${id}/itinerary`">Back to the itinerary</AppButton>
+      </EmptyState>
+      <EmptyState v-else-if="!open" title="Photos open once the plan is confirmed" text="Everyone in the session can post pictures from the day after that.">
         <AppButton variant="secondary" :to="sessionPath(session)">Back to the session</AppButton>
       </EmptyState>
       <div v-else-if="loadError" class="stack gap-md" role="alert">

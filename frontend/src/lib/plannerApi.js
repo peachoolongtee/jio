@@ -408,6 +408,136 @@ export async function venuesByIds(ids) {
   return found
 }
 
+// ── The plan, for a session on the server (stage 5, ticket 130; the contract is E12 to E16 and E22 to E24 of the sessions design) ──
+// The itinerary itself is read from the database (lib/sessionsRemote.js); everything that changes it goes through these. The browser
+// never sends stops, a reason or a source: the server reads the winners, the order and the sentence from its own rows (E12, E22).
+// Each resolves the server's small answer, which is never put into the screens (the session is read again afterwards), and a refusal is
+// an Error whose `code` is the server's: session_not_found, not_joined, host_only, wrong_status, plan_busy, and for these routes
+// not_enough_votes, nothing_to_confirm, order_stale, stop_not_found, stops_changed, stop_changed, last_stop, proposal_not_found, plan_full, already_a_stop,
+// too_many_proposals, venue_not_found.
+
+// The host asks for the suggested order of the winning places (E22): one question to the server, which may ask the AI under its own
+// budget. Resolves { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], reason, source } or { status: 'none', why }.
+// A refusal: host_only, wrong_status, not_enough_votes.
+// How to call: const answer = await suggestSessionOrder('3b1f...')
+export async function suggestSessionOrder(sessionId) {
+  const { data } = await api.post(sessionPath(sessionId, '/order/suggest'), {}, { timeout: ARRANGE_TIMEOUT_MS + 10000 })
+  if (data?.status !== 'ok' && data?.status !== 'none') throw new Error(notJsonMessage())
+  return data
+}
+
+// The host confirms the plan (E12). `order` is 'voted' (the winners in the order of their slots) or 'suggested' with the `basis` of the
+// suggestion the host saw. A `basis` may go with the voted order too (the one the server gave when the host looked at the votes): one that is
+// no longer the votes' own is refused with 409 `order_stale` and nothing is written, so what the host saw is what is saved. The server also
+// reads the tally again under its lock and refuses a stop that is no longer a leader of its slot, with the same code.
+// Resolves { planVersion, status, stops: n }.
+// How to call: await confirmSessionPlan('3b1f...', { order: 'suggested', basis: 'a3f9...' })
+export async function confirmSessionPlan(sessionId, { order = 'voted', basis } = {}) {
+  const { data } = await api.post(sessionPath(sessionId, '/confirm'), order === 'suggested' || basis ? { order, basis } : { order }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The host takes a confirmed plan back to voting (E13, `accept: true`), or only turns the "Re-plan?" question off (`accept: false`).
+// Resolves { planVersion, status }.
+// How to call: await replanSession('3b1f...', true)
+export async function replanSession(sessionId, accept = true) {
+  const { data } = await api.post(sessionPath(sessionId, '/replan'), { accept }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The host ends the outing (E14); the server writes everyone's travel ledger row. Resolves { status }.
+// How to call: await completeSession('3b1f...')
+export async function completeSession(sessionId) {
+  const { data } = await api.post(sessionPath(sessionId, '/complete'), {}, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The host sets how the group gets to a stop from the one before (E15): 'walk', 'mrt' or 'car'. Resolves { planVersion }.
+// How to call: await patchSessionStop('3b1f...', '5d0c...', { travelMode: 'mrt' })
+export async function patchSessionStop(sessionId, stopId, { travelMode }) {
+  const { data } = await api.patch(sessionPath(sessionId, `/stops/${encodeURIComponent(stopId)}`), { travelMode }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The host removes a stop (E15). Resolves { planVersion }. A refusal: stop_not_found, last_stop.
+// How to call: await deleteSessionStop('3b1f...', '5d0c...')
+export async function deleteSessionStop(sessionId, stopId) {
+  const { data } = await api.delete(sessionPath(sessionId, `/stops/${encodeURIComponent(stopId)}`), { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// The host rearranges the stops (E15's order route): `stopIds` is every stop, in the new order. The server rewrites the order and clears
+// the earliest starts, the note and the travel modes. Resolves { planVersion }. A refusal: stops_changed (409) when the list is not exactly
+// the session's stops, as another device left them (nothing is written).
+// How to call: await putSessionStopOrder('3b1f...', ['5d0c...', '9e41...'])
+export async function putSessionStopOrder(sessionId, stopIds) {
+  const { data } = await api.put(sessionPath(sessionId, '/stops/order'), { stopIds }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
+// Changing a confirmed stop's place, the one way (the server's own routes, GET .../stops/:stopId/swap and .../choices, and PUT .../place):
+// the indoor place the planner would swap a stop for in the rain (any member may ask), the places that could take a stop's place (the host
+// only), and putting one in (the host only). The two reads write nothing and the server ranks them for the stop's own time on its day, so the
+// browser sends no time; putting a place in checks that it exists and fits and that the stop still holds `seenVenueId`, and keeps the stop from
+// starting earlier than the time it was checked for.
+// How to call: await getSessionStopSwap('3b1f...', '5d0c...') -> { swap: { venueId, name } | null }
+export async function getSessionStopSwap(sessionId, stopId) {
+  const { data } = await api.get(sessionPath(sessionId, `/stops/${encodeURIComponent(stopId)}/swap`), { timeout: 8000 })
+  return data
+}
+// How to call: await getSessionStopChoices('3b1f...', '5d0c...', { category: 'drink' }) -> { category, options: [{ venueId, rank, score, details, votes }] }
+export async function getSessionStopChoices(sessionId, stopId, { category } = {}) {
+  const { data } = await api.get(sessionPath(sessionId, `/stops/${encodeURIComponent(stopId)}/choices`), { params: { ...(category ? { category } : {}) }, timeout: SESSION_TIMEOUT_MS })
+  if (!Array.isArray(data?.options)) throw new Error(notJsonMessage())
+  return data
+}
+// The host keeps a stop as it is in the rain (the Keep button): stored on the session by the server, so every device sees the warning put away.
+// `state` is the forecast's state when it was pressed. Resolves { planVersion, kept: true }. A refusal: host_only, wrong_status, stop_not_found.
+// How to call: await putSessionStopRain('3b1f...', '5d0c...', 'showers')
+export async function putSessionStopRain(sessionId, stopId, state) {
+  const { data } = await api.put(sessionPath(sessionId, `/stops/${encodeURIComponent(stopId)}/kept-rain`), { state }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+// How to call: await putSessionStopPlace('3b1f...', '5d0c...', { venueId: 'v25', seenVenueId: 'v12', category: 'drink' }) -> { planVersion, changed }
+export async function putSessionStopPlace(sessionId, stopId, { venueId, seenVenueId, category }) {
+  const { data } = await api.put(
+    sessionPath(sessionId, `/stops/${encodeURIComponent(stopId)}/place`),
+    { venueId, seenVenueId, ...(category ? { category } : {}) },
+    { timeout: SESSION_TIMEOUT_MS },
+  )
+  return data
+}
+
+// "What next?" for a session (E16): the places near where the group is. The centre is the meeting area unless `current` ({ lat, lng },
+// "Use my location") says otherwise; it is used for this request only and the answer does not repeat it. Each place is a Roam card plus
+// `isStop` (already in the plan) and `proposedBy` (who put it forward, if anyone). Nothing is written. Resolves the same as roamNearby.
+// How to call: await roamSession('3b1f...', { current: { lat: 1.35, lng: 103.85 }, categories: ['eat'] })
+export async function roamSession(sessionId, { current, categories } = {}) {
+  const { data } = await api.post(
+    sessionPath(sessionId, '/roam'),
+    { ...(current ? { current: point(current) } : {}), ...(categories?.length ? { categories } : {}) },
+    { timeout: ROAM_TIMEOUT_MS },
+  )
+  return roamAnswer(data)
+}
+
+// A member puts a place forward as the next stop (E23). Resolves { planVersion, id, applied: true, existing: false } (201), or `applied: false,
+// existing: true` with the first proposal's id when that place is already waiting (200). A refusal: wrong_status, venue_not_found, already_a_stop, too_many_proposals, plan_full.
+// How to call: await proposeSessionStop('3b1f...', 'v25')
+export async function proposeSessionStop(sessionId, venueId) {
+  const { data, status } = await api.post(sessionPath(sessionId, '/proposals'), { venueId }, { timeout: SESSION_TIMEOUT_MS })
+  return { ...data, existing: status === 200 }
+}
+
+// The host adds a proposal to the plan or leaves it out; the person who proposed it may dismiss it (E24). Resolves { planVersion, applied }:
+// `applied` is false (still a 200) when the proposal is not waiting any more (answered, cleared by a re-plan or a finished outing, or never
+// there), and nothing was written. A refusal: host_only, plan_full.
+// How to call: await resolveSessionProposal('3b1f...', 'c7ae...', true)
+export async function resolveSessionProposal(sessionId, proposalId, accept) {
+  const { data } = await api.post(sessionPath(sessionId, `/proposals/${encodeURIComponent(proposalId)}/resolve`), { accept: !!accept }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
 // The weather the planner used for the last ranking: { source: 'live' | 'simulated' | 'unavailable', simulationIgnored? }.
 // The demo panel reads it to say when the server ignored the rain switch. Null until a ranking has come back.
 export const lastWeather = ref(null)
@@ -532,6 +662,10 @@ export const ROAM_TIMEOUT_MS = 10000
 function toRoamPlace(r, block = null) {
   return {
     ...toOption(r, block),
+    // A session's server names no need (it sends one flag instead of `verify` and `dietUnknown`), so a card still reads lists.
+    verify: r.verify ?? [],
+    dietUnknown: r.dietUnknown ?? [],
+    ...(r.checkNeeds === true ? { checkNeeds: true } : {}),
     id: r.venueId,
     travelMinutes: r.travelMinutes,
     distanceKm: r.distanceKm,
@@ -566,11 +700,17 @@ export async function roamNearby({ members, current, date, time, minutes, catego
     },
     { timeout: ROAM_TIMEOUT_MS },
   )
+  return roamAnswer(data)
+}
+
+// A Roam answer (the stateless route's, or a session's) as the screens read it. Records the weather block in `lastWeather`.
+// How to call: roamAnswer({ status: 'ok', results: [], weather: null }) -> { places: [], empty: null, widened: false, weather: null }
+function roamAnswer(data) {
   const weather = data.weather ?? null
   lastWeather.value = weather
   if (data.status !== 'ok') return { places: [], empty: data, widened: false, weather }
   if (!Array.isArray(data.results)) throw new Error(notJsonMessage())
-  return { places: data.results.map((r) => toRoamPlace(r, weather)), empty: null, widened: !!data.notice, weather }
+  return { places: data.results.map((r) => ({ ...toRoamPlace(r, weather), isStop: r.isStop === true, proposedBy: typeof r.proposedBy === 'string' ? r.proposedBy : null })), empty: null, widened: !!data.notice, weather }
 }
 
 // The weather at each stop of a plan, from the planner (POST /api/weather/stops): the itinerary asks when it opens on its day and

@@ -23,6 +23,7 @@ afterEach(() => vi.unstubAllGlobals())
 const press = (view, label) => view.all('button').find((b) => view.text(b).includes(label))
 const SCREENS = {
   'views/GroupDetailView': () => import('@/views/GroupDetailView.vue'),
+  'views/StartView': () => import('@/views/StartView.vue'),
   'views/PlannerView': () => import('@/views/PlannerView.vue'),
 }
 
@@ -74,30 +75,38 @@ async function locating(options) {
 }
 
 describe('starting the session', () => {
-  it('lets the host start it with two people in, and the page becomes the Locate step', async () => {
+  it('offers the host Start session as a link to the Start choice, and the choice starts it: the page becomes the Locate step', async () => {
     const { w, id } = await started()
     const { view } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
     await until(() => view.text().includes('Kim'))
     expect(view.has('#start-held')).toBe(false)
-    const start = press(view, 'Start session')
-    expect(start.disabled).toBe(false)
-    await view.click(start)
-    await until(() => view.text().includes('Add where you are starting'))
-    expect(w.database.tables.sessions[0].status).toBe('locating')
-    expect(view.text()).not.toContain('comes in the next update')
+    // Pressing Start session saves nothing: it opens the choice.
+    const start = view.all('a').find((a) => view.text(a).includes('Start session'))
+    expect(start.attrs.href).toBe(`/sessions/${id}/start`)
+    expect(w.database.tables.sessions[0].status).toBe('inviting')
+    const choice = await draw('views/StartView', `/sessions/${id}/start`, { id })
+    await until(() => choice.view.text().includes('How do you want to pick the meeting point?'))
+    await choice.view.click(press(choice.view, 'Ask everyone to share where they start'))
+    await until(() => w.database.tables.sessions[0].status === 'locating')
+    // The choice is saved in the same update as the start.
+    expect(w.database.tables.sessions[0].meet_by).toBe('fairest')
+    // The session page is now the Locate step.
+    const page = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
+    await until(() => page.view.text().includes('Add where you are starting'))
+    expect(page.view.text()).not.toContain('comes in the next update')
   })
 
   it('says the database\'s sentence when it cannot start, and keeps the button for another try', async () => {
     const { w, id } = await started()
-    const { view } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
-    await until(() => view.text().includes('Kim'))
+    const { view } = await draw('views/StartView', `/sessions/${id}/start`, { id })
+    await until(() => view.text().includes('How do you want to pick the meeting point?'))
     // Kim goes without the page hearing of it, so the button is still there when the host presses it.
     w.database.tables.session_members.splice(1, 1)
-    await view.click(press(view, 'Start session'))
+    await view.click(press(view, 'Ask everyone to share where they start'))
     await until(() => view.has('p[role=alert]'))
     expect(view.text(view.one('p[role=alert]'))).toBe('A session needs at least two people before it can start.')
     expect(w.database.tables.sessions[0].status).toBe('inviting')
-    expect(press(view, 'Start session').disabled).toBe(false)
+    expect(press(view, 'Ask everyone to share where they start').disabled).toBe(false)
   })
 })
 
@@ -359,7 +368,7 @@ describe('the banner about marks that went with a spot', () => {
 })
 
 describe('the Vote page of a shared session', () => {
-  it('lists the places the server offered, names the confirmed spot as the area, and stops at the plan (stage 4: sessionsVotingScreen.test.js has the rest)', async () => {
+  it('lists the places the server offered, names the confirmed spot as the area, and has Confirm plan for the host, with nothing about a next update (stage 4: sessionsVotingScreen.test.js has the rest)', async () => {
     const { w, sam, id } = await locating()
     const first = (await sam.api.getSession(id)).spots.list[0]
     await sam.api.confirmSpot(id, first.areaId)
@@ -369,8 +378,10 @@ describe('the Vote page of a shared session', () => {
     expect(view.errors).toEqual([])
     expect(view.has('[data-testid=voting-next]')).toBe(false)
     expect(view.text()).toContain(`Walking times are from ${first.area.name}`)
-    expect(view.text(view.one('[data-testid=confirm-next]'))).toContain('Confirming the plan with friends comes in the next update.')
-    expect(view.text()).not.toContain('Confirm plan')
+    // Stage 5: the host (this is Sam's page) has Confirm plan, disabled until two people have voted; stage 4's note is gone.
+    expect(view.has('[data-testid=confirm-next]')).toBe(false)
+    expect(view.text()).not.toContain('comes in the next update')
+    expect(view.text()).toContain('Needs 2 voters')
     expect(view.has('[data-testid=plan-error]')).toBe(false)
   })
 })

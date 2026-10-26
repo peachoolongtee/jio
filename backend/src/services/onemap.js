@@ -394,16 +394,19 @@ export function createOneMap({
   //
   // How to call:
   //   const minutes = await onemap.routeMinutes({ lat: 1.35, lng: 103.94 }, { lat: 1.30, lng: 103.85 }, '2026-10-10T19:00')
+  //   const private = await onemap.routeMinutes(position, venue, '2026-10-10T19:00', { cache: false }) // nothing of `position` is kept here
   //
   // Throws ExternalApiError when OneMap fails, and Error when routing is not enabled. When OneMap is not
   // available right now (budget used up, circuit open, login failed) it throws OneMapUnavailableError at once,
   // without waiting; the caller falls back to the estimate.
-  async function routeMinutes(from, to, dateTime) {
+  async function routeMinutes(from, to, dateTime, { cache = true } = {}) {
     if (!routingEnabled) throw new Error('OneMap routing is off: set ONEMAP_EMAIL and ONEMAP_PASSWORD')
     const d = describeRoute(from, to, dateTime)
     if (d.walk !== undefined) return d.walk
     try {
-      return await routes.getOrSet(d.key, () => fetchRoute(d.url))
+      // `cache: false` is for a trip from a point that must not be kept (a person's position for Roam): the answer is neither read from nor
+      // put in the route cache, so nothing of the point stays in this process.
+      return cache ? await routes.getOrSet(d.key, () => fetchRoute(d.url)) : await fetchRoute(d.url)
     } catch (err) {
       if (err instanceof OneMapUnavailableError) reportFallback(err.reason)
       else if (err instanceof ExternalApiError) reportFallback('upstream_error', err.status ? `HTTP ${err.status}` : 'no response')

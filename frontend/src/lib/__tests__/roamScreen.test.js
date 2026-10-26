@@ -4,6 +4,7 @@
 // its outcomes, and that the position goes to the planner and nowhere else.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { fakeStorage } from './planFixture.js'
 import { mount } from './miniDom.js'
 
@@ -152,6 +153,28 @@ describe('the Roam page', () => {
     await flush()
     expect(page.all('article')).toHaveLength(2)
     expect(page.text()).not.toContain('Could not load places')
+  })
+
+  it('says "not found" only for a session that is not there; a failed read of the session is a reason to try again', async () => {
+    // No network: the session cannot be read, but it exists. The page says so, with Retry, and never "not found".
+    events.byId = {}
+    events.loadSession.mockRejectedValueOnce(Object.assign(new Error('Cannot reach the Jio server. Check your connection and try again.'), { status: 0 }))
+    const page = await open({ session: undefined })
+    expect(page.text()).not.toContain('Page not found')
+    expect(page.text()).toContain('Could not load this outing')
+    expect(page.text()).toContain('Cannot reach the Jio server.')
+    events.byId = { s1: session() }
+    await page.button('Retry').click()
+    await flush()
+    expect(page.all('article')).toHaveLength(2)
+    // A session that is not this person's: not found.
+    events.byId = {}
+    events.loadSession.mockRejectedValueOnce(Object.assign(new Error('This session does not exist.'), { code: 'not_found' }))
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { render: () => null } }] })
+    const gone = mount(RoamView, { id: 's1' }, [pinia, router])
+    await flush()
+    expect(gone.text()).toContain('Page not found')
+    expect(byTestId(gone, 'roam-session-failed')).toHaveLength(0)
   })
 
   it('asks for one kind of place when a chip is pressed, and for all of them on All', async () => {

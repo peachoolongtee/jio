@@ -1,4 +1,4 @@
-import { converge, searchVenues } from '../planner/engine.js'
+import { converge, roam, searchVenues } from '../planner/engine.js'
 import { CATEGORIES, fromMinutes, reconcileOptions } from '../planner/slot-plan.js'
 import { MAX } from '../routes/plan-schemas.js'
 import { nowInSingapore } from './planner-runs.js'
@@ -22,11 +22,13 @@ import {
   optionsOf,
   radiusBannerText,
   rankingInput,
+  RANKED_PER_SLOT,
   readRanking,
   slotDetails,
   slotItems,
   survivingVotes,
   VOTES_CLEARED,
+  weatherNote,
 } from './session-slots.js'
 
 // What the planner does for a voting session, on the server: where the meeting area stands, and which places each slot offers. The
@@ -78,13 +80,19 @@ export function createVoting({ data, areasById, runs }) {
   // Asks the engine to rank one slot's kind of place around the meeting area, with the group's needs and the weather at the slot's time,
   // spending from the request's allowance of OneMap trips. `currentIds` are the options the group has: they are always scored.
   //
+  // The group's past feeds the ranking when the run can read it (ctx.debts() and ctx.visits(), both soft: they answer nothing when the history
+  // could not be read): each person's travel debt goes to the planner with them, and the places the group has been to lately count against
+  // an option. `last` ranks the slot as the plan's last stop (a stop being replaced; a voting slot is never ranked so). `exclude` are places left out
+  // whatever they score (the other stops of the plan, for a stop being replaced).
+  //
   // How to call:
   //   const ranking = await rankSlot(draft, { category: 'eat', start_minute: 720, duration_minutes: 90 }, ['a', 'b'], ctx)
   //   // { ok, rows: Map(venueId -> result), rankedIds, current: Set, widened, few, empty, weather }
-  async function rankSlot(draft, slot, currentIds, ctx) {
+  async function rankSlot(draft, slot, currentIds, ctx, { last = false, exclude = [] } = {}) {
     const centre = areasById.get(draft.session.meeting_area_id)
     const needs = await ctx.needs()
-    const members = engineMembers(draft, areasById, needs, centre)
+    const [debts, visits] = await Promise.all([ctx.debts?.(), ctx.visits?.()])
+    const members = engineMembers(draft, areasById, needs, centre, debts ?? null)
     const resolved = await runs.resolveWeather({ dateTime: `${draft.session.date}T${fromMinutes(slot.start_minute)}` })
     const input = rankingInput({
       sessionId: draft.session.id,
@@ -96,13 +104,56 @@ export function createVoting({ data, areasById, runs }) {
       constraints: groupConstraints(needs),
       radiusMeters: draft.session.radius_meters ?? undefined,
       weatherCase: resolved.weatherCase,
+      last,
+      exclude,
     })
-    const { result, travel } = await runs.runWithTravel(input, resolved.planData, converge, () => ({
+    // The saved sample visits are never used: only this group's own finished outings, when they could be read.
+    const planData = visits?.length > 0 ? { ...resolved.planData, visitHistory: visits } : resolved.planData
+    const { result, travel } = await runs.runWithTravel(input, planData, converge, () => ({
       maxTrips: ctx.allowance.trips,
       deadlineMs: Math.max(0, ctx.allowance.deadlineAt - Date.now()),
     }))
     spend(ctx.allowance, travel)
     return readRanking(result, resolved)
+  }
+
+  // Asks the engine for the places near a point, for Roam ("What next?"), with the group's needs and the weather at `dateTime`, spending from
+  // the request's allowance of OneMap trips (one trip per place scored, from the point). The point is for this request only: it is not stored,
+  // and the engine's answer, which repeats it, is cut down by roamReply before anyone reads it. Only saved places are ranked.
+  //
+  // How to call:
+  //   const { result, weather } = await roamAround(draft, { current: { lat: 1.3, lng: 103.8 }, categories: ['eat'], dateTime: '2026-10-25T15:00', minutes: 60 }, ctx)
+  async function roamAround(draft, { current, categories, dateTime, minutes }, ctx) {
+    const centre = areasById.get(draft.session.meeting_area_id)
+    const needs = await ctx.needs()
+    const [debts, visits] = await Promise.all([ctx.debts?.(), ctx.visits?.()])
+    const members = engineMembers(draft, areasById, needs, centre, debts ?? null)
+    const resolved = await runs.resolveWeather({ dateTime })
+    const input = {
+      members,
+      occasion: 'catch_up',
+      dateTime,
+      durationMinutes: minutes,
+      ...(categories && { categories }),
+      current,
+      groupConstraints: groupConstraints(needs),
+      excludeVenueIds: [],
+      currentOptionIds: [],
+      unknownPolicy: 'lenient',
+      dietPolicy: 'strict',
+      ...(resolved.weatherCase !== undefined && { weatherCase: resolved.weatherCase }),
+      groupId: draft.session.id,
+      topN: RANKED_PER_SLOT,
+    }
+    const planData = visits?.length > 0 ? { ...resolved.planData, visitHistory: visits } : resolved.planData
+    const { result, travel } = await runs.runWithTravel(input, planData, roam, () => ({
+      maxTrips: ctx.allowance.trips,
+      deadlineMs: Math.max(0, ctx.allowance.deadlineAt - Date.now()),
+      // The point is a person's position: its routes are not read from or put in the route cache, so nothing of it stays in this process.
+      cache: false,
+    }))
+    spend(ctx.allowance, travel)
+    return { result, weather: weatherNote(resolved.weather) }
   }
 
   // The meeting area as the draft's members now make it, for a session that is voting. A chosen area (`voted` or `chosen`) stays where it
@@ -114,7 +165,8 @@ export function createVoting({ data, areasById, runs }) {
   //   const { meeting, moved } = await repriceMeeting(draft, ctx) // meeting: { area_id, method, max_minutes, ..., travel }
   async function repriceMeeting(draft, ctx) {
     const session = draft.session
-    const { located } = locatedMembers(draft.members, areasById)
+    const debts = (await ctx.debts?.()) ?? null
+    const { located } = locatedMembers(draft.members, areasById, debts)
     const dateTime = dateTimeOf(session)
     const options = () => ({ maxTrips: ctx.allowance.trips, deadlineMs: Math.max(0, ctx.allowance.deadlineAt - Date.now()) })
 
@@ -256,7 +308,8 @@ export function createVoting({ data, areasById, runs }) {
     // The notice. A moved area (or a paused one) says so and, when votes went, that they did. A radius change says it only when it took
     // votes away, and takes back its own earlier notice when it did not. A start or end that left the area where it was says so only when
     // the travel times changed. A repeat that changes nothing writes no notice.
-    if (info.moved || (wants.some((w) => w.meeting) && figuresChanged && trigger)) {
+    // (A re-plan names no change of the group, so figures that moved without the area moving are not announced.)
+    if (info.moved || (wants.some((w) => w.meeting) && figuresChanged && trigger && trigger.kind !== 'replan')) {
       if (trigger) {
         const text = meetingBannerText({ previousName, nextName, kind: trigger.kind, name: trigger.name })
         session.banner = { text: info.votesCleared ? `${text} ${VOTES_CLEARED}` : text, ...(info.votesCleared && { votesCleared: true }) }
@@ -302,5 +355,5 @@ export function createVoting({ data, areasById, runs }) {
     return found.map((r) => ({ ...groupSafeResult(r), added: have.has(r.venueId) }))
   }
 
-  return { rankSlot, repriceMeeting, syncSlots, planPhase, searchSlot, venues, MAX_QUERY: MAX.searchQuery }
+  return { rankSlot, roamAround, repriceMeeting, syncSlots, planPhase, searchSlot, venues, MAX_QUERY: MAX.searchQuery }
 }

@@ -21,8 +21,13 @@
 // A shared session (one kept on the server, session.remote) reaches this page once the host has confirmed the meeting spot. It shows the
 // places the server offered for each category, read from the database (a reload asks the planner nothing), and the votes of everyone
 // in it, which arrive live. A person's own vote shows at once and is taken back if the database refuses it. Only the host changes how
-// far to search; the others see the radius as a line. The group cannot confirm the plan together yet: where "Confirm plan" is, the page
-// says that comes in the next update, and offers the way back to the people. A person who opted out sees that, can rejoin, and cannot vote.
+// far to search; the others see the radius as a line. Only the host confirms the plan: the host has "Confirm plan" (the dialog below), and
+// everyone else reads "Waiting for {host} to confirm the plan." with the way back to the people. A person who opted out sees that, can
+// rejoin, and cannot vote. The Confirm dialog of a shared session shows the voted order and, when the server has one, the suggested order
+// with its note (the server asks the AI and keeps the answer, so what the host confirms is what the server made). Confirming sends only
+// which of the two orders the host saw. If the votes changed since (the server refuses with `order_stale`, writing nothing), the dialog
+// stays open, draws the orders again from the stored votes and says so in one line; any other refusal or failure is one line inside the
+// dialog with Confirm still there to try again. A suggested order that could not be asked for says so, with Try again.
 // Only a session that does not exist shows "Not found". If the planner fails, an inline error with "Try again"
 // shows the message and the rest of the page stays usable.
 // Replace (/sessions/:id/plan?replace=<slot>, from Replace on the itinerary of a confirmed plan): the page shows the one
@@ -100,6 +105,9 @@ const selected = ref('')
 const loadError = ref('')
 const confirmOpen = ref(false)
 const busy = ref(false)
+// Inside the Confirm dialog of a shared session: why the orders were drawn again, and why a confirm did not go through.
+const staleNote = ref('')
+const confirmError = ref('')
 const adding = ref({ open: false, slot: null, query: '', results: [] })
 const loadingMore = ref('')
 
@@ -575,18 +583,31 @@ const order = computed(() => {
 })
 const suggesting = computed(() => confirmOpen.value && (!order.value || order.value.loading))
 const orderView = computed(() => confirmView({ voted: votedList.value, suggestion: order.value?.answer ?? null, picked: picked.value }))
-watch([confirmOpen, orderKey], ([open]) => {
-  if (!open) return
+watch([confirmOpen, orderKey], ([open, key], [was, before]) => {
+  if (!open) {
+    staleNote.value = ''
+    confirmError.value = ''
+    return
+  }
+  // New votes while the dialog is open redraw it; a shared session says so, so the host does not confirm rows that moved under them.
+  if (shared.value && was && before !== key && !staleNote.value) staleNote.value = WORDS.orderChanged
   // A new open, or new votes, start again from the voted order.
   picked.value = VOTED
   events.suggestOrder(props.id, orderKey.value)
 })
+// The group stopped voting (the plan was confirmed from another device, or called off): the question is moot.
+watch(voting, (now) => {
+  if (!now) confirmOpen.value = false
+})
+// Ask for the suggested order again after it failed. How to call: retryOrder()
+const retryOrder = () => events.suggestOrder(props.id, orderKey.value)
 
 async function confirm() {
   busy.value = true
   error.value = ''
   // What is shown is what is saved: the suggestion when its order is shown, nothing for the voted order.
   const { pass } = orderView.value
+  confirmError.value = ''
   try {
     await events.confirm(props.id, pass)
     confirmOpen.value = false
@@ -594,11 +615,30 @@ async function confirm() {
     confetti()
     router.push({ path: `/sessions/${props.id}/itinerary`, state: { justConfirmed: true } })
   } catch (e) {
-    error.value = e.message
-    confirmOpen.value = false
+    if (shared.value) await keepDialog(e)
+    else {
+      error.value = e.message
+      confirmOpen.value = false
+    }
   } finally {
     busy.value = false
   }
+}
+
+// A shared session's confirm that did not go through. The dialog stays open. A suggested order the votes have outdated (`order_stale`: the
+// server wrote nothing) is forgotten and both orders are drawn again from the stored votes, with the voted one selected; anything else is
+// said in words inside the dialog, and Confirm is still there to try again.
+// How to call: await keepDialog(Object.assign(new Error('The votes changed...'), { code: 'order_stale' }))
+async function keepDialog(e) {
+  if (e.code !== 'order_stale') {
+    confirmError.value = e.message
+    return
+  }
+  events.forgetOrder(props.id)
+  picked.value = VOTED
+  staleNote.value = e.message
+  await planner.loadPlan(props.id, { quiet: true }).catch(() => {})
+  events.suggestOrder(props.id, orderKey.value)
 }
 </script>
 
@@ -843,14 +883,14 @@ async function confirm() {
     <footer v-if="replaceMode" class="screen__footer">
       <AppButton block variant="secondary" :disabled="!!choosing" data-testid="keep-stop" @click="backToItinerary">{{ stop && isHost ? 'Keep this stop' : 'Back to the itinerary' }}</AppButton>
     </footer>
-    <footer v-else-if="voting && session.meeting && !shared" class="screen__footer">
+    <footer v-else-if="voting && session.meeting && (!shared || isHost)" class="screen__footer">
       <AppButton block :disabled="!canConfirm" @click="confirmOpen = true">
         {{ canConfirm ? 'Confirm plan' : 'Needs 2 voters' }}
       </AppButton>
     </footer>
-    <!-- A shared session votes for real but cannot confirm the plan together yet: this is where the button will be. -->
-    <footer v-else-if="voting && session.meeting && shared" class="screen__footer" data-testid="confirm-next">
-      <p class="caption text-muted confirm-next">Confirming the plan with friends comes in the next update.</p>
+    <!-- A shared session: only the host confirms the plan. -->
+    <footer v-else-if="voting && session.meeting && shared" class="screen__footer" data-testid="confirm-waiting">
+      <p class="caption text-muted confirm-next">Waiting for {{ hostName }} to confirm the plan.</p>
       <AppButton block variant="secondary" :to="`/sessions/${id}`">Back to the people</AppButton>
     </footer>
     <footer v-else-if="['confirmed', 'completed'].includes(session.status)" class="screen__footer">
@@ -888,6 +928,13 @@ async function confirm() {
           </template>
           <template v-else>You can rearrange stops after confirming.</template>
         </p>
+        <p v-if="shared && order?.failed" class="order-failed caption-sm text-muted" data-testid="order-failed">
+          Could not get a suggested order.
+          <AppButton variant="tertiary" underline small data-testid="order-retry" @click="retryOrder">Try again</AppButton>
+        </p>
+        <!-- A live region that is on the page from the start, empty, so that what is put in it is announced; it takes no room until it has words. -->
+        <p v-if="shared" :class="staleNote ? 'caption-sm text-muted dialog-line' : 'sr-only'" role="status" data-testid="order-stale">{{ staleNote }}</p>
+        <p v-if="confirmError" class="body-sm text-error dialog-line" role="alert" data-testid="confirm-error">{{ confirmError }}</p>
       </template>
       <AppButton block :disabled="busy" @click="confirm">Confirm</AppButton>
       <AppButton block variant="secondary" @click="confirmOpen = false">Not yet</AppButton>
@@ -970,4 +1017,6 @@ async function confirm() {
 .order-note :deep(svg) { flex-shrink: 0; margin-top: 2px; }
 /* While an answer is awaited or shown, room for three lines, so the buttons below do not move when it arrives. */
 .order-note--held { min-height: 3lh; }
+.order-failed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); margin: 0; }
+.dialog-line { margin: 0; }
 </style>

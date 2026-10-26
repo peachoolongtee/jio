@@ -1,6 +1,6 @@
 <script setup>
 // The demo tour's strip: a bar at the top of every screen while the tour is on (App.vue draws it, so it is not part of any
-// screen). It lists the eight checkpoints of one outing in order, marks the current one, moves back and forward, and lets
+// screen). It lists the ten checkpoints of one outing in order, marks the current one, moves back and forward, and lets
 // the visitor restart or leave the tour. Pressing a checkpoint opens the page that shows that state best (tour/story.js).
 //
 //   <TourStrip />
@@ -8,7 +8,7 @@
 // Layout. It is part of the page, not fixed over it, so it covers neither the top bar, the steps bar, a screen's footer button
 // nor the phone's tab bar; it only moves the page down, by the same height on every screen so the steps bar below does not
 // shift between checkpoints (the line of text under the controls always has the same room). From 744px the checkpoints are a
-// row of eight numbers with the current one's name spelled out, with Restart and Leave beside it. Under 744px the bar is one line, "3 of 8, Sharing
+// row of ten numbers with the current one's name spelled out, with Restart and Leave beside it. Under 744px the bar is one line, "3 of 10, Sharing
 // locations", with the arrows; pressing the name opens the list of checkpoints, Restart and Leave below it.
 // The choice between the two is made in CSS, so resizing keeps what is open.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -31,7 +31,7 @@ const here = computed(() => tour.checkpoint)
 // The short line above the controls: what these pages are, and when the planner is a stand-in.
 const caption = computed(() => (tour.rough ? 'Sample data. Places and times are rough.' : 'Demo tour. Sample data.'))
 
-// Open checkpoint `i` (0 to 7): select it and go to the page that shows it. The same page again does nothing, so the
+// Open checkpoint `i` (0 to 9): select it and go to the page that shows it. The same page again does nothing, so the
 // history does not fill with repeats.
 // How to call: go(3)
 async function go(i) {
@@ -229,9 +229,9 @@ async function leave() {
     grid-template-areas: 'prev list next actions';
   }
   .tour__toggle { display: none; }
-  /* A row of the eight numbers with the current checkpoint's name spelled out, so all eight fit; it still scrolls sideways
-     if a window is narrower than that. The padding keeps the 2px focus ring from being cut off at the edges. */
-  .tour__list { display: flex; flex-direction: row; justify-content: center; gap: var(--spacing-xs); margin: 0; padding: 3px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
+  /* A row of the ten numbers with the current checkpoint's name spelled out, so all ten fit; it still scrolls sideways
+     if a window is narrower than that (`safe` centring keeps the first checkpoint reachable when the row overflows). The padding keeps the 2px focus ring from being cut off at the edges. */
+  .tour__list { display: flex; flex-direction: row; justify-content: safe center; gap: var(--spacing-xs); margin: 0; padding: 3px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
   .tour__list::-webkit-scrollbar { display: none; }
   .tour__stop { width: auto; min-width: var(--tap-min); flex-shrink: 0; justify-content: center; gap: var(--spacing-sm); padding: 0 var(--spacing-sm); border-radius: var(--rounded-full); white-space: nowrap; scroll-snap-align: center; }
   .tour__stop.is-here { padding-right: var(--spacing-md); background: var(--canvas); box-shadow: inset 0 0 0 1px var(--ink); }

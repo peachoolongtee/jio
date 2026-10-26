@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { createApp } from './app.js'
+import { checkPlanSchema } from './db/sessions.js'
 import { createSupabase } from './db/supabase.js'
 import { DEFAULT_CALLS_PER_MINUTE } from './services/budget.js'
 import { assertStubAllowed, createHttp } from './services/http.js'
@@ -223,6 +224,20 @@ const finalistsText = (process.env.MEETING_FINALISTS ?? '').trim()
 const finalistsNumber = Number(finalistsText)
 const meetingFinalists = Number.isInteger(finalistsNumber) && finalistsNumber >= 1 && finalistsNumber <= MEETING_FINALISTS_MAX ? finalistsNumber : undefined
 if (finalistsText !== '' && meetingFinalists === undefined) console.warn(`MEETING_FINALISTS must be a whole number from 1 to ${MEETING_FINALISTS_MAX}, so the default is used.`)
+
+// The sessions need what the stage 5 migration adds (db/migrations/20261023000000_jio_apply_session_plan_stops.sql). A database without it fails here, at
+// once and by name, not on the first request of every session. A database that cannot be reached is only a warning.
+if (supabase) {
+  try {
+    await checkPlanSchema(supabase.service)
+  } catch (err) {
+    if (!err.unreachable) {
+      console.error(err.message)
+      process.exit(1)
+    }
+    console.warn(err.message)
+  }
+}
 
 createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader, linkRateLimit, supabase, allowSimulatedWeather, planRateLimit, sessionRateLimit, venueRateLimit, peopleSearchRateLimit, areaTimes, meetingFinalists }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)

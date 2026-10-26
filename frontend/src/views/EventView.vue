@@ -20,7 +20,14 @@
 //     first, completes the outing and pays out the coins. A completed or cancelled session has neither.
 //   - When the host confirmed a suggested order (see PlannerView), one line says where it came from (an AI suggestion,
 //     or chosen by travel and waiting time) and why, above the stops until a stop is moved or deleted by hand.
-//   - The photo strip shows the latest pictures (loaded with the events store) and links to Photos.
+//   - The photo strip shows the latest pictures (loaded with the events store) and links to Photos. (A session on the server has no photos
+//     yet, so it has no strip.)
+//   - A session on the server (session.remote): the plan is read from the database and every person sees the same one live. Only the host
+//     edits it (the pencil, the travel modes, Replace, delete, drag, Re-plan) and finishes the outing; everyone else sees the plan, and the
+//     footer says the host finishes it. Finishing pays no JioCoins there; a finished outing shows the person's own row of the travel ledger
+//     ("Your travel"), with a Try again when it could not be read. A move, delete or change that the server refuses is one line of words
+//     above the stops, and the page then shows the plan as it is stored. Changes made on another device (a move, a delete, a travel mode, a
+//     place added or replaced, the end of the outing, a re-plan) arrive live, with no reload.
 //   - While the plan is under way (roamOpen in lib/session.js: a confirmed plan on its day) a "What next?" button under the
 //     stops opens the Roam page, and the places members proposed there appear under the stops as proposed stops
 //     (ProposedStops). It is a secondary button: the footer's "Finish outing" stays the page's one main action.
@@ -43,6 +50,7 @@ import BannerNote from '@/components/ui/BannerNote.vue'
 import CoinBadge from '@/components/ui/CoinBadge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import LedgerCard from '@/components/event/LedgerCard.vue'
 import { RouterLink } from 'vue-router'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
@@ -66,6 +74,7 @@ import { sourceIcon, sourceText } from '@/lib/confirmOrder.js'
 import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
 import { createWeatherCheck } from '@/lib/weatherCheck.js'
 import { stopMark, venueSetting } from '@/lib/weatherText.js'
+import { watchSessions } from '@/lib/api.js'
 import { itineraryRain } from '@/lib/rainLook.js'
 import { useNow } from '@/lib/useNow.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -86,7 +95,13 @@ const loadError = ref('')
 const editing = ref(false)
 const endOpen = ref(false)
 const replanOpen = ref(false)
+// The stop the Delete dialog is about: its key (the server's stop id, else the slot's) and its name, taken when the dialog opens. The key, not the
+// stop's position: a stop moved or deleted on another device meanwhile must not make Delete take a different stop.
 const removing = ref(null)
+// How to call: askRemove(stop)
+function askRemove(stop) {
+  removing.value = { key: stop.stopId ?? stop.slotId, name: stop.venue.name }
+}
 const busy = ref(false)
 const error = ref('')
 const view = ref('list')
@@ -129,7 +144,10 @@ async function load() {
     else loadError.value = err?.message || 'The plan could not be loaded.'
   }
 }
+// A shared session's plan changes arrive live while this page is open (a no-op for the demo and local accounts).
+let stopWatching = () => {}
 onMounted(() => {
+  stopWatching = watchSessions()
   clearConfirmedFlag()
   load()
   // The demo's "Simulate rain" switch, which decides what the weather check asks for.
@@ -144,8 +162,32 @@ const confirmed = computed(() => status.value === 'confirmed')
 const today = computed(() => confirmed.value && session.value?.isToday)
 // Does finishing pay? An outing of one person does not (lib/session.js earnsCoins), and the dialog and the toast say so.
 const earns = computed(() => earnsCoins(session.value?.activeIds.length ?? 0))
+// A session on the server: the plan is the database's, only the host changes it, and no JioCoins are paid (they are kept in each browser).
+const remote = computed(() => !!session.value?.remote)
+const isHost = computed(() => session.value?.hostId === auth.myId)
+const mayEdit = computed(() => !remote.value || isHost.value)
 // The toast after "Finish outing": what was paid, or why nothing was.
-const toastText = computed(() => (session.value?.paid === false ? `Completed · ${NO_COINS.toast}` : `Completed · +${coins(POINTS_PER_MEETUP)} to spend on sample café vouchers`))
+const toastText = computed(() => (remote.value ? 'Outing finished' : session.value?.paid === false ? `Completed · ${NO_COINS.toast}` : `Completed · +${coins(POINTS_PER_MEETUP)} to spend on sample café vouchers`))
+
+// The person's own travel ledger row for a finished outing on the server, read when the outing is finished (here or on another device).
+const ledgerState = computed(() => events.ledgers[props.id])
+const ledgerLoading = ref(false)
+// How to call: await loadLedger()
+async function loadLedger() {
+  ledgerLoading.value = true
+  try {
+    await events.loadLedger(props.id)
+  } finally {
+    ledgerLoading.value = false
+  }
+}
+watch(
+  () => remote.value && status.value === 'completed',
+  (finished) => {
+    if (finished) loadLedger()
+  },
+  { immediate: true },
+)
 // 'finish', 'save' or null: the footer's button.
 const footer = computed(() => (session.value ? itineraryAction(session.value) : null))
 // Under way: people can ask "What next?" and propose places.
@@ -157,7 +199,7 @@ const lastStop = computed(() => itinerary.value?.stops[itinerary.value.stops.len
 // outing with many categories, can), else ''. Said under the plan's end; nothing is refused.
 const lateText = computed(() => (lastStop.value ? lateLine(lastStop.value.end, session.value?.end) : ''))
 // A confirmed plan with two or more stops can be rearranged, and a stop deleted, while editing.
-const canMove = computed(() => confirmed.value && (itinerary.value?.stops.length || 0) > 1)
+const canMove = computed(() => confirmed.value && mayEdit.value && (itinerary.value?.stops.length || 0) > 1)
 const canEdit = computed(() => canMove.value && editing.value)
 // Any stop of a confirmed plan can be replaced by the host while editing, even when it is the only one. Anyone else proposes a stop instead.
 const canReplace = computed(() => confirmed.value && editing.value && session.value?.hostId === auth.myId)
@@ -216,7 +258,10 @@ watch([stopsKey, simulatedRain], ([key, rain], [, was]) => {
   askedFor = key
   checker.poke()
 })
-onBeforeUnmount(() => checker.stop())
+onBeforeUnmount(() => {
+  checker.stop()
+  stopWatching()
+})
 
 // Put the "Plan confirmed" words into the live region once the card is on screen.
 watch(
@@ -271,9 +316,15 @@ function whenShorterThan(count) {
   })
 }
 async function removeStop() {
-  const index = removing.value
-  const count = itinerary.value?.stops.length ?? 0
+  const target = removing.value
   removing.value = null
+  const stops = itinerary.value?.stops ?? []
+  const index = stops.findIndex((s) => (s.stopId ?? s.slotId) === target?.key)
+  if (index < 0) {
+    error.value = 'That stop is not in the plan any more.'
+    return
+  }
+  const count = stops.length
   await act(() => events.deleteStop(props.id, index))
   if (error.value) return
   await whenShorterThan(count)
@@ -325,7 +376,7 @@ async function endPlan() {
   <main v-else-if="session" class="screen" data-testid="event-view">
     <SessionHeader :session="session" :title="today ? 'Today\'s plan' : ''">
       <template v-if="session.plan" #actions>
-        <IconButton v-if="confirmed" label="Edit itinerary" :tone="editing ? 'brand' : ''" :aria-pressed="String(editing)" @click="editing = !editing">
+        <IconButton v-if="confirmed && mayEdit" label="Edit itinerary" :tone="editing ? 'brand' : ''" :aria-pressed="String(editing)" @click="editing = !editing">
           <AppIcon :name="editing ? 'check' : 'edit'" />
         </IconButton>
       </template>
@@ -352,7 +403,7 @@ async function endPlan() {
             <IconButton label="Dismiss" class="celebrate__close" @click="dismissConfirmed"><AppIcon name="close" :size="16" /></IconButton>
           </section>
         </Transition>
-        <BannerNote v-if="status === 'completed' && session.paid !== false" icon="trophy">
+        <BannerNote v-if="status === 'completed' && session.paid !== false && !remote" icon="trophy">
           Completed · +{{ POINTS_PER_MEETUP }} points each to spend on sample café vouchers
           <template #actions>
             <AppButton small variant="secondary" to="/rewards">Rewards</AppButton>
@@ -362,8 +413,10 @@ async function endPlan() {
           Long trip home: {{ trip.name }}, about {{ trip.minutes }} min
         </BannerNote>
 
+        <LedgerCard v-if="remote && status === 'completed'" :ledger="ledgerState?.row ?? null" :loading="ledgerLoading" :failed="!!ledgerState?.failed" :loaded="!!ledgerState" @retry="loadLedger" />
+
         <!-- Photos from the day: always here once the plan is set, so it is clear where to add them. -->
-        <RouterLink :to="`/sessions/${id}/photos`" class="photos-cta">
+        <RouterLink v-if="!remote" :to="`/sessions/${id}/photos`" class="photos-cta">
           <span class="photos-cta__icon" aria-hidden="true"><AppIcon name="camera" :size="20" /></span>
           <span class="photos-cta__text">
             <span class="title-sm">Photos from the day</span>
@@ -405,7 +458,7 @@ async function endPlan() {
                       <TravelConnector
                         :options="itinerary.legs[i - 1].options"
                         :mode="itinerary.legs[i - 1].mode"
-                        :readonly="!confirmed"
+                        :readonly="!confirmed || !mayEdit"
                         :label="`Travel from ${itinerary.stops[i - 1].venue.name} to ${stop.venue.name}`"
                         @change="setMode(i - 1, $event)"
                       />
@@ -426,7 +479,7 @@ async function endPlan() {
                     >
                       <template v-if="canReplace || canEdit" #actions>
                         <IconButton v-if="canReplace" outline :label="`Replace stop: ${stop.venue.name}`" :data-testid="`replace-${stop.slotId}`" @click="replaceStop(stop)"><AppIcon name="search" /></IconButton>
-                        <IconButton v-if="canEdit" outline :label="`Delete stop: ${stop.venue.name}`" @click="removing = i"><AppIcon name="trash" /></IconButton>
+                        <IconButton v-if="canEdit" outline :label="`Delete stop: ${stop.venue.name}`" @click="askRemove(stop)"><AppIcon name="trash" /></IconButton>
                       </template>
                       <template v-if="canEdit" #handle>
                         <button v-bind="handle" class="drag-handle"><AppIcon name="grip" /></button>
@@ -486,13 +539,19 @@ async function endPlan() {
     </div>
 
     <footer v-if="footer" class="screen__footer">
-      <AppButton v-if="footer === 'finish'" block :disabled="busy" @click="endOpen = true">Finish outing</AppButton>
+      <AppButton v-if="footer === 'finish' && mayEdit" block :disabled="busy" @click="endOpen = true">Finish outing</AppButton>
+      <!-- Only the host finishes an outing on the server. -->
+      <template v-else-if="footer === 'finish'">
+        <p class="caption text-muted footer-note" data-testid="host-finishes">{{ session.hostName || 'The host' }} finishes the outing.</p>
+        <AppButton block variant="secondary" to="/">Back to Home</AppButton>
+      </template>
       <AppButton v-else block to="/">Save plan</AppButton>
     </footer>
 
     <ModalDialog v-model:open="endOpen" title="Finish outing?">
       <template #content>
-        <p v-if="earns" class="body-md" data-testid="earns-coins">+<CoinBadge :amount="POINTS_PER_MEETUP" /> each for {{ session.activeIds.length }} people, to spend on sample café vouchers</p>
+        <p v-if="remote" class="body-md" data-testid="remote-finish">The outing ends for everyone. Jio keeps how far each of you travelled.</p>
+        <p v-else-if="earns" class="body-md" data-testid="earns-coins">+<CoinBadge :amount="POINTS_PER_MEETUP" /> each for {{ session.activeIds.length }} people, to spend on sample café vouchers</p>
         <p v-else class="body-md" data-testid="no-coins">{{ NO_COINS.before }}</p>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
@@ -500,14 +559,14 @@ async function endPlan() {
       <AppButton block variant="secondary" @click="endOpen = false">Not yet</AppButton>
     </ModalDialog>
 
-    <ModalDialog :open="removing !== null" :title="removing !== null && itinerary ? `Delete ${itinerary.stops[removing]?.venue.name}?` : 'Delete stop?'" @update:open="(v) => !v && (removing = null)">
+    <ModalDialog :open="removing !== null" :title="removing ? `Delete ${removing.name}?` : 'Delete stop?'" @update:open="(v) => !v && (removing = null)">
       <AppButton block variant="secondary" @click="removing = null">Keep</AppButton>
       <AppButton block variant="danger" @click="removeStop">Delete</AppButton>
     </ModalDialog>
 
     <ModalDialog v-model:open="replanOpen" title="Re-plan?">
       <template #content>
-        <p class="body-md">Back to voting. Votes are kept.</p>
+        <p class="body-md">Back to voting. Votes are kept unless the meeting area moves.</p>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
       <AppButton block variant="secondary" @click="replanOpen = false">Keep plan</AppButton>
@@ -566,6 +625,7 @@ async function endPlan() {
 .home__row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: var(--spacing-md); min-height: 36px; }
 .home__row.is-long .home__min { color: var(--primary-error-text); }
 .replan { align-self: flex-start; }
+.footer-note { margin: 0 0 var(--spacing-sm); text-align: center; }
 .whatnext { align-self: flex-start; }
 
 /* "Plan confirmed", right after confirming: a warm card that pops in under the confetti. */

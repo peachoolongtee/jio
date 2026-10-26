@@ -32,6 +32,10 @@ export const useEventsStore = defineStore('events', () => {
   const orderPending = {}
   // The Confirm dialog's suggested order by session: { key, loading, answer, failed } for the newest question asked.
   const orders = ref({})
+  // The signed-in person's own travel ledger row of each finished outing on the server, by session: { row, failed } where `row` is null
+  // while there is none. (A local outing keeps none.)
+  const ledgers = ref({})
+  const ledgerSeq = {}
   // Weather on the day, by session: the latest check of the plan's stops, { checkedAt, stops: { [slotId]: weather }, weather:
   // the answer's block, failed }. A failed check keeps the answer before it and says so in `failed`.
   const weatherChecks = ref({})
@@ -130,9 +134,10 @@ export const useEventsStore = defineStore('events', () => {
   }
 
   // Only the newest load of an itinerary applies, so an older answer never overwrites a newer one.
-  async function loadItinerary(id) {
+  // `session` is a session just read (a live update has the one it loaded): the itinerary is laid out from it, without reading the session again.
+  async function loadItinerary(id, session = null) {
     const ticket = (itinerarySeq[id] = (itinerarySeq[id] || 0) + 1)
-    const itinerary = await api.getItinerary(id)
+    const itinerary = await api.getItinerary(id, session ? { session } : undefined)
     if (ticket !== itinerarySeq[id]) return itineraries.value[id]
     itineraries.value = { ...itineraries.value, [id]: itinerary }
     return itinerary
@@ -212,8 +217,26 @@ export const useEventsStore = defineStore('events', () => {
   const addPhoto = (id, src) => act(api.addPhoto)(id, currentUserId(), src)
   const deletePhoto = act(api.deletePhoto)
 
+  // Did the server's answer prove that it did nothing? Only a refusal does: a 4xx that carries the server's error code (the request was turned
+  // away before any work), or a request this side never sent. A timeout, no answer at all or a 5xx says nothing about what the server did.
+  // How to call: provedNothing(Object.assign(new Error('x'), { code: 'host_only', status: 403 })) -> true
+  const provedNothing = (err) => err?.code === 'plan_changed' || (typeof err?.code === 'string' && err.code !== '' && err.status >= 400 && err.status < 500)
+
+  // After a change to the itinerary that failed, read it again so the page shows what is stored (a stop another device deleted, a plan it
+  // changed). A failed read keeps what is shown; the first error is the one the caller reports.
+  // How to call: await showStored('3b1f...')
+  const showStored = (id) => loadItinerary(id).catch(() => {})
+
+  // How the group gets to the stop after leg `legIndex`. The stop is named by its id, which the itinerary carries, so a plan another device
+  // has changed is never written to by position.
   async function setTravelMode(id, legIndex, mode) {
-    put(await api.setTravelMode(id, legIndex, mode))
+    const stopId = itineraries.value[id]?.stops[legIndex + 1]?.stopId
+    try {
+      put(await api.setTravelMode(id, legIndex, mode, stopId ? { stopId } : undefined))
+    } catch (err) {
+      if (stopId) await showStored(id)
+      throw err
+    }
     await loadItinerary(id)
   }
 
@@ -239,6 +262,16 @@ export const useEventsStore = defineStore('events', () => {
       })
     orderPending[id] = pending
     return pending
+  }
+
+  // Forget the suggested order of a session and any question still out, so the next question is asked afresh. The Confirm dialog does this when
+  // the server refuses its order as out of date: the answer it holds was made for votes that have changed.
+  // How to call: forgetOrder('3b1f...')
+  function forgetOrder(id) {
+    orderSeq[id] = (orderSeq[id] || 0) + 1
+    delete orderPending[id]
+    const { [id]: _gone, ...rest } = orders.value
+    orders.value = rest
   }
 
   // Asks the planner for the weather at the stops of a confirmed plan and keeps the answer with its time. A check that fails keeps
@@ -294,18 +327,22 @@ export const useEventsStore = defineStore('events', () => {
 
   // Moves the stop on screen straight away, then saves and re-times from the server's answer.
   // If the save fails, the old order comes back, the itinerary is loaded again, and the error is thrown.
+  // On the server the move is checked against the stops as they are (the ids the list was drawn from), and the list goes back only when the
+  // answer proves nothing was changed; after a failure that proves nothing the move stays on screen until the stored order is read.
   async function reorderStops(id, from, to) {
     const before = itineraries.value[id]
+    const seen = before?.stops.map((s) => s.stopId)
+    const remote = !!seen?.length && seen.every(Boolean)
     if (before) {
       // A load that started earlier must not put the old order back over the move.
       itinerarySeq[id] = (itinerarySeq[id] || 0) + 1
       itineraries.value = { ...itineraries.value, [id]: { ...before, stops: moveItem(before.stops, from, to) } }
     }
     try {
-      put(await api.reorderStops(id, from, to))
+      put(await api.reorderStops(id, from, to, remote ? { seen } : undefined))
       await loadItinerary(id)
     } catch (err) {
-      if (before) itineraries.value = { ...itineraries.value, [id]: before }
+      if (before && (!remote || provedNothing(err))) itineraries.value = { ...itineraries.value, [id]: before }
       // Show what is really stored. If that fails too, the first error is the one to report.
       await loadItinerary(id).catch(() => {})
       throw err
@@ -313,8 +350,27 @@ export const useEventsStore = defineStore('events', () => {
   }
 
   async function deleteStop(id, index) {
-    put(await api.deleteStop(id, index))
+    const stopId = itineraries.value[id]?.stops[index]?.stopId
+    try {
+      put(await api.deleteStop(id, index, stopId ? { stopId } : undefined))
+    } catch (err) {
+      if (stopId) await showStored(id)
+      throw err
+    }
     await loadItinerary(id)
+  }
+
+  // The signed-in person's own ledger row of a finished outing on the server. A failure is kept (`failed`) with the row before it, and
+  // the screen offers a retry. Only the newest read of a session is kept. Never rejects.
+  // How to call: await loadLedger('3b1f...'); ledgers.value['3b1f...'].row.total
+  async function loadLedger(id) {
+    const ticket = (ledgerSeq[id] = (ledgerSeq[id] || 0) + 1)
+    try {
+      const row = await api.getLedger(id)
+      if (ticket === ledgerSeq[id]) ledgers.value = { ...ledgers.value, [id]: { row, failed: false } }
+    } catch {
+      if (ticket === ledgerSeq[id]) ledgers.value = { ...ledgers.value, [id]: { row: ledgers.value[id]?.row ?? null, failed: true } }
+    }
   }
 
   // The places of `category` (the stop's own when left out) that could take a confirmed stop's place:
@@ -340,7 +396,7 @@ export const useEventsStore = defineStore('events', () => {
   // `list` also empties the list and the sessions by id (a different person), where a reset leaves them for the load that follows.
   // How to call: forgetSessions({ list: true }) (when the signed-in person changes)
   function forgetSessions({ list = false } = {}) {
-    for (const tickets of [seq, itinerarySeq, photoSeq, orderSeq]) for (const id of Object.keys(tickets)) tickets[id] += 1
+    for (const tickets of [seq, itinerarySeq, photoSeq, orderSeq, ledgerSeq]) for (const id of Object.keys(tickets)) tickets[id] += 1
     // A read of the list or of the invitations still out belongs to the account before.
     listSeq += 1
     inviteSeq += 1
@@ -355,6 +411,7 @@ export const useEventsStore = defineStore('events', () => {
     }
     for (const tickets of [checkSeq, swapSeq]) for (const key of Object.keys(tickets)) tickets[key] += 1
     itineraries.value = {}
+    ledgers.value = {}
     photos.value = {}
     orders.value = {}
     weatherChecks.value = {}
@@ -414,8 +471,8 @@ export const useEventsStore = defineStore('events', () => {
           await loadSession(event.sessionId, { votesOnly: true })
           return
         }
-        await loadSession(event.sessionId)
-        if (itineraries.value[event.sessionId] !== undefined) await loadItinerary(event.sessionId)
+        const session = await loadSession(event.sessionId)
+        if (itineraries.value[event.sessionId] !== undefined) await loadItinerary(event.sessionId, session)
         if (event.type === 'photos' && photos.value[event.sessionId] !== undefined) await loadPhotos(event.sessionId)
       } catch (err) {
         // A shared session the person is not in any more (they left, or the host removed them) is dropped, and a screen on
@@ -429,9 +486,9 @@ export const useEventsStore = defineStore('events', () => {
   })
 
   return {
-    sessions, byId, itineraries, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
+    sessions, byId, itineraries, ledgers, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
     loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, dropSession,
-    loadSessions, loadSession, loadItinerary, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
-    confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, addPhoto, deletePhoto,
+    loadSessions, loadSession, loadItinerary, loadLedger, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
+    confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, forgetOrder, addPhoto, deletePhoto,
   }
 })

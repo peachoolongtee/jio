@@ -101,12 +101,13 @@ export function inviteAccess(session, mine, hostName = 'the host') {
 }
 
 // What the itinerary's main button does. 'finish' on the session's day for a confirmed plan (it completes the outing and
-// pays out the coins); 'save' before the day (it only goes Home: the plan was saved when it was confirmed); null for a
-// session that is not confirmed (voting, completed or cancelled).
+// pays out the coins), and after it for a shared one (`pastDay`: nothing finishes a shared outing by itself, so the host can, from its day
+// on); 'save' before the day (it only goes Home: the plan was saved when it was confirmed); null for a session that is not confirmed
+// (voting, completed or cancelled).
 // How to call: itineraryAction({ status: 'confirmed', isToday: false }) -> 'save'
 export function itineraryAction(session) {
   if (!session || session.status !== 'confirmed') return null
-  return session.isToday ? 'finish' : 'save'
+  return session.isToday || session.pastDay ? 'finish' : 'save'
 }
 
 // When the session starts, relative to now: "Starts in 50 min", "Starts in 3 h", "Tomorrow", "In 5 days",
@@ -145,7 +146,8 @@ export function sessionEnd(session) {
 // stay as it is (keepOpen, set by the showcase and the tour: their times are fixed when they are loaded, whatever the hour).
 // How to call: dueEnding({ status: 'confirmed', date: '2026-10-10', end: '21:00' }, new Date('2026-10-10T21:05:00+08:00')) -> 'finish'
 export function dueEnding(session, now = new Date()) {
-  if (!session || session.keepOpen || ['completed', 'cancelled'].includes(session.status)) return null
+  // A shared outing is finished by its host (POST /complete), never by a browser's clock: there is no sweep on the server yet.
+  if (!session || session.keepOpen || session.remote || ['completed', 'cancelled'].includes(session.status)) return null
   const end = sessionEnd(session)
   if (!end || now < end) return null
   if (session.status === 'confirmed') return 'finish'
@@ -153,20 +155,21 @@ export function dueEnding(session, now = new Date()) {
 }
 
 // A session past its end time that has not been completed, which Home reminds the group about, with when it closes by
-// itself: { closesAt }, or null. A confirmed plan past its end is included until the next read finishes it.
+// itself: { closesAt }, or null. A confirmed plan past its end is included until the next read finishes it. A shared outing closes by no
+// clock (its host finishes it, or cancels it), so its `closesAt` is null.
 // How to call: overdueOuting({ status: 'voting', date: '2026-10-10', end: '21:00' }, now) -> { closesAt: Date }
 export function overdueOuting(session, now = new Date()) {
   if (!session || session.keepOpen || ['completed', 'cancelled'].includes(session.status)) return null
   const end = sessionEnd(session)
   if (!end || now < end) return null
-  return { closesAt: new Date(end.getTime() + CLOSE_AFTER_MS) }
+  return { closesAt: session.remote ? null : new Date(end.getTime() + CLOSE_AFTER_MS) }
 }
 
 // Is the plan under way, so that people can ask "What next?" and propose places? Yes for a confirmed plan on the session's
 // day, which is the same moment the itinerary's main button becomes "Finish outing".
 // How to call: roamOpen({ status: 'confirmed', isToday: true }) -> true
 export function roamOpen(session) {
-  return itineraryAction(session) === 'finish'
+  return session?.status === 'confirmed' && !!session.isToday
 }
 
 // The Locate page's main button once the meeting spot is confirmed: named for where it goes, never a bare "Next".
