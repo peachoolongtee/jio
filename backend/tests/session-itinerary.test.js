@@ -244,6 +244,35 @@ describe('the stop rows of a confirm', () => {
   })
 })
 
+describe('stops that run past midnight', () => {
+  // Two places far apart, so the leg between them is long.
+  const far = data.venues.filter((v) => !String(v.id).startsWith('google')).reduce((best, v) => (best && Math.hypot(best[0].lat - best[1].lat, best[0].lng - best[1].lng) > Math.hypot(v.lat - data.venues[0].lat, v.lng - data.venues[0].lng) ? best : [data.venues[0], v]), null)
+  const stops = [
+    { slotId: 's1', category: 'drink', venueId: far[0].id, plannedStart: 1380, duration: 55 },
+    { slotId: 's2', category: 'eat', venueId: far[1].id, plannedStart: 1435, duration: 60 },
+  ]
+
+  it('shows the laid-out starts past 23:59 and stores them kept to the day, with the true starts worked out again from the plan\'s start', () => {
+    const { rows, starts, planStart } = confirmedRows(stops, venueOf)
+    expect(starts[1]).toBeGreaterThan(1439)
+    expect(rows.map((r) => r.planned_start_minute)).toEqual([1380, 1439])
+    expect(shownStops(stops, venueOf).map((s) => s.start)).toEqual(starts)
+    // Laid out again from the stored rows and the plan's start, the true starts come back: the stored 1439 is never an input.
+    expect(timedRows(rows, venueOf, planStart).timed.map((t) => t.start)).toEqual(starts)
+    expect(laidOutRows(rows, venueOf, planStart)).toEqual(rows)
+  })
+
+  it('keeps a suggested start past the day to 23:59 as the earliest start (the column holds no more) and shows the real one', () => {
+    const suggestion = { order: ['s2', 's1'], starts: { s2: 1500, s1: 1600 } }
+    const { rows, starts } = confirmedRows(stops, venueOf, suggestion)
+    expect(rows.map((r) => r.not_before_minute)).toEqual([1439, 1439])
+    expect(rows.every((r) => r.planned_start_minute <= 1439)).toBe(true)
+    expect(starts[0]).toBe(1439)
+    expect(starts[1]).toBeGreaterThan(1439 + 55)
+    expect(shownStops(stops, venueOf, suggestion).map((s) => s.start)).toEqual(starts)
+  })
+})
+
 describe('editing the stops of a confirmed plan', () => {
   const eat = pick('eat', 0)
   const drink = pick('drink', 0)
@@ -293,17 +322,21 @@ describe('editing the stops of a confirmed plan', () => {
     expectLaidOut(result.rows, result.planStart)
   })
 
-  it('deleting the first stop makes the plan start when the next one does (where it was stored to start)', () => {
+  it('deleting the first stop starts the plan with the next stop at the time it was voted for, else where it was laid out', () => {
     const rows = stored()
-    const result = withoutStop(rows, 'id0', session, venueOf)
-    expect(result.planStart).toBe(rows[1].planned_start_minute)
-    expect(result.rows[0].planned_start_minute).toBe(result.planStart)
-    expectLaidOut(result.rows, result.planStart)
+    const voted = withoutStop(rows, 'id0', session, venueOf, (slotId) => (slotId === 's2' ? 655 : null))
+    expect(voted.planStart).toBe(655)
+    expect(voted.rows[0].planned_start_minute).toBe(655)
+    expectLaidOut(voted.rows, voted.planStart)
+    // A slot that is not known: the start the next stop had as laid out.
+    const laid = withoutStop(rows, 'id0', session, venueOf)
+    expect(laid.planStart).toBe(timedRows(rows, venueOf, 600).timed[1].start)
+    expectLaidOut(laid.rows, laid.planStart)
   })
 
   it('deleting the first stop when the next one came from a proposal starts the plan at its earliest start', () => {
     const rows = [stored()[0], { ...stored()[1], slot_id: null, not_before_minute: 1010, planned_start_minute: 905 }]
-    expect(withoutStop(rows, 'id0', session, venueOf).planStart).toBe(1010)
+    expect(withoutStop(rows, 'id0', session, venueOf, () => 700).planStart).toBe(1010)
   })
 
   it('refuses a stop that is not there and the only stop', () => {

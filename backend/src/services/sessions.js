@@ -281,8 +281,23 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   const voting = createVoting({ data, areasById, runs })
   // Reads something the planner can do without, within this service's database deadline (see createSoftly).
   const soft = createSoftly(dbDeadlineMs)
-  // A saved place by its id (undefined when it is not one), for the timing of a plan.
-  const ctxVenue = (venueId) => voting.venues.get(venueId)
+  // The places of a draft's stops for laying the itinerary out: a place Jio does not know stands where the meeting area is, as it does on the
+  // screens, so the legs to and from it (and so every start after it) are the same on both sides. (Without a meeting area, the centre of Singapore.)
+  //
+  // How to call:
+  //   timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops))
+  function layoutVenue(draft) {
+    const area = areasById.get(draft.session.meeting_area_id)
+    return (venueId) => voting.venues.get(venueId) ?? (area ? { lat: area.lat, lng: area.lng } : undefined)
+  }
+  // When each voted stop of a draft was voted to start, by slot, for the plan to start at when its first stop goes.
+  //
+  // How to call:
+  //   withoutStop(draft.stops, stopId, draft.session, layoutVenue(draft), votedStartsOf(draft))
+  const votedStartsOf = (draft) => {
+    const starts = new Map(votedStops(draft).map((s) => [s.slotId, s.plannedStart]))
+    return (slotId) => starts.get(slotId) ?? null
+  }
 
   // ── Admission ──────────────────────────────────────────────────────────
 
@@ -1418,7 +1433,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
       const stops = votedStops(draft)
       if (stops.length === 0) return { status: 'none', why: 'no_stops', voted: [] }
       const basis = basisOf(draft.session, stops)
-      const venueOf = (venueId) => voting.venues.get(venueId)
+      const venueOf = layoutVenue(draft)
       // What a confirm of the voted order would store, and (below) of the suggested one: their stops with the laid-out starts.
       const voted = shownStops(stops, venueOf)
       const answerOf = (stored) => ({
@@ -1512,7 +1527,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
             }
             suggestion = stored
           }
-          const { rows, planStart } = confirmedRows(stops, (venueId) => voting.venues.get(venueId), suggestion)
+          const { rows, planStart } = confirmedRows(stops, layoutVenue(draft), suggestion)
           const note = suggestion ? { reason: suggestion.reason, source: suggestion.source === 'ai' ? 'ai' : 'rules' } : null
           return {
             ops: [],
@@ -1583,7 +1598,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           check(draft)
           stopOf(draft, stopId)
           if (draft.stops.length <= 1) throw refuse(409, 'last_stop', 'A plan needs at least one stop.')
-          const result = withoutStop(draft.stops, stopId, draft.session, ctxVenue)
+          const result = withoutStop(draft.stops, stopId, draft.session, layoutVenue(draft), votedStartsOf(draft))
           return stopsJob(draft, result, { clearKept: stopId }, ({ version }) => ({ planVersion: version }))
         },
       },
@@ -1605,7 +1620,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
         prepare: (draft) => {
           check(draft)
           stopOf(draft, stopId)
-          const result = withMode(draft.stops, stopId, mode, draft.session, ctxVenue)
+          const result = withMode(draft.stops, stopId, mode, draft.session, layoutVenue(draft))
           if (!result) throw refuse(409, 'no_leg', 'The first stop has no leg before it.')
           draft.stops = result.rows.map((r) => ({ ...r }))
           return {
@@ -1635,7 +1650,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
         check,
         prepare: (draft) => {
           check(draft)
-          const result = reorderedRows(draft.stops, stopIds, draft.session, ctxVenue)
+          const result = reorderedRows(draft.stops, stopIds, draft.session, layoutVenue(draft))
           if (!result) throw refuse(409, 'stops_changed', 'The plan has changed. Look at it again.')
           // The same order: the modes and earliest starts stay as they are.
           if (stopIds.every((stopId, i) => draft.stops[i].id === stopId)) return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version }) }
@@ -1673,12 +1688,12 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           if (row.venue_id !== seenVenueId) throw refuse(409, 'stop_changed', 'That stop has changed. Look at the plan again.')
           if (draft.stops.some((s) => s.id !== row.id && s.venue_id === venueId)) throw refuse(409, 'already_a_stop', `${venue.name} is already in the plan.`)
           const index = draft.stops.indexOf(row)
-          const startedAt = timedRows(draft.stops, ctxVenue, startOf(draft.session, draft.stops)).timed[index].start
+          const startedAt = timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops)).timed[index].start
           const slot = { category: kind, start_minute: Math.min(1439, startedAt), duration_minutes: row.duration_minutes }
           requireMeetingArea(draft)
           const ranking = await voting.rankSlot(draft, slot, [venueId], ctx, { last: index === draft.stops.length - 1 })
           if (!ranking.current.has(venueId)) throw refuse(422, 'venue_does_not_fit', `${venue.name} does not fit this stop.`)
-          const result = withPlace(draft.stops, stopId, { venueId, category: kind, startedAt: Math.min(1439, startedAt) }, draft.session, ctxVenue)
+          const result = withPlace(draft.stops, stopId, { venueId, category: kind, startedAt: Math.min(1439, startedAt) }, draft.session, layoutVenue(draft))
           // The new place is kept as an option of the stop's slot only when it is of the slot's own kind; for another kind the old place just
           // leaves the slot's options (a place of one kind is not a choice for another kind's slot).
           const slotKind = row.slot_id ? draft.slots.find((sl) => sl.id === row.slot_id)?.category : null
@@ -1731,7 +1746,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   //   const { slot, last } = stopSlotOf(draft, row, 'drink') // { slot: { category, start_minute, duration_minutes }, last: false }
   function stopSlotOf(draft, row, category) {
     const index = draft.stops.indexOf(row)
-    const startedAt = timedRows(draft.stops, ctxVenue, startOf(draft.session, draft.stops)).timed[index].start
+    const startedAt = timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops)).timed[index].start
     return { slot: { category, start_minute: Math.min(1439, startedAt), duration_minutes: row.duration_minutes }, last: index === draft.stops.length - 1 }
   }
 
@@ -1798,7 +1813,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     const area = areasById.get(draft.session.meeting_area_id)
     const here = current ? { lat: current.lat, lng: current.lng } : { lat: area.lat, lng: area.lng }
     const nowMinutes = singaporeMinutes()
-    const endedAt = draft.stops.length ? (timedRows(draft.stops, ctxVenue, startOf(draft.session, draft.stops)).timed.at(-1)?.end ?? 0) : 0
+    const endedAt = draft.stops.length ? (timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops)).timed.at(-1)?.end ?? 0) : 0
     const dateTime = `${singaporeDay()}T${fromMinutes(Math.min(1439, Math.max(endedAt, nowMinutes)))}`
     const { result, weather } = await voting.roamAround(draft, { current: here, categories, dateTime, minutes: ROAM_MINUTES }, ctx)
     return roamReply(result, {
@@ -1816,7 +1831,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   function homeDateTime(draft) {
     const date = String(draft.session.date).slice(0, 10)
     if (date < singaporeDay() || draft.stops.length === 0) return undefined
-    const endedAt = timedRows(draft.stops, ctxVenue, startOf(draft.session, draft.stops)).timed.at(-1)?.end ?? 0
+    const endedAt = timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops)).timed.at(-1)?.end ?? 0
     return `${date}T${fromMinutes(Math.min(1439, endedAt))}`
   }
 
@@ -2008,11 +2023,11 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
           }
           if (draft.stops.length >= MAX_STOPS) throw refuse(409, 'plan_full', `A plan holds up to ${MAX_STOPS} stops.`)
           answered()
-          const timed = draft.stops.length ? timedRows(draft.stops, ctxVenue, startOf(draft.session, draft.stops)).timed : []
+          const timed = draft.stops.length ? timedRows(draft.stops, layoutVenue(draft), startOf(draft.session, draft.stops)).timed : []
           const endedAt = timed.at(-1)?.end ?? null
           // Not before now, but only on the day of the outing: on any other day the clock says nothing about the plan's times.
           const notBefore = Math.max(endedAt ?? 0, onTheDay(draft.session) ? singaporeMinutes() : 0)
-          const result = withAddedStop(draft.stops, { venueId: proposal.venue_id, category: venue.category, notBefore, duration: ROAM_MINUTES, endedAt }, draft.session, ctxVenue)
+          const result = withAddedStop(draft.stops, { venueId: proposal.venue_id, category: venue.category, notBefore, duration: ROAM_MINUTES, endedAt }, draft.session, layoutVenue(draft))
           return { ...stopsJob(draft, result, {}, answer), ops }
         },
       },

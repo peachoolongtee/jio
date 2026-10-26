@@ -34,9 +34,9 @@ afterEach(async () => {
 })
 
 // A voting world made by the real endpoints, and an app over it. How to call: await start({ itineraryAi })
-async function start({ status = 'voting', appOptions = {}, people = [HOST, GUEST, OTHER], ends = {} } = {}) {
+async function start({ status = 'voting', appOptions = {}, people = [HOST, GUEST, OTHER], ends = {}, times = {} } = {}) {
   world = createWorld()
-  addSession(world, { id: SESSION, status: 'inviting' })
+  addSession(world, { id: SESSION, status: 'inviting', ...times })
   addMember(world, SESSION, HOST, { role: 'host', start: 'tampines', end: ends[HOST], name: NAMES[HOST] })
   addMember(world, SESSION, GUEST, { start: 'clementi', end: ends[GUEST], name: NAMES[GUEST] })
   if (people.includes(OTHER)) addMember(world, SESSION, OTHER, { start: 'bishan', end: ends[OTHER], name: NAMES[OTHER] })
@@ -58,13 +58,17 @@ const writes = () => world.calls.filter((c) => c.rpc === 'apply_session_plan')
 // stop, then after the one before it plus the leg between them, never before its earliest start), in the order of `seq`. This is what both
 // screens draw, so the database is what they show. How to call: expectStoredTimes()
 const venueRows = new Map(loadPlanData().venues.map((v) => [v.id, v]))
+// The place of a stop as the layout reads it: a place Jio does not know stands where the meeting area is (Bugis here), as on the screens.
+const bugis = loadPlanData().areas.find((a) => a.id === 'bugis')
+const layoutPlace = (id) => venueRows.get(id) ?? { lat: bugis.lat, lng: bugis.lng }
 function expectStoredTimes() {
   const rows = stops()
   expect(rows.length).toBeGreaterThan(0)
-  const { timed } = timedRows(rows, (id) => venueRows.get(id), session().plan_start_minute)
+  const { timed } = timedRows(rows, layoutPlace, session().plan_start_minute)
+  // Kept to the day (a plan can run past midnight, and the column holds 0 to 1439).
   expect(rows.map((r) => r.planned_start_minute)).toEqual(timed.map((x) => Math.min(1439, x.start)))
   // And they never run backwards: a stop starts after the one before it ends.
-  rows.slice(1).forEach((r, i) => expect(r.planned_start_minute).toBeGreaterThanOrEqual(rows[i].planned_start_minute + rows[i].duration_minutes))
+  timed.slice(1).forEach((x, i) => expect(x.start).toBeGreaterThanOrEqual(timed[i].end))
 }
 const serviceCalls = () => world.calls.filter((c) => c.who === null)
 const vote = async (who, category, venueId) => {
@@ -456,7 +460,11 @@ describe('editing the stops (E15)', () => {
     await confirmed()
     const [a, b, c] = stops()
     await t.call('DELETE', path(`/stops/${a.id}`), undefined, HOST)
-    expect(session().plan_start_minute).toBe(b.planned_start_minute)
+    // The next stop starts at the time it was voted for, back to back with the first stop that went (without the leg between them), so no
+    // unexplained gap opens before it.
+    expect(session().plan_start_minute).toBe(b.planned_start_minute - b.travel_minutes)
+    expect(stops()[0].planned_start_minute).toBe(session().plan_start_minute)
+    expectStoredTimes()
     await t.call('DELETE', path(`/stops/${b.id}`), undefined, HOST)
     const last = await t.call('DELETE', path(`/stops/${c.id}`), undefined, HOST)
     expect([last.status, last.body.error]).toEqual([409, 'last_stop'])
@@ -1697,12 +1705,12 @@ describe('the stored times of the stops', () => {
       expectStoredTimes()
     }
 
-    // The first stop goes: the others close up, and the plan starts where the next one did.
-    const second2 = stops()[1]
+    // The first stop goes: the others close up, and the plan starts the next stop (the meal) at the time it was voted for.
     expect((await t.call('DELETE', path(`/stops/${stops()[0].id}`), undefined, HOST)).status).toBe(200)
     expectStoredTimes()
-    expect(session().plan_start_minute).toBe(second2.planned_start_minute)
-    expect(stops()[0].planned_start_minute).toBe(second2.planned_start_minute)
+    expect(stops()[0].id).toBe(first.id)
+    expect(session().plan_start_minute).toBe(first.planned_start_minute)
+    expect(stops()[0].planned_start_minute).toBe(first.planned_start_minute)
   })
 
   it('hold the laid-out start again when the plan is opened and confirmed once more', async () => {
@@ -1814,5 +1822,99 @@ describe('the trips home of a confirmed plan are the ledger\'s minutes home (GET
     expect(JSON.stringify({ ...world, calls: undefined })).toBe(snapshot)
     session().status = 'voting'
     expect((await t.call('GET', path('/trips-home'), undefined, HOST)).body.error).toBe('wrong_status')
+  })
+})
+
+describe('a plan that runs past midnight', () => {
+  // A session cannot cross midnight (its end is after its start), but the legs and the lengths of the stops can carry the last stops past it.
+  const LATE = { start: '20:00:00', end: '23:59:00' }
+  const freeVenues = () => loadPlanData().venues.filter((v) => !String(v.id).startsWith('google') && !world.stops.some((s) => s.venue_id === v.id))
+
+  it('shows the dialog the laid-out starts, which pass 23:59, and stores them kept to the day', async () => {
+    await start({ times: LATE })
+    await voteForThree()
+    const res = (await t.call('POST', path('/order/suggest'), undefined, HOST)).body
+    expect(res.voted).toHaveLength(3)
+    const unclamped = timedRows(
+      res.voted.map((v, seq) => ({ seq, venue_id: v.venueId, planned_start_minute: v.start, duration_minutes: v.duration, travel_mode: null, not_before_minute: null })),
+      layoutPlace,
+      res.voted[0].start,
+    ).timed
+    // The last stop ends after midnight; what the dialog shows for each stop is where the itinerary will start it, not a value kept to the day.
+    expect(unclamped.at(-1).end).toBeGreaterThan(1439)
+    expect(res.voted.map((v) => v.start)).toEqual(unclamped.map((x) => x.start))
+    expect((await t.call('POST', path('/confirm'), { order: 'voted', basis: res.basis }, HOST)).status).toBe(200)
+    expect(stops().map((s) => s.planned_start_minute)).toEqual(res.voted.map((v) => Math.min(1439, v.start)))
+    expect(stops().every((s) => s.planned_start_minute <= 1439 && (s.not_before_minute ?? 0) <= 1439)).toBe(true)
+    expectStoredTimes()
+  })
+
+  it('keeps a stop added after the last one at the end of the day in the column, and draws it where it really starts', async () => {
+    await start({ times: LATE })
+    await voteForThree()
+    expect((await t.call('POST', path('/confirm'), {}, HOST)).status).toBe(200)
+    const place = freeVenues().find((v) => v.category === 'eat') ?? freeVenues()[0]
+    const proposal = (await t.call('POST', path('/proposals'), { venueId: place.id }, GUEST)).body
+    expect((await t.call('POST', path(`/proposals/${proposal.id}/resolve`), { accept: true }, HOST)).status).toBe(200)
+    const rows = stops()
+    expect(rows).toHaveLength(4)
+    const { timed } = timedRows(rows, layoutPlace, session().plan_start_minute)
+    expect(timed.at(-1).start).toBeGreaterThan(1439)
+    expect(rows.at(-1)).toMatchObject({ planned_start_minute: 1439, not_before_minute: 1439 })
+    expectStoredTimes()
+    // The edits that lay the plan out again start from the plan's start, never from a stored start kept to the day.
+    const before = timed.map((x) => x.start)
+    expect((await t.call('PATCH', path(`/stops/${rows[1].id}`), { travelMode: 'car' }, HOST)).status).toBe(200)
+    expectStoredTimes()
+    expect((await t.call('PATCH', path(`/stops/${rows[1].id}`), { travelMode: null }, HOST)).status).toBe(200)
+    expect(timedRows(stops(), layoutPlace, session().plan_start_minute).timed.map((x) => x.start)).toEqual(before)
+  })
+})
+
+describe('a stop at a place Jio does not know', () => {
+  it('lies where the meeting area is for the layout, so the stored times are the ones the screens draw', async () => {
+    await confirmed()
+    const rows = stops()
+    world.stops.find((s) => s.id === rows[1].id).venue_id = 'a-place-jio-does-not-list'
+    expect((await t.call('PATCH', path(`/stops/${rows[2].id}`), { travelMode: 'car' }, HOST)).status).toBe(200)
+    expectStoredTimes()
+    // The legs into and out of it are worked out from the meeting area's centre, so they are not left out of the times or the ledger.
+    expect(stops()[1].travel_minutes).not.toBeNull()
+    expect(stops()[2].travel_minutes).not.toBeNull()
+  })
+
+  it('does not stop the dialog from showing the voted order, which lays the stop where the meeting area is', async () => {
+    await start()
+    await voteForThree()
+    const eat = slotOf('eat')
+    const winner = world.votes.find((v) => v.slot_id === eat.id).venue_id
+    for (const row of [...world.slot_options, ...world.votes]) if (row.slot_id === eat.id && row.venue_id === winner) row.venue_id = 'a-place-jio-does-not-list'
+    const res = (await t.call('POST', path('/order/suggest'), undefined, HOST)).body
+    expect(res).toMatchObject({ status: 'none', why: 'unknown_place', basis: expect.stringMatching(/^[0-9a-f]{64}$/) })
+    expect(res.voted).toHaveLength(3)
+    expect(res.voted.some((v) => v.venueId === 'a-place-jio-does-not-list')).toBe(true)
+    // The host can confirm what was shown, with the basis it came with.
+    const ok = await t.call('POST', path('/confirm'), { order: 'voted', basis: res.basis }, HOST)
+    expect(ok.status).toBe(200)
+    expect(stops().map((s) => [s.slot_id, s.planned_start_minute])).toEqual(res.voted.map((v) => [v.slotId, Math.min(1439, v.start)]))
+    expectStoredTimes()
+  })
+})
+
+describe('the trips home on the routed path', () => {
+  it('equal the ledger\'s minutes home when OneMap routes them, and the stranger\'s read touches nothing', async () => {
+    const http = countingStubHttp()
+    await confirmed({ ends: { [HOST]: 'bishan' }, appOptions: { onemap: createOneMap({ http: http.http, stub: true }) } })
+    const calls = serviceCalls().length
+    expect((await t.call('GET', path('/trips-home'), undefined, STRANGER)).status).toBe(404)
+    expect(serviceCalls().length).toBe(calls)
+    const asked = http.calls.route
+    const res = await t.call('GET', path('/trips-home'), undefined, GUEST)
+    expect(res.status).toBe(200)
+    // The trips were routed (or came from the walk and the cache), not all estimated.
+    expect(http.calls.route).toBeGreaterThan(asked)
+    expect(res.body.trips).toHaveLength(3)
+    expect((await t.call('POST', path('/complete'), undefined, HOST)).status).toBe(200)
+    for (const trip of res.body.trips) expect(world.commute_ledger.find((r) => r.user_id === trip.userId).minutes_home).toBe(trip.minutes)
   })
 })
