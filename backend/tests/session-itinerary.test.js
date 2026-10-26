@@ -10,12 +10,13 @@ import {
   timedRows,
   votedStops,
   votersOf,
+  laidOutRows,
+  shownStops,
   winnerOf,
   withAddedStop,
   withMode,
   withoutStop,
   withPlace,
-  withTravelMinutes,
 } from '../src/services/session-itinerary.js'
 import { historySince, visitsFrom } from '../src/services/session-history.js'
 import { homeTripsRun, ledgerFor, ledgerPeople, minutesBetween } from '../src/services/session-ledger.js'
@@ -27,6 +28,17 @@ const data = loadPlanData()
 const venues = new Map(data.venues.map((v) => [v.id, v]))
 const venueOf = (id) => venues.get(id)
 const pick = (category, n) => data.venues.filter((v) => v.category === category && !String(v.id).startsWith('google')).slice(n, n + 1)[0]
+
+// The invariant of the stored rows: every stop's `planned_start_minute` is the start the itinerary draws for it (the plan's start for the first
+// stop, each stop after the one before it plus the leg between them, never before its earliest start), in the order of the rows, and the
+// rows are numbered 0, 1, 2 ... How to call: expectLaidOut(result.rows, result.planStart)
+function expectLaidOut(rows, planStart) {
+  const { timed } = timedRows(rows, venueOf, planStart)
+  expect(rows.map((r) => r.seq)).toEqual(rows.map((_, i) => i))
+  expect(rows.map((r) => r.planned_start_minute)).toEqual(timed.map((t) => Math.min(1439, t.start)))
+  // Laying the stored rows out again changes nothing: the stored times are a fixed point of the layout the screens draw.
+  expect(laidOutRows(rows, venueOf, planStart).map((r) => r.planned_start_minute)).toEqual(rows.map((r) => r.planned_start_minute))
+}
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2'
@@ -195,19 +207,40 @@ describe('the stop rows of a confirm', () => {
   it('the voted order: numbered from 0, each with its slot and place, no earliest start, the minutes of the leg into it', () => {
     const { rows, planStart } = confirmedRows(stops, venueOf)
     expect(planStart).toBe(600)
-    expect(rows.map((r) => [r.seq, r.slot_id, r.category, r.venue_id, r.planned_start_minute, r.duration_minutes, r.travel_mode, r.not_before_minute])).toEqual(
-      stops.map((s, i) => [i, s.slotId, s.category, s.venueId, s.plannedStart, s.duration, null, null]),
+    expect(rows.map((r) => [r.seq, r.slot_id, r.category, r.venue_id, r.duration_minutes, r.travel_mode, r.not_before_minute])).toEqual(
+      stops.map((s, i) => [i, s.slotId, s.category, s.venueId, s.duration, null, null]),
     )
     expect(rows[0].travel_minutes).toBeNull()
     expect(rows.slice(1).every((r) => Number.isInteger(r.travel_minutes) && r.travel_minutes >= 0)).toBe(true)
+    // The stored start of a stop is where the itinerary starts it: after the one before it and the leg between them, not the slot's own time.
+    expect(rows[0].planned_start_minute).toBe(600)
+    expect(rows[1].planned_start_minute).toBe(rows[0].planned_start_minute + rows[0].duration_minutes + rows[1].travel_minutes)
+    expect(rows[2].planned_start_minute).toBe(rows[1].planned_start_minute + rows[1].duration_minutes + rows[2].travel_minutes)
+    expectLaidOut(rows, planStart)
   })
 
   it('a suggested order: the stops in that order with its starts as their earliest starts, the plan still starting with the voted first stop', () => {
     const { rows, planStart } = confirmedRows(stops, venueOf, { order: ['s3', 's1', 's2'], starts: { s3: 600, s1: 700, s2: 780 } })
     expect(planStart).toBe(600)
     expect(rows.map((r) => [r.seq, r.slot_id, r.not_before_minute])).toEqual([[0, 's3', 600], [1, 's1', 700], [2, 's2', 780]])
-    // The planned start of each stop stays its slot's, so the earliest start is the only thing that moved it.
-    expect(rows.map((r) => r.planned_start_minute)).toEqual([750, 600, 660])
+    // The stored start of each stop is where the itinerary starts it in that order, never before its earliest start.
+    expectLaidOut(rows, planStart)
+    rows.forEach((r, i) => expect(r.planned_start_minute).toBeGreaterThanOrEqual([600, 700, 780][i]))
+    expect(rows[0].planned_start_minute).toBe(600)
+  })
+
+  it('shownStops is the rows a confirm stores: the same order, the same starts, for the voted order and a suggested one', () => {
+    const suggestion = { order: ['s3', 's1', 's2'], starts: { s3: 600, s1: 700, s2: 780 } }
+    for (const made of [null, suggestion]) {
+      const { rows } = confirmedRows(stops, venueOf, made)
+      expect(shownStops(stops, venueOf, made)).toEqual(
+        rows.map((r) => ({ slotId: r.slot_id, category: r.category, venueId: r.venue_id, start: r.planned_start_minute, duration: r.duration_minutes })),
+      )
+    }
+    // The voted order's second stop starts after the first and the leg between them, which the slot's own time (back to back) leaves out.
+    const voted = shownStops(stops, venueOf)
+    expect(voted.map((s) => s.slotId)).toEqual(['s1', 's2', 's3'])
+    expect(voted[1].start).toBeGreaterThanOrEqual(voted[0].start + voted[0].duration)
   })
 })
 
@@ -225,7 +258,7 @@ describe('editing the stops of a confirmed plan', () => {
   // A plan as stored: the rows with ids, the second leg by car.
   const stored = () => {
     const { rows } = confirmedRows(stops, venueOf, { order: ['s1', 's2', 's3'], starts: { s1: 600, s2: 700, s3: 800 } })
-    return withTravelMinutes(rows.map((r, i) => ({ ...r, id: `id${i}`, travel_mode: i === 2 ? 'car' : null })), venueOf, 600)
+    return laidOutRows(rows.map((r, i) => ({ ...r, id: `id${i}`, travel_mode: i === 2 ? 'car' : null })), venueOf, 600)
   }
 
   it('reordering keeps the plan\'s start, resets the modes, drops the order\'s earliest starts and renumbers', () => {
@@ -233,6 +266,9 @@ describe('editing the stops of a confirmed plan', () => {
     expect(result.planStart).toBe(600)
     expect(result.rows.map((r) => [r.id, r.seq, r.travel_mode, r.not_before_minute])).toEqual([['id2', 0, null, null], ['id0', 1, null, null], ['id1', 2, null, null]])
     expect(result.rows[0].travel_minutes).toBeNull()
+    // The stored starts follow the new order: the plan's start, then each stop after the one before it.
+    expect(result.rows[0].planned_start_minute).toBe(600)
+    expectLaidOut(result.rows, result.planStart)
   })
 
   it('reordering refuses ids that are not exactly the plan\'s stops', () => {
@@ -253,11 +289,16 @@ describe('editing the stops of a confirmed plan', () => {
     const result = withoutStop(stored(), 'id1', session, venueOf)
     expect(result.rows.map((r) => [r.id, r.seq, r.travel_mode, r.not_before_minute])).toEqual([['id0', 0, null, null], ['id2', 1, null, null]])
     expect(result.planStart).toBe(600)
-    expect(result.rows[1].travel_minutes).toBe(withTravelMinutes(result.rows.map((r) => ({ ...r, travel_minutes: null })), venueOf, 600)[1].travel_minutes)
+    expect(result.rows[1].travel_minutes).toBe(laidOutRows(result.rows.map((r) => ({ ...r, travel_minutes: null })), venueOf, 600)[1].travel_minutes)
+    expectLaidOut(result.rows, result.planStart)
   })
 
-  it('deleting the first stop makes the plan start when the next one does', () => {
-    expect(withoutStop(stored(), 'id0', session, venueOf).planStart).toBe(660)
+  it('deleting the first stop makes the plan start when the next one does (where it was stored to start)', () => {
+    const rows = stored()
+    const result = withoutStop(rows, 'id0', session, venueOf)
+    expect(result.planStart).toBe(rows[1].planned_start_minute)
+    expect(result.rows[0].planned_start_minute).toBe(result.planStart)
+    expectLaidOut(result.rows, result.planStart)
   })
 
   it('deleting the first stop when the next one came from a proposal starts the plan at its earliest start', () => {
@@ -276,6 +317,11 @@ describe('editing the stops of a confirmed plan', () => {
     const carMinutes = withMode(rows, 'id1', 'car', session, venueOf).rows[1].travel_minutes
     expect(walkMinutes).not.toBe(carMinutes)
     expect(withMode(rows, 'id1', 'car', session, venueOf).rows[1].travel_mode).toBe('car')
+    // A slower or faster leg moves the stop and every stop after it: the stored starts follow.
+    for (const mode of ['walk', 'mrt', 'car', null]) {
+      const made = withMode(rows, 'id1', mode, session, venueOf)
+      expectLaidOut(made.rows, made.planStart)
+    }
     expect(withMode(rows, 'id0', 'car', session, venueOf)).toBeNull()
     expect(withMode(rows, 'id1', 'bike', session, venueOf)).toBeNull()
     expect(withMode(withMode(rows, 'id1', 'car', session, venueOf).rows, 'id1', null, session, venueOf).rows[1].travel_mode).toBeNull()
@@ -284,9 +330,11 @@ describe('editing the stops of a confirmed plan', () => {
   it('another place keeps the stop\'s length, never starts earlier than it was checked for, resets the legs either side and keeps the others', () => {
     const rows = stored()
     const result = withPlace(rows, 'id1', { venueId: other.id, category: 'drink', startedAt: 712 }, session, venueOf)
-    expect(result.rows[1]).toMatchObject({ id: 'id1', venue_id: other.id, category: 'drink', duration_minutes: 90, planned_start_minute: 660, not_before_minute: 712, travel_mode: null })
+    expect(result.rows[1]).toMatchObject({ id: 'id1', venue_id: other.id, category: 'drink', duration_minutes: 90, not_before_minute: 712, travel_mode: null })
+    expect(result.rows[1].planned_start_minute).toBeGreaterThanOrEqual(712)
     expect(result.rows[2].travel_mode).toBeNull() // the leg out of the stop was by car and is the default now
     expect(result.rows[0]).toEqual(rows[0] && { ...rows[0], travel_minutes: null })
+    expectLaidOut(result.rows, result.planStart)
     // An earlier check never pulls an earliest start forward.
     const later = withPlace(result.rows, 'id1', { venueId: drink.id, category: 'drink', startedAt: 650 }, session, venueOf)
     expect(later.rows[1].not_before_minute).toBe(712)
@@ -297,8 +345,27 @@ describe('editing the stops of a confirmed plan', () => {
     const rows = stored()
     const result = withAddedStop(rows, { venueId: other.id, category: 'drink', notBefore: 1100, duration: 60, endedAt: 1000 }, session, venueOf)
     expect(result.planStart).toBe(600)
-    expect(result.rows.at(-1)).toMatchObject({ seq: 3, slot_id: null, category: 'drink', venue_id: other.id, planned_start_minute: 1000, duration_minutes: 60, not_before_minute: 1100 })
+    expect(result.rows.at(-1)).toMatchObject({ seq: 3, slot_id: null, category: 'drink', venue_id: other.id, duration_minutes: 60, not_before_minute: 1100 })
     expect(Number.isInteger(result.rows.at(-1).travel_minutes)).toBe(true)
+    // It starts when it may (not before 18:20), and every stored start is the laid-out one.
+    expect(result.rows.at(-1).planned_start_minute).toBe(1100)
+    expectLaidOut(result.rows, result.planStart)
+  })
+
+  it('the stored starts stay the laid-out ones through a run of edits: a move, an added stop, a mode, a deleted stop', () => {
+    let rows = stored()
+    let planStart = 600
+    const step = (result) => {
+      expect(result).not.toBeNull()
+      rows = result.rows
+      planStart = result.planStart
+      expectLaidOut(rows, planStart)
+    }
+    step(reorderedRows(rows, ['id1', 'id0', 'id2'], { plan_start_minute: planStart }, venueOf))
+    step(withAddedStop(rows, { venueId: other.id, category: 'drink', notBefore: 1000, duration: 60, endedAt: 900 }, { plan_start_minute: planStart }, venueOf))
+    step(withMode(rows, rows[1].id, 'car', { plan_start_minute: planStart }, venueOf))
+    step(withoutStop(rows, rows[0].id, { plan_start_minute: planStart }, venueOf))
+    step(withPlace(rows, rows[0].id, { venueId: pick('shop', 1).id, category: 'shop', startedAt: rows[0].planned_start_minute }, { plan_start_minute: planStart }, venueOf))
   })
 
   it('times the stops as the itinerary does, never before their earliest starts', () => {

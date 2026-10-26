@@ -8,6 +8,7 @@ import { createHttp } from '../src/services/http.js'
 import { createItineraryAi } from '../src/services/itinerary-ai.js'
 import { createOneMap } from '../src/services/onemap.js'
 import { createPlannerRuns } from '../src/services/planner-runs.js'
+import { timedRows } from '../src/services/session-itinerary.js'
 import { createSessions } from '../src/services/sessions.js'
 import { createWeather } from '../src/services/weather.js'
 import { at, makeWorld, regionalAnswer } from './helpers/weather-world.js'
@@ -53,6 +54,18 @@ const optionsOf = (category) => world.slot_options.filter((o) => o.slot_id === s
 // Copies of the stop rows, so a test can keep what a stop was before an edit.
 const stops = () => world.stops.filter((s) => s.session_id === SESSION).sort((a, b) => a.seq - b.seq).map((s) => ({ ...s }))
 const writes = () => world.calls.filter((c) => c.rpc === 'apply_session_plan')
+// The stored stop times are the laid-out ones: each stop's `planned_start_minute` is where the itinerary starts it (the plan's start for the first
+// stop, then after the one before it plus the leg between them, never before its earliest start), in the order of `seq`. This is what both
+// screens draw, so the database is what they show. How to call: expectStoredTimes()
+const venueRows = new Map(loadPlanData().venues.map((v) => [v.id, v]))
+function expectStoredTimes() {
+  const rows = stops()
+  expect(rows.length).toBeGreaterThan(0)
+  const { timed } = timedRows(rows, (id) => venueRows.get(id), session().plan_start_minute)
+  expect(rows.map((r) => r.planned_start_minute)).toEqual(timed.map((x) => Math.min(1439, x.start)))
+  // And they never run backwards: a stop starts after the one before it ends.
+  rows.slice(1).forEach((r, i) => expect(r.planned_start_minute).toBeGreaterThanOrEqual(rows[i].planned_start_minute + rows[i].duration_minutes))
+}
 const serviceCalls = () => world.calls.filter((c) => c.who === null)
 const vote = async (who, category, venueId) => {
   const { error } = await userClient(world, who).from('votes').insert({ slot_id: slotOf(category).id, user_id: who, venue_id: venueId })
@@ -170,7 +183,8 @@ describe('the suggested order (E22)', () => {
     const drink = optionsOf('drink')[0].venue_id
     await vote(HOST, 'drink', drink)
     const res = await t.call('POST', path('/order/suggest'), undefined, HOST)
-    expect(res.body).toEqual({ status: 'none', why: 'one_movable', basis: expect.stringMatching(/^[0-9a-f]{64}$/) })
+    expect(res.body).toEqual({ status: 'none', why: 'one_movable', basis: expect.stringMatching(/^[0-9a-f]{64}$/), voted: expect.any(Array) })
+    expect(res.body.voted.map((v) => v.category)).toEqual(expect.arrayContaining(['eat', 'drink']))
     expect(session().order_suggestion ?? null).toBeNull()
   })
 
@@ -235,11 +249,14 @@ describe('the host\'s confirm (E12)', () => {
       expect(row.not_before_minute).toBeNull()
       expect(row.travel_mode).toBeNull()
     }
-    // Back to back, inside the session's window, each starting where the slot laid it out.
+    // The first stop starts where the plan does, and each after it when the one before it ends and the leg between them is travelled: the
+    // times the itinerary draws, not the slots' own (back to back) times.
     expect(rows[0].planned_start_minute).toBe(session().plan_start_minute)
-    expect(rows[1].planned_start_minute).toBe(rows[0].planned_start_minute + rows[0].duration_minutes)
+    expect(rows[1].planned_start_minute).toBe(rows[0].planned_start_minute + rows[0].duration_minutes + rows[1].travel_minutes)
+    expect(rows[2].planned_start_minute).toBe(rows[1].planned_start_minute + rows[1].duration_minutes + rows[2].travel_minutes)
     expect(rows[0].travel_minutes).toBeNull()
     expect(rows[1].travel_minutes).toBeGreaterThanOrEqual(0)
+    expectStoredTimes()
     expect(writes().at(-1)).toBeTruthy()
   })
 
@@ -294,10 +311,14 @@ describe('the host\'s confirm (E12)', () => {
     const res = await t.call('POST', path('/confirm'), { order: 'suggested', basis: suggestion.body.basis }, HOST)
     expect(res.status).toBe(200)
     expect(stops().map((s) => s.slot_id)).toEqual(suggestion.body.order)
-    expect(stops().map((s) => s.not_before_minute)).toEqual(suggestion.body.stops.map((s) => s.start))
+    expect(stops().map((s) => s.not_before_minute).every((n, i) => n <= suggestion.body.stops[i].start)).toBe(true)
     expect(session()).toMatchObject({ status: 'confirmed', order_reason: suggestion.body.reason, order_source: 'ai' })
     // The plan starts when the first voted stop does, as the browser's does.
     expect(session().plan_start_minute).toBe(Math.min(...stops().map((s) => s.planned_start_minute)))
+    expectStoredTimes()
+    // What the host was shown is what was saved: the suggested order's stops and their starts.
+    expect(stops().map((s) => [s.slot_id, s.planned_start_minute])).toEqual(suggestion.body.stops.map((s) => [s.slotId, s.start]))
+    stops().forEach((row) => expect(row.planned_start_minute).toBeGreaterThanOrEqual(row.not_before_minute))
   })
 
   it('refuses a stale suggested order with 409 order_stale and writes nothing', async () => {
@@ -547,8 +568,11 @@ describe('putting another place in a stop (E15, the one way)', () => {
     const { venue, res } = await replacement(b)
     expect(res.body).toMatchObject({ changed: true })
     const now = stops().find((s) => s.id === b.id)
-    expect(now).toMatchObject({ venue_id: venue.id, category: b.category, duration_minutes: b.duration_minutes, planned_start_minute: b.planned_start_minute, travel_mode: null })
+    expect(now).toMatchObject({ venue_id: venue.id, category: b.category, duration_minutes: b.duration_minutes, travel_mode: null })
+    // It starts no earlier than it did, and the times after it follow the new legs.
     expect(now.not_before_minute).toBeGreaterThanOrEqual(b.planned_start_minute)
+    expect(now.planned_start_minute).toBeGreaterThanOrEqual(b.planned_start_minute)
+    expectStoredTimes()
     // The leg out of the stop is back to its default mode.
     expect(stops().find((s) => s.id === c.id).travel_mode).toBeNull()
     expect(session().order_reason).toBeNull()
@@ -1623,5 +1647,172 @@ describe('a stop changed to another kind of place', () => {
     expect(optionsAfter).not.toContain(venue.id)
     expect(optionsAfter).not.toContain(drink.venue_id)
     expect(stops().find((s) => s.id === drink.id)).toMatchObject({ category: 'activity', venue_id: venue.id })
+  })
+})
+
+// ── The stored stop times are the laid-out ones, and the Confirm dialog shows what is saved ──
+
+describe('the stored times of the stops', () => {
+  // Two people vote for a meal and an activity, as the group of the two-device check did.
+  async function votedForTwo() {
+    await start()
+    const eat = optionsOf('eat')[0].venue_id
+    const activity = optionsOf('activity')[0].venue_id
+    for (const who of [HOST, GUEST]) {
+      await vote(who, 'eat', eat)
+      await vote(who, 'activity', activity)
+    }
+    return { eat, activity }
+  }
+  const free = () => loadPlanData().venues.filter((v) => !String(v.id).startsWith('google') && !world.stops.some((s) => s.venue_id === v.id))
+
+  it('hold the laid-out start of every stop after a confirm, a move, an added stop, a travel mode, a delete and a change of place', async () => {
+    await votedForTwo()
+    const shown = (await t.call('POST', path('/order/suggest'), undefined, HOST)).body
+    expect((await t.call('POST', path('/confirm'), { order: 'voted', basis: shown.basis }, HOST)).status).toBe(200)
+    expectStoredTimes()
+    // The second stop starts after the first ends and the leg between them: later than the slot's own back-to-back time.
+    const [first, second] = stops()
+    expect(second.planned_start_minute).toBe(first.planned_start_minute + first.duration_minutes + second.travel_minutes)
+
+    // The host moves the second stop up.
+    expect((await t.call('PUT', path('/stops/order'), { stopIds: [second.id, first.id] }, HOST)).status).toBe(200)
+    expect(stops().map((s) => s.id)).toEqual([second.id, first.id])
+    expectStoredTimes()
+    expect(stops()[0].planned_start_minute).toBe(session().plan_start_minute)
+
+    // A guest's proposal is accepted as the last stop.
+    const place = free().find((v) => v.category === 'eat') ?? free()[0]
+    const proposal = (await t.call('POST', path('/proposals'), { venueId: place.id }, GUEST)).body
+    expect((await t.call('POST', path(`/proposals/${proposal.id}/resolve`), { accept: true }, HOST)).status).toBe(200)
+    expect(stops()).toHaveLength(3)
+    expectStoredTimes()
+    const stored = stops().map((s) => s.planned_start_minute)
+    expect([...stored].sort((a, b) => a - b)).toEqual(stored)
+
+    // The way to the third stop is changed.
+    const third = stops()[2]
+    for (const mode of ['car', 'walk', null]) {
+      expect((await t.call('PATCH', path(`/stops/${third.id}`), { travelMode: mode }, HOST)).status).toBe(200)
+      expectStoredTimes()
+    }
+
+    // The first stop goes: the others close up, and the plan starts where the next one did.
+    const second2 = stops()[1]
+    expect((await t.call('DELETE', path(`/stops/${stops()[0].id}`), undefined, HOST)).status).toBe(200)
+    expectStoredTimes()
+    expect(session().plan_start_minute).toBe(second2.planned_start_minute)
+    expect(stops()[0].planned_start_minute).toBe(second2.planned_start_minute)
+  })
+
+  it('hold the laid-out start again when the plan is opened and confirmed once more', async () => {
+    await votedForTwo()
+    expect((await t.call('POST', path('/confirm'), {}, HOST)).status).toBe(200)
+    expect((await t.call('POST', path('/replan'), {}, HOST)).status).toBe(200)
+    expect(stops()).toHaveLength(0)
+    expect((await t.call('POST', path('/confirm'), {}, HOST)).status).toBe(200)
+    expectStoredTimes()
+  })
+
+  it('are repaired by the next edit of a plan stored with the old, stale starts', async () => {
+    await votedForTwo()
+    expect((await t.call('POST', path('/confirm'), {}, HOST)).status).toBe(200)
+    // A row written the way the old server did (the slot's own time, which is earlier than the stop starts) is repaired by the next edit of the stops.
+    const [first, second] = stops()
+    world.stops.find((s) => s.id === second.id).planned_start_minute = first.planned_start_minute
+    expect((await t.call('PATCH', path(`/stops/${second.id}`), { travelMode: 'car' }, HOST)).status).toBe(200)
+    expectStoredTimes()
+  })
+})
+
+describe('the Confirm dialog shows what is saved', () => {
+  it('names the voted order with the starts a confirm stores, even when there is no other order to suggest', async () => {
+    await start()
+    const eat = optionsOf('eat')[0].venue_id
+    const activity = optionsOf('activity')[0].venue_id
+    for (const who of [HOST, GUEST]) {
+      await vote(who, 'eat', eat)
+      await vote(who, 'activity', activity)
+    }
+    const res = await t.call('POST', path('/order/suggest'), undefined, HOST)
+    // One stop that can move, because the meal keeps its time: no other order, so this answers "none", with the order that will be saved.
+    expect(res.body).toMatchObject({ status: 'none', why: 'one_movable', basis: expect.stringMatching(/^[0-9a-f]{64}$/) })
+    expect(res.body.voted.map((v) => v.venueId).sort()).toEqual([eat, activity].sort())
+    expect((await t.call('POST', path('/confirm'), { order: 'voted', basis: res.body.basis }, HOST)).status).toBe(200)
+    expect(res.body.voted.map((v) => [v.slotId, v.category, v.venueId, v.start, v.duration])).toEqual(
+      stops().map((s) => [s.slot_id, s.category, s.venue_id, s.planned_start_minute, s.duration_minutes]),
+    )
+  })
+
+  it('names both orders with the starts a confirm of either stores', async () => {
+    for (const choice of ['voted', 'suggested']) {
+      await start({ appOptions: { itineraryAi: fakeAi(1) } })
+      await voteForThree()
+      const res = await t.call('POST', path('/order/suggest'), undefined, HOST)
+      expect(res.body.status).toBe('ok')
+      expect(res.body.voted).toHaveLength(3)
+      expect(res.body.voted.every((v) => Number.isInteger(v.start) && Number.isInteger(v.duration) && typeof v.category === 'string')).toBe(true)
+      const shown = choice === 'voted' ? res.body.voted : res.body.stops
+      const confirmedRes = await t.call('POST', path('/confirm'), choice === 'voted' ? { order: 'voted', basis: res.body.basis } : { order: 'suggested', basis: res.body.basis }, HOST)
+      expect(confirmedRes.status).toBe(200)
+      expect(stops().map((s) => [s.slot_id, s.venue_id, s.planned_start_minute])).toEqual(shown.map((x) => [x.slotId, x.venueId, x.start]))
+      expectStoredTimes()
+      await Promise.all(started.splice(0).map((x) => x.stop()))
+    }
+  })
+
+  it('refuses the confirm of what was shown once the votes have moved (409 order_stale), for the voted order as for the suggested one', async () => {
+    await start({ appOptions: { itineraryAi: fakeAi(1) } })
+    await voteForThree()
+    const res = await t.call('POST', path('/order/suggest'), undefined, HOST)
+    // The guest changes the meal's vote after the host looked; the winner moves.
+    const eat = optionsOf('eat').map((o) => o.venue_id)
+    const current = world.votes.filter((v) => v.slot_id === slotOf('eat').id)
+    const other = eat.find((id) => id !== current[0].venue_id)
+    for (const v of current) v.venue_id = other
+    world.votes.push({ slot_id: slotOf('eat').id, user_id: OTHER, venue_id: other })
+    for (const body of [{ order: 'voted', basis: res.body.basis }, { order: 'suggested', basis: res.body.basis }]) {
+      const refused = await t.call('POST', path('/confirm'), body, HOST)
+      expect([refused.status, refused.body.error]).toEqual([409, 'order_stale'])
+    }
+    expect(world.stops).toHaveLength(0)
+  })
+})
+
+describe('the trips home of a confirmed plan are the ledger\'s minutes home (GET /trips-home)', () => {
+  it('answers each person\'s minutes from the last stop, and the finished outing\'s ledger keeps the same numbers', async () => {
+    await confirmed({ ends: { [HOST]: 'bishan' } })
+    const before = world.commute_ledger.length
+    const res = await t.call('GET', path('/trips-home'), undefined, GUEST)
+    expect(res.status).toBe(200)
+    expect(res.body.approximate).toBe(true)
+    expect(res.body.trips.map((x) => x.userId).sort()).toEqual([HOST, GUEST, OTHER].sort())
+    expect(res.body.trips.every((x) => Number.isInteger(x.minutes) && x.minutes >= 0)).toBe(true)
+    expect(Object.keys(res.body.trips[0]).sort()).toEqual(['minutes', 'userId'])
+    expect(world.commute_ledger).toHaveLength(before)
+    expect((await t.call('POST', path('/complete'), undefined, HOST)).status).toBe(200)
+    for (const trip of res.body.trips) expect(world.commute_ledger.find((r) => r.user_id === trip.userId).minutes_home).toBe(trip.minutes)
+  })
+
+  it('moves with the last stop: deleting it changes the trips, as it changes the ledger', async () => {
+    await confirmed({ ends: { [HOST]: 'bishan' } })
+    const first = (await t.call('GET', path('/trips-home'), undefined, HOST)).body.trips
+    await t.call('DELETE', path(`/stops/${stops().at(-1).id}`), undefined, HOST)
+    const second = (await t.call('GET', path('/trips-home'), undefined, HOST)).body.trips
+    expect(second).not.toEqual(first)
+    expect((await t.call('POST', path('/complete'), undefined, HOST)).status).toBe(200)
+    for (const trip of second) expect(world.commute_ledger.find((r) => r.user_id === trip.userId).minutes_home).toBe(trip.minutes)
+  })
+
+  it('is a joined member\'s read of a confirmed plan, writes nothing, and takes no input', async () => {
+    await confirmed()
+    const snapshot = JSON.stringify({ ...world, calls: undefined })
+    expect((await t.call('GET', path('/trips-home'), undefined, STRANGER)).status).toBe(404)
+    expect((await t.call('GET', path('/trips-home'), undefined)).status).toBe(401)
+    expect((await t.call('GET', `${path('/trips-home')}?x=1`, undefined, HOST)).status).toBe(400)
+    expect((await t.call('GET', path('/trips-home'), undefined, HOST)).status).toBe(200)
+    expect(JSON.stringify({ ...world, calls: undefined })).toBe(snapshot)
+    session().status = 'voting'
+    expect((await t.call('GET', path('/trips-home'), undefined, HOST)).body.error).toBe('wrong_status')
   })
 })

@@ -36,6 +36,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   GET    /api/sessions/:id/stops/:stopId/swap                       the indoor place the planner would put in the stop in the rain (a member; reads)
 //   GET    /api/sessions/:id/stops/:stopId/choices?category=          the places that could take the stop's place (the host; reads)
 //   POST   /api/sessions/:id/roam             { current?, categories? } places near where the group is, for "What next?" (a member; reads)
+//   GET    /api/sessions/:id/trips-home                               the minutes each person needs to get home from the last stop (a member; reads)
 //   POST   /api/sessions/:id/complete                                 the host finishes the outing; the server writes the travel ledger
 //   POST   /api/sessions/:id/proposals        { venueId }             a member puts a place forward as the next stop
 //   POST   /api/sessions/:id/proposals/:proposalId/resolve { accept } the host adds it (accept) or leaves it out; the proposer may take it back
@@ -53,8 +54,9 @@ import { sessionSchemas } from './session-schemas.js'
 //   options POST   201 { planVersion, added: true }, or 200 { planVersion, added: false } when the place is already there
 //   options/more   { planVersion, added: [venueId] }          swap { planVersion, swapped }
 //   venue-search   { results: [{ venueId, name, area, category, source, matchedStall, walkMinutes, distanceKm, fits, unfit, added }] }
-//   order/suggest  { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], reason, source: 'ai' | 'rules' }
-//                  or { status: 'none', why: 'no_stops' | 'one_movable' | 'no_order_fits' | 'unknown_place' }
+//   order/suggest  { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], voted: [{ slotId, category, venueId, start, duration }], reason, source: 'ai' | 'rules' }
+//                  or { status: 'none', why: 'no_stops' | 'one_movable' | 'no_order_fits' | 'unknown_place', basis?, voted }
+//                  `stops` and `voted` are the stops of the suggested and of the voted order as a confirm would store them, each with its stored start
 //   confirm        { planVersion, status: 'confirmed', stops: n }   (confirming again: the same answer, nothing written)
 //   replan         { planVersion, status: 'voting' }                 (accept: false: status 'confirmed'; already voting: a no-op)
 //   stops/order, stops/:id DELETE   { planVersion }              stops/:id PATCH { planVersion, travelMode }
@@ -63,6 +65,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   stops/:id/swap   { swap: { venueId, name } | null }
 //   stops/:id/choices { category, options: [{ venueId, rank, score, votes, details }] }
 //   roam           { status: 'ok', results: [...], notice, weather } or { status: 'empty', reason, hints, results: [] }   (no centre, no needs named)
+//   trips-home     { trips: [{ userId, minutes }], approximate }     (the same minutes the finished outing's ledger keeps as `minutes_home`)
 //   complete       { planVersion, status: 'completed' }              (a retry after success: the same answer, nothing written)
 //   proposals      201 { planVersion, id, applied: true }, or 200 { planVersion, id, applied: false } when the place is already waiting
 //   proposals/:id/resolve   { planVersion, applied }             (applied: false when it is not waiting any more)
@@ -324,6 +327,12 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
   router.post('/sessions/:id/roam', ...rankGuard, handle((who, req) => {
     const { current, categories } = sessionSchemas.roam.parse(req.body ?? {})
     return sessions.roamNearby({ ...who, current, categories })
+  }))
+
+  // The minutes home of a confirmed plan: the computation the ledger uses when the outing is finished. A read, counted with the planner's.
+  router.get('/sessions/:id/trips-home', ...rankGuard, handle((who, req) => {
+    sessionSchemas.nothing.parse(req.query ?? {})
+    return sessions.tripsHome(who)
   }))
 
   router.post('/sessions/:id/complete', ...guard, handle((who, req) => {
