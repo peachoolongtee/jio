@@ -192,6 +192,8 @@ export const useEventsStore = defineStore('events', () => {
   const approveMySpot = (id, areaId, on) => act(api.approveSpot)(id, currentUserId(), areaId, on)
   const confirmSpot = confirmingWith(api.confirmSpot)
   const setKnownPlace = confirmingWith(api.setKnownPlace)
+  // The host changes the meeting place from voting or confirmed. How to call: await changeMeetingPlace('s1', { meetBy: 'known', areaId: 'bugis' })
+  const changeMeetingPlace = act(api.changeMeetingPlace)
   const cancel = act(api.cancelSession)
   // The host carries on without a member who has not shared where they start (they opt out of this session).
   const optOut = act(api.optOut)
@@ -489,6 +491,6 @@ export const useEventsStore = defineStore('events', () => {
     sessions, byId, itineraries, ledgers, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
     loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, dropSession,
     loadSessions, loadSession, loadItinerary, loadLedger, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
-    confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, forgetOrder, addPhoto, deletePhoto,
+    confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, changeMeetingPlace, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, forgetOrder, addPhoto, deletePhoto,
   }
 })

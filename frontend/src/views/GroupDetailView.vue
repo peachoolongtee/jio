@@ -278,8 +278,8 @@ const hostName = computed(() => nameOf(session.value?.hostId) || 'the host')
 // area, so the card does not claim one.
 const peopleSession = computed(() => (choosing.value ? { ...session.value, meeting: null } : session.value))
 const hasMeetingTrips = computed(() => Object.keys(session.value?.meeting?.times || {}).length > 0)
-// Approvals that went with a spot that left the list: the data layer leaves a banner that says so.
-const approvalsBanner = computed(() => (choosing.value && session.value?.banner?.approvalsRemoved ? session.value.banner : null))
+// Approvals that went with a spot that left the list, or the host changing the meeting place (`released`): the data layer leaves a banner that says so.
+const approvalsBanner = computed(() => (choosing.value && (session.value?.banner?.approvalsRemoved || session.value?.banner?.released) ? session.value.banner : null))
 async function dismissBanner() {
   try {
     await events.dismissBanner(props.id)

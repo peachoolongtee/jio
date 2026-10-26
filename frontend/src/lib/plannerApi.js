@@ -310,6 +310,16 @@ export async function putSessionKnownPlace(sessionId, areaId) {
   return data
 }
 
+// The host changes the meeting place from voting or confirmed (design: "Change plan"). `meetBy: 'fairest'` takes the session back to locating and
+// has the spots worked out again; `meetBy: 'known'` with an `areaId` goes on to voting at that area. Resolves { planVersion, status, meetBy }.
+// Refusals: host_only, wrong_status, unknown_area, session_not_found; if naming the area fails after the release the Error carries the failure's
+// code and the session is on Locate (read it again).
+// How to call: await changeSessionMeetingPlace('3b1f...', { meetBy: 'known', areaId: 'bugis' })
+export async function changeSessionMeetingPlace(sessionId, { meetBy, areaId }) {
+  const { data } = await api.post(sessionPath(sessionId, '/change-meeting-place'), meetBy === 'known' ? { meetBy, areaId } : { meetBy }, { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
 // The person opts out of a session but keeps their place in it (E10), and comes back (E11). Both resolve { planVersion, state }.
 // How to call: await optOutOfSession('3b1f...'); await rejoinSession('3b1f...')
 export async function optOutOfSession(sessionId) {

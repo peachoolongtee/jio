@@ -15,6 +15,8 @@ export const routes = [
   { path: '/sessions/new', name: 'session-create', component: () => import('@/views/CreateEventView.vue'), meta: { title: 'Create session' } },
   { path: '/sessions/:id', name: 'session', component: () => import('@/views/GroupDetailView.vue'), props: true, meta: { title: 'Session' } },
   { path: '/sessions/:id/start', name: 'session-start', component: () => import('@/views/StartView.vue'), props: true, meta: { title: 'How to meet' } },
+  // The host changing the meeting place after it was set: the same two cards as Start, but the session is voting or confirmed and changes only when the last button is pressed.
+  { path: '/sessions/:id/change-place', name: 'session-change-place', component: () => import('@/views/StartView.vue'), props: (route) => ({ id: route.params.id, change: true }), meta: { title: 'Change meeting place' } },
   { path: '/sessions/:id/edit', name: 'session-edit', component: () => import('@/views/CreateEventView.vue'), props: true, meta: { title: 'Edit session' } },
   { path: '/sessions/:id/invite', name: 'session-invite', component: () => import('@/views/InviteView.vue'), props: true, meta: { title: 'Invite friends' } },
   { path: '/sessions/:id/plan', name: 'session-plan', component: () => import('@/views/PlannerView.vue'), props: true, meta: { title: 'Vote' } },

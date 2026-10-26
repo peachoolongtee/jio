@@ -24,6 +24,7 @@ import { bindCurrentUser, currentUserId } from './currentUser.js'
 import { createPeopleSource, isUuid, personFromRow } from './peopleSource.js'
 import { isSearchable, rankPeople, searchTerm } from './peopleSearch.js'
 import { WORDS as SHARING_WORDS, createSessionsRemote } from './sessionsRemote.js'
+import { releasedNotice } from './startChoice.js'
 import { tallyOptions } from './planVotes.js'
 import { isLegacyRealSave, remapLegacySave } from './legacySave.js'
 import { cleanDietary } from './signupRules.js'
@@ -423,6 +424,7 @@ const remote = createSessionsRemote({
     deleteSpot: (sessionId) => planner.deleteSessionSpot(sessionId),
     confirmSpot: (sessionId, areaId) => planner.confirmSessionSpot(sessionId, areaId),
     knownPlace: (sessionId, areaId) => planner.putSessionKnownPlace(sessionId, areaId),
+    changeMeetingPlace: (sessionId, body) => planner.changeSessionMeetingPlace(sessionId, body),
     optOut: (sessionId) => planner.optOutOfSession(sessionId),
     rejoin: (sessionId) => planner.rejoinSession(sessionId),
     syncPlan: (sessionId) => planner.syncSessionPlan(sessionId),
@@ -2822,8 +2824,10 @@ export async function confirmSpot(id, areaId) {
 // start; that only adds travel times, and the area stays. From inviting, pending invites lapse and two people are
 // needed, as when a session starts. Asks the planner once for travel times when anyone has shared a start.
 // Throws if the person is not the host, the session is past locating, the area is unknown, or the planner cannot answer.
+// `notice` is the banner the group is shown on arrival ({ text, released: true, votesCleared: true }); the host's change of the meeting place
+// passes one, and without it the banner is cleared.
 // How to call: await setKnownPlace('s1', 'bugis')
-export async function setKnownPlace(id, areaId) {
+export async function setKnownPlace(id, areaId, { notice = null } = {}) {
   if (onServer()) {
     if (!areaById(areaId)) throw new Error(SHARING_WORDS.noArea)
     // The server records the host's choice itself, after the known place is written (the browser writes nothing more for it here).
@@ -2847,10 +2851,52 @@ export async function setKnownPlace(id, areaId) {
     session.meeting = meeting
     session.status = 'voting'
     session.meetBy = 'known'
-    session.banner = null
+    session.banner = notice ? { ...notice, at: Date.now() } : null
     await syncOptions(session)
     return touch(session, 'session')
   })
+}
+
+// The host changes the meeting place after it was set, from voting or confirmed ("Change plan" > "Change meeting place"). The meeting area is
+// let go and the session goes back to locating: the votes, the places to vote on, the plan's stops, the proposals, the "Re-plan?" prompt and the
+// spots with their approvals and suggestions are cleared, and the group gets a banner that names the host. Everyone's starts, ends, exact places and
+// picks stay. `meetBy: 'fairest'` has the spots worked out again from those starts; `meetBy: 'known'` with an `areaId` then names the area through
+// the known place (setKnownPlace), which moves straight to voting with new slots and brings the banner along. If naming the area fails after the
+// release, the session stays on Locate with the host's choice recorded, and the host names the area there. On the server it is one route and one
+// database write (the op `release_meeting`), and the session is read again afterwards, whether it worked or not, because the release may have
+// gone through before a failure.
+// Throws if the person is not the host, the session is not voting or confirmed, the area is unknown, or the planner cannot answer.
+// How to call: await changeMeetingPlace('s1', { meetBy: 'known', areaId: 'bugis' })
+export async function changeMeetingPlace(id, { meetBy, areaId } = {}) {
+  if (!MEET_BY.includes(meetBy)) throw new Error('Choose how to pick the meeting point.')
+  if (meetBy === 'known' && !areaById(areaId)) throw new Error(SHARING_WORDS.noArea)
+  if (onServer()) {
+    try {
+      await remote.changeMeetingPlace(id, { meetBy, areaId })
+    } catch (err) {
+      // The release may have been written before the known place failed: show the session as it is.
+      await afterServerWrite(id, 'session').catch(() => {})
+      throw err
+    }
+    return afterServerWrite(id, 'session')
+  }
+  await wait(DELAY.write)
+  requireMe()
+  const session = sessionById(id)
+  if (['completed', 'cancelled'].includes(session.status)) throw new Error(SESSION_ENDED)
+  assertHost(session, 'change the meeting place')
+  if (!['voting', 'confirmed'].includes(session.status)) throw new Error('The meeting place can only be changed while the group is voting on places or has a plan.')
+  const facts = { hostName: nameOf(me()), status: session.status, hadVotes: hasVotes(session) }
+  await orUndo(session, async () => {
+    Object.assign(session, { status: 'locating', meetBy, meeting: null, spots: emptySpots(), options: {}, votes: {}, plan: null, replan: null, deletedSlots: [], banner: { text: releasedNotice(facts), at: Date.now(), released: true } })
+    clearProposals(session)
+    delete session.confirmedRanking
+    delete session.weatherDismissed
+    if (meetBy === 'fairest') await applyTrigger(session, { kind: 'added', personName: facts.hostName })
+    return touch(session, 'session')
+  })
+  if (meetBy === 'fairest') return summary(session)
+  return setKnownPlace(id, areaId, { notice: { text: releasedNotice({ ...facts, placeName: areaById(areaId).name }), released: true, votesCleared: true } })
 }
 
 // A person steps out of a session. On the server that is the person themselves opting out (they keep their place and can

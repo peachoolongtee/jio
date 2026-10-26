@@ -913,6 +913,14 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   const confirm = (sessionId, areaId) => ask(() => backend.confirmSpot(sessionId, areaId), { host_only: 'Only the host can confirm a spot.' })
   // The host names the place the group already knows. How to call: await knownPlace('3b1f...', 'bugis')
   const knownPlace = (sessionId, areaId) => ask(() => backend.knownPlace(sessionId, areaId), { host_only: 'Only the host can set a known place.', wrong_status: 'A known place can only be set before the group votes on places.' })
+  // The host lets the meeting place go (from voting or confirmed): back to locating with the spots worked out again ('fairest'), or straight on
+  // to voting at `areaId` ('known'). The server clears the votes, the places to vote on and the plan, and tells the group in a banner.
+  // How to call: await changeMeetingPlace('3b1f...', { meetBy: 'known', areaId: 'bugis' })
+  const changeMeetingPlace = (sessionId, { meetBy, areaId }) =>
+    ask(() => backend.changeMeetingPlace(sessionId, { meetBy, areaId }), {
+      host_only: 'Only the host can change the meeting place.',
+      wrong_status: 'The meeting place can only be changed while the group is voting on places or has a plan.',
+    })
   // The person opts out of the session (keeping their place in it), and comes back.
   // How to call: await optOut('3b1f...'); await rejoin('3b1f...')
   const optOut = (sessionId) => ask(() => backend.optOut(sessionId), { wrong_status: WORDS.closed, not_yet: WORDS.optOutClosed })
@@ -1231,5 +1239,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, readPlan, readSlotVotes, suggestOrder, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
+  return { list, get, readPlan, readSlotVotes, suggestOrder, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, changeMeetingPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
 }

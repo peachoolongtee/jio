@@ -59,6 +59,7 @@ import TextField from '@/components/ui/TextField.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
+import ChangePlan from '@/components/event/ChangePlan.vue'
 import DietaryChips, { dietChips } from '@/components/event/DietaryChips.vue'
 import { DIETARY_OPTIONS } from '@/lib/signupRules.js'
 import DietaryConfirm from '@/components/event/DietaryConfirm.vue'
@@ -141,6 +142,11 @@ onBeforeUnmount(() => stopWatching())
 watch(() => props.id, load)
 
 const session = computed(() => events.byId[props.id])
+
+// The host changed the meeting place (the session is locating again): the group goes back to Locate, where the notice says who and why.
+watch(() => session.value?.status, (now, was) => {
+  if (now === 'locating' && ['voting', 'confirmed'].includes(was)) router.replace(`/sessions/${props.id}`)
+})
 const plan = computed(() => planner.plans[props.id])
 // The grey placeholder rows: on the page's first load, and again while a change to the group's dietary needs picks the places
 // afresh (`refiltering`, under Dietary needs).
@@ -650,6 +656,7 @@ async function keepDialog(e) {
     <div class="screen__body">
       <p class="sr-only" role="status">{{ loadingSaid }}</p>
       <SessionNotices :session="session" />
+      <ChangePlan v-if="!replaceMode" :session="session" />
       <BannerNote v-if="planError" tone="error" icon="warning" role="alert" data-testid="plan-error">
         {{ planError }}
         <template #actions>

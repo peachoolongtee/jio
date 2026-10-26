@@ -61,6 +61,7 @@ import SplitView from '@/components/ui/SplitView.vue'
 import ToastMessage from '@/components/ui/ToastMessage.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
+import ChangePlan from '@/components/event/ChangePlan.vue'
 import ProposedStops from '@/components/event/ProposedStops.vue'
 import StopCard from '@/components/event/StopCard.vue'
 import CategoryKey from '@/components/map/CategoryKey.vue'
@@ -156,6 +157,11 @@ onMounted(() => {
 watch(() => props.id, load)
 
 const session = computed(() => events.byId[props.id])
+
+// The host changed the meeting place (the session is locating again): the group goes back to Locate, where the notice says who and why.
+watch(() => session.value?.status, (now, was) => {
+  if (now === 'locating' && ['voting', 'confirmed'].includes(was)) router.replace(`/sessions/${props.id}`)
+})
 const itinerary = computed(() => events.itineraries[props.id])
 const status = computed(() => session.value?.status)
 const confirmed = computed(() => status.value === 'confirmed')
@@ -384,6 +390,7 @@ async function endPlan() {
 
     <div class="screen__body">
       <SessionNotices :session="session" />
+      <ChangePlan :session="session" />
       <WeatherSource v-if="showWeather" :block="weatherBlock" banner />
       <RainBanners v-if="today && itinerary" :session="session" :itinerary="itinerary" :my-id="myId" />
 
