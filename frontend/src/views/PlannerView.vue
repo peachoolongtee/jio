@@ -934,7 +934,7 @@ async function keepDialog(e) {
           <template v-else>You can rearrange stops after confirming.</template>
         </p>
         <p v-if="shared && order?.failed" class="order-failed caption-sm text-muted" data-testid="order-failed">
-          Could not get the order of the stops.
+          {{ order.refusal || 'Could not get the order of the stops.' }}
           <AppButton variant="tertiary" underline small data-testid="order-retry" @click="retryOrder">Try again</AppButton>
         </p>
         <!-- A live region that is on the page from the start, empty, so that what is put in it is announced; it takes no room until it has words. -->

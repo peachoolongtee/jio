@@ -1103,13 +1103,14 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   }
 
   // The minutes each person needs to get home from the last stop of a confirmed plan, as the server works them out (the figures the finished
-  // outing's ledger keeps). Resolves `{ <user id>: minutes }`; rejects with a sentence.
-  // How to call: const minutes = await tripsHome('3b1f...') // { '9a2c...': 31 }
+  // outing's ledger keeps). Resolves `{ minutes: { <user id>: minutes }, approximate }` (`approximate`: some of them are estimates, not routes);
+  // rejects with a sentence.
+  // How to call: const { minutes, approximate } = await tripsHome('3b1f...') // minutes: { '9a2c...': 31 }
   async function tripsHome(sessionId) {
     const answered = await ask(() => backend.tripsHome(sessionId), { wrong_status: WORDS.needConfirmed, not_found: WORDS.notBuilt })
     const minutes = {}
     for (const x of answered.trips) if (x && typeof x.userId === 'string' && Number.isFinite(x.minutes) && x.minutes >= 0) minutes[x.userId.toLowerCase()] = x.minutes
-    return minutes
+    return { minutes, approximate: answered.approximate !== false }
   }
 
   // The host confirms the plan. `order` is 'voted', or 'suggested' with the `basis` of the suggestion the host was shown; the server writes

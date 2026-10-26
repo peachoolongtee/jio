@@ -6,6 +6,9 @@ import { currentUserId } from '@/lib/currentUser.js'
 import { whileLoading } from '@/lib/pageLoading.js'
 import { moveItem } from '@/lib/planner/itinerary.js'
 
+// The server's refusals of the suggested order that are said to the host in words, not as a failure to get it.
+const REFUSALS = ['not_enough_votes', 'wrong_status', 'host_only', 'session_not_found']
+
 // Who a session in Locating is waiting for: the people in it who have not set where they start. The meeting area
 // appears once this is empty. How to call: waitingFor(session) -> ['faith']
 export function waitingFor(session) {
@@ -137,7 +140,13 @@ export const useEventsStore = defineStore('events', () => {
   // `session` is a session just read (a live update has the one it loaded): the itinerary is laid out from it, without reading the session again.
   async function loadItinerary(id, session = null) {
     const ticket = (itinerarySeq[id] = (itinerarySeq[id] || 0) + 1)
-    const itinerary = await api.getItinerary(id, session ? { session } : undefined)
+    // The itinerary is drawn at once; trips home the server still has to work out (OneMap) arrive later through `onTrips`, and are put in only
+    // if this is still the newest load and the itinerary shown is the one they were asked for.
+    const onTrips = (late) => {
+      const shown = itineraries.value[id]
+      if (ticket === itinerarySeq[id] && shown?.tripsKey === late.key) itineraries.value = { ...itineraries.value, [id]: { ...shown, trips: late.trips, tripsApproximate: late.tripsApproximate } }
+    }
+    const itinerary = await api.getItinerary(id, { ...(session ? { session } : {}), onTrips })
     if (ticket !== itinerarySeq[id]) return itineraries.value[id]
     itineraries.value = { ...itineraries.value, [id]: itinerary }
     return itinerary
@@ -256,8 +265,10 @@ export const useEventsStore = defineStore('events', () => {
         if (ticket === orderSeq[id]) entry({ answer })
         return answer
       })
-      .catch(() => {
-        if (ticket === orderSeq[id]) entry({ failed: true })
+      .catch((err) => {
+        // A refusal of the server (fewer than two voters, the group no longer voting) is kept to be said in words; any other failure is not.
+        const refusal = REFUSALS.includes(err?.code) && typeof err.message === 'string' ? err.message : ''
+        if (ticket === orderSeq[id]) entry({ failed: true, refusal })
         return null
       })
     orderPending[id] = pending

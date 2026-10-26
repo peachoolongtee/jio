@@ -123,6 +123,10 @@ const confirmedLine = computed(() => {
   return `Everyone in the group can see the itinerary now.${summary}`
 })
 function dismissConfirmed() {
+  // Focus on the card (the Dismiss button) goes with it when it is taken away, whether the person pressed it or the plan changed under them:
+  // it moves to the list of stops first, so it is not lost to the top of the page.
+  const active = typeof document === 'undefined' ? null : document.activeElement
+  if (active?.closest?.('.celebrate')) timeline.value?.focus()
   justConfirmed.value = false
   announcement.value = ''
   clearConfirmedFlag()
@@ -522,14 +526,14 @@ async function endPlan() {
               <details v-if="itinerary.trips.length" class="home">
                 <summary class="home__summary">
                   <span class="title-sm">Trips home</span>
-                  <span class="caption-sm text-muted">Longest about {{ Math.max(...itinerary.trips.map((t) => t.minutes)) }} min</span>
+                  <span class="caption-sm text-muted">Longest {{ itinerary.tripsApproximate !== false ? 'about ' : '' }}{{ Math.max(...itinerary.trips.map((t) => t.minutes)) }} min</span>
                   <AppIcon name="chevron-down" class="home__chevron" />
                 </summary>
                 <ul class="home__list">
                   <li v-for="trip in itinerary.trips" :key="trip.id" class="home__row" :class="{ 'is-long': trip.long }">
                     <span class="body-sm">{{ trip.name }}</span>
                     <span class="caption-sm text-muted truncate">{{ trip.place }}</span>
-                    <span class="caption home__min">about {{ trip.minutes }} min</span>
+                    <span class="caption home__min">{{ itinerary.tripsApproximate !== false ? 'about ' : '' }}{{ trip.minutes }} min</span>
                   </li>
                 </ul>
               </details>

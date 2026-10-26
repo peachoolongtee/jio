@@ -500,9 +500,14 @@ const dismissedBanners = new Map()
 // It is a note of what was on screen, not data: it is sent back with the confirm so the server can tell the votes moved, and forgotten at once.
 const shownBasis = new Map()
 
-// The minutes home of a session on the server already asked for, by what they depend on (the plan's last stop and where each person ends the
-// day), so the unrelated live updates of a plan do not ask again. A failed question is not kept.
+// The minutes home of a session on the server, by what they depend on (the plan's last stop and where each person ends the day): what was last
+// answered ({ minutes, approximate, at }), the questions still out, and the newest question of each session with who to tell when it is
+// answered. An answer is kept so unrelated live updates of a plan do not ask again; an approximate one is asked again after TRIPS_RETRY_MS so
+// the figures can become the routed ones.
+const tripsHomeKnown = new Map()
 const tripsHomeAsked = new Map()
+const tripsHomeWanted = new Map()
+const TRIPS_RETRY_MS = 5 * 60 * 1000
 
 // The server writes `at` (the time it was written, in milliseconds) on every banner, so a newer banner always has a new stamp; the
 // version is only the fallback for a banner without one.
@@ -1348,7 +1353,9 @@ function resetSessionState() {
   repairs.clear()
   dismissedBanners.clear()
   shownBasis.clear()
+  tripsHomeKnown.clear()
   tripsHomeAsked.clear()
+  tripsHomeWanted.clear()
   unlistedVenues.clear()
   epoch += 1
   closeChannel()
@@ -3675,8 +3682,15 @@ export async function confirmPlan(id, suggestion = null) {
     // The voted order carries the basis of the votes the host was shown (from the last question to the server, for an order or for none), so a
     // vote that moved a winner since is refused (409 `order_stale`, nothing written) and the host looks again.
     const seen = shownBasis.get(id)
+    // The basis stays with the dialog's answer for every attempt (a retry after a network error or `plan_busy` still says which votes the host
+    // was looking at); it goes when the confirm is done, or when the server says those votes are gone (`order_stale`).
+    try {
+      await remote.confirmPlan(id, basis ? { order: 'suggested', basis } : { order: 'voted', ...(seen && { basis: seen }) })
+    } catch (err) {
+      if (err?.code === 'order_stale') shownBasis.delete(id)
+      throw err
+    }
     shownBasis.delete(id)
-    await remote.confirmPlan(id, basis ? { order: 'suggested', basis } : { order: 'voted', ...(seen && { basis: seen }) })
     return afterServerWrite(id, 'session')
   }
   await wait(DELAY.plan)
@@ -3754,42 +3768,61 @@ async function describePlaces(session) {
 // rules as a local one, from the same shape of plan; each stop also carries its `stopId`, which is what the server's routes name.
 // How to call: await getItinerary('3b1f...')
 // `session` may be a session of the server the caller has just read (a live update): it is laid out as it is, without reading it again.
-export async function getItinerary(id, { session } = {}) {
+// For a session on the server the itinerary is returned at once, with the trips home already known for this plan or none; when they have to be
+// asked of the server (OneMap routes them, which can take seconds) `onTrips({ key, trips, tripsApproximate })` is called when they arrive, but
+// only if no newer question has been asked for the session since, so an older answer never replaces a newer one. The itinerary says which
+// question its trips belong to (`tripsKey`).
+export async function getItinerary(id, { session, onTrips } = {}) {
   if (onServer()) {
     const held = await planSession(id, session ?? null)
-    return withServerTrips(held, itineraryView(held))
+    return withServerTrips(held, itineraryView(held), onTrips)
   }
   await wait(DELAY.read)
   return itineraryView(sessionById(id))
 }
 
 // The itinerary of a session on the server with its trips home from the server, the figures the finished outing's travel ledger keeps, not an
-// estimate of the screen's own: the two would not agree. A confirmed plan asks the server (`GET .../trips-home`); a finished outing shows none
-// (the person's own row of the ledger, "Your travel", is the record); a trip the server cannot give is left out rather than guessed.
-// How to call: const view = await withServerTrips(session, itineraryView(session))
-async function withServerTrips(session, view) {
+// estimate of the screen's own: the two would not agree. A confirmed plan asks the server (`GET .../trips-home`) without making anyone wait for
+// it: the view has the trips known for this plan, or none, and `onTrips` hears the answer. A finished outing shows none (the person's own row
+// of the ledger, "Your travel", is the record); a trip the server cannot give is left out rather than guessed. `tripsApproximate` says the
+// figures are estimates ("about"); an approximate answer is asked for again after a few minutes.
+// How to call: const view = withServerTrips(session, itineraryView(session), (late) => show(late.trips))
+function withServerTrips(session, view, onTrips) {
   if (!view || !session.remote) return view
-  if (session.status !== 'confirmed' || !view.stops.length) return { ...view, trips: [] }
+  if (session.status !== 'confirmed' || !view.stops.length) return { ...view, trips: [], tripsApproximate: true }
   const last = view.stops[view.stops.length - 1]
   const people = activeIds(session).map((pid) => ({ id: pid, name: nameOf(pid), place: endPlaceOf(session, pid) })).filter((p) => p.place)
   const key = JSON.stringify([session.id, last.venue?.id, last.end, people.map((p) => [p.id, p.place.id])])
-  if (!tripsHomeAsked.has(key)) {
-    if (tripsHomeAsked.size > 50) tripsHomeAsked.clear()
-    const asked = remote.tripsHome(session.id).catch((err) => {
-      tripsHomeAsked.delete(key)
-      throw err
-    })
-    tripsHomeAsked.set(key, asked)
+  // The trips of a plan from what the server said: the people it gave minutes for.
+  const tripsOf = (known) => ({
+    trips: known
+      ? people
+          .filter((p) => Number.isFinite(known.minutes[String(p.id).toLowerCase()]))
+          .map((p) => ({ id: p.id, name: p.name, place: p.place.name, minutes: known.minutes[String(p.id).toLowerCase()], long: known.minutes[String(p.id).toLowerCase()] > P.LONG_TRIP_MINUTES }))
+      : [],
+    tripsApproximate: known ? known.approximate : true,
+  })
+  const known = tripsHomeKnown.get(key)
+  tripsHomeWanted.set(session.id, { key, onTrips })
+  if ((!known || (known.approximate && Date.now() - known.at > TRIPS_RETRY_MS)) && !tripsHomeAsked.has(key)) {
+    const asked = epoch
+    if (tripsHomeKnown.size > 50) tripsHomeKnown.clear()
+    const pending = remote
+      .tripsHome(session.id)
+      .then((answer) => {
+        if (asked !== epoch) return
+        const kept = { ...answer, at: Date.now() }
+        tripsHomeKnown.set(key, kept)
+        const wanted = tripsHomeWanted.get(session.id)
+        if (wanted?.key === key) wanted.onTrips?.({ key, ...tripsOf(kept) })
+      })
+      .catch(() => {
+        // The trips stay as they were (none, or the last answer); the next read of the plan asks again.
+      })
+      .finally(() => tripsHomeAsked.delete(key))
+    tripsHomeAsked.set(key, pending)
   }
-  try {
-    const minutes = await tripsHomeAsked.get(key)
-    const trips = people
-      .filter((p) => Number.isFinite(minutes[String(p.id).toLowerCase()]))
-      .map((p) => ({ id: p.id, name: p.name, place: p.place.name, minutes: minutes[String(p.id).toLowerCase()], long: minutes[String(p.id).toLowerCase()] > P.LONG_TRIP_MINUTES }))
-    return { ...view, trips }
-  } catch {
-    return { ...view, trips: [] }
-  }
+  return { ...view, ...tripsOf(known), tripsKey: key }
 }
 
 // How to call: itineraryView(session) -> { stops, weather, legs, end, trips, aiNote, area, starts } or null for a session with no plan
@@ -3815,6 +3848,7 @@ function itineraryView(session) {
     legs,
     end: P.endPoint(last),
     trips: P.tripsHome(last, people),
+    tripsApproximate: true,
     // Why the AI chose this order on confirm: { reason, source: 'ai' | 'rules' }, or null once a stop is moved by hand.
     aiNote: session.plan.aiNote ? { reason: P.cleanReason(session.plan.aiNote.reason), source: session.plan.aiNote.source === 'ai' ? 'ai' : 'rules' } : null,
     area: area ? { ...area } : null,
@@ -4091,8 +4125,8 @@ export async function suggestOrder(id) {
 // The server's answer for the Confirm dialog, in the shape the dialog reads: `voted` (the stops of the voted order with the starts the server
 // will store, with the places' names) and, when the server has another order to offer, the suggestion (the local one's shape, plus the `basis`
 // the confirm sends back). Both are the server's own rows laid out as a confirm will store them, so what the host reads is what is saved. The
-// server sends slot ids, places, starts and lengths; the name is the place's. Rejects when the answer has no voted order the dialog can draw,
-// which the dialog shows as a failure with a retry, never as rows it cannot vouch for.
+// server sends slot ids, places, starts and lengths; the name is the place's (or "A place that is no longer listed"). Rejects when the answer
+// has no voted order the dialog can draw, or the server refuses (the dialog says why), never rows it cannot vouch for.
 // How to call: const answer = await suggestOrderOnServer('3b1f...') // { voted: [{ slotId, category, venueId, name, start, duration }], basis, order, stops, reason, source }
 async function suggestOrderOnServer(id) {
   const asked = epoch
@@ -4101,16 +4135,17 @@ async function suggestOrderOnServer(id) {
   // Asked for by the account before: not used, not shown.
   if (asked !== epoch) return null
   if (!voted) throw new Error('The order of the stops could not be shown. Try again.')
-  await ensureVenues([...voted.map((s) => s.venueId), ...(answer?.stops || []).map((s) => s.venueId)])
+  // A place the list of places cannot describe (or cannot be asked about just now) is shown as "A place that is no longer listed": the order
+  // is the server's and the host may confirm it, the basis protecting it; only the name is missing.
+  await ensureVenues([...voted.map((s) => s.venueId), ...(answer?.stops || []).map((s) => s.venueId)]).catch(() => {})
   if (asked !== epoch) return null
-  const named = voted.map((s) => ({ ...s, name: serverVenues.get(s.venueId)?.name }))
-  if (named.some((s) => !s.name)) throw new Error('The order of the stops could not be shown. Try again.')
+  const nameOf = (venueId) => serverVenues.get(venueId)?.name || SHARING_WORDS.placeUnlisted
+  const named = voted.map((s) => ({ ...s, name: nameOf(s.venueId) }))
   if (!answer) return { voted: named }
   const byslot = new Map(named.map((s) => [s.slotId, s]))
   const stops = answer.stops.map((s) => {
     const mine = byslot.get(s.slotId)
-    const venue = serverVenues.get(s.venueId)
-    return mine && venue ? { slotId: s.slotId, category: mine.category, venueId: s.venueId, name: venue.name, start: s.start, duration: mine.duration } : null
+    return mine ? { slotId: s.slotId, category: mine.category, venueId: s.venueId, name: nameOf(s.venueId), start: s.start, duration: mine.duration } : null
   })
   if (stops.some((s) => !s)) return { voted: named }
   return { voted: named, order: answer.order, basis: answer.basis, stops, reason: P.cleanReason(answer.reason), source: answer.source === 'ai' ? 'ai' : 'rules' }

@@ -39,7 +39,7 @@
 //     its earliest start, and clears the order note;
 //   - E22 answers `{ status: 'none', why }` when fewer than two stops can move, and stores `{ basis, order, starts, reason, source, at }`.
 //
-// Hooks for a test, on `server.plan`: `voteShift` (minutes added to the starts the suggest answer gives for the voted order, to see that the dialog draws them), `orderSource` ('ai' or 'rules', the source of a suggestion), `suggest` (a function that replaces the
+// Hooks for a test, on `server.plan`: `refuseSuggest` (true: the suggested order is refused as the server refuses it with fewer than two voters), `voteShift` (minutes added to the starts the suggest answer gives for the voted order, to see that the dialog draws them), `orderSource` ('ai' or 'rules', the source of a suggestion), `suggest` (a function that replaces the
 // suggestion: `(winners) => ({ order, starts, reason, source })`, with `stops` to name the stops itself, or null for "none"), `swap` (a function from a place's id to the indoor swap the
 // server offers for it, `{ venueId, name }`), `weather`, and `confirmedOptOut` (default true, as the real server: opting out of a confirmed plan is allowed and
 // asks "Re-plan?"; false is the stage 4 server, which refuses with not_yet). Per route, `server.after.<route>` runs after
@@ -130,7 +130,7 @@ export function registerPlan(kit, routes, PATTERNS) {
     asHost(session, user)
     if (session.status !== 'voting') refuse(409, 'wrong_status', 'The group is not voting.')
     const { winners, voters } = winnersOf(id)
-    if (voters.size < 2 || !winners.length) refuse(409, 'not_enough_votes', 'At least 2 people need to vote first.')
+    if (server.plan.refuseSuggest || voters.size < 2 || !winners.length) refuse(409, 'not_enough_votes', 'At least 2 people need to vote first.')
     const basis = await basisOf(session, winners)
     const stored = session.order_suggestion
     // What a confirm of the voted order stores (SIMPLER: each stop at its slot's own time; the real server lays the stops out with the travel
@@ -258,6 +258,7 @@ export function registerPlan(kit, routes, PATTERNS) {
   routes.tripsHome = async (user, id) => {
     const { session } = load(user, id)
     confirmedOnly(session)
+    await after.tripsHome?.(id)
     const travel = pricing(session.meeting_area_id, located(id)).travel
     const people = rows('session_members').filter((m) => m.session_id === id && m.state === 'joined')
     return { status: 200, body: { trips: people.map((m) => ({ userId: m.user_id, minutes: Math.round(travel[m.user_id] ?? m.travel_minutes ?? 0) })), approximate: true } }

@@ -7,6 +7,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
 import { SERVICE } from '../../components/dev/fakeDatabase.js'
+import { AxiosError } from 'axios'
 import { timeAndDuration } from '../planner/format.js'
 import { mountScreen, until } from './domless.js'
 import { confirmed, voted } from './sessionsWorld.js'
@@ -94,6 +95,37 @@ describe('the Confirm plan dialog', () => {
     expect(asked[0]).toMatchObject({ path: `/api/sessions/${id}/order/suggest`, body: {} })
     // Four rows, one a place, in the order the votes make.
     expect(view.all('.winners__row')).toHaveLength(4)
+  })
+
+  it('sends the basis of the votes the host was shown on every attempt, not only the first (a retry after a network error is still checked)', async () => {
+    const { view, w, router, id } = await open()
+    await until(() => hasTabs(view))
+    let failed = false
+    w.server.after.confirmPlan = () => {
+      if (failed) return
+      failed = true
+      throw new AxiosError('Network Error', 'ERR_NETWORK', {}, {})
+    }
+    await view.click(pressExact(view, 'Confirm'))
+    await until(() => view.has('[data-testid=confirm-error]'))
+    await view.click(pressExact(view, 'Confirm'))
+    await until(() => router.currentRoute.value.path === `/sessions/${id}/itinerary`)
+    const sent = w.server.calls.filter((c) => c.route === 'confirmPlan')
+    expect(sent).toHaveLength(2)
+    expect(sent[0].body.basis).toMatch(/^[0-9a-f]{64}$/)
+    expect(sent[1].body).toEqual(sent[0].body)
+  })
+
+  it('says the server\'s own reason in the dialog when it refuses to show an order, and holds Confirm back', async () => {
+    const world = await voted({ hostLast: true })
+    world.w.server.plan.refuseSuggest = true
+    const { view } = await draw('PlannerView', `/sessions/${world.id}/plan`, world.id)
+    await until(() => !!press(view, 'Confirm plan'))
+    await view.click(press(view, 'Confirm plan'))
+    await until(() => view.has('[data-testid=order-failed]'))
+    expect(view.text(view.one('[data-testid=order-failed]'))).toContain('At least 2 people need to vote first.')
+    expect(view.text(view.one('[data-testid=order-failed]'))).not.toContain('Could not get the order of the stops.')
+    expect(pressExact(view, 'Confirm').disabled).toBe(true)
   })
 
   it('draws the voted order from what the server will store, not from the slots\' own times', async () => {
@@ -305,6 +337,38 @@ describe('the itinerary', () => {
     await until(() => names(view).length === 3)
     await until(() => !view.has('.celebrate'))
     expect(view.text()).not.toContain('Plan confirmed')
+  })
+
+  it('moves focus to the list of stops when the "Plan confirmed" card goes while its Dismiss button has it', async () => {
+    const world = await confirmed({ hostLast: true })
+    const { view } = await draw('EventView', `/sessions/${world.id}/itinerary`, world.id, { justConfirmed: true })
+    await until(() => view.has('.celebrate'))
+    view.one('.celebrate__close').focus()
+    expect(view.focused().closest('.celebrate')).toBeTruthy()
+    // The plan changes under the person (the host's other device moves a stop).
+    const seen = (await world.sam.api.getItinerary(world.id)).stops.map((s) => s.stopId)
+    await world.sam.api.reorderStops(world.id, 1, 0, { seen })
+    await until(() => !view.has('.celebrate'))
+    expect((view.focused()?.attrs.class || '').split(/\s+/)).toContain('timeline')
+  })
+
+  it('draws the stops at once and the trips home when the server has worked them out, and a plan changed meanwhile draws without waiting', async () => {
+    const world = await confirmed({ hostLast: true })
+    let release
+    const held = new Promise((resolve) => { release = resolve })
+    world.w.server.after.tripsHome = () => held
+    const { view } = await draw('EventView', `/sessions/${world.id}/itinerary`, world.id)
+    await until(() => view.has('.stop'))
+    expect(view.has('.home')).toBe(false)
+    expect(world.w.server.calls.filter((c) => c.route === 'tripsHome')).toHaveLength(1)
+    // The host's other device moves a stop while the trips are still out: the page follows it, it does not wait for them.
+    const target = names(view)[1]
+    const seen = (await world.sam.api.getItinerary(world.id)).stops.map((s) => s.stopId)
+    await world.sam.api.reorderStops(world.id, 1, 0, { seen })
+    await until(() => names(view)[0] === target)
+    expect(view.has('.home')).toBe(false)
+    release()
+    await until(() => view.has('.home__row'))
   })
 
   it('does not say "Plan confirmed" once the outing is finished', async () => {
