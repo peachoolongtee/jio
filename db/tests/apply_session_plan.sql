@@ -16,7 +16,8 @@
 -- going (249 to 257), then a guest opting out of a confirmed plan, with the "Re-plan?" prompt written in the same patch (258 to 269).
 -- Steps 301 onwards are the change of meeting place (db/migrations/20261027000000_jio_change_meeting_place.sql): the op "release_meeting" and
 -- the moves it allows (301 to 310 refuse every other move and status, 311 to 315 its arguments and what may not come with it, 316 to 318 keep
--- area_pinned on every other path, 319 to 323 the refusals writing nothing, late writes and browsers), the release from voting (324 to 332) and
+-- area_pinned on every other path, 319 to 323 the refusals writing nothing, late writes and browsers), the release from voting (324 to 332, with 329
+-- showing that no member row is written) and
 -- from confirmed (333 to 336), from an area the planner picked (337, 338), and the usual paths after a release (339 to 343). They passed on a
 -- fresh build and on the stage 5 state with the migration applied once and twice, in a local in-memory Postgres (PGlite), not the live project.
 -- Steps 1 to 172 passed on the live project when stage 4 was applied. Steps 258 to 269 add no rule to the function (the migration's text is unchanged): they test what the server's opt-out of a confirmed plan sends. Steps 1 to 269 passed on 26 October 2026 on a fresh build of db/schema.sql and db/policies.sql in a local in-memory Postgres (PGlite 0.3.2, not the live project, not the migration on its own). Steps 1 to 257 were also run, on a local in-memory Postgres (PGlite
@@ -224,6 +225,7 @@ declare
   slot_e_drink uuid;
   stop_e uuid;
   rel jsonb;
+  tids_d text;                         -- the physical addresses of sd's member rows before the release (an update moves a row)
   slot_c_eat uuid;
   slot_c_drink uuid;
   slot_r_eat uuid;
@@ -1553,6 +1555,7 @@ begin
     (se, g1, 'joined', 'clementi', null, '{eat,drink}', 30), (se, g2, 'joined', 'bishan', null, '{eat}', 25),
     (sf, g1, 'joined', 'clementi', null, '{eat}', 30), (sg, g1, 'joined', null, null, '{}', null), (sh, g1, 'joined', null, null, '{}', null);
   update public.session_members set start_area_id = 'tampines', travel_minutes = 20 where session_id in (sd, se) and user_id = host;
+  select string_agg(ctid::text, ',' order by user_id) into tids_d from public.session_members where session_id = sd;
   insert into public.session_member_places (session_id, user_id, start_label, start_lat, start_lng) values (sd, g1, 'Clementi Mall', 1.3151, 103.7649);
   insert into public.session_spots (session_id, area_id, rank, worst_minutes, mean_minutes) values
     (sd, 'bugis', 1, 30, 25), (sd, 'orchard', 2, 32, 26), (se, 'bugis', 1, 30, 25);
@@ -1669,10 +1672,12 @@ begin
     format('select (select count(*) from public.session_spots where session_id = %L and area_id in (''clementi'', ''bishan'')) || '' '' ||'
            || ' (select count(*) from public.session_spots where session_id = %L) || '' '' || (select count(*) from public.spot_approvals where session_id = %L)'
            || ' || '' '' || (select count(*) from public.spot_suggestions where session_id = %L)', sd, sd, sd, sd), '2 2 0 0');
-  perform pg_temp.expect_text(329, 'the minutes to the old area went; the starts, ends and picks that people shared stayed',
+  perform pg_temp.expect_text(329, 'the members'' rows were not written at all (their minutes stay, and no updated_at moves past the new spots); starts, ends, picks and the exact place stayed',
     format('select count(*) filter (where travel_minutes is not null) || '' '' || count(*) filter (where start_area_id is not null) || '' '' ||'
            || ' count(*) filter (where end_area_id is not null) || '' '' || count(*) filter (where cardinality(categories) > 0) || '' '' ||'
-           || ' (select count(*) from public.session_member_places where session_id = %L) from public.session_members where session_id = %L', sd, sd), '0 3 1 2 1');
+           || ' (select count(*) from public.session_member_places where session_id = %L) || '' '' ||'
+           || ' ((select string_agg(ctid::text, '','' order by user_id) from public.session_members where session_id = %L) = %L)::text'
+           || ' from public.session_members where session_id = %L', sd, sd, tids_d, sd), '3 3 1 2 1 true');
   perform pg_temp.expect_text(330, 'the order note, the suggested order, the plan''s start, the prompt and the kept warnings are empty',
     format('select coalesce(order_reason, ''-'') || coalesce(order_source, ''-'') || coalesce(order_suggestion::text, ''-'') || coalesce(plan_start_minute::text, ''-'')'
            || ' || coalesce(replan::text, ''-'') || coalesce(weather_kept::text, ''-'') from public.sessions where id = %L', sd), '------');

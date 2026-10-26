@@ -990,7 +990,7 @@ $$;
 -- cannot call it.
 -- Changing the meeting place (20261027000000): the op { "op": "release_meeting", "meet_by": "fairest" | "known" } is the only way a voting
 -- or confirmed session goes back to locating, and that move is allowed only with it (the op is refused on any other move, hint
--- release_status). In the one write it lets the meeting area go (every meeting_* column and the members' minutes to it), deletes the slots
+-- release_status). In the one write it lets the meeting area go (every meeting_* column), deletes the slots
 -- (their options and votes go with them) and the stops, the spots with their approvals and suggestions, clears the order note, the
 -- suggested order, the plan's start, the "Re-plan?" prompt and the kept rain warnings, dismisses the proposals still waiting, records the
 -- host's new choice in sessions.meet_by, and clears the banner unless the patch brings its own. The patch may bring "spots" (worked out
@@ -1078,6 +1078,19 @@ begin
   end if;
   sp := coalesce(patch -> 'session', '{}'::jsonb);
   meeting := sp -> 'meeting';
+
+  -- Rule 9, the lock order. A release deletes the session's votes and the slots' options. A guest's vote locks its own row, and the option it
+  -- names through the foreign key, BEFORE its trigger (votes_guard_status) waits for a shared lock on the session; if this function took the
+  -- session's lock first and then reached for those rows, each side would wait for the other and the database would end one with 40P01. So a
+  -- release locks the votes and then the options of the session first, in a fixed order, and only then the session: a guest's write either
+  -- finishes before this (and its trigger waits for nobody) or waits for these rows and then finds them gone. (A release can still meet another
+  -- server write on the same session in another process in the opposite order; the server retries once on 40P01 and 40001.)
+  if coalesce(jsonb_typeof(patch -> 'ops') = 'array' and exists (
+    select 1 from jsonb_array_elements(patch -> 'ops') o where o ->> 'op' = 'release_meeting'
+  ), false) then
+    perform 1 from public.votes v join public.slots sl on sl.id = v.slot_id where sl.session_id = sid order by v.slot_id, v.user_id for update of v;
+    perform 1 from public.slot_options o join public.slots sl on sl.id = o.slot_id where sl.session_id = sid order by o.slot_id, o.venue_id for update of o;
+  end if;
 
   -- The session is locked until this function returns, so two writes cannot interleave.
   select * into s from public.sessions where id = sid for update;
@@ -1255,7 +1268,9 @@ begin
         delete from public.spot_approvals a where a.session_id = sid;
         delete from public.spot_suggestions g where g.session_id = sid;
         delete from public.session_spots x where x.session_id = sid;
-        update public.session_members m set travel_minutes = null where m.session_id = sid and m.travel_minutes is not null;
+        -- (The members' own minutes to the old area are left as they are: nothing reads them while the session is locating, the next
+        -- confirm writes them again, and writing them here would move every member's updated_at past the new spots' computed_at, which a
+        -- page reads as "the spots were not worked out again".)
         changed := true;
       when 'swap_option' then
         -- Rule 7 again. The place changes in place, so the votes for it follow it; when the other place is already an option, the

@@ -16,9 +16,16 @@
 --     * "meet_by" is the host's new choice of how the meeting point is picked again; anything else is 22023. It is written to sessions.meet_by
 --       in the same write (the function runs as the server, which the guard on that column lets through).
 --     * It deletes: every vote, every slot (their options go by foreign key), every stop, every spot with its approvals and suggestions.
---       It sets to null: every meeting_* column of the session and every joined member's travel_minutes, order_reason, order_source,
---       order_suggestion, plan_start_minute, replan and weather_kept. The proposals still waiting are dismissed (the stage 5 rule for leaving
+--       It sets to null: every meeting_* column of the session, order_reason, order_source, order_suggestion, plan_start_minute, replan and
+--       weather_kept. (Members' own travel_minutes are left alone: nothing reads them while locating, the next confirm rewrites them, and
+--       writing them would move every member's updated_at past the new spots' computed_at, which a page reads as "the spots are stale" and
+--       answers with a second planner run.) The proposals still waiting are dismissed (the stage 5 rule for leaving
 --       confirmed). The banner is cleared unless the patch brings one, and one it brings is always written afresh with a new time.
+--     * A release can meet a deadlock with a guest's vote (40P01): a vote locks its row and its option before its trigger waits for the
+--       session, and a release deletes those rows while it holds the session. The function therefore locks the session's votes and options
+--       BEFORE the session row, in a fixed order, which removes that cycle (reasoned and reviewed; PGlite has one connection, so no test here
+--       can run two at once). Another server write on the same session in another process could still meet it in the other order: the server
+--       (backend/src/db/sessions.js applyPlan) retries once on 40P01 and 40001, and answers an error only if the retry fails too.
 --     * It keeps: who is in the session and their state, the starts and ends people shared (session_members.start_area_id and end_area_id, and
 --       session_member_places), their picks (categories and stay-until), the radius, the title, date and times, and the proposals already
 --       answered. So a released session is a locating one whose people have already shared where they start.
@@ -33,10 +40,10 @@
 -- Expected function text. The body of apply_session_plan (the text between the dollar quotes, as pg_proc.prosrc holds it) has these md5 sums:
 --   0b045589c032e034636cfc0e59306559   stage 5 as the live project holds it: the live body carries no comment lines, so its sum is not the file's
 --   3e206e88861c16adea7282967cff357c   stage 5 as db/migrations/20261023000000_jio_apply_session_plan_stops.sql and the earlier db/schema.sql carry it, with its comments
---   22163c416f06abd645884ba8c9650ef0   the version this migration installs, with its comments
---   f4335697f3547b73fceb204eaf7f36a6   the same text without comment lines and blank lines, which is what the live project would hold if this file were sent
+--   9cb0cb5720ead4e934661b47cbcaa97d   the version this migration installs, with its comments
+--   c2b499a44f51d9fe4c3db2afb66eb22b   the same text without comment lines and blank lines, which is what the live project would hold if this file were sent
 --                    through the tool that strips comments (it is what the live stage 5 body was): a second run still passes
--- The block below stops the migration if the live function is none of the four, for instance because someone edited it by hand in the SQL
+-- The block below stops the migration if public.sessions.meet_by is missing (the function writes it: apply 20261026000000 first), or if the live function is none of the four, for instance because someone edited it by hand in the SQL
 -- editor: replacing it would silently throw their change away. backend/tests/sessions-sql.test.js checks that the sums here are those of the
 -- text in this file, in db/schema.sql and in the stage 5 file, and that the stripping is the one described.
 --
@@ -49,7 +56,10 @@ declare
   live text;
 begin
   select md5(prosrc) into live from pg_proc where oid = 'public.apply_session_plan(uuid, bigint, text, jsonb)'::regprocedure;
-  if live is null or live not in ('0b045589c032e034636cfc0e59306559', '3e206e88861c16adea7282967cff357c', '22163c416f06abd645884ba8c9650ef0', 'f4335697f3547b73fceb204eaf7f36a6') then
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'sessions' and column_name = 'meet_by') then
+    raise exception 'public.sessions.meet_by does not exist: apply db/migrations/20261026000000_jio_session_meet_by.sql first. This function writes it.';
+  end if;
+  if live is null or live not in ('0b045589c032e034636cfc0e59306559', '3e206e88861c16adea7282967cff357c', '9cb0cb5720ead4e934661b47cbcaa97d', 'c2b499a44f51d9fe4c3db2afb66eb22b') then
     raise exception 'apply_session_plan on this project is not the text this migration expects (md5 %). Compare it with db/schema.sql before applying.', live;
   end if;
 end;
@@ -135,6 +145,19 @@ begin
   end if;
   sp := coalesce(patch -> 'session', '{}'::jsonb);
   meeting := sp -> 'meeting';
+
+  -- Rule 9, the lock order. A release deletes the session's votes and the slots' options. A guest's vote locks its own row, and the option it
+  -- names through the foreign key, BEFORE its trigger (votes_guard_status) waits for a shared lock on the session; if this function took the
+  -- session's lock first and then reached for those rows, each side would wait for the other and the database would end one with 40P01. So a
+  -- release locks the votes and then the options of the session first, in a fixed order, and only then the session: a guest's write either
+  -- finishes before this (and its trigger waits for nobody) or waits for these rows and then finds them gone. (A release can still meet another
+  -- server write on the same session in another process in the opposite order; the server retries once on 40P01 and 40001.)
+  if coalesce(jsonb_typeof(patch -> 'ops') = 'array' and exists (
+    select 1 from jsonb_array_elements(patch -> 'ops') o where o ->> 'op' = 'release_meeting'
+  ), false) then
+    perform 1 from public.votes v join public.slots sl on sl.id = v.slot_id where sl.session_id = sid order by v.slot_id, v.user_id for update of v;
+    perform 1 from public.slot_options o join public.slots sl on sl.id = o.slot_id where sl.session_id = sid order by o.slot_id, o.venue_id for update of o;
+  end if;
 
   -- The session is locked until this function returns, so two writes cannot interleave.
   select * into s from public.sessions where id = sid for update;
@@ -312,7 +335,9 @@ begin
         delete from public.spot_approvals a where a.session_id = sid;
         delete from public.spot_suggestions g where g.session_id = sid;
         delete from public.session_spots x where x.session_id = sid;
-        update public.session_members m set travel_minutes = null where m.session_id = sid and m.travel_minutes is not null;
+        -- (The members' own minutes to the old area are left as they are: nothing reads them while the session is locating, the next
+        -- confirm writes them again, and writing them here would move every member's updated_at past the new spots' computed_at, which a
+        -- page reads as "the spots were not worked out again".)
         changed := true;
       when 'swap_option' then
         -- Rule 7 again. The place changes in place, so the votes for it follow it; when the other place is already an option, the

@@ -313,6 +313,22 @@ describe('the change of meeting place migration', () => {
     expect(sql).toContain("if not (s.status in ('voting', 'confirmed') and new_status = 'locating') then")
   })
 
+  it('stops when sessions.meet_by is missing (the function writes it), and the release locks the votes and the options before the session', () => {
+    const migration = read(RELEASE)
+    expect(migration).toContain("table_name = 'sessions' and column_name = 'meet_by'")
+    expect(migration.indexOf("column_name = 'meet_by'")).toBeLessThan(migration.indexOf('create or replace function public.apply_session_plan'))
+    const sql = functionOf(migration)
+    const votes = sql.indexOf('for update of v;')
+    const options = sql.indexOf('for update of o;')
+    const session = sql.indexOf('from public.sessions where id = sid for update;')
+    expect(votes).toBeGreaterThan(0)
+    expect(votes).toBeLessThan(options)
+    expect(options).toBeLessThan(session)
+    // The release does not write the members' rows (a write would make every page think the spots are stale).
+    expect(sql).not.toMatch(/update public\.session_members m set travel_minutes = null/)
+    expect(migration).toContain('retries once on 40P01 and 40001')
+  })
+
   it('says it must be applied before the route runs, and what stays', () => {
     const migration = read(RELEASE)
     expect(migration).toContain('MUST BE APPLIED BEFORE THE BACKEND THAT HAS POST /api/sessions/:id/change-meeting-place')
