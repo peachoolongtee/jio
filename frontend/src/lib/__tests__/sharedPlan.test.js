@@ -88,16 +88,25 @@ describe('the suggested order', () => {
   it('is none when there is nothing to arrange (fewer than two stops that can move), and the dialog keeps the voted order', async () => {
     const { w, sam, id } = await voted()
     w.server.plan.suggest = null
-    expect(await sam.api.suggestOrder(id)).toBeNull()
+    // No other order, but the dialog still gets the voted one as the server will store it, with the places' names.
+    const none = await sam.api.suggestOrder(id)
+    expect(none.stops).toBeUndefined()
+    expect(none.order).toBeUndefined()
+    expect(none.voted.length).toBeGreaterThan(0)
+    expect(none.voted.every((s) => typeof s.name === 'string' && s.name && Number.isInteger(s.start) && Number.isInteger(s.duration) && typeof s.category === 'string')).toBe(true)
   })
 
   it('is none for an answer it cannot draw (a place the server cannot describe, or a slot the plan does not have)', async () => {
     const { w, sam, id } = await voted()
     const named = (winners, venueId, slotId) => ({ order: winners.map((x) => x.slot.id), starts: {}, stops: winners.map((x, i) => ({ slotId: i === 0 ? slotId ?? x.slot.id : x.slot.id, venueId: i === 0 ? venueId ?? x.option.venue_id : x.option.venue_id, start: 600 })), reason: 'x', source: 'rules' })
+    const noSuggestion = (answer) => {
+      expect(answer.stops).toBeUndefined()
+      expect(answer.voted.length).toBeGreaterThan(0)
+    }
     w.server.plan.suggest = (winners) => named(winners, 'no-such-place')
-    expect(await sam.api.suggestOrder(id)).toBeNull()
+    noSuggestion(await sam.api.suggestOrder(id))
     w.server.plan.suggest = (winners) => ({ ...named(winners, undefined, 'no-such-slot'), order: winners.map((x, i) => (i === 0 ? 'no-such-slot' : x.slot.id)) })
-    expect(await sam.api.suggestOrder(id)).toBeNull()
+    noSuggestion(await sam.api.suggestOrder(id))
   })
 
   it('drops the answer when the account changed while it was out', async () => {

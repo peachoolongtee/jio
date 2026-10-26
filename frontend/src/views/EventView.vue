@@ -268,7 +268,11 @@ watch(
   () => justConfirmed.value && confirmed.value && !!itinerary.value,
   (ready) => {
     clearTimeout(announceTimer)
-    if (!ready) return
+    // The words are about the plan as it was confirmed: they go when it is no longer confirmed.
+    if (!ready) {
+      announcement.value = ''
+      return
+    }
     announceTimer = setTimeout(() => {
       announcement.value = `Plan confirmed. ${confirmedLine.value}`
     }, 400)
@@ -276,6 +280,14 @@ watch(
   { immediate: true },
 )
 onBeforeUnmount(() => clearTimeout(announceTimer))
+// "Plan confirmed" (the card and the words read out) describes the plan at the moment it was confirmed. A stop moved, added, deleted or
+// replaced, a changed leg, or the end of the outing makes it untrue, so it goes then, whoever made the change.
+watch(stopsKey, (key, was) => {
+  if (justConfirmed.value && was && key !== was) dismissConfirmed()
+})
+watch(confirmed, (is) => {
+  if (!is && justConfirmed.value) dismissConfirmed()
+})
 
 // The latest pictures for the strip, from the events store (a session summary has only photoCount). A failed load
 // only leaves the strip without thumbnails; the count and the link stay.

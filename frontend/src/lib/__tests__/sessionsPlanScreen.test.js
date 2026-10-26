@@ -7,6 +7,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
 import { SERVICE } from '../../components/dev/fakeDatabase.js'
+import { timeAndDuration } from '../planner/format.js'
 import { mountScreen, until } from './domless.js'
 import { confirmed, voted } from './sessionsWorld.js'
 
@@ -43,7 +44,7 @@ const SCREENS = {
 
 // Draw a screen of the app opened last, signed in as that person (the modules are the last app's).
 // How to call: const t = await draw('PlannerView', `/sessions/${id}/plan`, id)
-async function draw(name, path, id) {
+async function draw(name, path, id, historyState = null) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const { useAuthStore } = await import('@/stores/auth.js')
@@ -54,7 +55,7 @@ async function draw(name, path, id) {
   const stub = { render: () => null }
   const router = createRouter({ history: createMemoryHistory(), routes: routes.map((r) => ({ ...r, component: stub })) })
   // The itinerary reads the history entry's flag for "Plan confirmed" (window.history.state).
-  if (name === 'EventView') vi.stubGlobal('window', { history: { state: null, replaceState() {} } })
+  if (name === 'EventView') vi.stubGlobal('window', { history: { state: historyState, replaceState() {} } })
   await router.push(path)
   const { default: View } = await SCREENS[name]()
   const view = await mountScreen(View, { plugins: [pinia, router], props: { id } })
@@ -93,6 +94,23 @@ describe('the Confirm plan dialog', () => {
     expect(asked[0]).toMatchObject({ path: `/api/sessions/${id}/order/suggest`, body: {} })
     // Four rows, one a place, in the order the votes make.
     expect(view.all('.winners__row')).toHaveLength(4)
+  })
+
+  it('draws the voted order from what the server will store, not from the slots\' own times', async () => {
+    const world = await voted({ hostLast: true })
+    // The server lays the stops out later than the slots do (the travel between them); the dialog must show the server's starts.
+    world.w.server.plan.voteShift = 11
+    const t = await draw('PlannerView', `/sessions/${world.id}/plan`, world.id)
+    await until(() => !!press(t.view, 'Confirm plan'))
+    await t.view.click(press(t.view, 'Confirm plan'))
+    await until(() => hasTabs(t.view))
+    const slots = world.w.database.tables.slots.filter((x) => x.session_id === world.id && !x.deleted)
+    const rows = t.view.all('.winners__row').map((r) => t.view.text(r))
+    expect(rows).toHaveLength(slots.length)
+    for (const slot of slots) {
+      expect(rows.some((r) => r.includes(timeAndDuration(slot.start_minute + 11, slot.duration_minutes)))).toBe(true)
+      expect(rows.some((r) => r.includes(timeAndDuration(slot.start_minute, slot.duration_minutes)))).toBe(false)
+    }
   })
 
   it('shows the suggested rows when the host picks them, and confirms that order with the basis it saw', async () => {
@@ -149,20 +167,23 @@ describe('the Confirm plan dialog', () => {
     void id
   })
 
-  it('says it could not get a suggested order, offers Try again, and keeps the voted order usable', async () => {
+  it('says it could not get the order of the stops, offers Try again, and holds Confirm back until the server has shown the order it will save', async () => {
     const world = await voted({ hostLast: true })
     const { view } = await draw('PlannerView', `/sessions/${world.id}/plan`, world.id)
     await until(() => !!press(view, 'Confirm plan'))
     world.w.server.down = true
     await view.click(press(view, 'Confirm plan'))
     await until(() => view.has('[data-testid=order-failed]'))
-    expect(view.text(view.one('[data-testid=order-failed]'))).toContain('Could not get a suggested order.')
+    expect(view.text(view.one('[data-testid=order-failed]'))).toContain('Could not get the order of the stops.')
     expect(hasTabs(view)).toBe(false)
-    expect(pressExact(view, 'Confirm').disabled).toBeFalsy()
+    // Rows drawn from the slots' own times are not what is saved, so there are none and Confirm waits.
+    expect(view.all('.winners__row')).toHaveLength(0)
+    expect(pressExact(view, 'Confirm').disabled).toBe(true)
     world.w.server.down = false
     await view.click(view.one('[data-testid=order-retry]'))
     await until(() => hasTabs(view))
     expect(view.has('[data-testid=order-failed]')).toBe(false)
+    expect(pressExact(view, 'Confirm').disabled).toBeFalsy()
   })
 
   it('stays open and draws both orders again, with one line saying why, when the server refuses a suggested order the votes have outdated', async () => {
@@ -269,6 +290,52 @@ describe('the itinerary', () => {
     expect(names(view)).not.toContain(first)
     expect(w.server.calls.filter((c) => c.route === 'deleteStop')).toHaveLength(1)
     void id
+  })
+
+  it('says "Plan confirmed" only while it is true: a stop deleted afterwards takes the card and the words read out away', async () => {
+    const world = await confirmed({ hostLast: true })
+    const { view } = await draw('EventView', `/sessions/${world.id}/itinerary`, world.id, { justConfirmed: true })
+    await until(() => view.has('.celebrate'))
+    await until(() => view.all('p[role=status]').some((p) => view.text(p).startsWith('Plan confirmed.')))
+    expect(view.text()).toContain('4 stops')
+    await view.click(view.one('button[aria-label="Edit itinerary"]'))
+    const first = names(view)[1]
+    await view.click(view.one(`button[aria-label="Delete stop: ${first}"]`))
+    await view.click(pressExact(view, 'Delete'))
+    await until(() => names(view).length === 3)
+    await until(() => !view.has('.celebrate'))
+    expect(view.text()).not.toContain('Plan confirmed')
+  })
+
+  it('does not say "Plan confirmed" once the outing is finished', async () => {
+    const world = await confirmed({ hostLast: true })
+    vi.setSystemTime(ON_THE_DAY)
+    frames()
+    const { w, id } = world
+    const { view } = await draw('EventView', `/sessions/${world.id}/itinerary`, world.id, { justConfirmed: true })
+    await until(() => view.all('p[role=status]').some((p) => view.text(p).startsWith('Plan confirmed.')))
+    await view.click(press(view, 'Finish outing'))
+    await view.click(pressExact(view, 'Finish outing'))
+    await until(() => w.database.tables.sessions.find((s) => s.id === id).status === 'completed')
+    await until(() => !view.has('.celebrate') && !view.all('p[role=status]').some((p) => view.text(p).includes('Plan confirmed')))
+    expect(view.text()).not.toContain('Plan confirmed')
+  })
+
+  it('shows the trips home the server works out, the figures the finished outing\'s travel ledger keeps, and none once it is finished', async () => {
+    const { view, w, id } = await drawn({ day: true })
+    frames()
+    await until(() => view.has('.home__row'))
+    expect(w.server.calls.filter((c) => c.route === 'tripsHome')).toHaveLength(1)
+    const shown = view.all('.home__row').map((r) => Number(/about (\d+) min/.exec(view.text(r))[1])).sort((a, b) => a - b)
+    expect(shown.length).toBeGreaterThan(0)
+    expect(view.text(view.one('.home__summary'))).toContain(`Longest about ${shown.at(-1)} min`)
+    await view.click(press(view, 'Finish outing'))
+    await view.click(pressExact(view, 'Finish outing'))
+    await until(() => w.database.tables.sessions.find((s) => s.id === id).status === 'completed')
+    const kept = w.database.tables.commute_ledger.filter((r) => r.session_id === id).map((r) => r.minutes_home).sort((a, b) => a - b)
+    expect(kept).toEqual(shown)
+    // A finished outing's record of the way home is the ledger, not a second figure on the plan.
+    await until(() => !view.has('.home'))
   })
 
   it('deletes the stop the dialog was opened for, even when another device moved the stops while it was open', async () => {

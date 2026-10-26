@@ -11,7 +11,7 @@
 // to leave it out, or your own words to replace it. Each handle's name also says how, for screen readers.
 // `dragging` is true while any item is being dragged, so the parent can hide things between items.
 // Positions are written straight to each element's transform while dragging, not through reactive state.
-import { nextTick, onBeforeUpdate, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onBeforeUpdate, ref, watch } from 'vue'
 
 const props = defineProps({
   items: { type: Array, required: true },
@@ -37,9 +37,22 @@ function setEl(el, i) {
   if (el) els[i] = el
 }
 
+// The words about a move are true for a moment: they are read out, then they go, and at once when the list gains or loses an item (a stop
+// added, deleted or finished elsewhere), so no old position or count is left on the page.
+let clearTimer = 0
+const ANNOUNCEMENT_MS = 4000
 function announce(index, to) {
   announcement.value = `${props.itemLabel(props.items[index])} moved to position ${to + 1} of ${props.items.length}.`
+  clearTimeout(clearTimer)
+  clearTimer = setTimeout(() => {
+    announcement.value = ''
+  }, ANNOUNCEMENT_MS)
 }
+watch(() => props.items.length, () => {
+  clearTimeout(clearTimer)
+  announcement.value = ''
+})
+onBeforeUnmount(() => clearTimeout(clearTimer))
 
 async function onPointerDown(event, index) {
   if (props.disabled || event.button !== 0 || drag) return

@@ -39,7 +39,7 @@
 // `client()` is the Supabase client (or null), `me()` the signed-in user's id, `backend` the calls to the Jio server
 // (`removeMember`, `refreshSpots`, `putSpot`, `deleteSpot`, `confirmSpot`, `knownPlace`, `optOut`, `rejoin`, and from stage 4 `syncPlan`,
 // `setRadius`, `deleteSlot`, `restoreSlots`, `addOption`, `moreOptions`, `swapOption`, `searchSlot`, `venues`, and from stage 5
-// `suggestOrder`, `confirmPlan`, `replan`, `complete`, `patchStop`, `deleteStop`, `reorderStops`, `stopSwap`, `stopChoices`,
+// `suggestOrder`, `tripsHome`, `confirmPlan`, `replan`, `complete`, `patchStop`, `deleteStop`, `reorderStops`, `stopSwap`, `stopChoices`,
 // `changeStopPlace`, `keepRain`, `roam`, `propose`, `resolve`), `now()` the clock
 // in milliseconds.
 // How to call: const remote = createSessionsRemote({ client: () => auth.dataClient(), me: () => currentUserId(), backend, now: Date.now })
@@ -1078,15 +1078,38 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
+  // The stops of the voted order as the server will store them, for the Confirm dialog: `[{ slotId, category, venueId, start, duration }]`, or
+  // null when the answer has none the dialog can show (then it shows nothing it cannot vouch for).
+  // How to call: votedFrom({ voted: [{ slotId: 'a', category: 'eat', venueId: 'v1', start: 720, duration: 90 }] })
+  function votedFrom(answered) {
+    const rows = answered?.voted
+    if (!Array.isArray(rows) || !rows.length || rows.length > 8) return null
+    const whole = rows.every((x) => x && typeof x.slotId === 'string' && typeof x.venueId === 'string' && typeof x.category === 'string' && Number.isFinite(x.start) && x.start >= 0 && x.start < 2880 && Number.isFinite(x.duration) && x.duration > 0)
+    if (!whole || new Set(rows.map((x) => x.slotId)).size !== rows.length) return null
+    return rows.map((x) => ({ slotId: x.slotId, category: x.category, venueId: x.venueId, start: x.start, duration: x.duration }))
+  }
+
   // The host asks for the suggested order of the winning places. Nothing is saved by this. Resolves the suggestion (see orderFrom), or null
   // when there is none. `onBasis(basis)` is told the basis of the votes the answer was made for, whether or not there is an order to suggest
-  // (the server hands it out for "none" too), so the host's confirm of the voted order can say which votes it was looking at. Rejects with a
-  // sentence: the host only; the group is no longer voting; fewer than 2 have voted.
-  // How to call: const suggestion = await suggestOrder('3b1f...', { onBasis: (basis) => remember(basis) })
-  async function suggestOrder(sessionId, { onBasis } = {}) {
+  // (the server hands it out for "none" too), so the host's confirm of the voted order can say which votes it was looking at. `onVoted(rows)`
+  // is told the stops of the voted order with the starts the server will store (see votedFrom), whether or not there is an order to suggest,
+  // or null when the answer has none. Rejects with a sentence: the host only; the group is no longer voting; fewer than 2 have voted.
+  // How to call: const suggestion = await suggestOrder('3b1f...', { onBasis: (basis) => remember(basis), onVoted: (rows) => show(rows) })
+  async function suggestOrder(sessionId, { onBasis, onVoted } = {}) {
     const answered = await ask(() => backend.suggestOrder(sessionId), { host_only: 'Only the host can confirm the plan.', wrong_status: WORDS.planClosed })
     if (BASIS.test(String(answered?.basis))) onBasis?.(answered.basis)
+    onVoted?.(votedFrom(answered))
     return orderFrom(answered)
+  }
+
+  // The minutes each person needs to get home from the last stop of a confirmed plan, as the server works them out (the figures the finished
+  // outing's ledger keeps). Resolves `{ <user id>: minutes }`; rejects with a sentence.
+  // How to call: const minutes = await tripsHome('3b1f...') // { '9a2c...': 31 }
+  async function tripsHome(sessionId) {
+    const answered = await ask(() => backend.tripsHome(sessionId), { wrong_status: WORDS.needConfirmed, not_found: WORDS.notBuilt })
+    const minutes = {}
+    for (const x of answered.trips) if (x && typeof x.userId === 'string' && Number.isFinite(x.minutes) && x.minutes >= 0) minutes[x.userId.toLowerCase()] = x.minutes
+    return minutes
   }
 
   // The host confirms the plan. `order` is 'voted', or 'suggested' with the `basis` of the suggestion the host was shown; the server writes
@@ -1231,5 +1254,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, readPlan, readSlotVotes, suggestOrder, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
+  return { list, get, readPlan, readSlotVotes, suggestOrder, tripsHome, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
 }

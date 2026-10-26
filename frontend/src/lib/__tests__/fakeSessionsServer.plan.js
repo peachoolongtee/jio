@@ -19,6 +19,7 @@
 //   GET    /api/sessions/:id/stops/:stopId/choices?category=     the places that could take a stop's place (host, confirmed; reads; any other query key is a 400)
 //   PUT    /api/sessions/:id/stops/:stopId/place { venueId, seenVenueId, category? }   put one in (host)
 //   PUT    /api/sessions/:id/stops/:stopId/kept-rain { state }   the host keeps a stop in the rain: stored on the session (`weather_kept`)
+//   GET    /api/sessions/:id/trips-home                          the minutes home of each person (joined member, confirmed; reads)
 //   POST   /api/sessions/:id/roam      { current?, categories? } E16 (joined member, confirmed): the list; writes nothing
 //   POST   /api/sessions/:id/proposals { venueId }               E23 (joined member, confirmed)
 //   POST   /api/sessions/:id/proposals/:proposalId/resolve { accept }   E24 (host; the proposer may dismiss their own)
@@ -38,7 +39,7 @@
 //     its earliest start, and clears the order note;
 //   - E22 answers `{ status: 'none', why }` when fewer than two stops can move, and stores `{ basis, order, starts, reason, source, at }`.
 //
-// Hooks for a test, on `server.plan`: `orderSource` ('ai' or 'rules', the source of a suggestion), `suggest` (a function that replaces the
+// Hooks for a test, on `server.plan`: `voteShift` (minutes added to the starts the suggest answer gives for the voted order, to see that the dialog draws them), `orderSource` ('ai' or 'rules', the source of a suggestion), `suggest` (a function that replaces the
 // suggestion: `(winners) => ({ order, starts, reason, source })`, with `stops` to name the stops itself, or null for "none"), `swap` (a function from a place's id to the indoor swap the
 // server offers for it, `{ venueId, name }`), `weather`, and `confirmedOptOut` (default true, as the real server: opting out of a confirmed plan is allowed and
 // asks "Re-plan?"; false is the stage 4 server, which refuses with not_yet). Per route, `server.after.<route>` runs after
@@ -132,17 +133,20 @@ export function registerPlan(kit, routes, PATTERNS) {
     if (voters.size < 2 || !winners.length) refuse(409, 'not_enough_votes', 'At least 2 people need to vote first.')
     const basis = await basisOf(session, winners)
     const stored = session.order_suggestion
+    // What a confirm of the voted order stores (SIMPLER: each stop at its slot's own time; the real server lays the stops out with the travel
+    // between them). The Confirm dialog draws these rows.
+    const voted = winners.map((w) => ({ slotId: w.slot.id, category: w.slot.category, venueId: w.option.venue_id, start: w.slot.start_minute + (server.plan.voteShift ?? 0), duration: w.slot.duration_minutes }))
     const stopsOfOrder = (made) => made.stops ?? made.order.map((slotId) => ({ slotId, venueId: winners.find((w) => w.slot.id === slotId).option.venue_id, start: made.starts[slotId] }))
     // An unchanged basis returns the stored answer.
     if (stored?.basis === basis) {
-      return { status: 200, body: { status: 'ok', basis, order: stored.order, stops: stopsOfOrder(stored), reason: stored.reason, source: stored.source } }
+      return { status: 200, body: { status: 'ok', basis, order: stored.order, stops: stopsOfOrder(stored), voted, reason: stored.reason, source: stored.source } }
     }
     const made = suggestionFor(winners)
     await after.suggestOrder?.(id)
-    if (!made) return { status: 200, body: { status: 'none', why: 'nothing_to_arrange', basis } }
+    if (!made) return { status: 200, body: { status: 'none', why: 'nothing_to_arrange', basis, voted } }
     const loaded = loadedOf(session)
     await apply(id, loaded, async () => {}, () => ({ order_suggestion: { basis, order: made.order, starts: made.starts ?? {}, reason: made.reason, source: made.source, at: new Date().toISOString() } }))
-    return { status: 200, body: { status: 'ok', basis, order: made.order, stops: stopsOfOrder(made), reason: made.reason, source: made.source } }
+    return { status: 200, body: { status: 'ok', basis, order: made.order, stops: stopsOfOrder(made), voted, reason: made.reason, source: made.source } }
   }
 
   // ── E12: confirm ──
@@ -247,6 +251,16 @@ export function registerPlan(kit, routes, PATTERNS) {
       }
     }, () => ({ status: 'completed', completed_at: new Date().toISOString(), replan: null, weather_kept: null }))
     return { status: 200, body: { status: 'completed' } }
+  }
+
+  // ── GET trips-home: the minutes each person needs to get home (a joined member, confirmed; reads). The same minutes `complete` stores as
+  // `minutes_home` (SIMPLER: the person's own trip in; the real server routes from the last stop).
+  routes.tripsHome = async (user, id) => {
+    const { session } = load(user, id)
+    confirmedOnly(session)
+    const travel = pricing(session.meeting_area_id, located(id)).travel
+    const people = rows('session_members').filter((m) => m.session_id === id && m.state === 'joined')
+    return { status: 200, body: { trips: people.map((m) => ({ userId: m.user_id, minutes: Math.round(travel[m.user_id] ?? m.travel_minutes ?? 0) })), approximate: true } }
   }
 
   // The stop a request names in this session.
@@ -532,6 +546,7 @@ export function registerPlan(kit, routes, PATTERNS) {
     ['GET', /^\/stops\/([^/]+)\/choices$/, 'stopChoices', ['stop']],
     ['PUT', /^\/stops\/([^/]+)\/place$/, 'stopPlace', ['stop']],
     ['PUT', /^\/stops\/([^/]+)\/kept-rain$/, 'keepRain', ['stop']],
+    ['GET', /^\/trips-home$/, 'tripsHome'],
     ['POST', /^\/roam$/, 'roam'],
     ['POST', /^\/proposals$/, 'propose'],
     ['POST', /^\/proposals\/([^/]+)\/resolve$/, 'resolve', ['proposal']],

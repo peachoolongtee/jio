@@ -70,7 +70,7 @@ import NotFoundView from './NotFoundView.vue'
 import { watchSessions } from '@/lib/api.js'
 import { CATEGORIES, CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { distanceText } from '@/lib/planner/format.js'
-import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, votedRows } from '@/lib/confirmOrder.js'
+import { ORDER_TABS, VOTED, confirmKey, confirmView, sourceIcon, sourceText, suggestedRows, votedRows } from '@/lib/confirmOrder.js'
 import { placeImage } from '@/lib/placeImages.js'
 import { walkFromText } from '@/lib/cardText.js'
 import { usePlaceDetail } from '@/lib/usePlaceDetail.js'
@@ -574,7 +574,12 @@ const winners = computed(() =>
 // selected for the host. The store keeps one answer per question and ignores late older ones (events.suggestOrder).
 // Without a suggestion (nothing to arrange, a failure, a timeout) the voted order stays.
 const picked = ref(VOTED)
-const votedList = computed(() => votedRows(winners.value))
+// A shared session's voted order is the server's own: its stops in the order it will store them, at the starts it will store (laid out with
+// the travel between them), so what the dialog shows is what is saved. The slots' own times are not those. Until the server has answered
+// there is nothing to show, and Confirm waits for it.
+const serverVoted = computed(() => (shared.value ? order.value?.answer?.voted ?? null : null))
+const votedList = computed(() => (shared.value ? suggestedRows({ stops: serverVoted.value ?? [] }) : votedRows(winners.value)))
+const orderReady = computed(() => !shared.value || !!serverVoted.value)
 const orderKey = computed(() => confirmKey(winners.value, session.value, planner.conditions?.rain))
 // The answer to this question, once asked: its loading flag and its suggestion.
 const order = computed(() => {
@@ -929,14 +934,14 @@ async function keepDialog(e) {
           <template v-else>You can rearrange stops after confirming.</template>
         </p>
         <p v-if="shared && order?.failed" class="order-failed caption-sm text-muted" data-testid="order-failed">
-          Could not get a suggested order.
+          Could not get the order of the stops.
           <AppButton variant="tertiary" underline small data-testid="order-retry" @click="retryOrder">Try again</AppButton>
         </p>
         <!-- A live region that is on the page from the start, empty, so that what is put in it is announced; it takes no room until it has words. -->
         <p v-if="shared" :class="staleNote ? 'caption-sm text-muted dialog-line' : 'sr-only'" role="status" data-testid="order-stale">{{ staleNote }}</p>
         <p v-if="confirmError" class="body-sm text-error dialog-line" role="alert" data-testid="confirm-error">{{ confirmError }}</p>
       </template>
-      <AppButton block :disabled="busy" @click="confirm">Confirm</AppButton>
+      <AppButton block :disabled="busy || !orderReady" @click="confirm">Confirm</AppButton>
       <AppButton block variant="secondary" @click="confirmOpen = false">Not yet</AppButton>
     </ModalDialog>
 

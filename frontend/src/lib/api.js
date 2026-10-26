@@ -435,6 +435,7 @@ const remote = createSessionsRemote({
     searchSlot: (sessionId, slotId, q) => planner.searchSessionSlot(sessionId, slotId, q),
     venues: (ids) => planner.venuesByIds(ids),
     suggestOrder: (sessionId) => planner.suggestSessionOrder(sessionId),
+    tripsHome: (sessionId) => planner.getSessionTripsHome(sessionId),
     confirmPlan: (sessionId, body) => planner.confirmSessionPlan(sessionId, body),
     replan: (sessionId, accept) => planner.replanSession(sessionId, accept),
     complete: (sessionId) => planner.completeSession(sessionId),
@@ -1342,6 +1343,7 @@ function resetSessionState() {
   repairs.clear()
   dismissedBanners.clear()
   shownBasis.clear()
+  tripsHomeAsked.clear()
   unlistedVenues.clear()
   epoch += 1
   closeChannel()
@@ -3748,9 +3750,45 @@ async function describePlaces(session) {
 // How to call: await getItinerary('3b1f...')
 // `session` may be a session of the server the caller has just read (a live update): it is laid out as it is, without reading it again.
 export async function getItinerary(id, { session } = {}) {
-  if (onServer()) return itineraryView(await planSession(id, session ?? null))
+  if (onServer()) {
+    const held = await planSession(id, session ?? null)
+    return withServerTrips(held, itineraryView(held))
+  }
   await wait(DELAY.read)
   return itineraryView(sessionById(id))
+}
+
+// The minutes home of a session on the server already asked for, by what they depend on (the plan's last stop and where each person ends the
+// day), so the unrelated live updates of a plan do not ask again. A failed question is not kept.
+const tripsHomeAsked = new Map()
+
+// The itinerary of a session on the server with its trips home from the server, the figures the finished outing's travel ledger keeps, not an
+// estimate of the screen's own: the two would not agree. A confirmed plan asks the server (`GET .../trips-home`); a finished outing shows none
+// (the person's own row of the ledger, "Your travel", is the record); a trip the server cannot give is left out rather than guessed.
+// How to call: const view = await withServerTrips(session, itineraryView(session))
+async function withServerTrips(session, view) {
+  if (!view || !session.remote) return view
+  if (session.status !== 'confirmed' || !view.stops.length) return { ...view, trips: [] }
+  const last = view.stops[view.stops.length - 1]
+  const people = activeIds(session).map((pid) => ({ id: pid, name: nameOf(pid), place: endPlaceOf(session, pid) })).filter((p) => p.place)
+  const key = JSON.stringify([session.id, last.venue?.id, last.end, people.map((p) => [p.id, p.place.id])])
+  if (!tripsHomeAsked.has(key)) {
+    if (tripsHomeAsked.size > 50) tripsHomeAsked.clear()
+    const asked = remote.tripsHome(session.id).catch((err) => {
+      tripsHomeAsked.delete(key)
+      throw err
+    })
+    tripsHomeAsked.set(key, asked)
+  }
+  try {
+    const minutes = await tripsHomeAsked.get(key)
+    const trips = people
+      .filter((p) => Number.isFinite(minutes[String(p.id).toLowerCase()]))
+      .map((p) => ({ id: p.id, name: p.name, place: p.place.name, minutes: minutes[String(p.id).toLowerCase()], long: minutes[String(p.id).toLowerCase()] > P.LONG_TRIP_MINUTES }))
+    return { ...view, trips }
+  } catch {
+    return { ...view, trips: [] }
+  }
 }
 
 // How to call: itineraryView(session) -> { stops, weather, legs, end, trips, aiNote, area, starts } or null for a session with no plan
@@ -4049,25 +4087,32 @@ export async function suggestOrder(id) {
   }
 }
 
-// The server's suggested order, in the shape the Confirm dialog reads (the local one's, plus the `basis` the confirm sends back). The server
-// sends slot ids, places and starts; the category and the length of each stop are the slot's and the name is the place's, from the plan
-// the dialog was drawn from. Resolves null when the server has no other order to offer, or an answer that cannot be drawn.
-// How to call: const suggestion = await suggestOrderOnServer('3b1f...')
+// The server's answer for the Confirm dialog, in the shape the dialog reads: `voted` (the stops of the voted order with the starts the server
+// will store, with the places' names) and, when the server has another order to offer, the suggestion (the local one's shape, plus the `basis`
+// the confirm sends back). Both are the server's own rows laid out as a confirm will store them, so what the host reads is what is saved. The
+// server sends slot ids, places, starts and lengths; the name is the place's. Rejects when the answer has no voted order the dialog can draw,
+// which the dialog shows as a failure with a retry, never as rows it cannot vouch for.
+// How to call: const answer = await suggestOrderOnServer('3b1f...') // { voted: [{ slotId, category, venueId, name, start, duration }], basis, order, stops, reason, source }
 async function suggestOrderOnServer(id) {
   const asked = epoch
-  const answer = await remote.suggestOrder(id, { onBasis: (basis) => shownBasis.set(id, basis) })
+  let voted = null
+  const answer = await remote.suggestOrder(id, { onBasis: (basis) => shownBasis.set(id, basis), onVoted: (rows) => { voted = rows } })
   // Asked for by the account before: not used, not shown.
-  if (!answer || asked !== epoch) return null
-  const plan = newestPlanRead.get(id)?.plan ?? (await planFromServer(id))
-  await ensureVenues(answer.stops.map((s) => s.venueId))
   if (asked !== epoch) return null
+  if (!voted) throw new Error('The order of the stops could not be shown. Try again.')
+  await ensureVenues([...voted.map((s) => s.venueId), ...(answer?.stops || []).map((s) => s.venueId)])
+  if (asked !== epoch) return null
+  const named = voted.map((s) => ({ ...s, name: serverVenues.get(s.venueId)?.name }))
+  if (named.some((s) => !s.name)) throw new Error('The order of the stops could not be shown. Try again.')
+  if (!answer) return { voted: named }
+  const byslot = new Map(named.map((s) => [s.slotId, s]))
   const stops = answer.stops.map((s) => {
-    const slot = plan.slots.find((x) => x.id === s.slotId)
+    const mine = byslot.get(s.slotId)
     const venue = serverVenues.get(s.venueId)
-    return slot && venue ? { slotId: s.slotId, category: slot.category, venueId: s.venueId, name: venue.name, start: s.start, duration: slot.duration } : null
+    return mine && venue ? { slotId: s.slotId, category: mine.category, venueId: s.venueId, name: venue.name, start: s.start, duration: mine.duration } : null
   })
-  if (stops.some((s) => !s)) return null
-  return { order: answer.order, basis: answer.basis, stops, reason: P.cleanReason(answer.reason), source: answer.source === 'ai' ? 'ai' : 'rules' }
+  if (stops.some((s) => !s)) return { voted: named }
+  return { voted: named, order: answer.order, basis: answer.basis, stops, reason: P.cleanReason(answer.reason), source: answer.source === 'ai' ? 'ai' : 'rules' }
 }
 
 // Rearrange the itinerary: move the stop at `from` to `to`. The plan keeps its start time and every stop is
