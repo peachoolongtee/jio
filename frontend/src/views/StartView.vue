@@ -130,6 +130,12 @@ async function run(fn) {
     return true
   } catch (e) {
     error.value = e.message
+    // The change went through as far as releasing the meeting area (only the naming of the new area failed): the session is locating again, so
+    // this page is no longer the host's. They go to Locate, where the store shows what went wrong and "We already have a place" finishes it.
+    if (e?.released) {
+      leaving.value = true
+      router.replace(sessionPath.value)
+    }
     return false
   } finally {
     busy.value = false

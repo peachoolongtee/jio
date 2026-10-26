@@ -157,11 +157,6 @@ onMounted(() => {
 watch(() => props.id, load)
 
 const session = computed(() => events.byId[props.id])
-
-// The host changed the meeting place (the session is locating again): the group goes back to Locate, where the notice says who and why.
-watch(() => session.value?.status, (now, was) => {
-  if (now === 'locating' && ['voting', 'confirmed'].includes(was)) router.replace(`/sessions/${props.id}`)
-})
 const itinerary = computed(() => events.itineraries[props.id])
 const status = computed(() => session.value?.status)
 const confirmed = computed(() => status.value === 'confirmed')

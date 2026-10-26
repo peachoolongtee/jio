@@ -12,6 +12,7 @@ import TabBar from '@/components/ui/TabBar.vue'
 import DietaryFirstAsk from '@/components/event/DietaryFirstAsk.vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { TOUR_BUILT } from '@/lib/tourFlag.js'
+import { useFollowRelease } from '@/lib/followRelease.js'
 
 // The demo tools exist only in development builds.
 const DemoPanel = import.meta.env.DEV ? defineAsyncComponent(() => import('@/components/dev/DemoPanel.vue')) : null
@@ -22,6 +23,8 @@ const TourStrip = TOUR_BUILT ? defineAsyncComponent(() => import('@/tour/TourStr
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+// Every session screen follows the host's change of the meeting place (a guest is taken to Locate, or back to Vote).
+useFollowRelease()
 
 // A session that ends while a page is open (the login expired, the planner refused the token, or another tab signed
 // out) sends the person to the login screen at once, remembering the page, the way the guard would on their next click.

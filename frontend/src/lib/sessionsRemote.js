@@ -916,9 +916,10 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   // The host lets the meeting place go (from voting or confirmed): back to locating with the spots worked out again ('fairest'), or straight on
   // to voting at `areaId` ('known'). The server clears the votes, the places to vote on and the plan, and tells the group in a banner.
   // How to call: await changeMeetingPlace('3b1f...', { meetBy: 'known', areaId: 'bugis' })
-  const changeMeetingPlace = (sessionId, { meetBy, areaId }) =>
-    ask(() => backend.changeMeetingPlace(sessionId, { meetBy, areaId }), {
+  const changeMeetingPlace = (sessionId, { meetBy, areaId, planVersion }) =>
+    ask(() => backend.changeMeetingPlace(sessionId, { meetBy, areaId, planVersion }), {
       host_only: 'Only the host can change the meeting place.',
+      stale_plan: 'The session changed since you looked at it. Look at it again, then change the meeting place.',
       wrong_status: 'The meeting place can only be changed while the group is voting on places or has a plan.',
     })
   // The person opts out of the session (keeping their place in it), and comes back.

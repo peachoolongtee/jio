@@ -71,7 +71,7 @@ describe('"fairest": back to locating, the spots worked out again', () => {
   it('says the places were chosen again when nobody had voted', async () => {
     const { api, id } = await voting({ votes: false })
     await api.changeMeetingPlace(id, { meetBy: 'fairest' })
-    expect((await api.getSession(id)).banner.text).toBe('Ian changed the meeting place, so the places to vote on were chosen again.')
+    expect((await api.getSession(id)).banner.text).toBe('Ian changed the meeting place, so the places to vote on were cleared.')
   })
 
   it('takes everything back when the planner cannot answer', async () => {
@@ -130,6 +130,26 @@ describe('"known": the area is named and the group goes straight to voting there
     expect(stuck.banner.text).toBe('Ian changed the meeting place, so the votes were cleared.')
     stubPlanner(planner)
     expect(await api.setKnownPlace(id, 'bishan')).toMatchObject({ status: 'voting' })
+  })
+})
+
+describe('a repeat', () => {
+  it('"known" for the area the session is already voting at, with no vote cast, is a no-op', async () => {
+    const { api, id } = await voting({ votes: false })
+    await api.changeMeetingPlace(id, { meetBy: 'known', areaId: 'bishan' })
+    const before = JSON.stringify(await api.getSession(id))
+    const calls = planner.meetingArea.mock.calls.length
+    expect(await api.changeMeetingPlace(id, { meetBy: 'known', areaId: 'bishan' })).toMatchObject({ status: 'voting', meetBy: 'known' })
+    expect(JSON.stringify(await api.getSession(id))).toBe(before)
+    expect(planner.meetingArea.mock.calls.length).toBe(calls)
+  })
+
+  it('a second failure of the known place after the release marks the error as released', async () => {
+    const { api, id } = await voting()
+    planner.meetingArea.mockImplementation(async () => {
+      throw new Error('The planner is down.')
+    })
+    await expect(api.changeMeetingPlace(id, { meetBy: 'known', areaId: 'bishan' })).rejects.toMatchObject({ released: true })
   })
 })
 

@@ -37,7 +37,8 @@ export const meetByOf = (session) => (session?.meetBy === 'known' ? 'known' : 'f
 // whether anyone had voted, `placeName` the new area when the host named it.
 // How to call: releasedNotice({ hostName: 'Ian', status: 'confirmed', hadVotes: true }) -> 'Ian changed the meeting place, so the votes and the plan were cleared.'
 export function releasedNotice({ hostName, status, hadVotes, placeName = null }) {
-  const gone = status === 'confirmed' ? 'the votes and the plan were cleared' : hadVotes ? 'the votes were cleared' : 'the places to vote on were chosen again'
+  // With no votes there is nothing to say about them: the places to vote on were cleared, and with a named area they are chosen again there.
+  const gone = status === 'confirmed' ? 'the votes and the plan were cleared' : hadVotes ? 'the votes were cleared' : placeName ? 'the places to vote on were chosen again' : 'the places to vote on were cleared'
   return `${hostName} changed the meeting place${placeName ? ` to ${placeName}` : ''}, so ${gone}.`
 }
 
@@ -46,13 +47,15 @@ export const CHANGE_PLAN = {
   button: 'Change plan',
   title: 'Change plan',
   text: 'What do you want to change?',
-  again: { title: 'Choose places again', text: 'Back to voting at the same meeting area. The stops go; the votes stay.' },
+  // The re-plan works the meeting area out again: a chosen one stays, the planner's own pick may move, and then the votes go (the notice says so).
+  again: { title: 'Choose places again', text: 'Back to voting. The stops go; the votes stay unless the meeting area moves.' },
   place: { title: 'Change meeting place', text: 'Pick the meeting area again. Everyone keeps where they start.' },
   confirmTitle: 'Change the meeting place?',
   // Shown before anything is lost. The plan is only named when there is one.
   lost: (confirmed) => [
     'everyone\'s votes',
     'the places to vote on',
+    'the "Works for me" marks and the suggested spots',
     ...(confirmed ? ['the itinerary\'s stops and any proposed places'] : []),
   ],
   keeps: 'Everyone\'s starting places are kept.',

@@ -314,9 +314,12 @@ export async function putSessionKnownPlace(sessionId, areaId) {
 // has the spots worked out again; `meetBy: 'known'` with an `areaId` goes on to voting at that area. Resolves { planVersion, status, meetBy }.
 // Refusals: host_only, wrong_status, unknown_area, session_not_found; if naming the area fails after the release the Error carries the failure's
 // code and the session is on Locate (read it again).
-// How to call: await changeSessionMeetingPlace('3b1f...', { meetBy: 'known', areaId: 'bugis' })
-export async function changeSessionMeetingPlace(sessionId, { meetBy, areaId }) {
-  const { data } = await api.post(sessionPath(sessionId, '/change-meeting-place'), meetBy === 'known' ? { meetBy, areaId } : { meetBy }, { timeout: SESSION_TIMEOUT_MS })
+// `planVersion` is the version of the session the person saw: the server refuses (409 stale_plan, nothing written) when it has moved on, so a retry
+// never wipes votes cast since.
+// How to call: await changeSessionMeetingPlace('3b1f...', { meetBy: 'known', areaId: 'bugis', planVersion: 12 })
+export async function changeSessionMeetingPlace(sessionId, { meetBy, areaId, planVersion }) {
+  const body = { meetBy, ...(meetBy === 'known' ? { areaId } : {}), ...(Number.isInteger(planVersion) ? { planVersion } : {}) }
+  const { data } = await api.post(sessionPath(sessionId, '/change-meeting-place'), body, { timeout: SESSION_TIMEOUT_MS })
   return data
 }
 

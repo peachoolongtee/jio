@@ -81,7 +81,8 @@ async function go() {
       {{ CHANGE_PLAN.button }}
     </AppButton>
 
-    <ModalDialog v-model:open="dialogOpen" :title="step === 'choose' ? CHANGE_PLAN.title : CHANGE_PLAN.confirmTitle" :text="step === 'choose' ? CHANGE_PLAN.text : ''">
+    <!-- Escape and the backdrop are ignored while "Choose places again" runs: the plan would still open, the page would jump, and a failure would land on a closed dialog. -->
+    <ModalDialog :open="dialogOpen" :title="step === 'choose' ? CHANGE_PLAN.title : CHANGE_PLAN.confirmTitle" :text="step === 'choose' ? CHANGE_PLAN.text : ''" @update:open="(on) => { if (on || !busy) dialogOpen = on }">
       <template #content>
         <div v-if="step === 'choose'" class="change-plan__choices">
           <button v-if="confirmed" type="button" class="change-plan__choice" :disabled="busy" data-testid="change-again" @click="again">
@@ -103,7 +104,7 @@ async function go() {
         <p v-if="error" class="body-sm text-error" role="alert" data-testid="change-error">{{ error }}</p>
       </template>
       <template v-if="step === 'choose'">
-        <AppButton block variant="secondary" @click="dialogOpen = false">Cancel</AppButton>
+        <AppButton block variant="secondary" :disabled="busy" @click="dialogOpen = false">Cancel</AppButton>
       </template>
       <template v-else>
         <AppButton block variant="secondary" data-testid="change-keep" @click="dialogOpen = false">{{ CHANGE_PLAN.keep }}</AppButton>

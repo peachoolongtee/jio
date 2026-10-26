@@ -2871,11 +2871,16 @@ export async function changeMeetingPlace(id, { meetBy, areaId } = {}) {
   if (!MEET_BY.includes(meetBy)) throw new Error('Choose how to pick the meeting point.')
   if (meetBy === 'known' && !areaById(areaId)) throw new Error(SHARING_WORDS.noArea)
   if (onServer()) {
+    // The version this person last read goes with the request: if the session moved on since (a retry after a timeout, say), the server refuses
+    // and nothing is wiped.
+    const planVersion = newestRead.get(id)?.version
     try {
-      await remote.changeMeetingPlace(id, { meetBy, areaId })
+      await remote.changeMeetingPlace(id, { meetBy, areaId, planVersion })
     } catch (err) {
-      // The release may have been written before the known place failed: show the session as it is.
-      await afterServerWrite(id, 'session').catch(() => {})
+      // The release may have been written before the known place failed: show the session as it is, and say so on the error (`released`), so
+      // the screen the host lands on (Locate) can show what went wrong there.
+      const now = await afterServerWrite(id, 'session').catch(() => null)
+      if (meetBy === 'known' && now?.status === 'locating') err.released = true
       throw err
     }
     return afterServerWrite(id, 'session')
@@ -2887,6 +2892,8 @@ export async function changeMeetingPlace(id, { meetBy, areaId } = {}) {
   assertHost(session, 'change the meeting place')
   if (!['voting', 'confirmed'].includes(session.status)) throw new Error('The meeting place can only be changed while the group is voting on places or has a plan.')
   const facts = { hostName: nameOf(me()), status: session.status, hadVotes: hasVotes(session) }
+  // A repeat naming the area the session is already voting at, chosen by the host's own "known", with no vote cast: nothing to clear.
+  if (meetBy === 'known' && session.status === 'voting' && session.meetBy === 'known' && session.meeting?.method === 'chosen' && session.meeting.areaId === areaId && !facts.hadVotes) return summary(session)
   await orUndo(session, async () => {
     Object.assign(session, { status: 'locating', meetBy, meeting: null, spots: emptySpots(), options: {}, votes: {}, plan: null, replan: null, deletedSlots: [], banner: { text: releasedNotice(facts), at: Date.now(), released: true } })
     clearProposals(session)
@@ -2896,7 +2903,13 @@ export async function changeMeetingPlace(id, { meetBy, areaId } = {}) {
     return touch(session, 'session')
   })
   if (meetBy === 'fairest') return summary(session)
-  return setKnownPlace(id, areaId, { notice: { text: releasedNotice({ ...facts, placeName: areaById(areaId).name }), released: true, votesCleared: true } })
+  try {
+    return await setKnownPlace(id, areaId, { notice: { text: releasedNotice({ ...facts, placeName: areaById(areaId).name }), released: true, votesCleared: true } })
+  } catch (err) {
+    // The release stands (the session is locating with the host's choice): say so on the error, as for a session on the server.
+    err.released = true
+    throw err
+  }
 }
 
 // A person steps out of a session. On the server that is the person themselves opting out (they keep their place and can

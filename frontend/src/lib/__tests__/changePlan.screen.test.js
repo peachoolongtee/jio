@@ -99,6 +99,7 @@ describe('the choices and the question', () => {
     const text = view.text('[data-testid=change-lost]')
     expect(text).toContain('everyone\'s votes')
     expect(text).toContain('the places to vote on')
+    expect(text).toContain('the "Works for me" marks and the suggested spots')
     expect(text).not.toContain('stops')
     expect(text).toContain('Everyone\'s starting places are kept.')
     // The safer choice comes first, and keeping the place changes nothing.
@@ -115,6 +116,7 @@ describe('the choices and the question', () => {
     const { view, router } = await draw('ChangePlan', `/sessions/${id}/itinerary`, { session: { id, hostId: sam.id, status: 'confirmed' } })
     await view.click('[data-testid=change-plan]')
     expect(view.text('[data-testid=change-again]')).toContain('Choose places again')
+    expect(view.text('[data-testid=change-again]')).toContain('The stops go; the votes stay unless the meeting area moves.')
     await view.click('[data-testid=change-place]')
     await until(() => view.has('[data-testid=change-lost]'))
     expect(view.text('[data-testid=change-lost]')).toContain('the itinerary\'s stops and any proposed places')
@@ -153,7 +155,7 @@ describe('the cards in change mode', () => {
     expect(row(w, id).status).toBe('voting')
     await view.click(press(view, 'Work out the spots again'))
     await until(() => router.currentRoute.value.path === `/sessions/${id}`)
-    expect(w.server.calls.filter((c) => c.route === 'changeMeetingPlace')).toEqual([expect.objectContaining({ body: { meetBy: 'fairest' } })])
+    expect(w.server.calls.filter((c) => c.route === 'changeMeetingPlace')).toEqual([expect.objectContaining({ body: { meetBy: 'fairest', planVersion: expect.any(Number) } })])
     expect(row(w, id)).toMatchObject({ status: 'locating', meet_by: 'fairest', meeting_area_id: null })
   })
 
@@ -169,7 +171,7 @@ describe('the cards in change mode', () => {
     await view.click(view.all('button').find((b) => b.attrs.role === 'radio' && view.text(b) === 'Orchard'))
     await view.click(press(view, 'Meet at Orchard'))
     await until(() => router.currentRoute.value.path === `/sessions/${id}/plan`)
-    expect(w.server.calls.filter((c) => c.route === 'changeMeetingPlace')).toEqual([expect.objectContaining({ body: { meetBy: 'known', areaId: 'orchard' } })])
+    expect(w.server.calls.filter((c) => c.route === 'changeMeetingPlace')).toEqual([expect.objectContaining({ body: { meetBy: 'known', areaId: 'orchard', planVersion: expect.any(Number) } })])
     expect(row(w, id)).toMatchObject({ status: 'voting', meeting_area_id: 'orchard', meet_by: 'known' })
   })
 
@@ -199,15 +201,7 @@ describe('the cards in change mode', () => {
   })
 })
 
-describe('what a guest sees, live', () => {
-  it('on the Vote screen, the session goes back to Locate when the host changes the place', async () => {
-    const { id, sam } = await voted()
-    const { view, router } = await draw('PlannerView', `/sessions/${id}/plan`, { id })
-    await until(() => view.has('[data-testid=confirm-waiting]'))
-    await sam.api.changeMeetingPlace(id, { meetBy: 'fairest' })
-    await until(() => router.currentRoute.value.path === `/sessions/${id}`)
-  })
-
+describe('what a guest and the host see on Locate', () => {
   it('on Locate, the notice names the host and nobody else, and can be dismissed', async () => {
     const { id, sam } = await voted()
     await sam.api.changeMeetingPlace(id, { meetBy: 'fairest' })
@@ -216,5 +210,44 @@ describe('what a guest sees, live', () => {
     expect(view.text()).toContain('Sam changed the meeting place, so the votes were cleared.')
     expect(view.text()).not.toContain('Kim changed')
     expect(view.errors).toEqual([])
+  })
+
+  it('the host\'s error survives the change: when naming the area fails after the release, Locate shows it with a way on', async () => {
+    const { id, w } = await voted({ hostLast: true })
+    const { view, events, router } = await draw('GroupDetailView', `/sessions/${id}`, { id })
+    await until(() => view.has('[data-testid=planner-view]') || view.text().includes('Catch') || view.text().length > 0)
+    w.server.after.knownPlace = () => {
+      throw new Error('The stand-in server went away.')
+    }
+    await expect(events.changeMeetingPlace(id, { meetBy: 'known', areaId: 'orchard' })).rejects.toMatchObject({ released: true })
+    await until(() => view.has('[data-testid=place-failure]'))
+    expect(view.text('[data-testid=place-failure]')).toContain('The meeting place was released, but the new area could not be set')
+    expect(view.text()).toContain('We already have a place')
+    expect(router.currentRoute.value.path).toBe(`/sessions/${id}`)
+    // The failure's own Dismiss (the release notice has one too): the button inside its banner.
+    const inside = (node) => (node.tag === 'button' ? [node] : (node.children || []).flatMap(inside))
+    await view.click(inside(view.one('[data-testid=place-failure]'))[0])
+    await until(() => !view.has('[data-testid=place-failure]'))
+  })
+})
+
+describe('while "Choose places again" runs', () => {
+  it('Escape and the backdrop are ignored, the buttons are off, and the dialog closes by itself when it is done', async () => {
+    const { id, sam, w } = await confirmed({ hostLast: true })
+    let release
+    const held = new Promise((resolve) => { release = resolve })
+    w.server.after.replan = () => held
+    const { view, router } = await draw('ChangePlan', `/sessions/${id}/itinerary`, { session: { id, hostId: sam.id, status: 'confirmed' } })
+    await view.click('[data-testid=change-plan]')
+    await view.click('[data-testid=change-again]')
+    await until(() => w.server.calls.some((c) => c.route === 'replan'))
+    // A click on the backdrop does not close it while the plan is being opened (Escape runs the same close, which ModalDialog reports as update:open).
+    await view.click(view.one('.modal__scrim'))
+    expect(view.has('[role=dialog]')).toBe(true)
+    expect(view.one('[data-testid=change-again]').disabled).toBeTruthy()
+    release()
+    await until(() => router.currentRoute.value.path === `/sessions/${id}/plan`)
+    await until(() => !view.has('[role=dialog]'))
+    expect(row(w, id).status).toBe('voting')
   })
 })

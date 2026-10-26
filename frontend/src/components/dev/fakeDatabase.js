@@ -982,7 +982,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
         dropRows('spot_approvals', () => true)
         dropRows('spot_suggestions', () => true)
         dropRows('session_spots', () => true)
-        for (const m of tables.session_members.filter((row) => row.session_id === sid && row.travel_minutes != null)) changeMember(m, { travel_minutes: null })
+        // (The members' own minutes are left as they are: a write would move their updated_at past the new spots' computed_at, and a page reads that as stale.)
         changed = true
       } else if (op.op === 'swap_option') {
         if (s.status !== 'voting') throw ruleBroken('slots_status', 'An option is swapped only while the session is voting.')

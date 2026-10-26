@@ -142,11 +142,6 @@ onBeforeUnmount(() => stopWatching())
 watch(() => props.id, load)
 
 const session = computed(() => events.byId[props.id])
-
-// The host changed the meeting place (the session is locating again): the group goes back to Locate, where the notice says who and why.
-watch(() => session.value?.status, (now, was) => {
-  if (now === 'locating' && ['voting', 'confirmed'].includes(was)) router.replace(`/sessions/${props.id}`)
-})
 const plan = computed(() => planner.plans[props.id])
 // The grey placeholder rows: on the page's first load, and again while a change to the group's dietary needs picks the places
 // afresh (`refiltering`, under Dietary needs).

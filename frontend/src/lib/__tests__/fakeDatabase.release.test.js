@@ -64,6 +64,7 @@ describe('the release', () => {
   it('lets the meeting area go in one write, clears what belonged to it, keeps the starts, stores the choice and brings the notice', () => {
     const { db, sid, row, apply } = voting()
     const before = row().plan_version
+    const minutesBefore = db.tables.session_members.filter((m) => m.session_id === sid).map((m) => m.travel_minutes)
     const answer = apply(RELEASE({ session: { banner: { text: 'Sam changed the meeting place, so the votes were cleared.', released: true } } }))
     expect(answer.error).toBeNull()
     expect(answer.data).toBe(before + 1)
@@ -72,7 +73,17 @@ describe('the release', () => {
     for (const table of ['slots', 'slot_options', 'votes', 'stops', 'session_spots']) expect(db.tables[table].filter((r) => r.session_id === sid || !r.session_id)).toEqual([])
     const members = db.tables.session_members.filter((m) => m.session_id === sid)
     expect(members.map((m) => m.start_area_id).sort()).toEqual(['bishan', 'tampines'])
-    expect(members.every((m) => m.travel_minutes === null)).toBe(true)
+    // Their rows are not written (a write would move updated_at past the new spots, which a page reads as stale).
+    expect(members.map((m) => m.travel_minutes)).toEqual(minutesBefore)
+  })
+
+  it('leaves the spots fresh: no member row is newer than the spots written in the same call', () => {
+    const { db, sid, apply } = voting()
+    const spots = [{ area_id: 'tampines', rank: 1, worst_minutes: 20, mean_minutes: 15 }]
+    expect(apply({ ops: [{ op: 'release_meeting', meet_by: 'fairest' }], session: { status: 'locating' }, spots, recomputed: true }).error).toBeNull()
+    const newest = (rows, field) => Math.max(0, ...rows.map((x) => Date.parse(x[field]) || 0))
+    const members = db.tables.session_members.filter((m) => m.session_id === sid && m.start_area_id)
+    expect(newest(members, 'updated_at')).toBeLessThanOrEqual(newest(db.tables.session_spots.filter((x) => x.session_id === sid), 'computed_at'))
   })
 
   it('clears the old notice when it brings none, and a late release answers null', () => {

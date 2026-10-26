@@ -453,17 +453,22 @@ export function fakeSessionsServer(database) {
       const { session } = load(user, id)
       if (session.host_id !== user) refuse(403, 'host_only', 'Only the host can change the meeting place.')
       if (!['voting', 'confirmed'].includes(session.status)) refuse(409, 'wrong_status', 'The meeting place can only be changed while the group is voting or has a plan.')
-      if (!['fairest', 'known'].includes(body.meetBy) || (body.meetBy === 'known') !== (body.areaId !== undefined) || Object.keys(body).some((k) => !['meetBy', 'areaId'].includes(k))) {
+      if (!['fairest', 'known'].includes(body.meetBy) || (body.meetBy === 'known') !== (body.areaId !== undefined) || Object.keys(body).some((k) => !['meetBy', 'areaId', 'planVersion'].includes(k))) {
         refuse(400, 'invalid_input', 'Send "fairest", or "known" with an area.')
       }
       if (body.meetBy === 'known' && !AREAS.some((a) => a.id === body.areaId)) refuse(422, 'unknown_area', 'That area is not one Jio knows.')
+      // As the real server: a stale planVersion is refused, and a repeat of 'known' for the area the session is voting at, with no vote cast, is a no-op.
+      if (body.planVersion !== undefined && body.planVersion !== session.plan_version) refuse(409, 'stale_plan', 'The session changed since you looked at it. Look at it again.')
+      const noVotes = !rows('votes').some((v) => slotsOf(id).some((s) => s.id === v.slot_id))
+      if (body.meetBy === 'known' && session.status === 'voting' && session.meet_by === 'known' && session.meeting_method === 'chosen' && session.meeting_area_id === body.areaId && noVotes) {
+        return { status: 200, body: { planVersion: session.plan_version, status: 'voting', meetBy: 'known' } }
+      }
       const loaded = { status: session.status, version: session.plan_version }
       const hostName = database.getProfiles([user])[user]?.display_name || 'Someone'
       const facts = { hostName, status: session.status, hadVotes: rows('votes').some((v) => slotsOf(id).some((s) => s.id === v.slot_id)) }
       await after.changeMeetingPlace?.(id)
       const version = await apply(id, loaded, async () => {
         for (const table of ['slots', 'stops', 'spot_approvals', 'spot_suggestions', 'session_spots']) await write({ kind: 'delete', table, filters: [eq('session_id', id)] })
-        await write({ kind: 'update', table: 'session_members', values: { travel_minutes: null }, filters: [eq('session_id', id)] })
         for (const proposal of rows('stop_proposals').filter((x) => x.session_id === id && x.status === 'pending')) {
           await write({ kind: 'update', table: 'stop_proposals', values: { status: 'dismissed', resolved_at: new Date().toISOString() }, filters: [eq('id', proposal.id)] })
         }
