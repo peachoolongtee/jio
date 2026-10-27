@@ -120,3 +120,15 @@ export async function setTime(page, label, time) {
   await field.press('Enter')
   await expect(field).toHaveValue(time)
 }
+
+// Make the stub backend answer as one of its scenarios for the rest of this test: 'rain' (heavy showers everywhere) or
+// 'routing-fail' (every route fails, so travel times are estimates). It adds the header x-jio-scenario to the page's
+// calls to the backend only. Call it before the page makes the request, usually before signInDemo.
+// How to call: await useScenario(page, 'rain')
+export async function useScenario(page, scenario) {
+  await page.route('**/api/**', (route) => {
+    const url = new URL(route.request().url())
+    if (!LOCAL_HOSTS.has(url.hostname)) return route.fallback()
+    return route.continue({ headers: { ...route.request().headers(), 'x-jio-scenario': scenario } })
+  })
+}

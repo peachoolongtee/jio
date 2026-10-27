@@ -51,6 +51,7 @@ What `fixtures.js` gives you:
 | `openDemoTools(page)`, `resetDemoData(page)` | The "Demo tools" sheet that acts for friends (simulate their locations and votes, and so on), and its "Reset demo data". The sheet only exists in development builds, which is what the tests run on. |
 | `setTime(page, 'Start time', '14:00')` | Types a time into a time field. |
 | `dayName('2026-11-07')`, `daysAhead(3)` | The accessible name of a day in the date picker; a day counted from the fixed "today". |
+| `useScenario(page, 'rain')` | Picks a stub backend scenario for the test (see below). |
 | `FIXED_NOW` | The fixed time, as a `Date`. |
 
 ### The clock
@@ -62,17 +63,15 @@ test.use({ fixedNow: new Date('2026-12-24T14:00:00Z') })   // 22:00 in Singapore
 test.use({ fixedNow: null })                                // the real clock; avoid
 ```
 
-The clock is the browser's. The stub backend's forecast is moved in time on each call to cover the next day, so it does not depend on it.
-
 ### Stub scenarios
 
-The stub backend answers the planner from fixtures. A request header picks the scenario: `rain` (heavy showers everywhere) or `routing-fail` (travel times become estimates). To use one, set it for the page:
+The stub backend answers the planner from fixtures. A request header picks the scenario: `rain` (heavy showers everywhere) or `routing-fail` (travel times become estimates). `useScenario` adds that header to the page's calls to the backend:
 
 ```js
-await page.setExtraHTTPHeaders({ 'x-jio-scenario': 'rain' })
+await useScenario(page, 'rain')   // before the page makes the call, usually before signInDemo
 ```
 
-This is sent to the Vite server and the backend alike, which is fine. See "Testing from Playwright" in `backend/docs/planner-api.md`.
+The demo account's Home and data layer make no backend calls; the planner screens (meeting area, Vote, Roam, the weather on a stop) do. One thing to know: the stub backend runs on the real clock, and its forecast covers the next 24 hours from now, so a stop on the fixed day in the browser (4 November 2026 and later) has no weather. See "Testing from Playwright" in `backend/docs/planner-api.md`.
 
 ## Tests never use real services
 
