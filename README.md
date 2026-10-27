@@ -38,7 +38,7 @@ pnpm --filter jio-frontend test    # frontend unit tests, plus a whole session r
 pnpm build                         # frontend production build
 ```
 
-End-to-end tests (Playwright) arrive with the test suite.
+End-to-end tests (Playwright) start their own stub backend and frontend, and never touch a real service: see `frontend/tests/e2e/README.md` (`pnpm test:e2e`).
 
 ## Repository layout
 
