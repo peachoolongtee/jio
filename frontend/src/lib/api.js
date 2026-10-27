@@ -25,6 +25,7 @@ import { createPeopleSource, isUuid, personFromRow } from './peopleSource.js'
 import { isSearchable, rankPeople, searchTerm } from './peopleSearch.js'
 import { WORDS as SHARING_WORDS, createSessionsRemote } from './sessionsRemote.js'
 import { releasedNotice } from './startChoice.js'
+import { ClashError, findClash } from './clash.js'
 import { tallyOptions } from './planVotes.js'
 import { isLegacyRealSave, remapLegacySave } from './legacySave.js'
 import { cleanDietary } from './signupRules.js'
@@ -2396,7 +2397,9 @@ export async function getSession(id, { votesOnly = false } = {}) {
 export async function createSession({ title, date, start, end, hostId = me(), keepOpen = false }) {
   if (onServer()) {
     requireMe(undefined, 'Log in to create a session.')
-    const session = summary(fromServer(await remote.create(checkSessionFields({ title, date, start, end }))))
+    const fields = checkSessionFields({ title, date, start, end })
+    await assertFree(fields)
+    const session = summary(fromServer(await remote.create(fields)))
     broadcast({ type: 'session', sessionId: session.id })
     return session
   }
@@ -2406,6 +2409,7 @@ export async function createSession({ title, date, start, end, hostId = me(), ke
   // The same checks as the server's path and the form, so a past day or a start that has passed is refused here too. The demo's own
   // sessions (keepOpen) are built at fixed times, some already under way, so they skip them.
   const fields = keepOpen ? { title: String(title ?? '').trim(), date, start, end } : checkSessionFields({ title, date, start, end })
+  if (!keepOpen) await assertFree(fields)
   const session = {
     id: `s${db.seq++}`,
     ...fields,
@@ -2430,6 +2434,17 @@ export async function createSession({ title, date, start, end, hostId = me(), ke
   }
   db.sessions.push(session)
   return touch(session, 'session')
+}
+
+// Refuses a day and times that overlap another meetup the signed-in person is in, by throwing a ClashError that names it (the
+// screens show it in a popup). A meetup being edited (`excludeId`) is not in its own way. A real account's meetups are the
+// server's list; the demo and local accounts' are in the browser. The database refuses the same thing for a real account
+// (db/migrations/20261028000000_jio_no_clashing_meetups.sql), so this is the early answer and not the only one.
+// How to call: await assertFree({ date: '2026-10-28', start: '19:00', end: '21:00' }, { excludeId: 's1' })
+async function assertFree({ date, start, end }, { excludeId = null } = {}) {
+  const sessions = onServer() ? await listSessions() : db.sessions
+  const clash = findClash(sessions, { me: me(), date, start, end, excludeId })
+  if (clash) throw new ClashError(clash)
 }
 
 // The checks the create form makes before it lets a host carry on: a title of 1 to 60 characters, a real day from
@@ -2463,7 +2478,9 @@ function checkSessionFields({ title, date, start, end }, { current = null } = {}
 // How to call: await updateSession('s1', { title: 'Dinner', date: '2026-10-17', start: '18:00', end: '21:00' })
 export async function updateSession(id, fields) {
   if (onServer()) {
-    const session = summary(fromServer(await remote.update(id, checkSessionFields(fields, { current: newestRead.get(id)?.session }))))
+    const checked = checkSessionFields(fields, { current: newestRead.get(id)?.session })
+    await assertFree(checked, { excludeId: id })
+    const session = summary(fromServer(await remote.update(id, checked)))
     broadcast({ type: 'session', sessionId: id })
     return session
   }
@@ -2472,7 +2489,9 @@ export async function updateSession(id, fields) {
   const session = sessionById(id)
   if (session.hostId !== me()) throw new Error('Only the host can change a session.')
   if (session.status !== 'inviting') throw new Error('The date and times can only change before the session starts.')
-  Object.assign(session, checkSessionFields(fields, { current: session }))
+  const checked = checkSessionFields(fields, { current: session })
+  await assertFree(checked, { excludeId: id })
+  Object.assign(session, checked)
   return touch(session, 'session')
 }
 
