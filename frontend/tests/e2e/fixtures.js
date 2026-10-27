@@ -132,3 +132,32 @@ export async function useScenario(page, scenario) {
     return route.continue({ headers: { ...route.request().headers(), 'x-jio-scenario': scenario } })
   })
 }
+
+// Make a session the way a person does, from Home: Jio your friends, fill in the form, Next. Ends on the Invite screen of the
+// new session and answers its id. Shared by the files that need a session of their own to start from. Options: title, day (a
+// yyyy-MM-dd, default three days ahead), and optionally start and end times (otherwise the form's own defaults stay).
+// How to call: const id = await createSession(page, { title: 'Team lunch' })
+export async function createSession(page, { title, day = daysAhead(3), start, end } = {}) {
+  await page.getByRole('link', { name: 'Jio your friends' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Create session' })).toBeVisible()
+  await page.getByLabel('Title', { exact: true }).fill(title)
+  await page.getByRole('button', { name: dayName(day) }).click()
+  if (start) await setTime(page, 'Start time', start)
+  if (end) await setTime(page, 'End time', end)
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Invite friends' })).toBeVisible()
+  return page.url().match(/\/sessions\/([^/]+)\/invite$/)[1]
+}
+
+// From the Invite screen: invite some of the demo account's friends, go to the session, press Start session, choose "Find the
+// fairest spot" and ask everyone to share where they start. Ends on the Locate step. Friends are named as in the list ("Darius").
+// How to call: await inviteAndStart(page, ['Darius', 'Nicole'])
+export async function inviteAndStart(page, friends) {
+  for (const name of friends) await page.getByRole('button', { name: `Invite ${name}` }).click()
+  await page.getByRole('button', { name: `Send ${friends.length} ${friends.length === 1 ? 'invite' : 'invites'}` }).click()
+  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('link', { name: 'Start session' }).click()
+  await expect(page.getByRole('heading', { level: 2, name: 'How do you want to pick the meeting point?' })).toBeVisible()
+  await page.getByRole('button', { name: 'Ask everyone to share where they start' }).click()
+  await expect(page.getByRole('group', { name: 'Your locations' })).toBeVisible()
+}
