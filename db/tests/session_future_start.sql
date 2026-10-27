@@ -88,13 +88,16 @@ begin
   insert into public.sessions (id, host_id, title, date, start_time, end_time)
     values (old_session, host, 'Old', past_date::date, '12:00', '13:00');
   alter table public.sessions enable trigger sessions_guard_future_start;
+  -- The session the update steps move is made by the owner: a signed-in person may not choose a session's id.
+  insert into public.sessions (id, host_id, title, date, start_time, end_time)
+    values (good_session, host, 'Future', tomorrow::date, '12:00', '13:00');
   perform set_config('request.jwt.claims', json_build_object('sub', host, 'role', 'authenticated')::text, true);
   perform set_config('request.jwt.claim.sub', host::text, true);
   set local role authenticated;
 
   select * into at_user from pg_temp.try(format(
-    'insert into public.sessions (id, host_id, title, date, start_time, end_time) values (%L, %L, %L, %L, %L, %L)',
-    good_session, host, 'Future', tomorrow, '12:00', '13:00'));
+    'insert into public.sessions (host_id, title, date, start_time, end_time) values (%L, %L, %L, %L, %L)',
+    host, 'Future too', tomorrow, '12:00', '13:00'));
   if at_user.code is not null then raise exception 'FAIL step 1: future insert failed: %', at_user.msg; end if;
   raise notice 'ok step 1: future session insert';
 
