@@ -24,6 +24,9 @@ describe('plain: a refusal as a sentence', () => {
     expect(plain({ code: '23505', message: 'duplicate key value violates unique constraint "invites_one_live_link_idx"' }).message).toBe('This session already has a link. Reload to see it.')
     expect(plain({ code: '23505', message: 'duplicate key value violates unique constraint "invites_one_per_invitee_idx"' }).message).toBe('You have already invited that person.')
     expect(plain({ code: '23514', message: 'new row for relation "sessions" violates check constraint' }).message).toBe('That is not allowed. Check the title, day and times.')
+    // The database's own sentences for a day or start that has passed are shown as they are.
+    expect(plain({ code: '23514', message: 'That day has passed.' }).message).toBe('That day has passed.')
+    expect(plain({ code: '23514', message: 'That start time has already passed today.' }).message).toBe('That start time has already passed today.')
     expect(plain({ code: 'P0002', message: 'x' }).code).toBe('P0002')
   })
 
