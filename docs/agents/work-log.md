@@ -1574,3 +1574,4 @@ The lead's session reviewed #183 ("add database rule": a trigger that refuses a 
 - `db/tests/session_future_start.sql` (12 steps) ran on the live project in a rolled-back transaction through the Supabase tool, and passed.
 - Nothing was left: no function, no trigger, 6 sessions, 4 users.
 - Waiting for the lead's "apply".
+- **Applied by the lead in the SQL editor on 27 October; it is not in the migration history.** Checked afterwards: one `sessions_guard_future_start` trigger, `search_path=""`, the server let through, `apply_session_plan` unchanged (`c2b499a4…`), 6 sessions.
