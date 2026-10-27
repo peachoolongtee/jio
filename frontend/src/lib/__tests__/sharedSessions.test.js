@@ -95,6 +95,21 @@ describe('a real account\'s session is a row in the database', () => {
     expect(w.database.tables.sessions).toHaveLength(0)
   })
 
+  it('refuses a second meetup at the same time, before anything is sent, and the database refuses it too', async () => {
+    const w = world()
+    const sam = await w.open(PROFILE)
+    const first = await sam.api.createSession({ ...SESSION, title: 'Lunch' })
+    const err = await sam.api.createSession({ ...SESSION, title: 'Clash', start: '18:00', end: '21:00' }).catch((e) => e)
+    expect(err.code).toBe('schedule_clash')
+    expect(err.clash).toMatchObject({ id: first.id, title: 'Lunch' })
+    expect(w.database.tables.sessions).toHaveLength(1)
+    // Past the browser's check, the database says the same, naming the same meetup.
+    const direct = w.database.run({ as: sam.user.id, kind: 'insert', table: 'sessions', values: { host_id: sam.user.id, title: 'Direct', date: '2026-10-10', start_time: '18:00', end_time: '21:00' } })
+    expect(direct.error).toMatchObject({ code: 'P0001', hint: 'schedule_clash' })
+    expect(JSON.parse(direct.error.details)).toMatchObject({ id: first.id, title: 'Lunch' })
+    expect(w.database.tables.sessions).toHaveLength(1)
+  })
+
   it('lets only the host rename it, and says so', async () => {
     const w = world()
     const sam = await w.open(PROFILE)
@@ -211,10 +226,10 @@ describe('opening a link', () => {
     const a = await sam.api.createSession({ ...SESSION, title: 'A' })
     const revoked = (await sam.api.makeInviteLink(a.id)).token
     await sam.api.revokeInviteLink(a.id)
-    const b = await sam.api.createSession({ ...SESSION, title: 'B' })
+    const b = await sam.api.createSession({ ...SESSION, title: 'B', date: '2026-10-11' })
     const expired = (await sam.api.makeInviteLink(b.id)).token
     w.database.tables.invites.find((i) => i.token === expired).expires_at = '2026-10-01T00:00:00.000Z'
-    const c = await sam.api.createSession({ ...SESSION, title: 'C' })
+    const c = await sam.api.createSession({ ...SESSION, title: 'C', date: '2026-10-12' })
     const cancelled = (await sam.api.makeInviteLink(c.id)).token
     await sam.api.cancelSession(c.id)
     for (const token of [revoked, expired, cancelled]) expect(await visitor.api.previewInvite(token)).toBeNull()
@@ -262,17 +277,17 @@ describe('opening a link', () => {
     const revoked = (await sam.api.makeInviteLink(a.id)).token
     await sam.api.revokeInviteLink(a.id)
     await expect(kim.api.joinWithLink(revoked)).rejects.toThrow(dead)
-    const b = await sam.api.createSession({ ...SESSION, title: 'B' })
+    const b = await sam.api.createSession({ ...SESSION, title: 'B', date: '2026-10-11' })
     const expired = (await sam.api.makeInviteLink(b.id)).token
     w.database.tables.invites.find((i) => i.token === expired).expires_at = '2026-10-01T00:00:00.000Z'
     await expect(kim.api.joinWithLink(expired)).rejects.toThrow(dead)
-    const c = await sam.api.createSession({ ...SESSION, title: 'C' })
+    const c = await sam.api.createSession({ ...SESSION, title: 'C', date: '2026-10-12' })
     const cancelled = (await sam.api.makeInviteLink(c.id)).token
     await sam.api.cancelSession(c.id)
     await expect(kim.api.joinWithLink(cancelled)).rejects.toThrow(dead)
     await expect(kim.api.joinWithLink('short')).rejects.toThrow(dead)
     await expect(kim.api.joinWithLink('z'.repeat(43))).rejects.toThrow(dead)
-    const d = await sam.api.createSession({ ...SESSION, title: 'D' })
+    const d = await sam.api.createSession({ ...SESSION, title: 'D', date: '2026-10-13' })
     const open = (await sam.api.makeInviteLink(d.id)).token
     for (let i = 0; i < 29; i += 1) {
       const user = `00000000-0000-4000-8000-0000000002${String(i).padStart(2, '0')}`

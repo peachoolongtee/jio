@@ -21,9 +21,12 @@ function world() {
   return { database, as: client, anon: client(null), service: client(SERVICE) }
 }
 const fields = { title: 'Dinner', date: '2026-10-17', start_time: '18:00', end_time: '21:00' }
-// A session hosted by A, and its id.
+// A session hosted by A, and its id. One person cannot be in two meetups at the same time, so a host's second and later sessions in
+// a test get their own half hour early in the day, unless the test gives the times itself.
 async function sessionBy(w, who = A, patch = {}) {
-  const { data, error } = await w.as(who).from('sessions').insert({ host_id: who, ...fields, ...patch }).select('id, status, title').single()
+  const held = w.database.tables.sessions.filter((s) => s.host_id === who).length
+  const slot = held && !('start_time' in patch) && !('date' in patch) ? { start_time: `${String(held).padStart(2, '0')}:00`, end_time: `${String(held).padStart(2, '0')}:30` } : {}
+  const { data, error } = await w.as(who).from('sessions').insert({ host_id: who, ...fields, ...slot, ...patch }).select('id, status, title').single()
   expect(error).toBeNull()
   return data.id
 }
@@ -442,7 +445,7 @@ describe('where the stand-in used to be looser than Postgres', () => {
     const seen = w.database.canSee
     // A policy that hides a session titled "Hidden" or "Changed" from its own host, for the statements below.
     w.database.canSee = (as, table, row) => (table === 'sessions' && ['Hidden', 'Changed'].includes(row.title) ? false : seen(as, table, row))
-    const insert = await w.as(A).from('sessions').insert({ host_id: A, ...fields, title: 'Hidden' }).select('id').single()
+    const insert = await w.as(A).from('sessions').insert({ host_id: A, ...fields, start_time: '01:00', end_time: '01:30', title: 'Hidden' }).select('id').single()
     expect(insert.error).toMatchObject({ code: '42501', message: 'new row violates row-level security policy for table "sessions"' })
     const update = await w.as(A).from('sessions').update({ title: 'Changed' }).eq('id', id).select('id')
     expect(update.error.code).toBe('42501')

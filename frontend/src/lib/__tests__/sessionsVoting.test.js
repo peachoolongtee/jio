@@ -265,7 +265,7 @@ describe('live', () => {
   it('ignores the delete of a real vote in a session this account never read: it reaches the handler, and nothing is read for it', async () => {
     const { w, sam, kim, lee, id } = await voting({ third: true })
     // Another outing, between Kim and Lee. Sam is not in it, and the browser he listens in has never read it.
-    const other = await kim.api.createSession({ ...SESSION, title: 'Not Sam\'s' })
+    const other = await kim.api.createSession({ ...SESSION, title: 'Not Sam\'s', date: '2026-10-11' })
     await lee.api.joinWithLink((await kim.api.makeInviteLink(other.id)).token)
     await kim.api.startSession(other.id)
     await kim.api.setLocation(other.id, kim.id, 'start', KIM_PLACE)

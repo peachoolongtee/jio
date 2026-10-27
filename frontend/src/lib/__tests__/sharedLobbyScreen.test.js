@@ -314,8 +314,8 @@ describe('the invitations on Home', () => {
     const kim = await open(database, OTHER)
     const sam = await open(database, PROFILE)
     const first = await sam.api.createSession({ ...SESSION, title: 'First' })
-    const second = await sam.api.createSession({ ...SESSION, title: 'Second' })
-    const third = await sam.api.createSession({ ...SESSION, title: 'Third' })
+    const second = await sam.api.createSession({ ...SESSION, title: 'Second', date: '2026-10-11' })
+    const third = await sam.api.createSession({ ...SESSION, title: 'Third', date: '2026-10-12' })
     await sam.api.inviteByUsername(first.id, kim.user.id)
     await sam.api.inviteByUsername(second.id, kim.user.id)
     // Kim's app again, on the same stand-in client (she is still signed in there).
@@ -327,7 +327,7 @@ describe('the invitations on Home', () => {
       expect.stringContaining('Second'),
       expect.stringContaining('First'),
     ])
-    expect(view.text(cards()[0])).toContain('Sat 10 Oct · 12:00 to 20:00')
+    expect(view.text(cards()[0])).toContain('Sun 11 Oct · 12:00 to 20:00')
     expect(view.text(cards()[0])).toContain('Sam invited you')
     // Every control has a name that says which invitation it is for.
     expect(view.all('button').map((b) => b.attrs['aria-label'])).toEqual(['Join Second', 'Decline Second', 'Join First', 'Decline First'])

@@ -222,7 +222,7 @@ describe('3. a delete in a session this account does not know is ignored', () =>
     await kim.api.joinWithLink(token)
     const lee = await w.open(THIRD)
     // A session of Sam's that Lee is in and Kim is not.
-    const other = await sam.api.createSession({ ...SESSION, title: 'Not Kim\'s' })
+    const other = await sam.api.createSession({ ...SESSION, title: 'Not Kim\'s', date: '2026-10-11' })
     await lee.api.joinWithLink((await sam.api.makeInviteLink(other.id)).token)
     const again = await boot(kim.fake, {}, { shared: true })
     await again.api.getUser()
@@ -360,11 +360,13 @@ describe('7. the invite functions, the people, long lists and the host\'s own in
     expect(await kim.api.listPeople()).toEqual([])
   })
 
+  // One person cannot be in two meetups at once, so 250 sessions of one host are 250 one-minute slots from midnight.
+  const minuteOfDay = (n) => `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`
   it('reads the members and invitations of a long list in chunks of at most 100 sessions', async () => {
     const w = world()
     const sam = await w.open(PROFILE)
     for (let i = 0; i < 250; i += 1) {
-      const made = await w.database.run({ as: sam.user.id, kind: 'insert', table: 'sessions', values: { host_id: sam.user.id, title: `S${i}`, date: SESSION.date, start_time: '12:00', end_time: '20:00' }, returning: false })
+      const made = await w.database.run({ as: sam.user.id, kind: 'insert', table: 'sessions', values: { host_id: sam.user.id, title: `S${i}`, date: SESSION.date, start_time: minuteOfDay(i), end_time: minuteOfDay(i + 1) }, returning: false })
       expect(made.error).toBeNull()
     }
     w.ops.length = 0
