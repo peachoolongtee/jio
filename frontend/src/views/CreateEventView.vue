@@ -21,6 +21,7 @@ import { addDays, format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
+import ClashDialog from '@/components/group/ClashDialog.vue'
 import CalendarPicker from '@/components/ui/CalendarPicker.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
@@ -53,6 +54,9 @@ const start = ref(startTimes.start)
 const end = ref(startTimes.end)
 const busy = ref(false)
 const error = ref('')
+// The meetup in the way when the day and times overlap another the person is in (the popup).
+const clash = ref(null)
+const showClash = ref(false)
 
 // Editing: the session in the store (from the invite step it is already there), whether it could not be found, and
 // whether the form has taken its values yet (only once, so a live update never overwrites what is being typed).
@@ -116,7 +120,12 @@ async function next() {
     const saved = editing.value ? await events.update(props.id, values) : await events.create(values)
     router.replace(`/sessions/${saved.id}/invite`)
   } catch (e) {
-    error.value = e.message
+    if (e?.code === 'schedule_clash') {
+      clash.value = e.clash || null
+      showClash.value = true
+    } else {
+      error.value = e.message
+    }
     busy.value = false
   }
 }
@@ -171,6 +180,7 @@ async function next() {
         <AppButton next block :disabled="!ready || busy" @click="next">Next</AppButton>
       </footer>
     </template>
+    <ClashDialog v-model:open="showClash" :clash="clash" />
   </main>
 </template>
 
