@@ -1575,3 +1575,11 @@ The lead's session reviewed #183 ("add database rule": a trigger that refuses a 
 - Nothing was left: no function, no trigger, 6 sessions, 4 users.
 - Waiting for the lead's "apply".
 - **Applied by the lead in the SQL editor on 27 October; it is not in the migration history.** Checked afterwards: one `sessions_guard_future_start` trigger, `search_path=""`, the server let through, `apply_session_plan` unchanged (`c2b499a4…`), 6 sessions.
+
+## Round 37: Playwright set up for the team's E2E tests (2026-10-27)
+
+The course asks each of the six for 1 unit, 2 component and 2 E2E tests. The repo has many unit and component tests, but no E2E test: `@playwright/test` and a `test:e2e` script have been there since the project began, with an empty `frontend/tests/e2e/`. The lead said "do this".
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Playwright set up, with one example | frontend engineer | `feat/playwright-setup`, off `dev` | `frontend/playwright.config.js` starts the stub backend and the frontend on spare ports. A fixture signs in to the demo account, resets the demo data, adds the sample friends, and blocks every request that leaves this machine. One example journey passes, three times in a row. A README tells each teammate how to write their two. CI is left to Jonathan (#82). |
