@@ -53,6 +53,8 @@ What `fixtures.js` gives you:
 | `dayName('2026-11-07')`, `daysAhead(3)` | The accessible name of a day in the date picker; a day counted from the fixed "today". |
 | `useScenario(page, 'rain')` | Picks a stub backend scenario for the test (see below). |
 | `FIXED_NOW` | The fixed time, as a `Date`. |
+| `createSession(page, { title, day, start, end })` | From Home, makes a session through the form and ends on its Invite screen. Answers the session's id. |
+| `inviteAndStart(page, ['Darius', 'Nicole'])` | From Invite: invites the friends, waits until they have joined, presses Start session, picks "Find the fairest spot" and ends on the Locate step. |
 
 ### The clock
 
@@ -72,6 +74,22 @@ await useScenario(page, 'rain')   // before the page makes the call, usually bef
 ```
 
 The demo account's Home and data layer make no backend calls; the planner screens (meeting area, Vote, Roam, the weather on a stop) do. One thing to know: the stub backend runs on the real clock, and its forecast covers the next 24 hours from now, so a stop on the fixed day in the browser (4 November 2026 and later) has no weather. See "Testing from Playwright" in `backend/docs/planner-api.md`.
+
+## Allocation
+
+Each teammate owns one file with two tests. `create-session.spec.js` is the example to copy and is not counted for anyone. Run one person's file with `pnpm --filter jio-frontend exec playwright test tests/e2e/<file>`.
+
+| Person | Their two tests | File |
+|---|---|---|
+| Ian | Writes his own two | No file yet |
+| Faith | Set a start by searching: the group sees the area, not the place<br>The fairest spot is first, with each person's minutes | `faith.spec.js` |
+| Nichole | Create refuses the past: a past day and a start that has already passed<br>Dates lock once a session starts | `nichole.spec.js` |
+| darryl | A halal need reaches Vote and only fitting places are offered<br>The host replaces a confirmed stop and the times follow | `darryl.spec.js` |
+| Darius | "Already out?" starts a light meetup that shows on Home<br>Finishing an outing moves it from Home to Past | `darius.spec.js` |
+| Jonathan | No sideways scroll on any page (one test for each of 320, 375, 744, 1280 and 812 by 375 px)<br>Create a session using only the keyboard | `jonathan.spec.js` |
+| (example) | The demo account creates a session and lands on the Invite screen | `create-session.spec.js` |
+
+Jonathan's first test is one test for each width, so his file holds six tests in all.
 
 ## Tests never use real services
 
