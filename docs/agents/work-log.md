@@ -1551,3 +1551,26 @@ Results of round 35, checked by the lead's session on 26 October:
   - The lead ran the migration and all 343 steps rolled back in the SQL editor, and they passed.
   - The tool's classifier refused the apply through the migration tool, so the lead applied the checksum-guarded file in the SQL editor. It is not in the migration history.
   - Checked afterwards: `apply_session_plan` md5 is `c2b499a44f51d9fe4c3db2afb66eb22b` (the reviewed stripped body), `authenticated` cannot run it, and there are 6 sessions.
+
+## Round 36: Nichole's pull request #183 reviewed (2026-10-27)
+
+The lead's session reviewed #183 ("add database rule": a trigger that refuses a session on a past Singapore day, or a start already passed today) on `review/pr-183`, which is `dev` plus the pull request plus fix commits. Her branch is unchanged.
+
+**Found and fixed:**
+1. **The trigger refused everyone, including the server and the project owner.** Several existing SQL tests make sessions on today's or past days as fixtures (`apply_session_plan.sql` makes one today at 10:00; `session_plan_access.sql` and `meeting_spots_access.sql` make past ones). They would have failed once the rule was live. It now lets `service_role`, `postgres` and `supabase_admin` through, as `guard_session_changes` does. This matches the pull request's own description ("direct client writes").
+2. **No fixed `search_path`.** It is now set to `''`.
+3. **The browser said "That is not allowed. Check the title, day and times."** It now shows the trigger's own sentence ("That day has passed." or "That start time has already passed today."), with a unit test.
+4. **Her test's first step inserted a session with a chosen `id`,** which a signed-in person may not set, so it failed on the live project with "permission denied for table sessions". The owner now makes that session, and step 1 inserts as the browser does.
+5. **Six more steps:**
+   - the same day and start sent again;
+   - an end-only edit;
+   - a start later today;
+   - the server and the owner let through;
+   - the fixed search path.
+
+**Checks on the branch:** backend 1857 passed, 2 skipped; frontend 2695 passed under `TZ=UTC`; both with outbound calls blocked; build exit 0. The live trial is recorded under Results below.
+
+**Results.**
+- `db/tests/session_future_start.sql` (12 steps) ran on the live project in a rolled-back transaction through the Supabase tool, and passed.
+- Nothing was left: no function, no trigger, 6 sessions, 4 users.
+- Waiting for the lead's "apply".
