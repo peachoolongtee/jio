@@ -156,6 +156,10 @@ export async function inviteAndStart(page, friends) {
   for (const name of friends) await page.getByRole('button', { name: `Invite ${name}` }).click()
   await page.getByRole('button', { name: `Send ${friends.length} ${friends.length === 1 ? 'invite' : 'invites'}` }).click()
   await page.getByRole('button', { name: 'Done' }).click()
+  // In the demo the friends accept one after another, a moment apart. A friend who has not accepted when the session starts is
+  // left out of it, so wait until all have joined.
+  const everyone = friends.length + 1
+  await expect(page.getByRole('region', { name: `Joined: ${everyone} of ${everyone}` })).toBeVisible({ timeout: 20_000 })
   await page.getByRole('link', { name: 'Start session' }).click()
   await expect(page.getByRole('heading', { level: 2, name: 'How do you want to pick the meeting point?' })).toBeVisible()
   await page.getByRole('button', { name: 'Ask everyone to share where they start' }).click()
