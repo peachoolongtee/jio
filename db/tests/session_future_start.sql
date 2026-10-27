@@ -6,10 +6,15 @@ begin;
 
 -- Apply the migration inside this transaction so the live schema is unchanged after rollback.
 create or replace function public.sessions_guard_future_start() returns trigger
-language plpgsql as $$
+language plpgsql set search_path = '' as $$
 declare
   singapore_now timestamp without time zone := statement_timestamp() at time zone 'Asia/Singapore';
 begin
+  -- The rule is for people's own writes. The server and the project's owner are let through, as guard_session_changes lets
+  -- them through, so the server's own writes and the database tests' fixtures (which make sessions on any day) still work.
+  if current_user in ('service_role', 'postgres', 'supabase_admin') then
+    return new;
+  end if;
   if tg_op = 'UPDATE'
     and new.date is not distinct from old.date
     and new.start_time is not distinct from old.start_time then
@@ -119,6 +124,48 @@ begin
   -- A title-only update to an existing past session is permitted; temporal fields did not change.
   update public.sessions set title = 'Renamed old session' where id = old_session;
   raise notice 'ok step 6: title-only edit to a past session';
+
+  -- Sending the same day and start again (as a form that saves every field does) is not a change, so it passes.
+  update public.sessions set date = date, start_time = start_time, title = 'Old again' where id = old_session;
+  raise notice 'ok step 7: the same day and start sent again on a past session';
+
+  -- Only the day and start are checked: the end of a past session may still be edited by this rule.
+  update public.sessions set end_time = '14:00' where id = old_session;
+  raise notice 'ok step 8: an end-only edit to a past session';
+
+  -- Later today is allowed, for a new session and for a move.
+  if date_trunc('minute', sg_now)::time < time '23:58' then
+    select * into at_user from pg_temp.try(format(
+      'insert into public.sessions (host_id, title, date, start_time, end_time) values (%L, %L, %L, %L, %L)',
+      host, 'Later today', today, (date_trunc('minute', sg_now) + interval '1 minute')::time, '23:59'));
+    if at_user.code is not null then raise exception 'FAIL step 9: a start later today was refused: %', at_user.msg; end if;
+    raise notice 'ok step 9: a start later today';
+  else
+    raise notice 'ok step 9: the later-today case skipped in the last minutes of the day';
+  end if;
+
+  -- The server and the owner are let through, so the server's own writes and the tests' fixtures are not refused.
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
+  set local role service_role;
+  select * into at_user from pg_temp.try(format(
+    'insert into public.sessions (host_id, title, date, start_time, end_time) values (%L, %L, %L, %L, %L)',
+    host, 'Server past', past_date, '12:00', '13:00'));
+  if at_user.code is not null then raise exception 'FAIL step 10: the server was refused: %', at_user.msg; end if;
+  raise notice 'ok step 10: the server may write a past day';
+  reset role;
+  select * into at_user from pg_temp.try(format(
+    'insert into public.sessions (host_id, title, date, start_time, end_time) values (%L, %L, %L, %L, %L)',
+    host, 'Owner past', past_date, '12:00', '13:00'));
+  if at_user.code is not null then raise exception 'FAIL step 11: the owner was refused: %', at_user.msg; end if;
+  raise notice 'ok step 11: the owner may write a past day';
+
+  -- The function's search path is fixed, so a caller's schema cannot change what it calls.
+  if not exists (select 1 from pg_proc where oid = 'public.sessions_guard_future_start()'::regprocedure and proconfig @> array['search_path=""']) then
+    raise exception 'FAIL step 12: the function has no fixed search path';
+  end if;
+  raise notice 'ok step 12: the search path is fixed';
+  raise notice 'ALL STEPS PASSED';
 end;
 $test$;
 

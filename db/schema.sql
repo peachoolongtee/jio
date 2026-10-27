@@ -249,10 +249,15 @@ create index if not exists sessions_host_id_idx on public.sessions (host_id);
 -- useful feedback, but reject a past date or start at the database boundary too. A title-only
 -- edit to an older session remains valid because this checks only temporal changes.
 create or replace function public.sessions_guard_future_start() returns trigger
-language plpgsql as $$
+language plpgsql set search_path = '' as $$
 declare
   singapore_now timestamp without time zone := statement_timestamp() at time zone 'Asia/Singapore';
 begin
+  -- The rule is for people's own writes. The server and the project's owner are let through, as guard_session_changes lets
+  -- them through, so the server's own writes and the database tests' fixtures (which make sessions on any day) still work.
+  if current_user in ('service_role', 'postgres', 'supabase_admin') then
+    return new;
+  end if;
   if tg_op = 'UPDATE'
     and new.date is not distinct from old.date
     and new.start_time is not distinct from old.start_time then

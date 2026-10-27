@@ -205,7 +205,8 @@ export function plain(error, fallback = WORDS.notSaved) {
   else if (code === 'P0001' && error?.hint === 'session_full') message = WORDS.full
   else if (code === '28000') message = WORDS.signedOut
   else if (code === '23505') message = /one_live_link/.test(text) ? 'This session already has a link. Reload to see it.' : WORDS.alreadyInvited
-  else if (code === '23514') message = 'That is not allowed. Check the title, day and times.'
+  // The database refuses a day or start that has passed with its own sentence, written for people; any other check is not.
+  else if (code === '23514') message = /^(That day has passed\.|That start time has already passed today\.)$/.test(text) ? text : 'That is not allowed. Check the title, day and times.'
   // The database's own sentences for a refused action are written for people (a trigger's); its generic ones are not.
   else if (code === '42501' && !/row-level security|permission denied/i.test(text)) message = text
   else if (code === '42501') message = WORDS.notAllowed
