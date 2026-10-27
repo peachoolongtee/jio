@@ -1583,3 +1583,30 @@ The course asks each of the six for 1 unit, 2 component and 2 E2E tests. The rep
 | Piece | Agent | Branch | Brief, in short |
 |---|---|---|---|
 | Playwright set up, with one example | frontend engineer | `feat/playwright-setup`, off `dev` | `frontend/playwright.config.js` starts the stub backend and the frontend on spare ports. A fixture signs in to the demo account, resets the demo data, adds the sample friends, and blocks every request that leaves this machine. One example journey passes, three times in a row. A README tells each teammate how to write their two. CI is left to Jonathan (#82). |
+
+Results of round 37: Playwright is set up (#188, merged into `dev`).
+- **Checked by the lead's session from a clean state:**
+  - the example passed 3 of 3, and nothing was left listening on 3994 or 5194;
+  - vitest 2695 passed, without collecting the E2E file;
+  - the build exit 0.
+- **The config blanks every Supabase and outside-service setting for both test servers,** because `frontend/.env` and `backend/.env` hold real values. The app therefore runs on local accounts, and the backend in stub mode.
+
+## Round 38: the team's E2E tests, written for five teammates (2026-10-27)
+
+**The lead's word:** "just write all the playwright tests and assign and allocate it, for all the different tests make sure theres comments describing all the different tests but let me write my own tests leave my portion out of this".
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Ten E2E tests, two each for Faith, Nichole, darryl, Darius and Jonathan | frontend engineer | `feat/e2e-tests`, off `dev` | One spec file per person, named for them. Each test is commented: what it proves, its steps, and why it is the owner's. They use the fixture's guard and fixed clock, demo or local accounts and the stub backend. Ian's two are left for him; the README's allocation table says so. Every test passes 3 times in a row. |
+
+**Results of round 38** (`feat/e2e-tests`, `fbafadf`). The agent's first run stopped on a network error with nothing committed; it was resumed.
+- **What was written:** ten tests in five files, `faith`, `nichole`, `darryl`, `darius` and `jonathan.spec.js`.
+  - Jonathan's sideways-scroll test is one test per width, so his file holds six.
+  - Two shared helpers were added to `fixtures.js`: `createSession` and `inviteAndStart`.
+  - Ian's two are left to him, with no file.
+- **Changed from the plan:**
+  - A past day is a disabled day button, not a message.
+  - After Start the whole Create form locks, the title included, which matches `updateSession`.
+  - The halal need is set on the profile, not through the sign-up popup.
+- **No app bug found,** and no sideways scroll at any width.
+- **Checked by the lead's session:** `test:e2e --repeat-each=3` gave 45 passed in 6.4 min, from a clean state, with nothing left on 3994 or 5194. The agent's own run also gave vitest 2695 passed and a build exit 0.
