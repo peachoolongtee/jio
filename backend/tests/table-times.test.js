@@ -13,7 +13,8 @@ import { converge, meetingArea, roam } from '../src/planner/engine.js'
 import { createHttp, ExternalApiError } from '../src/services/http.js'
 import { createPlannerRuns, MEETING_AREAS_ROUTED_ON_TABLE, PLACES_ROUTED_FIRST } from '../src/services/planner-runs.js'
 import { isAbout, knownPlaceRow, priceAreaRun, spotRowsFrom } from '../src/services/session-plan.js'
-import { runWithRealTravel, TABLE_ROUND_MIN_MS, TABLE_ROUTE_ROUNDS } from '../src/services/travel-times.js'
+import { runOnTableTimes, runWithRealTravel, TABLE_ROUND_MIN_MS, TABLE_ROUTE_ROUNDS } from '../src/services/travel-times.js'
+import { newAllowance, spend } from '../src/services/session-voting.js'
 import { evaluate, hopWith, loadTrips } from '../scripts/fit-access-hop.js'
 import { cachedOneMap } from './helpers/cached-onemap.js'
 
@@ -181,11 +182,15 @@ describe('meeting area in table mode', () => {
     expect(travel.table).toBe(travel.asked)
   })
 
-  it('makes no call at all when the deadline has no time', async () => {
+  it('makes no call at all when the deadline has no time, with the options a real meeting-area request has', async () => {
     const onemap = oneMapDouble()
-    const { travel } = await runsWith(onemap).runWithTravel(meetingInput(), data, runsWith(onemap).meetingAreaWithRouting, { deadlineMs: 0 })
+    const runs = runsWith(onemap)
+    const input = meetingInput({ alternatives: 2 })
+    const { result, travel } = await runs.runWithTravel(input, data, runs.meetingAreaWithRouting, { ...runs.meetingAreaTravelFor(input), deadlineMs: 0 })
     expect(onemap.asked).toHaveLength(0)
+    expect(onemap.reportFallback).toHaveBeenCalledWith('deadline')
     expect(travel.source).toBe('table')
+    expect(result.candidates.every((c) => c.travelSource === 'table')).toBe(true)
   })
 
   it('keeps to the cap of trips for a request, in whole areas', async () => {
@@ -195,6 +200,32 @@ describe('meeting area in table mode', () => {
     const { travel } = await runs.runWithTravel(input, data, runs.meetingAreaWithRouting, { ...runs.meetingAreaTravelFor(input), maxTrips: members.length + 1 })
     expect(onemap.asked).toHaveLength(members.length) // one whole area (3 trips); the next would pass the cap of 4
     expect(travel.routed).toBe(members.length)
+  })
+
+  it('spends one shared allowance across the rounds: with trips for only one place left after the first, the others stay on the table, and a clock nearly spent skips round two', async () => {
+    // Two people, so a place costs two trips. An allowance of 3 trips fits one place whole; the next would pass it.
+    const onemap = oneMapDouble()
+    const tight = newAllowance(3000, 3)
+    const runs = runsWith(onemap)
+    const input = convergeInput()
+    const { result, travel } = await runs.runWithTravel(input, data, converge, () => tight.routing())
+    spend(tight, travel)
+    expect(onemap.asked).toHaveLength(2)
+    expect(tight.called).toBe(2)
+    expect(result.results.map((r) => r.travelSource).filter((s) => s === 'routed')).toHaveLength(1)
+    expect(result.results.every((r) => r.approximate === false)).toBe(true)
+
+    // A shared clock of 900 ms and calls of 700 ms: round one uses 700, 200 are left, and round two would need 500. The same allowance serves a second run.
+    const base = oneMapDouble()
+    const slow = { ...base, routeMinutes: async (a, b) => { await new Promise((resolve) => setTimeout(resolve, 700)); return base.routeMinutes(a, b) } }
+    const clock = newAllowance(900)
+    const first = await runsWith(slow).runWithTravel(input, data, converge, () => clock.routing())
+    const calls = base.asked.length
+    expect(calls).toBeGreaterThan(0)
+    const second = await runsWith(slow).runWithTravel(convergeInput({ centre: { lat: 1.3521, lng: 103.8198 } }), data, converge, () => clock.routing())
+    expect(base.asked.length).toBe(calls) // the clock had run out: no call for the second run
+    expect(second.travel.source).toBe('table')
+    expect(first.travel.routed).toBeGreaterThan(0)
   })
 
   it('does not let a named area change the ranking: the answer is what it is without the name', async () => {
@@ -289,6 +320,41 @@ describe('meeting area in table mode', () => {
     expect(entry.worstMinutes).toBeLessThan(first.result.worstMinutes) // and they really are quicker than the pick
   })
 
+  it('answers the same with a name as without it when the cache already holds the named area and the ranking shows it', async () => {
+    const ranked = (await askMeeting(runsWith(oneMapDouble()), { ...meetingInput(), travel: 'estimate' })).result.diagnostics.rankedAreaIds
+    for (const named of [ranked[0], ranked[1]]) {
+      // Live, that area is 25 minutes worse than the table says: if the ranking read it on the table the pick would be wrong.
+      const minutes = (a, b) => estimator(a, b) + ((a.id ?? b.id) === named ? 25 : 0)
+      const cache = cachedOneMap({ minutes, latencyMs: 2 })
+      const runs = runsWith(cache, { meetingFinalists: 2 })
+      await askMeeting(runs, meetingInput({ alternatives: 2 })) // warms the cache with the ranking's own routes
+      expect(cache.ends().has(named)).toBe(true)
+      const bare = await askMeeting(runs, meetingInput({ alternatives: 2 }))
+      const withName = await askMeeting(runs, meetingInput({ alternatives: 2, include: [named] }))
+      expect(withName.result.area.id, named).toBe(bare.result.area.id)
+      expect(withName.result.travelByMember).toEqual(bare.result.travelByMember)
+      expect(withName.result.travelSource).toBe(bare.result.travelSource)
+      expect(withName.result.candidates.filter((c) => c.source === 'ranked')).toEqual(bare.result.candidates)
+    }
+  })
+
+  it('keeps trips back for the areas a person named: with 12 finalists and 6 people the ranking alone would use the whole cap of 60', async () => {
+    const six = Array.from({ length: 6 }, (_, i) => ({ id: `p${i}`, name: `P${i}`, start: { lat: 1.30 + i * 0.02, lng: 103.75 + i * 0.03 }, end: { lat: 1.30 + i * 0.02, lng: 103.75 + i * 0.03 } }))
+    const input = { members: six, method: 'station', dateTime: DATE_TIME, include: ['tuas-link', 'changi-airport'] }
+    const reserved = oneMapDouble()
+    const withNames = await askMeeting(runsWith(reserved, { meetingFinalists: 12 }), input)
+    expect(reserved.asked.length).toBeLessThanOrEqual(60)
+    for (const id of ['tuas-link', 'changi-airport']) {
+      expect(reserved.ends().has(id), id).toBe(true)
+      expect(withNames.result.candidates.find((c) => c.area.id === id).travelSource).toBe('routed')
+    }
+    // Without names the ranking has the whole cap (10 areas of 6), so the reserve is what the names cost the ranking, no more.
+    const alone = oneMapDouble()
+    await askMeeting(runsWith(alone, { meetingFinalists: 12 }), { ...input, include: undefined })
+    expect(alone.asked.length).toBeGreaterThan(reserved.asked.length - 13)
+    expect(alone.asked.length).toBeLessThanOrEqual(60)
+  })
+
   it('marks the straight line as approximate and nothing else, where the table has no pair', async () => {
     const empty = { ...table, minutes: {} }
     const onemap = oneMapDouble()
@@ -324,7 +390,9 @@ describe('places in table mode', () => {
     for (const { a, b } of onemap.asked) expect(shown.has(spot(a.id ? a : b))).toBe(true)
     expect(onemap.asked.length).toBeLessThanOrEqual(PLACES_ROUTED_FIRST * 2)
     expect(result.results.slice(0, PLACES_ROUTED_FIRST).map((r) => r.travelSource)).toEqual(['routed', 'routed', 'routed'])
-    expect(result.results.slice(PLACES_ROUTED_FIRST).every((r) => r.travelSource === 'table')).toBe(true)
+    // A later place is routed only when it shares a route that was asked for (places in one building, to about 110 m, share their trips): no call of its own.
+    const askedAt = new Set(onemap.asked.map(({ a, b }) => spot(a.id ? a : b)))
+    for (const r of result.results.slice(PLACES_ROUTED_FIRST)) expect(r.travelSource === 'table' || askedAt.has(spot(r.venue)), r.venueId).toBe(true)
     expect(result.results.every((r) => r.approximate === false)).toBe(true)
     expect(travel.table).toBeGreaterThan(0)
     expect(sum(travel)).toBe(travel.asked)
@@ -387,6 +455,99 @@ describe('places in table mode', () => {
     const alone = free.result.results.find((r) => r.venueId === later.venueId)
     expect(later.worstMinutes - alone.worstMinutes).toBeCloseTo(8, 0)
     expect(later.approximate).toBe(false)
+  })
+
+  describe('the shift of the places not routed', () => {
+    const two = members.slice(0, 2)
+    const input = (extra = {}) => convergeInput({ members: two, ...extra })
+    const personOf = (a, b) => (a.id !== undefined ? b : a)
+    // Live = the table plus a number of minutes that depends on whose trip it is (and on the place, for an outlier).
+    const liveWith = (offset) => (a, b) => estimator(a, b) + offset(personOf(a, b) === a ? a : b, a.id ?? b.id)
+    const isFirst = (p) => p.lat === two[0].start.lat && p.lng === two[0].start.lng
+    const gapsOf = async (offset, options = {}) => {
+      const runs = runsWith(oneMapDouble(liveWith(offset)))
+      const free = (await runs.runWithTravel({ ...input(), travel: 'estimate' }, data, converge)).result.results
+      const { result } = await runs.runWithTravel(input(), data, converge, options)
+      const later = result.results.filter((r) => r.travelSource === 'table')
+      expect(later.length).toBeGreaterThan(0)
+      return later.map((r) => {
+        const alone = free.find((f) => f.venueId === r.venueId)
+        return alone ? [r.travelByMember[two[0].id] - alone.travelByMember[two[0].id], r.travelByMember[two[1].id] - alone.travelByMember[two[1].id]] : null
+      }).filter(Boolean)
+    }
+
+    it('is per person: each person\'s unrouted trips move by what that person\'s routed trips differ from the table', async () => {
+      const gaps = await gapsOf((p) => (isFirst(p) ? 10 : -5))
+      expect(gaps.length).toBeGreaterThan(0)
+      for (const [first, second] of gaps) {
+        expect(first).toBeCloseTo(10, 0)
+        expect(second).toBeCloseTo(-5, 0)
+      }
+    })
+
+    it('ignores one outlier among a person\'s routed trips (the median, not the mean)', async () => {
+      let outlier = null
+      const gaps = await gapsOf((_, id) => {
+        outlier ??= id // the first place asked about is 60 minutes off for everyone
+        return id === outlier ? 60 : 0
+      })
+      for (const [first, second] of gaps) {
+        expect(Math.abs(first)).toBeLessThan(1)
+        expect(Math.abs(second)).toBeLessThan(1)
+      }
+    })
+
+    it('can be negative, and is kept within 15 minutes', async () => {
+      for (const [offset, expected] of [[-5, -5], [40, 15], [-40, -15]]) {
+        const gaps = await gapsOf(() => offset)
+        for (const g of gaps.flat()) expect(g, String(offset)).toBeGreaterThanOrEqual(Math.min(0, expected) - 0.5)
+        for (const [first] of gaps) expect(first).toBeCloseTo(expected, 0)
+      }
+    })
+
+    it('takes the median of everyone\'s gaps when a person has fewer than two routed trips, and is 0 with fewer than two in all', async () => {
+      // One place routed (rounds: 1, only the first named): each of the two people has one routed trip, so both take the median of the two gaps: (10 + 4) / 2.
+      const live = liveWith((p) => (isFirst(p) ? 10 : 4))
+      const free = (await runsWith(oneMapDouble(live)).runWithTravel({ ...input(), travel: 'estimate' }, data, converge)).result.results
+      const only = (r) => ({ ranking: [r.results[0].venueId] })
+      const { result } = await runWithRealTravel({ onemap: oneMapDouble(live), dateTime: DATE_TIME, run: (deps) => converge(input(), data, deps), table: estimator.tableMinutes, estimate: estimator, routeFirst: only, rounds: 1 })
+      const later = result.results.find((r) => r.travelSource === 'table')
+      const alone = free.find((f) => f.venueId === later.venueId)
+      expect(later.travelByMember[two[0].id] - alone.travelByMember[two[0].id]).toBeCloseTo(7, 0)
+      expect(later.travelByMember[two[1].id] - alone.travelByMember[two[1].id]).toBeCloseTo(7, 0)
+      // One person, one place routed: a single gap, so no shift.
+      const solo = { ...input(), members: [two[0]] }
+      const freeSolo = (await runsWith(oneMapDouble(live)).runWithTravel({ ...solo, travel: 'estimate' }, data, converge)).result.results
+      const one = await runWithRealTravel({ onemap: oneMapDouble(live), dateTime: DATE_TIME, run: (deps) => converge(solo, data, deps), table: estimator.tableMinutes, estimate: estimator, routeFirst: only, rounds: 1 })
+      const laterSolo = one.result.results.find((r) => r.travelSource === 'table')
+      expect(laterSolo.travelByMember[two[0].id]).toBeCloseTo(freeSolo.find((f) => f.venueId === laterSolo.venueId).travelByMember[two[0].id], 6)
+    })
+
+    it('leaves a table time of 0 at 0, as the dry run has it', async () => {
+      // Two people on the centres of Bugis and Orchard. Only Orchard is routed, 8 minutes slower than the table; Bugis is read on the table moved by the shift,
+      // and the trip from the person at Bugis to Bugis is nothing, as it was before anything was routed.
+      const bugis = data.areas.find((a) => a.id === 'bugis'), orchard = data.areas.find((a) => a.id === 'orchard')
+      const group = [bugis, orchard].map((a, i) => ({ id: `c${i}`, name: `C${i}`, start: { lat: a.lat, lng: a.lng }, end: { lat: a.lat, lng: a.lng } }))
+      const run = (deps) => meetingArea({ members: group, method: 'station', alternatives: 3, dateTime: DATE_TIME }, data, deps)
+      const dry = runOnTableTimes({ run, table: estimator.tableMinutes, estimate: estimator }).result
+      expect(dry.candidates.find((c) => c.area.id === 'bugis').travelByMember.c0).toBe(0)
+      const { result } = await runWithRealTravel({
+        onemap: oneMapDouble((a, b) => estimator(a, b) + 8), dateTime: DATE_TIME, run, table: estimator.tableMinutes, estimate: estimator,
+        routeFirst: () => ({ ranking: ['orchard'] }), rounds: 1,
+      })
+      const entry = result.candidates.find((c) => c.area.id === 'bugis')
+      if (entry) expect(entry.travelByMember.c0).toBe(0)
+    })
+  })
+
+  it('never buys a trip twice in one request when the cache is off: places in one building share a route, and a later round or the named pass finds it answered', async () => {
+    const orchard = data.areas.find((a) => a.id === 'tiong-bahru')
+    const input = { members: [{ id: 'a', name: 'A' }], occasion: 'catch_up', dateTime: DATE_TIME, categories: ['eat'], unknownPolicy: 'lenient', current: { lat: orchard.lat + 0.002, lng: orchard.lng } }
+    const onemap = oneMapDouble((a, b) => estimator(a, b) + 6)
+    await runsWith(onemap).runWithTravel(input, data, roam, { cache: false })
+    const keys = onemap.asked.map(({ a, b }) => [spot(a), spot(b)].sort().join('|'))
+    expect(keys.length).toBeGreaterThan(0)
+    expect(new Set(keys).size).toBe(keys.length) // each trip asked for once
   })
 
   it('mixes cached and uncached trips: a place whose trips are all cached is read live for free, one half cached is routed whole', async () => {

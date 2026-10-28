@@ -571,10 +571,10 @@
    "travel": {
     "source": "onemap",
     "asked": 32,
-    "routed": 4,
+    "routed": 6,
     "cached": 0,
     "walked": 0,
-    "table": 28,
+    "table": 26,
     "failed": 0,
     "estimated": 0,
     "tableAt": "Tuesday 12:30"
@@ -819,17 +819,17 @@
   "on: 20 members, station (three areas fit the cap)": {
    "status": 200,
    "method": "station",
-   "area": "buona-vista",
-   "worst": 79,
+   "area": "clementi",
+   "worst": 78.6,
    "approximate": false,
    "travelSource": "routed",
    "travel": {
     "source": "onemap",
     "asked": 320,
-    "routed": 40,
+    "routed": 60,
     "cached": 0,
     "walked": 0,
-    "table": 280,
+    "table": 260,
     "failed": 0,
     "estimated": 0,
     "tableAt": "Tuesday 12:30"

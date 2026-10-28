@@ -1036,7 +1036,7 @@ describe('the stand-in for apply_session_plan keeps the function\'s small rules 
 describe('table mode: the slots and the meeting area of a voting session', () => {
   const tableApp = (onemap) => ({ areaTimes: loadAreaTimes(), onemap })
 
-  it('ranks each slot on the table and routes the places it offers first: the stored places are exact, and a second look costs few new calls', async () => {
+  it('ranks each slot on the table and routes the places it offers first: the stored places are exact, and a second look never buys a trip it already has', async () => {
     const onemap = cachedOneMap()
     await start({ status: 'voting', appOptions: tableApp(onemap) })
     expect(onemap.calls.length).toBeGreaterThan(0)
@@ -1047,8 +1047,29 @@ describe('table mode: the slots and the meeting area of a voting session', () =>
     }
     // The cache stands: asking again for the same slots costs no new call for the places already routed.
     const calls = onemap.calls.length
+    const before = new Set(onemap.calls.map((c) => [c.a.id ?? c.b.id, c.a.lat, c.b.lat].join()))
     expect((await t.call('POST', path('/plan/sync'), {}, HOST)).status).toBe(200)
-    expect(onemap.calls.length - calls).toBeLessThan(calls)
+    // The sync ranks again and may reach a place the first look did not route; it never buys a trip it already has. The exact count: every call after the
+    // first look is a trip that had not been asked for, and none is asked twice.
+    const after = onemap.calls.slice(calls).map((c) => [c.a.id ?? c.b.id, c.a.lat, c.b.lat].join())
+    expect(after.filter((key) => before.has(key))).toEqual([])
+    expect(new Set(after).size).toBe(after.length)
+  })
+
+  it('still ranks every slot when OneMap has no route or does not answer in time: the places are the table\'s, and say "about"', async () => {
+    const none = { ...cachedOneMap(), routeMinutes: async () => null }
+    await start({ status: 'voting', appOptions: tableApp(none) })
+    for (const category of ['eat', 'drink', 'shop', 'activity']) {
+      expect(optionsOf(category).length, category).toBeGreaterThanOrEqual(1)
+      expect(optionsOf(category).every((o) => o.details.approximate === true), `${category} is about`).toBe(true)
+    }
+    await Promise.all(started.splice(0).map((s) => s.stop()))
+    const hung = { ...cachedOneMap(), routeMinutes: () => new Promise(() => {}) }
+    await start({ status: 'voting', appOptions: { ...tableApp(hung), routingDeadlineMs: 150 } })
+    for (const category of ['eat', 'drink', 'shop', 'activity']) {
+      expect(optionsOf(category).length, category).toBeGreaterThanOrEqual(1)
+      expect(optionsOf(category).every((o) => o.details.approximate === true), `${category} is about`).toBe(true)
+    }
   })
 
   it('reprices a chosen meeting area on the routes when OneMap answers, and says "about" when it only has the table', async () => {
