@@ -226,12 +226,14 @@ const supabase =
       })
     : null
 
-// Real minutes between the meeting areas, taken from OneMap once (pnpm build:area-times). With it the planner ranks areas by a guess
-// that knows the MRT, not the straight line. Left out in stub mode, so the fixtures and the tests answer as they always did.
+// Real minutes between the meeting areas, taken from OneMap once (pnpm build:area-times). With it the planner is in table mode: it ranks
+// every area and place on those times with no OneMap call, and routes live only the results it shows first (services/travel-times.js).
+// Left out in stub mode, so the fixtures and the tests answer as they always did.
 const areaTimes = stub ? null : loadAreaTimes()
 
-// How many areas a meeting-area request routes with real OneMap times. Blank means 5. More is more accurate and uses more of
-// the shared OneMap budget: 8 is a good next step. At most 12; anything else is ignored with a warning.
+// How many areas a meeting-area request routes with real OneMap times. Blank means 2 with the table of times between areas (the best
+// two of the ranking; a second round routes any area a live time lifts into them) and 5 without it. More is more accurate and uses more of
+// the shared OneMap budget. At most 12; anything else is ignored with a warning.
 //
 // How to change it:
 //   MEETING_FINALISTS=8
@@ -272,7 +274,7 @@ createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader,
   }
   if (!stub && areaTimes) {
     const { found, expected } = areaTimesCoverage(loadPlanData().areas, areaTimes)
-    console.log(`Area travel times are ON: ${found} of ${expected} real times between the meeting areas rank them before routing.`)
+    console.log(`Area travel times are ON: ${found} of ${expected} real times between the meeting areas rank areas and places with no OneMap call; only what is shown first is routed.`)
     if (found < expected) console.warn(`The area travel times cover only ${found} of ${expected} pairs (the areas changed since it was built): the rest use straight-line distance. Rebuild with pnpm build:area-times.`)
   } else if (!stub) console.log('Area travel times are OFF: areas are ranked by straight-line distance. Build the table with pnpm build:area-times.')
   if (!stub && !places.enabled) console.log('Google Places is OFF: no Google restaurants or cafés. Set GOOGLE_MAPS_API_KEY in backend/.env.')

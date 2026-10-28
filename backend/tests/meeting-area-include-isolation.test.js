@@ -1,3 +1,4 @@
+// Table mode (the server with the table of area times) has its own isolation test, with a cache and a latency: tests/table-times.test.js, "does not let a name move the planner's pick through the cache".
 // POST /api/meeting-area: naming areas in `include` must never change the planner's own answer.
 // The top-level answer and the ranked candidates are the same with and without `include`; `include` only adds
 // entries with source 'included'. An included area still gets real routes when the cap has room, for its own entry.

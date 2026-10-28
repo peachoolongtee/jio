@@ -19,7 +19,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { barHeights } from '@/lib/bars.js'
 import { placeCard } from '@/lib/homeMeetups.js'
-import { byLine, pinName, tripsLine, worksForText } from './spotText.js'
+import { ABOUT_NOTE, byLine, pinName, tripsLine, worksForText } from './spotText.js'
 
 const props = defineProps({
   spots: { type: Array, default: () => [] },
@@ -243,7 +243,7 @@ onBeforeUnmount(() => {
           <p class="scard__name title-md">{{ pin.spot.area.name }}</p>
           <p v-if="pin.spot.areaId === confirmedId" class="body-sm"><strong>Confirmed</strong></p>
           <p class="caption-sm text-muted">{{ byLine(pin.spot, myId) }}<template v-if="pin.spot.here"> · We are here already</template></p>
-          <p v-if="tripsLine(pin.spot)" class="body-sm tnum">{{ tripsLine(pin.spot) }}</p>
+          <p v-if="tripsLine(pin.spot)" class="body-sm tnum" :title="pin.spot.approximate ? ABOUT_NOTE : undefined">{{ tripsLine(pin.spot) }}</p>
           <p class="body-sm" :class="{ 'text-muted': !pin.spot.approvalCount }">{{ worksForText(pin.spot) }}</p>
         </div>
       </Transition>

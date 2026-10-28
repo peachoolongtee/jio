@@ -918,9 +918,15 @@ const roundedTimes = (travelByMember) => Object.fromEntries(Object.entries(trave
 const candidatesOf = (data) => (data.candidates?.length ? data.candidates : [data])
 
 // Are the planner's times all its own estimate? The flag on a candidate only says a route call failed, so with no routing
-// account (every time is a straight-line estimate) it stays false; the answer's `travel.source` says it.
+// account (every time is a straight-line estimate) it stays false; the answer's `travel.source` says it. 'table' is the same for the
+// screens: minutes from the planner's table of real times between the areas, not routed for this trip, so they say "about".
 // How to call: estimatedBy({ travel: { source: 'estimate' } }) -> true
-const estimatedBy = (data) => data.travel?.source === 'estimate'
+const estimatedBy = (data) => data.travel?.source === 'estimate' || data.travel?.source === 'table'
+
+// Does a priced candidate or answer carry minutes that were not routed? The backend's `approximate` says a straight-line estimate was
+// used; `travelSource: 'table'` says the planner's table of times was (real transit minutes between the areas, close but not this trip's route).
+// How to call: aboutOnly({ approximate: false, travelSource: 'table' }) -> true
+const aboutOnly = (x) => !!x.approximate || x.travelSource === 'table'
 
 // One priced area as a spot's numbers: the longest trip, the average and each person's minutes, all from the same
 // rounded minutes the screens show. Alike for the app's spots and a member's. The times are approximate when the
@@ -935,7 +941,7 @@ function pricedSpot(candidate, estimated = false) {
     meanMinutes: Math.round(sumOf(minutes) / minutes.length),
     exactWorst: Math.max(...Object.values(candidate.travelByMember)),
     times,
-    approximate: !!candidate.approximate || estimated,
+    approximate: aboutOnly(candidate) || estimated,
   }
 }
 
@@ -958,7 +964,7 @@ function meetingFrom(members, data) {
     maxMinutes: Math.max(...minutes),
     totalMinutes: sumOf(minutes),
     count: members.length,
-    approximate: !!data.approximate || estimatedBy(data),
+    approximate: aboutOnly(data) || estimatedBy(data),
   }
 }
 

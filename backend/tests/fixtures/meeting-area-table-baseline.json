@@ -1,0 +1,1260 @@
+{
+ "recordedFrom": "POST /api/meeting-area in table mode, the requests of meeting-area-baseline.json",
+ "cases": {
+  "off: station, three members": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 48,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: station, two members": {
+   "status": 200,
+   "method": "station",
+   "area": "lavender",
+   "worst": 29.6,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 32,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 32,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: weighted_centroid": {
+   "status": 200,
+   "method": "weighted_centroid",
+   "area": "ang-mo-kio",
+   "worst": 64,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 3,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 3,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: centroid": {
+   "status": 200,
+   "method": "centroid",
+   "area": "ang-mo-kio",
+   "worst": 64,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 3,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 3,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: minimax": {
+   "status": 200,
+   "method": "minimax",
+   "area": "ang-mo-kio",
+   "worst": 54.9,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 3,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 3,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: station with maxCandidates 16": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 48,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: station with maxCandidates 1": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 3,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 3,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: one member opted out": {
+   "status": 200,
+   "method": "station",
+   "area": "lavender",
+   "worst": 29.6,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 32,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 32,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: an opted-out id nobody has": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 48,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: override of a start point": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 48,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: override that sets only an end point": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 48,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: override for an id nobody has": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 48,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: a member with a start different from home": {
+   "status": 200,
+   "method": "station",
+   "area": "botanic-gardens",
+   "worst": 17.1,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 32,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 32,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: travel debt pulls weighted_centroid": {
+   "status": 200,
+   "method": "weighted_centroid",
+   "area": "ang-mo-kio",
+   "worst": 57.6,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 3,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 3,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: travel debt breaks a station tie": {
+   "status": 200,
+   "method": "station",
+   "area": "lavender",
+   "worst": 29.6,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 32,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 32,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: one member": {
+   "status": 200,
+   "method": "station",
+   "area": "tampines",
+   "worst": 1.6,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 16,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 16,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: one member, centroid": {
+   "status": 200,
+   "method": "centroid",
+   "area": "tampines",
+   "worst": 3.3,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 1,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 1,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: everyone at the same point": {
+   "status": 200,
+   "method": "station",
+   "area": "bishan",
+   "worst": 0,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 16,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 16,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: members with no names": {
+   "status": 200,
+   "method": "station",
+   "area": "lavender",
+   "worst": 29.6,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 32,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 32,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: a field the route does not know is ignored": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 48,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: fairnessScaleMinutes is not a request field": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 48,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: 12 members, minimax": {
+   "status": 200,
+   "method": "minimax",
+   "area": "ang-mo-kio",
+   "worst": 124,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 12,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 12,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: 30 members, station": {
+   "status": 200,
+   "method": "station",
+   "area": "clementi",
+   "worst": 83.9,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 480,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 480,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: 30 members, centroid": {
+   "status": 200,
+   "method": "centroid",
+   "area": "caldecott",
+   "worst": 111.1,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 30,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 30,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: 30 members, weighted_centroid": {
+   "status": 200,
+   "method": "weighted_centroid",
+   "area": "ang-mo-kio",
+   "worst": 115.3,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 30,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 30,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "off: dateTime sent": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 48,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: station, three members, dateTime sent": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 40.1,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 48,
+    "routed": 9,
+    "cached": 0,
+    "walked": 0,
+    "table": 39,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: station, three members, no dateTime": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 40.1,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 48,
+    "routed": 9,
+    "cached": 0,
+    "walked": 0,
+    "table": 39,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: station, two members": {
+   "status": 200,
+   "method": "station",
+   "area": "lavender",
+   "worst": 30.6,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 32,
+    "routed": 6,
+    "cached": 0,
+    "walked": 0,
+    "table": 26,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: weighted_centroid": {
+   "status": 200,
+   "method": "weighted_centroid",
+   "area": "ang-mo-kio",
+   "worst": 63.9,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 3,
+    "routed": 3,
+    "cached": 0,
+    "walked": 0,
+    "table": 0,
+    "failed": 0,
+    "estimated": 0
+   },
+   "candidates": 0
+  },
+  "on: centroid": {
+   "status": 200,
+   "method": "centroid",
+   "area": "ang-mo-kio",
+   "worst": 63.9,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 3,
+    "routed": 3,
+    "cached": 0,
+    "walked": 0,
+    "table": 0,
+    "failed": 0,
+    "estimated": 0
+   },
+   "candidates": 0
+  },
+  "on: minimax": {
+   "status": 200,
+   "method": "minimax",
+   "area": "ang-mo-kio",
+   "worst": 53.2,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 3,
+    "routed": 3,
+    "cached": 0,
+    "walked": 0,
+    "table": 0,
+    "failed": 0,
+    "estimated": 0
+   },
+   "candidates": 0
+  },
+  "on: station with maxCandidates 5": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 40.1,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 15,
+    "routed": 9,
+    "cached": 0,
+    "walked": 0,
+    "table": 6,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: station with maxCandidates 37": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 40.1,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 110,
+    "routed": 9,
+    "cached": 0,
+    "walked": 0,
+    "table": 101,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: station with maxCandidates 1": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 40.1,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 3,
+    "routed": 3,
+    "cached": 0,
+    "walked": 0,
+    "table": 0,
+    "failed": 0,
+    "estimated": 0
+   },
+   "candidates": 0
+  },
+  "on: one member opted out": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 40.1,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 32,
+    "routed": 6,
+    "cached": 0,
+    "walked": 0,
+    "table": 26,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: override of a start point": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 40.1,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 48,
+    "routed": 9,
+    "cached": 0,
+    "walked": 0,
+    "table": 39,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: override and opt-out together": {
+   "status": 200,
+   "method": "station",
+   "area": "lavender",
+   "worst": 28.1,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 32,
+    "routed": 4,
+    "cached": 0,
+    "walked": 0,
+    "table": 28,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: one member": {
+   "status": 200,
+   "method": "station",
+   "area": "tampines",
+   "worst": 1,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 16,
+    "routed": 1,
+    "cached": 0,
+    "walked": 1,
+    "table": 14,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: members close enough to walk": {
+   "status": 200,
+   "method": "station",
+   "area": "bishan",
+   "worst": 0.5,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 32,
+    "routed": 2,
+    "cached": 0,
+    "walked": 2,
+    "table": 28,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: 12 members, minimax": {
+   "status": 200,
+   "method": "minimax",
+   "area": "ang-mo-kio",
+   "worst": 123.7,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 12,
+    "routed": 12,
+    "cached": 0,
+    "walked": 0,
+    "table": 0,
+    "failed": 0,
+    "estimated": 0
+   },
+   "candidates": 0
+  },
+  "on: 20 members, station (three areas fit the cap)": {
+   "status": 200,
+   "method": "station",
+   "area": "clementi",
+   "worst": 78.6,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 320,
+    "routed": 60,
+    "cached": 0,
+    "walked": 0,
+    "table": 260,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: 30 members, station (two areas fit the cap of 60 trips)": {
+   "status": 200,
+   "method": "station",
+   "area": "clementi",
+   "worst": 82.2,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 480,
+    "routed": 59,
+    "cached": 0,
+    "walked": 1,
+    "table": 420,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: 30 members, maxCandidates 37": {
+   "status": 200,
+   "method": "station",
+   "area": "clementi",
+   "worst": 82.2,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 1110,
+    "routed": 59,
+    "cached": 0,
+    "walked": 1,
+    "table": 1050,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "on: 30 members, centroid": {
+   "status": 200,
+   "method": "centroid",
+   "area": "caldecott",
+   "worst": 110.7,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 30,
+    "routed": 30,
+    "cached": 0,
+    "walked": 0,
+    "table": 0,
+    "failed": 0,
+    "estimated": 0
+   },
+   "candidates": 0
+  },
+  "on: 30 members, weighted_centroid": {
+   "status": 200,
+   "method": "weighted_centroid",
+   "area": "ang-mo-kio",
+   "worst": 115.6,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 30,
+    "routed": 30,
+    "cached": 0,
+    "walked": 0,
+    "table": 0,
+    "failed": 0,
+    "estimated": 0
+   },
+   "candidates": 0
+  },
+  "on: 30 members, 5 opted out": {
+   "status": 200,
+   "method": "station",
+   "area": "clementi",
+   "worst": 77.1,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 400,
+    "routed": 49,
+    "cached": 0,
+    "walked": 1,
+    "table": 350,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "failing: station": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 42,
+    "failed": 6,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "failing: centroid": {
+   "status": 200,
+   "method": "centroid",
+   "area": "ang-mo-kio",
+   "worst": 64,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "estimate",
+    "asked": 3,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 0,
+    "failed": 3,
+    "estimated": 0
+   },
+   "candidates": 0
+  },
+  "failing: 30 members": {
+   "status": 200,
+   "method": "station",
+   "area": "clementi",
+   "worst": 83.9,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 480,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 421,
+    "failed": 59,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "failing: header sent to a server that is not in stub mode is ignored": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 48,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "no route: station": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 42,
+    "failed": 6,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "no route: minimax": {
+   "status": 200,
+   "method": "minimax",
+   "area": "ang-mo-kio",
+   "worst": 54.9,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "estimate",
+    "asked": 3,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 0,
+    "failed": 3,
+    "estimated": 0
+   },
+   "candidates": 0
+  },
+  "down: station": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 42,
+    "failed": 6,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "used up: station": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 48,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "used up: weighted_centroid": {
+   "status": 200,
+   "method": "weighted_centroid",
+   "area": "ang-mo-kio",
+   "worst": 64,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 3,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 3,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "tiny budget: station, three members": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 40.1,
+   "approximate": false,
+   "travelSource": "routed",
+   "travel": {
+    "source": "onemap",
+    "asked": 48,
+    "routed": 3,
+    "cached": 0,
+    "walked": 0,
+    "table": 45,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "hung: station, answered at the deadline on estimates": {
+   "status": 200,
+   "method": "station",
+   "area": "orchard",
+   "worst": 39.5,
+   "approximate": false,
+   "travelSource": "table",
+   "travel": {
+    "source": "table",
+    "asked": 48,
+    "routed": 0,
+    "cached": 0,
+    "walked": 0,
+    "table": 48,
+    "failed": 0,
+    "estimated": 0,
+    "tableAt": "Tuesday 12:30"
+   },
+   "candidates": 0
+  },
+  "400: no body fields at all": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members\",\"message\":\"Required\"}]}"
+  },
+  "400: no members": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members\",\"message\":\"Array must contain at least 1 element(s)\"},{\"path\":\"optedOut\",\"message\":\"everyone has opted out\"}]}"
+  },
+  "400: members is not a list": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members\",\"message\":\"Expected array, received string\"}]}"
+  },
+  "400: a member with no location": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0\",\"message\":\"each member needs a start or a home point\"}]}"
+  },
+  "400: a member with no id": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0.id\",\"message\":\"Required\"}]}"
+  },
+  "400: a member id of 81 characters": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0.id\",\"message\":\"String must contain at most 80 character(s)\"}]}"
+  },
+  "400: everyone opted out": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"optedOut\",\"message\":\"everyone has opted out\"}]}"
+  },
+  "400: 31 members": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members\",\"message\":\"Array must contain at most 30 element(s)\"}]}"
+  },
+  "400: two members with one id": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members\",\"message\":\"member ids must be unique\"}]}"
+  },
+  "400: minimax with 13 members": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"method\",\"message\":\"minimax supports up to 12 people\"}]}"
+  },
+  "400: an unknown method": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"method\",\"message\":\"Invalid enum value. Expected 'station' | 'weighted_centroid' | 'centroid' | 'minimax', received 'middle'\"}]}"
+  },
+  "400: maxCandidates 0": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"maxCandidates\",\"message\":\"Number must be greater than or equal to 1\"}]}"
+  },
+  "400: maxCandidates 51": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"maxCandidates\",\"message\":\"Number must be less than or equal to 50\"}]}"
+  },
+  "400: maxCandidates 2.5": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"maxCandidates\",\"message\":\"Expected integer, received float\"}]}"
+  },
+  "400: maxCandidates as text": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"maxCandidates\",\"message\":\"Expected number, received string\"}]}"
+  },
+  "400: a point outside Singapore": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0.home.lat\",\"message\":\"Number must be less than or equal to 1.5\"},{\"path\":\"members.0.home.lng\",\"message\":\"Number must be greater than or equal to 103.5\"}]}"
+  },
+  "400: latitude and longitude swapped": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0.home.lat\",\"message\":\"Number must be less than or equal to 1.5\"},{\"path\":\"members.0.home.lng\",\"message\":\"Number must be greater than or equal to 103.5\"}]}"
+  },
+  "400: a bad dateTime": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"dateTime\",\"message\":\"use local time as YYYY-MM-DDTHH:MM, e.g. 2026-10-10T19:00\"}]}"
+  },
+  "400: dietary needs it does not know": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0.dietary.0\",\"message\":\"Invalid enum value. Expected 'halal' | 'vegetarian' | 'vegan', received 'carnivore'\"}]}"
+  },
+  "400: a negative budget": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0.budgetMaxPerPerson\",\"message\":\"Number must be greater than 0\"}]}"
+  },
+  "400: 31 opted-out ids": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"optedOut\",\"message\":\"Array must contain at most 30 element(s)\"}]}"
+  },
+  "400: several bad fields are all listed": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0\",\"message\":\"each member needs a start or a home point\"},{\"path\":\"method\",\"message\":\"Invalid enum value. Expected 'station' | 'weighted_centroid' | 'centroid' | 'minimax', received 'middle'\"},{\"path\":\"maxCandidates\",\"message\":\"Number must be greater than or equal to 1\"}]}"
+  },
+  "400: the same checks apply with routing on": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"members.0\",\"message\":\"each member needs a start or a home point\"}]}"
+  },
+  "400: minimax with 13 members, routing on": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"method\",\"message\":\"minimax supports up to 12 people\"}]}"
+  },
+  "400: a body that is not JSON": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_json\",\"message\":\"The request body is not valid JSON.\"}"
+  },
+  "400: a body that is a list": {
+   "status": 400,
+   "body": "{\"error\":\"invalid_input\",\"message\":\"Some fields in the request are missing or not valid. See issues.\",\"issues\":[{\"path\":\"\",\"message\":\"Expected object, received array\"}]}"
+  }
+ }
+}

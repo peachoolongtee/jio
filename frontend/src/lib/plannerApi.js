@@ -680,7 +680,8 @@ function toOption(r, block = null) {
     explanation: r.explanation,
     verify: r.verify,
     dietUnknown: r.dietUnknown,
-    approximate: r.approximate,
+    // "About": the planner used the straight line (`approximate`) or its table of times between the areas (`travelSource: 'table'`) for this place.
+    approximate: !!r.approximate || r.travelSource === 'table',
     ...(weather ? { weather } : {}),
   }
 }
@@ -695,7 +696,8 @@ function toOption(r, block = null) {
 // With alternatives or include it also has candidates, the chosen area first:
 // [{ area, worstMinutes, meanMinutes, travelByMember, approximate, source: 'ranked' | 'included' }].
 // `approximate` is false when routing is off, although every time is then an estimate: travel.source is 'estimate' then
-// (and 'onemap' when at least one trip got a real time). Say "about" for either.
+// (and 'onemap' when at least one trip got a real time). A server with the table of area times answers 'table' when no trip was
+// routed, and each candidate says `travelSource` ('routed' | 'table' | 'estimate'). Say "about" for any but routed.
 // How to call: await meetingArea({ members, routing: true, alternatives: 2, include: ['bugis'] })
 export async function meetingArea({ members, routing = true, alternatives, include }) {
   const body = { members, method: routing ? 'station' : 'centroid', ...travelField() }

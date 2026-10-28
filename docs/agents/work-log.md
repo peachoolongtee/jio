@@ -1653,3 +1653,22 @@ The lead asked for the latency behind some loading screens to be investigated. T
   - e2e 15 passed;
   - build exit 0.
 - **Next:** fix 3, routing far less by using the 666 real area-to-area times.
+
+## Round 40: route far less, with the table of real times between areas (2026-10-28)
+
+The lead said "do this" to the next step after round 39: first-time planner answers that are both fast and accurate. The app already holds 666 real public-transport times between its meeting areas (Faith's table, #172). Today it pre-ranks the meeting areas and nothing else. Live routing still prices every person-to-place trip, at about 1 s per call, 6 at a time.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Rank on the table, route only what is shown | implementer | `feat/route-less`, off `dev` | Rank meeting areas and places on table-based times (start area to venue area, plus the walks): no calls. Then route live only the trips of what the person sees first, under the round 39 deadline. Keep the fairness tests and the baseline. Measure how often the ranking differs from all-live routing, and the time to first answer. No exact place leaks. The OneMap budget is respected. |
+
+**Results of round 40** (`feat/route-less`, `92d5777`, merged into `dev`).
+- **What changed:**
+  - **Table mode** (`runWithTableTimes` in `backend/src/services/travel-times.js`): with the 666 area-to-area times, the meeting area and the place rankings are ranked on the table with no call. Only what is shown first is routed live: the best 2 areas, or the first 3 places, plus anything a live time lifts into them, for up to 3 rounds under the 3-second deadline. Each result says `travelSource: 'routed' | 'table' | 'estimate'`, and `travel.tableAt` says the table's moment (Tuesday 12:30).
+  - **Unrouted times are shifted per person** by the median gap between that person's routed and table times (clamped to ±15 minutes), so a candidate left on the table neither leapfrogs nor sinks below the routed ones.
+  - **The walk at each end was refitted** (`accessMinutes`): 5 minutes reached by 0.4 km, plus 7 minutes a km, instead of 3.7 minutes a km. On 23 trips it was not fitted to, the table is +2.0 minutes on average and 5.6 off either way; before, such trips were 13.7 minutes too optimistic. It is marked provisional; `backend/scripts/fit-access-hop.js` refits it. Faith has not yet looked at it; the lead chose to merge without waiting.
+  - **A trip inside one area** is no longer capped at the ride to the next station (Orchard read 2.5 minutes).
+- **Measured on live OneMap** (two groups of three): a meeting area routed 6 trips instead of 12 to 15, and a converge for 2 routed 6 instead of 8 to 16; no answer was `approximate` (before, both meeting areas were, because the pick was an area only guessed). Wall time did not fall: one round of OneMap calls is still needed, and OneMap took 90 ms to 2.5 s a route that day. The all-table answer (`travel: 'estimate'`) takes 6 to 34 ms.
+- **Three reviews.** The first found 3 majors (the same-area cap, weak table-mode tests, `include` moving the pick through a cached area) and 5 minors. The second found that a named area shown by the ranking could still be read on the table without the engine running again. The third found three more ways a name could reach the ranking (a route bought for the name after the last round, a reserve of trips for names that cost the ranking a finalist, cached routes from an earlier request's name) and a paid repeat of a failed trip with the cache off. All were fixed: the ranking reads a candidate live only if it showed it first in this request, a name's routes serve only its own entry, and named areas get what the ranking leaves. A fourth, independent check found no counterexample.
+- **Checked by the lead's session on `92d5777`:** backend 2024 passed, 2 skipped, also with outbound calls blocked; frontend 2713 passed under `TZ=UTC` (with `VITE_API_BASE_URL` blank); build exit 0; e2e 15 passed.
+- **The implementer's restarted rounds could not hand back their reports** (a restarted agent's second hand-back is refused); the lead's session read them from the transcript. Start a fresh agent for each new round of fixes.

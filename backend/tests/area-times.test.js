@@ -8,7 +8,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { loadAreaTimes } from '../src/db/area-times.js'
 import { loadPlanData } from '../src/db/venues.js'
-import { ACCESS_MINUTES_PER_KM, areaTimesCoverage, createAreaEstimator, isAreaTimes, MAX_PLAUSIBLE_MINUTES, pairKey } from '../src/planner/area-times.js'
+import { ACCESS_FIXED_MINUTES, ACCESS_MINUTES_PER_KM, ACCESS_RAMP_KM, accessMinutes, areaTimesCoverage, createAreaEstimator, isAreaTimes, MAX_PLAUSIBLE_MINUTES, pairKey } from '../src/planner/area-times.js'
 import { meetingArea } from '../src/planner/engine.js'
 import { haversineKm, mockTravelMinutes } from '../src/planner/geo.js'
 import { buildAreaTimes, creditFor, DEFAULT_PER_MINUTE, HELP, isNoRoute, MAX_PER_MINUTE, nextTuesdayNoon, readFlags, singaporeDay } from '../scripts/build-area-times.js'
@@ -220,8 +220,7 @@ describe('createAreaEstimator', () => {
     expect(estimate(near(AREAS[0]), near(AREAS[1]))).toBeCloseTo(20, 5) // both on their area: just the table
     const a = near(AREAS[0], 0.009, 0) // about 1 km north of A
     const b = near(AREAS[1], 0, -0.009) // about 1 km west of B
-    const hops = (haversine) => haversine * ACCESS_MINUTES_PER_KM
-    expect(estimate(a, b)).toBeCloseTo(hops(1.0) + 20 + hops(0.99), 0)
+    expect(estimate(a, b)).toBeCloseTo(accessMinutes(haversineKm(a, AREAS[0])) + 20 + accessMinutes(haversineKm(b, AREAS[1])), 5)
   })
 
   it('is the same either way round', () => {
@@ -229,16 +228,17 @@ describe('createAreaEstimator', () => {
     expect(estimate(p, q)).toBeCloseTo(estimate(q, p), 5)
   })
 
-  it('is never longer inside one area than the straight line, the two hops, or the shortest trip out of the area', () => {
+  it('is the least of the straight line and the two hops inside one area, and not capped by the ride to a neighbouring area', () => {
     const x = near(AREAS[0], 0.003), y = near(AREAS[0], -0.003) // about 0.33 km either side of A's centre
-    const hops = (haversineKm(x, AREAS[0]) + haversineKm(y, AREAS[0])) * ACCESS_MINUTES_PER_KM
-    expect(estimate(x, y)).toBeCloseTo(hops, 9)
-    expect(estimate(x, y)).toBeLessThan(mockTravelMinutes(x, y))
-    expect(estimate(x, y)).toBeLessThanOrEqual(20) // A's shortest trip to another area is 20 (a|b)
-    // Far from the centre, the shortest trip out is the limit: 0.5 km hops would be 1.8 minutes, so use a table where A's neighbours are close.
+    const hops = accessMinutes(haversineKm(x, AREAS[0])) + accessMinutes(haversineKm(y, AREAS[0]))
+    expect(estimate(x, y)).toBeCloseTo(Math.min(hops, mockTravelMinutes(x, y)), 9)
+    expect(estimate(x, y)).toBeLessThanOrEqual(mockTravelMinutes(x, y))
+    // A's shortest trip to another area is 20 (a|b), and a trip of 2.2 km each side of the centre is longer than the hops of a quick
+    // neighbour would be: the table's neighbour ride is no cap on it.
     const quick = createAreaEstimator({ areas: AREAS, table: { _meta: { areas: ['a', 'b', 'c', 'd'] }, minutes: { 'a|b': 1, 'a|c': 30 } } })
-    const wide = near(AREAS[0], 0.02), other = near(AREAS[0], -0.02) // 2.2 km each side of the centre
-    expect(quick(wide, other)).toBe(1)
+    const wide = near(AREAS[0], 0.02), other = near(AREAS[0], -0.02)
+    expect(quick(wide, other)).toBeCloseTo(Math.min(mockTravelMinutes(wide, other), accessMinutes(haversineKm(wide, AREAS[0])) + accessMinutes(haversineKm(other, AREAS[0]))), 9)
+    expect(quick(wide, other)).toBeGreaterThan(10)
   })
 
   it('uses the straight line for a pair the table lacks', () => {
@@ -250,9 +250,9 @@ describe('createAreaEstimator', () => {
     const areas = [{ id: 'a', lat: 1.3, lng: 103.8 }, { id: 'b', lat: 1.3, lng: 103.81 }, { id: 'c', lat: 1.3, lng: 103.95 }]
     const best = createAreaEstimator({ areas, table: { _meta: { areas: ['a', 'b', 'c'] }, minutes: { 'a|b': 4, 'a|c': 60, 'b|c': 20 } } })
     const p = { lat: 1.3, lng: 103.8045 }
-    const viaB = haversineKm(p, areas[1]) * ACCESS_MINUTES_PER_KM + 20
+    const viaB = accessMinutes(haversineKm(p, areas[1])) + 20
     expect(best(p, areas[2])).toBeCloseTo(viaB, 9)
-    expect(best(p, areas[2])).toBeLessThan(haversineKm(p, areas[0]) * ACCESS_MINUTES_PER_KM + 60) // not only through the nearest, A
+    expect(best(p, areas[2])).toBeLessThan(accessMinutes(haversineKm(p, areas[0])) + 60) // not only through the nearest, A
     expect(best(areas[2], p)).toBeCloseTo(viaB, 9)
   })
 
@@ -266,8 +266,8 @@ describe('createAreaEstimator', () => {
     const step = (km) => Math.abs(at(km + 0.1) - at(km))
     for (const km of [5.9, 6, 8, 11]) expect(step(km), `${km} km`).toBeLessThan(0.1 * ACCESS_MINUTES_PER_KM * 1.01)
     // 8 km west: a hop of 8 km and the table's Tuas Link to Bugis time, a long way below the straight line's figure.
-    expect(at(8)).toBeCloseTo(8 * ACCESS_MINUTES_PER_KM + loadAreaTimes().minutes[pairKey('bugis', 'tuas-link')], 0)
-    expect(at(8)).toBeLessThan(mockTravelMinutes(west(8), bugis) - 15)
+    expect(at(8)).toBeCloseTo(accessMinutes(8) + loadAreaTimes().minutes[pairKey('bugis', 'tuas-link')], 0)
+    expect(at(8)).toBeLessThan(mockTravelMinutes(west(8), bugis) - 5)
   })
 
   it('leaves a session alone: a trip between two area centres is exactly the table\'s time', () => {
@@ -280,19 +280,21 @@ describe('createAreaEstimator', () => {
     }
   })
 
-  it('does not make a trip inside Orchard longer than the trip from Orchard to Somerset, its nearest neighbour', () => {
+  it('does not cap a trip inside Orchard at the 2.5 minutes to Somerset: a place a few hundred metres away takes the walk it takes', () => {
     const real = loadPlanData().areas
     const saved = loadAreaTimes()
     const withSaved = createAreaEstimator({ areas: real, table: saved })
     const orchard = real.find((a) => a.id === 'orchard'), somerset = real.find((a) => a.id === 'somerset')
-    const neighbour = withSaved(orchard, somerset)
-    expect(neighbour).toBe(saved.minutes[pairKey('orchard', 'somerset')])
-    expect(neighbour).toBeLessThan(mockTravelMinutes(orchard, orchard) / 2) // the straight line charges 6 minutes to go nowhere
-    for (const [dLat, dLng] of [[0, 0], [0.002, 0], [0.004, -0.004], [-0.005, 0.003]]) {
+    expect(withSaved(orchard, somerset)).toBe(saved.minutes[pairKey('orchard', 'somerset')]) // the ride, 2.5
+    // Points whose nearest area is Orchard, 0.2 to 0.7 km from its centre and from each other.
+    for (const [dLat, dLng] of [[0.002, 0], [0.004, -0.004], [-0.002, 0.001], [0.001, 0.003]]) {
       const inside = { lat: orchard.lat + dLat, lng: orchard.lng + dLng }
-      expect(withSaved(orchard, inside), String([dLat, dLng])).toBeLessThanOrEqual(neighbour)
-      expect(withSaved(inside, orchard)).toBeLessThanOrEqual(neighbour)
+      expect(real.reduce((best, a) => (haversineKm(inside, a) < haversineKm(inside, best) ? a : best)).id, String([dLat, dLng])).toBe('orchard')
+      expect(withSaved(orchard, inside), String([dLat, dLng])).toBeCloseTo(Math.min(mockTravelMinutes(orchard, inside), accessMinutes(haversineKm(inside, orchard))), 9)
+      expect(withSaved(inside, orchard)).toBeCloseTo(withSaved(orchard, inside), 9)
     }
+    const far = { lat: orchard.lat + 0.004, lng: orchard.lng - 0.004 }, near2 = { lat: orchard.lat - 0.002, lng: orchard.lng + 0.001 }
+    expect(withSaved(far, near2)).toBeGreaterThan(5) // two places in the same area are not 2.5 minutes apart
   })
 
   it('refuses to be made without areas or a table', () => {
@@ -462,18 +464,25 @@ describe('what the table does not touch', () => {
     return answers
   }
 
-  it('answers /api/converge and /api/roam exactly as it does without the table', async () => {
+  // The table now times the places a ranking does not route (tests/table-times.test.js), so the numbers and the order may differ from
+  // the straight line's. What it must not change is the shape: the same fields, plus `travelSource` on each result and `table` in `travel`.
+  it('answers /api/converge and /api/roam with the same fields as without the table, plus where each time came from', async () => {
     const slot = { members, occasion: 'casual_meal', dateTime: '2026-10-27T12:30', durationMinutes: 60, categories: ['eat'], unknownPolicy: 'lenient', topN: 5 }
+    const sorted = (o) => Object.keys(o).sort()
     const [without, withTable] = await bothWays('/converge', { ...slot, centre: { lat: 1.3504, lng: 103.8428 } })
     expect(without.status).toBe('ok')
-    expect(withTable).toEqual(without)
+    expect(sorted(withTable)).toEqual(sorted(without))
+    expect(withTable.results).toHaveLength(without.results.length)
+    expect(sorted(withTable.results[0])).toEqual([...sorted(without.results[0]), 'travelSource'].sort())
+    expect(sorted(withTable.travel)).toEqual([...sorted(without.travel), 'table', 'tableAt'].sort())
     const [roamWithout, roamWith] = await bothWays('/roam', { ...slot, current: { lat: 1.3504, lng: 103.8428 } })
-    expect(roamWith).toEqual(roamWithout)
+    expect(sorted(roamWith)).toEqual(sorted(roamWithout))
+    expect(sorted(roamWith.results[0])).toEqual([...sorted(roamWithout.results[0]), 'travelSource'].sort())
   })
 
   it('answers with the same fields for the meeting area, only the areas it picked may differ', async () => {
     const [without, withTable] = await bothWays('/meeting-area', { members, dateTime: '2026-10-27T12:30', alternatives: 2 })
-    expect(Object.keys(withTable).sort()).toEqual(Object.keys(without).sort())
+    expect(Object.keys(withTable).sort()).toEqual([...Object.keys(without), 'travelSource'].sort())
     expect(withTable.candidates).toHaveLength(without.candidates.length)
   })
 })

@@ -21,6 +21,13 @@ import { ExternalApiError } from './http.js'
 //
 // A trip and its reverse share one route ("the way back takes as long as the way there"). Most members end
 // where they started, so this halves the calls. It is an approximation, and the docs say so.
+//
+// TABLE MODE. When the server has the table of real minutes between the meeting areas (planner/area-times.js), every candidate is first
+// ranked on table times, which cost no call (runWithTableTimes). Only the results a person sees first are then routed live (the top 3
+// places of a category, the chosen meeting area), and the engine runs again with their routed times, so the order among them is
+// the routed one. A result that climbs into the shown ones is routed in turn (at most TABLE_ROUTE_ROUNDS rounds). Candidates that are not shown
+// are never fetched. A candidate is read whole, either on routed times or on table times, never half and half. The answer's `travel` counts
+// them as `table`. Without the table, the code below this comment is what runs, as it always did.
 
 // The most OneMap route calls one planner request may make. One place, used by every route.
 export const MAX_ROUTED_TRIPS_PER_REQUEST = 60
@@ -63,11 +70,71 @@ const tripKey = (a, b) => [pointKey(a), pointKey(b)].sort().join('|')
 // (the meeting point of a non-station method) is grouped by its destination.
 const candidateKey = (a, b) => (a.id !== undefined ? `id:${a.id}` : b.id !== undefined ? `id:${b.id}` : `point:${pointKey(b)}`)
 
+// How many rounds of live routes a table-mode request may make after ranking on the table: the shown results are routed in the first,
+// and the ones that climbed into the shown results because of it in the next, until the shown results are routed or the rounds are used.
+// Each round takes about as long as its slowest trip; a round after the first starts only with TABLE_ROUND_MIN_MS left.
+export const TABLE_ROUTE_ROUNDS = 3
+
+// The least time that must be left for a later round of live routes (or for the named areas' pass) to start. A round with less would
+// send up to a round of calls that cannot answer in time, and spend the shared budget for nothing.
+export const TABLE_ROUND_MIN_MS = 500
+
+// The most the routes of a request may move the table times of the candidates not routed (see shiftNow in runWithTableTimes).
+export const MAX_SHIFT_MINUTES = 15
+
 // The `travel` object of an answer that used no OneMap at all.
 //
 // How to call:
 //   res.json({ ...result, travel: estimateTravel() })
 export const estimateTravel = () => ({ source: 'estimate', asked: 0, routed: 0, cached: 0, walked: 0, failed: 0, estimated: 0 })
+
+// Fetches the routes of `keys` (trip keys) from OneMap through the shared budget and cache, at most `concurrency` at a time, and writes
+// each answer to `outcome` ('routed' or 'failed' or 'estimated', for a OneMap that is unavailable) and `minutes`. It waits at most `waitMs`
+// in all. Resolves true when the time ran out first: trips that had not answered by then have no outcome, and an answer that arrives
+// later is ignored (the step is closed). A trip still waiting for its turn when the time ran out makes no call. Only an API failure is
+// tolerated; any other error is a bug and surfaces.
+//
+// How to call (inside this file):
+//   const timedOut = await fetchTrips({ onemap, trips, keys, dateTime, cache: true, concurrency: 6, onCalls: null, waitMs: 3000, outcome, minutes })
+async function fetchTrips({ onemap, trips, keys, dateTime, cache, concurrency, onCalls, waitMs, outcome, minutes }) {
+  let closed = false
+  const limit = pLimit(concurrency)
+  const fetchAll = Promise.all(
+    keys.map((key) =>
+      limit(async () => {
+        if (closed) return // The deadline passed while this trip waited its turn: do not spend a call on it.
+        const { a, b } = trips.get(key)
+        try {
+          onCalls?.(1)
+          const m = cache ? await onemap.routeMinutes(a, b, dateTime) : await onemap.routeMinutes(a, b, dateTime, { cache: false })
+          if (closed) return
+          if (m === null || m === undefined) outcome.set(key, 'failed')
+          else {
+            minutes.set(key, m)
+            outcome.set(key, 'routed')
+          }
+        } catch (err) {
+          if (!(err instanceof ExternalApiError)) throw err
+          // OneMap not available right now (no budget, circuit open, login failed): no call was made, so none is counted.
+          if (err instanceof OneMapUnavailableError) onCalls?.(-1)
+          if (closed) return
+          outcome.set(key, err instanceof OneMapUnavailableError ? 'estimated' : 'failed')
+        }
+      }),
+    ),
+  )
+  let timer
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve('deadline'), waitMs)
+    timer.unref?.()
+  })
+  try {
+    return (await Promise.race([fetchAll.then(() => 'done'), deadline])) === 'deadline'
+  } finally {
+    clearTimeout(timer)
+    closed = true
+  }
+}
 
 // The order in which candidate areas get real routes when a meeting-area request asks for runners-up or names areas.
 // The cap on trips is applied to this order exactly as it is to any other, so naming areas never adds a call
@@ -160,6 +227,10 @@ function routingOrderWithNamedAreas(candidates, { shortlistSize, protectedShortl
 //   cache           - false does not read or keep the routes (for trips from a person's position, which must not stay in this process). Default true.
 //   concurrency     - How many of this request's trips are in flight at once. Default 6. The shared budget in
 //                     services/onemap.js caps the whole server at 6 as well.
+//   table           - A function (a, b) => minutes, or null where there is none: the planner's table trip time (planner/area-times.js).
+//                     With it the request runs in table mode (see the comment at the top of this file): `maxCandidates`, `rankByEstimate` are
+//                     not used, and `travel` gains `table`. `routeFirst` (a function of the answer, returning { ranking: [ids], named: [ids] }
+//                     for the results shown first), `rounds` and `tableAt` (a sentence for `travel`: the moment the table is for) go with it. Without `routeFirst` every candidate is shown.
 export async function runWithRealTravel({
   onemap,
   dateTime,
@@ -174,13 +245,22 @@ export async function runWithRealTravel({
   concurrency = 6,
   estimate = null,
   cache = true,
+  table = null,
+  tableAt = null,
+  routeFirst = null,
+  rounds = TABLE_ROUTE_ROUNDS,
 }) {
   // `estimate(a, b)` guesses the minutes of a trip, to rank the candidates and to fill in the trips that get no real route. Left out,
   // the straight-line guess is used (the engine's own). It is handed on to the engine as `estimateMinutes`.
   const guess = estimate ?? mockTravelMinutes
   const withGuess = (deps) => (estimate ? { ...deps, estimateMinutes: estimate } : deps)
   if (!onemap?.routingEnabled) {
-    return { result: run(withGuess({})), travel: estimateTravel() }
+    return table ? runOnTableTimes({ run, table, estimate: guess, tableAt }) : { result: run(withGuess({})), travel: estimateTravel() }
+  }
+  if (table) {
+    return runWithTableTimes({
+      onemap, dateTime, run, table, estimate: guess, tableAt, routeFirst, rounds, namedAreas, maxTrips, deadlineMs, deadlineClock, onCalls, concurrency, cache,
+    })
   }
 
   // 1. Which trips does the engine need, and which candidate does each belong to?
@@ -265,51 +345,9 @@ export async function runWithRealTravel({
   // 3. Fetch them. Only an API failure is tolerated; any other error is a bug and must surface.
   // The whole step shares one deadline. When it passes, trips that have not answered use the estimate. A deadline with no time left
   // makes no call at all (p-limit would otherwise start the first few before the timer could close the step).
-  let closed = false
-  let timedOut = false
   if (toFetch.length > 0) {
     const waitMs = deadlineClock ? deadlineClock.start() : deadlineMs
-    if (!(waitMs > 0)) {
-      closed = true
-      timedOut = true
-    } else {
-      const limit = pLimit(concurrency)
-      const fetchAll = Promise.all(
-        toFetch.map((key) =>
-          limit(async () => {
-            if (closed) return // The deadline passed while this trip waited its turn: do not spend a call on it.
-            const { a, b } = trips.get(key)
-            try {
-              onCalls?.(1)
-              const m = cache ? await onemap.routeMinutes(a, b, dateTime) : await onemap.routeMinutes(a, b, dateTime, { cache: false })
-              if (closed) return
-              if (m === null || m === undefined) outcome.set(key, 'failed')
-              else {
-                minutes.set(key, m)
-                outcome.set(key, 'routed')
-              }
-            } catch (err) {
-              if (!(err instanceof ExternalApiError)) throw err
-              // OneMap not available right now (no budget, circuit open, login failed): no call was made, so none is counted.
-              if (err instanceof OneMapUnavailableError) onCalls?.(-1)
-              if (closed) return
-              outcome.set(key, err instanceof OneMapUnavailableError ? 'estimated' : 'failed')
-            }
-          }),
-        ),
-      )
-      let timer
-      const deadline = new Promise((resolve) => {
-        timer = setTimeout(() => resolve('deadline'), waitMs)
-        timer.unref?.()
-      })
-      try {
-        timedOut = (await Promise.race([fetchAll.then(() => 'done'), deadline])) === 'deadline'
-      } finally {
-        clearTimeout(timer)
-        closed = true
-      }
-    }
+    const timedOut = !(waitMs > 0) || (await fetchTrips({ onemap, trips, keys: toFetch, dateTime, cache, concurrency, onCalls, waitMs, outcome, minutes }))
     if (timedOut) {
       onemap.reportFallback?.('deadline')
       // A candidate the deadline cut part-way is estimated whole: a venue is real for every member or an estimate for every member,
@@ -343,4 +381,323 @@ export async function runWithRealTravel({
     result,
     travel: { source: counts.routed + counts.cached > 0 ? 'onemap' : 'estimate', asked: trips.size, ...counts },
   }
+}
+
+// Counts how the trips of a table-mode answer were timed, as the `travel` object. `outcome` holds what happened to the trips that were
+// asked of OneMap or taken from the cache or walked; `used` is the set of trip keys whose time the answer read from that (a trip of a
+// candidate read on routed times). Every other trip was timed by the table, or by the straight line where the table has no pair: a route
+// that arrived for a candidate that was then left on the table (one of its other trips failed, or the deadline cut it) counts as `table`,
+// so `routed` and `source` describe the times in the answer, not the calls made (`onCalls` counts those). The numbers add up:
+// asked = routed + cached + walked + table + failed + estimated. `tableAt` (the moment the table is for) is added when any trip is the table's.
+//
+// How to call (inside this file):
+//   countTravel(trips, outcome, used, table, 'Tuesday 12:30') // { source: 'onemap', asked: 12, routed: 3, cached: 0, walked: 0, table: 9, failed: 0, estimated: 0, tableAt: 'Tuesday 12:30' }
+function countTravel(trips, outcome, used, table, tableAt = null) {
+  const counts = { routed: 0, cached: 0, walked: 0, table: 0, failed: 0, estimated: 0 }
+  for (const [key, { a, b }] of trips) {
+    const kind = outcome.get(key)
+    if (kind === 'failed' || (used.has(key) && (kind === 'routed' || kind === 'cached' || kind === 'walked'))) counts[kind] += 1
+    else counts[Number.isFinite(table(a, b)) ? 'table' : 'estimated'] += 1
+  }
+  const source = counts.routed + counts.cached > 0 ? 'onemap' : counts.table > 0 ? 'table' : 'estimate'
+  return {
+    source, asked: trips.size, routed: counts.routed, cached: counts.cached, walked: counts.walked, table: counts.table, failed: counts.failed, estimated: counts.estimated,
+    ...(counts.table > 0 && tableAt && { tableAt }),
+  }
+}
+
+// Runs `run(deps)` on table times alone, with no OneMap call: for a request that says `travel: 'estimate'` and for a server with no OneMap
+// account, when the server has the table. The answer's `travel` counts the trips as `table`.
+//
+// How to call:
+//   const { result, travel } = runOnTableTimes({ run: (deps) => converge(input, data, deps), table: estimator.tableMinutes, estimate: estimator, tableAt: 'Tuesday 12:30' })
+//   travel // { source: 'table', asked: 20, routed: 0, cached: 0, walked: 0, table: 20, failed: 0, estimated: 0, tableAt: 'Tuesday 12:30' }
+export function runOnTableTimes({ run, table, estimate, tableAt = null }) {
+  const trips = new Map()
+  const result = run({
+    estimateMinutes: estimate,
+    travelSource: () => 'table',
+    travelMinutes: (a, b) => {
+      trips.set(tripKey(a, b), { a, b })
+      return table(a, b)
+    },
+  })
+  return { result, travel: countTravel(trips, new Map(), new Set(), table, tableAt) }
+}
+
+// Table mode: ranks every candidate on table times, then routes live only what is shown first.
+//
+//   1. A dry run records every trip the engine asks about, by candidate, and reads table times (no call).
+//   2. A candidate whose trips all cost no call (cached or short enough to walk) is read on those once the ranking shows it itself (it
+//      is among `routeFirst(result).ranking`, as now or in an earlier answer of this request). One the ranking does not show is never read
+//      live by it, whoever caused the cache to hold its routes: a name must never move the planner's own pick, in this request or in a
+//      later one. An area a person named (`namedAreas.afterShortlist`) that costs no call is read for its own entry only, until shown.
+//   3. The engine runs again. `routeFirst(result)` names the candidates it shows first: { ranking: [ids], named: [ids] }. Those not yet
+//      routed are fetched whole, in that order, while the cap (`maxTrips`, in whole candidates) and the deadline allow. `ranking` ones
+//      may change the order of the answer; `named` ones (areas a person named) are measured for their own entry only and the ranking
+//      never reads them. A candidate with `point:` key (the meeting point of a method other than station) is always first.
+//   4. The engine runs again on routed times for the candidates that arrived, and the table's for the rest, moved by how far the routes of
+//      this request differ from the table on the same trips (their median, so a Friday evening or a long feeder does not leave every
+//      unrouted candidate looking better than every routed one). Back to 3 for what climbed
+//      into the shown results, at most `rounds` times in all; a later round starts only with TABLE_ROUND_MIN_MS left.
+//   5. Last, the named areas are routed with the time and cap that are left, for their own entries. The ranking's rounds have the whole cap
+//      first, exactly as without names. A route bought for a name is never read by the ranking, not even if the area is shown.
+// A candidate with a trip OneMap could not answer, or one that did not arrive before the deadline, stays on table times whole.
+// `notShortlisted` (a meeting-area request's named areas outside the ranking) is never read by the ranking, as in the mode without a table.
+//
+// Options are those of runWithRealTravel, with: table (a function (a, b) => minutes or null, planner/area-times.js tableMinutes),
+// estimate (the straight-line fallback the engine uses where the table gives null), tableAt (the moment the table is for, for `travel`), routeFirst, rounds, namedAreas ({ notShortlisted, afterShortlist }).
+// Without `routeFirst` every candidate is shown (a run with one candidate, such as pricing a known place).
+//
+// How to call (inside this file; runWithRealTravel passes its options on):
+//   const { result, travel } = await runWithTableTimes({ onemap, dateTime, run, table, estimate, routeFirst: (r) => ({ ranking: [r.results[0].venueId] }), ...limits })
+async function runWithTableTimes({
+  onemap, dateTime, run, table, estimate, tableAt = null, routeFirst = null, rounds = TABLE_ROUTE_ROUNDS, namedAreas = null,
+  maxTrips, deadlineMs, deadlineClock, onCalls, concurrency, cache,
+}) {
+  // 1. Which trips does the engine need, and which candidate does each belong to?
+  const trips = new Map() // trip key -> { a, b }
+  const candidates = new Map() // candidate key -> { tripKeys: Set }
+  const dryResult = run({
+    estimateMinutes: estimate,
+    travelSource: () => 'table',
+    travelMinutes: (a, b) => {
+      const key = candidateKey(a, b)
+      const tk = tripKey(a, b)
+      let candidate = candidates.get(key)
+      if (!candidate) candidates.set(key, (candidate = { tripKeys: new Set() }))
+      candidate.tripKeys.add(tk)
+      if (!trips.has(tk)) trips.set(tk, { a, b })
+      return table(a, b)
+    },
+  })
+
+  const outside = new Set((namedAreas?.notShortlisted ?? []).map((id) => `id:${id}`))
+  const named = new Set([...(namedAreas?.afterShortlist ?? []).map((id) => `id:${id}`), ...outside]) // areas a person named: the ranking reads them only when it shows them
+  const outcome = new Map() // trip key -> 'routed' | 'cached' | 'walked' | 'failed' | 'estimated', for the trips OneMap or the cache answered
+  const minutes = new Map() // trip key -> minutes, for the trips that have a OneMap (or walking) time
+  const live = new Set() // candidates the ranking reads on routed times
+  const liveNamed = new Set() // candidates routed for a named area's own entry only
+  const tried = new Set() // candidates whose routes were asked for: never asked again
+  const refused = new Set() // candidates the ranking could not fit in the cap: the ranking does not ask again, but a named area still gets its own pass
+  const boughtForName = new Set() // candidates routed for a name: the ranking never reads them
+  const heads = [...candidates.keys()].filter((key) => key.startsWith('point:')) // meeting points of a method other than station: always shown
+  let spent = 0
+  let full = false // a ranking candidate did not fit the cap: no later one that needs calls is tried
+  let namedFull = false
+  let deadlineAt = null
+  let outOfTime = false
+
+  // What a candidate's trips would do, without doing it. A trip already answered in this request is free whether or not the cache is on (with
+  // `cache: false` a position's routes are not kept between requests, but one fetched here must not be bought twice). Otherwise: a OneMap
+  // service without peekRoute (a test double) cannot tell, so every trip counts as a call; without the cache, a trip answered before this
+  // request is asked again.
+  const peek = (key) => {
+    // A trip that failed in this request is "no route" and free, with the cache off too: a sibling that shares it must not buy it again.
+    if (outcome.get(key) === 'failed') return { kind: 'cached', minutes: null }
+    if (minutes.has(key)) return outcome.get(key) === 'walked' ? { kind: 'walk', minutes: minutes.get(key) } : { kind: 'cached', minutes: minutes.get(key) }
+    const { a, b } = trips.get(key)
+    const plan = onemap.peekRoute ? onemap.peekRoute(a, b, dateTime) : { kind: 'call' }
+    return !cache && plan.kind === 'cached' ? { kind: 'call' } : plan
+  }
+  // Takes the minutes a plan holds for a trip that costs no call.
+  const takeFree = (key, plan) => {
+    if (outcome.get(key) === 'routed') return // fetched in this request: it stays counted as a route
+    if (plan.kind === 'walk') {
+      minutes.set(key, plan.minutes)
+      outcome.set(key, 'walked')
+    } else if (plan.minutes === null) outcome.set(key, 'failed')
+    else {
+      minutes.set(key, plan.minutes)
+      outcome.set(key, 'cached')
+    }
+  }
+
+  // 2. A candidate that needs no call is read on its free times whole, but by the ranking only once the ranking shows it (`shown`, the keys
+  // `routeFirst` names): a cached trip the ranking did not ask for may be there because of an earlier name, and reading it would let that
+  // name move the pick. Places in one building share their routes, so a sibling that a fetch made free is read live as soon as it is shown.
+  // A named area that is free and not shown is read for its own entry only; it joins the ranking from the moment the ranking shows it,
+  // unless a name paid for its routes. Returns true when a candidate moved, and the caller runs the engine again.
+  //
+  // How to call (inside this file):
+  //   if (adoptFree(shownKeys(result))) result = runNow()
+  const adoptFree = (shown) => {
+    let moved = false
+    for (const [key, candidate] of candidates) {
+      if (live.has(key) || tried.has(key)) continue
+      const toRanking = shown.has(key) && !outside.has(key)
+      if (!toRanking && !named.has(key)) continue
+      if (liveNamed.has(key)) {
+        if (!toRanking || boughtForName.has(key)) continue
+        live.add(key)
+        moved = true
+        continue
+      }
+      const plans = [...candidate.tripKeys].map((tk) => [tk, peek(tk)])
+      if (plans.some(([, plan]) => plan.kind === 'call')) continue
+      if (plans.every(([, plan]) => plan.kind === 'walk' || plan.minutes !== null)) {
+        plans.forEach(([tk, plan]) => takeFree(tk, plan))
+        ;(toRanking ? live : liveNamed).add(key)
+        moved = true
+      } else {
+        tried.add(key)
+        plans.forEach(([tk, plan]) => plan.kind === 'cached' && plan.minutes === null && outcome.set(tk, 'failed')) // the cache remembers "no route"
+      }
+    }
+    return moved
+  }
+
+  // The keys of the candidates the ranking shows in `answer`, which it may read live: its own first results (and the meeting points), or
+  // every candidate when the run names none (a run with one candidate).
+  //
+  // How to call (inside this file):
+  //   shownKeys(result) // Set { 'id:bugis', 'id:city-hall' }
+  const shownKeys = (answer) => new Set(routeFirst ? [...heads, ...routeFirst(answer).ranking.map((id) => `id:${id}`)] : candidates.keys())
+
+  // How much the routes of this request differ from the table on the same trips, in minutes. The table is one Tuesday midday; a request may be a
+  // Friday evening, or one person's hops may run long (a start far from a station), so a candidate not routed is read on the table plus the shift
+  // of the person the trip starts from: the median of routed minus table over that person's trips to the candidates the ranking reads live
+  // (not walks, not the named areas'). A person with fewer than two such trips takes the median over everyone's, and with fewer than two in all
+  // the shift is 0. Each is kept within +-MAX_SHIFT_MINUTES. Without a shift every unrouted candidate would look better than every routed one
+  // whenever live runs longer than the table, and the first results shown would never be the routed ones.
+  //
+  // How to call (inside this file):
+  //   const shifts = shiftsNow() // { of(a, b) => minutes }
+  const endOf = (a, b) => (a.id !== undefined || b.id !== undefined ? (a.id !== undefined ? b : a) : null) // the end that is not a candidate: a person's point
+  const medianOf = (gaps) => {
+    if (gaps.length < 2) return null
+    const sorted = [...gaps].sort((x, y) => x - y)
+    const middle = sorted.length >> 1
+    const median = sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
+    return Math.max(-MAX_SHIFT_MINUTES, Math.min(MAX_SHIFT_MINUTES, median))
+  }
+  const shiftsNow = () => {
+    const all = []
+    const byPerson = new Map()
+    for (const key of live) {
+      for (const tk of candidates.get(key).tripKeys) {
+        const { a, b } = trips.get(tk)
+        const t = table(a, b)
+        if (outcome.get(tk) === 'walked' || !minutes.has(tk) || !Number.isFinite(t)) continue
+        const gap = minutes.get(tk) - t
+        all.push(gap)
+        const person = endOf(a, b)
+        if (person) {
+          const id = pointKey(person)
+          byPerson.set(id, [...(byPerson.get(id) ?? []), gap])
+        }
+      }
+    }
+    const everyone = medianOf(all) ?? 0
+    const own = new Map([...byPerson].map(([id, gaps]) => [id, medianOf(gaps)]))
+    return (a, b) => {
+      const person = endOf(a, b)
+      return (person && own.get(pointKey(person))) ?? everyone
+    }
+  }
+
+  // The engine's deps now: routed minutes for the candidates read live, the table's (moved by the shift above) for the rest. A table time of 0
+  // (two area centres that are one) stays 0, as in the dry run, and a shift never takes a trip below a minute (or below its own time if less).
+  const runNow = () => {
+    const shiftOf = shiftsNow()
+    const tableNow = (a, b) => {
+      const t = table(a, b)
+      return t === null || t === 0 ? t : Math.max(Math.min(1, t), t + shiftOf(a, b))
+    }
+    const timeFor = (set) => (a, b) => (set.has(candidateKey(a, b)) ? (minutes.get(tripKey(a, b)) ?? null) : tableNow(a, b))
+    const readsLive = (a, b) => live.has(candidateKey(a, b))
+    const anyLive = (a, b) => live.has(candidateKey(a, b)) || liveNamed.has(candidateKey(a, b))
+    return run({
+      estimateMinutes: estimate,
+      travelMinutes: timeFor(live),
+      ...(namedAreas && { includedTravelMinutes: timeFor(new Set([...live, ...liveNamed])) }),
+      travelSource: (a, b, included) => ((included ? anyLive : readsLive)(a, b) ? 'routed' : 'table'),
+    })
+  }
+
+  // 3. Route what the answer shows first, then run again. With nothing read live the engine would run on the dry run's input: reuse its answer.
+  // Settling reads what is free and shown (and what is free and named, for its own entry), until no answer shows another.
+  //
+  // How to call (inside this file):
+  //   settle() // result is now the answer for what the ranking shows
+  let result = dryResult
+  const settle = () => {
+    for (let i = 0; i <= candidates.size && adoptFree(shownKeys(result)); i++) result = runNow()
+  }
+  settle()
+
+  // Picks the candidates to route now, in order, whole, while the cap allows; `ranking` says whether the ranking will read them.
+  // A candidate already read live, or already tried, is left out. Returns { key, candidate, ranking, plans } for each.
+  const choose = (list) => {
+    const batch = []
+    for (const [key, ranking] of list) {
+      const candidate = candidates.get(key)
+      if (!candidate || batch.some((b) => b.key === key)) continue
+      if (live.has(key) || (!ranking && liveNamed.has(key)) || tried.has(key) || (ranking && refused.has(key))) continue
+      const plans = [...candidate.tripKeys].map((tk) => [tk, peek(tk)])
+      const cost = plans.filter(([, plan]) => plan.kind === 'call').length
+      // A candidate that needs calls must fit whole. Once a ranking one did not, no later ranking one that needs calls is tried; the named areas
+      // come after the ranking and have what it leaves. A ranking candidate the cap refused is not "tried" for the named pass: a named area the
+      // ranking shows still gets its own pass.
+      if (cost > 0 && ((ranking ? full : namedFull) || spent + cost > maxTrips)) {
+        if (ranking) {
+          full = true
+          refused.add(key)
+        } else {
+          namedFull = true
+          tried.add(key)
+        }
+        continue
+      }
+      spent += cost
+      batch.push({ key, candidate, ranking, plans })
+    }
+    return batch
+  }
+  // Fetches what a batch needs within the one deadline of the request (started when the first call is needed, the lazy clock of
+  // runWithRealTravel), then reads each candidate whose trips all answered on its routed times. A round after the first starts only
+  // with TABLE_ROUND_MIN_MS left: with less, a round of calls would not answer in time and would only spend the shared budget.
+  const route = async (batch, later) => {
+    const toFetch = [...new Set(batch.flatMap((b) => b.plans.filter(([, plan]) => plan.kind === 'call').map(([tk]) => tk)))]
+    if (toFetch.length > 0) {
+      if (deadlineAt === null) deadlineAt = Date.now() + Math.max(0, deadlineClock ? deadlineClock.start() : deadlineMs)
+      const left = deadlineAt - Date.now()
+      const timedOut = !(left > (later ? TABLE_ROUND_MIN_MS : 0)) || (await fetchTrips({ onemap, trips, keys: toFetch, dateTime, cache, concurrency, onCalls, waitMs: left, outcome, minutes }))
+      if (timedOut) {
+        onemap.reportFallback?.('deadline')
+        outOfTime = true
+      }
+    }
+    for (const { key, candidate, ranking, plans } of batch) {
+      tried.add(key)
+      if (!ranking && plans.some(([, plan]) => plan.kind === 'call')) boughtForName.add(key)
+      const free = plans.filter(([, plan]) => plan.kind !== 'call')
+      const answered = [...candidate.tripKeys].every((tk) => minutes.has(tk) || free.some(([ftk, plan]) => ftk === tk && (plan.kind === 'walk' || plan.minutes !== null)))
+      if (!answered) {
+        free.forEach(([tk, plan]) => plan.kind === 'cached' && plan.minutes === null && outcome.set(tk, 'failed'))
+        continue
+      }
+      free.forEach(([tk, plan]) => takeFree(tk, plan))
+      ;(ranking ? live : liveNamed).add(key)
+    }
+    result = runNow() // the caller settles what the ranking now shows before it decides anything else
+  }
+
+  for (let round = 1; round <= rounds && !outOfTime; round++) {
+    settle() // the answer must show what the ranking reads: a free candidate it shows is read live before anything else is decided
+    const wanted = routeFirst ? routeFirst(result) : { ranking: [...candidates.keys()].map((key) => key.replace(/^id:/, '')) }
+    const batch = choose([...heads.map((key) => [key, true]), ...wanted.ranking.map((id) => [`id:${id}`, true])])
+    if (batch.length === 0) break
+    await route(batch, round > 1)
+  }
+  settle()
+  // 5. The named areas last, with the time and cap that are left: they share neither with the ranking's rounds.
+  if (!outOfTime && routeFirst) {
+    const batch = choose((routeFirst(result).named ?? []).map((id) => [`id:${id}`, false]))
+    if (batch.length > 0) await route(batch, true) // no settling after this: nothing a name bought may be read by the ranking
+  }
+
+  // The trips whose routed (or cached, or walked) time the answer read.
+  const used = new Set([...live, ...liveNamed].flatMap((key) => [...candidates.get(key).tripKeys]))
+  return { result, travel: countTravel(trips, outcome, used, table, tableAt) }
 }
