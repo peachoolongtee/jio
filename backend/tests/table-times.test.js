@@ -95,6 +95,17 @@ describe('meeting area in table mode', () => {
     expect(result.candidates.every((c) => c.approximate === false)).toBe(true)
   })
 
+  it("works with Faith's balanced rule: the area the rule chooses is the one routed first", async () => {
+    const onemap = oneMapDouble()
+    const runs = runsWith(onemap, { meetingFinalists: 1 })
+    const input = meetingInput({ rule: 'balanced', choices: true })
+    const { result } = await runs.runWithTravel(input, data, runs.meetingAreaWithRouting, runs.meetingAreaTravelFor(input))
+    expect(result.rule).toBe('balanced')
+    expect(result.diagnostics.rankedAreaIds[0]).toBe(result.area.id)
+    expect(onemap.ends()).toEqual(new Set([result.area.id]))
+    expect(result.travelSource).toBe('routed')
+  })
+
   it('asks for no trip of an area it does not show, and only for the chosen one when one is asked for', async () => {
     const onemap = oneMapDouble()
     const { result } = await askMeeting(runsWith(onemap, { meetingFinalists: 1 }), meetingInput())
