@@ -101,7 +101,9 @@ function kindOf(place, { searched = false } = {}) {
   if (has('food_court')) return { category: 'eat', kind: 'hawker', cuisine: 'hawker' };
   if (has('bar', 'pub', 'wine_bar', 'cocktail_bar', 'night_club')) return { category: 'drink', kind: 'bar', cuisine: 'bar' };
   if (has('dessert_shop', 'ice_cream_shop', 'dessert_restaurant', 'bakery', 'confectionery')) return { category: 'eat', kind: 'dessert', cuisine: 'dessert' };
-  if (has('cafe', 'coffee_shop', 'tea_house', 'cat_cafe')) return { category: 'drink', kind: 'cafe', cuisine: 'cafe' };
+  // A bubble tea or tea shop such as Chagee is typed 'tea_store' (and 'food_store'), with no 'cafe' at all: without it, the generic
+  // 'food' type below would make it somewhere to eat.
+  if (has('cafe', 'coffee_shop', 'tea_house', 'cat_cafe', 'tea_store', 'coffee_store', 'juice_shop')) return { category: 'drink', kind: 'cafe', cuisine: 'cafe' };
   if (has('restaurant', 'meal_takeaway', 'meal_delivery') || cuisine) return { category: 'eat', kind: 'restaurant', cuisine: cuisine ?? 'restaurant' };
   // 'food' alone is Google's catch-all (a supermarket and a convenience store carry it): a food shop is a shop.
   if (has('food') && !has(...FOOD_SHOP_TYPES)) return { category: 'eat', kind: 'restaurant', cuisine: cuisine ?? 'restaurant' };

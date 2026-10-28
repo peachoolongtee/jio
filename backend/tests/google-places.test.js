@@ -21,6 +21,8 @@ describe('google-adapter', () => {
     expect(kindOf({ primaryType: 'chinese_noodle_restaurant' })).toMatchObject({ cuisine: 'chinese' })
     expect(kindOf({ primaryType: 'cafe' })).toMatchObject({ category: 'drink', kind: 'cafe' })
     expect(kindOf({ primaryType: 'bar' })).toMatchObject({ category: 'drink', kind: 'bar' })
+    // A bubble tea shop as Google types it (CHAGEE The Woodleigh Mall): a tea store, with no cafe type, is a drink, not a meal.
+    expect(kindOf({ primaryType: 'tea_store', types: ['tea_store', 'food_store', 'food', 'store', 'point_of_interest', 'establishment'] })).toMatchObject({ category: 'drink', kind: 'cafe' })
     expect(kindOf({ primaryType: 'food_court' })).toMatchObject({ category: 'eat', kind: 'hawker' })
     expect(kindOf({ primaryType: 'dessert_shop' })).toMatchObject({ category: 'eat', kind: 'dessert' })
     expect(kindOf({ primaryType: 'restaurant' })).toMatchObject({ kind: 'restaurant', cuisine: 'restaurant' })
