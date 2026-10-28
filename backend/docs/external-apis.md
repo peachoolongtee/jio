@@ -67,19 +67,19 @@ Added 11 Oct 2026 (ticket #108; research in ticket #115). Code: `parseTwentyFour
   2. Whole candidates are chosen, in the engine's own priority order, until the next one would pass the cap (below). Their trips are fetched, 6 at a time.
   3. The real run reads them.
 
-  A trip OneMap can't answer, and every trip of a candidate that was not routed, keeps the estimate and is marked `approximate`.
+  A trip OneMap can't answer, and every trip of a candidate that was not routed, keeps the estimate and is marked `approximate`. With the table of real times between the areas (see below) the fallback is the table's time, labelled `travelSource: 'table'` and not `approximate`; only a trip the table has no pair for is the straight line.
 - **Fewer calls:**
   - Trips under 400 m are walked, with no call.
   - The way back reuses the way there.
   - Routes are cached 6 hours, by points rounded to about 110 m and the hour. A failed answer is never cached.
-  - The meeting area tries 16 areas, not 37, and gives real routes to the best 5 of them by estimate.
+  - The meeting area tries 16 areas, not 37, and gives real routes to the best 5 of them by estimate. **With the table (the normal case) it ranks all 16 on table times with no call and routes only the best 2, plus a second round for any area a live time lifts into them; places rank on the table too and only the best 3 are routed** (planner-api.md, "Table mode").
 - **Without an account:** routing stays off and travel is the estimate (`travel.source: 'estimate'`). The server prints this at startup.
 
 ### Keeping the shared account safe
 
 The OneMap account is shared by the whole server and allows 300 calls a minute in total. Nothing a caller sends may be able to spend more than the account allows, so there are three layers.
 
-1. **A cap on one request.** `MAX_ROUTED_TRIPS_PER_REQUEST = 60` (`services/travel-times.js`). Candidates are routed whole, in priority order, until the next one would pass the cap: a venue is either real for every member or an estimate for every member. Trips answered from the cache and trips under 400 m make no call and do not count. The venues in `currentOptionIds` count like any other venue. For `/api/meeting-area` the areas are first ordered by their estimated result and only the best 5 are routed; if even one area would pass the cap, nothing is routed and the answer is an estimate with `approximate: true`. One request also waits at most 3 seconds for OneMap in total (`ROUTING_DEADLINE_MS`, an environment setting: whole milliseconds from 1000 to 15000, blank means 3000, anything else stops the server starting); trips not answered by then keep the estimate and are `approximate`, and an answer that arrives later changes nothing. A request that sends `travel: 'estimate'` (sample data) makes no OneMap call at all.
+1. **A cap on one request.** In table mode (the planner has `area-times.json`) a request routes only what it shows first, typically 6 to 10 trips, and the cap below still holds for it. `MAX_ROUTED_TRIPS_PER_REQUEST = 60` (`services/travel-times.js`). Candidates are routed whole, in priority order, until the next one would pass the cap: a venue is either real for every member or an estimate for every member. Trips answered from the cache and trips under 400 m make no call and do not count. The venues in `currentOptionIds` count like any other venue. For `/api/meeting-area` the areas are first ordered by their estimated result and only the best 5 are routed; if even one area would pass the cap, nothing is routed and the answer is an estimate with `approximate: true`. One request also waits at most 3 seconds for OneMap in total (`ROUTING_DEADLINE_MS`, an environment setting: whole milliseconds from 1000 to 15000, blank means 3000, anything else stops the server starting); trips not answered by then keep the estimate and are `approximate`, and an answer that arrives later changes nothing. A request that sends `travel: 'estimate'` (sample data) makes no OneMap call at all.
 2. **One budget for the process** (`services/budget.js`, owned by `services/onemap.js`). Routing, address search and login all draw from it:
    - at most 6 calls in flight at once, across all requests;
    - a token bucket of `ONEMAP_CALLS_PER_MINUTE` calls a minute (default 240, leaving headroom under 300). It starts full and refills evenly.

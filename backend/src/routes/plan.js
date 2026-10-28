@@ -59,13 +59,17 @@ import { createItineraryAi } from '../services/itinerary-ai.js'
 // `ai` is the itinerary AI from services/itinerary-ai.js. Without one, /itinerary/arrange chooses by its rules.
 //
 // Travel times. /meeting-area, /converge and /roam say where theirs came from in a top-level
-// `travel: { source, asked, routed, cached, walked, failed, estimated }` (the numbers add up, see
+// `travel: { source, asked, routed, cached, walked, table?, failed, estimated }` (the numbers add up, see
 // services/travel-times.js):
 //   onemap    real public transport times from OneMap (services/onemap.js), fetched before the engine runs
 //             (services/travel-times.js). A trip OneMap could not answer falls back to the estimate, and that
 //             result is marked `approximate`.
-//   estimate  the engine's own estimate: there is no OneMap service, or it has no account, or every call failed.
-// One request makes at most 60 OneMap route calls, for whole venues or areas only. The rest keep the estimate.
+//   table     (only on a server with the table of real times between the areas) no trip was routed: every time is the
+//             table's, real transit minutes between the areas plus a fitted hop at each end (planner/area-times.js).
+//   estimate  the engine's own estimate: there is no table and no OneMap service, or it has no account, or every call failed.
+// With the table (`table` is then in the counts, and each result says `travelSource`: 'routed' | 'table' | 'estimate') every area and
+// place is ranked on table times, and only the results shown first are routed: the best places (3), the chosen meeting area and the
+// next best (2). One request makes at most 60 OneMap route calls, for whole venues or areas only. Without the table the rest keep the estimate.
 
 // What one ranking may spend on Google besides its nearby search, for the places in `currentOptionIds` that Google
 // has to be asked about (MAX.googleOptions of them are read from the request). Of those not already cached or
