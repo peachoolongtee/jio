@@ -1628,3 +1628,28 @@ The lead asked for the latency behind some loading screens to be investigated. T
 | Piece | Agent | Branch | Brief, in short |
 |---|---|---|---|
 | Estimates for demo seeding, a shorter wait for people, no duplicate requests | implementer (full stack) | `fix/planner-latency`, off `dev` | (1) The showcase and demo-tour seeding ask the planner for estimated travel and make no OneMap call. (2) The routing deadline for requests people wait on drops from 8 s to about 3 s (configurable); trips not routed in time use the estimate, flagged `approximate`. (4) Identical concurrent planner requests are sent once. Before and after timings, and tests. |
+
+**Results of round 39** (`fix/planner-latency`, `2e9072f`).
+- **What changed:**
+  - **The `travel` option:** `travel: 'estimate'` on `/api/meeting-area`, `/api/converge` and `/api/roam` never routes. The showcase and tour builds send it, so they make 0 OneMap calls, which a test proves.
+  - **The routing deadline:** `ROUTING_DEADLINE_MS` defaults to 3000 and can be set (1000 to 15000).
+  - **Request sharing:** `postShared` sends identical in-flight planner reads once.
+- **Measured with real OneMap, before and after:**
+  - meeting area 3.7 s and 3.0 s;
+  - one category's ranking 8.0 s and 3.0 s;
+  - showcase build 10.9–14.2 s and 6.3 s.
+
+  The rest of the showcase time is the local data layer's deliberate `DELAY`. Faster first answers are more often `approximate`.
+- **The independent review's major finding** was the session server's shared deadline: it started before the database reads, carried across retries, and still fired calls with no time left. It is fixed:
+  - a lazy clock per attempt;
+  - no call when no time is left;
+  - every call debited.
+
+  Also fixed: a candidate cut by the deadline is estimated whole. Its other findings were minor.
+- **Checked again by the lead's session:**
+  - backend 1885 passed, 2 skipped;
+  - frontend 2710 passed under `TZ=UTC`;
+  - both with outbound calls blocked;
+  - e2e 15 passed;
+  - build exit 0.
+- **Next:** fix 3, routing far less by using the 666 real area-to-area times.
