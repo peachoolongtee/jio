@@ -66,8 +66,12 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
     await expect(page.getByText('You have 9 meetups going.')).toBeVisible()
     await expect(page.getByRole('button', { name: /^Chinatown makan crawl Wed 4 Nov/ })).toBeVisible()
 
-    // 1. Open today's outing and finish it.
-    await page.getByRole('link', { name: 'Open meetup Chinatown makan crawl' }).click()
+    // 1. Open today's outing and finish it. The pointer can be left resting on a map pin, whose popover carries a second
+    // "Open meetup" link with the same name; move it away and wait until only the detail card's link is left.
+    await page.mouse.move(0, 0)
+    const openMeetup = page.getByRole('link', { name: 'Open meetup Chinatown makan crawl' })
+    await expect(openMeetup).toHaveCount(1)
+    await openMeetup.click()
     await expect(page.getByRole('heading', { level: 1, name: "Today's plan" })).toBeVisible()
     await page.getByRole('button', { name: 'Finish outing' }).click()
     const question = page.getByRole('dialog', { name: 'Finish outing?' })
