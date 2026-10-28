@@ -680,7 +680,8 @@ function toOption(r, block = null) {
     explanation: r.explanation,
     verify: r.verify,
     dietUnknown: r.dietUnknown,
-    approximate: r.approximate,
+    // "About": the planner used the straight line (`approximate`) or its table of times between the areas (`travelSource: 'table'`) for this place.
+    approximate: !!r.approximate || r.travelSource === 'table',
     ...(weather ? { weather } : {}),
   }
 }

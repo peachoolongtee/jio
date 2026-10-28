@@ -463,18 +463,25 @@ describe('what the table does not touch', () => {
     return answers
   }
 
-  it('answers /api/converge and /api/roam exactly as it does without the table', async () => {
+  // The table now times the places a ranking does not route (tests/table-times.test.js), so the numbers and the order may differ from
+  // the straight line's. What it must not change is the shape: the same fields, plus `travelSource` on each result and `table` in `travel`.
+  it('answers /api/converge and /api/roam with the same fields as without the table, plus where each time came from', async () => {
     const slot = { members, occasion: 'casual_meal', dateTime: '2026-10-27T12:30', durationMinutes: 60, categories: ['eat'], unknownPolicy: 'lenient', topN: 5 }
+    const sorted = (o) => Object.keys(o).sort()
     const [without, withTable] = await bothWays('/converge', { ...slot, centre: { lat: 1.3504, lng: 103.8428 } })
     expect(without.status).toBe('ok')
-    expect(withTable).toEqual(without)
+    expect(sorted(withTable)).toEqual(sorted(without))
+    expect(withTable.results).toHaveLength(without.results.length)
+    expect(sorted(withTable.results[0])).toEqual([...sorted(without.results[0]), 'travelSource'].sort())
+    expect(sorted(withTable.travel)).toEqual([...sorted(without.travel), 'table'].sort())
     const [roamWithout, roamWith] = await bothWays('/roam', { ...slot, current: { lat: 1.3504, lng: 103.8428 } })
-    expect(roamWith).toEqual(roamWithout)
+    expect(sorted(roamWith)).toEqual(sorted(roamWithout))
+    expect(sorted(roamWith.results[0])).toEqual([...sorted(roamWithout.results[0]), 'travelSource'].sort())
   })
 
   it('answers with the same fields for the meeting area, only the areas it picked may differ', async () => {
     const [without, withTable] = await bothWays('/meeting-area', { members, dateTime: '2026-10-27T12:30', alternatives: 2 })
-    expect(Object.keys(withTable).sort()).toEqual(Object.keys(without).sort())
+    expect(Object.keys(withTable).sort()).toEqual([...Object.keys(without), 'travelSource'].sort())
     expect(withTable.candidates).toHaveLength(without.candidates.length)
   })
 })

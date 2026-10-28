@@ -148,6 +148,16 @@ describe('rankSlot', () => {
     expect(lastWeather.value).toEqual({ source: 'unavailable' })
   })
 
+  it("says 'about' for a place the planner timed from its table of area times, and not for a routed one or one with no label", async () => {
+    const venue = { id: 'v', name: 'V', category: 'eat', avgPricePerPerson: 8, setting: 'indoor', rating: 4.2 }
+    const result = (rank, extra) => ({ venue: { ...venue, id: `v${rank}` }, rank, score: rank, walkMinutes: 4, crowd: 'busy', reasons: [], warnings: [], ...extra })
+    vi.spyOn(api, 'post').mockResolvedValue(answer({
+      results: [result(1, { approximate: false, travelSource: 'routed' }), result(2, { approximate: false, travelSource: 'table' }), result(3, { approximate: true, travelSource: 'estimate' }), result(4, { approximate: false })],
+    }))
+    const { options } = await rankSlot({ ...ASK })
+    expect(options.map((o) => o.approximate)).toEqual([false, true, true, false])
+  })
+
   it('gives options no crowd field', async () => {
     const venue = { id: 'v', name: 'V', category: 'eat', avgPricePerPerson: 8, setting: 'indoor', rating: 4.2 }
     vi.spyOn(api, 'post').mockResolvedValue(answer({ results: [{ venue, rank: 1, score: 3, walkMinutes: 4, crowd: 'busy', reasons: [], warnings: [] }] }))

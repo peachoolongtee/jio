@@ -88,6 +88,14 @@ export function suggestedAreaIds(suggestions, members, areasById) {
   return [...new Set(ids)].slice(0, MAX.suggestedSpots)
 }
 
+// Whether a figure is to be shown as "about": its trips used the straight-line estimate (`approximate`), or the table of times between the
+// areas, with no live route (`travelSource: 'table'`, services/travel-times.js table mode). The stored `approximate` columns mean this, because
+// they have no third state. A planner answer's own `approximate` stays about the straight line alone.
+//
+// How to call:
+//   isAbout({ approximate: false, travelSource: 'table' }) // true
+export const isAbout = (x) => !!x?.approximate || x?.travelSource === 'table'
+
 // The planner's answer for the spots as the rows to store. The chosen area and its runners-up get rank 1, 2 and 3; an area
 // that is on the list only because a member suggested it has no rank. Minutes are kept unrounded (the screens round them, but the
 // tie-break between spots compares the longest trip exactly). A figure is approximate when its own trips used an estimate,
@@ -107,7 +115,7 @@ export function spotRowsFrom(result, travel) {
       worst_minutes: worst,
       mean_minutes: Math.min(worst, clampMinutes(c.meanMinutes)),
       travel_minutes: Object.fromEntries(Object.entries(c.travelByMember).map(([id, minutes]) => [lower(id), clampMinutes(minutes)])),
-      approximate: !!c.approximate || estimated,
+      approximate: isAbout(c) || estimated,
     }
   })
 }
@@ -295,21 +303,25 @@ export function releasedBannerText({ hostName, status, hadVotes, placeName = nul
 //
 // How to call (through the shared runs, so the OneMap cap and budget apply):
 //   await runs.runWithTravel({ members, area: { id, lat, lng } }, data, priceAreaRun)
-//   // result: { travelByMember: { <user id>: minutes }, approximate: false }
+//   // result: { travelByMember: { <user id>: minutes }, approximate: false, travelSource: 'routed' | 'table' (in table mode) }
 export function priceAreaRun(input, _data, deps = {}) {
   const estimate = deps.estimateMinutes ?? mockTravelMinutes
   const ask = deps.travelMinutes ?? estimate
   let approximate = false
+  const kinds = new Set() // where the times came from, when the travel layer says (deps.travelSource)
   const travelByMember = {}
   for (const m of input.members) {
     const minutes = ask(m.start, input.area)
-    if (Number.isFinite(minutes) && minutes >= 0) travelByMember[m.id] = minutes
-    else {
+    if (Number.isFinite(minutes) && minutes >= 0) {
+      travelByMember[m.id] = minutes
+      if (deps.travelSource) kinds.add(deps.travelSource(m.start, input.area))
+    } else {
       approximate = true
+      kinds.add('estimate')
       travelByMember[m.id] = estimate(m.start, input.area)
     }
   }
-  return { travelByMember, approximate }
+  return { travelByMember, approximate, ...(deps.travelSource && { travelSource: kinds.has('table') ? 'table' : 'routed' }) }
 }
 
 // One priced area as the row to store, for the host's known place. With nobody located there are no trips, so the figures are zero.
@@ -326,6 +338,6 @@ export function knownPlaceRow(areaId, priced, travel) {
     worst_minutes: worst,
     mean_minutes: values.length ? Math.min(worst, values.reduce((s, m) => s + m, 0) / values.length) : 0,
     travel_minutes: Object.fromEntries(minutes),
-    approximate: !!priced?.approximate || (values.length > 0 && travel?.source === 'estimate'),
+    approximate: isAbout(priced) || (values.length > 0 && travel?.source === 'estimate'),
   }
 }

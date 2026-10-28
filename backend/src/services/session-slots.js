@@ -1,5 +1,5 @@
 import { CATEGORIES, fromMinutes, layoutSlots, toMinutes } from '../planner/slot-plan.js'
-import { locatedMembers, lower } from './session-plan.js'
+import { isAbout, locatedMembers, lower } from './session-plan.js'
 
 // The rules of the slots and options of a voting session, as pure functions: rows in, rows out. No database, no planner call, no clock.
 // The service (services/sessions.js) loads the rows into a "draft", the voting rules (services/session-voting.js) change the draft with
@@ -148,7 +148,7 @@ export function optionDetails(r) {
     swap: r.swap ?? null,
     explanation: r.explanation ?? '',
     ...(checkNeeds ? { checkNeeds: true } : {}),
-    approximate: !!r.approximate,
+    approximate: isAbout(r),
     ...(r.weather ? { weather: r.weather } : {}),
   }
   // Through JSON, so a value that is undefined is not there at all.
@@ -269,7 +269,7 @@ export function roamReply(answer, { weather, stopVenueIds, proposedBy }) {
       swap: r.swap ?? null,
       ...(r.weather ? { weather: r.weather } : {}),
       explanation: r.explanation ?? '',
-      approximate: !!r.approximate,
+      approximate: isAbout(r),
       ...((r.verify?.length ?? 0) + (r.dietUnknown?.length ?? 0) > 0 ? { checkNeeds: true } : {}),
       isStop: stopVenueIds.has(r.venueId),
       proposedBy: proposedBy.get(r.venueId) ?? null,

@@ -1969,7 +1969,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
       ...allowance.routing(),
     }))
     spend(allowance, travel)
-    return { people, minutes: result.minutes, approximate: travel.source === 'estimate' || travel.estimated > 0 || travel.failed > 0 }
+    return { people, minutes: result.minutes, approximate: travel.source === 'estimate' || travel.estimated > 0 || travel.failed > 0 || travel.table > 0 }
   }
 
   // GET /api/sessions/:id/trips-home: the minutes each person needs to get home from the last stop, for the itinerary of a confirmed plan. A

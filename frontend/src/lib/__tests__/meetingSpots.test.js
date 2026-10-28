@@ -34,12 +34,12 @@ async function answerLikeTheNewBackend({ members, alternatives, include = [] }) 
   const price = (areaId, source) => {
     const travelByMember = Object.fromEntries(members.map((m, i) => [m.id, world.fixed[areaId]?.[m.id] ?? WORST[areaId] - (i === 0 ? 0 : 5) + (world.extra[m.id] || 0) + (world.skew[startOf(m)] || 0)]))
     const minutes = Object.values(travelByMember)
-    return { area: area(areaId), worstMinutes: Math.max(...minutes), meanMinutes: minutes.reduce((a, b) => a + b, 0) / minutes.length, travelByMember, approximate: false, source }
+    return { area: area(areaId), worstMinutes: Math.max(...minutes), meanMinutes: minutes.reduce((a, b) => a + b, 0) / minutes.length, travelByMember, approximate: false, ...(world.table ? { travelSource: world.table.includes(areaId) ? 'table' : 'routed' } : {}), source }
   }
   const ranked = world.ranked.slice(0, 1 + (alternatives || 0))
   const candidates = [...ranked.map((a) => price(a, 'ranked')), ...include.filter((a) => !ranked.includes(a)).map((a) => price(a, 'included'))]
   const [first] = candidates
-  const answer = { area: first.area, method: 'station', travelByMember: first.travelByMember, worstMinutes: first.worstMinutes, approximate: false, ...(world.estimate ? { travel: { source: 'estimate' } } : {}) }
+  const answer = { area: first.area, method: 'station', travelByMember: first.travelByMember, worstMinutes: first.worstMinutes, approximate: false, ...(world.table ? { travelSource: first.travelSource } : {}), ...(world.estimate ? { travel: { source: 'estimate' } } : {}) }
   return alternatives === undefined && !include.length ? answer : { ...answer, candidates }
 }
 
@@ -913,6 +913,20 @@ describe('a suggestion saved before it was priced', () => {
 })
 
 describe('travel times that are estimates', () => {
+  // The backend's table mode routes the chosen area and times the runners-up from its table of real times between the areas: not an
+  // estimate (`approximate` stays false), but not this trip's route either, so those spots say "about" and the routed one does not.
+  it("say 'about' for the spots the planner timed from its table, and not for the one it routed", async () => {
+    const { api, id } = await locating()
+    world.table = ['bishan', 'orchard']
+    const session = await api.setLocation(id, 'faith', 'start', { areaId: 'woodlands' })
+    const [routed, ...timed] = session.spots.list
+    expect(routed).toMatchObject({ areaId: 'bugis', approximate: false })
+    expect(timed.map((s) => [s.areaId, s.approximate])).toEqual([['bishan', true], ['orchard', true]])
+    expect(session.meeting.approximate).toBe(false)
+    expect(tripsLine(routed)).not.toContain('about')
+    expect(tripsLine(timed[0])).toContain('about')
+  })
+
   it('are approximate for every spot and the meeting area when the planner says its times are estimates', async () => {
     const { api, id } = await locating()
     world.estimate = true

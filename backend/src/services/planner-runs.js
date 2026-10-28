@@ -1,7 +1,7 @@
 import { createAreaEstimator } from '../planner/area-times.js'
-import { meetingArea, meetingAreaPlan } from '../planner/engine.js'
+import { converge, meetingArea, meetingAreaPlan, roam } from '../planner/engine.js'
 import { currentScenario } from './scenario.js'
-import { estimateTravel, ROUTING_DEADLINE_MS, runWithRealTravel } from './travel-times.js'
+import { estimateTravel, ROUTING_DEADLINE_MS, runOnTableTimes, runWithRealTravel } from './travel-times.js'
 
 // How the planner engine is run with real travel times, in one place. The stateless planner routes (routes/plan.js) and the
 // session endpoints (services/sessions.js) both go through this, so a session request spends the same OneMap budget as a
@@ -29,6 +29,25 @@ export const MEETING_CANDIDATES_WITH_ROUTING = 16
 // names are routed after the first MEETING_AREAS_ROUTED finalists and before the extra ones, so extra finalists never starve them.
 export const MEETING_AREAS_ROUTED = 5
 export const MEETING_FINALISTS_MAX = 12
+
+// With the table of times between the areas (table mode, services/travel-times.js) every area is ranked on table times with no call, and
+// only the best of them get live routes: this many (a meeting area is routed for these and, when the request asks for runners-up or
+// names areas, for those too). MEETING_FINALISTS changes it, up to MEETING_FINALISTS_MAX. Two cost no more waiting than one for a group
+// of three or fewer (a round of six trips), and they let a live route overturn the table's pick.
+export const MEETING_AREAS_ROUTED_ON_TABLE = 2
+
+// The places of a category (or of Roam) routed live in table mode: the best this many of what the answer returns, then the places the
+// group is already voting on that still fit (`current`). The rest of the answer is on table times.
+export const PLACES_ROUTED_FIRST = 3
+
+// The candidates a Converge or Roam answer shows first, as table mode takes them: the best PLACES_ROUTED_FIRST results, then the options
+// the group already has.
+//
+// How to call:
+//   placesFirst({ results: [{ venueId: 'a' }, { venueId: 'b' }], current: [{ venueId: 'z' }] }) // { ranking: ['a', 'b', 'z'] }
+export const placesFirst = (result) => ({
+  ranking: [...(result.results ?? []).slice(0, PLACES_ROUTED_FIRST), ...(result.current ?? [])].map((r) => r.venueId),
+})
 
 // Builds the shared runs for one set of plan data and one OneMap service.
 //
@@ -59,10 +78,13 @@ export function createPlannerRuns({
   onemap = null,
   routingDeadlineMs = ROUTING_DEADLINE_MS,
   areaTimes = null,
-  meetingFinalists = MEETING_AREAS_ROUTED,
+  meetingFinalists = undefined,
 }) {
   // The guess for trips that get no real route, and for ranking the areas. Null: the straight line, as it always was.
   const estimate = areaTimes ? createAreaEstimator({ areas: data.areas, table: areaTimes }) : null
+  // The table trip time (planner/area-times.js), which puts the server in table mode: null without the table.
+  const table = estimate ? estimate.tableMinutes : null
+  const finalists = meetingFinalists ?? (table ? MEETING_AREAS_ROUTED_ON_TABLE : MEETING_AREAS_ROUTED)
   // Stub mode only (Playwright): the x-jio-scenario header picks whether routing fails. The weather scenario
   // reaches the forecast through the HTTP helper, so it needs nothing here. Outside stub mode currentScenario()
   // is always 'dry', so nothing changes.
@@ -90,8 +112,10 @@ export function createPlannerRuns({
   // How to call:
   //   const { result, travel } = await runWithTravel(input, planData, converge)
   async function runWithTravel(input, planData, run, options = {}) {
-    // A request that says `travel: 'estimate'` never routes, whatever the server can do: the same run as a server with no OneMap.
+    // A request that says `travel: 'estimate'` never routes, whatever the server can do: the same run as a server with no OneMap. With the
+    // table of times between the areas that run is on table times (real transit minutes, free); without it, on the straight line.
     if (!onemap?.routingEnabled || input.travel === 'estimate') {
+      if (table) return runOnTableTimes({ run: (deps) => run(input, planData, { ...depsFor(), ...deps }), table, estimate })
       return { result: run(input, planData, { ...depsFor(), ...(estimate && { estimateMinutes: estimate }) }), travel: estimateTravel() }
     }
     const given = typeof options === 'function' ? options(input) : options
@@ -100,6 +124,7 @@ export function createPlannerRuns({
       onemap,
       deadlineMs: given.deadlineMs ?? routingDeadlineMs,
       ...(estimate && { estimate }),
+      ...(table && { table, routeFirst: given.routeFirst ?? routeFirstFor.get(run) }),
       dateTime: input.dateTime ?? nowInSingapore(),
       run: (deps) => run(input, planData, deps),
     })
@@ -116,12 +141,28 @@ export function createPlannerRuns({
       : input
   const meetingAreaWithRouting = (input, planData, deps) => meetingArea(withRoutingCandidates(input), planData, deps)
 
+  // Which results a run shows first, for table mode: the best places for Converge and Roam. The meeting area names its own
+  // (meetingAreaTravelFor). A run not listed here (pricing one area, the trips home) has one candidate, which is shown.
+  const routeFirstFor = new Map([[converge, placesFirst], [roam, placesFirst]])
+
+  // The areas a meeting-area answer routes first, as table mode takes them: the best `finalists` of the ranking as it stands (the
+  // chosen area first), and apart from those the areas the request named, which are measured for their own entry only. The runners-up
+  // the request asked for are shown on table times unless they are among the best `finalists`: they are not what the answer commits to.
+  // For a method other than station the meeting point is always routed first, so nothing comes from the ranking.
+  //
+  // How to call:
+  //   areasFirst({ method: 'station', area: { id: 'bugis' }, diagnostics: { rankedAreaIds: ['bugis', 'city-hall', 'bishan'] }, candidates: [...] }) // { ranking: ['bugis', 'city-hall'], named: [] }
+  const areasFirst = (result) => ({
+    ranking: result.method === 'station' ? (result.diagnostics?.rankedAreaIds ?? [result.area.id]).slice(0, finalists) : [],
+    named: (result.candidates ?? []).filter((c) => c.source === 'included').map((c) => c.area.id),
+  })
+
   // The meeting area tries many areas, so only the best few by estimate get real routes (see travel-times.js).
   // A request that asks for runners-up or names areas also routes the named ones after those, within the same cap.
   //
   // How to call:
   //   runWithRealTravel({ ...meetingAreaTravelFor(input), onemap, dateTime, run })
-  const meetingAreaTravel = { rankByEstimate: true, maxCandidates: Math.min(MEETING_FINALISTS_MAX, Math.max(1, meetingFinalists)) }
+  const meetingAreaTravel = { rankByEstimate: true, maxCandidates: Math.min(MEETING_FINALISTS_MAX, Math.max(1, finalists)), ...(table && { routeFirst: areasFirst }) }
   const meetingAreaTravelFor = (input) => {
     if (input.alternatives === undefined && input.include === undefined) return meetingAreaTravel
     const { outside } = meetingAreaPlan(withRoutingCandidates(input), data, estimate)

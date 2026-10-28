@@ -4,6 +4,7 @@ import { MAX } from '../routes/plan-schemas.js'
 import { nowInSingapore } from './planner-runs.js'
 import { MAX_ROUTED_TRIPS_PER_REQUEST } from './travel-times.js'
 import {
+  isAbout,
   knownPlaceRow,
   locatedMembers,
   lower,
@@ -239,7 +240,7 @@ export function createVoting({ data, areasById, runs }) {
     const row = {
       area_id: result.area.id,
       travel_minutes: Object.fromEntries(Object.entries(result.travelByMember).map(([id, minutes]) => [lower(id), Number.isFinite(minutes) ? Math.min(1440, Math.max(0, minutes)) : 1440])),
-      approximate: !!result.approximate || travel?.source === 'estimate',
+      approximate: isAbout(result) || travel?.source === 'estimate',
     }
     return { meeting: meetingAtSpot(row, plannerMethod(located)), moved: row.area_id !== (session.meeting_area_id ?? null) }
   }
