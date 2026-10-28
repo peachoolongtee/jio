@@ -141,6 +141,11 @@ async function onFiles(event) {
   }
 }
 
+// The photo a press of Share would send: the one open in the viewer, else the one in the middle of the line. Its file is made ahead
+// (ShareDialog.prepare), so the press can open the phone's share sheet at once.
+const shareable = computed(() => ordered.value[viewing.value >= 0 ? viewing.value : current.value] || null)
+watch([shareable, sharer], ([photo, dialog]) => dialog?.prepare(photo), { immediate: true, flush: 'post' })
+
 // Share a photo, with where it was taken when that is known.
 // How to call: share(photo)
 function share(photo) {
@@ -215,7 +220,7 @@ async function confirmDelete() {
           <p class="caption text-muted">Select the photo in the middle, or any photo below, to open it larger.</p>
           <AppButton variant="secondary" small data-testid="share-current" @click="share(ordered[current])">
             <AppIcon name="share" :size="16" />
-            Share
+            Share this photo
           </AppButton>
         </div>
 

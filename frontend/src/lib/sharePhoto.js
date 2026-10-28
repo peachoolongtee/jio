@@ -37,23 +37,21 @@ export async function photoFile(src, name) {
   return new File([blob], name, { type: blob.type || 'image/jpeg' })
 }
 
-// Hand the photo to the phone's share sheet. Answers 'shared', 'cancelled' (the person closed the sheet) or 'unsupported' (this
-// browser cannot share a picture, or refused to: the caller then offers ShareDialog).
-// How to call: const how = await sharePhoto({ src, name: 'jio-saturday-p12.jpg', text: 'Saturday, on Jio' })
-export async function sharePhoto({ src, name, text }, nav = globalThis.navigator) {
-  if (!nav?.share || !nav?.canShare) return 'unsupported'
-  let file
-  try {
-    file = await photoFile(src, name)
-  } catch {
-    return 'unsupported'
-  }
+// Hand a ready photo to the phone's share sheet. Answers 'shared', 'cancelled' (the person closed the sheet), 'blocked' (the browser
+// says the press is too long ago to open a sheet: the caller then offers ShareDialog, and a new press may work) or 'unsupported'
+// (this browser cannot share a picture, or refused to: the caller then offers ShareDialog).
+// The file must already be made (photoFile, ahead of the press): browsers only open the sheet close to the tap, and every await
+// before `share` puts it further away. So this calls `share` at once, with nothing awaited first.
+// How to call: const how = await sharePhoto({ file, text: 'Saturday, on Jio' })
+export async function sharePhoto({ file, text }, nav = globalThis.navigator) {
+  if (!file || !nav?.share || !nav?.canShare) return 'unsupported'
   const data = { files: [file], text }
   if (!nav.canShare(data)) return 'unsupported'
   try {
     await nav.share(data)
     return 'shared'
   } catch (e) {
-    return e?.name === 'AbortError' ? 'cancelled' : 'unsupported'
+    if (e?.name === 'AbortError') return 'cancelled'
+    return e?.name === 'NotAllowedError' ? 'blocked' : 'unsupported'
   }
 }
