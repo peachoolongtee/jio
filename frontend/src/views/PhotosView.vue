@@ -9,6 +9,8 @@
 //   - "Add photos" sits above the line (the Rausch camera floats while there are none). A session holds up to
 //     PHOTOS_MAX photos. Your own photos can be deleted in the viewer, after a question to make sure.
 //   - The pictures are not part of the session summary (it has photoCount): they load with events.loadPhotos.
+//   - Share (under the line, for the print in the middle, and in the viewer) hands a photo to the phone's share sheet, for
+//     WhatsApp, Instagram and the rest; where the browser cannot, a dialog offers to save it and open the app (ShareDialog).
 //   - A session on the server has no photos yet (they would need storage of their own, a later update): the page says so, with the way
 //     back to the itinerary, and offers no camera.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -23,6 +25,7 @@ import PhotoViewer from '@/components/ui/PhotoViewer.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
+import ShareDialog from '@/components/event/ShareDialog.vue'
 import NotFoundView from './NotFoundView.vue'
 import { PHOTOS_MAX } from '@/lib/api.js'
 import { compressImage } from '@/lib/image.js'
@@ -50,6 +53,7 @@ let openedFrom = 'line'
 // The photo the question "Delete this photo?" is about.
 const confirming = ref(false)
 let toDelete = null
+const sharer = ref(null)
 
 const session = computed(() => events.byId[props.id])
 // An outing that closed by itself never had a plan, so photos stay shut for it (lib/api.js addPhoto refuses too).
@@ -137,6 +141,12 @@ async function onFiles(event) {
   }
 }
 
+// Share a photo, with where it was taken when that is known.
+// How to call: share(photo)
+function share(photo) {
+  if (photo) sharer.value?.share(photo, placeOf(photo))
+}
+
 // The viewer asks to delete a photo: ask first. Cancelling leaves the viewer open, focus back on its Delete button.
 function askDelete(photo) {
   toDelete = photo
@@ -201,7 +211,13 @@ async function confirmDelete() {
         </div>
 
         <PolaroidLine v-model:index="current" class="rise" :photos="prints" label="Photos from the day" @open="openPhoto($event, 'line')" />
-        <p class="caption text-muted">Select the photo in the middle, or any photo below, to open it larger.</p>
+        <div class="gallery__line">
+          <p class="caption text-muted">Select the photo in the middle, or any photo below, to open it larger.</p>
+          <AppButton variant="secondary" small data-testid="share-current" @click="share(ordered[current])">
+            <AppIcon name="share" :size="16" />
+            Share
+          </AppButton>
+        </div>
 
         <section class="thumbs" aria-labelledby="thumbs-head">
           <h2 id="thumbs-head" class="title-md">All photos</h2>
@@ -230,8 +246,11 @@ async function confirmDelete() {
       :origin="tileImage"
       :place="placeOf"
       :can-delete="(p) => p.personId === auth.myId"
+      can-share
       @delete="askDelete"
+      @share="share"
     />
+    <ShareDialog ref="sharer" :session="session" />
 
     <ModalDialog v-model:open="confirming" title="Delete this photo?" text="It is removed for everyone in the session.">
       <AppButton block variant="secondary" @click="confirming = false">Keep photo</AppButton>
@@ -247,6 +266,8 @@ async function confirmDelete() {
 .gallery { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .gallery__sum { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm); min-height: 28px; }
 .gallery__add { margin-left: auto; }
+.gallery__line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm); }
+.gallery__line .caption { margin: 0; flex: 1 1 16rem; }
 
 /* All photos: small square thumbnails; the one on the line in the middle is ringed. */
 .thumbs { display: flex; flex-direction: column; gap: var(--spacing-md); margin-top: var(--spacing-base); }
