@@ -244,15 +244,15 @@ const inFlight = new Map()
 // the data, made before anyone could change it, so no screen can alter what another reads. A failure reaches every caller.
 // Only for requests that change nothing on the server (the rankings, the search, the weather): never for a write.
 // How to call: const { data } = await postShared('/api/converge', { members, centre, categories: ['eat'] })
-export function postShared(url, body, config = {}) {
-  const key = JSON.stringify([currentUserId(), url, body, config.timeout ?? null])
+export function postShared(url, body, config) {
+  const key = JSON.stringify([currentUserId(), url, body, config?.timeout ?? null])
   const sharing = inFlight.get(key)
   if (sharing) {
     sharing.followers += 1
     return sharing.settled.then(({ response, copy }) => ({ ...response, data: JSON.parse(copy) }))
   }
   const entry = { followers: 0, settled: null }
-  entry.settled = api.post(url, body, config).then(
+  entry.settled = (config === undefined ? api.post(url, body) : api.post(url, body, config)).then(
     (response) => {
       inFlight.delete(key)
       return { response, copy: entry.followers > 0 ? JSON.stringify(response.data) : null }
