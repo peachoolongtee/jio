@@ -23,9 +23,14 @@ export const NEAREST_AREAS = 3;
 // A point this close to an area's centre is that area (a session's member starts at the centre): only it is used at that end.
 export const AT_CENTRE_KM = 0.05;
 // The hop from a point to an area's station, in minutes: a fixed part for reaching and waiting at a station (growing from 0 to
-// ACCESS_FIXED_MINUTES over the first ACCESS_RAMP_KM, so there is no jump just off a centre) and ACCESS_MINUTES_PER_KM for each km
-// (walking, or a feeder bus with its wait). Fitted to live OneMap routes: mean error about -1 minute, mean absolute error 3.8, on 26
-// trips (16 from points at 0 to 3 km from their nearest area; 10 of a converge). The first version had mean error -13.7.
+// ACCESS_FIXED_MINUTES over the first ACCESS_RAMP_KM) and ACCESS_MINUTES_PER_KM for each km (walking, or a feeder bus with its wait). The step
+// where the hop starts (AT_CENTRE_KM, a point on an area's centre has none) is under a minute, not zero. PROVISIONAL: fitted to 73 live OneMap
+// trips on 28 October 2026 (backend/scripts/fit-access-hop.js and backend/scripts/data/access-hop-trips.json reproduce it). It is the same at
+// both ends of a trip because the way back shares the route. Tried and kept: a smaller fixed part at the end of a trip. Trips with a hop
+// at only their end suggest about 3 there (5 is 1.6 minutes too long on 16), but trips with hops at both ends, which are the place
+// rankings, are then 2.4 minutes too short (the shortest of 3 x 3 ways through the areas is optimistic, and the fixed part pays for
+// that), so each end keeps 5.
+// The first version, 3.7 minutes a km and no fixed part, was 13.7 minutes too optimistic on average.
 export const ACCESS_MINUTES_PER_KM = 7;
 export const ACCESS_FIXED_MINUTES = 5;
 export const ACCESS_RAMP_KM = 0.4;
@@ -82,15 +87,30 @@ export function areaTimesCoverage(areas, table) {
 }
 
 /**
+ * The moment the table's times are for, in words: "Tuesday 12:30" from `_meta.dateTime` ("2026-10-27T12:30"). Null when the table does not say or
+ * says something that is not a date and time. The times are one weekday midday; an evening or a weekend can differ.
+ *
+ * How to call:
+ *   tableMoment(table) // 'Tuesday 12:30'
+ */
+export function tableMoment(table) {
+  const text = table?._meta?.dateTime;
+  const m = typeof text === 'string' ? /^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/.exec(text) : null;
+  if (!m) return null;
+  const day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
+  return day === 'Invalid Date' ? null : `${day} ${m[4]}`;
+}
+
+/**
  * Makes the estimate from the planner's areas and a table of real times between them. Returns `estimateMinutes(a, b)` for two
  * points { lat, lng }, which is also what `mockTravelMinutes` is: a drop-in for it. Its property `tableMinutes(a, b)` is the same
  * time, or null where it would be the straight line: the planner's table trip time (the number, and whether a table gave it).
  *   - two points of different areas: the shortest, over the NEAREST_AREAS nearest areas at each end, of the real time between those
  *     areas plus a hop (accessMinutes) at each end. A point on an area's centre uses only that area. A point has
  *     no distance limit: the hop just grows, so there is no jump where "near an area" ends;
- *   - two points nearest the same area: the straight-line estimate, the two hops or the area's shortest trip to a neighbour,
- *     whichever is least (a trip inside an area is never longer than leaving it). The table is in it through that shortest trip: an
- *     area with no usable pair at all has none, and the trip is the straight line (null from tableMinutes);
+ *   - two points nearest the same area: the straight-line estimate or the two hops, whichever is less. No table pair is in it, so an
+ *     area with no usable pair at all has no table data and the trip is the straight line (null from tableMinutes). The area's
+ *     shortest trip to a neighbour is not a cap on it: that is a ride between stations;
  *   - a pair the table lacks (no route was found) or holds a value that cannot be a time: skipped; if none is left, the
  *     straight-line estimate.
  *
@@ -101,7 +121,7 @@ export function areaTimesCoverage(areas, table) {
  */
 export function createAreaEstimator({ areas, table }) {
   if (!isAreaTimes(table) || !Array.isArray(areas) || areas.length === 0) throw new Error('createAreaEstimator: needs the areas and a table of times');
-  // The shortest trip from each area to any other, from the table: the most a trip inside the area may take.
+  // The areas that have at least one usable pair in the table (and the shortest of them): an area without one has no table data.
   const ids = new Set(areas.map(a => a.id));
   const shortestLeaving = new Map();
   for (const [key, minutes] of Object.entries(table.minutes)) {
@@ -125,8 +145,11 @@ export function createAreaEstimator({ areas, table }) {
     const from = nearest(a), to = nearest(b);
     if (from[0].area.id === to[0].area.id) {
       const hops = accessMinutes(from[0].km) + accessMinutes(to[0].km);
-      const leaving = shortestLeaving.get(from[0].area.id); // no usable pair for the area: no table time, so the straight line answers
-      return leaving === undefined ? null : Math.min(mockTravelMinutes(a, b), hops, leaving);
+      // Two points nearest the same area: the two hops or the straight line, whichever is less. The area's shortest trip to a neighbour is NOT
+      // a cap: it is a ride between stations, and a person 1 km from a venue in the same area does not make that trip in 2 minutes. (It
+      // was one, and Roam then ranked every nearby place at 2.5 minutes.) An area with no usable pair at all has no table data, so the
+      // straight line answers.
+      return shortestLeaving.has(from[0].area.id) ? Math.min(mockTravelMinutes(a, b), hops) : null;
     }
     let best = Infinity;
     for (const x of from) {

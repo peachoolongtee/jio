@@ -228,16 +228,17 @@ describe('createAreaEstimator', () => {
     expect(estimate(p, q)).toBeCloseTo(estimate(q, p), 5)
   })
 
-  it('is never longer inside one area than the straight line, the two hops, or the shortest trip out of the area', () => {
+  it('is the least of the straight line and the two hops inside one area, and not capped by the ride to a neighbouring area', () => {
     const x = near(AREAS[0], 0.003), y = near(AREAS[0], -0.003) // about 0.33 km either side of A's centre
     const hops = accessMinutes(haversineKm(x, AREAS[0])) + accessMinutes(haversineKm(y, AREAS[0]))
     expect(estimate(x, y)).toBeCloseTo(Math.min(hops, mockTravelMinutes(x, y)), 9)
     expect(estimate(x, y)).toBeLessThanOrEqual(mockTravelMinutes(x, y))
-    expect(estimate(x, y)).toBeLessThanOrEqual(20) // A's shortest trip to another area is 20 (a|b)
-    // Far from the centre, the shortest trip out is the limit: 0.5 km hops would be 1.8 minutes, so use a table where A's neighbours are close.
+    // A's shortest trip to another area is 20 (a|b), and a trip of 2.2 km each side of the centre is longer than the hops of a quick
+    // neighbour would be: the table's neighbour ride is no cap on it.
     const quick = createAreaEstimator({ areas: AREAS, table: { _meta: { areas: ['a', 'b', 'c', 'd'] }, minutes: { 'a|b': 1, 'a|c': 30 } } })
-    const wide = near(AREAS[0], 0.02), other = near(AREAS[0], -0.02) // 2.2 km each side of the centre
-    expect(quick(wide, other)).toBe(1)
+    const wide = near(AREAS[0], 0.02), other = near(AREAS[0], -0.02)
+    expect(quick(wide, other)).toBeCloseTo(Math.min(mockTravelMinutes(wide, other), accessMinutes(haversineKm(wide, AREAS[0])) + accessMinutes(haversineKm(other, AREAS[0]))), 9)
+    expect(quick(wide, other)).toBeGreaterThan(10)
   })
 
   it('uses the straight line for a pair the table lacks', () => {
@@ -279,21 +280,21 @@ describe('createAreaEstimator', () => {
     }
   })
 
-  it('does not make a trip inside Orchard longer than the trip from Orchard to Somerset, its nearest neighbour', () => {
+  it('does not cap a trip inside Orchard at the 2.5 minutes to Somerset: a place a few hundred metres away takes the walk it takes', () => {
     const real = loadPlanData().areas
     const saved = loadAreaTimes()
     const withSaved = createAreaEstimator({ areas: real, table: saved })
     const orchard = real.find((a) => a.id === 'orchard'), somerset = real.find((a) => a.id === 'somerset')
-    const neighbour = withSaved(orchard, somerset)
-    expect(neighbour).toBe(saved.minutes[pairKey('orchard', 'somerset')])
-    expect(neighbour).toBeLessThan(mockTravelMinutes(orchard, orchard) / 2) // the straight line charges 6 minutes to go nowhere
-    // Points whose nearest area is Orchard: a point nearer another area is a trip from that one, with a hop (about 9 minutes at 0.65 km).
-    for (const [dLat, dLng] of [[0, 0], [0.002, 0], [0.004, -0.004], [-0.002, 0.001], [0.001, 0.003]]) {
+    expect(withSaved(orchard, somerset)).toBe(saved.minutes[pairKey('orchard', 'somerset')]) // the ride, 2.5
+    // Points whose nearest area is Orchard, 0.2 to 0.7 km from its centre and from each other.
+    for (const [dLat, dLng] of [[0.002, 0], [0.004, -0.004], [-0.002, 0.001], [0.001, 0.003]]) {
       const inside = { lat: orchard.lat + dLat, lng: orchard.lng + dLng }
       expect(real.reduce((best, a) => (haversineKm(inside, a) < haversineKm(inside, best) ? a : best)).id, String([dLat, dLng])).toBe('orchard')
-      expect(withSaved(orchard, inside), String([dLat, dLng])).toBeLessThanOrEqual(neighbour)
-      expect(withSaved(inside, orchard)).toBeLessThanOrEqual(neighbour)
+      expect(withSaved(orchard, inside), String([dLat, dLng])).toBeCloseTo(Math.min(mockTravelMinutes(orchard, inside), accessMinutes(haversineKm(inside, orchard))), 9)
+      expect(withSaved(inside, orchard)).toBeCloseTo(withSaved(orchard, inside), 9)
     }
+    const far = { lat: orchard.lat + 0.004, lng: orchard.lng - 0.004 }, near2 = { lat: orchard.lat - 0.002, lng: orchard.lng + 0.001 }
+    expect(withSaved(far, near2)).toBeGreaterThan(5) // two places in the same area are not 2.5 minutes apart
   })
 
   it('refuses to be made without areas or a table', () => {
@@ -473,7 +474,7 @@ describe('what the table does not touch', () => {
     expect(sorted(withTable)).toEqual(sorted(without))
     expect(withTable.results).toHaveLength(without.results.length)
     expect(sorted(withTable.results[0])).toEqual([...sorted(without.results[0]), 'travelSource'].sort())
-    expect(sorted(withTable.travel)).toEqual([...sorted(without.travel), 'table'].sort())
+    expect(sorted(withTable.travel)).toEqual([...sorted(without.travel), 'table', 'tableAt'].sort())
     const [roamWithout, roamWith] = await bothWays('/roam', { ...slot, current: { lat: 1.3504, lng: 103.8428 } })
     expect(sorted(roamWith)).toEqual(sorted(roamWithout))
     expect(sorted(roamWith.results[0])).toEqual([...sorted(roamWithout.results[0]), 'travelSource'].sort())
