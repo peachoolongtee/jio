@@ -67,8 +67,7 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
     await expect(page.getByRole('button', { name: /^Chinatown makan crawl Wed 4 Nov/ })).toBeVisible()
 
     // 1. Open today's outing and finish it.
-    // Two links have this name when the pointer rests over the meetup's pin: the pin's own and the detail beside the map. Both open the same plan.
-    await page.getByRole('link', { name: 'Open meetup Chinatown makan crawl' }).first().click()
+    await page.getByRole('link', { name: 'Open meetup Chinatown makan crawl' }).click()
     await expect(page.getByRole('heading', { level: 1, name: "Today's plan" })).toBeVisible()
     await page.getByRole('button', { name: 'Finish outing' }).click()
     const question = page.getByRole('dialog', { name: 'Finish outing?' })
