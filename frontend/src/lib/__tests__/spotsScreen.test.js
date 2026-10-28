@@ -26,7 +26,7 @@ vi.mock('../../components/ui/ModalDialog.vue', async () => {
 vi.stubGlobal('localStorage', fakeStorage())
 const { default: SpotList } = await import('../../components/spots/SpotList.vue')
 const { default: SpotConfirm } = await import('../../components/spots/SpotConfirm.vue')
-const { canApprove, canSuggest, confirmedAreaId, myTripLine, pinName, settledView, shownFor, shownSpotId, spotsToShow, tripsLine, unpricedSuggestion } = await import('../../components/spots/spotText.js')
+const { ABOUT_NOTE, canApprove, canSuggest, confirmedAreaId, myTripLine, pinName, settledView, shownFor, shownSpotId, spotsToShow, tripsLine, unpricedSuggestion } = await import('../../components/spots/spotText.js')
 const { useEventsStore } = await import('../../stores/events.js')
 const { clearApprovals, friendSuggests, friendsApprove, hasSpots } = await import('../../components/dev/spotDemo.js')
 
@@ -71,6 +71,20 @@ describe('the list of spots', () => {
     expect(text).toContain('Longest trip 30 min · Average 25 min')
     expect(text).toContain('Jonathan 20 min')
     expect(text).toContain('Fairest')
+  })
+
+  it('explains "about" on hover, in words that claim no more than typical times, and only where it says "about"', () => {
+    const page = (approximate) => {
+      const s = session()
+      s.spots.list = [spot('bugis', 'Bugis', { approximate })]
+      return list(s)
+    }
+    const titled = (p) => p.all('div', 'Longest trip').filter((el) => p.attr(el, 'title') !== undefined)
+    const about = page(true)
+    expect(titled(about).map((el) => about.attr(el, 'title'))).toEqual([ABOUT_NOTE])
+    expect(ABOUT_NOTE).toMatch(/typical/)
+    expect(ABOUT_NOTE).toMatch(/not a route for this exact trip/)
+    expect(titled(page(false))).toHaveLength(0)
   })
 
   it('says "about" when the times are estimates, and not otherwise', () => {

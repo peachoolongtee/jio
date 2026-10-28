@@ -72,7 +72,7 @@ Added 11 Oct 2026 (ticket #108; research in ticket #115). Code: `parseTwentyFour
   - Trips under 400 m are walked, with no call.
   - The way back reuses the way there.
   - Routes are cached 6 hours, by points rounded to about 110 m and the hour. A failed answer is never cached.
-  - The meeting area tries 16 areas, not 37, and gives real routes to the best 5 of them by estimate. **With the table (the normal case) it ranks all 16 on table times with no call and routes only the best 2, plus a second round for any area a live time lifts into them; places rank on the table too and only the best 3 are routed** (planner-api.md, "Table mode").
+  - The meeting area tries 16 areas, not 37, and gives real routes to the best 5 of them by estimate. **With the table (the normal case) it ranks all 16 on table times with no call and routes only the best 2, plus up to two more rounds for any area a live time lifts into them (named areas last); places rank on the table too and only the best 3 are routed** (planner-api.md, "Table mode").
 - **Without an account:** routing stays off and travel is the estimate (`travel.source: 'estimate'`). The server prints this at startup.
 
 ### Keeping the shared account safe

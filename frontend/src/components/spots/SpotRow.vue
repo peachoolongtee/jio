@@ -18,7 +18,7 @@ import AppIcon from '../ui/AppIcon.vue'
 import AvatarStack from '../ui/AvatarStack.vue'
 import ChipButton from '../ui/ChipButton.vue'
 import InfoTag from '../ui/InfoTag.vue'
-import { byLine, peopleTrips, tripsLine, worksForText } from './spotText.js'
+import { ABOUT_NOTE, byLine, peopleTrips, tripsLine, worksForText } from './spotText.js'
 
 const props = defineProps({
   spot: { type: Object, required: true },
@@ -53,7 +53,7 @@ const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
 
     <p v-if="spot.here" class="spot__here caption"><AppIcon name="pin" :size="14" />We are here already</p>
 
-    <div v-if="tripsLine(spot)" class="spot__trips">
+    <div v-if="tripsLine(spot)" class="spot__trips" :title="spot.approximate ? ABOUT_NOTE : undefined">
       <p class="body-sm spot__line tnum">{{ tripsLine(spot) }}</p>
       <ul v-if="peopleTrips(spot, names, myId).length" class="spot__people" aria-label="Each person's trip">
         <li v-for="trip in peopleTrips(spot, names, myId)" :key="trip.id" class="spot__trip">

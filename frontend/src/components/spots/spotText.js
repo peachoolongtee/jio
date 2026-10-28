@@ -7,6 +7,10 @@ import { AREAS } from '@/lib/mock/places.js'
 // The most different areas a group can suggest at once (the planner's limit; lib/api.js refuses more).
 export const SUGGESTIONS_MAX = 8
 
+// What "about" means on a trip, for a tooltip: the minutes are the planner's typical public transport time (the table of times between the
+// areas is for a weekday midday), or its estimate from the distance, not a route for this exact trip and hour.
+export const ABOUT_NOTE = 'About: typical public transport times, not a route for this exact trip and hour.'
+
 // A trip in words. Estimated times say "about"; a trip of nothing says so; no time at all says nothing (never "null" or
 // "0 min").
 // How to call: timeText(25, true) -> 'about 25 min'; timeText(0, false) -> 'already there'; timeText(null) -> ''

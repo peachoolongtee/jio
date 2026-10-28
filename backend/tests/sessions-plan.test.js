@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
+import { loadAreaTimes } from '../src/db/area-times.js'
 import { createSupabase } from '../src/db/supabase.js'
 import { loadPlanData } from '../src/db/venues.js'
 import { mockTravelMinutes } from '../src/planner/geo.js'
@@ -14,6 +15,7 @@ import { createWeather } from '../src/services/weather.js'
 import { at, makeWorld, regionalAnswer } from './helpers/weather-world.js'
 import { createWorld, fakeSupabase, jwksFetch, SUPABASE_URL, userClient } from './helpers/fake-supabase.js'
 import { addMember, addSession, GUEST, HOST, OTHER, SESSION, startSessionApp, STRANGER } from './helpers/session-app.js'
+import { cachedOneMap } from './helpers/cached-onemap.js'
 
 // The plan endpoints (stage 5, server half), tested without the network: the suggested order (E22), the host's confirm (E12), opening the
 // plan again (E13), the edits of the stops (E15), finishing the outing with its ledger (E14), Roam proposals (E23, E24), and the group's past
@@ -1916,5 +1918,56 @@ describe('the trips home on the routed path', () => {
     expect(res.body.trips).toHaveLength(3)
     expect((await t.call('POST', path('/complete'), undefined, HOST)).status).toBe(200)
     for (const trip of res.body.trips) expect(world.commute_ledger.find((r) => r.user_id === trip.userId).minutes_home).toBe(trip.minutes)
+  })
+})
+
+describe('table mode: Roam and the trips home', () => {
+  const tableApp = (onemap) => ({ areaTimes: loadAreaTimes(), onemap })
+  // Roam is for the day of the outing (25 October, Singapore time).
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-25T12:30:00+08:00'))
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it('Roam keeps a person\'s position out of the route cache and routes the first places it lists', async () => {
+    const onemap = cachedOneMap()
+    await confirmed({ appOptions: tableApp(onemap) })
+    const kept = onemap.cache.size
+    const calls = onemap.calls.length
+    const here = { lat: 1.3052, lng: 103.8318 }
+    const res = await t.call('POST', path('/roam'), { current: here, categories: ['eat'] }, GUEST)
+    expect(res.status).toBe(200)
+    const roamed = onemap.calls.slice(calls)
+    expect(roamed.length).toBeGreaterThan(0)
+    expect(roamed.every((c) => c.cache === false)).toBe(true) // `cache: false`: the position is not kept
+    expect(onemap.cache.size).toBe(kept)
+    expect(res.body.results.slice(0, 3).every((r) => r.approximate === false)).toBe(true) // routed
+    expect(res.body.results.slice(3).every((r) => r.approximate === true)).toBe(true) // the table's: "about"
+    expect(JSON.stringify(res.body)).not.toContain(String(here.lat)) // the point is not in the answer
+  })
+
+  it('the trips home are routed with a cache that is shared with the ledger, and say "about" only when the table answered for them', async () => {
+    const onemap = cachedOneMap()
+    await confirmed({ ends: { [HOST]: 'bishan' }, appOptions: tableApp(onemap) })
+    const res = await t.call('GET', path('/trips-home'), undefined, GUEST)
+    expect(res.status).toBe(200)
+    expect(res.body.approximate).toBe(false)
+    expect(res.body.trips).toHaveLength(3)
+    const calls = onemap.calls.length
+    const again = await t.call('GET', path('/trips-home'), undefined, HOST)
+    expect(again.body.trips).toEqual(res.body.trips)
+    expect(onemap.calls.length).toBe(calls) // the second read is all cache
+    expect((await t.call('POST', path('/complete'), undefined, HOST)).status).toBe(200)
+    for (const trip of res.body.trips) expect(world.commute_ledger.find((r) => r.user_id === trip.userId).minutes_home).toBe(trip.minutes)
+  })
+
+  it('the trips home say "about" when OneMap could not answer and the table did', async () => {
+    const none = { ...cachedOneMap(), routeMinutes: async () => null }
+    await confirmed({ ends: { [HOST]: 'bishan' }, appOptions: tableApp(none) })
+    const res = await t.call('GET', path('/trips-home'), undefined, GUEST)
+    expect(res.status).toBe(200)
+    expect(res.body.approximate).toBe(true)
+    expect(res.body.trips.every((x) => x.minutes > 0)).toBe(true)
   })
 })
