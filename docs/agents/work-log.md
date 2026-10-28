@@ -1682,3 +1682,30 @@ The lead asked whether #191 was reviewed and merged (it was not), then said "car
 | Code review | code-reviewer (read-only) | `review/pr-191` | Correctness, regressions, the real-account rule (state in Supabase, never only in the browser), privacy, sharing and the review page, tests. |
 | Design review | design-reviewer (read-only) | `review/pr-191` | The six changes against `DESIGN.md`: hierarchy, voice, accessibility, phone and desktop widths. |
 | Fixes from both reviews | frontend-engineer | `review/pr-191` | Keep Google places off "What next?" (list and map); no "Change plan" on a light meetup; a visible result after a tick, and "Proposed" told apart from "In the plan"; RoamPanel loads when a stale session turns open; the review form resets per session; sharing called straight from the tap and guarded; Invite's footer label and the closed case; `reviewDue` only for people who went; star contrast; the review page's save states; share dialog wording; tests and "How to call" comments. |
+
+**Results of round 41** (`review/pr-191`, `6288e87`, merged into `dev`).
+- **The code review** found one major issue that is latent while the Google key is empty: "What next?" now draws a OneMap map beside its list, and `/api/roam` adds Google places when the key is set.
+  - Its minors: the panel did not load when a stale session turned open; the review form kept the last outing's stars; the share sheet was called after an await, and a second tap was not ignored; the Invite footer's "Done" went to the Start choice, and there was no footer when invites were closed; the "How was it?" row showed to people who did not go; thin tests; missing "How to call" comments.
+  - It confirmed that nothing of a real account is written only to the browser. Reviews and photos are refused for shared outings, so a real account has neither yet.
+- **The design review** found two majors: "Change plan" on a light meetup, and no visible result after a tick, with "Proposed" sharing the tick icon of "In the plan".
+  - Its minors: the order and weight of the "What next?" page, star contrast, the review page's save states, and the share dialog and Invite labels.
+- **All were fixed by one frontend agent** in 7 commits:
+  - Google places are left out of the panel's list and map;
+  - no Change plan on a light meetup;
+  - a visible line under a ticked card, with a way to the proposal, and a clock icon for "Proposed";
+  - "What next?" gets a heading, no photos row, and a secondary Finish button until the first stop;
+  - the review form resets per outing, says "Saving…", shows its error in the footer, and offers "Skip for now";
+  - the File is made before the share tap, a second tap is ignored, and the dialog says "Open WhatsApp";
+  - Invite reads "Back to session" or "Start session" and always has a footer;
+  - off stars in `--border-control`;
+  - 31 new or changed tests.
+
+  The shared e2e helper `inviteAndStart` now clicks "Back to session". It is clicked before a demo friend accepts, 1.4 s after sending, which is also when the label turns to "Start session". It passed 45 of 45 runs.
+- **Left for later:** "What next?" resets its area, kind and view when the first stop is added (the panel unmounts).
+- **Checked by the lead's session on `6288e87`:**
+  - backend 2024 passed, 2 skipped, also with outbound calls blocked;
+  - frontend 2752 passed under `TZ=UTC`;
+  - build exit 0;
+  - e2e 15 passed, then 45 of 45 with `--repeat-each=3`.
+
+  No browser check at phone width was run on the fixes.
