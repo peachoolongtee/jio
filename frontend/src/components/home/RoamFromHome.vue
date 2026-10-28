@@ -1,10 +1,10 @@
 <script setup>
-// "Already out? Find something nearby" on Home (ticket #98). A row with the box of the start row (StartMeetupRow), in a quiet
-// outline instead of the red one, so "Plan a new meetup" stays the main action. Pressing it asks where the person is: an
-// area from the search, their home area, or "Use current location" (LocationSheet). A refused or unavailable location
+// "Already out? Find something nearby" on Home (ticket #98). A row with the box of a meetup row, in a quiet outline. Pressing
+// it asks where the person is: an area from the search, their home area, or "Use current location" (LocationSheet). A refused or unavailable location
 // says so in the sheet, which stays open on the search, so picking an area is always the way forward. Only the area is
 // kept: the group sees its name, never the exact place. Then it starts a light meetup for today (lib/api.js startRoam),
-// with no location step, and opens its Roam list. Friends can be invited from there, or not at all.
+// with no location step, and opens its itinerary, which shows the places nearby until the first stop is added (EventView). Friends
+// can be invited from there, or not at all.
 //   <RoamFromHome :home="{ id: 'tampines', name: 'Tampines' }" />
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -23,7 +23,7 @@ const open = ref(false)
 const busy = ref(false)
 const error = ref('')
 
-// The area is picked: start the light meetup and go to its list.
+// The area is picked: start the light meetup and go to its itinerary, the light meetup's own page.
 // How to call: await start({ areaId: 'bugis', label: 'Bugis Junction' })
 async function start(place) {
   if (!place?.areaId || busy.value) return
@@ -31,7 +31,7 @@ async function start(place) {
   error.value = ''
   try {
     const session = await events.startRoam({ areaId: place.areaId })
-    await router.push(`/sessions/${session.id}/roam`)
+    await router.push(`/sessions/${session.id}/itinerary`)
   } catch (e) {
     error.value = e?.message || 'Could not start. Try again.'
   } finally {
@@ -57,7 +57,7 @@ async function start(place) {
 
 <style scoped>
 .roam-entry { display: flex; flex-direction: column; gap: var(--spacing-xs); }
-/* The start row's box (StartMeetupRow), with a hairline outline and an ink badge: a second, quieter way in. */
+/* A meetup row's box, with a hairline outline and an ink badge: a quiet way in. */
 .rrow {
   display: flex;
   align-items: center;

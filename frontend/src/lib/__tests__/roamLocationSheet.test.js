@@ -10,6 +10,8 @@ import { mount } from './miniDom.js'
 
 vi.mock('../plannerApi.js', () => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), roamNearby: vi.fn() }))
 vi.mock('../api.js', async (original) => ({ ...(await original()), roamNearby: vi.fn(), placeFromCoords: vi.fn(), listAreas: vi.fn(), getPlace: vi.fn() }))
+// The map is Leaflet, which needs a browser: the list is what these tests read.
+vi.mock('../../components/map/PlannerMap.vue', () => ({ default: { render: () => null } }))
 vi.mock('../../components/ui/PopoverPanel.vue', async () => {
   const { defineComponent, h } = await import('vue')
   return {
@@ -66,7 +68,10 @@ afterEach(() => vi.unstubAllGlobals())
 
 // Open the page, refuse "Use my location" so the sheet opens, and give the browser a position for the sheet's own button.
 async function openSheet(position) {
-  const page = mount(RoamView, { id: 's1' }, [pinia])
+  // The page's way on ("Itinerary") is a link, so it needs a router.
+  const { createRouter, createMemoryHistory } = await import('vue-router')
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:rest(.*)*', component: { render: () => null } }] })
+  const page = mount(RoamView, { id: 's1' }, [pinia, router])
   await flush()
   vi.stubGlobal('navigator', { geolocation: { getCurrentPosition: vi.fn((ok, refuse) => (refuse ? refuse({ code: 1 }) : null)) } })
   await page.button('Use my location').click()
