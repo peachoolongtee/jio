@@ -5,8 +5,10 @@
 //   - Stars for the outing (StarRating, required), then, folded under it, stars for each stop (optional), and a short note.
 //   - "Add your photos": the photos so far as thumbnails, Add photos (the same camera as the Photos page, up to PHOTOS_MAX), and
 //     a link to all of them, where they can be shared.
-//   - The footer: "Save review" (off until the outing has stars), which saves and goes Home; "Not now" goes Home without saving.
-//     Saving again replaces the person's review, and the page opens with their last one filled in.
+//   - The footer: "Save review" (off until the outing has stars; "Saving…" while it saves, and a failure is said just above it), which
+//     saves and goes Home; "Not now" goes Home without saving, and reads "Skip for now" once there are stars or a note that would be
+//     lost. Saving again replaces the person's review, and the page opens with their last one filled in. Going to another outing's
+//     review (the same page with another address) starts the form again.
 //   - Only for the people who went, once the outing has finished. Before that, for an outing that closed without a plan, and for a
 //     shared outing (reviews and photos are not on the server yet), the page says so with the way back to the itinerary.
 // It belongs to the Itinerary step: its back arrow goes there.
@@ -68,6 +70,8 @@ const closedWhy = computed(() => {
 const paidLine = computed(() => (session.value?.paid === false ? NO_COINS.toast : `+${coins(POINTS_PER_MEETUP)} each to spend on sample café vouchers.`))
 const full = computed(() => photos.value.length >= PHOTOS_MAX)
 
+// Reads the outing and, when it can be reviewed, its stops and photos.
+// How to call: await load()
 async function load() {
   missing.value = false
   loadError.value = ''
@@ -86,17 +90,34 @@ async function load() {
   }
 }
 onMounted(load)
-watch(() => props.id, load)
-// The person's last review fills the form in, once, when it is read.
-watch(mine, (review) => {
+
+// Puts a saved review into the form, unless the person has already started one.
+// How to call: fillFrom({ stars: 4, stops: { eat: 3 }, note: 'Great' })
+function fillFrom(review) {
   if (!review || stars.value) return
   stars.value = review.stars
   stopStars.value = { ...review.stops }
   note.value = review.note || ''
-}, { immediate: true })
+}
+// The page is not remounted when only the address changes (the router view has no key), so another outing starts a new form: nothing
+// typed for the last one stays, and the new outing's own saved review, if it has one, fills it in.
+watch(() => props.id, () => {
+  stars.value = 0
+  stopStars.value = {}
+  note.value = ''
+  error.value = ''
+  photoError.value = ''
+  justFinished.value = false
+  fillFrom(mine.value)
+  load()
+})
+// The person's last review fills the form in, once, when it is read.
+watch(mine, fillFrom, { immediate: true })
+// Is there something typed or rated that "Not now" would throw away?
+const started = computed(() => stars.value > 0 || note.value.trim() !== '' || Object.values(stopStars.value).some(Boolean))
 
 // Posts the pictures one by one, as the Photos page does: it stops at the first that fails and says why.
-// How to call: onFiles(event) from the file input's change
+// How to call: await onFiles(event) (the file input's change handler)
 async function onFiles(event) {
   const files = [...(event.target.files || [])]
   event.target.value = ''
@@ -119,7 +140,8 @@ async function onFiles(event) {
   }
 }
 
-// Save the review and go Home. How to call: await save()
+// Save the review and go Home.
+// How to call: await save()
 async function save() {
   if (!stars.value || saving.value) return
   saving.value = true
@@ -195,13 +217,13 @@ async function save() {
           <input ref="input" class="sr-only" type="file" accept="image/*" multiple tabindex="-1" aria-hidden="true" @change="onFiles" />
         </section>
 
-        <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
     </div>
 
     <footer v-if="!closedWhy && !loadError" class="screen__footer review__footer">
-      <AppButton variant="tertiary" to="/" data-testid="review-skip">Not now</AppButton>
-      <AppButton block :disabled="!stars || saving" :aria-busy="saving ? 'true' : undefined" data-testid="review-save" @click="save">Save review</AppButton>
+      <p v-if="error" class="review__error body-sm text-error" role="alert" data-testid="review-error">{{ error }}</p>
+      <AppButton variant="tertiary" to="/" data-testid="review-skip">{{ started ? 'Skip for now' : 'Not now' }}</AppButton>
+      <AppButton block :disabled="!stars || saving" :aria-busy="saving ? 'true' : undefined" data-testid="review-save" @click="save">{{ saving ? 'Saving…' : 'Save review' }}</AppButton>
     </footer>
   </main>
   <main v-else class="screen" data-testid="review-view">
@@ -227,6 +249,7 @@ async function save() {
 .review__thumb { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--rounded-sm); background: var(--surface-strong); }
 .review__thumb--loading { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.5; } }
-.review__footer { gap: var(--spacing-sm); }
+.review__footer { flex-wrap: wrap; gap: var(--spacing-sm); }
+.review__error { flex: 1 1 100%; margin: 0; }
 @media (prefers-reduced-motion: reduce) { .review__thumb--loading { animation: none; } }
 </style>
