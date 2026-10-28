@@ -220,8 +220,10 @@ let estimateBuilds = 0
 const travelField = () => (estimateBuilds > 0 ? { travel: 'estimate' } : {})
 
 // Runs `build` (the code that fills an account with sample data) with every ranking request it makes asking for estimated
-// travel. Only the showcase and the tour use this; a person's own planning never does, the demo account's included. It also
-// covers a request the person makes while the build runs, but a build is shown behind a busy message and takes seconds.
+// travel. Only the showcase and the tour use this, and they exist only for the demo account in a development build. While the build
+// runs the counter is up for the whole page, so a ranking the person themselves asks for in that time (their Vote screen, say) also
+// gets estimates: a build is shown behind a busy message and takes seconds. A real account's session endpoints (on the server) take
+// no `travel` field and always route, and so does everything the person asks once the build is done.
 // Resolves what `build` resolves, and always switches back, even when `build` throws.
 // How to call: const built = await withEstimatedTravel(() => buildSessions(specs, options))
 export async function withEstimatedTravel(build) {
