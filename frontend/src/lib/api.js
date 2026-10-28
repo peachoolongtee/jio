@@ -3384,7 +3384,12 @@ export async function addOption(id, slotId, venueId) {
   // The planner scores current options whenever they fit, so ask it with this place included.
   const ranked = await rankSlot(session, slot, [], [...options, venueId])
   if (!ranked.current.some((o) => o.venue.id === venueId)) throw new Error(`${venueById(venueId)?.name || 'This place'} does not fit this slot.`)
-  session.options[slotId] = [...(session.options[slotId] || []), venueId]
+  // The place may have been added while the planner was answering (two taps in a row): look again before saving, so it is
+  // never listed twice, and the limit still holds.
+  const now = session.options[slotId] || []
+  if (now.includes(venueId)) return touch(session, 'options')
+  if (now.length >= P.OPTIONS_MAX) throw new Error('A slot holds up to 6 options.')
+  session.options[slotId] = [...now, venueId]
   return touch(session, 'options')
 }
 
