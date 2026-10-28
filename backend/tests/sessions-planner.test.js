@@ -10,7 +10,7 @@ import { createWeather } from '../src/services/weather.js'
 import { SCENARIO_HEADER } from '../src/services/scenario.js'
 import { createSessionQueue } from '../src/services/session-queue.js'
 import { createSessions } from '../src/services/sessions.js'
-import { MAX_ROUTED_TRIPS_PER_REQUEST } from '../src/services/travel-times.js'
+import { MAX_ROUTED_TRIPS_PER_REQUEST, ROUTING_DEADLINE_MS } from '../src/services/travel-times.js'
 import { createWorld, fakeSupabase, jwksFetch, SUPABASE_URL, userClient } from './helpers/fake-supabase.js'
 import { addMember, addSession, GUEST, HOST, OTHER, SESSION, startSessionApp } from './helpers/session-app.js'
 
@@ -333,6 +333,8 @@ describe('one run at a time per session, at most one waiting', () => {
     expect(seen).toHaveLength(2)
     expect(seen[0]).toMatchObject({ maxTrips: MAX_ROUTED_TRIPS_PER_REQUEST, rankByEstimate: true })
     expect(seen[0].deadlineMs).toBeGreaterThan(0)
+    // The session server's run is one a person waits on: it gets the short default wait, not the old 8 seconds.
+    expect(seen[0].deadlineMs).toBeLessThanOrEqual(ROUTING_DEADLINE_MS)
     expect(seen[0].namedAreas.afterShortlist).toEqual([]) // no suggestions yet
     // The first attempt spent trips, and the second may spend only what was left: the allowance is the request's, not each attempt's.
     expect(seen[0].routedAfter).toBeGreaterThan(0)

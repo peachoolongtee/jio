@@ -25,8 +25,33 @@ import { ExternalApiError } from './http.js'
 // The most OneMap route calls one planner request may make. One place, used by every route.
 export const MAX_ROUTED_TRIPS_PER_REQUEST = 60
 
-// The most time one request waits for OneMap routes in total. Trips not answered by then use the estimate.
-export const ROUTING_DEADLINE_MS = 8000
+// The most time one request waits for OneMap routes in total. Trips not answered by then use the estimate and are flagged
+// `approximate`. Every caller today is a person waiting on a screen (the planner routes and the session server's runs), so
+// the default is short: a round of 6 trips takes about 1.2 seconds, and a slow OneMap should cost a few estimates, not a
+// loading screen. ROUTING_DEADLINE_MS in the environment changes it (readRoutingDeadline).
+export const ROUTING_DEADLINE_MS = 3000
+
+// What the environment setting may be. Below the floor no round of trips could finish; above the ceiling a wait would be
+// longer than the frontend waits for a ranking (15 seconds).
+export const ROUTING_DEADLINE_MIN_MS = 1000
+export const ROUTING_DEADLINE_MAX_MS = 15000
+
+// Reads ROUTING_DEADLINE_MS from the environment, the way readOneMapSettings reads its settings. Blank means the default (the
+// result has no `deadlineMs`). Anything that is not a whole number from ROUTING_DEADLINE_MIN_MS to ROUTING_DEADLINE_MAX_MS is
+// an `error` the server refuses to start with. The message names the variable, never a value.
+//
+// How to call:
+//   const { deadlineMs, error } = readRoutingDeadline(process.env) // { deadlineMs: 3000 }, { error: '...' }, or {}
+export function readRoutingDeadline(env) {
+  const text = typeof env.ROUTING_DEADLINE_MS === 'string' ? env.ROUTING_DEADLINE_MS.trim() : ''
+  if (text === '') return {}
+  // Digits only: "1e3" and "0x10" are numbers to JavaScript but not what anyone meant by a number of milliseconds.
+  const deadlineMs = /^\d+$/.test(text) ? Number(text) : NaN
+  if (!Number.isInteger(deadlineMs) || deadlineMs < ROUTING_DEADLINE_MIN_MS || deadlineMs > ROUTING_DEADLINE_MAX_MS) {
+    return { error: `ROUTING_DEADLINE_MS must be a whole number of milliseconds from ${ROUTING_DEADLINE_MIN_MS} to ${ROUTING_DEADLINE_MAX_MS}.` }
+  }
+  return { deadlineMs }
+}
 
 // Rounds to about 110 m, the same rounding as the OneMap cache, so near-identical points share one fetch.
 const round3 = (x) => Math.round(x * 1000) / 1000

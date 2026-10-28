@@ -126,6 +126,8 @@ Request:
 | `weighted_centroid` | The engine's fairness rule: travel debt pulls the point toward whoever travelled more. The point is exact; `area` is the nearest named place. |
 | `centroid`, `minimax` | The plain middle, or the centre of the smallest circle around everyone (up to 12 people). |
 
+`travel` (optional, also on `/api/converge` and `/api/roam`): `live` (the default) routes with OneMap when the server has it, as described under [Travel times](#travel-times). `estimate` never routes: the request is answered from the planner's own estimate, with no OneMap call at all and `travel: { source: 'estimate', asked: 0, ... }`, exactly as on a server without OneMap. It is for sample data (the demo and the tour build many sessions, and real routes would only make them slow). Anything else answers 400 at `travel`. A person's own planning never sends it, and the session endpoints ignore it: they take no such field and always route.
+
 `maxCandidates` (optional) tries only the N areas nearest the fairest point, to save routing calls. Don't go below 16: 8 missed the best area for 3.4% of random groups.
 
 `alternatives` and `include` (both optional) ask for runners-up and for named areas. See [Runners-up and named areas](#runners-up-and-named-areas) below. A request that sends neither gets exactly the answer described here, and no `candidates`.
@@ -680,7 +682,7 @@ The counts always add up: `asked = routed + cached + walked + failed + estimated
 | `cached` | Answered from the server's route cache (6 hours). No call. |
 | `walked` | Under 400 m, so walked. No call. |
 | `failed` | OneMap was asked and gave no time (an error, or no route), or the cache remembers "no route". The engine used its estimate. |
-| `estimated` | Never asked, so the engine used its estimate. Its venue or area did not fit the per-request cap (or the meeting-area shortlist), or OneMap was not available (the shared call budget was used up, routing was paused after repeated failures, the login failed), or this request waited its 8 seconds. |
+| `estimated` | Never asked, so the engine used its estimate. Its venue or area did not fit the per-request cap (or the meeting-area shortlist), or OneMap was not available (the shared call budget was used up, routing was paused after repeated failures, the login failed), or this request waited its `ROUTING_DEADLINE_MS` (3 seconds by default). |
 
 `approximate: true` on a result (or on the meeting area) means at least one of its trips used the estimate, whether it `failed` or was `estimated`. A result that is not approximate has real times for every trip. `diagnostics.routingCalls` (with `PLANNER_DIAGNOSTICS=1`) is the engine's own count of the trips it asked about; `travel` is what was really fetched, and is always shown.
 
@@ -695,7 +697,7 @@ How the OneMap times work (`backend/src/services/onemap.js`, `travel-times.js`):
 
   So the chosen area and its times are the same with or without the new fields. A named area's real times belong to its own entry only: the ranking is never shown them, even for an included area the ranking also compares (one of the 16 nearest tried), because a real time can come out below the estimate and would let a named area beat the planner's own pick. A named area is routed only with room to spare: with 10 members (6 areas fit) the first included area is routed and the second is not; with 12 members or more, no included area is. An area that did not fit keeps the estimate for every member and its candidate is `approximate: true`. The room is counted after free trips: a trip already in the route cache or short enough to walk costs nothing, so a repeat request routes more of the areas the first one had to estimate. With 30 members, `alternatives: 3` and 8 included areas, the stub test makes 60 route calls (`tests/meeting-area-candidates.test.js`); `tests/meeting-area-include-isolation.test.js` checks that `include` changes nothing but its own entries.
 - **The whole server shares a OneMap budget**: at most 6 calls in flight, and `ONEMAP_CALLS_PER_MINUTE` a minute (default 240) for routing, address search and login together. A routing trip that finds it used up keeps the estimate at once. See [external-apis.md](external-apis.md#keeping-the-shared-account-safe).
-- **One request waits at most 8 seconds** for OneMap routes in total. Trips not answered by then keep the estimate, and the request is still answered.
+- **One request waits at most 3 seconds** for OneMap routes in total (`ROUTING_DEADLINE_MS` in `backend/.env`, whole milliseconds from 1000 to 15000, default 3000; a bad value stops the server starting). It holds for every planner route and for the session server's runs, which share one deadline across the runs of a request. Trips not answered by then keep the estimate and are `approximate`, and the request is still answered. A OneMap answer that arrives after the deadline is dropped: the answer already sent does not change, though the route is still kept in the cache for the next request. A round of 6 trips takes about 1.2 seconds, so 3 seconds routes roughly 15 trips; the rest of a large first-time request is estimated, and a repeat of it is answered from the cache.
 - After 5 failed route calls in a row, routing is paused for 30 seconds and every trip keeps the estimate. A rejected login token is replaced once and the call retried; a failed login is not retried for 60 seconds.
 - A trip under 400 m is walked; no route is asked for.
 - The way back is taken to be as long as the way there, so one route serves both. Most members end where they started, so this halves the calls.
@@ -1079,6 +1081,7 @@ Every list and number has an upper limit, so one request cannot keep the server 
 | `categories` | 4 (repeats are removed) |
 | `alternatives` (meeting area) | 3 |
 | `include` (meeting area) | 8 area ids, each a known area, none repeated |
+| `travel` | `live` or `estimate` |
 | `areaId` (session endpoints) | 60 characters, a known area |
 | different areas members may suggest in one session | 8 |
 | `cuisineLikes`, `cuisineDislikes` | 20 each per member |

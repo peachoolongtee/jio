@@ -45,7 +45,8 @@ export const MEETING_FINALISTS_MAX = 12
 //   depsFor()                       Engine deps for a request that makes no OneMap call (the stub scenario can fail routing).
 //   resolveWeather(input)           The weather a request is scored against; never throws because the forecast is down.
 //   runWithTravel(input, planData, run, options)
-//                                   Runs the engine with real travel times when routing is on, the estimate otherwise.
+//                                   Runs the engine with real travel times when routing is on, the estimate otherwise (also when the
+//                                   request says `travel: 'estimate'`: then no OneMap call is made at all).
 //                                   `options` (or a function of the request) go to runWithRealTravel: { maxCandidates,
 //                                   rankByEstimate, namedAreas, maxTrips, deadlineMs }. `maxTrips` and `deadlineMs` let a
 //                                   caller that makes several runs for one request share one allowance between them.
@@ -89,7 +90,8 @@ export function createPlannerRuns({
   // How to call:
   //   const { result, travel } = await runWithTravel(input, planData, converge)
   async function runWithTravel(input, planData, run, options = {}) {
-    if (!onemap?.routingEnabled) {
+    // A request that says `travel: 'estimate'` never routes, whatever the server can do: the same run as a server with no OneMap.
+    if (!onemap?.routingEnabled || input.travel === 'estimate') {
       return { result: run(input, planData, { ...depsFor(), ...(estimate && { estimateMinutes: estimate }) }), travel: estimateTravel() }
     }
     const given = typeof options === 'function' ? options(input) : options
@@ -109,7 +111,7 @@ export function createPlannerRuns({
   // How to call:
   //   const effective = withRoutingCandidates(input) // input, or input with maxCandidates: 16
   const withRoutingCandidates = (input) =>
-    onemap?.routingEnabled && (input.method === 'station' || input.alternatives > 0) && !input.maxCandidates
+    onemap?.routingEnabled && input.travel !== 'estimate' && (input.method === 'station' || input.alternatives > 0) && !input.maxCandidates
       ? { ...input, maxCandidates: MEETING_CANDIDATES_WITH_ROUTING }
       : input
   const meetingAreaWithRouting = (input, planData, deps) => meetingArea(withRoutingCandidates(input), planData, deps)
