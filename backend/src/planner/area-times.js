@@ -89,7 +89,8 @@ export function areaTimesCoverage(areas, table) {
  *     areas plus a hop (accessMinutes) at each end. A point on an area's centre uses only that area. A point has
  *     no distance limit: the hop just grows, so there is no jump where "near an area" ends;
  *   - two points nearest the same area: the straight-line estimate, the two hops or the area's shortest trip to a neighbour,
- *     whichever is least (a trip inside an area is never longer than leaving it);
+ *     whichever is least (a trip inside an area is never longer than leaving it). The table is in it through that shortest trip: an
+ *     area with no usable pair at all has none, and the trip is the straight line (null from tableMinutes);
  *   - a pair the table lacks (no route was found) or holds a value that cannot be a time: skipped; if none is left, the
  *     straight-line estimate.
  *
@@ -124,7 +125,8 @@ export function createAreaEstimator({ areas, table }) {
     const from = nearest(a), to = nearest(b);
     if (from[0].area.id === to[0].area.id) {
       const hops = accessMinutes(from[0].km) + accessMinutes(to[0].km);
-      return Math.min(mockTravelMinutes(a, b), hops, shortestLeaving.get(from[0].area.id) ?? Infinity);
+      const leaving = shortestLeaving.get(from[0].area.id); // no usable pair for the area: no table time, so the straight line answers
+      return leaving === undefined ? null : Math.min(mockTravelMinutes(a, b), hops, leaving);
     }
     let best = Infinity;
     for (const x of from) {
