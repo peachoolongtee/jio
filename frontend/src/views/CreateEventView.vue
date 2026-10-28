@@ -29,7 +29,7 @@ import RadialTimePicker from '@/components/ui/RadialTimePicker.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import TextField from '@/components/ui/TextField.vue'
 import NotFoundView from './NotFoundView.vue'
-import { toMinutes } from '@/lib/planner/format.js'
+import { toMinutes, fromMinutes } from '@/lib/planner/format.js'
 import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
 import { defaultDate, defaultSessionEnd, defaultTimes, endHasPassed, singaporeDate, startHasPassed } from '@/lib/session.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -88,6 +88,24 @@ if (editing.value) onMounted(load)
 watch(session, fill, { immediate: true })
 // The same screen opened for another session: take that one's values.
 watch(() => props.id, (id) => { if (!id) return; filled = false; fill(session.value); load() })
+
+// Moving the start moves the end with it, keeping the window's length (capped at 23:59). A change to the end, or a refill
+// of the form (start and end change together), moves nothing. Runs whenever the start or the end changes.
+watch([start, end], ([now, endNow], [before, endBefore]) => {
+  if (!now || !before || !end.value) return
+
+  if (endNow !== endBefore) return
+
+  const edge = 23 * 60 + 59
+  const minsNow = toMinutes(now)
+  const length = toMinutes(end.value) - toMinutes(before)
+
+  if (minsNow + length > edge) {
+    end.value = fromMinutes(edge)
+  } else {
+    end.value = fromMinutes(minsNow + length)
+  }
+})
 
 // Sessions can be planned up to three months ahead of today in Singapore.
 const lastDay = format(addDays(parseISO(singaporeDate()), 90), 'yyyy-MM-dd')

@@ -250,6 +250,56 @@ describe('the create form late at night', () => {
   })
 })
 
+// At 14:20 a new session's form starts at 15:00 to 18:00, a window of three hours.
+describe('the create form when the start moves', () => {
+  async function form() {
+    const t = await setUp()
+    const view = await draw(t, '/sessions/new', 'CreateEventView')
+    await until(() => view.has('input'))
+    return view
+  }
+  // Type a time into the start (0) or end (1) picker and leave the box, as a person does.
+  // How to call: await pick(view, 0, '16:00')
+  async function pick(view, which, time) {
+    const box = view.all('.tp__input')[which]
+    box.value = time
+    box.dispatch('input')
+    box.dispatch('blur')
+    await view.tick()
+  }
+  const times = (view) => view.all('.tp__input').map((box) => box.value)
+
+  it('moves the end with the start and keeps the window: 15:00 to 18:00 becomes 16:00 to 19:00', async () => {
+    const view = await form()
+    await pick(view, 0, '16:00')
+    expect(times(view)).toEqual(['16:00', '19:00'])
+    expect(view.text()).not.toContain('End time must be after the start time.')
+  })
+
+  it('moves the end back when the start moves earlier', async () => {
+    const view = await form()
+    await pick(view, 0, '15:30')
+    await pick(view, 0, '15:15')
+    expect(times(view)).toEqual(['15:15', '18:15'])
+  })
+
+  it('stops the end at 23:59 when the window would run past midnight', async () => {
+    const view = await form()
+    await pick(view, 0, '22:00')
+    expect(times(view)).toEqual(['22:00', '23:59'])
+    expect(view.text()).not.toContain('End time must be after the start time.')
+  })
+
+  it('keeps the length the person chose: an end of 20:00, then a start of 16:00, ends at 21:00', async () => {
+    const view = await form()
+    await pick(view, 1, '20:00')
+    // Changing the end moves nothing else.
+    expect(times(view)).toEqual(['15:00', '20:00'])
+    await pick(view, 0, '16:00')
+    expect(times(view)).toEqual(['16:00', '21:00'])
+  })
+})
+
 describe('editing a session whose start has passed', () => {
   // A session made at 14:20 for 15:00 to 18:00 that day; then it is 16:00 and the start has passed, with the session still inviting.
   async function editForm() {
