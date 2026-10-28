@@ -4,6 +4,7 @@ import { createApp } from '../src/app.js'
 import { createHttp } from '../src/services/http.js'
 import { createOneMap } from '../src/services/onemap.js'
 import { createPlannerRuns } from '../src/services/planner-runs.js'
+import { newAllowance, spend } from '../src/services/session-voting.js'
 import {
   readRoutingDeadline,
   ROUTING_DEADLINE_MAX_MS,
@@ -80,7 +81,7 @@ describe("travel: 'estimate' makes no OneMap call", () => {
     expect(calls).toEqual({ route: 0, login: 0 })
   })
 
-  it('a seeded run of many requests, one after another, counts 0 OneMap calls', async () => {
+  it('many estimate requests, one after another, count 0 OneMap calls', async () => {
     const { base, calls } = await stubApp()
     for (let round = 0; round < 3; round += 1) {
       for (const path of Object.keys(REQUESTS)) {
@@ -232,5 +233,132 @@ describe('ROUTING_DEADLINE_MS in the environment', () => {
       expect(error, bad).toMatch(/^ROUTING_DEADLINE_MS must be a whole number/)
       expect(error).not.toMatch(/\d+s\b|soon|NaN|Infinity/)
     }
+  })
+})
+
+describe('a deadline with no time left, and a candidate the deadline cuts', () => {
+  const member = (i) => ({ lat: 1.3 + i * 0.01, lng: 103.7 })
+  const venue = (id, lat) => ({ id, lat, lng: 103.95 })
+  const toyRun = (members, venues) => (deps) => venues.map((v) => members.map((m) => deps.travelMinutes(m, v)))
+  const members = [0, 1].map(member)
+
+  it.each([0, -5, Number.NaN])('deadlineMs %s makes no call at all and estimates every trip', async (deadlineMs) => {
+    const onemap = { routingEnabled: true, routeMinutes: vi.fn(async () => 20), reportFallback: vi.fn() }
+    const onCalls = vi.fn()
+    const { result, travel } = await runWithRealTravel({ onemap, onCalls, dateTime: DATE_TIME, deadlineMs, run: toyRun(members, [venue('a', 1.31), venue('b', 1.32)]) })
+    expect(onemap.routeMinutes).not.toHaveBeenCalled()
+    expect(onCalls).not.toHaveBeenCalled()
+    expect(result.flat().every((m) => m === null)).toBe(true)
+    expect(travel).toEqual({ source: 'estimate', asked: 4, routed: 0, cached: 0, walked: 0, failed: 0, estimated: 4 })
+    expect(onemap.reportFallback).toHaveBeenCalledWith('deadline')
+  })
+
+  it('a clock with no time left makes no call either, and a request that needs no call never starts the clock', async () => {
+    const onemap = { routingEnabled: true, routeMinutes: vi.fn(async () => 20), peekRoute: () => ({ kind: 'cached', minutes: 12 }), reportFallback: vi.fn() }
+    const start = vi.fn(() => 0)
+    const cached = await runWithRealTravel({ onemap, deadlineClock: { start }, dateTime: DATE_TIME, run: toyRun(members, [venue('a', 1.31)]) })
+    expect(cached.result).toEqual([[12, 12]])
+    expect(start).not.toHaveBeenCalled()
+    const needsCalls = { ...onemap, peekRoute: () => ({ kind: 'call' }) }
+    const none = await runWithRealTravel({ onemap: needsCalls, deadlineClock: { start }, dateTime: DATE_TIME, run: toyRun(members, [venue('a', 1.31)]) })
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(onemap.routeMinutes).not.toHaveBeenCalled()
+    expect(none.travel.estimated).toBe(2)
+  })
+
+  it('every call made is counted, even one whose answer arrives after the deadline', async () => {
+    const onemap = { routingEnabled: true, routeMinutes: () => new Promise((resolve) => setTimeout(() => resolve(20), 300)), reportFallback: vi.fn() }
+    const onCalls = vi.fn()
+    const { travel } = await runWithRealTravel({ onemap, onCalls, dateTime: DATE_TIME, deadlineMs: 40, run: toyRun(members, [venue('a', 1.31), venue('b', 1.32)]) })
+    expect(travel.routed).toBe(0)
+    // Four trips, all started at once (concurrency 6): four calls, none usable.
+    expect(onCalls.mock.calls.reduce((n, [k]) => n + k, 0)).toBe(4)
+  })
+
+  it('a call refused because OneMap is unavailable is not counted', async () => {
+    const { OneMapUnavailableError } = await import('../src/services/budget.js')
+    const onemap = { routingEnabled: true, routeMinutes: async () => { throw new OneMapUnavailableError('budget_empty', 'used up') } }
+    let calls = 0
+    await runWithRealTravel({ onemap, onCalls: (n) => { calls += n }, dateTime: DATE_TIME, run: toyRun(members, [venue('a', 1.31)]) })
+    expect(calls).toBe(0)
+  })
+
+  it('a candidate the deadline cuts part-way is estimated whole, and a complete one keeps its real times', async () => {
+    // a: both members answer at once. b: one answers at once, the other is slow. Real a, all-estimate b, never [20, null] for b.
+    const onemap = {
+      routingEnabled: true,
+      reportFallback: vi.fn(),
+      routeMinutes: async (a, b) => {
+        const v = b.id ? b : a
+        const m = b.id ? a : b
+        if (v.id === 'b' && m.lat === members[1].lat) await new Promise((resolve) => setTimeout(resolve, 300))
+        return 20
+      },
+    }
+    const { result, travel } = await runWithRealTravel({ onemap, dateTime: DATE_TIME, deadlineMs: 60, concurrency: 4, run: toyRun(members, [venue('a', 1.31), venue('b', 1.32)]) })
+    expect(result).toEqual([[20, 20], [null, null]])
+    expect(travel).toEqual({ source: 'onemap', asked: 4, routed: 2, cached: 0, walked: 0, failed: 0, estimated: 2 })
+    expect(onemap.reportFallback).toHaveBeenCalledWith('deadline')
+  })
+
+  it('a cut candidate that had cached trips is estimated whole too', async () => {
+    const onemap = {
+      routingEnabled: true,
+      reportFallback: vi.fn(),
+      // The first member's trip to b is in the cache; the second member's is a call that never answers in time.
+      peekRoute: (a, b) => ((b.id ?? a.id) === 'b' && (b.id ? a : b).lat === members[0].lat ? { kind: 'cached', minutes: 9 } : { kind: 'call' }),
+      routeMinutes: async (a, b) => {
+        if ((b.id ?? a.id) === 'b') await new Promise((resolve) => setTimeout(resolve, 300))
+        return 20
+      },
+    }
+    const { result } = await runWithRealTravel({ onemap, dateTime: DATE_TIME, deadlineMs: 60, concurrency: 4, run: toyRun(members, [venue('a', 1.31), venue('b', 1.32)]) })
+    expect(result).toEqual([[20, 20], [null, null]])
+  })
+})
+
+describe("a session request's allowance", () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('starts its clock when routing first needs a call, not when the request begins', async () => {
+    vi.useFakeTimers()
+    const allowance = newAllowance(3000)
+    await vi.advanceTimersByTimeAsync(10_000) // database reads, weather: not charged
+    expect(allowance.remainingMs()).toBe(3000)
+    expect(allowance.routing().deadlineMs).toBe(3000)
+    expect(allowance.clock.start()).toBe(3000)
+    await vi.advanceTimersByTimeAsync(1200)
+    expect(allowance.remainingMs()).toBe(1800)
+    expect(allowance.clock.start()).toBe(1800) // starting again does not restart it
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(allowance.remainingMs()).toBe(0)
+    expect(allowance.clock.start()).toBe(0)
+  })
+
+  it('a new attempt of the same request gets a full wait again, with the trips that are left', async () => {
+    vi.useFakeTimers()
+    const allowance = newAllowance(3000)
+    allowance.clock.start()
+    allowance.onCalls(15)
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(allowance.remainingMs()).toBe(0)
+    allowance.restartClock()
+    expect(allowance.remainingMs()).toBe(3000)
+    expect(allowance.clock.start()).toBe(3000)
+    expect(allowance.trips).toBe(45)
+  })
+
+  it('is debited call by call, and spend() does not take the same trips twice', () => {
+    const allowance = newAllowance(3000)
+    allowance.onCalls(10)
+    spend(allowance, { routed: 10, failed: 0 })
+    expect(allowance.trips).toBe(50)
+    allowance.onCalls(-1)
+    expect(allowance.trips).toBe(51)
+    allowance.onCalls(100)
+    expect(allowance.trips).toBe(0)
+    const plain = { trips: 60 }
+    spend(plain, { routed: 5, failed: 2 })
+    expect(plain.trips).toBe(53)
   })
 })

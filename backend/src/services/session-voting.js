@@ -2,6 +2,7 @@ import { converge, roam, searchVenues } from '../planner/engine.js'
 import { CATEGORIES, fromMinutes, reconcileOptions } from '../planner/slot-plan.js'
 import { MAX } from '../routes/plan-schemas.js'
 import { nowInSingapore } from './planner-runs.js'
+import { MAX_ROUTED_TRIPS_PER_REQUEST } from './travel-times.js'
 import {
   knownPlaceRow,
   locatedMembers,
@@ -44,11 +45,59 @@ import {
 //   const voting = createVoting({ data, areasById, runs })
 //   const { info, items } = await voting.planPhase(draft, wants, ctx)
 
-// Takes what a run used from the request's allowance of OneMap trips. A trip that failed was still a call.
+// One request's allowance of OneMap: how many trips it may still route (shared by every run of the request, retries included, so a
+// retry cannot spend more of the shared account than the request is allowed) and how long it may wait for routes. The wait is a
+// clock that starts when routing first needs a call, not when the request begins, so the database reads and the weather before it
+// are not charged to "waiting for routes", and a retry of the request calls `restartClock()` to give its attempt a wait of its own.
+//
+// How to call:
+//   const allowance = newAllowance(3000)                      // 60 trips, a 3 second wait once routing starts
+//   runs.runWithTravel(input, data, run, () => allowance.routing())
+//   allowance.restartClock()                                  // a new attempt of the same request
+export function newAllowance(deadlineMs, trips = MAX_ROUTED_TRIPS_PER_REQUEST) {
+  let startedAt = null
+  const allowance = {
+    trips,
+    limit: trips,
+    called: 0,
+    deadlineMs,
+    // Starts the clock if it has not started and says how many milliseconds are left (0 when none). runWithRealTravel calls this
+    // when it finds it needs to make a call.
+    clock: {
+      start() {
+        startedAt ??= Date.now()
+        return Math.max(0, deadlineMs - (Date.now() - startedAt))
+      },
+    },
+    // Called by runWithRealTravel for every call it makes, at the moment it makes it, so a call whose answer arrives too late to be
+    // used is still taken from the allowance.
+    onCalls(n) {
+      allowance.called += n
+      allowance.trips = Math.max(0, allowance.limit - allowance.called)
+    },
+    // The time left, without starting the clock: the full wait before routing starts.
+    remainingMs() {
+      return startedAt === null ? deadlineMs : Math.max(0, deadlineMs - (Date.now() - startedAt))
+    },
+    restartClock() {
+      startedAt = null
+    },
+    // The options runWithTravel takes for a run of this request.
+    routing() {
+      return { maxTrips: allowance.trips, deadlineMs: allowance.remainingMs(), deadlineClock: allowance.clock, onCalls: allowance.onCalls }
+    },
+  }
+  return allowance
+}
+
+// Takes what a run used from the request's allowance of OneMap trips. An allowance from newAllowance() is debited call by call as
+// the calls are made (onCalls), so there is nothing to do here; any other object is debited by what the run reports, where a trip
+// that failed was still a call.
 //
 // How to call:
 //   spend(allowance, travel)
 export function spend(allowance, travel) {
+  if (allowance.onCalls) return
   allowance.trips = Math.max(0, allowance.trips - (travel.routed ?? 0) - (travel.failed ?? 0))
 }
 
@@ -110,8 +159,7 @@ export function createVoting({ data, areasById, runs }) {
     // The saved sample visits are never used: only this group's own finished outings, when they could be read.
     const planData = visits?.length > 0 ? { ...resolved.planData, visitHistory: visits } : resolved.planData
     const { result, travel } = await runs.runWithTravel(input, planData, converge, () => ({
-      maxTrips: ctx.allowance.trips,
-      deadlineMs: Math.max(0, ctx.allowance.deadlineAt - Date.now()),
+      ...ctx.allowance.routing(),
     }))
     spend(ctx.allowance, travel)
     return readRanking(result, resolved)
@@ -147,8 +195,7 @@ export function createVoting({ data, areasById, runs }) {
     }
     const planData = visits?.length > 0 ? { ...resolved.planData, visitHistory: visits } : resolved.planData
     const { result, travel } = await runs.runWithTravel(input, planData, roam, () => ({
-      maxTrips: ctx.allowance.trips,
-      deadlineMs: Math.max(0, ctx.allowance.deadlineAt - Date.now()),
+      ...ctx.allowance.routing(),
       // The point is a person's position: its routes are not read from or put in the route cache, so nothing of it stays in this process.
       cache: false,
     }))
@@ -168,7 +215,7 @@ export function createVoting({ data, areasById, runs }) {
     const debts = (await ctx.debts?.()) ?? null
     const { located } = locatedMembers(draft.members, areasById, debts)
     const dateTime = dateTimeOf(session)
-    const options = () => ({ maxTrips: ctx.allowance.trips, deadlineMs: Math.max(0, ctx.allowance.deadlineAt - Date.now()) })
+    const options = () => ctx.allowance.routing()
 
     if (['voted', 'chosen'].includes(session.meeting_method) && session.meeting_area_id) {
       let priced = null
