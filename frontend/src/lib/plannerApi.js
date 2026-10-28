@@ -319,8 +319,8 @@ export async function searchPeopleByUsername(q, { signal } = {}) {
   }
 }
 
-// How long a call about a session's meeting spots is waited for. The server may route trips with OneMap for up to 8 seconds before it
-// answers, so this is longer than a ranking's wait.
+// How long a call about a session's meeting spots is waited for. The server may route trips with OneMap for a few seconds (3 by default,
+// ROUTING_DEADLINE_MS) before it answers, and a session run does more than route, so this is longer than a ranking's wait.
 export const SESSION_TIMEOUT_MS = 20000
 
 // The path of one of a session's routes. How to call: sessionPath('3b1f...', '/spots/mine') -> '/api/sessions/3b1f.../spots/mine'
