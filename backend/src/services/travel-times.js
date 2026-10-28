@@ -69,6 +69,54 @@ const candidateKey = (a, b) => (a.id !== undefined ? `id:${a.id}` : b.id !== und
 //   res.json({ ...result, travel: estimateTravel() })
 export const estimateTravel = () => ({ source: 'estimate', asked: 0, routed: 0, cached: 0, walked: 0, failed: 0, estimated: 0 })
 
+// Fetches the routes of `keys` (trip keys) from OneMap through the shared budget and cache, at most `concurrency` at a time, and writes
+// each answer to `outcome` ('routed' or 'failed' or 'estimated', for a OneMap that is unavailable) and `minutes`. It waits at most `waitMs`
+// in all. Resolves true when the time ran out first: trips that had not answered by then have no outcome, and an answer that arrives
+// later is ignored (the step is closed). A trip still waiting for its turn when the time ran out makes no call. Only an API failure is
+// tolerated; any other error is a bug and surfaces.
+//
+// How to call (inside this file):
+//   const timedOut = await fetchTrips({ onemap, trips, keys, dateTime, cache: true, concurrency: 6, onCalls: null, waitMs: 3000, outcome, minutes })
+async function fetchTrips({ onemap, trips, keys, dateTime, cache, concurrency, onCalls, waitMs, outcome, minutes }) {
+  let closed = false
+  const limit = pLimit(concurrency)
+  const fetchAll = Promise.all(
+    keys.map((key) =>
+      limit(async () => {
+        if (closed) return // The deadline passed while this trip waited its turn: do not spend a call on it.
+        const { a, b } = trips.get(key)
+        try {
+          onCalls?.(1)
+          const m = cache ? await onemap.routeMinutes(a, b, dateTime) : await onemap.routeMinutes(a, b, dateTime, { cache: false })
+          if (closed) return
+          if (m === null || m === undefined) outcome.set(key, 'failed')
+          else {
+            minutes.set(key, m)
+            outcome.set(key, 'routed')
+          }
+        } catch (err) {
+          if (!(err instanceof ExternalApiError)) throw err
+          // OneMap not available right now (no budget, circuit open, login failed): no call was made, so none is counted.
+          if (err instanceof OneMapUnavailableError) onCalls?.(-1)
+          if (closed) return
+          outcome.set(key, err instanceof OneMapUnavailableError ? 'estimated' : 'failed')
+        }
+      }),
+    ),
+  )
+  let timer
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve('deadline'), waitMs)
+    timer.unref?.()
+  })
+  try {
+    return (await Promise.race([fetchAll.then(() => 'done'), deadline])) === 'deadline'
+  } finally {
+    clearTimeout(timer)
+    closed = true
+  }
+}
+
 // The order in which candidate areas get real routes when a meeting-area request asks for runners-up or names areas.
 // The cap on trips is applied to this order exactly as it is to any other, so naming areas never adds a call
 // beyond MAX_ROUTED_TRIPS_PER_REQUEST. The order is:
@@ -265,51 +313,9 @@ export async function runWithRealTravel({
   // 3. Fetch them. Only an API failure is tolerated; any other error is a bug and must surface.
   // The whole step shares one deadline. When it passes, trips that have not answered use the estimate. A deadline with no time left
   // makes no call at all (p-limit would otherwise start the first few before the timer could close the step).
-  let closed = false
-  let timedOut = false
   if (toFetch.length > 0) {
     const waitMs = deadlineClock ? deadlineClock.start() : deadlineMs
-    if (!(waitMs > 0)) {
-      closed = true
-      timedOut = true
-    } else {
-      const limit = pLimit(concurrency)
-      const fetchAll = Promise.all(
-        toFetch.map((key) =>
-          limit(async () => {
-            if (closed) return // The deadline passed while this trip waited its turn: do not spend a call on it.
-            const { a, b } = trips.get(key)
-            try {
-              onCalls?.(1)
-              const m = cache ? await onemap.routeMinutes(a, b, dateTime) : await onemap.routeMinutes(a, b, dateTime, { cache: false })
-              if (closed) return
-              if (m === null || m === undefined) outcome.set(key, 'failed')
-              else {
-                minutes.set(key, m)
-                outcome.set(key, 'routed')
-              }
-            } catch (err) {
-              if (!(err instanceof ExternalApiError)) throw err
-              // OneMap not available right now (no budget, circuit open, login failed): no call was made, so none is counted.
-              if (err instanceof OneMapUnavailableError) onCalls?.(-1)
-              if (closed) return
-              outcome.set(key, err instanceof OneMapUnavailableError ? 'estimated' : 'failed')
-            }
-          }),
-        ),
-      )
-      let timer
-      const deadline = new Promise((resolve) => {
-        timer = setTimeout(() => resolve('deadline'), waitMs)
-        timer.unref?.()
-      })
-      try {
-        timedOut = (await Promise.race([fetchAll.then(() => 'done'), deadline])) === 'deadline'
-      } finally {
-        clearTimeout(timer)
-        closed = true
-      }
-    }
+    const timedOut = !(waitMs > 0) || (await fetchTrips({ onemap, trips, keys: toFetch, dateTime, cache, concurrency, onCalls, waitMs, outcome, minutes }))
     if (timedOut) {
       onemap.reportFallback?.('deadline')
       // A candidate the deadline cut part-way is estimated whole: a venue is real for every member or an estimate for every member,

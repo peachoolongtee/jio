@@ -6,7 +6,11 @@
 // table of REAL times between the planner's areas (scripts/build-area-times.js, taken from OneMap once) into the same kind of
 // guess for any two points: the trip between their nearest areas, plus a short hop at each end.
 //
-// It is only a guess, to rank and to fill in when OneMap cannot answer. A trip that gets a real route still uses it.
+// It is the planner's TABLE TRIP TIME: the one definition that ranks meeting areas and places before any live route is asked for
+// (services/travel-times.js routes only the few results a person sees first, and replaces their table times with routed ones). It is
+// real transit data between the areas plus a modelled hop at each end, so the answer labels it `table`, apart from a straight-line
+// `estimate`. The hop was fitted to 26 live OneMap trips on 28 October 2026 (see backend/docs/planner-api.md): the first version,
+// 3.7 minutes a km, was 14 minutes too optimistic on average.
 //
 // A session's members start from the centres of areas, never from an exact place, so for them a trip is exactly the table's time.
 // An exact address (the planner's other callers) is not on an area's centre: it may use any of the few areas nearest it, whichever
@@ -18,9 +22,22 @@ import { haversineKm, mockTravelMinutes } from './geo.js';
 export const NEAREST_AREAS = 3;
 // A point this close to an area's centre is that area (a session's member starts at the centre): only it is used at that end.
 export const AT_CENTRE_KM = 0.05;
-// The short hop from a point to its nearest area, in minutes for each km (walking, a feeder bus or a short ride, with the wait).
-// The straight-line estimate's own rate (about 3.7 a km) without its fixed 6 minutes, which the table's door-to-door times hold.
-export const ACCESS_MINUTES_PER_KM = (1.35 * 60) / 22;
+// The hop from a point to an area's station, in minutes: a fixed part for reaching and waiting at a station (growing from 0 to
+// ACCESS_FIXED_MINUTES over the first ACCESS_RAMP_KM, so there is no jump just off a centre) and ACCESS_MINUTES_PER_KM for each km
+// (walking, or a feeder bus with its wait). Fitted to live OneMap routes: mean error about -1 minute, mean absolute error 3.8, on 26
+// trips (16 from points at 0 to 3 km from their nearest area; 10 of a converge). The first version had mean error -13.7.
+export const ACCESS_MINUTES_PER_KM = 7;
+export const ACCESS_FIXED_MINUTES = 5;
+export const ACCESS_RAMP_KM = 0.4;
+
+/**
+ * The minutes of the hop between a point and an area's centre `km` away. A point on the centre (a session's member) has no hop.
+ *
+ * How to call:
+ *   accessMinutes(0.04) // 0
+ *   accessMinutes(1) // 12
+ */
+export const accessMinutes = km => (km < AT_CENTRE_KM ? 0 : ACCESS_FIXED_MINUTES * Math.min(1, km / ACCESS_RAMP_KM) + ACCESS_MINUTES_PER_KM * km);
 
 /**
  * The key of an unordered pair of area ids: 'bedok|bugis'.
@@ -66,9 +83,10 @@ export function areaTimesCoverage(areas, table) {
 
 /**
  * Makes the estimate from the planner's areas and a table of real times between them. Returns `estimateMinutes(a, b)` for two
- * points { lat, lng }, which is also what `mockTravelMinutes` is: a drop-in for it.
+ * points { lat, lng }, which is also what `mockTravelMinutes` is: a drop-in for it. Its property `tableMinutes(a, b)` is the same
+ * time, or null where it would be the straight line: the planner's table trip time (the number, and whether a table gave it).
  *   - two points of different areas: the shortest, over the NEAREST_AREAS nearest areas at each end, of the real time between those
- *     areas plus a short hop (ACCESS_MINUTES_PER_KM) at each end. A point on an area's centre uses only that area. A point has
+ *     areas plus a hop (accessMinutes) at each end. A point on an area's centre uses only that area. A point has
  *     no distance limit: the hop just grows, so there is no jump where "near an area" ends;
  *   - two points nearest the same area: the straight-line estimate, the two hops or the area's shortest trip to a neighbour,
  *     whichever is least (a trip inside an area is never longer than leaving it);
@@ -77,7 +95,8 @@ export function areaTimesCoverage(areas, table) {
  *
  * How to call:
  *   const estimate = createAreaEstimator({ areas, table: loadedTable })
- *   estimate({ lat: 1.3274, lng: 103.9464 }, { lat: 1.3443, lng: 103.7207 }) // about 45
+ *   estimate({ lat: 1.3274, lng: 103.9464 }, { lat: 1.3443, lng: 103.7207 }) // about 50
+ *   estimate.tableMinutes(a, b) // the same number, or null when no table pair gave one
  */
 export function createAreaEstimator({ areas, table }) {
   if (!isAreaTimes(table) || !Array.isArray(areas) || areas.length === 0) throw new Error('createAreaEstimator: needs the areas and a table of times');
@@ -101,19 +120,22 @@ export function createAreaEstimator({ areas, table }) {
     }
     return few[0].km < AT_CENTRE_KM ? [few[0]] : few;
   };
-  return function estimateMinutes(a, b) {
+  function tableMinutes(a, b) {
     const from = nearest(a), to = nearest(b);
     if (from[0].area.id === to[0].area.id) {
-      const hops = (from[0].km + to[0].km) * ACCESS_MINUTES_PER_KM;
+      const hops = accessMinutes(from[0].km) + accessMinutes(to[0].km);
       return Math.min(mockTravelMinutes(a, b), hops, shortestLeaving.get(from[0].area.id) ?? Infinity);
     }
     let best = Infinity;
     for (const x of from) {
       for (const y of to) {
         const between = x.area.id === y.area.id ? 0 : table.minutes[pairKey(x.area.id, y.area.id)]; // one area for both ends: just the hops
-        if (plausible(between)) best = Math.min(best, (x.km + y.km) * ACCESS_MINUTES_PER_KM + between);
+        if (plausible(between)) best = Math.min(best, accessMinutes(x.km) + accessMinutes(y.km) + between);
       }
     }
-    return Number.isFinite(best) ? best : mockTravelMinutes(a, b);
-  };
+    return Number.isFinite(best) ? best : null;
+  }
+  const estimateMinutes = (a, b) => tableMinutes(a, b) ?? mockTravelMinutes(a, b);
+  estimateMinutes.tableMinutes = tableMinutes;
+  return estimateMinutes;
 }

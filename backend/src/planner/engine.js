@@ -48,12 +48,31 @@ const occasionFitOf = (venue, occasion, profile) => venue.occasionFit?.[occasion
  * Travel time for one leg. Real routing can fail (OneMap down, no route found) and return null or NaN.
  * Instead of crashing, fall back to the straight-line estimate and count the leg, so the UI can label
  * the result "approximate".
+ *
+ * When the caller says where its times come from (`kinds`, a Set, and `kindOf(from, to)`: 'routed' or 'table'), the kind of this leg is
+ * added to the set, and a leg that fell back to the straight line adds 'estimate'. See sourceOf().
  */
-function routedMinutes(tm, from, to, diagnostics, estimate = mockTravelMinutes) {
+function routedMinutes(tm, from, to, diagnostics, estimate = mockTravelMinutes, kinds = null, kindOf = null) {
   const minutes = tm(from, to);
-  if (Number.isFinite(minutes) && minutes >= 0) return minutes;
+  if (Number.isFinite(minutes) && minutes >= 0) {
+    kinds?.add(kindOf(from, to));
+    return minutes;
+  }
   diagnostics.approximateLegs = (diagnostics.approximateLegs ?? 0) + 1;
+  kinds?.add('estimate');
   return estimate(from, to);
+}
+
+/**
+ * Where the times of one result came from, from the kinds of its legs: 'estimate' if any leg is the straight line, else 'table' if any
+ * leg is a table time (real transit minutes between the areas, planner/area-times.js), else 'routed' (a live OneMap route, a cached one or a
+ * short walk). A result is only as good as its weakest leg. `approximate` stays about the straight line alone.
+ *
+ * How to call:
+ *   sourceOf(new Set(['routed', 'table'])) // 'table'
+ */
+function sourceOf(kinds) {
+  return kinds.has('estimate') ? 'estimate' : kinds.has('table') ? 'table' : 'routed';
 }
 
 /** Penalties that do not depend on travel time. */
@@ -220,7 +239,8 @@ function emptyResult(reason, extra) {
  *                          travelCeilingMinutes? (default 60) }
  *                        seed: 'weighted_centroid' (default) | 'centroid' | 'minimax'
  * @param {object} data   { venues, occasionProfiles, weatherCases, visitHistory, _meta }
- * @param {object} deps   { travelMinutes?(from, to) }
+ * @param {object} deps   { travelMinutes?(from, to), travelSource?(from, to) } travelSource says where a time came from ('routed' or 'table'); with
+ *                        it each result carries `travelSource`, the weakest of its legs ('routed' | 'table' | 'estimate'). Roam takes the same.
  */
 function converge(input, data, deps = {}) {
   const tm = deps.travelMinutes ?? mockTravelMinutes;
@@ -282,8 +302,9 @@ function converge(input, data, deps = {}) {
 
   let rows = pruned.map(({ venue, distanceKm }) => {
     const fallbacksBefore = diagnostics.approximateLegs ?? 0;
-    const travel = members.map(m => routedMinutes(tm, m.start, venue, diagnostics));
-    const back = members.map(m => routedMinutes(tm, venue, m.end, diagnostics));
+    const kinds = deps.travelSource ? new Set() : null; // where this venue's times came from, when the caller says (deps.travelSource)
+    const travel = members.map(m => routedMinutes(tm, m.start, venue, diagnostics, undefined, kinds, deps.travelSource));
+    const back = members.map(m => routedMinutes(tm, venue, m.end, diagnostics, undefined, kinds, deps.travelSource));
     const worstIdx = travel.indexOf(Math.max(...travel));
     const wSum = fw.reduce((a, b) => a + b, 0);
     return {
@@ -295,6 +316,7 @@ function converge(input, data, deps = {}) {
       meanFair: travel.reduce((s, t, i) => s + fw[i] * t, 0) / wSum, // fairness-weighted mean
       factors: staticFactors(venue, c),
       approximate: (diagnostics.approximateLegs ?? 0) > fallbacksBefore,
+      ...(kinds && { travelSource: sourceOf(kinds) }),
     };
   });
 
@@ -340,7 +362,7 @@ function converge(input, data, deps = {}) {
     travelByMember: r.travelByMember, returnByMember: r.returnByMember, distanceFromCentreKm: r.distanceKm,
     ...(rule === 'balanced' && { gapMinutes: r.gapMinutes }),
     breakdown: r.breakdown, explanation: S.explain(r, label), verify: needsVerification(r.venue, members),
-    approximate: r.approximate, dietUnknown: unknownDietNeeds(r.venue, members),
+    approximate: r.approximate, ...(r.travelSource && { travelSource: r.travelSource }), dietUnknown: unknownDietNeeds(r.venue, members),
     ...optionLabels(r, centre, c, swap, input.lastStop ? Math.max(...r.back) : null),
   });
   const results = shown.map(toResult);
@@ -379,8 +401,9 @@ function roam(input, data, deps = {}) {
 
   let rows = pruned.map(({ venue, distanceKm }) => {
     const fallbacksBefore = diagnostics.approximateLegs ?? 0;
-    const travelMinutes = routedMinutes(tm, input.current, venue, diagnostics);
-    return { venue, distanceKm, travelMinutes, factors: staticFactors(venue, c), approximate: (diagnostics.approximateLegs ?? 0) > fallbacksBefore };
+    const kinds = deps.travelSource ? new Set() : null;
+    const travelMinutes = routedMinutes(tm, input.current, venue, diagnostics, undefined, kinds, deps.travelSource);
+    return { venue, distanceKm, travelMinutes, factors: staticFactors(venue, c), approximate: (diagnostics.approximateLegs ?? 0) > fallbacksBefore, ...(kinds && { travelSource: sourceOf(kinds) }) };
   });
   const ceiling = input.travelCeilingMinutes ?? 30; // Roam is "nearby", so a tighter ceiling than Converge
   rows.forEach(r => {
@@ -397,7 +420,7 @@ function roam(input, data, deps = {}) {
   const results = shown.map((r, i) => ({
     rank: i + 1, venueId: r.venue.id, name: r.venue.name, venue: r.venue, score: r.score,
     travelMinutes: r.travelMinutes, distanceKm: r.distanceKm, breakdown: r.breakdown, explanation: S.explain(r, label),
-    verify: needsVerification(r.venue, members), approximate: r.approximate, dietUnknown: unknownDietNeeds(r.venue, members),
+    verify: needsVerification(r.venue, members), approximate: r.approximate, ...(r.travelSource && { travelSource: r.travelSource }), dietUnknown: unknownDietNeeds(r.venue, members),
     ...optionLabels(r, input.current, c, swap),
   }));
   return { status: 'ok', centre: input.current, results, notice: fewOptions(rs), diagnostics };
@@ -476,7 +499,10 @@ function meetingAreaPlan(input, data, estimate = null) {
  *
  * @param input { members, overrides?, optedOut?, method?, maxCandidates?, fairnessScaleMinutes?, alternatives?, include? }
  * @param data  { areas: [{ id, name, lat, lng }] }
- * @param deps  { travelMinutes?, includedTravelMinutes? }
+ * @param deps  { travelMinutes?, includedTravelMinutes?, estimateMinutes?, travelSource?(from, to, included) }
+ *   travelSource says where a time came from, 'routed' (OneMap, cached or a walk) or 'table' (planner/area-times.js). With it every
+ *   candidate and the answer carry `travelSource` ('routed' | 'table' | 'estimate', the weakest of their trips), and the diagnostics
+ *   list the areas the ranking compared (`rankedAreaIds`). Without it the answer is exactly what it always was.
  *
  * How to call:
  *   meetingArea({ members, alternatives: 2, include: ['bishan'] }, data, { travelMinutes: ranking, includedTravelMinutes: all })
@@ -501,11 +527,14 @@ function meetingArea(input, data, deps = {}) {
   // used the estimate.
   const journeys = (point, diag = diagnostics, ask = tm) => {
     const fallbacksBefore = diag.approximateLegs ?? 0;
-    const travel = members.map(m => routedMinutes(ask, m.start, point, diag, estimate));
+    const kinds = deps.travelSource ? new Set() : null; // where this journey's times came from, when the caller says (deps.travelSource)
+    const kindOf = kinds && ((from, to) => deps.travelSource(from, to, ask === deps.includedTravelMinutes));
+    const travel = members.map(m => routedMinutes(ask, m.start, point, diag, estimate, kinds, kindOf));
     diag.routingCalls += travel.length;
     return {
       travel, worst: Math.max(...travel), fairMean: travel.reduce((s, t, i) => s + fw[i] * t, 0) / wSum,
       approximate: (diag.approximateLegs ?? 0) > fallbacksBefore,
+      ...(kinds && { travelSource: sourceOf(kinds) }),
     };
   };
   const wantsCandidates = input.alternatives !== undefined || input.include !== undefined;
@@ -549,6 +578,7 @@ function meetingArea(input, data, deps = {}) {
       meanMinutes: j.travel.reduce((x, y) => x + y, 0) / j.travel.length,
       travelByMember: Object.fromEntries(members.map((m, i) => [m.id, j.travel[i]])),
       approximate: j.approximate,
+      ...(j.travelSource && { travelSource: j.travelSource }),
       source,
     });
     const byStationRule = (x, y) => x.j.worst - y.j.worst || x.j.fairMean - y.j.fairMean; // a tie keeps the order tried
@@ -583,12 +613,18 @@ function meetingArea(input, data, deps = {}) {
     meanMinutes: travel.reduce((a, b) => a + b, 0) / travel.length,
     travelByMember: Object.fromEntries(members.map((m, i) => [m.id, travel[i]])),
     approximate: (diagnostics.approximateLegs ?? 0) > 0,
+    ...(best.j.travelSource && { travelSource: best.j.travelSource }),
     ...(rule === 'balanced' && { rule }),
     ...(candidateList && { candidates: candidateList }),
     ...(input.choices && evaluated.length > 0 && {
       choices: choicesOf(evaluated, members, bw, (a, j) => ({ area: { id: a.id, name: a.name, lat: a.lat, lng: a.lng }, approximate: j.approximate })),
     }),
-    diagnostics: { ...diagnostics, activeMembers: members.map(m => m.id) },
+    diagnostics: {
+      ...diagnostics, activeMembers: members.map(m => m.id),
+      // The areas the ranking compared, best first, for a caller that routes only the best few (services/travel-times.js). Only when it says
+      // where its times come from (deps.travelSource), so no other answer changes.
+      ...(deps.travelSource && method === 'station' && { rankedAreaIds: [area.id, ...(rule === 'balanced' ? rankBalanced(evaluated, bw) : [...evaluated].sort((x, y) => x.j.worst - y.j.worst || x.j.fairMean - y.j.fairMean)).map(e => e.a.id).filter(id => id !== area.id)] }),
+    },
   };
 }
 
