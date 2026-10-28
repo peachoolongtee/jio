@@ -1,4 +1,4 @@
-import { createAreaEstimator } from '../planner/area-times.js'
+import { createAreaEstimator, tableMoment } from '../planner/area-times.js'
 import { converge, meetingArea, meetingAreaPlan, roam } from '../planner/engine.js'
 import { currentScenario } from './scenario.js'
 import { estimateTravel, ROUTING_DEADLINE_MS, runOnTableTimes, runWithRealTravel } from './travel-times.js'
@@ -84,6 +84,7 @@ export function createPlannerRuns({
   const estimate = areaTimes ? createAreaEstimator({ areas: data.areas, table: areaTimes }) : null
   // The table trip time (planner/area-times.js), which puts the server in table mode: null without the table.
   const table = estimate ? estimate.tableMinutes : null
+  const tableAt = table ? tableMoment(areaTimes) : null // when the table is for, said in `travel` ("Tuesday 12:30")
   const finalists = meetingFinalists ?? (table ? MEETING_AREAS_ROUTED_ON_TABLE : MEETING_AREAS_ROUTED)
   // Stub mode only (Playwright): the x-jio-scenario header picks whether routing fails. The weather scenario
   // reaches the forecast through the HTTP helper, so it needs nothing here. Outside stub mode currentScenario()
@@ -115,7 +116,7 @@ export function createPlannerRuns({
     // A request that says `travel: 'estimate'` never routes, whatever the server can do: the same run as a server with no OneMap. With the
     // table of times between the areas that run is on table times (real transit minutes, free); without it, on the straight line.
     if (!onemap?.routingEnabled || input.travel === 'estimate') {
-      if (table) return runOnTableTimes({ run: (deps) => run(input, planData, { ...depsFor(), ...deps }), table, estimate })
+      if (table) return runOnTableTimes({ run: (deps) => run(input, planData, { ...depsFor(), ...deps }), table, estimate, tableAt })
       return { result: run(input, planData, { ...depsFor(), ...(estimate && { estimateMinutes: estimate }) }), travel: estimateTravel() }
     }
     const given = typeof options === 'function' ? options(input) : options
@@ -124,19 +125,19 @@ export function createPlannerRuns({
       onemap,
       deadlineMs: given.deadlineMs ?? routingDeadlineMs,
       ...(estimate && { estimate }),
-      ...(table && { table, routeFirst: given.routeFirst ?? routeFirstFor.get(run) }),
+      ...(table && { table, tableAt, routeFirst: given.routeFirst ?? routeFirstFor.get(run) }),
       dateTime: input.dateTime ?? nowInSingapore(),
       run: (deps) => run(input, planData, deps),
     })
   }
 
-  // With routing on, the meeting area tries 16 candidate areas unless the request says otherwise. A method other
+  // With routing on, or with the table (so a request that sends `travel: 'estimate'` picks as the same request routed would), the meeting area tries 16 candidate areas unless the request says otherwise. A method other
   // than station tries them only to find runners-up, so only when the request asks for some.
   //
   // How to call:
   //   const effective = withRoutingCandidates(input) // input, or input with maxCandidates: 16
   const withRoutingCandidates = (input) =>
-    onemap?.routingEnabled && input.travel !== 'estimate' && (input.method === 'station' || input.alternatives > 0) && !input.maxCandidates
+    (table || (onemap?.routingEnabled && input.travel !== 'estimate')) && (input.method === 'station' || input.alternatives > 0) && !input.maxCandidates
       ? { ...input, maxCandidates: MEETING_CANDIDATES_WITH_ROUTING }
       : input
   const meetingAreaWithRouting = (input, planData, deps) => meetingArea(withRoutingCandidates(input), planData, deps)
