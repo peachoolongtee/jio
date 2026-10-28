@@ -428,9 +428,10 @@ export function runOnTableTimes({ run, table, estimate, tableAt = null }) {
 // Table mode: ranks every candidate on table times, then routes live only what is shown first.
 //
 //   1. A dry run records every trip the engine asks about, by candidate, and reads table times (no call).
-//   2. A candidate whose trips all cost no call (cached or short enough to walk) is read on those, whether it is shown or not. An area
-//      a person named (`namedAreas.afterShortlist`) is the exception: the cache holds its routes only because a name caused them, so the
-//      ranking reads them only when the ranking shows that area itself (a name must never move the planner's own pick).
+//   2. A candidate whose trips all cost no call (cached or short enough to walk) is read on those once the ranking shows it itself (it
+//      is among `routeFirst(result).ranking`, as now or in an earlier answer of this request). One the ranking does not show is never read
+//      live by it, whoever caused the cache to hold its routes: a name must never move the planner's own pick, in this request or in a
+//      later one. An area a person named (`namedAreas.afterShortlist`) that costs no call is read for its own entry only, until shown.
 //   3. The engine runs again. `routeFirst(result)` names the candidates it shows first: { ranking: [ids], named: [ids] }. Those not yet
 //      routed are fetched whole, in that order, while the cap (`maxTrips`, in whole candidates) and the deadline allow. `ranking` ones
 //      may change the order of the answer; `named` ones (areas a person named) are measured for their own entry only and the ranking
@@ -439,7 +440,8 @@ export function runOnTableTimes({ run, table, estimate, tableAt = null }) {
 //      this request differ from the table on the same trips (their median, so a Friday evening or a long feeder does not leave every
 //      unrouted candidate looking better than every routed one). Back to 3 for what climbed
 //      into the shown results, at most `rounds` times in all; a later round starts only with TABLE_ROUND_MIN_MS left.
-//   5. Last, the named areas are routed with the time and cap that are left, for their own entries.
+//   5. Last, the named areas are routed with the time and cap that are left, for their own entries. The ranking's rounds have the whole cap
+//      first, exactly as without names. A route bought for a name is never read by the ranking, not even if the area is shown.
 // A candidate with a trip OneMap could not answer, or one that did not arrive before the deadline, stays on table times whole.
 // `notShortlisted` (a meeting-area request's named areas outside the ranking) is never read by the ranking, as in the mode without a table.
 //
@@ -476,7 +478,10 @@ async function runWithTableTimes({
   const minutes = new Map() // trip key -> minutes, for the trips that have a OneMap (or walking) time
   const live = new Set() // candidates the ranking reads on routed times
   const liveNamed = new Set() // candidates routed for a named area's own entry only
-  const tried = new Set() // candidates whose routes were asked for, or that did not fit: never asked again
+  const tried = new Set() // candidates whose routes were asked for: never asked again
+  const refused = new Set() // candidates the ranking could not fit in the cap: the ranking does not ask again, but a named area still gets its own pass
+  const boughtForName = new Set() // candidates routed for a name: the ranking never reads them
+  const heads = [...candidates.keys()].filter((key) => key.startsWith('point:')) // meeting points of a method other than station: always shown
   let spent = 0
   let full = false // a ranking candidate did not fit the cap: no later one that needs calls is tried
   let namedFull = false
@@ -488,6 +493,8 @@ async function runWithTableTimes({
   // service without peekRoute (a test double) cannot tell, so every trip counts as a call; without the cache, a trip answered before this
   // request is asked again.
   const peek = (key) => {
+    // A trip that failed in this request is "no route" and free, with the cache off too: a sibling that shares it must not buy it again.
+    if (outcome.get(key) === 'failed') return { kind: 'cached', minutes: null }
     if (minutes.has(key)) return outcome.get(key) === 'walked' ? { kind: 'walk', minutes: minutes.get(key) } : { kind: 'cached', minutes: minutes.get(key) }
     const { a, b } = trips.get(key)
     const plan = onemap.peekRoute ? onemap.peekRoute(a, b, dateTime) : { kind: 'call' }
@@ -506,33 +513,46 @@ async function runWithTableTimes({
     }
   }
 
-  // 2. A candidate that needs no call is read on its free times whole, shown or not. Done again after each fetch: places in one building share
-  // their routes, so a candidate the fetch made free is read live at once and does not wait for a round of its own.
-  const adoptFree = () => {
+  // 2. A candidate that needs no call is read on its free times whole, but by the ranking only once the ranking shows it (`shown`, the keys
+  // `routeFirst` names): a cached trip the ranking did not ask for may be there because of an earlier name, and reading it would let that
+  // name move the pick. Places in one building share their routes, so a sibling that a fetch made free is read live as soon as it is shown.
+  // A named area that is free and not shown is read for its own entry only; it joins the ranking from the moment the ranking shows it,
+  // unless a name paid for its routes. Returns true when a candidate moved, and the caller runs the engine again.
+  //
+  // How to call (inside this file):
+  //   if (adoptFree(shownKeys(result))) result = runNow()
+  const adoptFree = (shown) => {
+    let moved = false
     for (const [key, candidate] of candidates) {
-      if (tried.has(key) || live.has(key) || liveNamed.has(key)) continue
+      if (live.has(key) || tried.has(key)) continue
+      const toRanking = shown.has(key) && !outside.has(key)
+      if (!toRanking && !named.has(key)) continue
+      if (liveNamed.has(key)) {
+        if (!toRanking || boughtForName.has(key)) continue
+        live.add(key)
+        moved = true
+        continue
+      }
       const plans = [...candidate.tripKeys].map((tk) => [tk, peek(tk)])
       if (plans.some(([, plan]) => plan.kind === 'call')) continue
-      tried.add(key)
       if (plans.every(([, plan]) => plan.kind === 'walk' || plan.minutes !== null)) {
         plans.forEach(([tk, plan]) => takeFree(tk, plan))
-        ;(named.has(key) ? liveNamed : live).add(key)
-      } else plans.forEach(([tk, plan]) => plan.kind === 'cached' && plan.minutes === null && outcome.set(tk, 'failed')) // the cache remembers "no route"
+        ;(toRanking ? live : liveNamed).add(key)
+        moved = true
+      } else {
+        tried.add(key)
+        plans.forEach(([tk, plan]) => plan.kind === 'cached' && plan.minutes === null && outcome.set(tk, 'failed')) // the cache remembers "no route"
+      }
     }
+    return moved
   }
-  adoptFree()
 
-  // The trips kept back from the ranking's rounds for the areas a person named, so a ranking that wants the whole cap cannot leave them nothing (as in the
-  // mode without the table, where the first finalists are routed, then the named areas, then the rest): what the named areas still need, at most
-  // half of the cap. The named areas' own pass may use all of it.
-  const reserved = (() => {
-    let need = 0
-    for (const key of named) {
-      if (!candidates.has(key) || live.has(key) || liveNamed.has(key)) continue
-      need += [...candidates.get(key).tripKeys].filter((tk) => peek(tk).kind === 'call').length
-    }
-    return Math.min(need, Math.floor(maxTrips / 2))
-  })()
+  // The keys of the candidates the ranking shows in `answer`, which it may read live: its own first results (and the meeting points), or
+  // every candidate when the run names none (a run with one candidate).
+  //
+  // How to call (inside this file):
+  //   shownKeys(result) // Set { 'id:bugis', 'id:city-hall' }
+  const shownKeys = (answer) => new Set(routeFirst ? [...heads, ...routeFirst(answer).ranking.map((id) => `id:${id}`)] : candidates.keys())
 
   // How much the routes of this request differ from the table on the same trips, in minutes. The table is one Tuesday midday; a request may be a
   // Friday evening, or one person's hops may run long (a start far from a station), so a candidate not routed is read on the table plus the shift
@@ -596,28 +616,13 @@ async function runWithTableTimes({
   }
 
   // 3. Route what the answer shows first, then run again. With nothing read live the engine would run on the dry run's input: reuse its answer.
-  let result = live.size === 0 && liveNamed.size === 0 ? dryResult : runNow()
-
-  // A named area that only its own entry read (its routes were in the cache because a name caused them) is read by the ranking from the moment
-  // the ranking shows it, as any shown candidate is. Returns true when it moved one, and the caller runs the engine again: the answer must be
-  // the one the same request gives without the name, with the same cache. Repeated while a new answer shows another.
+  // Settling reads what is free and shown (and what is free and named, for its own entry), until no answer shows another.
   //
   // How to call (inside this file):
-  //   while (promoteShown(result)) result = runNow()
-  const promoteShown = (answer) => {
-    if (!routeFirst) return false
-    let moved = false
-    for (const id of routeFirst(answer).ranking) {
-      const key = `id:${id}`
-      if (liveNamed.has(key) && !live.has(key) && !outside.has(key)) {
-        live.add(key)
-        moved = true
-      }
-    }
-    return moved
-  }
+  //   settle() // result is now the answer for what the ranking shows
+  let result = dryResult
   const settle = () => {
-    for (let i = 0; i < candidates.size && promoteShown(result); i++) result = runNow()
+    for (let i = 0; i <= candidates.size && adoptFree(shownKeys(result)); i++) result = runNow()
   }
   settle()
 
@@ -628,15 +633,20 @@ async function runWithTableTimes({
     for (const [key, ranking] of list) {
       const candidate = candidates.get(key)
       if (!candidate || batch.some((b) => b.key === key)) continue
-      if (live.has(key) || (!ranking && liveNamed.has(key)) || tried.has(key)) continue
+      if (live.has(key) || (!ranking && liveNamed.has(key)) || tried.has(key) || (ranking && refused.has(key))) continue
       const plans = [...candidate.tripKeys].map((tk) => [tk, peek(tk)])
       const cost = plans.filter(([, plan]) => plan.kind === 'call').length
-      // A candidate that needs calls must fit whole. Once a ranking one did not, no later ranking one that needs calls is tried (the ranking has the cap less
-      // the trips kept for the named areas); the named areas have their own order and the whole cap.
-      if (cost > 0 && ((ranking ? full : namedFull) || spent + cost > (ranking ? maxTrips - reserved : maxTrips))) {
-        if (ranking) full = true
-        else namedFull = true
-        tried.add(key)
+      // A candidate that needs calls must fit whole. Once a ranking one did not, no later ranking one that needs calls is tried; the named areas
+      // come after the ranking and have what it leaves. A ranking candidate the cap refused is not "tried" for the named pass: a named area the
+      // ranking shows still gets its own pass.
+      if (cost > 0 && ((ranking ? full : namedFull) || spent + cost > maxTrips)) {
+        if (ranking) {
+          full = true
+          refused.add(key)
+        } else {
+          namedFull = true
+          tried.add(key)
+        }
         continue
       }
       spent += cost
@@ -660,6 +670,7 @@ async function runWithTableTimes({
     }
     for (const { key, candidate, ranking, plans } of batch) {
       tried.add(key)
+      if (!ranking && plans.some(([, plan]) => plan.kind === 'call')) boughtForName.add(key)
       const free = plans.filter(([, plan]) => plan.kind !== 'call')
       const answered = [...candidate.tripKeys].every((tk) => minutes.has(tk) || free.some(([ftk, plan]) => ftk === tk && (plan.kind === 'walk' || plan.minutes !== null)))
       if (!answered) {
@@ -669,13 +680,11 @@ async function runWithTableTimes({
       free.forEach(([tk, plan]) => takeFree(tk, plan))
       ;(ranking ? live : liveNamed).add(key)
     }
-    adoptFree()
-    result = runNow()
+    result = runNow() // the caller settles what the ranking now shows before it decides anything else
   }
 
-  const heads = [...candidates.keys()].filter((key) => key.startsWith('point:'))
   for (let round = 1; round <= rounds && !outOfTime; round++) {
-    settle() // the answer must show what the ranking reads: a named area it shows is read live before anything else is decided
+    settle() // the answer must show what the ranking reads: a free candidate it shows is read live before anything else is decided
     const wanted = routeFirst ? routeFirst(result) : { ranking: [...candidates.keys()].map((key) => key.replace(/^id:/, '')) }
     const batch = choose([...heads.map((key) => [key, true]), ...wanted.ranking.map((id) => [`id:${id}`, true])])
     if (batch.length === 0) break
@@ -685,9 +694,8 @@ async function runWithTableTimes({
   // 5. The named areas last, with the time and cap that are left: they share neither with the ranking's rounds.
   if (!outOfTime && routeFirst) {
     const batch = choose((routeFirst(result).named ?? []).map((id) => [`id:${id}`, false]))
-    if (batch.length > 0) await route(batch, true)
+    if (batch.length > 0) await route(batch, true) // no settling after this: nothing a name bought may be read by the ranking
   }
-  settle()
 
   // The trips whose routed (or cached, or walked) time the answer read.
   const used = new Set([...live, ...liveNamed].flatMap((key) => [...candidates.get(key).tripKeys]))

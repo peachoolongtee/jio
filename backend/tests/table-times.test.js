@@ -299,22 +299,31 @@ describe('meeting area in table mode', () => {
     expect(runs).toBe(2) // the dry run, and one run on the routed first place
   })
 
-  it('does not let a name move the planner\'s pick through the cache: a named area routed in one request is not read live by the next unless the ranking shows it', async () => {
+  it('does not let a name move the planner\'s pick through the cache: a named area routed in one request is not read live by the next, with the name or without it, unless the ranking shows it', async () => {
     const seen = await askMeeting(runsWith(oneMapDouble()), { ...meetingInput(), travel: 'estimate' })
     const named = seen.result.diagnostics.rankedAreaIds[7] // inside the ranking's 16, but not one of the areas shown first
     // Live, the named area is far quicker than the table says, so a ranking that read it would pick it.
     const minutes = (a, b) => estimator(a, b) - ((a.id ?? b.id) === named ? 30 : 0) + 1
+    const coldBare = await askMeeting(runsWith(cachedOneMap({ minutes, latencyMs: 3 })), meetingInput({ alternatives: 1 }))
     const cache = cachedOneMap({ minutes, latencyMs: 3 })
     const runs = runsWith(cache)
     const input = meetingInput({ alternatives: 1, include: [named] })
     const first = await askMeeting(runs, input)
     expect(cache.ends().has(named)).toBe(true) // routed for its own entry, and now in the cache
     const second = await askMeeting(runs, input) // the cache is warm: the named area costs no call
-    const bare = await askMeeting(runsWith(cachedOneMap({ minutes, latencyMs: 3 })), meetingInput({ alternatives: 1 }))
+    const bare = await askMeeting(runs, meetingInput({ alternatives: 1 })) // a later request that names nothing, on the same warm cache
     expect(first.result.area.id).not.toBe(named)
     expect(second.result.area.id).toBe(first.result.area.id)
-    expect(second.result.area.id).toBe(bare.result.area.id)
+    expect(second.result.area.id).toBe(coldBare.result.area.id)
     expect(second.result.travelByMember).toEqual(first.result.travelByMember)
+    // The later request without the name is the request on a cold cache: the ranking does not read a trip it did not ask for.
+    expect(bare.result.area.id).toBe(coldBare.result.area.id)
+    expect(bare.result.travelByMember).toEqual(coldBare.result.travelByMember)
+    expect(bare.result.travelSource).toBe(coldBare.result.travelSource)
+    expect(bare.result.candidates).toEqual(coldBare.result.candidates)
+    expect(bare.result.diagnostics.rankedAreaIds).toEqual(coldBare.result.diagnostics.rankedAreaIds)
+    // And the named request is that answer, plus the named area's own entry.
+    expect(second.result.candidates.filter((c) => c.source === 'ranked')).toEqual(bare.result.candidates)
     const entry = second.result.candidates.find((c) => c.area.id === named)
     expect(entry).toMatchObject({ source: 'included', travelSource: 'routed' }) // its own entry has the cached live times
     expect(entry.worstMinutes).toBeLessThan(first.result.worstMinutes) // and they really are quicker than the pick
@@ -329,7 +338,7 @@ describe('meeting area in table mode', () => {
       const runs = runsWith(cache, { meetingFinalists: 2 })
       await askMeeting(runs, meetingInput({ alternatives: 2 })) // warms the cache with the ranking's own routes
       expect(cache.ends().has(named)).toBe(true)
-      const bare = await askMeeting(runs, meetingInput({ alternatives: 2 }))
+      const bare = await askMeeting(runs, meetingInput({ alternatives: 2 })) // the same warm cache
       const withName = await askMeeting(runs, meetingInput({ alternatives: 2, include: [named] }))
       expect(withName.result.area.id, named).toBe(bare.result.area.id)
       expect(withName.result.travelByMember).toEqual(bare.result.travelByMember)
@@ -338,21 +347,158 @@ describe('meeting area in table mode', () => {
     }
   })
 
-  it('keeps trips back for the areas a person named: with 12 finalists and 6 people the ranking alone would use the whole cap of 60', async () => {
+  describe('a name never moves the pick, the order or the shift: what the ranking reads live is what it showed first', () => {
+    // A stand-in with a few candidates (named by id) for one person, so a test can say what the table and OneMap think of each one. The ranking
+    // shows its best two. `cachedIds` are candidates whose routes the cache already holds (so they cost no call); `fail` ids get no route.
+    const person = { lat: 1.3, lng: 103.8 }
+    const other = { lat: 1.28, lng: 103.75 }
+    const synthetic = ({ ids, tableMinutes, live, cachedIds = [], halfCachedIds = [], fail = [], cache = true, named = [], rounds = 3, people = [person], maxTrips = 60, shown = 2 }) => {
+      const spots = Object.fromEntries(ids.map((id, i) => [id, { id, lat: 1.31 + i * 0.01, lng: 103.85 }]))
+      const idOf = (a, b) => a.id ?? b.id
+      const calls = []
+      const asked = new Set()
+      const onemap = {
+        routingEnabled: true,
+        reportFallback: vi.fn(),
+        calls,
+        // A half-cached candidate has the first person's trip cached and the others' not.
+        peekRoute: (a, b) => {
+          const id = idOf(a, b)
+          const first = (a.id ? b : a) === person
+          return cachedIds.includes(id) || (first && halfCachedIds.includes(id)) ? { kind: 'cached', minutes: live[id] } : { kind: 'call' }
+        },
+        routeMinutes: async (a, b) => {
+          const id = idOf(a, b)
+          calls.push(id)
+          asked.add(id)
+          return fail.includes(id) ? null : live[id]
+        },
+      }
+      const run = (deps) => {
+        const rows = ids.map((id) => ({
+          id,
+          minutes: Math.max(...people.map((p) => deps.travelMinutes(p, spots[id]) ?? deps.estimateMinutes(p, spots[id]))),
+          entry: deps.includedTravelMinutes ? Math.max(...people.map((p) => deps.includedTravelMinutes(p, spots[id]) ?? 0)) : null,
+          source: deps.travelSource ? deps.travelSource(person, spots[id], false) : null,
+        }))
+        const order = [...rows].sort((x, y) => x.minutes - y.minutes).map((r) => r.id)
+        return { order, pick: order[0], minutes: Object.fromEntries(rows.map((r) => [r.id, r.minutes])), entries: Object.fromEntries(rows.map((r) => [r.id, r.entry])), sources: Object.fromEntries(rows.map((r) => [r.id, r.source])) }
+      }
+      const go = (include) => runWithRealTravel({
+        onemap, dateTime: DATE_TIME, run, table: (a, b) => tableMinutes[idOf(a, b)], estimate: (a, b) => tableMinutes[idOf(a, b)], cache, rounds, maxTrips,
+        routeFirst: (r) => ({ ranking: r.order.slice(0, shown), named: include }),
+        ...(include.length > 0 && { namedAreas: { notShortlisted: [], afterShortlist: include } }),
+      })
+      return { go, calls, asked, include: named }
+    }
+    const strip = (r) => ({ order: r.order, pick: r.pick, minutes: r.minutes, sources: r.sources })
+
+    it('does not promote an area that was routed for its name after the last round: the pick stays what it is without the name', async () => {
+      // A is first on the table and 20 minutes slower live, B is as the table says: after the one round the ranking shows B and N, N still on the table.
+      // N is named and is routed last for its own entry (5 minutes live, far better than the table's 14). It must not then be read by the ranking.
+      const setup = (named) => synthetic({ ids: ['A', 'B', 'N'], tableMinutes: { A: 10, B: 12, N: 14 }, live: { A: 30, B: 12, N: 5 }, named, rounds: 1 })
+      const bare = await setup([]).go([])
+      const named = setup(['N'])
+      const withName = await named.go(['N'])
+      expect(bare.result.pick).toBe('B')
+      expect(named.asked.has('N')).toBe(true) // routed for its entry
+      expect(withName.result.entries.N).toBe(5)
+      expect(withName.result.sources.N).toBe('table') // the ranking's own reading of N is still the table's
+      expect(strip(withName.result)).toEqual(strip(bare.result))
+      expect(withName.result.pick).toBe('B')
+    })
+
+    it('reads a named area that is cached but not shown for its own entry only, and the ranking only once a round shows it', async () => {
+      // N is cached (a name caused it once) at 4 minutes, far better than the table's 14. It is not shown at first: a ranking that read it would pick it at once.
+      const make = (named) => synthetic({ ids: ['A', 'B', 'N'], tableMinutes: { A: 10, B: 12, N: 14 }, live: { A: 40, B: 12, N: 4 }, cachedIds: ['N'], named })
+      const bare = make([])
+      const withName = make(['N'])
+      const a = await bare.go([])
+      const b = await withName.go(['N'])
+      // Round one routes A and B; A falls 30 minutes; N climbs into the two shown, is cached, and is read live from then on, as in the request without the name.
+      expect(strip(b.result)).toEqual(strip(a.result))
+      expect(b.result.pick).toBe('N')
+      expect(b.result.sources.N).toBe('routed')
+      expect(withName.calls).not.toContain('N') // no call for it
+      // Before it is shown it is the table's: the same two requests with A not falling never read it.
+      const flat = (named) => synthetic({ ids: ['A', 'B', 'N'], tableMinutes: { A: 10, B: 12, N: 14 }, live: { A: 10, B: 12, N: 4 }, cachedIds: ['N'], named })
+      const c = await flat([]).go([])
+      const d = await flat(['N']).go(['N'])
+      expect(c.result.pick).toBe('A')
+      expect(c.result.sources.N).toBe('table')
+      expect(strip(d.result)).toEqual(strip(c.result))
+      expect(d.result.entries.N).toBe(4) // its own entry has the cached time
+    })
+
+    it('does not mark a named area the ranking shows but the cap refused as tried: the named pass routes it with what is left', async () => {
+      // Two people, a cap of 3 trips. The ranking shows A, B and N. A takes 2, B (2 more) does not fit and stops the ranking's later candidates, so N is
+      // refused there too. N is named and has one trip cached, so it needs one call: it fits what is left (3 - 2), and is routed for its own entry.
+      const setup = synthetic({
+        ids: ['A', 'B', 'N'], tableMinutes: { A: 10, B: 12, N: 14 }, live: { A: 10, B: 12, N: 6 }, halfCachedIds: ['N'], named: ['N'], people: [person, other], maxTrips: 3, shown: 3,
+      })
+      const { result, travel } = await setup.go(['N'])
+      expect(setup.calls).toEqual(['A', 'A', 'N']) // B was not routed; N needed the one trip its cache lacked
+      expect(result.entries.N).toBe(6)
+      expect(result.sources.N).toBe('table') // read for its own entry, not by the ranking
+      expect(result.pick).toBe('A')
+      expect(travel.routed).toBeGreaterThan(0)
+    })
+
+    it('does not buy a trip that failed in this request again, with the cache off: a sibling that shares it finds "no route"', async () => {
+      // Two places in one building (one spot, two ids) share their trip. The first fails; the second is shown in a later round and must not ask again.
+      const spot = { lat: 1.31, lng: 103.85 }
+      const venues = { v1: { id: 'v1', ...spot }, v2: { id: 'v2', ...spot }, v3: { id: 'v3', lat: 1.33, lng: 103.9 } }
+      const calls = []
+      const onemap = { routingEnabled: true, reportFallback: vi.fn(), routeMinutes: async (a, b) => { calls.push(spot3(a.id ? a : b)); return null } }
+      const spot3 = (p) => `${round3(p.lat)},${round3(p.lng)}`
+      const run = (deps) => ({ minutes: Object.values(venues).map((v) => deps.travelMinutes(person, v) ?? deps.estimateMinutes(person, v)) })
+      await runWithRealTravel({
+        onemap, dateTime: DATE_TIME, run, table: () => 10, estimate: () => 10, cache: false, maxTrips: 60,
+        routeFirst: () => ({ ranking: calls.length === 0 ? ['v1'] : ['v1', 'v2', 'v3'] }), // the sibling is shown only after the first call
+      })
+      // v1 and v2 are one trip, asked once; v3 is another, asked once.
+      expect(calls.sort()).toEqual([spot3(spot), spot3(venues.v3)].sort())
+    })
+  })
+
+  it('gives the ranking\'s finalists the cap first: a name costs the ranking no trip, however large the group', async () => {
+    // 30 people, one trip each to an area: two finalists use the whole cap of 60. A named area of 30 more trips has nothing left and stays on the table.
+    const many = Array.from({ length: 30 }, (_, i) => ({ id: `q${i}`, name: `Q${i}`, start: { lat: 1.27 + (i % 10) * 0.017, lng: 103.72 + Math.floor(i / 10) * 0.09 + (i % 7) * 0.004 }, end: { lat: 1.27 + (i % 10) * 0.017, lng: 103.72 + Math.floor(i / 10) * 0.09 + (i % 7) * 0.004 } }))
+    const input = { members: many, method: 'station', dateTime: DATE_TIME }
+    const seen = await askMeeting(runsWith(oneMapDouble()), { ...input, travel: 'estimate' })
+    const named = seen.result.diagnostics.rankedAreaIds[9]
+    const bareMap = oneMapDouble()
+    const bare = await askMeeting(runsWith(bareMap), input)
+    const nameMap = oneMapDouble()
+    const withName = await askMeeting(runsWith(nameMap), { ...input, include: [named] })
+    expect(bareMap.asked).toHaveLength(60) // both finalists, whole
+    expect(bareMap.ends().size).toBe(MEETING_AREAS_ROUTED_ON_TABLE)
+    expect(nameMap.ends()).toEqual(bareMap.ends()) // the same two areas are routed, with the name or without it
+    expect(withName.result.area.id).toBe(bare.result.area.id)
+    expect(withName.result.travelByMember).toEqual(bare.result.travelByMember)
+    expect(withName.result.travelSource).toBe(bare.result.travelSource)
+    expect(withName.result.diagnostics.rankedAreaIds).toEqual(bare.result.diagnostics.rankedAreaIds)
+    expect(withName.result.candidates.find((c) => c.area.id === named)).toMatchObject({ source: 'included', travelSource: 'table' }) // the cap is spent
+  })
+
+  it('routes the ranking exactly as without names, however many finalists: the named areas get what it leaves', async () => {
     const six = Array.from({ length: 6 }, (_, i) => ({ id: `p${i}`, name: `P${i}`, start: { lat: 1.30 + i * 0.02, lng: 103.75 + i * 0.03 }, end: { lat: 1.30 + i * 0.02, lng: 103.75 + i * 0.03 } }))
     const input = { members: six, method: 'station', dateTime: DATE_TIME, include: ['tuas-link', 'changi-airport'] }
-    const reserved = oneMapDouble()
-    const withNames = await askMeeting(runsWith(reserved, { meetingFinalists: 12 }), input)
-    expect(reserved.asked.length).toBeLessThanOrEqual(60)
-    for (const id of ['tuas-link', 'changi-airport']) {
-      expect(reserved.ends().has(id), id).toBe(true)
-      expect(withNames.result.candidates.find((c) => c.area.id === id).travelSource).toBe('routed')
-    }
-    // Without names the ranking has the whole cap (10 areas of 6), so the reserve is what the names cost the ranking, no more.
+    const named = oneMapDouble()
+    const withNames = await askMeeting(runsWith(named, { meetingFinalists: 12 }), input)
+    expect(named.asked.length).toBeLessThanOrEqual(60)
+    // Without names the ranking has the whole cap (10 areas of 6), and the names are routed only with what it leaves.
     const alone = oneMapDouble()
-    await askMeeting(runsWith(alone, { meetingFinalists: 12 }), { ...input, include: undefined })
-    expect(alone.asked.length).toBeGreaterThan(reserved.asked.length - 13)
+    const bare = await askMeeting(runsWith(alone, { meetingFinalists: 12 }), { ...input, include: undefined })
     expect(alone.asked.length).toBeLessThanOrEqual(60)
+    const keyOf = ({ a, b }) => [spot(a), spot(b)].sort().join('|')
+    expect(new Set(named.asked.map(keyOf))).toEqual(new Set(alone.asked.map(keyOf))) // the ranking's trips were not cut for the names
+    expect(withNames.result.area.id).toBe(bare.result.area.id)
+    expect(withNames.result.travelByMember).toEqual(bare.result.travelByMember)
+    for (const id of ['tuas-link', 'changi-airport']) {
+      const entry = withNames.result.candidates.find((c) => c.area.id === id)
+      expect(entry.travelSource, id).toBe(alone.asked.length + six.length > 60 ? 'table' : 'routed')
+    }
   })
 
   it('marks the straight line as approximate and nothing else, where the table has no pair', async () => {
@@ -581,9 +727,12 @@ describe('places in table mode', () => {
     }
     const { result, travel } = await runsWith(onemap).runWithTravel(convergeInput(), data, converge)
     expect(onemap.routeMinutes).not.toHaveBeenCalled()
-    expect(result.results.every((r) => r.travelSource === 'routed' && r.worstMinutes === 25)).toBe(true)
-    expect(travel).toMatchObject({ source: 'onemap', routed: 0, table: 0 })
-    expect(travel.cached).toBe(travel.asked)
+    // The ranking reads on the free times what it shows first, and no more: the places after them stay on the table until they are shown.
+    expect(result.results.slice(0, PLACES_ROUTED_FIRST).every((r) => r.travelSource === 'routed' && r.worstMinutes === 25)).toBe(true)
+    expect(travel).toMatchObject({ source: 'onemap', routed: 0 })
+    expect(travel.cached).toBeGreaterThan(0)
+    expect(travel.table).toBeGreaterThan(0)
+    expect(sum(travel)).toBe(travel.asked)
   })
 })
 
