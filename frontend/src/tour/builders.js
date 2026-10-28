@@ -7,8 +7,12 @@
 // on today), hostId, build }. build() does what a group does after the session is made; `at('voting')` names the step it is on,
 // for the message if it stops there.
 //   const { made, failed } = await buildSessions(SPECS, { now, makePhotos, onProgress })
+//
+// Building sample data asks the planner for estimated travel only (plannerApi.js withEstimatedTravel): sample data does not
+// need real routes, and routing it used to make loading the showcase take 14 seconds and use the shared OneMap account.
 import { addDays, format, parseISO } from 'date-fns'
 import * as api from '@/lib/api.js'
+import { withEstimatedTravel } from '@/lib/plannerApi.js'
 import { singaporeDate, singaporeMinutes } from '@/lib/session.js'
 
 export const DAY = 24 * 60 * 60 * 1000
@@ -142,7 +146,13 @@ export const GUEST_SPEC = {
 //   onProgress   ({ done, total }) after each session is finished
 // Answers { made: [{ spec, id, step, error }], failed: [{ title, id, step, message }] }.
 // How to call: const { made, failed } = await buildSessions(SPECS, { now: new Date(), makePhotos, onProgress })
-export async function buildSessions(specs, { now, makePhotos, onProgress = () => {} }) {
+export function buildSessions(specs, options) {
+  return withEstimatedTravel(() => buildAll(specs, options))
+}
+
+// The body of buildSessions, which runs it with every planner request asking for estimated travel.
+// How to call: await buildAll(SPECS, { now: new Date(), makePhotos, onProgress })
+async function buildAll(specs, { now, makePhotos, onProgress = () => {} }) {
   const total = specs.length
   const made = []
   for (const spec of specs) {

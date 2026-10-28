@@ -262,6 +262,53 @@ describe('the showcase with the planner backend running', () => {
   }, 120_000)
 })
 
+// OneMap is the shared, slow part of the planner. Sample data must never spend it: the showcase and the tour build their sessions
+// with `travel: 'estimate'`, which the backend answers without routing. The backend here has a OneMap that counts its calls.
+describe('sample data never asks OneMap for a route', () => {
+  let server
+  let routeMinutes
+  beforeAll(async () => {
+    routeMinutes = vi.fn(async () => 20)
+    const onemap = { routingEnabled: true, routeMinutes, reportFallback: () => {} }
+    server = createApp({ frontendOrigin: 'http://localhost:5173', allowSimulatedWeather: true, http: createHttp({ stub: true }), onemap }).listen(0)
+    await new Promise((resolve) => server.once('listening', resolve))
+  })
+  afterAll(() => server?.close())
+
+  it('the showcase makes all ten sessions with no OneMap call, and a person\'s own request afterwards is routed', async () => {
+    const { api, loadShowcase } = await start(`http://127.0.0.1:${server.address().port}`)
+    const requests = []
+    api.api.interceptors.request.use((config) => (requests.push(config), config))
+    const result = await loadShowcase({ now: NOW, makePhotos: stubPhotos })
+    expect(result.planner).toBe('backend')
+    expect(result.sessions).toHaveLength(10)
+    // The planner was asked a good many times, and every ranking request said it needs no routing.
+    const ranking = requests.filter((c) => ['/api/meeting-area', '/api/converge', '/api/roam'].includes(c.url))
+    expect(ranking.length).toBeGreaterThan(10)
+    for (const config of ranking) expect(JSON.parse(config.data).travel, config.url).toBe('estimate')
+    expect(routeMinutes).not.toHaveBeenCalled()
+
+    // The same backend still routes for a person: the first ranking after the showcase carries no such field.
+    requests.length = 0
+    const { meetingArea } = await import('../../../lib/plannerApi.js')
+    const members = [{ id: 'a', start: { lat: 1.3541, lng: 103.9446 } }, { id: 'b', start: { lat: 1.315, lng: 103.765 } }]
+    const answer = await meetingArea({ members, routing: true })
+    expect(JSON.parse(requests.at(-1).data)).not.toHaveProperty('travel')
+    expect(answer.travel.source).toBe('onemap')
+    expect(routeMinutes).toHaveBeenCalled()
+  }, 120_000)
+
+  it('the demo tour makes its sessions with no OneMap call either', async () => {
+    routeMinutes.mockClear()
+    const { api } = await start(`http://127.0.0.1:${server.address().port}`)
+    const { loadTour } = await import('../../../tour/load.js')
+    const manifest = await loadTour({ now: NOW, makePhotos: stubPhotos })
+    expect(manifest.story.length).toBeGreaterThan(0)
+    expect((await api.listSessions()).length).toBeGreaterThan(10)
+    expect(routeMinutes).not.toHaveBeenCalled()
+  }, 120_000)
+})
+
 describe('the showcase over a save from before the meeting spots', () => {
   it('keeps the account and friends, and replaces the sessions', async () => {
     // A version 8 save: the account is there, and the session has no spots.

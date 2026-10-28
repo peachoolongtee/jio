@@ -7,6 +7,7 @@
 import axios from 'axios'
 import { ref } from 'vue'
 import * as auth from './auth.js'
+import { currentUserId } from './currentUser.js'
 import { weatherFrom } from './weatherText.js'
 
 // Calls to the Jio backend (planner, geocode and weather proxy).
@@ -205,6 +206,65 @@ api.interceptors.response.use(
     throw Object.assign(new Error(plannerErrorMessage(err)), typeof code === 'string' ? { code, status: err.response.status } : {})
   },
 )
+
+// ── Two things the ranking requests share: sample data that never routes, and one request for identical ones in flight ──
+
+// How many sample-data builds are running right now. While one is, the meeting-area, converge and Roam requests carry
+// `travel: 'estimate'`, which the backend answers from its own estimate without a single OneMap call (sample data does not need
+// real routes, and routing it made loading the showcase take 14 seconds). A count, not a flag, so builds that overlap do not
+// switch each other off.
+let estimateBuilds = 0
+
+// The request field that asks for estimated travel while sample data is being built, and nothing otherwise.
+// How to call: await api.post('/api/converge', { members, ...travelField() })
+const travelField = () => (estimateBuilds > 0 ? { travel: 'estimate' } : {})
+
+// Runs `build` (the code that fills an account with sample data) with every ranking request it makes asking for estimated
+// travel. Only the showcase and the tour use this; a person's own planning never does, the demo account's included. It also
+// covers a request the person makes while the build runs, but a build is shown behind a busy message and takes seconds.
+// Resolves what `build` resolves, and always switches back, even when `build` throws.
+// How to call: const built = await withEstimatedTravel(() => buildSessions(specs, options))
+export async function withEstimatedTravel(build) {
+  estimateBuilds += 1
+  try {
+    return await build()
+  } finally {
+    estimateBuilds -= 1
+  }
+}
+
+// The planner requests that are being waited for right now, by who asked and what: the same person asking the same thing again
+// while the first is on its way gets the first one's answer instead of a second trip to the server (and to OneMap).
+const inFlight = new Map()
+
+// POST to the planner, sending identical requests that are in flight together once. "Identical" is the same signed-in person
+// (lib/currentUser.js), the same path, the same body and the same timeout, so an answer is never shared between two people or
+// two different questions. The entry is removed the moment the request settles, success or failure, so nothing is cached:
+// the next request goes to the server again. The first caller gets the response itself; any other caller gets its own copy of
+// the data, made before anyone could change it, so no screen can alter what another reads. A failure reaches every caller.
+// Only for requests that change nothing on the server (the rankings, the search, the weather): never for a write.
+// How to call: const { data } = await postShared('/api/converge', { members, centre, categories: ['eat'] })
+export function postShared(url, body, config = {}) {
+  const key = JSON.stringify([currentUserId(), url, body, config.timeout ?? null])
+  const sharing = inFlight.get(key)
+  if (sharing) {
+    sharing.followers += 1
+    return sharing.settled.then(({ response, copy }) => ({ ...response, data: JSON.parse(copy) }))
+  }
+  const entry = { followers: 0, settled: null }
+  entry.settled = api.post(url, body, config).then(
+    (response) => {
+      inFlight.delete(key)
+      return { response, copy: entry.followers > 0 ? JSON.stringify(response.data) : null }
+    },
+    (err) => {
+      inFlight.delete(key)
+      throw err
+    },
+  )
+  inFlight.set(key, entry)
+  return entry.settled.then(({ response }) => response)
+}
 
 // Does this email have an account? The sign-up screen asks on its email question. The backend answers from the database
 // with its own key (POST /api/accounts/email-check) and allows about 10 asks a minute for each caller, so a failure here
@@ -636,10 +696,10 @@ function toOption(r, block = null) {
 // (and 'onemap' when at least one trip got a real time). Say "about" for either.
 // How to call: await meetingArea({ members, routing: true, alternatives: 2, include: ['bugis'] })
 export async function meetingArea({ members, routing = true, alternatives, include }) {
-  const body = { members, method: routing ? 'station' : 'centroid' }
+  const body = { members, method: routing ? 'station' : 'centroid', ...travelField() }
   if (alternatives !== undefined) body.alternatives = alternatives
   if (include?.length) body.include = include
-  const { data } = await api.post('/api/meeting-area', body)
+  const { data } = await postShared('/api/meeting-area', body)
   return data
 }
 
@@ -654,7 +714,7 @@ export async function meetingArea({ members, routing = true, alternatives, inclu
 // few: { found, widenToKm } when fewer than 3 places fit inside the search radius.
 // unknownPolicy: 'strict' or 'lenient' (see UNKNOWN_POLICY); dietPolicy: the same for the group's dietary needs alone.
 export async function rankSlot({ members, centre, date, slot, lastStop, currentOptionIds = [], conditions = {}, radiusMeters, topN, unknownPolicy = UNKNOWN_POLICY, dietPolicy }) {
-  const { data } = await api.post('/api/converge', {
+  const { data } = await postShared('/api/converge', {
     members,
     occasion: DEFAULT_OCCASION,
     dateTime: `${date}T${slot.time}`,
@@ -668,6 +728,7 @@ export async function rankSlot({ members, centre, date, slot, lastStop, currentO
     ...dietField(dietPolicy),
     radiusMeters,
     topN,
+    ...travelField(),
   })
   const weather = data.weather ?? null
   lastWeather.value = weather
@@ -708,7 +769,7 @@ function toRoamPlace(r, block = null) {
 // planner's answer when nothing fits, else null), widened, weather }.
 // How to call: await roamNearby({ members: [{ id: 'ian' }], current: { lat: 1.35, lng: 103.85 }, date: '2026-10-11', time: '15:00', minutes: 60 })
 export async function roamNearby({ members, current, date, time, minutes, categories, conditions = {}, topN, unknownPolicy = UNKNOWN_POLICY, dietPolicy }) {
-  const { data } = await api.post(
+  const { data } = await postShared(
     '/api/roam',
     {
       members,
@@ -721,6 +782,7 @@ export async function roamNearby({ members, current, date, time, minutes, catego
       unknownPolicy,
       ...dietField(dietPolicy),
       topN,
+      ...travelField(),
     },
     { timeout: ROAM_TIMEOUT_MS },
   )
@@ -745,7 +807,7 @@ function roamAnswer(data) {
 // `lastWeather`. Rejects in the client's usual way when the planner cannot answer.
 // How to call: await stopsWeather({ stops: [{ id: 'eat', point: { lat: 1.35, lng: 103.85 }, start: '2026-10-11T15:00' }] })
 export async function stopsWeather({ stops, conditions = {} }) {
-  const { data } = await api.post('/api/weather/stops', { stops, ...(conditions.rain ? { weatherCase: 'rain' } : {}) })
+  const { data } = await postShared('/api/weather/stops', { stops, ...(conditions.rain ? { weatherCase: 'rain' } : {}) })
   if (!Array.isArray(data.stops)) throw new Error(notJsonMessage())
   const block = data.weather ?? null
   lastWeather.value = block
@@ -775,7 +837,7 @@ export async function arrangeItinerary({ stops, startAt, endAt, shown = [], rain
 // (`dietUnknown`), as a ranked option does.
 // How to call: await searchSlot({ query: 'market', members, centre, date: '2026-10-17', slot, lastStop: false, dietPolicy: 'strict' })
 export async function searchSlot({ query, members, centre, date, slot, lastStop, maxKm, unknownPolicy = UNKNOWN_POLICY, dietPolicy }) {
-  const { data } = await api.post('/api/search', {
+  const { data } = await postShared('/api/search', {
     query,
     centre: point(centre),
     dateTime: `${date}T${slot.time}`,
