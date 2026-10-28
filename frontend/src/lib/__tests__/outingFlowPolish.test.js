@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { loadApi, stubPlanner } from './planFixture.js'
 import { mountScreen, until } from './domless.js'
-import { photoFileName, shareTargets, shareText, sharePhoto } from '../sharePhoto.js'
+import { photoFile, photoFileName, shareTargets, shareText, sharePhoto } from '../sharePhoto.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), roamNearby: vi.fn(), forecast: vi.fn() }))
 vi.mock('../plannerApi.js', () => planner)
@@ -53,22 +53,34 @@ describe('sharing a photo', () => {
     expect(targets[1].href).toBe('https://www.instagram.com/')
   })
 
-  it("hands the picture to the phone's share sheet, and says when the person closed it", async () => {
+  it("hands a ready picture to the phone's share sheet at once, and says when the person closed it", async () => {
+    const file = await photoFile(photo.src, 'a.jpg')
     const share = vi.fn().mockResolvedValue(undefined)
     const nav = { share, canShare: () => true }
-    expect(await sharePhoto({ src: photo.src, name: 'a.jpg', text: 'Saturday, on Jio' }, nav)).toBe('shared')
+    const pending = sharePhoto({ file, text: 'Saturday, on Jio' }, nav)
+    // Called before anything is awaited: the tap that asked for it is still fresh.
+    expect(share).toHaveBeenCalledTimes(1)
+    expect(await pending).toBe('shared')
     const sent = share.mock.calls[0][0]
     expect(sent.files[0].name).toBe('a.jpg')
     expect(sent.text).toBe('Saturday, on Jio')
     share.mockRejectedValueOnce(Object.assign(new Error('closed'), { name: 'AbortError' }))
-    expect(await sharePhoto({ src: photo.src, name: 'a.jpg', text: '' }, nav)).toBe('cancelled')
+    expect(await sharePhoto({ file, text: '' }, nav)).toBe('cancelled')
   })
 
   it('says it cannot when the browser has no share sheet, cannot share a picture, or refuses', async () => {
-    expect(await sharePhoto({ src: photo.src, name: 'a.jpg', text: '' }, {})).toBe('unsupported')
-    expect(await sharePhoto({ src: photo.src, name: 'a.jpg', text: '' }, { share: vi.fn(), canShare: () => false })).toBe('unsupported')
-    const refused = { share: vi.fn().mockRejectedValue(Object.assign(new Error('no'), { name: 'NotAllowedError' })), canShare: () => true }
-    expect(await sharePhoto({ src: photo.src, name: 'a.jpg', text: '' }, refused)).toBe('unsupported')
+    const file = await photoFile(photo.src, 'a.jpg')
+    expect(await sharePhoto({ file, text: '' }, {})).toBe('unsupported')
+    expect(await sharePhoto({ file: null, text: '' }, { share: vi.fn(), canShare: () => true })).toBe('unsupported')
+    expect(await sharePhoto({ file, text: '' }, { share: vi.fn(), canShare: () => false })).toBe('unsupported')
+    const broken = { share: vi.fn().mockRejectedValue(Object.assign(new Error('no'), { name: 'DataError' })), canShare: () => true }
+    expect(await sharePhoto({ file, text: '' }, broken)).toBe('unsupported')
+  })
+
+  it('says "blocked" when the browser finds the tap too old, which is not the same as not being able to share', async () => {
+    const file = await photoFile(photo.src, 'a.jpg')
+    const old = { share: vi.fn().mockRejectedValue(Object.assign(new Error('gesture'), { name: 'NotAllowedError' })), canShare: () => true }
+    expect(await sharePhoto({ file, text: '' }, old)).toBe('blocked')
   })
 })
 
@@ -126,12 +138,56 @@ describe('the way on from the Invite page', () => {
     await until(() => router.currentRoute.value.path === `/sessions/${id}/start`)
   })
 
-  it('says Done and goes to the session page while the host is alone', async () => {
+  it('says Back to session and goes to the session page while the host is alone', async () => {
     const api = await signedIn()
     const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-18', start: '12:00', end: '20:00' })
     const { view, router } = await invitePage(api, id)
     await until(() => !!onward(view))
-    expect(view.text(onward(view))).toContain('Done')
+    expect(view.text(onward(view))).toContain('Back to session')
+    expect(view.text(onward(view))).not.toContain('Done')
+    await view.click(onward(view))
+    await until(() => router.currentRoute.value.path === `/sessions/${id}`)
+  })
+
+  // The Send button and the chip of a friend to invite.
+  const sendButton = (view) => view.all('button').find((b) => view.text(b).startsWith('Send'))
+
+  it('labels the way on after sending from where it goes: Start session once two are in, else Back to session', async () => {
+    const api = await signedIn()
+    await api.setFriend('faith', true)
+    const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-18', start: '12:00', end: '20:00' })
+    // Alone: the invite waits for an answer, so the host is still alone after sending.
+    const alone = await invitePage(api, id)
+    await until(() => !!alone.view.all('[aria-label="Invite Faith"]')[0])
+    await alone.view.click(alone.view.all('[aria-label="Invite Faith"]')[0])
+    await alone.view.click(sendButton(alone.view))
+    await until(() => alone.view.text().includes('Invites sent'))
+    expect(alone.view.text(onward(alone.view))).toContain('Back to session')
+    expect(alone.view.text(onward(alone.view))).not.toContain('Done')
+    alone.view.unmount()
+    mounted.pop()
+    // With a friend already in: the way on goes to the Start choice, and says so.
+    const { id: second } = await api.createSession({ title: 'Sunday', date: '2026-10-19', start: '12:00', end: '20:00' })
+    await api.inviteFriends(second, ['jonathan'])
+    const two = await invitePage(api, second)
+    await until(() => !!two.view.all('[aria-label="Invite Faith"]')[0])
+    await two.view.click(two.view.all('[aria-label="Invite Faith"]')[0])
+    await two.view.click(sendButton(two.view))
+    await until(() => two.view.text().includes('Invites sent'))
+    expect(two.view.text(onward(two.view))).toContain('Start session')
+    await two.view.click(onward(two.view))
+    await until(() => two.router.currentRoute.value.path === `/sessions/${second}/start`)
+  })
+
+  it('keeps the way on at the bottom when invites are closed', async () => {
+    const api = await signedIn()
+    const { id } = await api.startRoam({ areaId: 'bugis' })
+    await api.endPlan(id)
+    const { view, router } = await invitePage(api, id)
+    await until(() => !!onward(view))
+    // No picker and no Send, only the way on.
+    expect(sendButton(view)).toBeUndefined()
+    expect(view.text(onward(view))).toContain('Back to session')
     await view.click(onward(view))
     await until(() => router.currentRoute.value.path === `/sessions/${id}`)
   })
