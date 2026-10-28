@@ -33,7 +33,8 @@
 //     (ProposedStops). It is a secondary button: the footer's "Finish outing" stays the page's one main action.
 //   - A plan with no stops while it is under way (a light meetup started from Home's "Already out?", before anything is added)
 //     shows "What next?" itself in place of the timeline and its map (RoamPanel: places nearby, a tick to propose one, a map),
-//     with the proposals above it, so the itinerary and "What next?" are one page until the first stop is in. Not under way, a
+//     with the proposals above it and a "What next?" heading over it (the Photos row is left out, and "Finish outing" is a secondary
+//     button, so the page's main action is the places' ticks), so the itinerary and "What next?" are one page until the first stop is in. Not under way, a
 //     plan with no stops says "No stops yet".
 //   - Finishing the outing goes on to "How was it?" (/sessions/:id/review: stars and photos). A finished outing the person has
 //     not reviewed shows a row that leads there.
@@ -204,8 +205,8 @@ const footer = computed(() => (session.value ? itineraryAction(session.value) : 
 const underway = computed(() => !!session.value && roamOpen(session.value))
 // Under way with no stops yet: this page is "What next?" itself (RoamPanel) until the first stop is added.
 const nearbyHere = computed(() => underway.value && !!itinerary.value && !itinerary.value.stops.length)
-// A finished outing this person has not reviewed yet: a row leads to "How was it?". Local outings only, as photos.
-const reviewDue = computed(() => status.value === 'completed' && !remote.value && session.value?.endedBy !== 'closed' && !session.value?.reviews?.[myId.value])
+// A finished outing this person went on and has not reviewed yet: a row leads to "How was it?". Local outings only, as photos.
+const reviewDue = computed(() => status.value === 'completed' && !remote.value && session.value?.endedBy !== 'closed' && (session.value?.activeIds || []).includes(myId.value) && !session.value?.reviews?.[myId.value])
 const myId = computed(() => auth.myId)
 const longTrips = computed(() => (itinerary.value?.trips || []).filter((t) => t.long))
 const lastStop = computed(() => itinerary.value?.stops[itinerary.value.stops.length - 1])
@@ -453,8 +454,8 @@ async function endPlan() {
           <span class="photos-cta__go" aria-hidden="true"><span class="photos-cta__word">Review</span> <AppIcon name="arrow-right" :size="16" /></span>
         </RouterLink>
 
-        <!-- Photos from the day: always here once the plan is set, so it is clear where to add them. -->
-        <RouterLink v-if="!remote" :to="`/sessions/${id}/photos`" class="photos-cta">
+        <!-- Photos from the day: always here once the plan is set, so it is clear where to add them (not while "What next?" is the page: nothing has happened yet). -->
+        <RouterLink v-if="!remote && !nearbyHere" :to="`/sessions/${id}/photos`" class="photos-cta">
           <span class="photos-cta__icon" aria-hidden="true"><AppIcon name="camera" :size="20" /></span>
           <span class="photos-cta__text">
             <span class="title-sm">Photos from the day</span>
@@ -476,7 +477,8 @@ async function endPlan() {
         <!-- Under way with no stops yet: what the group proposed, then "What next?" itself, in place of the timeline and its map. -->
         <template v-if="nearbyHere">
           <ProposedStops :session="session" :itinerary="itinerary" :my-id="myId" />
-          <RoamPanel :session="session" />
+          <h2 class="title-md">What next?</h2>
+          <RoamPanel :session="session" proposals-above />
         </template>
 
         <SplitView v-else v-model:view="view" label="Itinerary" even>
@@ -583,7 +585,8 @@ async function endPlan() {
     </div>
 
     <footer v-if="footer" class="screen__footer">
-      <AppButton v-if="footer === 'finish' && mayEdit" block :disabled="busy" @click="endOpen = true">Finish outing</AppButton>
+      <!-- Secondary while "What next?" is the page, so "Finish outing" does not compete with the places' ticks; it is still here. -->
+      <AppButton v-if="footer === 'finish' && mayEdit" block :variant="nearbyHere ? 'secondary' : 'primary'" :disabled="busy" @click="endOpen = true">Finish outing</AppButton>
       <!-- Only the host finishes an outing on the server. -->
       <template v-else-if="footer === 'finish'">
         <p class="caption text-muted footer-note" data-testid="host-finishes">{{ session.hostName || 'The host' }} finishes the outing.</p>

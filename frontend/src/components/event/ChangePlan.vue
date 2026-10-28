@@ -1,6 +1,6 @@
 <script setup>
 // "Change plan": the host's way back after the meeting place or the plan is set. A small button on the Vote and Itinerary screens, for the host
-// only and only while the session is voting or confirmed (locating already has "We already have a place"; a finished or cancelled session never
+// only, never a light meetup, and only while the session is voting or confirmed (locating already has "We already have a place"; a finished or cancelled session never
 // changes). It opens a question with up to two choices:
 //   Choose places again    only from a confirmed plan: back to voting at the same meeting area. The stops go, the votes stay (the same route as
 //                          the Itinerary's Re-plan).
@@ -31,7 +31,8 @@ const step = ref('choose')
 const busy = ref(false)
 const error = ref('')
 
-const mayChange = computed(() => props.session.hostId === auth.myId && ['voting', 'confirmed'].includes(props.session.status))
+// A light meetup ("Already out?" on Home) has no votes and no meeting place to change, so it never has the button.
+const mayChange = computed(() => !props.session.light && props.session.hostId === auth.myId && ['voting', 'confirmed'].includes(props.session.status))
 const confirmed = computed(() => props.session.status === 'confirmed')
 const lost = computed(() => CHANGE_PLAN.lost(confirmed.value))
 
