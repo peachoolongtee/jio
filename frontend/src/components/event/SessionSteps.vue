@@ -4,7 +4,7 @@
 //   Invite    /invite: who is in, and for the host the way to add people while that is still open
 //   Locate    the session page (/sessions/:id, which is also the lobby while the session is inviting)
 //   Vote      /plan
-//   Itinerary /itinerary (and its photos, full map and "What next?")
+//   Itinerary /itinerary (and its photos, full map, "What next?" and "How was it?")
 const STEPS = [
   { key: 'create', label: 'Create', page: '/edit' },
   { key: 'invite', label: 'Invite', page: '/invite' },
@@ -15,7 +15,7 @@ const STEPS = [
 const ORDER = ['inviting', 'locating', 'voting', 'confirmed']
 // The pages that belong to the Itinerary step without being it: they go back to it. '/replace' is the plan page opened to
 // replace one stop of a confirmed plan (tailOf), which belongs to the Itinerary and not to Vote.
-const ITINERARY_PAGES = ['/photos', '/map', '/roam', '/replace']
+const ITINERARY_PAGES = ['/photos', '/map', '/roam', '/replace', '/review']
 
 // The last step the session reached: 0 is Create, so a session that exists has always passed it. A cancelled one
 // stops where it was called off.

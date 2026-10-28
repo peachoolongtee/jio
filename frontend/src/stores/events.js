@@ -245,6 +245,8 @@ export const useEventsStore = defineStore('events', () => {
 
   const addPhoto = (id, src) => act(api.addPhoto)(id, currentUserId(), src)
   const deletePhoto = act(api.deletePhoto)
+  // The signed-in person's stars for a finished outing. How to call: await saveReview('s1', { stars: 5, stops: { eat: 4 }, note: '' })
+  const saveReview = (id, review) => act(api.saveReview)(id, currentUserId(), review)
 
   // Did the server's answer prove that it did nothing? Only a refusal does: a 4xx that carries the server's error code (the request was turned
   // away before any work), or a request this side never sent. A timeout, no answer at all or a 5xx says nothing about what the server did.
@@ -520,6 +522,6 @@ export const useEventsStore = defineStore('events', () => {
     sessions, byId, itineraries, ledgers, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
     loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, dropSession,
     loadSessions, loadSession, loadItinerary, loadLedger, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
-    confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, changeMeetingPlace, placeFailure, dismissPlaceFailure, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, forgetOrder, addPhoto, deletePhoto,
+    confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, changeMeetingPlace, placeFailure, dismissPlaceFailure, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, forgetOrder, addPhoto, deletePhoto, saveReview,
   }
 })

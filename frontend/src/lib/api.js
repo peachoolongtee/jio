@@ -4871,6 +4871,34 @@ export async function deletePhoto(id, photoId) {
   return touch(session, 'photos')
 }
 
+// ── Reviews: each person gives a finished outing stars ──────────────────────
+
+// The longest note a review may carry.
+export const REVIEW_NOTE_MAX = 280
+
+// Saves the signed-in person's review of a finished outing: `stars` for the outing (1 to 5), `stops` with stars for any stop
+// ({ <slotId>: 1 to 5 }, each optional), and an optional `note`. Saving again replaces their review. Kept in the session as
+// `reviews[personId]`, so every member's screen can read it. A shared outing has none yet: like photos, it would need a table of
+// its own on the server, a later update.
+// How to call: await saveReview('s1', 'ian', { stars: 5, stops: { eat: 4 }, note: 'Great laksa' })
+export async function saveReview(id, personId, { stars, stops = {}, note = '' } = {}) {
+  if (onServer() && !db.sessions.some((s) => s.id === id)) throw new Error(SHARING_WORDS.reviewsLater)
+  await wait(DELAY.write)
+  requireMe(personId)
+  const session = sessionById(id)
+  if (session.status !== 'completed') throw new Error('An outing can be reviewed once it has finished.')
+  if (session.endedBy === 'closed') throw new Error('This outing closed without a plan, so there is nothing to review.')
+  if (!activeIds(session).includes(personId)) throw new Error('Only the people who went can review this outing.')
+  const whole = (n) => Number.isInteger(n) && n >= 1 && n <= 5
+  if (!whole(stars)) throw new Error('Give the outing 1 to 5 stars.')
+  const slotIds = new Set((session.plan?.stops || []).map((s) => s.slotId))
+  const stopStars = Object.fromEntries(Object.entries(stops || {}).filter(([slotId, n]) => slotIds.has(slotId) && whole(n)))
+  const text = String(note ?? '').trim()
+  if (text.length > REVIEW_NOTE_MAX) throw new Error(`A note can be at most ${REVIEW_NOTE_MAX} characters.`)
+  session.reviews = { ...(session.reviews || {}), [personId]: { stars, stops: stopStars, note: text, at: Date.now() } }
+  return touch(session, 'session')
+}
+
 // ── Rewards ────────────────────────────────────────────────────────────────
 
 export async function listRewards() {

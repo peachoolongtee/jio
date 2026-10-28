@@ -75,16 +75,33 @@ describe('finishing an outing of one person', () => {
     expect(view.text()).not.toContain('each for')
   })
 
-  it('says in the toast and on the page that it earned nothing, after it is finished', async () => {
-    const { view, api } = await soloItinerary()
+  it('goes on to "How was it?", which says it earned nothing, and the page says so after it is finished', async () => {
+    const t = await soloItinerary()
+    const { view, api, id, router } = t
     const before = JSON.parse(api.storage.store['jio-demo-v1']).stats.ian.points
     await view.click(press(view, 'Finish outing'))
     await until(() => view.has('[data-testid="no-coins"]'))
     await view.click(view.all('button').filter((b) => view.text(b) === 'Finish outing').at(-1))
-    await until(() => view.text().includes(`Completed · ${NO_COINS.toast}`))
-    await until(() => view.has('[data-testid="no-coins-notice"]'))
-    expect(view.text('[data-testid="no-coins-notice"]')).toBe(NO_COINS.done)
-    expect(view.text()).not.toContain('points each to spend')
+    await until(() => router.currentRoute.value.path === `/sessions/${id}/review`)
+    // One screen at a time: the stand-in page has one body, which the next screen's mount empties.
+    const leave = (screen) => {
+      mounted.splice(mounted.indexOf(screen), 1)
+      screen.unmount()
+    }
+    leave(view)
+    // The review page, arrived at straight from finishing (the flag the push left in the history entry).
+    vi.stubGlobal('window', { history: { state: { justFinished: true }, replaceState() {} } })
+    const { default: ReviewView } = await import('@/views/ReviewView.vue')
+    const review = await mountScreen(ReviewView, { plugins: [t.pinia, router], props: { id } })
+    mounted.push(review)
+    await until(() => review.has('[data-testid="review-finished"]'))
+    expect(review.text('[data-testid="review-finished"]')).toBe(`Outing finished. ${NO_COINS.toast}`)
+    leave(review)
+    // The itinerary, opened again, says why no coins were paid.
+    const again = await draw(t, `/sessions/${id}/itinerary`, 'EventView', { id })
+    await until(() => again.has('[data-testid="no-coins-notice"]'))
+    expect(again.text('[data-testid="no-coins-notice"]')).toBe(NO_COINS.done)
+    expect(again.text()).not.toContain('points each to spend')
     expect(JSON.parse(api.storage.store['jio-demo-v1']).stats.ian.points).toBe(before)
   })
 

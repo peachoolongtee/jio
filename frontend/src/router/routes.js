@@ -22,6 +22,8 @@ export const routes = [
   { path: '/sessions/:id/plan', name: 'session-plan', component: () => import('@/views/PlannerView.vue'), props: true, meta: { title: 'Vote' } },
   { path: '/sessions/:id/itinerary', name: 'session-itinerary', component: () => import('@/views/EventView.vue'), props: true, meta: { title: 'Itinerary' } },
   { path: '/sessions/:id/photos', name: 'session-photos', component: () => import('@/views/PhotosView.vue'), props: true, meta: { title: 'Photos' } },
+  // "How was it?": stars and photos, where "Finish outing" goes.
+  { path: '/sessions/:id/review', name: 'session-review', component: () => import('@/views/ReviewView.vue'), props: true, meta: { title: 'How was it?' } },
   { path: '/sessions/:id/map', name: 'session-map', component: () => import('@/views/SessionMapView.vue'), props: true, meta: { nav: false, title: 'Map' } },
   { path: '/sessions/:id/roam', name: 'session-roam', component: () => import('@/views/RoamView.vue'), props: true, meta: { title: 'What next?' } },
   { path: '/leaderboard', name: 'leaderboard', component: () => import('@/views/LeaderboardView.vue'), meta: { tabs: true, tab: 'leaderboard', title: 'Leaderboard' } },

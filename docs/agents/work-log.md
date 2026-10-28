@@ -1672,3 +1672,40 @@ The lead said "do this" to the next step after round 39: first-time planner answ
 - **Three reviews.** The first found 3 majors (the same-area cap, weak table-mode tests, `include` moving the pick through a cached area) and 5 minors. The second found that a named area shown by the ranking could still be read on the table without the engine running again. The third found three more ways a name could reach the ranking (a route bought for the name after the last round, a reserve of trips for names that cost the ranking a finalist, cached routes from an earlier request's name) and a paid repeat of a failed trip with the cache off. All were fixed: the ranking reads a candidate live only if it showed it first in this request, a name's routes serve only its own entry, and named areas get what the ranking leaves. A fourth, independent check found no counterexample.
 - **Checked by the lead's session on `92d5777`:** backend 2024 passed, 2 skipped, also with outbound calls blocked; frontend 2713 passed under `TZ=UTC` (with `VITE_API_BASE_URL` blank); build exit 0; e2e 15 passed.
 - **The implementer's restarted rounds could not hand back their reports** (a restarted agent's second hand-back is refused); the lead's session read them from the transcript. Start a fresh agent for each new round of fixes.
+
+## Round 41: review of Jonathan's outing-flow pull request, #191 (2026-10-29)
+
+The lead asked whether #191 was reviewed and merged (it was not), then said "carry on". The lead's session merged #191 with `dev` on `review/pr-191`. Two files conflicted. `CLAUDE.md` keeps both sides' test rows. `darius.spec.js` keeps `dev`'s fix for the Today pin's second "Open meetup" link, which finds the link by role, as the end-to-end README asks, rather than by test id. Jonathan's branch is left as it is.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Code review | code-reviewer (read-only) | `review/pr-191` | Correctness, regressions, the real-account rule (state in Supabase, never only in the browser), privacy, sharing and the review page, tests. |
+| Design review | design-reviewer (read-only) | `review/pr-191` | The six changes against `DESIGN.md`: hierarchy, voice, accessibility, phone and desktop widths. |
+| Fixes from both reviews | frontend-engineer | `review/pr-191` | Keep Google places off "What next?" (list and map); no "Change plan" on a light meetup; a visible result after a tick, and "Proposed" told apart from "In the plan"; RoamPanel loads when a stale session turns open; the review form resets per session; sharing called straight from the tap and guarded; Invite's footer label and the closed case; `reviewDue` only for people who went; star contrast; the review page's save states; share dialog wording; tests and "How to call" comments. |
+
+**Results of round 41** (`review/pr-191`, `6288e87`, merged into `dev`).
+- **The code review** found one major issue that is latent while the Google key is empty: "What next?" now draws a OneMap map beside its list, and `/api/roam` adds Google places when the key is set.
+  - Its minors: the panel did not load when a stale session turned open; the review form kept the last outing's stars; the share sheet was called after an await, and a second tap was not ignored; the Invite footer's "Done" went to the Start choice, and there was no footer when invites were closed; the "How was it?" row showed to people who did not go; thin tests; missing "How to call" comments.
+  - It confirmed that nothing of a real account is written only to the browser. Reviews and photos are refused for shared outings, so a real account has neither yet.
+- **The design review** found two majors: "Change plan" on a light meetup, and no visible result after a tick, with "Proposed" sharing the tick icon of "In the plan".
+  - Its minors: the order and weight of the "What next?" page, star contrast, the review page's save states, and the share dialog and Invite labels.
+- **All were fixed by one frontend agent** in 7 commits:
+  - Google places are left out of the panel's list and map;
+  - no Change plan on a light meetup;
+  - a visible line under a ticked card, with a way to the proposal, and a clock icon for "Proposed";
+  - "What next?" gets a heading, no photos row, and a secondary Finish button until the first stop;
+  - the review form resets per outing, says "Saving…", shows its error in the footer, and offers "Skip for now";
+  - the File is made before the share tap, a second tap is ignored, and the dialog says "Open WhatsApp";
+  - Invite reads "Back to session" or "Start session" and always has a footer;
+  - off stars in `--border-control`;
+  - 31 new or changed tests.
+
+  The shared e2e helper `inviteAndStart` now clicks "Back to session". It is clicked before a demo friend accepts, 1.4 s after sending, which is also when the label turns to "Start session". It passed 45 of 45 runs.
+- **Left for later:** "What next?" resets its area, kind and view when the first stop is added (the panel unmounts).
+- **Checked by the lead's session on `6288e87`:**
+  - backend 2024 passed, 2 skipped, also with outbound calls blocked;
+  - frontend 2752 passed under `TZ=UTC`;
+  - build exit 0;
+  - e2e 15 passed, then 45 of 45 with `--repeat-each=3`.
+
+  No browser check at phone width was run on the fixes.

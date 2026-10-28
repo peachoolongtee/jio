@@ -89,6 +89,7 @@ export const WORDS = {
   // Stage 5: the plan, the itinerary and finishing.
   notShared: "That isn't available in a shared session yet.",
   photosLater: 'Photos are not shared yet. They come in a later update.',
+  reviewsLater: 'Reviews of shared outings come in a later update.',
   placeMissing: 'A place in the plan could not be found. Try again in a moment.',
   // The name drawn for a stop whose place the server no longer describes (it left the list since the plan was made).
   placeUnlisted: 'A place that is no longer listed',

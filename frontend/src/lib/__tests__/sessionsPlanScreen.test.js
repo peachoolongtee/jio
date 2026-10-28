@@ -10,7 +10,7 @@ import { SERVICE } from '../../components/dev/fakeDatabase.js'
 import { AxiosError } from 'axios'
 import { timeAndDuration } from '../planner/format.js'
 import { mountScreen, until } from './domless.js'
-import { confirmed, voted } from './sessionsWorld.js'
+import { confirmed, locating, voted } from './sessionsWorld.js'
 
 // The map needs a real browser (Leaflet).
 vi.mock('../../components/map/PlannerMap.vue', () => ({ default: { name: 'PlannerMap', render: () => null } }))
@@ -41,6 +41,8 @@ const SCREENS = {
   PlannerView: () => import('@/views/PlannerView.vue'),
   EventView: () => import('@/views/EventView.vue'),
   RoamView: () => import('@/views/RoamView.vue'),
+  ReviewView: () => import('@/views/ReviewView.vue'),
+  InviteView: () => import('@/views/InviteView.vue'),
 }
 
 // Draw a screen of the app opened last, signed in as that person (the modules are the last app's).
@@ -56,7 +58,7 @@ async function draw(name, path, id, historyState = null) {
   const stub = { render: () => null }
   const router = createRouter({ history: createMemoryHistory(), routes: routes.map((r) => ({ ...r, component: stub })) })
   // The itinerary reads the history entry's flag for "Plan confirmed" (window.history.state).
-  if (name === 'EventView') vi.stubGlobal('window', { history: { state: historyState, replaceState() {} } })
+  if (name === 'EventView' || name === 'ReviewView') vi.stubGlobal('window', { history: { state: historyState, replaceState() {} } })
   await router.push(path)
   const { default: View } = await SCREENS[name]()
   const view = await mountScreen(View, { plugins: [pinia, router], props: { id } })
@@ -696,6 +698,15 @@ describe('photos and the map of a shared outing', () => {
     await expect(world.kim.api.deletePhoto(world.id, 'p1')).rejects.toThrow('Photos are not shared yet')
   })
 
+  it('refuses a review of a shared outing in words, and the review page says so', async () => {
+    const world = await confirmed({ hostLast: true })
+    await expect(world.sam.api.saveReview(world.id, world.sam.id, { stars: 4 })).rejects.toThrow('Reviews of shared outings come in a later update.')
+    const review = await draw('ReviewView', `/sessions/${world.id}/review`, world.id)
+    await until(() => review.view.has('[data-testid=review-closed]'))
+    expect(review.view.text(review.view.one('[data-testid=review-closed]'))).toContain('Reviews of shared outings come in a later update.')
+    expect(review.view.has('[data-testid=review-save]')).toBe(false)
+  })
+
   it('follows a change to the stops on the full-screen map, live', async () => {
     SCREENS.SessionMapView = () => import('@/views/SessionMapView.vue')
     const world = await confirmed({ hostLast: false })
@@ -743,5 +754,23 @@ describe('replacing a stop of a shared plan', () => {
     const { view } = await draw('PlannerView', `/sessions/${world.id}/plan?replace=${drink.slotId}`, world.id)
     await until(() => view.has('[data-testid=replace-host-only]'))
     expect(view.text(view.one('[data-testid=replace-host-only]'))).toContain('Only the host can replace a stop')
+  })
+})
+
+describe('the way on from the Invite page of a shared session', () => {
+  it('is at the bottom for the host, named for where it goes', async () => {
+    const world = await locating({ hostLast: true })
+    const { view } = await draw('InviteView', `/sessions/${world.id}/invite`, world.id)
+    await until(() => view.has('[data-testid=invite-onward]'))
+    expect(view.text(view.one('[data-testid=invite-onward]'))).toContain('Back to session')
+    expect(view.text(view.one('[data-testid=invite-onward]'))).not.toContain('Done')
+    expect(view.errors).toEqual([])
+  })
+
+  it('is there for a guest too, when invites are closed to them', async () => {
+    const world = await locating()
+    const { view } = await draw('InviteView', `/sessions/${world.id}/invite`, world.id)
+    await until(() => view.has('[data-testid=invite-onward]'))
+    expect(view.text(view.one('[data-testid=invite-onward]'))).toContain('Back to session')
   })
 })

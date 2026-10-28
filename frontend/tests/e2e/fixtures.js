@@ -155,7 +155,7 @@ export async function createSession(page, { title, day = daysAhead(3), start, en
 export async function inviteAndStart(page, friends) {
   for (const name of friends) await page.getByRole('button', { name: `Invite ${name}` }).click()
   await page.getByRole('button', { name: `Send ${friends.length} ${friends.length === 1 ? 'invite' : 'invites'}` }).click()
-  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('button', { name: 'Back to session' }).click()
   // In the demo the friends accept one after another, a moment apart. A friend who has not accepted when the session starts is
   // left out of it, so wait until all have joined.
   const everyone = friends.length + 1

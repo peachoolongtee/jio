@@ -1,7 +1,7 @@
 <script setup>
 // The photo viewer: a full-screen, swipeable carousel of a session's photos, like a social app.
 //   <PhotoViewer ref="viewer" v-model:index="viewing" :photos="photos" :origin="tileImage" :place="placeOf"
-//                :can-delete="(p) => p.personId === 'ian'" @delete="remove" />
+//                :can-delete="(p) => p.personId === 'ian'" can-share @delete="remove" @share="share" />
 //   viewer.value.open(3)   opens on the fourth photo, growing it out of its tile in the gallery
 // `index` is the open photo, or -1 when closed. Setting it directly opens with a plain fade.
 //
@@ -26,8 +26,10 @@ const props = defineProps({
   origin: { type: Function, default: () => null },
   // (photo) => where it was taken, for example the stop on the itinerary at that time. Optional.
   place: { type: Function, default: () => '' },
+  // Show a Share button beside Delete; pressing it emits `share` with the photo (ShareDialog does the sharing).
+  canShare: { type: Boolean, default: false },
 })
-const emit = defineEmits(['delete'])
+const emit = defineEmits(['delete', 'share'])
 
 // A drag further than this share of the screen, or a flick faster than this (px per ms) and at least
 // FLICK_MIN px long, moves on. Speed is measured over the last FLICK_WINDOW ms, and is zero after a pause.
@@ -329,8 +331,11 @@ async function onKeydown(e) {
           <header class="viewer__top">
             <IconButton label="Close" class="viewer__btn" @click="close"><AppIcon name="close" /></IconButton>
             <span class="viewer__count caption tnum" aria-live="polite">{{ index + 1 }} / {{ photos.length }}</span>
-            <IconButton v-if="canDelete(photo)" label="Delete photo" class="viewer__btn" @click="emit('delete', photo)"><AppIcon name="trash" /></IconButton>
-            <span v-else class="viewer__spacer" />
+            <span class="viewer__tools">
+              <IconButton v-if="canShare" label="Share photo" class="viewer__btn" data-testid="viewer-share" @click="emit('share', photo)"><AppIcon name="share" /></IconButton>
+              <IconButton v-if="canDelete(photo)" label="Delete photo" class="viewer__btn" @click="emit('delete', photo)"><AppIcon name="trash" /></IconButton>
+              <span v-if="!canShare && !canDelete(photo)" class="viewer__spacer" />
+            </span>
           </header>
 
           <IconButton v-if="index > 0" label="Previous photo" class="viewer__btn viewer__nav viewer__nav--prev" @click="go(-1)"><AppIcon name="back" /></IconButton>
@@ -350,6 +355,7 @@ async function onKeydown(e) {
 </template>
 
 <style scoped>
+.viewer__tools { display: inline-flex; align-items: center; gap: var(--spacing-xs); }
 .viewer { position: fixed; inset: 0; z-index: 40; overflow: hidden; color: var(--on-dark); outline: none; overscroll-behavior: contain; }
 
 /* Dim and blur the page, and wash it with the photo's own colours. Dragging down fades it out. */

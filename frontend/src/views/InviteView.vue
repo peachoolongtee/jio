@@ -6,6 +6,10 @@
 // are on the profile page. The friends come in two groups (lib/hangouts.js): "Frequent hangouts", the people the signed-in
 // person has completed the most outings with, most first, then "All friends". Each name has its Jio streak beside it, the
 // number of outings together. With no outings together yet it is one plain list, "Friends".
+// The way on is always at the bottom, also when invites are closed, so a host who came here from the Start choice through the steps
+// bar can get back to it. Its label names where it goes (`onward`): "Start session" (the host of an inviting session with two or more
+// in, to the Start choice) or "Back to session" (the session page). With someone selected, the footer is Send instead; after sending
+// the way on is back, with the same label.
 // After sending, the screen confirms each invite. Each friend shows as Invited until they accept (in the demo, on
 // their own a moment later).
 // Once the session has started the page still opens. The host can invite while the group is locating or voting (the data
@@ -127,10 +131,17 @@ async function send() {
   busy.value = false
 }
 
-// Back to the session. If it is the page just behind this one it goes Back, so the history has no repeat.
+// Where the way on goes: the Start choice for the host of a session that can start (inviting, two or more in), else the session page.
+const onward = computed(() => {
+  const s = session.value
+  if (s?.status === 'inviting' && mine.value && (s.activeIds || []).length >= 2) return { label: 'Start session', to: `/sessions/${props.id}/start` }
+  return { label: 'Back to session', to: `/sessions/${props.id}` }
+})
+
+// On to the next page. If it is the page just behind this one it goes Back, so the history has no repeat.
 // How to call: done()
 function done() {
-  const to = `/sessions/${props.id}`
+  const { to } = onward.value
   if (isBehind(to)) router.back()
   else router.replace(to)
 }
@@ -300,10 +311,10 @@ function done() {
     </div>
 
     <footer v-if="session?.remote" class="screen__footer">
-      <AppButton next block @click="done">Done</AppButton>
+      <AppButton next block data-testid="invite-onward" @click="done">{{ onward.label }}</AppButton>
     </footer>
-    <footer v-else-if="session && access.open" class="screen__footer">
-      <AppButton v-if="sent.length" next block @click="done">Done</AppButton>
+    <footer v-else-if="session" class="screen__footer">
+      <AppButton v-if="sent.length || !picked.length || !access.open" next block data-testid="invite-onward" @click="done">{{ onward.label }}</AppButton>
       <template v-else>
         <span class="caption text-muted invite__picked" aria-live="polite">{{ picked.length }} selected</span>
         <AppButton block :disabled="!picked.length || busy" @click="send">

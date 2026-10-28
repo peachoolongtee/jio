@@ -31,8 +31,13 @@
 //   - While the plan is under way (roamOpen in lib/session.js: a confirmed plan on its day) a "What next?" button under the
 //     stops opens the Roam page, and the places members proposed there appear under the stops as proposed stops
 //     (ProposedStops). It is a secondary button: the footer's "Finish outing" stays the page's one main action.
-//   - A plan with no stops (a light meetup started from Home, before anything is added) says "No stops yet" in place of
-//     the timeline.
+//   - A plan with no stops while it is under way (a light meetup started from Home's "Already out?", before anything is added)
+//     shows "What next?" itself in place of the timeline and its map (RoamPanel: places nearby, a tick to propose one, a map),
+//     with the proposals above it and a "What next?" heading over it (the Photos row is left out, and "Finish outing" is a secondary
+//     button, so the page's main action is the places' ticks), so the itinerary and "What next?" are one page until the first stop is in. Not under way, a
+//     plan with no stops says "No stops yet".
+//   - Finishing the outing goes on to "How was it?" (/sessions/:id/review: stars and photos). A finished outing the person has
+//     not reviewed shows a row that leads there.
 //   - Travel and trip-home times are estimates from distance, so they read "about" or "est.".
 //   - Weather (a confirmed plan): a mark on each stop (Dry, Cloudy, Showers, Thundery showers, Not known; "Indoor" for an indoor
 //     stop when rain is likely; "Outdoor, showers" for an exposed stop, in the warning tone) and one muted line under the stops
@@ -63,6 +68,7 @@ import SessionHeader from '@/components/event/SessionHeader.vue'
 import SessionNotices from '@/components/event/SessionNotices.vue'
 import ChangePlan from '@/components/event/ChangePlan.vue'
 import ProposedStops from '@/components/event/ProposedStops.vue'
+import RoamPanel from '@/components/event/RoamPanel.vue'
 import StopCard from '@/components/event/StopCard.vue'
 import CategoryKey from '@/components/map/CategoryKey.vue'
 import { placeImage } from '@/lib/placeImages.js'
@@ -197,6 +203,10 @@ watch(
 const footer = computed(() => (session.value ? itineraryAction(session.value) : null))
 // Under way: people can ask "What next?" and propose places.
 const underway = computed(() => !!session.value && roamOpen(session.value))
+// Under way with no stops yet: this page is "What next?" itself (RoamPanel) until the first stop is added.
+const nearbyHere = computed(() => underway.value && !!itinerary.value && !itinerary.value.stops.length)
+// A finished outing this person went on and has not reviewed yet: a row leads to "How was it?". Local outings only, as photos.
+const reviewDue = computed(() => status.value === 'completed' && !remote.value && session.value?.endedBy !== 'closed' && (session.value?.activeIds || []).includes(myId.value) && !session.value?.reviews?.[myId.value])
 const myId = computed(() => auth.myId)
 const longTrips = computed(() => (itinerary.value?.trips || []).filter((t) => t.long))
 const lastStop = computed(() => itinerary.value?.stops[itinerary.value.stops.length - 1])
@@ -372,7 +382,9 @@ async function endPlan() {
     await events.endPlan(props.id)
     endOpen.value = false
     editing.value = false
-    toast.value = true
+    // A local outing goes on to "How was it?" (stars and photos), which says what was paid; a shared one stays here with its ledger.
+    if (remote.value) toast.value = true
+    else await router.push({ path: `/sessions/${props.id}/review`, state: { justFinished: true } })
   } catch (e) {
     error.value = e.message
   } finally {
@@ -433,8 +445,17 @@ async function endPlan() {
 
         <LedgerCard v-if="remote && status === 'completed'" :ledger="ledgerState?.row ?? null" :loading="ledgerLoading" :failed="!!ledgerState?.failed" :loaded="!!ledgerState" @retry="loadLedger" />
 
-        <!-- Photos from the day: always here once the plan is set, so it is clear where to add them. -->
-        <RouterLink v-if="!remote" :to="`/sessions/${id}/photos`" class="photos-cta">
+        <RouterLink v-if="reviewDue" :to="`/sessions/${id}/review`" class="photos-cta" data-testid="review-cta">
+          <span class="photos-cta__icon" aria-hidden="true"><AppIcon name="star" :size="20" /></span>
+          <span class="photos-cta__text">
+            <span class="title-sm">How was it?</span>
+            <span class="caption-sm text-muted">Give the outing stars and add your photos.</span>
+          </span>
+          <span class="photos-cta__go" aria-hidden="true"><span class="photos-cta__word">Review</span> <AppIcon name="arrow-right" :size="16" /></span>
+        </RouterLink>
+
+        <!-- Photos from the day: always here once the plan is set, so it is clear where to add them (not while "What next?" is the page: nothing has happened yet). -->
+        <RouterLink v-if="!remote && !nearbyHere" :to="`/sessions/${id}/photos`" class="photos-cta">
           <span class="photos-cta__icon" aria-hidden="true"><AppIcon name="camera" :size="20" /></span>
           <span class="photos-cta__text">
             <span class="title-sm">Photos from the day</span>
@@ -453,14 +474,21 @@ async function endPlan() {
           <span>{{ sourceText(itinerary.aiNote) }}</span>
         </p>
 
-        <SplitView v-model:view="view" label="Itinerary" even>
+        <!-- Under way with no stops yet: what the group proposed, then "What next?" itself, in place of the timeline and its map. -->
+        <template v-if="nearbyHere">
+          <ProposedStops :session="session" :itinerary="itinerary" :my-id="myId" />
+          <h2 class="title-md">What next?</h2>
+          <RoamPanel :session="session" proposals-above />
+        </template>
+
+        <SplitView v-else v-model:view="view" label="Itinerary" even>
           <template #list>
             <div v-if="!itinerary" class="stack gap-md">
               <SkeletonRow v-for="n in 3" :key="n" avatar />
             </div>
             <template v-else>
-              <!-- A light meetup (Roam from Home) starts with no stops: it says so, and "What next?" below is the way in. -->
-              <EmptyState v-if="!itinerary.stops.length" title="No stops yet" text="Find something nearby with What next?, then add it to the plan." data-testid="no-stops" />
+              <!-- A plan with no stops that is not under way (one under way shows "What next?" above instead). -->
+              <EmptyState v-if="!itinerary.stops.length" title="No stops yet" data-testid="no-stops" />
               <div v-else ref="timeline" class="timeline card" tabindex="-1">
                 <SortableList
                   :items="itinerary.stops"
@@ -557,7 +585,8 @@ async function endPlan() {
     </div>
 
     <footer v-if="footer" class="screen__footer">
-      <AppButton v-if="footer === 'finish' && mayEdit" block :disabled="busy" @click="endOpen = true">Finish outing</AppButton>
+      <!-- Secondary while "What next?" is the page, so "Finish outing" does not compete with the places' ticks; it is still here. -->
+      <AppButton v-if="footer === 'finish' && mayEdit" block :variant="nearbyHere ? 'secondary' : 'primary'" :disabled="busy" @click="endOpen = true">Finish outing</AppButton>
       <!-- Only the host finishes an outing on the server. -->
       <template v-else-if="footer === 'finish'">
         <p class="caption text-muted footer-note" data-testid="host-finishes">{{ session.hostName || 'The host' }} finishes the outing.</p>
