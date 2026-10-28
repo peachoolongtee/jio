@@ -30,6 +30,13 @@ const CUISINES = ['japanese', 'korean', 'chinese', 'indian', 'malay', 'thai', 'i
 const MALL_TYPES = ['shopping_mall', 'department_store'];
 const MARKET_TYPES = ['market'];
 
+// Google types that make a place somewhere to drink (a cafe, a tea shop, a juice bar). A place whose MAIN type is one of these is a
+// drink even when it also carries a dessert type (an ice cream and bubble tea shop such as Mixue).
+const DRINK_TYPES = ['cafe', 'coffee_shop', 'tea_house', 'cat_cafe', 'tea_store', 'coffee_store', 'juice_shop'];
+// The last resort for a place Google gave no usable type at all (some listings come back with none, such as one Each-A-Cup): its name.
+// Tea, coffee, juice and boba words, and the bubble tea and coffee chains found around Singapore.
+const DRINK_NAME = /\b(bubble tea|boba|teas?|coffee|kopi|juice|each[- ]a[- ]cup|liho|koi|gong ?cha|playmade|tiger sugar|chagee|heytea|the alley|bober|chicha|sharetea|tealive|milksha|r&b)\b/i;
+
 // Google types that make a place an activity, and the kind of place each is (for its attribute defaults).
 const ACTIVITY_KIND = {
   movie_theater: 'cinema',
@@ -100,10 +107,11 @@ function kindOf(place, { searched = false } = {}) {
   if (mainActivity) return { category: 'activity', kind: ACTIVITY_KIND[mainActivity], cuisine: mainActivity };
   if (has('food_court')) return { category: 'eat', kind: 'hawker', cuisine: 'hawker' };
   if (has('bar', 'pub', 'wine_bar', 'cocktail_bar', 'night_club')) return { category: 'drink', kind: 'bar', cuisine: 'bar' };
+  if (DRINK_TYPES.includes(place.primaryType)) return { category: 'drink', kind: 'cafe', cuisine: 'cafe' };
   if (has('dessert_shop', 'ice_cream_shop', 'dessert_restaurant', 'bakery', 'confectionery')) return { category: 'eat', kind: 'dessert', cuisine: 'dessert' };
   // A bubble tea or tea shop such as Chagee is typed 'tea_store' (and 'food_store'), with no 'cafe' at all: without it, the generic
   // 'food' type below would make it somewhere to eat.
-  if (has('cafe', 'coffee_shop', 'tea_house', 'cat_cafe', 'tea_store', 'coffee_store', 'juice_shop')) return { category: 'drink', kind: 'cafe', cuisine: 'cafe' };
+  if (has(...DRINK_TYPES)) return { category: 'drink', kind: 'cafe', cuisine: 'cafe' };
   if (has('restaurant', 'meal_takeaway', 'meal_delivery') || cuisine) return { category: 'eat', kind: 'restaurant', cuisine: cuisine ?? 'restaurant' };
   // 'food' alone is Google's catch-all (a supermarket and a convenience store carry it): a food shop is a shop.
   if (has('food') && !has(...FOOD_SHOP_TYPES)) return { category: 'eat', kind: 'restaurant', cuisine: cuisine ?? 'restaurant' };
@@ -116,6 +124,7 @@ function kindOf(place, { searched = false } = {}) {
   // Nothing says food, drink or shopping. Only a place someone searched for by name gets here; the nearby search asks
   // Google for Jio's own types. A searched place is something to do (a climbing gym, a museum, a park) only when
   // Google types it as an outing; a bank or a clinic is not.
+  if (DRINK_NAME.test(place.displayName?.text ?? place.name ?? '')) return { category: 'drink', kind: 'cafe', cuisine: 'cafe' };
   const fallback = { category: 'activity', kind: 'attraction', cuisine: place.primaryType ?? 'attraction' };
   return searched && !has(...OUTING_TYPES) ? { ...fallback, notAnOuting: true } : fallback;
 }
