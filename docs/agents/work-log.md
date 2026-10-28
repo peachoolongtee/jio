@@ -1672,3 +1672,12 @@ The lead said "do this" to the next step after round 39: first-time planner answ
 - **Three reviews.** The first found 3 majors (the same-area cap, weak table-mode tests, `include` moving the pick through a cached area) and 5 minors. The second found that a named area shown by the ranking could still be read on the table without the engine running again. The third found three more ways a name could reach the ranking (a route bought for the name after the last round, a reserve of trips for names that cost the ranking a finalist, cached routes from an earlier request's name) and a paid repeat of a failed trip with the cache off. All were fixed: the ranking reads a candidate live only if it showed it first in this request, a name's routes serve only its own entry, and named areas get what the ranking leaves. A fourth, independent check found no counterexample.
 - **Checked by the lead's session on `92d5777`:** backend 2024 passed, 2 skipped, also with outbound calls blocked; frontend 2713 passed under `TZ=UTC` (with `VITE_API_BASE_URL` blank); build exit 0; e2e 15 passed.
 - **The implementer's restarted rounds could not hand back their reports** (a restarted agent's second hand-back is refused); the lead's session read them from the transcript. Start a fresh agent for each new round of fixes.
+
+## Round 41: review of Jonathan's outing-flow pull request, #191 (2026-10-29)
+
+The lead asked whether #191 was reviewed and merged (it was not), then said "carry on". The lead's session merged #191 with `dev` on `review/pr-191`. Two files conflicted. `CLAUDE.md` keeps both sides' test rows. `darius.spec.js` keeps `dev`'s fix for the Today pin's second "Open meetup" link, which finds the link by role, as the end-to-end README asks, rather than by test id. Jonathan's branch is left as it is.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Code review | code-reviewer (read-only) | `review/pr-191` | Correctness, regressions, the real-account rule (state in Supabase, never only in the browser), privacy, sharing and the review page, tests. |
+| Design review | design-reviewer (read-only) | `review/pr-191` | The six changes against `DESIGN.md`: hierarchy, voice, accessibility, phone and desktop widths. |
