@@ -1653,3 +1653,11 @@ The lead asked for the latency behind some loading screens to be investigated. T
   - e2e 15 passed;
   - build exit 0.
 - **Next:** fix 3, routing far less by using the 666 real area-to-area times.
+
+## Round 40: route far less, with the table of real times between areas (2026-10-28)
+
+The lead said "do this" to the next step after round 39: first-time planner answers that are both fast and accurate. The app already holds 666 real public-transport times between its meeting areas (Faith's table, #172). Today it pre-ranks the meeting areas and nothing else. Live routing still prices every person-to-place trip, at about 1 s per call, 6 at a time.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Rank on the table, route only what is shown | implementer | `feat/route-less`, off `dev` | Rank meeting areas and places on table-based times (start area to venue area, plus the walks): no calls. Then route live only the trips of what the person sees first, under the round 39 deadline. Keep the fairness tests and the baseline. Measure how often the ranking differs from all-live routing, and the time to first answer. No exact place leaks. The OneMap budget is respected. |
