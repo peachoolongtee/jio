@@ -3,6 +3,7 @@
 // voted on. The Roam page (views/RoamView.vue) shows it under its header, and the itinerary of a plan with no stops yet (a light
 // meetup from Home's "Already out?") shows it in place of the empty timeline, so there is one page and not two.
 //   <RoamPanel :session="session" />
+//   <RoamPanel :session="session" proposals-above />   (the proposed stops are drawn just above it)
 //   - It is centred on the meeting area ("Near Bishan"). "Use my location" asks the browser for a position only when it is
 //     pressed, and the list is then centred on the person ("Near you, in Toa Payoh"). The position stays in this panel's
 //     memory for this list: it is never saved, put in the address or shown to the group, who would see the area's name at most.
@@ -13,7 +14,9 @@
 //   - Each place is the voting page's card (SuggestionCard) with how far it is, why it was chosen and a rain mark. Its foot
 //     is a tick to propose it, for anyone in the meetup; a place that is proposed says by whom ("Proposed by you" with a
 //     cross to take it back, or "Proposed by Faith"), a place already in the plan says "In the plan". The tick and the cross
-//     carry their words for screen readers only. The host adds a proposal to the plan on the itinerary.
+//     carry their words for screen readers only. The host adds a proposal to the plan on the itinerary. Just after a tick, one
+//     visible line under the card says what happens next ("Proposed. Add it to the plan above", with a button that moves focus to
+//     the proposal for the host; "Proposed. Faith decides" for a guest).
 //   - The map beside the list (List / Map on a phone, as on the Vote page) shows the places as category dots around the centre.
 //     Pressing a dot opens a small card of the place with the same tick or cross, so a place can be proposed from the map.
 //   - Loading, empty ("Nothing nearby fits"), the planner being unreachable (with Retry) and "not open yet" each have their
@@ -23,6 +26,7 @@
 //   - Dietary needs work as on the Vote page (ticket #107): while the list holds food, one line says which needs the places
 //     fit, with no names; when fewer than 3 food places fit, a line offers "Show places we couldn't confirm", each then
 //     labelled on its card. That choice is this person's own, for this panel only.
+//   - Places from Google are never shown here, in the list or on the map: Google's terms do not allow them beside a OneMap map.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -43,7 +47,7 @@ import WeatherSource from '@/components/weather/WeatherSource.vue'
 import * as api from '@/lib/api.js'
 import { CATEGORY_LABELS } from '@/lib/planner/slots.js'
 import { placeImage } from '@/lib/placeImages.js'
-import { ROAM_CATEGORIES, ROAM_WORDS, centreLine, closedText, memberBlock, placeAction, placeState, proposeBlock, travelLine } from '@/lib/roam.js'
+import { ROAM_CATEGORIES, ROAM_WORDS, centreLine, closedText, memberBlock, placeAction, placeState, proposeBlock, proposedResult, travelLine } from '@/lib/roam.js'
 import { roamOpen, sessionPath } from '@/lib/session.js'
 import { usePlaceDetail } from '@/lib/usePlaceDetail.js'
 import { fewLine, fitLine } from '@/lib/dietText.js'
@@ -51,7 +55,20 @@ import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { vRadioGroup } from '@/lib/radioGroup.js'
 
-const props = defineProps({ session: { type: Object, required: true } })
+const props = defineProps({
+  session: { type: Object, required: true },
+  // Whether the proposed stops are drawn above this panel on the same page (the itinerary), so a host who has just proposed a place
+  // can be led to the row where it is added to the plan. On the Roam page they are on the next page, and the card says so.
+  proposalsAbove: { type: Boolean, default: false },
+})
+
+// Is this place one that Google supplied? The planner adds Google places to a Roam answer when it has a Google key (their ids start with
+// `google_` and the venue says `source: 'google'`). Google's terms do not allow them on or beside a OneMap map, and this panel draws a
+// OneMap map beside its list, so they are left out of both until the lead decides otherwise (see CLAUDE.md).
+// How to call: isGooglePlace({ id: 'google_ChIJ123', venue: { source: 'google' } }) -> true
+function isGooglePlace(place) {
+  return String(place?.id ?? '').startsWith('google_') || place?.venue?.source === 'google'
+}
 
 const auth = useAuthStore()
 const events = useEventsStore()
@@ -77,6 +94,9 @@ const view = ref('list')
 const selected = ref('')
 // What a press of the tick or the cross did, for a screen reader (the list's own announcement is separate).
 const said = ref('')
+// What a press left on the page, for a line under that place's card: { placeId, expects ('proposed' or 'free', the state the place must
+// still be in for the line to be true), text, go (see proposedResult) }. It goes when the place moves on (added to the plan, say).
+const result = ref(null)
 let ticket = 0
 
 const session = computed(() => props.session)
@@ -96,7 +116,7 @@ const detailFrom = computed(() => (centre.value.mode === 'here' ? 'you' : centre
 // The places with the plan and the proposals as they are now, so a proposal made elsewhere shows without asking again.
 const stopIds = computed(() => (session.value?.plan?.stops || []).map((s) => s.venueId))
 const places = computed(() =>
-  (answer.value?.places || []).map((place) => {
+  (answer.value?.places || []).filter((place) => !isGooglePlace(place)).map((place) => {
     const { state, proposal } = placeState(place.id, stopIds.value, session.value?.proposals || [])
     return { ...place, state, proposal: proposal && { id: proposal.id, by: proposal.by, byName: proposal.byName } }
   }),
@@ -121,6 +141,8 @@ const mapCentre = computed(() => {
   return area && Number.isFinite(area.lat) ? { name: area.name, lat: area.lat, lng: area.lng } : null
 })
 const mapPlaces = computed(() => places.value.map((p) => ({ id: p.id, name: p.venue.name, lat: p.venue.lat, lng: p.venue.lng, category: p.venue.category })))
+const itineraryPath = computed(() => `/sessions/${session.value.id}/itinerary`)
+const isHost = computed(() => session.value?.hostId === myId.value)
 const selectedPlace = computed(() => places.value.find((p) => p.id === selected.value) || null)
 
 // Ask for the places for the centre and kind now chosen. Only the newest request puts its answer in.
@@ -163,14 +185,18 @@ watch(() => session.value?.id, (now, was) => {
   unconfirmed.value = false
   answer.value = null
   selected.value = ''
+  result.value = null
+  said.value = ''
   begin()
 })
 // The plan can stop being under way while the panel is open (the outing is finished or called off).
+// And the other way: a session read from the cache that was not under way can turn out to be, once it is read afresh, and then the
+// places are asked for if nothing is loaded or on its way.
 watch(open, (now, was) => {
   if (was && !now) {
     ticket += 1
     loading.value = false
-  }
+  } else if (now && !was && !answer.value && !loading.value) begin()
 })
 // A dot pressed for a place the list no longer has: its card goes.
 watch(places, () => {
@@ -264,9 +290,12 @@ async function act(place, action) {
     if (action.kind === 'free') {
       const changed = await events.proposeMyStop(session.value.id, place.id)
       said.value = changed === false ? ROAM_WORDS.alreadyProposed(name) : ROAM_WORDS.proposed(name, session.value?.hostName || 'The host')
+      const next = proposedResult({ isHost: isHost.value, hostName: session.value?.hostName, above: props.proposalsAbove })
+      result.value = { placeId: place.id, expects: 'proposed', text: changed === false ? `${name} is already proposed.` : next.text, go: next.go }
     } else {
       const changed = await events.resolveProposal(session.value.id, place.proposal.id, false)
       said.value = changed === false ? ROAM_WORDS.gone : ROAM_WORDS.takenBack(name)
+      result.value = { placeId: place.id, expects: 'free', text: changed === false ? ROAM_WORDS.gone : ROAM_WORDS.takenBack(name), go: '' }
     }
     await nextTick()
   } catch (e) {
@@ -276,9 +305,25 @@ async function act(place, action) {
   }
 }
 
+// What a place's foot shows now: its tag and button.
+// How to call: actionFor(place) -> { kind: 'free', tag: '', button: 'Propose', ... }
 const actionFor = (place) => placeAction(place, { myId: myId.value, blocked: blocked.value })
 // The symbol on a place's button: a tick to propose it, a cross to take it back.
+// How to call: symbolOf({ kind: 'free' }) -> 'check'
 const symbolOf = (action) => (action.kind === 'free' ? 'check' : 'close')
+// The line under a place's card after a press on it, or null when there is none (or it is no longer true of the place).
+// How to call: resultFor(place) -> { text: 'Proposed. Add it to the plan above.', go: 'above' }
+const resultFor = (place) => (result.value && result.value.placeId === place.id && result.value.expects === place.state ? result.value : null)
+
+// Moves focus to a place's proposal in the proposed stops above (its first button, else the row), which scrolls it into view.
+// How to call: await goToProposal(place)
+async function goToProposal(place) {
+  const proposal = (session.value?.proposals || []).find((p) => p.venueId === place.id)
+  if (!proposal) return
+  await nextTick()
+  const row = document.getElementById(`proposed-${proposal.id}`)
+  ;(row?.querySelector('button') || row)?.focus()
+}
 </script>
 
 <template>
@@ -354,6 +399,11 @@ const symbolOf = (action) => (action.kind === 'free' ? 'check' : 'close')
                   </MarkButton>
                 </template>
               </SuggestionCard>
+              <p v-if="resultFor(place)" class="result caption-sm" data-testid="roam-result">
+                <span>{{ resultFor(place).text }}</span>
+                <AppButton v-if="resultFor(place).go === 'above'" small variant="tertiary" underline :aria-label="`Go to the proposal of ${place.venue.name}`" @click="goToProposal(place)">Go to the proposal</AppButton>
+                <AppButton v-else-if="resultFor(place).go === 'itinerary'" small variant="tertiary" underline :to="itineraryPath">Open the itinerary</AppButton>
+              </p>
             </li>
           </ul>
           <WeatherSource v-if="!loading && !loadError && answer?.weather" :block="answer.weather" />
@@ -371,6 +421,11 @@ const symbolOf = (action) => (action.kind === 'free' ? 'check' : 'close')
               </span>
               <IconButton label="Close" @click="selected = ''"><AppIcon name="close" :size="14" /></IconButton>
             </div>
+            <p v-if="resultFor(selectedPlace)" class="result caption-sm" data-testid="roam-pin-result">
+              <span>{{ resultFor(selectedPlace).text }}</span>
+              <AppButton v-if="resultFor(selectedPlace).go === 'above'" small variant="tertiary" underline :aria-label="`Go to the proposal of ${selectedPlace.venue.name}`" @click="goToProposal(selectedPlace)">Go to the proposal</AppButton>
+              <AppButton v-else-if="resultFor(selectedPlace).go === 'itinerary'" small variant="tertiary" underline :to="itineraryPath">Open the itinerary</AppButton>
+            </p>
             <div class="pin-card__row">
               <InfoTag v-if="actionFor(selectedPlace).tag" tone="strong" :icon="actionFor(selectedPlace).icon">{{ actionFor(selectedPlace).tag }}</InfoTag>
               <CategoryIcon v-else :category="selectedPlace.venue.category" :size="24" />
@@ -406,7 +461,9 @@ const symbolOf = (action) => (action.kind === 'free' ? 'check' : 'close')
 .places { display: flex; flex-direction: column; gap: var(--spacing-md); list-style: none; margin: 0; padding: 0; }
 .diet-line { margin: 0; }
 .diet-few { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); margin: 0; }
-.places__item { display: flex; min-width: 0; border-radius: var(--rounded-md); }
+.places__item { display: flex; flex-direction: column; gap: var(--spacing-xs); min-width: 0; border-radius: var(--rounded-md); }
+/* The line under a card after a press: what was done and, for a host, the way to the proposal. */
+.result { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--spacing-sm); margin: 0; color: var(--ink); }
 .places__item > :deep(.sugg) { flex: 1 1 auto; min-width: 0; }
 /* The place whose dot is pressed on the map: an ink ring, as the selected meetup row has. */
 .places__item.is-selected { outline: 2px solid var(--ink); outline-offset: 2px; }

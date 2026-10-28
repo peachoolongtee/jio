@@ -13,6 +13,7 @@
 // loaded again before anything is announced and focus moves, so what is said matches what is on the page.
 // The host is told before pressing "Add to plan" when the stop would end after the session's end ("Would end at 22:10,
 // after the session's end, 21:30"), worked out from `itinerary`'s last stop.
+// Each row has an id (`proposed-<proposal id>`) and can take focus, so the card on "What next?" can lead a host to it.
 // The visible words of each button are in its accessible name ("Add to plan: Green Kitchen").
 //   <ProposedStops :session="session" :itinerary="itinerary" my-id="ian" @emptied="timeline?.focus()" />
 import { computed, nextTick, ref } from 'vue'
@@ -97,7 +98,7 @@ async function decide(row, accept) {
     <p v-if="note" class="body-sm text-muted" data-testid="proposed-gone">{{ note }}</p>
     <ul class="proposed__list">
       <li v-for="row in rows" :key="row.id">
-        <article class="proposed__card" :aria-label="`${row.name}. ${row.tag}`">
+        <article :id="`proposed-${row.id}`" class="proposed__card" tabindex="-1" :aria-label="`${row.name}. ${row.tag}`">
           <img class="proposed__photo" :src="placeImage(row.venue)" alt="" loading="lazy" width="56" height="56" />
           <div class="proposed__body">
             <h3 class="title-sm clamp-2">{{ row.name }}</h3>
@@ -135,6 +136,7 @@ async function decide(row, accept) {
 .proposed__list { display: flex; flex-direction: column; gap: var(--spacing-md); }
 /* A dashed card: tentative, not a stop yet. */
 .proposed__card { display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: start; gap: var(--spacing-md); padding: var(--spacing-md); border: 1px dashed var(--border-strong); border-radius: var(--rounded-md); background: var(--canvas); }
+.proposed__card:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .proposed__photo { width: 56px; height: 56px; object-fit: cover; border-radius: var(--rounded-sm); background: var(--surface-strong); }
 .proposed__body { display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-xxs); min-width: 0; }
 .proposed__meta { display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0; max-width: 100%; }

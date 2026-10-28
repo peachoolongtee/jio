@@ -10,8 +10,11 @@ import { mount } from './miniDom.js'
 
 vi.mock('../plannerApi.js', () => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), roamNearby: vi.fn() }))
 vi.mock('../api.js', async (original) => ({ ...(await original()), roamNearby: vi.fn(), placeFromCoords: vi.fn(), listAreas: vi.fn(), getPlace: vi.fn() }))
-// The map is Leaflet, which needs a browser: the list is what these tests read.
-vi.mock('../../components/map/PlannerMap.vue', () => ({ default: { render: () => null } }))
+// The map is Leaflet, which needs a browser: the list is what these tests read. The stand-in lists the ids of the places it was given.
+vi.mock('../../components/map/PlannerMap.vue', async () => {
+  const { defineComponent, h } = await import('vue')
+  return { default: defineComponent({ props: ['places'], setup: (p) => () => h('div', { 'data-testid': 'map-places' }, (p.places || []).map((x) => x.id).join(',')) }) }
+})
 vi.mock('../../components/group/LocationSheet.vue', async () => {
   const { defineComponent, h } = await import('vue')
   return {
@@ -51,6 +54,8 @@ vi.stubGlobal('localStorage', fakeStorage())
 const api = await import('../api.js')
 const { default: RoamView } = await import('../../views/RoamView.vue')
 const { default: ProposedStops } = await import('../../components/event/ProposedStops.vue')
+const { default: RoamPanel } = await import('../../components/event/RoamPanel.vue')
+const { placeAction } = await import('../roam.js')
 const { useEventsStore } = await import('../../stores/events.js')
 const { useAuthStore } = await import('../../stores/auth.js')
 
@@ -713,5 +718,110 @@ describe('the host is told before adding a stop that would end after the session
     await flush()
     // Added at 21:00 it would end at 22:00 at the soonest.
     expect(page.textOf(late(page)[0])).toBe('Would end at 22:00, after the session\'s end, 21:30')
+  })
+})
+
+describe('places from Google stay off What next?', () => {
+  // Google's terms do not allow its places on or beside a OneMap map, and this panel draws one beside its list.
+  const google = (id = 'google_ChIJ1') => place(id, 'Google Cafe', { venue: venue(id, 'Google Cafe', { source: 'google' }) })
+
+  it('leaves a Google place out of the list and the map, and keeps the planner\'s own', async () => {
+    api.roamNearby.mockResolvedValue(answer(place('v1', 'Green Kitchen'), google(), place('v2', 'Corner Bowling')))
+    const page = await open()
+    expect(page.all('article')).toHaveLength(2)
+    expect(page.text()).not.toContain('Google Cafe')
+    expect(page.textOf(byTestId(page, 'map-places')[0])).toBe('v1,v2')
+  })
+
+  it('knows a Google place by its id alone, or by its source alone', async () => {
+    api.roamNearby.mockResolvedValue(answer(place('google_ChIJ2', 'By Id'), place('v3', 'By Source', { venue: venue('v3', 'By Source', { source: 'google' }) }), place('v1', 'Green Kitchen')))
+    const page = await open()
+    expect(page.all('article')).toHaveLength(1)
+    expect(page.textOf(byTestId(page, 'map-places')[0])).toBe('v1')
+  })
+
+  it('says nothing nearby fits when every place was Google\'s', async () => {
+    api.roamNearby.mockResolvedValue(answer(google()))
+    const page = await open()
+    expect(page.text()).toContain('Nothing nearby fits')
+    expect(page.textOf(byTestId(page, 'map-places')[0])).toBe('')
+  })
+})
+
+describe('the line under a card after a tick', () => {
+  const mine = { id: 'pp1', venueId: 'v1', by: 'ian', byName: 'Ian', venue: venue('v1', 'Green Kitchen') }
+  // The store puts the proposal in the session before it answers, as the real one does.
+  const proposes = (over = {}) => events.proposeMyStop.mockImplementation(async () => {
+    events.byId = { s1: session({ ...over, proposals: [mine] }) }
+    return true
+  })
+  const resultOf = (page) => byTestId(page, 'roam-result')[0]
+
+  it('tells the host to add it on the itinerary, with a link there, when the proposed stops are on the next page', async () => {
+    proposes()
+    const page = await open()
+    await page.button('Propose').click()
+    expect(page.textOf(resultOf(page))).toContain('Proposed. Add it to the plan on the itinerary.')
+    expect(page.textOf(resultOf(page))).toContain('Open the itinerary')
+    // The tag changes from the tick of "In the plan" to the waiting clock.
+    expect(placeAction({ venue: venue('v1', 'Green Kitchen'), state: 'proposed', proposal: mine }, { myId: 'ian' }).icon).toBe('clock')
+    expect(placeAction({ venue: venue('v1', 'Green Kitchen'), state: 'stop', proposal: null }, { myId: 'ian' }).icon).toBe('check')
+  })
+
+  it('tells the host the proposal is above and moves focus to it from a button, when the proposed stops are on the same page', async () => {
+    proposes()
+    const focused = []
+    vi.stubGlobal('document', { getElementById: (id) => ({ querySelector: () => ({ focus: () => focused.push(id) }) }) })
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:rest(.*)*', component: { render: () => null } }] })
+    // The panel is given the store's session each time it draws, as the itinerary gives it.
+    const { h } = await import('vue')
+    const page = mount({ render: () => h(RoamPanel, { session: events.byId.s1, proposalsAbove: true }) }, {}, [pinia, router])
+    await flush()
+    await page.button('Propose').click()
+    expect(page.textOf(resultOf(page))).toContain('Proposed. Add it to the plan above.')
+    const go = page.button('Go to the proposal')
+    expect(page.attr(go, 'aria-label')).toBe('Go to the proposal of Green Kitchen')
+    await go.click()
+    expect(focused).toEqual(['proposed-pp1'])
+  })
+
+  it('tells a guest who decides, with nothing to press', async () => {
+    proposes({ hostId: 'faith', hostName: 'Faith' })
+    const page = await open({ session: session({ hostId: 'faith', hostName: 'Faith' }) })
+    await page.button('Propose').click()
+    expect(page.textOf(resultOf(page))).toBe('Proposed. Faith decides.')
+  })
+
+  it('is not an announcement of its own: the status line for screen readers is the same as before', async () => {
+    proposes()
+    const page = await open()
+    await page.button('Propose').click()
+    expect(page.textOf(byTestId(page, 'roam-said')[0])).toBe('Green Kitchen proposed. Ian decides.')
+    expect(resultOf(page).props.role).toBeUndefined()
+  })
+
+  it('goes when the place moves on, as when the host adds it to the plan', async () => {
+    proposes()
+    const page = await open()
+    await page.button('Propose').click()
+    expect(resultOf(page)).toBeDefined()
+    events.byId = { s1: session({ plan: { stops: [{ venueId: 'v1' }] } }) }
+    await flush()
+    expect(resultOf(page)).toBeUndefined()
+  })
+})
+
+describe('the places are asked for when a session turns out to be under way', () => {
+  it('fetches when a cached session that was not open becomes open, and not again for one that is already loaded', async () => {
+    const page = await open({ session: session({ status: 'inviting' }) })
+    expect(api.roamNearby).not.toHaveBeenCalled()
+    events.byId = { s1: session() }
+    await flush()
+    expect(api.roamNearby).toHaveBeenCalledTimes(1)
+    expect(page.all('article')).toHaveLength(2)
+    // Closed and open again with a list in hand: nothing more is asked for.
+    events.byId = { s1: session() }
+    await flush()
+    expect(api.roamNearby).toHaveBeenCalledTimes(1)
   })
 })

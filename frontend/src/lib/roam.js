@@ -117,10 +117,20 @@ export function placeAction(place, { myId, blocked = '' }) {
   const name = place.venue?.name || place.name || 'this place'
   if (place.state === 'stop') return { kind: 'stop', tag: 'In the plan', icon: 'check', button: '', label: '', disabled: false }
   if (place.state === 'proposed') {
-    if (place.proposal.by === myId) return { kind: 'mine', tag: 'Proposed by you', icon: 'check', button: 'Take back', label: `Take back your proposal of ${name}`, disabled: false }
-    return { kind: 'theirs', tag: `Proposed by ${place.proposal.byName || 'a friend'}`, icon: 'check', button: '', label: '', disabled: false }
+    // A clock, not the tick: a proposal is waiting for the host, while "In the plan" is done.
+    if (place.proposal.by === myId) return { kind: 'mine', tag: 'Proposed by you', icon: 'clock', button: 'Take back', label: `Take back your proposal of ${name}`, disabled: false }
+    return { kind: 'theirs', tag: `Proposed by ${place.proposal.byName || 'a friend'}`, icon: 'clock', button: '', label: '', disabled: false }
   }
   return { kind: 'free', tag: '', icon: '', button: 'Propose', label: `Propose ${name} as the next stop`, disabled: !!blocked }
+}
+
+// The one line shown by the card just after a place is proposed: what happens to the proposal next. The host is pointed to where it
+// can be added to the plan (`go`: 'above' when the proposed stops are on this page, 'itinerary' when they are on the next page);
+// everyone else is told who decides.
+// How to call: proposedResult({ isHost: true, hostName: 'Ian', above: true }) -> { text: 'Proposed. Add it to the plan above.', go: 'above' }
+export function proposedResult({ isHost, hostName = '', above = false }) {
+  if (!isHost) return { text: `Proposed. ${hostName || 'The host'} decides.`, go: '' }
+  return above ? { text: 'Proposed. Add it to the plan above.', go: 'above' } : { text: 'Proposed. Add it to the plan on the itinerary.', go: 'itinerary' }
 }
 
 // The proposed stops under the itinerary, for the person looking. The host can add each to the plan or leave it; the
