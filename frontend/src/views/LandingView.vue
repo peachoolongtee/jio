@@ -8,9 +8,8 @@
 //                           and under the map a card shows it: when, where it stands, who is in, what it needs next from
 //                           you, and Open meetup. With two or more, Your meetups lists them all (a row selects, like
 //                           a pin; hovering or focusing a pin opens a small card of its details), and a meetup with no
-//                           meeting point yet is there, with no pin. The first row of that list is "Plan a new meetup" /
-//                           "Jio your friends" (StartMeetupRow), a link to the create screen that is not a meetup and
-//                           never selects; with one meetup going it is the only row, under the card. Nothing sits in the
+//                           meeting point yet is there, with no pin. A new meetup starts from the tab bar's Create
+//                           (the list has no row of its own for it: one way in is enough). Nothing sits in the
 //                           map's corner, so no pin has a control beside it.
 //   Meetup with a midpoint  Places near that meeting area below: places around it, nearest first, with one Filter
 //                           button. They follow the selected meetup.
@@ -26,7 +25,7 @@
 // which completes it (lib/api.js settleOutings). A shared outing is finished by its host, from its day on, so past its end time it gets a
 // banner of its own that says so (nothing closes it by a clock).
 // "Already out? Find something nearby" (RoamFromHome) sits under the meetups, or alone under the band when there are none,
-// for a local account: it starts a light meetup around one area and opens its Roam list (ticket #98).
+// for a local account: it starts a light meetup around one area and opens its itinerary, which lists places nearby (ticket #98).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { format, parseISO } from 'date-fns'
@@ -51,7 +50,6 @@ import MeetupList from '@/components/home/MeetupList.vue'
 import MeetupPins from '@/components/home/MeetupPins.vue'
 import RoamFromHome from '@/components/home/RoamFromHome.vue'
 import * as api from '@/lib/api.js'
-import { enterGame } from '@/lib/enterGame.js'
 import { activeMeetups, dayLabel, pinName, pinsFor, routesFor, selectMeetup } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { AREAS } from '@/lib/mock/places.js'
@@ -240,24 +238,6 @@ const blurb = computed(() => {
   if (area.value) return `Your group meets at ${area.value.name}. Here is what is nearby.`
   return 'Once everyone shares where they are starting, Jio works out the midpoint.'
 })
-
-// "Plan a new meetup" while meetups are going: the same move as the main pin (the red burst into the create screen), from
-// the plus on the row (StartMeetupRow). A click with a modifier key opens a new tab as a link does.
-// How to call: <MeetupList :start-href="startHref" @start="startAnother" />
-const startHref = computed(() => router.resolve('/sessions/new').href)
-let starting = false
-async function startAnother(event) {
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return
-  event.preventDefault()
-  if (starting) return
-  starting = true
-  const box = (event.currentTarget.querySelector('[data-burst]') || event.currentTarget).getBoundingClientRect()
-  try {
-    await enterGame({ x: box.left + box.width / 2, y: box.top + box.height / 2, go: () => router.push('/sessions/new') })
-  } finally {
-    starting = false
-  }
-}
 
 // Places near the selected meetup's meeting area, nearest first. Loaded again when the selection moves to another
 // area. Only the answer for the area now showing counts, so a slow older answer never lands on a newer area.
@@ -492,13 +472,10 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
             <h2 id="home-meetups" class="display-sm">Your meetups</h2>
             <AppButton v-if="hasFinished" variant="tertiary" underline to="/sessions">All meetups</AppButton>
           </div>
-          <MeetupList :meetups="meetups" :selected-id="selected.id" :my-id="auth.myId" :start-href="startHref" @select="select" @start="startAnother" />
+          <MeetupList :meetups="meetups" :selected-id="selected.id" :my-id="auth.myId" @select="select" />
         </section>
-        <template v-else>
-          <!-- One meetup: its card is above, so the list is the action alone. -->
-          <MeetupList class="rise" style="--i: 1" :meetups="[]" :start-href="startHref" @start="startAnother" />
-          <div v-if="hasFinished" class="home__all"><AppButton variant="tertiary" underline to="/sessions">All meetups</AppButton></div>
-        </template>
+        <!-- One meetup: its card is above, and no list. -->
+        <div v-else-if="hasFinished" class="home__all"><AppButton variant="tertiary" underline to="/sessions">All meetups</AppButton></div>
       </div>
       <p class="sr-only" role="status">{{ announce }}</p>
       <RoamFromHome v-if="events.loaded && auth.sampleWorld" class="rise home__roam" :home="homeArea" />

@@ -10,6 +10,8 @@ import { mount } from './miniDom.js'
 
 vi.mock('../plannerApi.js', () => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), roamNearby: vi.fn() }))
 vi.mock('../api.js', async (original) => ({ ...(await original()), roamNearby: vi.fn(), placeFromCoords: vi.fn(), listAreas: vi.fn(), getPlace: vi.fn() }))
+// The map is Leaflet, which needs a browser: the list is what these tests read.
+vi.mock('../../components/map/PlannerMap.vue', () => ({ default: { render: () => null } }))
 vi.mock('../../components/group/LocationSheet.vue', async () => {
   const { defineComponent, h } = await import('vue')
   return {
@@ -91,7 +93,9 @@ const flush = async () => {
 }
 const open = async (over = {}) => {
   if (over.session) events.byId = { s1: over.session }
-  const page = mount(RoamView, { id: 's1' }, [pinia])
+  // The page's way on ("Itinerary") is a link, so it needs a router.
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:rest(.*)*', component: { render: () => null } }] })
+  const page = mount(RoamView, { id: 's1' }, [pinia, router])
   await flush()
   return page
 }

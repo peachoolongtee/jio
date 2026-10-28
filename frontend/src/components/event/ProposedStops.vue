@@ -3,7 +3,7 @@
 // no number, no time and no place on the rail. Each row says who proposed it.
 //   - The host sees "Add to plan" and "Not now" on each. Adding appends it to the end of the plan; the stops above
 //     then show it with its time.
-//   - The person who proposed one can take it back.
+//   - The person who proposed one can take it back, with a cross (MarkButton; "Take back" is its word for screen readers).
 //   - Everyone else sees who proposed it and that the host decides.
 // It writes through the events store and says what went wrong in its own line (role="alert"). The buttons stay enabled
 // while a change saves (aria-busy) and ignore a second press, so keyboard focus is never thrown away; after a change the
@@ -17,6 +17,7 @@
 //   <ProposedStops :session="session" :itinerary="itinerary" my-id="ian" @emptied="timeline?.focus()" />
 import { computed, nextTick, ref } from 'vue'
 import AppButton from '../ui/AppButton.vue'
+import MarkButton from '@/components/ui/MarkButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import CategoryIcon from '../ui/CategoryIcon.vue'
 import InfoTag from '../ui/InfoTag.vue'
@@ -115,7 +116,7 @@ async function decide(row, accept) {
             </template>
             <template v-else>
               <p v-if="row.waiting" class="proposed__waiting caption-sm text-muted"><AppIcon name="clock" :size="14" /> {{ row.waiting }}</p>
-              <AppButton v-if="row.canTakeBack" small variant="tertiary" :aria-busy="working === row.id ? 'true' : undefined" :aria-label="`Take back your proposal of ${row.name}`" @click="decide(row, false)">Take back</AppButton>
+              <MarkButton v-if="row.canTakeBack" symbol="close" :busy="working === row.id" :label="`Take back your proposal of ${row.name}`" @click="decide(row, false)">Take back</MarkButton>
             </template>
           </div>
         </article>

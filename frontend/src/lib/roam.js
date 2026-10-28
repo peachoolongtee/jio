@@ -107,6 +107,7 @@ export function placeState(venueId, stopVenueIds, proposals) {
 
 // What the foot of a place's card shows. A tag says where the place stands; a button, when there is one, is what the
 // person can do about it.
+// (the screens draw `button` as a symbol, a tick for "Propose" and a cross for "Take back", with the word for screen readers only)
 //   free      "Propose" (off, with `blocked`'s reason shown on the page, when they cannot)
 //   mine      the tag "Proposed by you" and "Take back"
 //   theirs    the tag "Proposed by Faith" and nothing to press (the host decides on the itinerary)
