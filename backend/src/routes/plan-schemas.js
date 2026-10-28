@@ -51,8 +51,15 @@ export const MAX = {
   // The two words a request may use for what to do with a place it has no data on: `unknownPolicy` (every constraint) and
   // `dietPolicy` (dietary needs alone). Nothing else is accepted.
   policies: ['strict', 'lenient'],
+  // What a planner request may say about how to work out travel times: 'live' is the default (OneMap routing when the server has it),
+  // 'estimate' never routes (sample data does not need real routes). Nothing else is accepted.
+  travelModes: ['live', 'estimate'],
 }
 const text = (max = MAX.text) => z.string().min(1).max(max)
+
+// For /meeting-area, /converge and /roam: 'estimate' answers from the planner's own estimate and makes no OneMap call at all.
+// Left out (or 'live'), the request is routed as it always was. Only the code that fills in sample data sends 'estimate'.
+const travelMode = z.enum(MAX.travelModes).optional()
 
 // Coarse range prefilter; validation also uses the URA Singapore land polygons and the central planning envelope.
 export const SINGAPORE_BOUNDS = { lat: { min: 1.1, max: 1.5 }, lng: { min: 103.5, max: 104.1 } }
@@ -165,6 +172,7 @@ export function makePlanSchemas(data) {
     // How many places are fully scored, with real travel times. Default 10. More costs more OneMap calls.
     shortlistSize: z.number().int().min(1).max(MAX.options).optional(),
     travelCeilingMinutes: z.number().positive().max(180).optional(),
+    travel: travelMode,
   }
 
   const groupFields = {
@@ -238,6 +246,7 @@ export function makePlanSchemas(data) {
       // true adds `choices`: the shortest longest trip, the most balanced and the lowest average, each with everyone's trip.
       // Only with method 'station': the choices are chosen among the areas the station rule compares.
       choices: z.boolean().optional(),
+      travel: travelMode,
     })
     .refine(someoneLeft, NOBODY)
     .refine((b) => b.method !== 'minimax' || b.members.length <= 12, {

@@ -10,7 +10,7 @@ import { createWeather } from '../src/services/weather.js'
 import { SCENARIO_HEADER } from '../src/services/scenario.js'
 import { createSessionQueue } from '../src/services/session-queue.js'
 import { createSessions } from '../src/services/sessions.js'
-import { MAX_ROUTED_TRIPS_PER_REQUEST } from '../src/services/travel-times.js'
+import { MAX_ROUTED_TRIPS_PER_REQUEST, ROUTING_DEADLINE_MS } from '../src/services/travel-times.js'
 import { createWorld, fakeSupabase, jwksFetch, SUPABASE_URL, userClient } from './helpers/fake-supabase.js'
 import { addMember, addSession, GUEST, HOST, OTHER, SESSION, startSessionApp } from './helpers/session-app.js'
 
@@ -333,12 +333,60 @@ describe('one run at a time per session, at most one waiting', () => {
     expect(seen).toHaveLength(2)
     expect(seen[0]).toMatchObject({ maxTrips: MAX_ROUTED_TRIPS_PER_REQUEST, rankByEstimate: true })
     expect(seen[0].deadlineMs).toBeGreaterThan(0)
+    // The session server's run is one a person waits on: it gets the short default wait, not the old 8 seconds.
+    expect(seen[0].deadlineMs).toBeLessThanOrEqual(ROUTING_DEADLINE_MS)
     expect(seen[0].namedAreas.afterShortlist).toEqual([]) // no suggestions yet
     // The first attempt spent trips, and the second may spend only what was left: the allowance is the request's, not each attempt's.
     expect(seen[0].routedAfter).toBeGreaterThan(0)
     expect(seen[1].maxTrips).toBe(MAX_ROUTED_TRIPS_PER_REQUEST - seen[0].routedAfter)
     expect(seen[1].maxTrips).toBeLessThan(seen[0].maxTrips)
     expect(http.calls.route).toBeLessThanOrEqual(MAX_ROUTED_TRIPS_PER_REQUEST)
+  })
+})
+
+describe('the wait for OneMap, per attempt and per app', () => {
+  it('a retry of a request gets a wait of its own, so its spots are priced on real routes and not on none', async () => {
+    lineWorld()
+    // A OneMap with no route cache, so the second attempt needs calls of its own instead of reading the first one's answers.
+    const onemap = { routingEnabled: true, routeMinutes: vi.fn(async () => 20), reportFallback: vi.fn() }
+    const supabase = fakeSupabase(world, createSupabase({ url: SUPABASE_URL, anonKey: 'a', serviceKey: 's', fetchImpl: jwksFetch }))
+    const data = loadPlanData()
+    const base = createPlannerRuns({ data, weatherResolver: null, onemap })
+    const seen = []
+    const runs = {
+      ...base,
+      runWithTravel: vi.fn(async (input, planData, run, options) => {
+        const out = await base.runWithTravel(input, planData, run, options)
+        seen.push(out.travel)
+        // The first attempt is slow to finish (the write after it finds the session moved on): longer than the whole wait.
+        if (seen.length === 1) await new Promise((resolve) => setTimeout(resolve, 150))
+        return out
+      }),
+    }
+    const sessions = createSessions({ supabase, data, runs, routingDeadlineMs: 60 })
+    world.staleApply = 1
+    await sessions.recompute({ client: userClient(world, HOST), id: SESSION, userId: HOST })
+    expect(seen).toHaveLength(2)
+    expect(seen[0].routed).toBeGreaterThan(0)
+    // With the old shared clock the second attempt had no time at all and routed nothing.
+    expect(seen[1].routed).toBeGreaterThan(0)
+    expect(onemap.reportFallback).not.toHaveBeenCalled()
+  })
+
+  it('createApp({ routingDeadlineMs }) reaches a session route: a hung OneMap costs about the deadline, and the spots say they are estimates', async () => {
+    lineWorld()
+    const hung = { routingEnabled: true, routeMinutes: () => new Promise(() => {}), reportFallback: vi.fn() }
+    const t = await startSessionApp(world, { onemap: hung, routingDeadlineMs: 150 })
+    stopped.push(t.stop)
+    const started = Date.now()
+    const res = await t.call('POST', `/api/sessions/${SESSION}/meeting-area`, {}, HOST)
+    const took = Date.now() - started
+    expect(res.status).toBe(200)
+    expect(took).toBeGreaterThanOrEqual(140)
+    expect(took).toBeLessThan(2500)
+    expect(hung.reportFallback).toHaveBeenCalledWith('deadline')
+    expect(world.session_spots.length).toBeGreaterThan(0)
+    expect(world.session_spots.every((r) => r.approximate)).toBe(true)
   })
 })
 

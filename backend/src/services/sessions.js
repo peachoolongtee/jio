@@ -57,8 +57,8 @@ import {
   suggestedAreaIds,
 } from './session-plan.js'
 import { categoryOfSlot, optionRow, optionsOf, roamReply } from './session-slots.js'
-import { createVoting, dateTimeOf, spend } from './session-voting.js'
-import { MAX_ROUTED_TRIPS_PER_REQUEST, ROUTING_DEADLINE_MS } from './travel-times.js'
+import { createVoting, dateTimeOf, newAllowance, spend } from './session-voting.js'
+import { ROUTING_DEADLINE_MS } from './travel-times.js'
 
 // The session endpoints that decide where a group meets, what it votes on and the plan it makes, on the server: the meeting spots, a member's
 // suggestion, the host's confirm and known place (which also makes the voting slots and their options), the radius, adding, swapping and
@@ -342,8 +342,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     }
     const { result, travel } = await runs.runWithTravel(input, data, runs.meetingAreaWithRouting, (request) => ({
       ...runs.meetingAreaTravelFor(request),
-      maxTrips: allowance.trips,
-      deadlineMs: Math.max(0, allowance.deadlineAt - Date.now()),
+      ...allowance.routing(),
     }))
     spend(allowance, travel)
     return { rows: spotRowsFrom(result, travel), skipped, travel }
@@ -389,7 +388,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   // How to call (the queue does this):
   //   await runBatch(sessionId, { exclusive: false, jobs }, { handOver })
   async function runBatch(sessionId, batch, { handOver }) {
-    const allowance = { trips: MAX_ROUTED_TRIPS_PER_REQUEST, deadlineAt: Date.now() + routingDeadlineMs }
+    const allowance = newAllowance(routingDeadlineMs)
     const dropped = new Set()
     const reject = (job, err) => {
       dropped.add(job)
@@ -397,6 +396,9 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     }
 
     for (let attempt = 0; attempt < MAX_TRIES; attempt += 1) {
+      // Each attempt waits for OneMap for as long as the first did: the clock starts again, while the trips left are still the request's.
+      // An attempt that finds no trips left prices its spots on estimates and says so (`approximate`), it is never given no time at all.
+      allowance.restartClock()
       // Taken before the members are read, so a member row changed after it has an updated_at later than the spots' computed_at.
       const loadedAt = new Date().toISOString()
       const state = await within(loadState(service, sessionId), dbDeadlineMs, 'reading the session')
@@ -1039,8 +1041,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
             const area = areasById.get(areaId)
             const input = { members: located, area: { id: area.id, lat: area.lat, lng: area.lng }, dateTime: dateTimeOf(draft.session) }
             ;({ result: priced, travel } = await runs.runWithTravel(input, data, priceAreaRun, () => ({
-              maxTrips: allowance.trips,
-              deadlineMs: Math.max(0, allowance.deadlineAt - Date.now()),
+              ...allowance.routing(),
             })))
             spend(allowance, travel)
           }
@@ -1816,7 +1817,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     if (!state.session) throw refuse(404, 'session_not_found', 'This session does not exist, or you are not in it.')
     const draft = draftOf(state)
     check(draft)
-    const allowance = { trips: MAX_ROUTED_TRIPS_PER_REQUEST, deadlineAt: Date.now() + routingDeadlineMs }
+    const allowance = newAllowance(routingDeadlineMs)
     return { draft, ctx: contextFor({ sessionId: id, state, allowance }) }
   }
 
@@ -1965,8 +1966,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
       dateTime: homeDateTime(draft),
     }
     const { result, travel } = await runs.runWithTravel(input, data, homeTripsRun, () => ({
-      maxTrips: allowance.trips,
-      deadlineMs: Math.max(0, allowance.deadlineAt - Date.now()),
+      ...allowance.routing(),
     }))
     spend(allowance, travel)
     return { people, minutes: result.minutes, approximate: travel.source === 'estimate' || travel.estimated > 0 || travel.failed > 0 }
@@ -1982,7 +1982,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   async function tripsHome({ client, id, userId }) {
     userId = lower(userId)
     const { draft } = await readDraft({ client, id, userId, check: confirmedMemberCheck(userId, 'see the trips home') })
-    const allowance = { trips: MAX_ROUTED_TRIPS_PER_REQUEST, deadlineAt: Date.now() + routingDeadlineMs }
+    const allowance = newAllowance(routingDeadlineMs)
     const { minutes, approximate } = await homeMinutes(draft, allowance)
     return { trips: Object.entries(minutes).map(([user, m]) => ({ userId: user, minutes: Math.max(0, Math.round(m)) })), approximate }
   }

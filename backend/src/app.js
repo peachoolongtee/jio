@@ -51,8 +51,9 @@ import { createWeather } from './services/weather.js'
 //   allowSimulatedWeather - true lets a planner request send `weatherCase` to fake the forecast. Stub mode
 //                    always allows it. Otherwise the field is ignored and the answer says so. index.js sets
 //                    it from ALLOW_SIMULATED_WEATHER=1.
-//   routingDeadlineMs - The most time one planner request waits for OneMap routes in total. Defaults to 8
-//                    seconds. Tests shorten it.
+//   routingDeadlineMs - The most time one planner request, or one run of the session server, waits for OneMap routes in
+//                    total. Defaults to 3 seconds (ROUTING_DEADLINE_MS in the environment; index.js reads it). Trips not
+//                    answered by then use the estimate. Tests shorten it.
 //   ownPlacesEnough - Google is asked about a food, drink, shop or activity category only when fewer than this many
 //                    of our own open places are near the meeting point. Defaults to 6 (ticket #149). Tests that
 //                    need Google asked pass Infinity.

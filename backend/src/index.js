@@ -12,6 +12,7 @@ import { loadAreaTimes } from './db/area-times.js'
 import { loadPlanData } from './db/venues.js'
 import { areaTimesCoverage } from './planner/area-times.js'
 import { MEETING_FINALISTS_MAX } from './services/planner-runs.js'
+import { readRoutingDeadline, ROUTING_DEADLINE_MS } from './services/travel-times.js'
 
 const isProduction = process.env.NODE_ENV === 'production'
 const port = Number(process.env.PORT) || 3000
@@ -61,6 +62,20 @@ const onemap = createOneMap({
   stub,
   callsPerMinute: oneMapCallsPerMinute,
 })
+
+// How long one request that a person waits on (every planner route, and the session server's planner runs) waits for OneMap
+// routes in total. Trips not answered by then use the planner's estimate and are flagged `approximate`. Blank means 3000 ms; a
+// value outside 1000 to 15000, or not a whole number, makes the server refuse to start. A slower OneMap answer that arrives
+// after the deadline changes nothing.
+//
+// How to change it:
+//   ROUTING_DEADLINE_MS=5000
+const routingDeadline = readRoutingDeadline(process.env)
+if (routingDeadline.error) {
+  console.error(routingDeadline.error)
+  process.exit(1)
+}
+const routingDeadlineMs = routingDeadline.deadlineMs
 
 // Google Places: restaurants, cafés and bars with ratings and hours. Needs GOOGLE_MAPS_API_KEY; without it, off.
 // The key is trimmed; a blank or malformed one counts as not set (the warning names the variable, never its value).
@@ -239,7 +254,7 @@ if (supabase) {
   }
 }
 
-createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader, linkRateLimit, supabase, allowSimulatedWeather, planRateLimit, sessionRateLimit, venueRateLimit, peopleSearchRateLimit, areaTimes, meetingFinalists }).listen(port, () => {
+createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader, linkRateLimit, supabase, allowSimulatedWeather, planRateLimit, sessionRateLimit, venueRateLimit, peopleSearchRateLimit, areaTimes, meetingFinalists, routingDeadlineMs }).listen(port, () => {
   console.log(`Jio backend listening on port ${port}, allowing ${frontendOrigin}`)
   if (stub) console.log('Stub mode is ON: external API calls are answered from fixtures.')
   else if (!onemap.routingEnabled) {
@@ -250,7 +265,7 @@ createApp({ frontendOrigin, stub, http, onemap, places, itineraryAi, linkReader,
     onemap.warmUp().then((ok) => {
       console.log(
         ok
-          ? `OneMap routing is ON: logged in, at most ${oneMapCallsPerMinute ?? DEFAULT_CALLS_PER_MINUTE} OneMap calls a minute.`
+          ? `OneMap routing is ON: logged in, at most ${oneMapCallsPerMinute ?? DEFAULT_CALLS_PER_MINUTE} OneMap calls a minute, and a request waits at most ${routingDeadlineMs ?? ROUTING_DEADLINE_MS} ms for routes.`
           : 'OneMap routing is OFF for now: the login failed, so travel times are estimates. Check ONEMAP_EMAIL and ONEMAP_PASSWORD; the server tries again in a minute.',
       )
     })

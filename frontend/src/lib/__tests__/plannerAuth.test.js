@@ -152,7 +152,8 @@ describe('a 401 from the login check', () => {
       if (response.status === 401) throw new AxiosError('401', 'ERR_BAD_REQUEST', config, {}, response)
       return response
     }
-    const results = await Promise.all([meetingArea({ members: [] }), meetingArea({ members: [] }), rankSlot({ ...ASK })].map((p) => p.catch((e) => e)))
+    // Three different requests (identical ones in flight together are sent once, see plannerApi.shared.test.js).
+    const results = await Promise.all([meetingArea({ members: [] }), meetingArea({ members: [], alternatives: 1 }), rankSlot({ ...ASK })].map((p) => p.catch((e) => e)))
     expect(state.refreshes).toBe(1)
     expect(calls).toBe(6)
     expect(results[0]).toEqual(OK)

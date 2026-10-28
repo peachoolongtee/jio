@@ -1610,3 +1610,46 @@ Results of round 37: Playwright is set up (#188, merged into `dev`).
   - The halal need is set on the profile, not through the sign-up popup.
 - **No app bug found,** and no sideways scroll at any width.
 - **Checked by the lead's session:** `test:e2e --repeat-each=3` gave 45 passed in 6.4 min, from a clean state, with nothing left on 3994 or 5194. The agent's own run also gave vitest 2695 passed and a build exit 0.
+
+## Round 39: the latency behind the loading screens (2026-10-28)
+
+The lead asked for the latency behind some loading screens to be investigated. The lead's session measured it on the check servers (real backend, live OneMap) with curl and a throwaway Playwright probe using the demo account.
+
+**Cause:** live OneMap public-transport routing while the person waits. Each OneMap call takes about a second, 6 at a time, so a first-time planner answer takes about 1.2 s per round of 6 trips.
+
+**Measured:**
+- **First-time answers:** meeting area 2.2–3.7 s; ranking one category 3.6–8 s. Repeats take 3–100 ms. With OneMap off, the same requests take 3–16 ms.
+- **15 at a time was slower:** 7.9 s instead of 5.4 s for 21 trips, and one request hit the 8 s deadline.
+- **The showcase build took 14.2 s** for 72 planner calls, 16 of them repeating another's exact request. Repeating it drew HTTP 429 from OneMap, which opened the circuit and fell back to estimates.
+- **Pages that only read stored data** (all ten showcase sessions' Locate, Vote, Itinerary and Roam) take under 1 s.
+
+**The lead said "continue"** to the recommendation: fixes 1, 2 and 4 now, and 3 (route far less, using the area table) later on its own branch.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Estimates for demo seeding, a shorter wait for people, no duplicate requests | implementer (full stack) | `fix/planner-latency`, off `dev` | (1) The showcase and demo-tour seeding ask the planner for estimated travel and make no OneMap call. (2) The routing deadline for requests people wait on drops from 8 s to about 3 s (configurable); trips not routed in time use the estimate, flagged `approximate`. (4) Identical concurrent planner requests are sent once. Before and after timings, and tests. |
+
+**Results of round 39** (`fix/planner-latency`, `2e9072f`).
+- **What changed:**
+  - **The `travel` option:** `travel: 'estimate'` on `/api/meeting-area`, `/api/converge` and `/api/roam` never routes. The showcase and tour builds send it, so they make 0 OneMap calls, which a test proves.
+  - **The routing deadline:** `ROUTING_DEADLINE_MS` defaults to 3000 and can be set (1000 to 15000).
+  - **Request sharing:** `postShared` sends identical in-flight planner reads once.
+- **Measured with real OneMap, before and after:**
+  - meeting area 3.7 s and 3.0 s;
+  - one category's ranking 8.0 s and 3.0 s;
+  - showcase build 10.9–14.2 s and 6.3 s.
+
+  The rest of the showcase time is the local data layer's deliberate `DELAY`. Faster first answers are more often `approximate`.
+- **The independent review's major finding** was the session server's shared deadline: it started before the database reads, carried across retries, and still fired calls with no time left. It is fixed:
+  - a lazy clock per attempt;
+  - no call when no time is left;
+  - every call debited.
+
+  Also fixed: a candidate cut by the deadline is estimated whole. Its other findings were minor.
+- **Checked again by the lead's session:**
+  - backend 1885 passed, 2 skipped;
+  - frontend 2710 passed under `TZ=UTC`;
+  - both with outbound calls blocked;
+  - e2e 15 passed;
+  - build exit 0.
+- **Next:** fix 3, routing far less by using the 666 real area-to-area times.
