@@ -1919,8 +1919,9 @@ $$;
 create or replace trigger sessions_add_host after insert on public.sessions
   for each row execute function public.add_host_membership();
 
--- One person cannot be in two meetups at once (migration 20261028000000_jio_no_clashing_meetups.sql): joining, and a host moving
--- a meetup onto a time someone in it already has, are refused with P0001 and the hint 'schedule_clash' or 'member_clash'.
+-- One person cannot be in two meetups at once (migration 20261028000000_jio_no_clashing_meetups.sql, which says what is checked and
+-- for whom): joining (a link, an invitation, the host's own row, a rejoin by the person or by the server) and a host moving a meetup
+-- onto a time someone in it already has are refused with P0001 and the hint 'schedule_clash' or 'member_clash'.
 -- The first meetup the person is in that overlaps the given time, leaving out the meetup `p_session` itself.
 create or replace function public.meetup_clash(p_user uuid, p_session uuid, p_date date, p_start time, p_end time)
 returns table (id uuid, title text, date date, start_time time, end_time time)
@@ -1941,7 +1942,8 @@ as $$
 $$;
 revoke all on function public.meetup_clash(uuid, uuid, date, time, time) from public, anon, authenticated;
 
--- Runs before a person becomes a joined member of a meetup (a new row, or a row that was not joined becoming joined).
+-- Runs before a person becomes a joined member of a meetup (a new row, or a row that was not joined becoming joined). A signed-in
+-- person's write is always checked; the server's only when it brings an opted-out member back (a rejoin).
 create or replace function public.session_members_guard_clash() returns trigger
 language plpgsql security definer set search_path = ''
 as $$
@@ -1949,10 +1951,13 @@ declare
   target record;
   hit record;
 begin
-  if auth.uid() is null or new.state <> 'joined' then
+  if new.state <> 'joined' then
     return new;
   end if;
   if tg_op = 'UPDATE' and old.state = 'joined' then
+    return new;
+  end if;
+  if auth.uid() is null and not (tg_op = 'UPDATE' and coalesce(auth.role(), '') = 'service_role') then
     return new;
   end if;
   select s.date, s.start_time, s.end_time, s.status into target from public.sessions s where s.id = new.session_id;
@@ -1973,12 +1978,14 @@ create trigger session_members_guard_clash
   before insert or update of state on public.session_members
   for each row execute function public.session_members_guard_clash();
 
--- Runs before a meetup's day or times change.
-create or replace function public.sessions_guard_clash() returns trigger
+-- Runs before a meetup's day or times change. Its name sorts after sessions_guard_future_start, so "That day has passed" (23514)
+-- is raised before a clash when both apply (before-row triggers run in alphabetical order).
+create or replace function public.sessions_hold_time_clash() returns trigger
 language plpgsql security definer set search_path = ''
 as $$
 declare
   hit record;
+  who uuid;
 begin
   if auth.uid() is null or new.status not in ('inviting', 'locating', 'voting', 'confirmed') then
     return new;
@@ -1988,7 +1995,17 @@ begin
     and new.end_time is not distinct from old.end_time then
     return new;
   end if;
-  perform pg_advisory_xact_lock(hashtextextended(auth.uid()::text, 0));
+  -- The mover and every joined member are locked in sorted order, so two moves that share a member cannot wait on each other.
+  for who in
+    select u from (
+      select auth.uid() as u
+      union
+      select m.user_id from public.session_members m where m.session_id = new.id and m.state = 'joined'
+    ) people
+    order by u
+  loop
+    perform pg_advisory_xact_lock(hashtextextended(who::text, 0));
+  end loop;
   select * into hit from public.meetup_clash(auth.uid(), new.id, new.date, new.start_time, new.end_time);
   if found then
     raise exception 'You already have a meetup at that time.' using errcode = 'P0001', hint = 'schedule_clash',
@@ -2005,9 +2022,11 @@ begin
 end;
 $$;
 drop trigger if exists sessions_guard_clash on public.sessions;
-create trigger sessions_guard_clash
+drop function if exists public.sessions_guard_clash();
+drop trigger if exists sessions_hold_time_clash on public.sessions;
+create trigger sessions_hold_time_clash
   before update of date, start_time, end_time on public.sessions
-  for each row execute function public.sessions_guard_clash();
+  for each row execute function public.sessions_hold_time_clash();
 
 -- Runs before every insert into invites, whoever inserts. The session must be open. A personal invitation
 -- must not be for the host or for someone already in the session, and a session has at most 30 open ones

@@ -810,7 +810,7 @@ begin
 
   -- The confirm makes the slots in the same call as the status move.
   perform pg_temp.as_admin();
-  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version) values (sl, host, 'Confirming', current_date + 1, '10:00', '20:00', 'locating', 0);
+  insert into public.sessions (id, host_id, title, date, start_time, end_time, status, plan_version) values (sl, host, 'Confirming', current_date + 2, '10:00', '20:00', 'locating', 0);
   insert into public.session_members (session_id, user_id, state) values (sl, g1, 'joined');
   p := jsonb_build_object('session', jsonb_build_object('status', 'voting', 'banner', null,
       'meeting', jsonb_build_object('area_id', 'bugis', 'method', 'voted', 'max_minutes', 20, 'total_minutes', 40, 'count', 2, 'approximate', false, 'travel', '{}'::jsonb)),
