@@ -56,6 +56,7 @@ const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestion
 //   hooks.beforeApply   (args) => void, run inside apply_session_plan before it looks at the session: to play another writer
 //   staleApply          a number: that many calls answer null (the session "moved on") without writing
 //   failApply           true: apply_session_plan fails as a database error
+//   clashDetail         text: a refused rejoin (a clash with another meetup) gives this as its detail instead of the meetup as JSON
 //   hangApply           true: apply_session_plan never answers (a database that hung)
 //   hangReads           true: the service key's reads never answer
 //   hooks.beforeRead    ({ table }) => void | Promise, run before each read by the service key: to play a request that arrives while a run loads
@@ -83,8 +84,27 @@ export function tick(world) {
   return new Date(world.t).toISOString()
 }
 
-// A database error in the shape supabase-js hands back. How to call: throw dbError('P0001', 'The meeting area is pinned.', 'area_pinned')
-const dbError = (code, message, hint) => ({ code, message, ...(hint && { hint }) })
+// A database error in the shape supabase-js hands back (`details` is the text the database gives with the error).
+// How to call: throw dbError('P0001', 'The meeting area is pinned.', 'area_pinned')
+const dbError = (code, message, hint, details) => ({ code, message, ...(hint && { hint }), ...(details && { details }) })
+
+// The first meetup the person is in that overlaps the time of session `sid` (the twin of meetup_clash in
+// db/migrations/20261028000000_jio_no_clashing_meetups.sql), or undefined. The twin's rejoin refuses with it.
+// How to call: clashOf(world, sid, userId) // { id, title, date, start_time, end_time } or undefined
+function clashOf(world, sid, user) {
+  const target = world.sessions.find((s) => s.id === sid)
+  return world.sessions
+    .filter(
+      (s) =>
+        s.id !== sid &&
+        ['inviting', 'locating', 'voting', 'confirmed'].includes(s.status) &&
+        s.date === target.date &&
+        s.start_time < target.end_time &&
+        target.start_time < s.end_time &&
+        world.session_members.some((m) => m.session_id === s.id && sameValue(m.user_id, user) && m.state === 'joined'),
+    )
+    .sort((x, y) => (x.start_time < y.start_time ? -1 : 1))[0]
+}
 
 const UUID_LOWER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const UUID_ANY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -366,6 +386,12 @@ function apply(world, session, patch) {
       changed = dropVotes((v) => sameValue(v.user_id, user)) || changed
     } else if (op.op === 'rejoin') {
       if (member?.state === 'opted_out') {
+        // The trigger session_members_guard_clash checks the server's rejoin too.
+        const hit = clashOf(world, sid, user)
+        if (hit) {
+          throw dbError('P0001', 'You already have a meetup at that time.', 'schedule_clash',
+            world.clashDetail ?? JSON.stringify({ id: hit.id, title: hit.title, date: hit.date, start: hit.start_time, end: hit.end_time }))
+        }
         member.state = 'joined'
         changed = true
       }
