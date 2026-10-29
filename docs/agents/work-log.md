@@ -1788,3 +1788,4 @@ The lead's session runs `db/tests/no_clashing_meetups.sql` with the migration on
   - the four existing functions are unchanged;
   - rows are unchanged (7 sessions, 5 users, 10 members, 6 invites).
 - **Not run on the live project before applying:** six of the eight `db/tests` files (PGlite only).
+- **After applying, the lead ran the other six `db/tests` on the live project** in the SQL editor, each with the clash migration installed and rolled back. They are `apply_session_plan`, `invites_access`, `meeting_spots_access`, `session_meet_by_access`, `session_plan_access` and `slot_details_access`. All passed. All eight database tests have now passed on the live project with the rule.
