@@ -1,8 +1,8 @@
 // The Locate screen's meeting spots, rendered with a tiny stand-in for the page (miniDom.js) and a real events store whose
-// actions are watched: the list of spots, "Works for me", "Suggest a spot", the host's confirm and the demo tools. The
+// actions are watched: the list of spots, "Works for me" (in the list and on the map's card), "Suggest a spot", the host's confirm and the demo tools. The
 // area picker and the dialog are stood in for, because they open over the page.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { nextTick } from 'vue'
+import { nextTick, reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { fakeStorage } from './planFixture.js'
 import { mount } from './miniDom.js'
@@ -26,6 +26,7 @@ vi.mock('../../components/ui/ModalDialog.vue', async () => {
 vi.stubGlobal('localStorage', fakeStorage())
 const { default: SpotList } = await import('../../components/spots/SpotList.vue')
 const { default: SpotConfirm } = await import('../../components/spots/SpotConfirm.vue')
+const { default: SpotCard } = await import('../../components/spots/SpotCard.vue')
 const { ABOUT_NOTE, canApprove, canSuggest, confirmedAreaId, myTripLine, pinName, settledView, shownFor, shownSpotId, spotsToShow, tripsLine, unpricedSuggestion } = await import('../../components/spots/spotText.js')
 const { useEventsStore } = await import('../../stores/events.js')
 const { clearApprovals, friendSuggests, friendsApprove, hasSpots } = await import('../../components/dev/spotDemo.js')
@@ -229,6 +230,78 @@ describe('Works for me', () => {
     const page = mount(SpotList, { session: session(), myId: 'ian', names, selectedId: 'bugis', isHost: true, onError: (m) => (page.message = m) }, [pinia])
     await page.button('Works for me').click()
     expect(page.message).toBe('Cannot reach the Jio planner right now.')
+  })
+})
+
+// The card at a pin on the Locate map (UAT item 4): the same "Works for me" as the list, under the count, and nothing else
+// to press. SpotPins draws it inside its card; it is rendered alone here, because the stand-in page has no transitions.
+describe('Works for me on the map card', () => {
+  const card = (s, extra = {}) => mount(SpotCard, { spot: s.spots.list[0], session: s, myId: 'ian', ...extra }, [pinia])
+
+  it('shows "Works for me" under the count while the group is choosing, naming the spot', () => {
+    const page = card(session())
+    const button = page.button('Works for me')
+    expect(page.attr(button, 'aria-label')).toBe('Works for me: Bugis')
+    expect(page.attr(button, 'aria-pressed')).toBe('false')
+    expect(page.text()).toMatch(/No one yet Works for me$/)
+    expect(page.text()).not.toMatch(/Vote/)
+  })
+
+  it('has no "Works for me" once the group has moved on, for someone not in the group, or with no session', () => {
+    expect(card(session({ status: 'voting', meeting: { areaId: 'bugis', times: {} } })).button('Works for me')).toBeNull()
+    expect(card(session({ activeIds: ['jonathan', 'faith'] })).button('Works for me')).toBeNull()
+    const s = session()
+    const page = mount(SpotCard, { spot: s.spots.list[0], myId: 'ian' }, [pinia])
+    expect(page.button('Works for me')).toBeNull()
+    expect(page.text()).toContain('Bugis')
+  })
+
+  it('never offers the host the confirm: that stays in the list', () => {
+    const text = card(session(), { confirmed: false }).text()
+    expect(text).not.toMatch(/Confirm/)
+  })
+
+  it('goes the list\'s way, updates the count in place, and takes your mark back when pressed again', async () => {
+    const s = reactive(session())
+    // The data layer's answer: the session as it reads after the change.
+    events.approveMySpot.mockImplementation(async (id, areaId, on) => {
+      s.spots.approvals = { ian: on ? [areaId] : [] }
+      Object.assign(s.spots.list[0], on ? { approvedBy: [{ id: 'ian', name: 'Ian' }], approvalCount: 1 } : { approvedBy: [], approvalCount: 0 })
+    })
+    const page = mount(SpotCard, { spot: s.spots.list[0], session: s, myId: 'ian' }, [pinia])
+    await page.button('Works for me').click()
+    expect(events.approveMySpot).toHaveBeenLastCalledWith('s1', 'bugis', true)
+    expect(page.text()).toContain('Works for 1 person')
+    expect(page.attr(page.button('Works for me'), 'aria-pressed')).toBe('true')
+    await page.button('Works for me').click()
+    expect(events.approveMySpot).toHaveBeenLastCalledWith('s1', 'bugis', false)
+    expect(page.text()).toContain('No one yet')
+    expect(page.attr(page.button('Works for me'), 'aria-pressed')).toBe('false')
+  })
+
+  it('shares the list\'s saving flag: a press on the map while the list saves is ignored, and says busy', async () => {
+    let finish
+    events.approveMySpot.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
+    const s = session()
+    const listPage = list(s)
+    const mapPage = card(s)
+    const first = listPage.button('Works for me').listeners.click({})
+    await nextTick()
+    expect(mapPage.attr(mapPage.button('Works for me'), 'aria-busy')).toBe('true')
+    await mapPage.button('Works for me').click()
+    expect(events.approveMySpot).toHaveBeenCalledTimes(1)
+    finish({})
+    await first
+    await nextTick()
+    expect(mapPage.attr(mapPage.button('Works for me'), 'aria-busy')).toBeUndefined()
+  })
+
+  it('says a refusal in the card', async () => {
+    events.approveMySpot.mockRejectedValue(new Error('Cannot reach the Jio planner right now.'))
+    const page = card(session())
+    await page.button('Works for me').click()
+    expect(page.text()).toContain('Cannot reach the Jio planner right now.')
+    expect(page.all('p').some((p) => page.attr(p, 'role') === 'alert')).toBe(true)
   })
 })
 
