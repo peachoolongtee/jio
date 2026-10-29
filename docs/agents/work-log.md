@@ -1738,3 +1738,42 @@ The lead's session runs `db/tests/no_clashing_meetups.sql` with the migration on
   - frontend 2753 passed under `TZ=UTC`;
   - build exit 0;
   - e2e 15 passed.
+
+**Round 42, #189 before the fixes.**
+- **The lead's session ran `db/tests/no_clashing_meetups.sql` on the live project, rolled back.**
+  - It stopped at step 10 on the test's own check: Postgres reports a missing detail as `''`, not null. The migration's refusal was correct.
+  - With that check corrected, 12 of 12 passed, and nothing was left behind (no functions or triggers; 7 sessions, 5 users, 10 members and 6 invites, as before).
+- **The branch's suites** (with `dev` before #199): backend 2024 passed, 2 skipped, also with outbound calls blocked; frontend 2766 passed; build exit 0; e2e 15 passed.
+- **The code review's two majors**, both confirmed:
+  - A real account's rejoin goes through `apply_session_plan` with the service key, so the trigger (`auth.uid() is null`) never checks it.
+  - The existing `db/tests/session_future_start.sql` makes two meetups for one host at the same time, so it fails with the migration in. Other `db/tests` may too.
+- **The design review's two majors:**
+  - "Change the time" on Join only closes the popup.
+  - `ModalDialog` has no `aria-describedby`, so the sentence that names the meetup is not announced.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Fixes from all three reviews of #189 | implementer (full stack) | `review/pr-189` (with `dev` merged, `15a75f7`) | Delete the 46 stray copies. Check rejoin, in the database and on the server, and show the popup. Keep the older `db/tests` passing with the migration in, with "that day has passed" winning over a clash. Lock every member in a host's move. Fix test step 10 and add the missing steps. The Join popup's wording, `aria-describedby`, focus return, copy, and where the member-clash error sits. Tests and "How to call" comments. |
+
+**Results of round 42 for #189** (`review/pr-189`, `f0e2dfc`, merged into `dev`; the migration is NOT applied).
+- **The implementer's fixes:**
+  - The 46 Finder copies were deleted.
+  - **Rejoin is checked by the server:** the member trigger also checks a service-role update that brings an opted-out member back to joined, which is the `rejoin` op of `apply_session_plan`. The backend answers 409 `schedule_clash` with the person's own meetup, and both Rejoin buttons show the popup.
+  - The sessions trigger is renamed `sessions_hold_time_clash`, so it runs after `sessions_guard_future_start` ("That day has passed" wins).
+  - A host's move locks the host and every joined member in sorted order.
+  - `session_future_start.sql` and `apply_session_plan.sql` give their fixtures distinct times.
+  - `no_clashing_meetups.sql` has 21 steps.
+  - **The popup:** a join wording ("This meetup overlaps one you're in", View and Close) and an edit wording ("That time is taken").
+  - `ModalDialog` has `aria-describedby`, and focus returns to the opener (`useReturnFocus.js`).
+  - The member-clash error sits under End time and clears when the date or times change.
+- **Live project, each in one transaction that rolled back, run by the lead's session:**
+  - `no_clashing_meetups.sql`: 21 of 21 passed.
+  - `session_future_start.sql` with the migration installed: 12 of 12 passed.
+  - Nothing was left behind (7 sessions, 5 users, 10 members, 6 invites as before), and the live `sessions_guard_future_start` md5 is unchanged (`727e0614318a7b40206f28e13e12a42d`).
+- **Not run on the live project:** the other six `db/tests` files with the migration installed. They are 13 to 156 KB, too large for the session's SQL tool. The implementer ran all eight in PGlite with a Supabase-like `auth` stub, in three setups (as live today, live plus the migration, a fresh build): all passed and left nothing. **The lead runs these six in the SQL editor before applying.**
+- **Checked by the lead's session on `f0e2dfc`:**
+  - backend 2027 passed, 2 skipped, also with outbound calls blocked;
+  - frontend 2785 passed under `TZ=UTC`;
+  - build exit 0;
+  - e2e 30 of 30 with `--repeat-each=2`.
+- **Left as it is:** `assertFree` reads the person's whole session list before each create, edit and rejoin; the database stays the real guard.

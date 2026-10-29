@@ -16,11 +16,13 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
+import ClashDialog from '@/components/group/ClashDialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import JioLogo from '@/components/ui/JioLogo.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import * as api from '@/lib/api.js'
 import { dateLine } from '@/lib/session.js'
+import { useReturnFocus } from '@/lib/useReturnFocus.js'
 import { WORDS } from '@/lib/sessionsRemote.js'
 import { useAuthStore } from '@/stores/auth.js'
 
@@ -33,6 +35,11 @@ const auth = useAuthStore()
 const phase = ref('loading')
 const preview = ref(null)
 const message = ref('')
+// The meetup in the way when joining would put the person in two at once (the popup).
+const clash = ref(null)
+const showClash = ref(false)
+// The Join button is disabled while the join runs, so it hands focus back when the popup closes.
+const { remember } = useReturnFocus(showClash)
 const joining = ref(false)
 const problem = ref('')
 // The session found when the person was already in it.
@@ -100,6 +107,9 @@ async function join() {
     if (e?.code === 'P0002') {
       phase.value = 'unusable'
       message.value = WORDS.linkDeadWhy
+    } else if (e?.code === 'schedule_clash') {
+      clash.value = e.clash || null
+      showClash.value = true
     } else {
       problem.value = e?.message || WORDS.notSaved
     }
@@ -153,9 +163,10 @@ async function join() {
           <AppButton next block :to="toSignUp">Sign up to join</AppButton>
           <AppButton variant="tertiary" underline :to="toLogin" class="join__alt">I have an account. Log in</AppButton>
         </template>
-        <AppButton v-else-if="!notReal" next block :disabled="joining" @click="join">{{ joining ? 'Joining' : 'Join session' }}</AppButton>
+        <AppButton v-else-if="!notReal" next block :disabled="joining" @click="remember($event); join()">{{ joining ? 'Joining' : 'Join session' }}</AppButton>
       </footer>
     </template>
+    <ClashDialog v-model:open="showClash" :clash="clash" mode="join" />
   </main>
 </template>
 

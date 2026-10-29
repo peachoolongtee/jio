@@ -26,6 +26,8 @@
 //     only while inviting; meet_by is set as the session starts or while it is locating, and never cleared);
 //   - the functions `invite_preview`, `join_session`, `my_invitations` and `decline_invite`, with the same answers and
 //     errors (P0002 for any link that is not good, 28000 when not signed in, P0001 with hint session_full at 30 people);
+//   - the clash rule (db/migrations/20261028000000_jio_no_clashing_meetups.sql): a new meetup, a join, and a move to other times are
+//     refused with P0001 and the hint schedule_clash (naming the person's own meetup in `details`), or member_clash for another member;
 //   - `apply_session_plan`, the one function the server writes a session's plan through (the service key only): the version and
 //     status checks that answer null, the pinned area, a pin only with a confirm, the status move (the two-people check after the
 //     operations), the members', suggestions' and approvals' operations (the host cannot be opted out or removed), the spots as a
@@ -122,11 +124,12 @@ const GRANTS = {
 // A database error as the client reports it: { message, code, details, hint }, with the HTTP status PostgREST would use.
 // How to call: throw new DbError('42501', 'permission denied for table sessions', { status: 403 })
 class DbError extends Error {
-  constructor(code, message, { status = 400, hint = null } = {}) {
+  constructor(code, message, { status = 400, hint = null, details = null } = {}) {
     super(message)
     this.code = code
     this.status = status
     this.hint = hint
+    this.details = details
   }
 }
 // How to call: throw denied('sessions'); throw rlsRefused('invites')
@@ -343,6 +346,40 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     }
   }
 
+  // The trigger guards of db/migrations/20261028000000_jio_no_clashing_meetups.sql: a person cannot be in two meetups at the same
+  // time. Meetups hold their time while inviting, locating, voting or confirmed; back to back is fine; the owner (no signed-in
+  // person) is let through, and the server is checked only when it brings an opted-out member back (apply_session_plan, op rejoin).
+  // Throws P0001 with hint schedule_clash and the meetup in the way as JSON.
+  const HOLDING = ['inviting', 'locating', 'voting', 'confirmed']
+  // The first meetup the person is joined in that overlaps the session's day and times (leaving out the session itself), or undefined.
+  // How to call: clashOf(uid, { id: 's1', date: '2026-10-28', start_time: '19:00:00', end_time: '21:00:00' })
+  function clashOf(user, session) {
+    return tables.sessions.find(
+      (s) =>
+        s.id !== session.id &&
+        HOLDING.includes(s.status) &&
+        s.date === session.date &&
+        s.start_time < session.end_time &&
+        session.start_time < s.end_time &&
+        tables.session_members.some((m) => m.session_id === s.id && m.user_id === user && m.state === 'joined'),
+    )
+  }
+  // Refuses when `user` is already in a meetup that overlaps the session. How to call: refuseClash(uid, session)
+  function refuseClash(user, session) {
+    const hit = clashOf(user, session)
+    if (hit) {
+      throw new DbError('P0001', 'You already have a meetup at that time.', {
+        hint: 'schedule_clash',
+        details: JSON.stringify({ id: hit.id, title: hit.title, date: hit.date, start: hit.start_time, end: hit.end_time }),
+      })
+    }
+  }
+  // A signed-in person's own write. How to call: guardClash(uid, { id, status, date, start_time, end_time })
+  function guardClash(as, session) {
+    if (!as || as === SERVICE || !HOLDING.includes(session.status)) return
+    refuseClash(as, session)
+  }
+
   // How to call: insertSession(uid, { host_id, title, date, start_time, end_time })
   function insertSession(as, values) {
     const row = {
@@ -376,6 +413,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     }
     if (as !== SERVICE && row.host_id !== as) throw rlsRefused('sessions')
     checkSession(row)
+    guardClash(as, { ...row, id: null })
     tables.sessions.push(row)
     publish('sessions', 'INSERT', row)
     // The trigger add_host_membership: the host is a joined member from the start.
@@ -755,11 +793,24 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
         if ('end_time' in patch) next.end_time = timeText(patch.end_time)
         checkSession(next)
         if (as !== SERVICE) guardSession(old, next)
+        if (old.date !== next.date || old.start_time !== next.start_time || old.end_time !== next.end_time) {
+          guardClash(as, next)
+          const others = tables.session_members.filter((m) => m.session_id === next.id && m.state === 'joined' && m.user_id !== as)
+          if (as !== SERVICE && HOLDING.includes(next.status) && others.some((m) => clashOf(m.user_id, next))) {
+            throw new DbError('P0001', 'Someone in this meetup already has plans at that time.', { hint: 'member_clash' })
+          }
+        }
         next.updated_at = iso(now())
       } else if (table === 'invites') {
         // The "with check": a host's update must leave the invite revoked, so a revoke cannot be undone.
         if (as !== SERVICE && next.revoked !== true) throw rlsRefused('invites')
       } else if (table === 'session_members') {
+        // The trigger session_members_guard_clash: a member becoming joined again (the server's rejoin, or a person's own write) must not
+        // be in another meetup then.
+        if (as && old.state !== 'joined' && next.state === 'joined') {
+          const target = tables.sessions.find((x) => x.id === next.session_id)
+          if (target && HOLDING.includes(target.status)) refuseClash(next.user_id, target)
+        }
         for (const column of ['start_area_id', 'end_area_id']) {
           if (next[column] != null && (typeof next[column] !== 'string' || next[column].length < 1 || next[column].length > 60)) throw new DbError('23514', `new row for relation "session_members" violates check constraint "session_members_${column}_check"`)
         }
@@ -941,6 +992,8 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
         changed = dropVotes((v) => v.user_id === user) || changed
       } else if (op.op === 'rejoin') {
         if (member?.state === 'opted_out') {
+          // The trigger session_members_guard_clash checks the server's rejoin too.
+          if (HOLDING.includes(s.status)) refuseClash(user, s)
           changeMember(member, { state: 'joined' })
           changed = true
         }
@@ -1258,6 +1311,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       if (tables.session_members.filter((m) => m.session_id === target && m.state === 'joined').length >= MAX_JOINED) {
         throw new DbError('P0001', 'This session is full.', { hint: 'session_full' })
       }
+      guardClash(as, found.session)
       const member = { session_id: target, user_id: as, role: 'guest', state: 'joined', start_area_id: null, end_area_id: null, categories: [], stay_until: null, travel_minutes: null, joined_at: iso(now()), updated_at: iso(now()) }
       tables.session_members.push(member)
       publish('session_members', 'INSERT', member)
@@ -1342,7 +1396,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       // A statement that fails changes nothing, however far it got.
       if (saved) for (const name of Object.keys(tables)) tables[name].splice(0, tables[name].length, ...saved[name])
       if (!(err instanceof DbError)) throw err
-      return { data: null, error: { message: err.message, code: err.code, details: null, hint: err.hint }, status: err.status }
+      return { data: null, error: { message: err.message, code: err.code, details: err.details ?? null, hint: err.hint }, status: err.status }
     }
   }
 

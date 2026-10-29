@@ -203,7 +203,13 @@ api.interceptors.response.use(
     }
     // The server's own code for a refusal (backend/src/routes/sessions.js sends one), so a caller can word it for the person.
     const code = err?.response?.data?.error
-    throw Object.assign(new Error(plannerErrorMessage(err)), typeof code === 'string' ? { code, status: err.response.status } : {})
+    // `clash` is the meetup in the way when the server refuses to put the person in two at once (schedule_clash).
+    const clash = err?.response?.data?.clash
+    throw Object.assign(
+      new Error(plannerErrorMessage(err)),
+      typeof code === 'string' ? { code, status: err.response.status } : {},
+      code === 'schedule_clash' && clash && typeof clash === 'object' ? { clash } : {},
+    )
   },
 )
 

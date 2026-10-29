@@ -49,9 +49,10 @@ export const SESSION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 //
 // How to call:
 //   addSession(world, { id: SESSION, host: HOST, status: 'locating', version: 4 })
-export function addSession(world, { id = SESSION, host = HOST, status = 'locating', version = 0, date = '2026-10-25', start = '10:00:00', end = '20:00:00' } = {}) {
+export function addSession(world, { id = SESSION, host = HOST, status = 'locating', version = 0, date = '2026-10-25', start = '10:00:00', end = '20:00:00', title = 'Plan' } = {}) {
   world.sessions.push({
     id,
+    title,
     host_id: host,
     status,
     plan_version: version,

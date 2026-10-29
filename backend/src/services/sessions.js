@@ -106,12 +106,14 @@ const DB_DEADLINE_MS = 8000
 // How to catch it (routes/sessions.js does this):
 //   if (err instanceof SessionError) return res.status(err.status).json({ error: err.code, message: err.message })
 export class SessionError extends Error {
-  constructor(status, code, message, { retryAfter = null } = {}) {
+  constructor(status, code, message, { retryAfter = null, extra = {} } = {}) {
     super(message)
     this.name = 'SessionError'
     this.status = status
     this.code = code
     this.retryAfter = retryAfter
+    // Fields answered next to `error` and `message` (the clash's meetup), never anything else.
+    this.extra = extra
   }
 }
 
@@ -145,9 +147,30 @@ const REFUSALS = {
 //
 // How to call:
 //   throw refusalOf('not_enough_votes')
-const refusalOf = (hint) => {
+const refusalOf = (hint, detail = null) => {
+  if (hint === 'schedule_clash') return clashRefusal(detail)
   const [status, code, message] = REFUSALS[hint] ?? [409, 'wrong_status', 'This cannot be done while the session is in this state.']
   return refuse(status, code, message)
+}
+
+// The refusal for a person who would be in two meetups at once (a rejoin the database refused). The database names the person's own
+// meetup in `detail` as JSON ({ id, title, date, start, end }); the answer is 409 schedule_clash with it as `clash` (times as HH:MM),
+// or without when the detail cannot be read.
+//
+// How to call:
+//   throw clashRefusal('{"id":"…","title":"Dinner","date":"2026-10-28","start":"19:00:00","end":"21:00:00"}')
+function clashRefusal(detail) {
+  const message = 'You are already in another meetup at that time.'
+  let found = null
+  try {
+    found = JSON.parse(detail)
+  } catch {
+    // The detail is only a courtesy; the refusal stands without it.
+  }
+  if (!found || typeof found !== 'object') return refuse(409, 'schedule_clash', message)
+  const hhmm = (time) => String(time ?? '').slice(0, 5)
+  const clash = { id: found.id ?? null, title: String(found.title ?? ''), date: String(found.date ?? ''), start: hhmm(found.start), end: hhmm(found.end) }
+  return refuse(409, 'schedule_clash', message, { extra: { clash } })
 }
 
 // Waits for a call to the database, at most `ms`. Past that it fails with 503 `unavailable` (the call may still finish later, so
@@ -526,7 +549,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
             for (const { job } of live) await runBatch(sessionId, { ...batch, jobs: [job] }, { handOver: () => false })
             return
           }
-          const error = refusalOf(err.hint)
+          const error = refusalOf(err.hint, err.detail)
           for (const { job } of live) reject(job, error)
           return
         }

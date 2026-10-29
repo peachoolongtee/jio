@@ -188,7 +188,7 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
         })
       } else if (err instanceof SessionError) {
         if (err.retryAfter !== null) res.set('Retry-After', String(err.retryAfter))
-        refuse(res, err.status, err.code, err.message)
+        refuse(res, err.status, err.code, err.message, err.extra)
       } else {
         next(err)
       }

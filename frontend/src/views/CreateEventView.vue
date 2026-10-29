@@ -21,6 +21,7 @@ import { addDays, format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
+import ClashDialog from '@/components/group/ClashDialog.vue'
 import CalendarPicker from '@/components/ui/CalendarPicker.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
@@ -31,6 +32,7 @@ import TextField from '@/components/ui/TextField.vue'
 import NotFoundView from './NotFoundView.vue'
 import { toMinutes } from '@/lib/planner/format.js'
 import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
+import { useReturnFocus } from '@/lib/useReturnFocus.js'
 import { defaultDate, defaultSessionEnd, defaultTimes, endHasPassed, singaporeDate, startHasPassed } from '@/lib/session.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -53,6 +55,14 @@ const start = ref(startTimes.start)
 const end = ref(startTimes.end)
 const busy = ref(false)
 const error = ref('')
+// The meetup in the way when the day and times overlap another the person is in (the popup).
+const clash = ref(null)
+const showClash = ref(false)
+// Next is disabled while the save runs, so it hands focus back when the popup closes.
+const { remember } = useReturnFocus(showClash)
+// Someone else in the meetup is busy at the new time (a host's edit the database refused): said under the end time, and gone as soon
+// as the day or a time changes.
+const taken = ref('')
 
 // Editing: the session in the store (from the invite step it is already there), whether it could not be found, and
 // whether the form has taken its values yet (only once, so a live update never overwrites what is being typed).
@@ -105,18 +115,29 @@ const endError = computed(() => {
 })
 const ready = computed(() => title.value.trim().length > 0 && date.value !== '' && start.value !== '' && !startError.value && !endError.value)
 
+const endShown = computed(() => endError.value || taken.value)
+watch([date, start, end], () => { taken.value = '' })
+
 // Creates the session, or saves the changes to it, and goes on to the invite step in place of this screen.
 // How to call: next()
 async function next() {
   if (!ready.value || busy.value) return
   busy.value = true
   error.value = ''
+  taken.value = ''
   const values = { title: title.value, date: date.value, start: start.value, end: endValue.value }
   try {
     const saved = editing.value ? await events.update(props.id, values) : await events.create(values)
     router.replace(`/sessions/${saved.id}/invite`)
   } catch (e) {
-    error.value = e.message
+    if (e?.code === 'schedule_clash') {
+      clash.value = e.clash || null
+      showClash.value = true
+    } else if (e?.code === 'member_clash') {
+      taken.value = e.message
+    } else {
+      error.value = e.message
+    }
     busy.value = false
   }
 }
@@ -161,16 +182,17 @@ async function next() {
           <CalendarPicker v-model="date" class="when__calendar" label="Date" :max="lastDay" />
           <div class="when__times">
             <RadialTimePicker v-model="start" label="Start time" fallback="09:00" :error="startError" />
-            <RadialTimePicker v-model="end" label="End time" :fallback="endValue || '18:00'" :error="endError" :hint="!end && start ? `Ends ${endValue} unless you change it` : ''" />
+            <RadialTimePicker v-model="end" label="End time" :fallback="endValue || '18:00'" :error="endShown" :hint="!end && start ? `Ends ${endValue} unless you change it` : ''" />
           </div>
         </section>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </form>
 
       <footer class="screen__footer">
-        <AppButton next block :disabled="!ready || busy" @click="next">Next</AppButton>
+        <AppButton next block :disabled="!ready || busy" @click="remember($event); next()">Next</AppButton>
       </footer>
     </template>
+    <ClashDialog v-model:open="showClash" :clash="clash" />
   </main>
 </template>
 

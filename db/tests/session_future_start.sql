@@ -1,6 +1,9 @@
 -- Rollback test for db/migrations/20261024000000_jio_session_future_start.sql.
 -- Run this whole file as the project owner. It temporarily installs the proposed migration,
 -- checks authenticated writes, and rolls back both the DDL and throwaway data at the end.
+-- The meetups one host makes here have different times on purpose, so the file passes with and without the rule that one person
+-- cannot be in two meetups at once (20261028000000): that rule also looks at the host's own row, and a claim left set by an earlier
+-- step still names the host.
 
 begin;
 
@@ -97,7 +100,7 @@ begin
 
   select * into at_user from pg_temp.try(format(
     'insert into public.sessions (host_id, title, date, start_time, end_time) values (%L, %L, %L, %L, %L)',
-    host, 'Future too', tomorrow, '12:00', '13:00'));
+    host, 'Future too', tomorrow, '14:00', '15:00'));
   if at_user.code is not null then raise exception 'FAIL step 1: future insert failed: %', at_user.msg; end if;
   raise notice 'ok step 1: future session insert';
 
@@ -153,13 +156,13 @@ begin
   set local role service_role;
   select * into at_user from pg_temp.try(format(
     'insert into public.sessions (host_id, title, date, start_time, end_time) values (%L, %L, %L, %L, %L)',
-    host, 'Server past', past_date, '12:00', '13:00'));
+    host, 'Server past', past_date, '15:00', '16:00'));
   if at_user.code is not null then raise exception 'FAIL step 10: the server was refused: %', at_user.msg; end if;
   raise notice 'ok step 10: the server may write a past day';
   reset role;
   select * into at_user from pg_temp.try(format(
     'insert into public.sessions (host_id, title, date, start_time, end_time) values (%L, %L, %L, %L, %L)',
-    host, 'Owner past', past_date, '12:00', '13:00'));
+    host, 'Owner past', past_date, '17:00', '18:00'));
   if at_user.code is not null then raise exception 'FAIL step 11: the owner was refused: %', at_user.msg; end if;
   raise notice 'ok step 11: the owner may write a past day';
 

@@ -18,15 +18,17 @@
 // The database errors a write is tried again after (deadlock detected, serialization failure). How to call: RETRYABLE.has('40P01') // true
 const RETRYABLE = new Set(['40P01', '40001'])
 
-// Thrown when apply_session_plan refuses a write on purpose (a rule, not a failure). `hint` is the rule's short name.
+// Thrown when apply_session_plan refuses a write on purpose (a rule, not a failure). `hint` is the rule's short name, and `detail` is
+// the text the database gave with it (null when it gave none; a clash with another meetup names it there as JSON).
 //
 // How to catch it:
 //   try { await applyPlan(...) } catch (err) { if (err instanceof PlanRefused && err.hint === 'area_pinned') ... }
 export class PlanRefused extends Error {
-  constructor(message, hint) {
+  constructor(message, hint, detail = null) {
     super(message)
     this.name = 'PlanRefused'
     this.hint = hint
+    this.detail = detail
   }
 }
 
@@ -217,7 +219,7 @@ export async function applyPlan(service, id, { version, status }, patch) {
   if (error && RETRYABLE.has(error.code)) ({ data, error } = await call())
   if (error) {
     // A rule the function enforces raises an exception with a hint; anything else is a failure of the database.
-    if (error.code === 'P0001' && error.hint) throw new PlanRefused(error.message, error.hint)
+    if (error.code === 'P0001' && error.hint) throw new PlanRefused(error.message, error.hint, error.details || null)
     throw new Error(`Could not write the session's plan (${error.code ?? 'no code'}): ${error.message}`)
   }
   return data === null || data === undefined ? null : Number(data)

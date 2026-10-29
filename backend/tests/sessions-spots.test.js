@@ -3,6 +3,7 @@ import { createSupabase } from '../src/db/supabase.js'
 import { loadPlanData } from '../src/db/venues.js'
 import { createPlannerRuns } from '../src/services/planner-runs.js'
 import { createSessions } from '../src/services/sessions.js'
+import { applyPlan, PlanRefused } from '../src/db/sessions.js'
 import { createWorld, fakeSupabase, jwksFetch, SUPABASE_URL, userClient } from './helpers/fake-supabase.js'
 import { addMember, addSession, GUEST, HOST, OTHER, SESSION, startSessionApp, STRANGER } from './helpers/session-app.js'
 
@@ -919,6 +920,52 @@ describe('POST /api/sessions/:id/opt-out and /rejoin (E10, E11)', () => {
     const again = await t.call('POST', path('/rejoin'), undefined, GUEST)
     expect(again.body.state).toBe('joined')
     expect(spots()).toHaveLength(3)
+  })
+
+  it('refuses a rejoin that would put the person in two meetups at once: 409 schedule_clash with the other meetup, and they stay out', async () => {
+    await listed()
+    await t.call('POST', path('/opt-out'), undefined, GUEST)
+    const elsewhere = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    addSession(world, { id: elsewhere, host: GUEST, status: 'voting', title: 'Board games', start: '18:00:00', end: '21:00:00' })
+    addMember(world, elsewhere, GUEST, { role: 'host' })
+    session().start_time = '20:00:00'
+    session().end_time = '22:00:00'
+    const version = session().plan_version
+    const res = await t.call('POST', path('/rejoin'), undefined, GUEST)
+    expect(res.status).toBe(409)
+    expect(res.body).toEqual({
+      error: 'schedule_clash',
+      message: 'You are already in another meetup at that time.',
+      clash: { id: elsewhere, title: 'Board games', date: '2026-10-25', start: '18:00', end: '21:00' },
+    })
+    expect(world.session_members.find((m) => m.session_id === SESSION && m.user_id === GUEST).state).toBe('opted_out')
+    expect(session().plan_version).toBe(version)
+    // Back to back is fine, and a meetup that is over holds nothing.
+    session().start_time = '21:00:00'
+    session().end_time = '23:00:00'
+    expect((await t.call('POST', path('/rejoin'), undefined, GUEST)).body).toMatchObject({ state: 'joined' })
+    await t.call('POST', path('/opt-out'), undefined, GUEST)
+    session().start_time = '10:00:00'
+    session().end_time = '20:00:00'
+    world.sessions.find((s) => s.id === elsewhere).status = 'completed'
+    expect((await t.call('POST', path('/rejoin'), undefined, GUEST)).body).toMatchObject({ state: 'joined' })
+  })
+
+  it('answers a clash whose detail cannot be read without the meetup, and keeps the database\'s detail on the refusal', async () => {
+    const asked = { version: 1, status: 'locating' }
+    const rule = { rpc: async () => ({ data: null, error: { code: 'P0001', hint: 'schedule_clash', message: 'x', details: '{"title":"Dinner"}' } }) }
+    const refused = await applyPlan(rule, 'sid', asked, { ops: [] }).catch((e) => e)
+    expect(refused).toBeInstanceOf(PlanRefused)
+    expect(refused).toMatchObject({ hint: 'schedule_clash', detail: '{"title":"Dinner"}' })
+    await listed()
+    await t.call('POST', path('/opt-out'), undefined, GUEST)
+    world.clashDetail = 'not json'
+    const elsewhere = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    addSession(world, { id: elsewhere, host: GUEST, status: 'locating', title: 'Board games' })
+    addMember(world, elsewhere, GUEST, { role: 'host' })
+    const res = await t.call('POST', path('/rejoin'), undefined, GUEST)
+    expect(res.status).toBe(409)
+    expect(res.body).toEqual({ error: 'schedule_clash', message: 'You are already in another meetup at that time.' })
   })
 
   it('needs a login, a member, and no body', async () => {
