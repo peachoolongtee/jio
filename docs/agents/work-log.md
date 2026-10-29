@@ -1709,3 +1709,32 @@ The lead asked whether #191 was reviewed and merged (it was not), then said "car
   - e2e 15 passed, then 45 of 45 with `--repeat-each=3`.
 
   No browser check at phone width was run on the fixes.
+
+## Round 42: review of Faith's three pull requests, #189, #194 and #195 (2026-10-29)
+
+The lead said "review faith's PRs too". The lead's session merged each with `dev` on review branches, without conflicts:
+- `review/pr-194-195` holds the two small ones: a place added twice to a vote, and tea shops as drinks.
+- `review/pr-189` holds clashing meetups, which brings a database rule.
+
+#189 also carries 46 stray `* 2.js` files: macOS Finder copies of test files, half of them older versions. They are not run by vitest (the name does not end in `.test.js`) and make up most of its 12,307 added lines. Faith's branches are left as they are.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Code review of #194 and #195 | code-reviewer (read-only) | `review/pr-194-195` | The race fix in `addOption`, and whether a real account's path needs the same; `kindOf`'s drink rules and name fallback; no Google content written to a file. |
+| Code review of #189 | code-reviewer (read-only) | `review/pr-189` | The overlap rule in the browser and in the migration; races, the advisory lock, the server path through `apply_session_plan`; privacy of the clash details; the stand-in database; the tests that were moved. |
+| Design review of the clash popup | design-reviewer (read-only) | `review/pr-189` | `ClashDialog.vue` and its use on Create and Join, against `DESIGN.md`. |
+
+The lead's session runs `db/tests/no_clashing_meetups.sql` with the migration on the live project in a transaction that rolls back. The migration is applied only at the lead's word.
+
+**Results of round 42 for #194 and #195** (`review/pr-194-195`, `6c352c6`, merged into `dev`).
+- **#194 is sound.**
+  - The re-check after the planner answers closes the race in the local path.
+  - A real account cannot list a place twice: the `slot_options` primary key `(slot_id, venue_id)`, the `on conflict` in `apply_session_plan`, and the server's own `addOption` check each stop it.
+  - Minor and left: other changes made during the wait (a deleted category, a status change) are not re-checked in the local path.
+- **#195 had one major finding**, confirmed and fixed by an implementer: the name fallback (a drink word in the name makes a drink) ran for any place no type matched, so a searched "Tea Tree Medical Clinic" typed `doctor` or a "Coffee Museum" became a drink. It now runs only when Google gave no usable type, either none or only `point_of_interest`/`establishment`, with tests. The test names are now plainly invented, with no branch addresses.
+- **A behaviour change to know:** a place whose main Google type is `cafe`, `coffee_shop` or `tea_house` is a drink even with bakery or dessert types (a bakery-café moves from Eat to Drink). Drinks are not filtered for dietary needs except halal keeping bars out, so a halal group now sees such a café as a drink, which is #107's "cafés stay".
+- **Checked by the lead's session:**
+  - backend 2025 passed, 2 skipped, also with outbound calls blocked;
+  - frontend 2753 passed under `TZ=UTC`;
+  - build exit 0;
+  - e2e 15 passed.

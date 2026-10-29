@@ -21,9 +21,34 @@ describe('google-adapter', () => {
     expect(kindOf({ primaryType: 'chinese_noodle_restaurant' })).toMatchObject({ cuisine: 'chinese' })
     expect(kindOf({ primaryType: 'cafe' })).toMatchObject({ category: 'drink', kind: 'cafe' })
     expect(kindOf({ primaryType: 'bar' })).toMatchObject({ category: 'drink', kind: 'bar' })
+    // Mixue: typed tea_house first, with ice cream and dessert types after. The main type wins, so it is a drink.
+    expect(kindOf({ primaryType: 'tea_house', types: ['tea_house', 'ice_cream_shop', 'dessert_shop', 'food', 'point_of_interest'] })).toMatchObject({ category: 'drink', kind: 'cafe' })
+    // A dessert shop with a drink type after its main one stays a dessert.
+    expect(kindOf({ primaryType: 'dessert_shop', types: ['dessert_shop', 'cafe', 'food'] })).toMatchObject({ category: 'eat', kind: 'dessert' })
+    // A listing Google gave no type: its name decides, for a tea or coffee word and for a known chain, and a bank is still not an outing.
+    expect(kindOf({ displayName: { text: 'Each-A-Cup' } }, { searched: true })).toMatchObject({ category: 'drink', kind: 'cafe' })
+    expect(kindOf({ displayName: { text: 'Uncle Lim Kopi' } })).toMatchObject({ category: 'drink' })
+    expect(kindOf({ displayName: { text: 'DBS Bank' } }, { searched: true })).toMatchObject({ category: 'activity', notAnOuting: true })
+    // A bubble tea shop as Google types it (a CHAGEE shop): a tea store, with no cafe type, is a drink, not a meal.
+    expect(kindOf({ primaryType: 'tea_store', types: ['tea_store', 'store', 'point_of_interest'] })).toMatchObject({ category: 'drink', kind: 'cafe' })
     expect(kindOf({ primaryType: 'food_court' })).toMatchObject({ category: 'eat', kind: 'hawker' })
     expect(kindOf({ primaryType: 'dessert_shop' })).toMatchObject({ category: 'eat', kind: 'dessert' })
     expect(kindOf({ primaryType: 'restaurant' })).toMatchObject({ kind: 'restaurant', cuisine: 'restaurant' })
+  })
+
+  it('kindOf: a drink word in the name decides only for a place Google gave no usable type', () => {
+    // Typed places keep their type, searched or not: a clinic with Tea in its name is not an outing, and a museum with Coffee in its name is not a drink.
+    const clinic = { displayName: { text: 'Tea Tree Medical Clinic' }, primaryType: 'doctor', types: ['doctor', 'health', 'point_of_interest'] }
+    expect(kindOf(clinic, { searched: true })).toMatchObject({ category: 'activity', notAnOuting: true })
+    expect(kindOf(clinic)).toMatchObject({ category: 'activity' })
+    expect(kindOf({ displayName: { text: 'Coffee Museum' }, primaryType: 'museum', types: ['museum'] }, { searched: true })).toMatchObject({ category: 'activity' })
+    expect(kindOf({ displayName: { text: 'Tea Garden Park' }, primaryType: 'park', types: ['park'] })).toMatchObject({ category: 'activity' })
+    expect(kindOf({ displayName: { text: 'Coffee Savings Bank' }, primaryType: 'bank', types: ['bank'] }, { searched: true })).toMatchObject({ category: 'activity', notAnOuting: true })
+    // Only Google's catch-all types, or none: the name decides.
+    expect(kindOf({ displayName: { text: 'Plain Tea House' }, types: ['point_of_interest', 'establishment'] })).toMatchObject({ category: 'drink', kind: 'cafe' })
+    expect(kindOf({ displayName: { text: 'Plain Tea House' }, primaryType: 'establishment', types: ['establishment'] }, { searched: true })).toMatchObject({ category: 'drink', kind: 'cafe' })
+    expect(kindOf({ displayName: { text: 'Corner Hall' }, types: ['point_of_interest', 'establishment'] })).toEqual({ category: 'activity', kind: 'attraction', cuisine: 'attraction' })
+    expect(kindOf({ displayName: { text: 'Corner Hall' }, types: ['point_of_interest'] }, { searched: true })).toMatchObject({ category: 'activity', notAnOuting: true })
   })
 
   it('kindOf: malls, department stores and markets are shops; a restaurant inside a mall is still food', () => {
