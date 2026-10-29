@@ -4,8 +4,8 @@
 //   <SpotList :session="session" my-id="ian" :names="nameOf" :selected-id="shown" :is-host="true" host-name="Ian"
 //             @select="picked = $event" @error="error = $event" />
 // session: a session summary (lib/api.js). selectedId: the area shown as chosen (SpotRow outlines it; the map's pin matches).
-// Changes go through the events store as the signed-in person: approveMySpot, suggestMySpot, withdrawMySpot, and the
-// host's setKnownPlace. A refusal or a planner failure is sentence-sized and goes up as `error` (the write has rolled back).
+// Changes go through the events store as the signed-in person: approveMySpot (through spotChange.js, as the map's card
+// does), suggestMySpot, withdrawMySpot, and the host's setKnownPlace. A refusal or a planner failure is sentence-sized and goes up as `error` (the write has rolled back).
 // Emits select (an area id) and error (a message, or '' to clear). Confirming a spot or setting a known place moves the
 // session on to Voting, and this list stays where it is.
 // States: the group is choosing (the list, with every control); the group has moved on (the same spots with the confirmed
@@ -24,6 +24,7 @@ import ModalDialog from '../ui/ModalDialog.vue'
 import SkeletonRow from '../ui/SkeletonRow.vue'
 import LocationSheet from '../group/LocationSheet.vue'
 import SpotRow from './SpotRow.vue'
+import { useSpotChange } from './spotChange.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { TRAVEL_TONES } from '@/lib/planner/travel.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -41,9 +42,8 @@ const props = defineProps({
 const emit = defineEmits(['select', 'error'])
 
 const events = useEventsStore()
-const changing = ref(false)
-// A change of this list, or a confirm from anywhere, is being saved.
-const busy = computed(() => changing.value || events.confirming)
+// A change of this list or the map's card, or a confirm from anywhere, is being saved (one flag, spotChange.js).
+const { busy, changing, run: change, approve: approveSpot } = useSpotChange()
 const suggestOpen = ref(false)
 const placeOpen = ref(false)
 const confirmOpen = ref(false)
@@ -79,30 +79,24 @@ const intro = computed(() => {
 
 // Run a change as the signed-in person. A failure goes up as a message; the data layer has already put things back. A press
 // while an earlier change is still being saved does nothing.
-// How to call: run(() => events.approveMySpot('s1', 'bugis', true))
-async function run(fn, after) {
+// How to call: run(() => change(() => events.withdrawMySpot('s1')))
+async function run(fn) {
   if (busy.value) return
-  changing.value = true
   emit('error', '')
-  try {
-    await fn()
-    after?.()
-  } catch (e) {
-    emit('error', e.message)
-  }
-  changing.value = false
+  const message = await fn()
+  if (message) emit('error', message)
 }
 
-// "Works for me" on a spot, or taking it back. How to call: approve(spot, true)
-const approve = (spot, on) => run(() => events.approveMySpot(props.session.id, spot.areaId, on))
+// "Works for me" on a spot, or taking it back, the same way the map's card does. How to call: approve(spot, true)
+const approve = (spot, on) => run(() => approveSpot(props.session.id, spot.areaId, on))
 // Suggest a spot (from the area picker), replacing your own. How to call: suggest({ areaId: 'bugis' })
-const suggest = (place) => run(() => events.suggestMySpot(props.session.id, place.areaId, { here: false }))
+const suggest = (place) => run(() => change(() => events.suggestMySpot(props.session.id, place.areaId, { here: false })))
 // Mark your own suggestion "we are here already", or unmark it. How to call: setHere(spot, true)
-const setHere = (spot, on) => run(() => events.suggestMySpot(props.session.id, spot.areaId, { here: on }))
+const setHere = (spot, on) => run(() => change(() => events.suggestMySpot(props.session.id, spot.areaId, { here: on })))
 // Price your suggestion again, keeping its "here" label. How to call: retry()
-const retry = () => run(() => events.suggestMySpot(props.session.id, unpriced.value.areaId, { here: unpriced.value.here }))
+const retry = () => run(() => change(() => events.suggestMySpot(props.session.id, unpriced.value.areaId, { here: unpriced.value.here })))
 // Take your suggestion back. How to call: withdraw()
-const withdraw = () => run(() => events.withdrawMySpot(props.session.id))
+const withdraw = () => run(() => change(() => events.withdrawMySpot(props.session.id)))
 
 // The host picked the known place's area: ask once before the list is replaced.
 // How to call: pickKnown({ areaId: 'bugis' })
