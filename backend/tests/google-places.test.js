@@ -21,6 +21,16 @@ describe('google-adapter', () => {
     expect(kindOf({ primaryType: 'chinese_noodle_restaurant' })).toMatchObject({ cuisine: 'chinese' })
     expect(kindOf({ primaryType: 'cafe' })).toMatchObject({ category: 'drink', kind: 'cafe' })
     expect(kindOf({ primaryType: 'bar' })).toMatchObject({ category: 'drink', kind: 'bar' })
+    // Mixue: typed tea_house first, with ice cream and dessert types after. The main type wins, so it is a drink.
+    expect(kindOf({ primaryType: 'tea_house', types: ['tea_house', 'ice_cream_shop', 'dessert_shop', 'food', 'point_of_interest'] })).toMatchObject({ category: 'drink', kind: 'cafe' })
+    // A dessert shop with a drink type after its main one stays a dessert.
+    expect(kindOf({ primaryType: 'dessert_shop', types: ['dessert_shop', 'cafe', 'food'] })).toMatchObject({ category: 'eat', kind: 'dessert' })
+    // A listing Google gave no type: its name decides, for a tea or coffee word and for a known chain, and a bank is still not an outing.
+    expect(kindOf({ displayName: { text: 'Each-A-Cup (448 Ang Mo Kio)' } }, { searched: true })).toMatchObject({ category: 'drink', kind: 'cafe' })
+    expect(kindOf({ displayName: { text: 'Uncle Lim Kopi' } })).toMatchObject({ category: 'drink' })
+    expect(kindOf({ displayName: { text: 'DBS Bank' } }, { searched: true })).toMatchObject({ category: 'activity', notAnOuting: true })
+    // A bubble tea shop as Google types it (CHAGEE The Woodleigh Mall): a tea store, with no cafe type, is a drink, not a meal.
+    expect(kindOf({ primaryType: 'tea_store', types: ['tea_store', 'food_store', 'food', 'store', 'point_of_interest', 'establishment'] })).toMatchObject({ category: 'drink', kind: 'cafe' })
     expect(kindOf({ primaryType: 'food_court' })).toMatchObject({ category: 'eat', kind: 'hawker' })
     expect(kindOf({ primaryType: 'dessert_shop' })).toMatchObject({ category: 'eat', kind: 'dessert' })
     expect(kindOf({ primaryType: 'restaurant' })).toMatchObject({ kind: 'restaurant', cuisine: 'restaurant' })
