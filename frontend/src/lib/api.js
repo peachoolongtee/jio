@@ -3105,6 +3105,25 @@ export async function inviteByUsername(id, personId) {
   return session
 }
 
+// The host takes back an invite that is still waiting for an answer, and the person leaves the list. For a real account the personal
+// invitation is turned off on the server (it cannot be sent to them again; the session's link still works for them); for the demo and
+// local accounts the invited row goes, and they can be invited again. Only the host, and only while the person has not joined.
+// Resolves with the session as it is then. How to call: await revokeInvite('3b1f...', '7f3c...')
+export async function revokeInvite(id, personId) {
+  if (onServer()) {
+    await remote.revokeInvitation(id, personId)
+    broadcast({ type: 'session', sessionId: id })
+    return getSession(id)
+  }
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (session.hostId !== me()) throw new Error('Only the host can take back an invite.')
+  const member = session.members.find((m) => m.id === personId)
+  if (member?.state !== 'invited') throw new Error('They are not waiting on an invite. Reload to see who is in.')
+  session.members = session.members.filter((m) => m !== member)
+  return touch(session, 'session')
+}
+
 // What an invite link leads to, for anyone (signed in or not): { title, date, start, end, hostName }, or null when the link
 // does not work. Rejects with a sentence when the server cannot be reached.
 // How to call: const preview = await previewInvite(token)

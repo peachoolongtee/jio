@@ -167,6 +167,8 @@ export const useEventsStore = defineStore('events', () => {
   // invited). How to call: await removeGuest('3b1f...', '7f3c...'), await inviteByUsername('3b1f...', '7f3c...')
   const removeGuest = act(api.removeFromSession)
   const inviteByUsername = act(api.inviteByUsername)
+  // The host takes back an invite nobody has answered yet (lib/api.js revokeInvite). How to call: await revokeInvite('3b1f...', '7f3c...')
+  const revokeInvite = act(api.revokeInvite)
 
   const create = async (data) => put(await api.createSession(data))
   // Home's "Already out? Find something nearby": a light meetup for today around one area, under way at once (lib/api.js
@@ -520,7 +522,7 @@ export const useEventsStore = defineStore('events', () => {
 
   return {
     sessions, byId, itineraries, ledgers, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
-    loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, dropSession,
+    loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, revokeInvite, dropSession,
     loadSessions, loadSession, loadItinerary, loadLedger, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
     confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, changeMeetingPlace, placeFailure, dismissPlaceFailure, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, forgetOrder, addPhoto, deletePhoto, saveReview,
   }

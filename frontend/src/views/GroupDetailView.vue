@@ -34,6 +34,7 @@ import SessionNotices from '@/components/event/SessionNotices.vue'
 import InviteDialog from '@/components/group/InviteDialog.vue'
 import LeaveSession from '@/components/group/LeaveSession.vue'
 import RemoveMember from '@/components/group/RemoveMember.vue'
+import TakeBackInvite from '@/components/group/TakeBackInvite.vue'
 import { removeText, removeTitle } from '@/components/group/removeCopy.js'
 import LocationSheet from '@/components/group/LocationSheet.vue'
 import MemberList from '@/components/group/MemberList.vue'
@@ -384,6 +385,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
               <span v-else-if="person.joined" class="lobby__tag"><AppIcon name="check" :size="14" />Joined</span>
               <span v-else class="lobby__tag lobby__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
               <RemoveMember v-if="session.remote && status === 'inviting' && isHost && person.joined && !person.host" :session-id="session.id" :person="person" />
+              <TakeBackInvite v-if="status === 'inviting' && isHost && !person.joined && !person.host" :session-id="session.id" :person="person" :remote="!!session.remote" />
             </li>
           </ul>
         </div>

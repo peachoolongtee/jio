@@ -12,6 +12,7 @@
 // the way on is back, with the same label.
 // After sending, the screen confirms each invite. Each friend shows as Invited until they accept (in the demo, on
 // their own a moment later).
+// The host can take back an invite that is still waiting, with the × on its row (TakeBackInvite), and the person leaves the list.
 // Once the session has started the page still opens. The host can invite while the group is locating or voting (the data
 // layer allows it, and the header's Invite button already does), and when a confirmed plan is left with too few people.
 // Otherwise (a confirmed plan with enough people, a finished or cancelled session, or anyone but the host) the page lists
@@ -30,6 +31,7 @@ import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import InviteByUsername from '@/components/group/InviteByUsername.vue'
 import RemoveMember from '@/components/group/RemoveMember.vue'
+import TakeBackInvite from '@/components/group/TakeBackInvite.vue'
 import ShareLink from '@/components/group/ShareLink.vue'
 import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
 import { watchSessions } from '@/lib/api.js'
@@ -164,7 +166,7 @@ function done() {
       <SkeletonRow v-for="n in 4" :key="n" avatar />
     </div>
 
-    <!-- A shared session: invite with a link or a username. The list shows who is in, and the host can remove a guest. -->
+    <!-- A shared session: invite with a link or a username. The list shows who is in, and the host can remove a guest or take back an invite. -->
     <div v-else-if="session.remote" class="screen__body">
       <BannerNote v-if="!access.open" icon="info">{{ access.text }}</BannerNote>
       <section class="invite card" aria-labelledby="invite-in">
@@ -195,6 +197,7 @@ function done() {
               <span v-else-if="isInvited(person.id)" class="invite__tag invite__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
               <span v-else class="invite__tag"><AppIcon name="check" :size="14" />Joined</span>
               <RemoveMember v-if="mine && !person.host && !isInvited(person.id)" :session-id="session.id" :person="person" />
+              <TakeBackInvite v-if="mine && !person.host && isInvited(person.id)" :session-id="session.id" :person="person" remote />
             </li>
           </ul>
         </section>
@@ -280,6 +283,7 @@ function done() {
               <span v-if="person.host" class="invite__tag invite__tag--host"><AppIcon name="crown" :size="14" />Host</span>
               <span v-else-if="isInvited(person.id)" class="invite__tag invite__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
               <span v-else class="invite__tag"><AppIcon name="check" :size="14" />Joined</span>
+              <TakeBackInvite v-if="mine && !person.host && isInvited(person.id)" :session-id="session.id" :person="person" />
             </li>
           </ul>
         </section>
