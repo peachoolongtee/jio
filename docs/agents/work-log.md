@@ -1725,3 +1725,16 @@ The lead said "review faith's PRs too". The lead's session merged each with `dev
 | Design review of the clash popup | design-reviewer (read-only) | `review/pr-189` | `ClashDialog.vue` and its use on Create and Join, against `DESIGN.md`. |
 
 The lead's session runs `db/tests/no_clashing_meetups.sql` with the migration on the live project in a transaction that rolls back. The migration is applied only at the lead's word.
+
+**Results of round 42 for #194 and #195** (`review/pr-194-195`, `6c352c6`, merged into `dev`).
+- **#194 is sound.**
+  - The re-check after the planner answers closes the race in the local path.
+  - A real account cannot list a place twice: the `slot_options` primary key `(slot_id, venue_id)`, the `on conflict` in `apply_session_plan`, and the server's own `addOption` check each stop it.
+  - Minor and left: other changes made during the wait (a deleted category, a status change) are not re-checked in the local path.
+- **#195 had one major finding**, confirmed and fixed by an implementer: the name fallback (a drink word in the name makes a drink) ran for any place no type matched, so a searched "Tea Tree Medical Clinic" typed `doctor` or a "Coffee Museum" became a drink. It now runs only when Google gave no usable type, either none or only `point_of_interest`/`establishment`, with tests. The test names are now plainly invented, with no branch addresses.
+- **A behaviour change to know:** a place whose main Google type is `cafe`, `coffee_shop` or `tea_house` is a drink even with bakery or dessert types (a bakery-café moves from Eat to Drink). Drinks are not filtered for dietary needs except halal keeping bars out, so a halal group now sees such a café as a drink, which is #107's "cafés stay".
+- **Checked by the lead's session:**
+  - backend 2025 passed, 2 skipped, also with outbound calls blocked;
+  - frontend 2753 passed under `TZ=UTC`;
+  - build exit 0;
+  - e2e 15 passed.
