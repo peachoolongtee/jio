@@ -33,7 +33,11 @@ const MARKET_TYPES = ['market'];
 // Google types that make a place somewhere to drink (a cafe, a tea shop, a juice bar). A place whose MAIN type is one of these is a
 // drink even when it also carries a dessert type (an ice cream and bubble tea shop such as Mixue).
 const DRINK_TYPES = ['cafe', 'coffee_shop', 'tea_house', 'cat_cafe', 'tea_store', 'coffee_store', 'juice_shop'];
+// Google's catch-all types, on nearly every place and saying nothing about what it is. A place with only these (or no type at all)
+// has no usable type.
+const GENERIC_TYPES = ['point_of_interest', 'establishment'];
 // The last resort for a place Google gave no usable type at all (some listings come back with none, such as one Each-A-Cup): its name.
+// It is never asked for a place Google did type, so a clinic with "Tea" in its name or a museum with "Coffee" in its name is not a drink.
 // Tea, coffee, juice and boba words, and the bubble tea and coffee chains found around Singapore.
 const DRINK_NAME = /\b(bubble tea|boba|teas?|coffee|kopi|juice|each[- ]a[- ]cup|liho|koi|gong ?cha|playmade|tiger sugar|chagee|heytea|the alley|bober|chicha|sharetea|tealive|milksha|r&b)\b/i;
 
@@ -123,8 +127,8 @@ function kindOf(place, { searched = false } = {}) {
   if (has('store', 'clothing_store', 'shoe_store', 'book_store', 'electronics_store', 'gift_shop', 'jewelry_store', 'home_goods_store', 'furniture_store', 'sporting_goods_store')) return { category: 'shop', kind: 'mall', cuisine: 'store' };
   // Nothing says food, drink or shopping. Only a place someone searched for by name gets here; the nearby search asks
   // Google for Jio's own types. A searched place is something to do (a climbing gym, a museum, a park) only when
-  // Google types it as an outing; a bank or a clinic is not.
-  if (DRINK_NAME.test(place.displayName?.text ?? place.name ?? '')) return { category: 'drink', kind: 'cafe', cuisine: 'cafe' };
+  // Google types it as an outing; a bank or a clinic is not. A place with no usable type is a drink when its name says so.
+  if (types.every(t => GENERIC_TYPES.includes(t)) && DRINK_NAME.test(place.displayName?.text ?? place.name ?? '')) return { category: 'drink', kind: 'cafe', cuisine: 'cafe' };
   const fallback = { category: 'activity', kind: 'attraction', cuisine: place.primaryType ?? 'attraction' };
   return searched && !has(...OUTING_TYPES) ? { ...fallback, notAnOuting: true } : fallback;
 }
