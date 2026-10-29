@@ -1789,3 +1789,10 @@ The lead's session runs `db/tests/no_clashing_meetups.sql` with the migration on
   - rows are unchanged (7 sessions, 5 users, 10 members, 6 invites).
 - **Not run on the live project before applying:** six of the eight `db/tests` files (PGlite only).
 - **After applying, the lead ran the other six `db/tests` on the live project** in the SQL editor, each with the clash migration installed and rolled back. They are `apply_session_plan`, `invites_access`, `meeting_spots_access`, `session_meet_by_access`, `session_plan_access` and `slot_details_access`. All passed. All eight database tests have now passed on the live project with the rule.
+
+## Round 43: the UAT of 29 October, items 1, 3 and 4 (2026-10-30)
+
+Darryl's UAT file (`uat-2026-10-29/uat-feedback.md`, outside the repo) on branch `fix/uat-2026-10-29`. Items 7 and 2 were built in the session itself and pushed (`0e8ff5f`, `cb63025`). Items 5, 6 and 8 need a database change and wait for the lead. Three frontend agents, each in its own worktree on separate files, commit to their own branches; the session merges each into `fix/uat-2026-10-29`, takes a screenshot, and pushes only at Darryl's word.
+- **Item 3, take back a pending invite:** a × with a confirm on each "Invited" row for the host, on the Invite page and the session page. A real account revokes the personal invitation (`invites.revoked`, which `invites_update_host` already allows); the demo drops the pending member.
+- **Item 1, vouchers used or expired:** "Mark as used" with a confirm, a greyed "Used" group with the date, and "Valid until" with an Expired look after it. Browser storage, as the rest of Rewards.
+- **Item 4, "Works for me" in the map pin's popup on Locate:** the same rules and the same call as the list's toggle.
