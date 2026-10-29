@@ -1777,3 +1777,14 @@ The lead's session runs `db/tests/no_clashing_meetups.sql` with the migration on
   - build exit 0;
   - e2e 30 of 30 with `--repeat-each=2`.
 - **Left as it is:** `assertFree` reads the person's whole session list before each create, edit and rejoin; the database stays the real guard.
+
+**The clash migration applied (2026-10-29).** The lead read the session's check of the migration and said "apply".
+- **Before:** the live functions and triggers were as recorded. `apply_session_plan` `c2b499a…`, `guard_session_changes` `1235eb7…`, `sessions_guard_future_start` `727e061…` and `join_session` `1cc9bf0…`; no clash objects; no person in two overlapping meetups.
+- **Applied with the Supabase connection's `apply_migration`**, from the file on `dev` unchanged. It is recorded as `20261029032155 jio_no_clashing_meetups`.
+- **After:**
+  - the three new functions match the file's bodies by md5, are security definer, and have `search_path=""`;
+  - the triggers are `session_members_guard_clash` and `sessions_hold_time_clash`;
+  - `meetup_clash` cannot be run by `anon` or `authenticated` (only `service_role`);
+  - the four existing functions are unchanged;
+  - rows are unchanged (7 sessions, 5 users, 10 members, 6 invites).
+- **Not run on the live project before applying:** six of the eight `db/tests` files (PGlite only).
