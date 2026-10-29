@@ -17,6 +17,7 @@ import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
 import { dueEnding, earnsCoins, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
+import { dayLabel, validUntilOf, voucherState, voucherValidUntil } from './vouchers.js'
 import { combineWeather, stateOf, venueSetting, weatherFrom } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
@@ -4935,9 +4936,27 @@ export async function listRewards() {
   return clone(REWARDS)
 }
 
+// Every voucher the signed-in person claimed, newest first, each with its reward and its last day (`validUntil`, worked out from
+// the claim for a voucher claimed before claims carried one). `usedAt` is there once it was marked as used.
+// How to call: await listRedemptions() -> [{ id: 'v3', code: 'JIO-AB12-CD34', at, validUntil: '2026-11-29', reward }]
 export async function listRedemptions() {
   await wait(DELAY.read)
-  return clone(db.redemptions).map((r) => ({ ...r, reward: REWARDS.find((x) => x.id === r.rewardId) }))
+  return clone(db.redemptions).map((r) => ({ ...r, validUntil: validUntilOf(r), reward: REWARDS.find((x) => x.id === r.rewardId) }))
+}
+
+// Marks a claimed voucher as used, today. Refused when it is already used or past its last day.
+// How to call: await markVoucherUsed('v3') -> { id: 'v3', usedAt: 1793325600000, ... }
+export async function markVoucherUsed(redemptionId) {
+  await wait(DELAY.write)
+  requireMe()
+  const redemption = db.redemptions.find((r) => r.id === redemptionId)
+  if (!redemption) throw new Error('This voucher is not one of yours.')
+  const state = voucherState(redemption)
+  if (state === 'used') throw new Error('This voucher is already marked as used.')
+  if (state === 'expired') throw new Error(`This voucher expired: it was valid until ${dayLabel(validUntilOf(redemption))}.`)
+  redemption.usedAt = Date.now()
+  emit({ type: 'stats' })
+  return { ...clone(redemption), validUntil: validUntilOf(redemption), reward: clone(REWARDS.find((x) => x.id === redemption.rewardId)) }
 }
 
 export async function redeemReward(rewardId) {
@@ -4948,7 +4967,9 @@ export async function redeemReward(rewardId) {
   if (stats.points < reward.cost) throw new Error(`You need ${coins(reward.cost - stats.points)} more for this voucher.`)
   stats.points -= reward.cost
   const code = `JIO-${Math.random().toString(36).slice(2, 6).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
-  const redemption = { id: `v${db.seq++}`, rewardId, code, at: Date.now() }
+  const now = Date.now()
+  // The last day it can be used goes in with the claim (lib/vouchers.js says how long).
+  const redemption = { id: `v${db.seq++}`, rewardId, code, at: now, validUntil: voucherValidUntil(now) }
   db.redemptions.unshift(redemption)
   emit({ type: 'stats' })
   return { ...redemption, reward: clone(reward), points: stats.points }

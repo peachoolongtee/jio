@@ -80,6 +80,14 @@ export const useGroupsStore = defineStore('groups', () => {
     return redemption
   }
 
+  // Marks a claimed voucher as used, then reads the vouchers again so it moves to "Used".
+  // How to call: await markUsed('v3')
+  async function markUsed(redemptionId) {
+    const used = await api.markVoucherUsed(redemptionId)
+    await loadRewards()
+    return used
+  }
+
   // A profile that cannot be read again (the person is not in this account's world any more, for example after another
   // account signed in) is dropped instead of being kept or thrown at nobody.
   // How to call: reloadProfiles()
@@ -130,5 +138,5 @@ export const useGroupsStore = defineStore('groups', () => {
     if (event.type === 'session' && Object.keys(profiles.value).length) reloadProfiles()
   })
 
-  return { people, leaderboard, season, profiles, rewards, redemptions, loading, me, friends, suggested, nameOf, loadPeople, loadLeaderboard, loadSeason, loadProfile, loadRewards, setFriend, redeem }
+  return { people, leaderboard, season, profiles, rewards, redemptions, loading, me, friends, suggested, nameOf, loadPeople, loadLeaderboard, loadSeason, loadProfile, loadRewards, setFriend, redeem, markUsed }
 })
