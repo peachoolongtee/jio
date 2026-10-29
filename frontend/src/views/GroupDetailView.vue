@@ -24,6 +24,7 @@ import UserAvatar from '@/components/ui/UserAvatar.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
 import SegmentedProgress from '@/components/ui/SegmentedProgress.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
+import ClashDialog from '@/components/group/ClashDialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
@@ -47,6 +48,7 @@ import { watchSessions } from '@/lib/api.js'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
 import { directionsUrl } from '@/lib/maps.js'
 import { locateNext } from '@/lib/session.js'
+import { useReturnFocus } from '@/lib/useReturnFocus.js'
 import { guestLine, hostPendingLine } from '@/lib/startChoice.js'
 import { TRAVEL_TONES } from '@/lib/planner/travel.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -257,8 +259,28 @@ const waiting = computed(() => (session.value ? waitingFor(session.value) : []).
 const isHost = computed(() => !!session.value && session.value.hostId === auth.user?.id)
 // The signed-in person opted out of this shared session: they keep their place in it and can come back.
 const optedOut = computed(() => !!session.value?.remote && (session.value.members || []).some((m) => m.id === auth.myId && m.state === 'opted_out'))
+// The meetup in the way when coming back would put the person in two at once (the popup).
+const rejoinClash = ref(null)
+const showRejoinClash = ref(false)
+// Rejoin is disabled while it runs, so it hands focus back when the popup closes.
+const { remember: rememberRejoin } = useReturnFocus(showRejoinClash)
 // Come back after opting out. How to call: rejoin()
-const rejoin = () => run(() => events.rejoin(props.id))
+async function rejoin() {
+  busy.value = true
+  error.value = ''
+  try {
+    await events.rejoin(props.id)
+  } catch (e) {
+    if (e?.code === 'schedule_clash') {
+      rejoinClash.value = e.clash || null
+      showRejoinClash.value = true
+    } else {
+      error.value = e.message
+    }
+  } finally {
+    busy.value = false
+  }
+}
 const skipOpen = ref(false)
 const skipTarget = ref(null)
 function askSkip(person) {
@@ -458,7 +480,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 
             <BannerNote v-if="optedOut && ['inviting', 'locating', 'voting'].includes(status)" icon="info">
               You opted out of this session, so your trips are not counted.
-              <template #actions><AppButton small variant="secondary" :disabled="busy" @click="rejoin">Rejoin</AppButton></template>
+              <template #actions><AppButton small variant="secondary" :disabled="busy" @click="rememberRejoin($event); rejoin()">Rejoin</AppButton></template>
             </BannerNote>
 
             <section class="section card" aria-label="People">
@@ -515,6 +537,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
     </footer>
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
+    <ClashDialog v-model:open="showRejoinClash" :clash="rejoinClash" mode="join" />
     <ModalDialog
       v-model:open="skipOpen"
       :title="sharedSession ? removeTitle(skipTarget?.name) : `Continue without ${skipTarget?.name || 'them'}?`"

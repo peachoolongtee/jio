@@ -182,6 +182,8 @@ const CODE_WORDS = {
 // How to call: throw problem(err, { host_only: WORDS.hostOnlyRemove })
 export function problem(err, words = {}) {
   const code = typeof err?.code === 'string' ? err.code : undefined
+  // The server refused a rejoin that would put the person in two meetups at once, and names the other one in `clash`.
+  if (code === 'schedule_clash') return clashFromServer(err)
   const message = (code && (words[code] || CODE_WORDS[code])) || err?.message || WORDS.notSaved
   return Object.assign(new Error(message), { code }, Number.isInteger(err?.status) ? { status: err.status } : {})
 }
@@ -206,6 +208,17 @@ function clashFrom(error) {
   }
 }
 
+// The refusal for a clash as the Jio server answers it ({ error: 'schedule_clash', clash: { id, title, date, start, end } }), as a
+// ClashError, or as a plain error with the same code when the answer names no meetup.
+// How to call: clashFromServer({ code: 'schedule_clash', clash: { id: 's1', title: 'Dinner', date: '2026-10-28', start: '19:00', end: '21:00' } })
+function clashFromServer(err) {
+  const found = err?.clash
+  const made = found && typeof found.title === 'string'
+    ? new ClashError({ id: found.id ?? null, title: found.title, date: found.date, start: hhmm(found.start), end: hhmm(found.end) })
+    : Object.assign(new Error('You already have a meetup at that time.'), { code: 'schedule_clash' })
+  return Object.assign(made, Number.isInteger(err?.status) ? { status: err.status } : {})
+}
+
 // A failed call as an Error with a sentence fit to show, and the database's code kept on `code`.
 // How to call: throw plain(error, WORDS.notSaved)
 export function plain(error, fallback = WORDS.notSaved) {
@@ -220,7 +233,7 @@ export function plain(error, fallback = WORDS.notSaved) {
   else if (code === '28000') message = WORDS.signedOut
   // The database refuses a time the person already has a meetup at, and names it in `details` as JSON.
   else if (code === 'P0001' && error?.hint === 'schedule_clash') return clashFrom(error)
-  else if (code === 'P0001' && error?.hint === 'member_clash') message = WORDS.memberClash
+  else if (code === 'P0001' && error?.hint === 'member_clash') return Object.assign(new Error(WORDS.memberClash), { code: 'member_clash' })
   else if (code === '23505') message = /one_live_link/.test(text) ? 'This session already has a link. Reload to see it.' : WORDS.alreadyInvited
   // The database refuses a day or start that has passed with its own sentence, written for people; any other check is not.
   else if (code === '23514') message = /^(That day has passed\.|That start time has already passed today\.)$/.test(text) ? text : 'That is not allowed. Check the title, day and times.'

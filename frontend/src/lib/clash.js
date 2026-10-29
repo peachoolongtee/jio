@@ -4,6 +4,8 @@
 // The database holds the same rule (db/migrations/20261028000000_jio_no_clashing_meetups.sql), so this file is the early,
 // friendly answer and the database is the one that cannot be skipped.
 
+import { format, parseISO } from 'date-fns'
+
 // The states of a session in which its time is still held for the people in it.
 export const HOLDING = ['inviting', 'locating', 'voting', 'confirmed']
 
@@ -41,4 +43,19 @@ export function findClash(sessions, { me, date, start, end, excludeId = null }) 
       overlaps(s.start, s.end, start, end),
   )
   return found ? { id: found.id, title: found.title, date: found.date, start: found.start, end: found.end } : null
+}
+
+// Where a meetup falls, in words for a sentence: "from 19:00 to 21:00 on Sat 10 Oct". Whatever is missing is left out.
+// How to call: clashWhen({ date: '2026-10-10', start: '19:00', end: '21:00' }) -> 'from 19:00 to 21:00 on Sat 10 Oct'
+export function clashWhen({ date, start, end } = {}) {
+  const times = start && end ? `from ${start} to ${end}` : ''
+  const day = date ? `on ${format(parseISO(date), 'EEE d MMM')}` : ''
+  return [times, day].filter(Boolean).join(' ')
+}
+
+// Cuts a meetup's title to fit a button, with an ellipsis; the full title stays in the sentence above it.
+// How to call: shortTitle('A very long title for a Saturday afternoon') -> 'A very long title for a…'
+export function shortTitle(title, max = 24) {
+  const text = String(title ?? '').trim()
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text
 }

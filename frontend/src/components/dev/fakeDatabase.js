@@ -347,10 +347,12 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
   }
 
   // The trigger guards of db/migrations/20261028000000_jio_no_clashing_meetups.sql: a person cannot be in two meetups at the same
-  // time. Meetups hold their time while inviting, locating, voting or confirmed; back to back is fine; the server and the owner
-  // (no signed-in person) are let through. Throws P0001 with hint schedule_clash and the meetup in the way as JSON.
-  // How to call: guardClash(uid, { id, date, start_time, end_time })
+  // time. Meetups hold their time while inviting, locating, voting or confirmed; back to back is fine; the owner (no signed-in
+  // person) is let through, and the server is checked only when it brings an opted-out member back (apply_session_plan, op rejoin).
+  // Throws P0001 with hint schedule_clash and the meetup in the way as JSON.
   const HOLDING = ['inviting', 'locating', 'voting', 'confirmed']
+  // The first meetup the person is joined in that overlaps the session's day and times (leaving out the session itself), or undefined.
+  // How to call: clashOf(uid, { id: 's1', date: '2026-10-28', start_time: '19:00:00', end_time: '21:00:00' })
   function clashOf(user, session) {
     return tables.sessions.find(
       (s) =>
@@ -362,15 +364,20 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
         tables.session_members.some((m) => m.session_id === s.id && m.user_id === user && m.state === 'joined'),
     )
   }
-  function guardClash(as, session) {
-    if (!as || as === SERVICE || !HOLDING.includes(session.status)) return
-    const hit = clashOf(as, session)
+  // Refuses when `user` is already in a meetup that overlaps the session. How to call: refuseClash(uid, session)
+  function refuseClash(user, session) {
+    const hit = clashOf(user, session)
     if (hit) {
       throw new DbError('P0001', 'You already have a meetup at that time.', {
         hint: 'schedule_clash',
         details: JSON.stringify({ id: hit.id, title: hit.title, date: hit.date, start: hit.start_time, end: hit.end_time }),
       })
     }
+  }
+  // A signed-in person's own write. How to call: guardClash(uid, { id, status, date, start_time, end_time })
+  function guardClash(as, session) {
+    if (!as || as === SERVICE || !HOLDING.includes(session.status)) return
+    refuseClash(as, session)
   }
 
   // How to call: insertSession(uid, { host_id, title, date, start_time, end_time })
@@ -798,6 +805,12 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
         // The "with check": a host's update must leave the invite revoked, so a revoke cannot be undone.
         if (as !== SERVICE && next.revoked !== true) throw rlsRefused('invites')
       } else if (table === 'session_members') {
+        // The trigger session_members_guard_clash: a member becoming joined again (the server's rejoin, or a person's own write) must not
+        // be in another meetup then.
+        if (as && old.state !== 'joined' && next.state === 'joined') {
+          const target = tables.sessions.find((x) => x.id === next.session_id)
+          if (target && HOLDING.includes(target.status)) refuseClash(next.user_id, target)
+        }
         for (const column of ['start_area_id', 'end_area_id']) {
           if (next[column] != null && (typeof next[column] !== 'string' || next[column].length < 1 || next[column].length > 60)) throw new DbError('23514', `new row for relation "session_members" violates check constraint "session_members_${column}_check"`)
         }
@@ -979,6 +992,8 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
         changed = dropVotes((v) => v.user_id === user) || changed
       } else if (op.op === 'rejoin') {
         if (member?.state === 'opted_out') {
+          // The trigger session_members_guard_clash checks the server's rejoin too.
+          if (HOLDING.includes(s.status)) refuseClash(user, s)
           changeMember(member, { state: 'joined' })
           changed = true
         }

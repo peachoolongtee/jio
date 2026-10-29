@@ -77,14 +77,14 @@ export function fakeSessionsServer(database) {
   const eq = (col, value) => ({ col, op: 'eq', value })
 
   class Refusal extends Error {
-    constructor(status, error, message) {
+    constructor(status, error, message, extra = {}) {
       super(message)
       this.status = status
-      this.body = { error, message }
+      this.body = { error, message, ...extra }
     }
   }
-  const refuse = (status, error, message = error) => {
-    throw new Refusal(status, error, message)
+  const refuse = (status, error, message = error, extra = {}) => {
+    throw new Refusal(status, error, message, extra)
   }
 
   // Who is asking, and which session: a stranger gets 404, an opted-out person 403 where the route needs a joined one.
@@ -512,13 +512,23 @@ export function fakeSessionsServer(database) {
     },
     // E11
     async rejoin(user, id) {
+      // The member comes back; the database refuses it (the clash trigger) when they are in another meetup then, and the server
+      // answers 409 schedule_clash with that meetup.
+      const comeBack = async () => {
+        const answer = await write({ kind: 'update', table: 'session_members', values: { state: 'joined' }, filters: [eq('session_id', id), eq('user_id', user)] })
+        if (answer.error?.hint !== 'schedule_clash') return
+        const found = JSON.parse(answer.error.details)
+        refuse(409, 'schedule_clash', 'You are already in another meetup at that time.', {
+          clash: { id: found.id, title: found.title, date: found.date, start: String(found.start).slice(0, 5), end: String(found.end).slice(0, 5) },
+        })
+      }
       const { session, member } = load(user, id, { joined: false })
       if (member.state === 'joined') return { status: 200, body: { planVersion: session.plan_version, state: 'joined' } }
       if (session.status === 'voting') {
         const loadedVoting = { status: session.status, version: session.plan_version }
         let repriced
         const version = await apply(id, loadedVoting, async () => {
-          await write({ kind: 'update', table: 'session_members', values: { state: 'joined' }, filters: [eq('session_id', id), eq('user_id', user)] })
+          await comeBack()
           repriced = await repriceVoting(id, session)
         }, (v) => repriced.patch(v))
         return { status: 200, body: { planVersion: version, state: 'joined' } }
@@ -526,7 +536,7 @@ export function fakeSessionsServer(database) {
       if (!OPEN.includes(session.status)) refuse(409, 'wrong_status', 'The session has moved on.')
       const loaded = { status: session.status, version: session.plan_version }
       const version = await apply(id, loaded, async () => {
-        await write({ kind: 'update', table: 'session_members', values: { state: 'joined' }, filters: [eq('session_id', id), eq('user_id', user)] })
+        await comeBack()
         await relist(id)
       }, () => ({}))
       return { status: 200, body: { planVersion: version, state: 'joined' } }

@@ -4,7 +4,8 @@
 //     <AppButton block @click="confirm">Confirm plan</AppButton>
 //     <AppButton block variant="secondary" @click="showConfirm = false">Not yet</AppButton>
 //   </ModalDialog>
-// Put the safer choice first. It closes on the backdrop and the Escape key, and keeps Tab inside while it is open.
+// Put the safer choice first. It closes on the backdrop and the Escape key, and keeps Tab inside while it is open. A dialog with
+// `text` is described by it (aria-describedby), so a screen reader reads the sentence after the title.
 import { ref, useId } from 'vue'
 import { useFocusTrap } from '@/lib/useFocusTrap.js'
 
@@ -16,6 +17,7 @@ defineProps({
 const emit = defineEmits(['close'])
 
 const titleId = `modal-${useId()}`
+const textId = `${titleId}-text`
 const panel = ref(null)
 
 function close() {
@@ -32,10 +34,10 @@ const { onKeydown } = useFocusTrap(open, panel)
   <Transition name="modal">
     <div v-if="open" class="modal" @keydown.esc="close" @keydown="onKeydown">
       <button class="modal__scrim" type="button" tabindex="-1" aria-label="Close" @click="close" />
-      <section ref="panel" class="modal__panel" role="dialog" aria-modal="true" :aria-labelledby="titleId" tabindex="-1">
+      <section ref="panel" class="modal__panel" role="dialog" aria-modal="true" :aria-labelledby="titleId" :aria-describedby="text ? textId : undefined" tabindex="-1">
         <div class="modal__text">
           <h2 :id="titleId" class="display-sm">{{ title }}</h2>
-          <p v-if="text" class="body-md text-muted">{{ text }}</p>
+          <p v-if="text" :id="textId" class="body-md text-muted">{{ text }}</p>
         </div>
         <slot name="content" />
         <div class="modal__actions"><slot /></div>
@@ -62,6 +64,8 @@ const { onKeydown } = useFocusTrap(open, panel)
   outline: none;
 }
 .modal__text { display: flex; flex-direction: column; gap: var(--spacing-sm); }
+/* A long title in the text (a meetup's name) wraps instead of pushing the dialog wider. */
+.modal__text > * { overflow-wrap: anywhere; }
 .modal__actions { display: flex; flex-direction: column; gap: var(--spacing-md); }
 .modal { overflow-y: auto; }
 .modal__panel { max-height: calc(100dvh - var(--spacing-lg) * 2); overflow-y: auto; }

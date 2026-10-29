@@ -2996,9 +2996,14 @@ export async function optOut(id, personId) {
 
 // Rejoin a session of the server after opting out. The server allows it while inviting, locating and voting (the person comes back
 // without their votes, which opting out took); once the plan is confirmed it answers not_yet, and the person is told they cannot.
+// A meetup that overlaps another the person is in is refused with a ClashError, before anything is sent when the other is in the
+// list and by the server (409 schedule_clash, with the meetup in `clash`) when it is not; there is no rejoin in a session of this
+// browser, so this is for a real account only.
 // How to call: await rejoinSession('3b1f...')
 export async function rejoinSession(id) {
   needServer()
+  const { date, start, end } = newestRead.get(id)?.session ?? (await getSession(id))
+  await assertFree({ date, start, end }, { excludeId: id })
   await remote.rejoin(id)
   return afterServerWrite(id, 'session')
 }

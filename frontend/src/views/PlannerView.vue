@@ -49,6 +49,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InfoTag from '@/components/ui/InfoTag.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
+import ClashDialog from '@/components/group/ClashDialog.vue'
 import PopoverPanel from '@/components/ui/PopoverPanel.vue'
 import PriceTier from '@/components/ui/PriceTier.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
@@ -81,6 +82,7 @@ import { mealWindow, MEAL_WINDOWS } from '@/lib/planner/timeOfDay.js'
 import { isBehind } from '@/lib/stepNav.js'
 import { CANCEL_OUTING } from '@/lib/session.js'
 import { WORDS } from '@/lib/sessionsRemote.js'
+import { useReturnFocus } from '@/lib/useReturnFocus.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
@@ -153,6 +155,11 @@ const voting = computed(() => session.value?.status === 'voting')
 const shared = computed(() => !!session.value?.remote)
 const optedOut = computed(() => shared.value && (session.value.members || []).some((m) => m.id === auth.myId && m.state === 'opted_out'))
 const rejoining = ref(false)
+// The meetup in the way when coming back would put the person in two at once (the popup).
+const rejoinClash = ref(null)
+const showRejoinClash = ref(false)
+// Rejoin is disabled while it runs, so it hands focus back when the popup closes.
+const { remember: rememberRejoin } = useReturnFocus(showRejoinClash)
 // Come back after opting out. How to call: rejoin()
 async function rejoin() {
   rejoining.value = true
@@ -160,7 +167,12 @@ async function rejoin() {
   try {
     await events.rejoin(props.id)
   } catch (e) {
-    error.value = e.message
+    if (e?.code === 'schedule_clash') {
+      rejoinClash.value = e.clash || null
+      showRejoinClash.value = true
+    } else {
+      error.value = e.message
+    }
   } finally {
     rejoining.value = false
   }
@@ -668,7 +680,7 @@ async function keepDialog(e) {
 
       <BannerNote v-if="optedOut && ['voting'].includes(session.status)" icon="info" data-testid="opted-out">
         You opted out of this session, so you can't vote and your trips are not counted.
-        <template #actions><AppButton small variant="secondary" :disabled="rejoining" @click="rejoin">Rejoin</AppButton></template>
+        <template #actions><AppButton small variant="secondary" :disabled="rejoining" @click="rememberRejoin($event); rejoin()">Rejoin</AppButton></template>
       </BannerNote>
 
       <div v-if="!session.meeting || ['inviting', 'locating'].includes(session.status)" class="empty-wrap">
@@ -907,6 +919,8 @@ async function keepDialog(e) {
     <PlaceDetail v-if="reviewing" :place="reviewing.place" :reviews="reviewing.reviews" :outing="outingIds" :from="session.area.name" @close="closeReviews" />
 
     <DietaryConfirm v-if="plan" v-model:open="dietOpen" :mine="plan.myDietary || []" :others="plan.othersDietary || []" :dropped="plan.dietDropped || []" :busy="dietBusy" :error="dietError" @confirm="confirmDiet" />
+
+    <ClashDialog v-model:open="showRejoinClash" :clash="rejoinClash" mode="join" />
 
     <ModalDialog v-model:open="cancelOpen" :title="CANCEL_OUTING.title" :text="CANCEL_OUTING.text">
       <AppButton block variant="secondary" @click="cancelOpen = false">{{ CANCEL_OUTING.keep }}</AppButton>
