@@ -139,7 +139,7 @@ describe('real people in many sessions', () => {
     for (const [id, name] of [[UID9, 'Kim'], [UID8, 'Lee'], [UID7, 'Mo']]) fake.state.profiles[id] = { username: name.toLowerCase(), display_name: name, avatar_url: null }
     const first = await boot(fake)
     await first.api.signUp({ ...PROFILE })
-    for (const title of ['One', 'Two', 'Three']) await first.api.createSession({ ...SESSION, title })
+    for (const [i, title] of ['One', 'Two', 'Three'].entries()) await first.api.createSession({ ...SESSION, title, date: `2026-10-${11 + i}` })
     const key = `${STORAGE_KEY}:acct:uid-1`
     const saved = JSON.parse(first.storage.store[key])
     saved.sessions.forEach((s, i) => s.members.push({ id: [UID9, UID8, UID7][i], role: 'guest', state: 'joined' }))

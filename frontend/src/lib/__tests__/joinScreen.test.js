@@ -149,6 +149,21 @@ describe('a link, seen by someone signed in', () => {
     expect(host.user.id).toBeTruthy()
   })
 
+  it('opens a popup naming the meetup in the way when the person is already in one at that time, and does not join', async () => {
+    const { database, token } = await hostedSession({ title: 'Saturday lunch' })
+    const app = await open(database, OTHER)
+    await app.api.createSession({ ...SESSION, title: 'Kim\'s dinner', start: '19:00', end: '21:00', date: '2026-10-10' })
+    const { view } = await show(token)
+    await view.click(press(view, 'Join session'))
+    await until(() => view.has('[data-testid=clash-change]'))
+    const dialog = view.one('[role=dialog]')
+    expect(view.text(dialog)).toContain('You have a clashing meetup')
+    expect(view.text(dialog)).toContain('Kim\'s dinner')
+    expect(database.tables.session_members.filter((m) => m.role === 'guest')).toEqual([])
+    expect(view.has('[data-testid=join-problem]')).toBe(false)
+    expect(press(view, 'Join session')).toBeTruthy()
+  })
+
   it('says so under the button when the session is full, and keeps the button for another try', async () => {
     const { database, token } = await hostedSession()
     for (let i = 0; i < 29; i += 1) {

@@ -163,7 +163,7 @@ describe('a session planned by the backend', () => {
 describe('meeting spots planned by the backend', () => {
   it('lists the app\'s three, prices a member\'s suggestion the same way, and settles on the approved one', async () => {
     if (!(await api.getUser())) await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2004-03-18', homeAreaId: 'tampines' })
-    const { id } = await api.createSession({ title: 'Spots', date: '2026-10-10', start: '12:00', end: '20:00' })
+    const { id } = await api.createSession({ title: 'Spots', date: '2026-10-11', start: '12:00', end: '20:00' })
     await api.inviteFriends(id, ['jonathan', 'faith'])
     await api.startSession(id)
     await api.setLocation(id, HOST_ID, 'start', { areaId: 'tampines' })

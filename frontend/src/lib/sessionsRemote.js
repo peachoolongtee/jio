@@ -44,6 +44,7 @@
 // in milliseconds.
 // How to call: const remote = createSessionsRemote({ client: () => auth.dataClient(), me: () => currentUserId(), backend, now: Date.now })
 
+import { ClashError } from './clash.js'
 import { isUuid } from './peopleSource.js'
 import { fromMinutes, toMinutes } from './planner/format.js'
 
@@ -123,6 +124,7 @@ export const WORDS = {
   doesNotFit: 'That place does not fit this category.',
   hostRadius: 'Only the host can change how far to search.',
   hostSlots: 'Only the host can remove or bring back a category.',
+  memberClash: 'Someone in this meetup already has plans at that time. Pick another time.',
   rejoinClosed: "You can't rejoin once the plan is confirmed.",
   optOutClosed: "You can't opt out once the plan is confirmed.",
   // 409 no_meeting_area: voting is paused because nobody has shared where they start (the meeting area was taken away).
@@ -193,6 +195,17 @@ const hhmm = (time) => String(time ?? '').slice(0, 5)
 // How to call: pending({ revoked: false, declined_at: null, uses: 0, expires_at: '2026-10-20T00:00:00Z' }, Date.now()) -> true
 const pending = (invite, at) => !invite.revoked && invite.declined_at == null && invite.uses === 0 && Date.parse(invite.expires_at) > at
 
+// The refusal for a clashing meetup as a ClashError, from the database's error. When the details cannot be read it is still a clash,
+// worded without the name. How to call: clashFrom({ details: '{"title":"Dinner","date":"2026-10-28","start":"19:00","end":"21:00"}' })
+function clashFrom(error) {
+  try {
+    const found = JSON.parse(error.details)
+    return new ClashError({ id: found.id ?? null, title: found.title, date: found.date, start: hhmm(found.start), end: hhmm(found.end) })
+  } catch {
+    return Object.assign(new Error('You already have a meetup at that time.'), { code: 'schedule_clash' })
+  }
+}
+
 // A failed call as an Error with a sentence fit to show, and the database's code kept on `code`.
 // How to call: throw plain(error, WORDS.notSaved)
 export function plain(error, fallback = WORDS.notSaved) {
@@ -205,6 +218,9 @@ export function plain(error, fallback = WORDS.notSaved) {
   else if (code === 'P0002') message = WORDS.linkDead
   else if (code === 'P0001' && error?.hint === 'session_full') message = WORDS.full
   else if (code === '28000') message = WORDS.signedOut
+  // The database refuses a time the person already has a meetup at, and names it in `details` as JSON.
+  else if (code === 'P0001' && error?.hint === 'schedule_clash') return clashFrom(error)
+  else if (code === 'P0001' && error?.hint === 'member_clash') message = WORDS.memberClash
   else if (code === '23505') message = /one_live_link/.test(text) ? 'This session already has a link. Reload to see it.' : WORDS.alreadyInvited
   // The database refuses a day or start that has passed with its own sentence, written for people; any other check is not.
   else if (code === '23514') message = /^(That day has passed\.|That start time has already passed today\.)$/.test(text) ? text : 'That is not allowed. Check the title, day and times.'

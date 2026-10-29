@@ -122,7 +122,7 @@ describe('the events store', () => {
     const kim = await open(database, OTHER)
     const sam = await open(database, PROFILE)
     const a = await sam.api.createSession({ ...SESSION, title: 'A' })
-    const b = await sam.api.createSession({ ...SESSION, title: 'B' })
+    const b = await sam.api.createSession({ ...SESSION, title: 'B', date: '2026-10-11' })
     await sam.api.inviteByUsername(a.id, kim.user.id)
     await sam.api.inviteByUsername(b.id, kim.user.id)
     const again = await boot(kim.fake, {}, { shared: true })

@@ -217,7 +217,7 @@ describe('signing in with such a save', () => {
     expect(storage.store[key]).toBe(old)
     // The account works for this visit, in memory.
     expect((await api.listSessions()).map((s) => s.title)).toEqual(['ian'])
-    await api.createSession({ ...SESSION, title: 'Today' })
+    await api.createSession({ ...SESSION, title: 'Today', date: '2026-10-11' })
     expect(storage.store[key]).toBe(old)
   })
 

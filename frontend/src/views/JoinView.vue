@@ -16,6 +16,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
+import ClashDialog from '@/components/group/ClashDialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import JioLogo from '@/components/ui/JioLogo.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
@@ -33,6 +34,9 @@ const auth = useAuthStore()
 const phase = ref('loading')
 const preview = ref(null)
 const message = ref('')
+// The meetup in the way when joining would put the person in two at once (the popup).
+const clash = ref(null)
+const showClash = ref(false)
 const joining = ref(false)
 const problem = ref('')
 // The session found when the person was already in it.
@@ -100,6 +104,9 @@ async function join() {
     if (e?.code === 'P0002') {
       phase.value = 'unusable'
       message.value = WORDS.linkDeadWhy
+    } else if (e?.code === 'schedule_clash') {
+      clash.value = e.clash || null
+      showClash.value = true
     } else {
       problem.value = e?.message || WORDS.notSaved
     }
@@ -156,6 +163,7 @@ async function join() {
         <AppButton v-else-if="!notReal" next block :disabled="joining" @click="join">{{ joining ? 'Joining' : 'Join session' }}</AppButton>
       </footer>
     </template>
+    <ClashDialog v-model:open="showClash" :clash="clash" />
   </main>
 </template>
 
