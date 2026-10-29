@@ -1,7 +1,7 @@
 <script setup>
 // The small weather mark on a stop or an option: words and an icon, in a neutral tag, or the warning tone for the rain warning
 // (an exposed stop with rain likely). Never colour alone: the label says what it is ("Dry", "Showers", "Indoor", "Outdoor,
-// thundery showers", "Not known"). NEA's own phrase, or why the stop is flagged, follows the label for a screen reader only.
+// thundery showers", "Weather is checked from the day before"). NEA's own phrase, or why the stop is flagged, follows the label for a screen reader only.
 //   <WeatherMark :mark="stopMark(stop.weather, venueSetting(stop.venue))" />
 // `mark` comes from lib/weatherText.js (stopMark for the itinerary, optionMark for the voting cards and Roam).
 import InfoTag from '../ui/InfoTag.vue'

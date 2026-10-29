@@ -9,7 +9,7 @@
 // The name can take focus from code (tabindex -1), for example to land on the next stop after one is deleted.
 // `warning` shows a short error-red line, for example "Closed at 15:00" after the stops were rearranged.
 // `banner` shows the photo as a wide strip above the details instead of a thumbnail beside them.
-// `mark` is the weather mark under the place's line ("Dry", "Outdoor, showers", "Indoor", "Not known"), from stopMark in
+// `mark` is the weather mark under the place's line ("Dry", "Outdoor, showers", "Indoor", "Weather is checked from the day before"), from stopMark in
 // lib/weatherText.js; without it the card shows no weather.
 import AppIcon from '../ui/AppIcon.vue'
 import CategoryIcon from '../ui/CategoryIcon.vue'

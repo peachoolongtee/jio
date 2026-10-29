@@ -98,7 +98,7 @@ describe('the mark on a stop and on a card', () => {
     const marked = mount(StopCard, { ...props, mark: stopMark({ state: 'thundery', rainLikely: true }, { exposed: true }) })
     expect(marked.text()).toContain('Outdoor, thundery showers')
     expect(mount(StopCard, props).all('', 'Outdoor').length).toBe(0)
-    expect(mount(StopCard, props).all('', 'Not known').length).toBe(0)
+    expect(mount(StopCard, props).all('', 'Weather').length).toBe(0)
   })
 })
 

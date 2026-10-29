@@ -6,6 +6,7 @@ import {
   SIMULATED_TEXT,
   STATES,
   UNAVAILABLE_TEXT,
+  unknownLabel,
   combineWeather,
   exposureOf,
   forecastIsCurrent,
@@ -30,13 +31,13 @@ const INDOOR = { indoor: true, exposed: false }
 const SHELTERED = { indoor: false, exposed: false }
 
 describe('the five states', () => {
-  it('are Dry, Cloudy, Showers, Thundery showers and Not known, each with an icon', () => {
+  it('are Dry, Cloudy, Showers, Thundery showers and Weather not known, each with an icon', () => {
     expect(Object.keys(STATES)).toEqual(['dry', 'cloudy', 'showers', 'thundery', 'unknown'])
-    expect(Object.values(STATES).map((s) => s.label)).toEqual(['Dry', 'Cloudy', 'Showers', 'Thundery showers', 'Not known'])
+    expect(Object.values(STATES).map((s) => s.label)).toEqual(['Dry', 'Cloudy', 'Showers', 'Thundery showers', 'Weather not known'])
     for (const s of Object.values(STATES)) expect(s.icon).toBeTruthy()
   })
 
-  it('read a state the backend sent, and anything else as Not known: never a crash, never blank', () => {
+  it('read a state the backend sent, and anything else as unknown: never a crash, never blank', () => {
     expect(stateOf('thundery')).toBe('thundery')
     for (const odd of ['hail', '', undefined, null, 7, {}, 'constructor', '__proto__', 'toString']) expect(stateOf(odd)).toBe('unknown')
   })
@@ -48,7 +49,7 @@ describe('the mark on a stop', () => {
     ['cloudy', 'Cloudy'],
     ['showers', 'Showers'],
     ['thundery', 'Thundery showers'],
-    ['unknown', 'Not known'],
+    ['unknown', 'Weather is checked from the day before'],
   ])('says %s as "%s" in words with an icon, in the neutral tone, when rain does not matter', (state, label) => {
     const mark = stopMark({ state, rainLikely: false }, SHELTERED)
     expect(mark.label).toBe(label)
@@ -84,9 +85,21 @@ describe('the mark on a stop', () => {
   it('is never the warning tone for a state the backend did not send, or for no weather at all', () => {
     for (const weather of [undefined, null, {}, { state: 'hail' }, { state: 'unknown', rainLikely: false }]) {
       const mark = stopMark(weather, EXPOSED)
-      expect(mark.label).toBe('Not known')
+      expect(mark.label).toBe('Weather is checked from the day before')
       expect(mark.tone).toBe('neutral')
     }
+  })
+
+  it('says why the weather is not known: beyond the forecast, not fetched, or a state the backend did not name', () => {
+    const outside = { state: 'unknown', source: 'none', basis: 'none', reason: 'outside_window' }
+    const down = { state: 'unknown', source: 'unavailable', basis: 'none', reason: 'unavailable' }
+    expect(stopMark(outside, SHELTERED).label).toBe('Weather is checked from the day before')
+    expect(stopMark(down, SHELTERED).label).toBe('Weather is not available right now')
+    expect(stopMark({ state: 'hail', source: 'live' }, SHELTERED).label).toBe('Weather not known')
+    // A stop with no weather of its own reads the screen's block.
+    expect(stopMark(null, { ...SHELTERED, block: { source: 'unavailable', reason: 'unavailable' } }).label).toBe('Weather is not available right now')
+    expect(stopMark(outside, { ...SHELTERED, block: { source: 'unavailable', reason: 'unavailable' } }).label).toBe('Weather is checked from the day before')
+    expect(unknownLabel(undefined)).toBe('Weather is checked from the day before')
   })
 
   it('puts NEA\'s own phrase in the words for a screen reader, not in the label', () => {
@@ -114,7 +127,7 @@ describe('the mark on a card on the voting page and in Roam', () => {
   })
 
   it('warns whatever state it was given, since a warning means rain is likely', () => {
-    expect(optionMark({ warnings: ['rain'], weather: { state: 'unknown', rainLikely: false } })).toMatchObject({ tone: 'warning', label: 'Outdoor, not known' })
+    expect(optionMark({ warnings: ['rain'], weather: { state: 'unknown', rainLikely: false } })).toMatchObject({ tone: 'warning', label: 'Outdoor, rain expected' })
   })
 })
 
