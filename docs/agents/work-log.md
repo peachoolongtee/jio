@@ -1738,3 +1738,19 @@ The lead's session runs `db/tests/no_clashing_meetups.sql` with the migration on
   - frontend 2753 passed under `TZ=UTC`;
   - build exit 0;
   - e2e 15 passed.
+
+**Round 42, #189 before the fixes.**
+- **The lead's session ran `db/tests/no_clashing_meetups.sql` on the live project, rolled back.**
+  - It stopped at step 10 on the test's own check: Postgres reports a missing detail as `''`, not null. The migration's refusal was correct.
+  - With that check corrected, 12 of 12 passed, and nothing was left behind (no functions or triggers; 7 sessions, 5 users, 10 members and 6 invites, as before).
+- **The branch's suites** (with `dev` before #199): backend 2024 passed, 2 skipped, also with outbound calls blocked; frontend 2766 passed; build exit 0; e2e 15 passed.
+- **The code review's two majors**, both confirmed:
+  - A real account's rejoin goes through `apply_session_plan` with the service key, so the trigger (`auth.uid() is null`) never checks it.
+  - The existing `db/tests/session_future_start.sql` makes two meetups for one host at the same time, so it fails with the migration in. Other `db/tests` may too.
+- **The design review's two majors:**
+  - "Change the time" on Join only closes the popup.
+  - `ModalDialog` has no `aria-describedby`, so the sentence that names the meetup is not announced.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Fixes from all three reviews of #189 | implementer (full stack) | `review/pr-189` (with `dev` merged, `15a75f7`) | Delete the 46 stray copies. Check rejoin, in the database and on the server, and show the popup. Keep the older `db/tests` passing with the migration in, with "that day has passed" winning over a clash. Lock every member in a host's move. Fix test step 10 and add the missing steps. The Join popup's wording, `aria-describedby`, focus return, copy, and where the member-clash error sits. Tests and "How to call" comments. |
