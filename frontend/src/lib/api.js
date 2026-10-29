@@ -2509,8 +2509,9 @@ export async function updateSession(id, fields) {
 // no timer; the invite is accepted by the first read after it passes. The demo's showcase uses it to leave invites pending.
 // How to call: await inviteFriends('s1', ['faith'], { pending: true, acceptAfter: 7 * 24 * 60 * 60 * 1000 })
 export async function inviteFriends(id, personIds, { pending = false, acceptAfter = ACCEPT_AFTER } = {}) {
-  // A real account invites with a link or a username (inviteByUsername), never by picking sample friends.
-  if (onServer()) throw new Error('Invite people with a link or their username.')
+  // A real account's friends are the people it shares a session with (coMemberIds); each one picked gets the same invitation
+  // to them by name that the username search sends, and stays Invited until they answer it on Home.
+  if (onServer()) return inviteFriendsOnServer(id, personIds)
   await wait(DELAY.write)
   const session = sessionById(id)
   let at = Date.now() + acceptAfter
@@ -3092,6 +3093,24 @@ export async function searchPeople(text, { signal } = {}) {
   if (signal?.aborted) throw Object.assign(new Error('The search was cancelled.'), { name: 'AbortError' })
   const sample = PEOPLE.filter((p) => p.id !== (me() || HOST_ID)).map((p) => publicPerson(p.id))
   return rankPeople(sample.map((p) => ({ id: p.id, name: p.name, username: p.username, avatarUrl: p.photo })), term, { metIds: new Set(coMemberIds()), meId: me() })
+}
+
+// A real account's host invites friends by id, one invitation each, in the order picked. Only friends can be picked this way, so
+// a stranger is reached by username or the link. The ones before a refusal stay invited, and the session is read again either way
+// so the screen shows who is Invited. Resolves with the session as it is then.
+// How to call: await inviteFriendsOnServer('3b1f...', ['7f3c...', '9a2e...'])
+async function inviteFriendsOnServer(id, personIds) {
+  const friends = new Set(coMemberIds())
+  try {
+    for (const personId of personIds) {
+      if (!friends.has(personId)) throw new Error('Invite people you have not been out with by their username.')
+      await remote.invitePerson(id, personId)
+    }
+  } finally {
+    warmPeople(personIds)
+    broadcast({ type: 'session', sessionId: id })
+  }
+  return getSession(id)
 }
 
 // The host invites a person by id; they see it on Home. Resolves with the session as it is then.

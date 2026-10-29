@@ -7,8 +7,8 @@
 //   has no create button: the navbar has one.
 //   Then the meetup graph, and the signed-in person's sessions or the other person's recent activity. The sessions have
 //   time chips, All, Upcoming and Completed (lib/profileSessions.js), styled like the ones on Rewards. The signed-in
-//   person's own also lists Suggested people (anyone they are not friends with yet), each opening their profile, with
-//   "Add friend" in the sample world. These used to be on the invite page, which now shows friends only (ticket #121).
+//   person's own also lists their Friends (for a real account, the people they have shared a session with), then
+//   Suggested people (anyone they are not friends with yet), each opening their profile, with "Add friend" in the sample world. These used to be on the invite page, which now shows friends only (ticket #121).
 //   The signed-in person's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
 //   the demo" note, because other people's profiles are hand-written.
 //   Signing out of a local account (one that lives only in this browser) erases everything saved here, so its dialog
@@ -97,6 +97,9 @@ const ordinal = (n) => {
   const v = n % 100
   return n + (s[(v - 20) % 10] || s[v] || s[0])
 }
+// The signed-in person's friends: the ones they added (the demo and local accounts), or the people they have shared a session
+// with (a real account, ticket #125).
+const friends = computed(() => (isMe.value ? groups.friends : []))
 // People the signed-in person could add, at most six.
 const suggested = computed(() => (isMe.value ? groups.suggested.slice(0, 6) : []))
 const adding = ref('')
@@ -189,6 +192,24 @@ async function signOut() {
         <section class="card graph-card rise" style="--i: 1" aria-labelledby="graph-head">
           <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
           <MeetupGraph :history="person.history" :planned="person.planned" />
+        </section>
+
+        <!-- The signed-in person: their friends, opening each one's profile. -->
+        <section v-if="friends.length" class="section" aria-labelledby="friends-head" data-testid="profile-friends">
+          <div class="section__head">
+            <h2 id="friends-head" class="display-sm">Friends</h2>
+          </div>
+          <ul class="suggested">
+            <li v-for="p in friends" :key="p.id" class="suggested__row">
+              <RouterLink :to="`/people/${p.id}`" class="suggested__who">
+                <UserAvatar :name="p.name" :src="p.photo" :person="p.id" :size="44" />
+                <span class="stack suggested__text">
+                  <span class="title-sm truncate">{{ p.name }}</span>
+                  <span class="caption-sm text-muted truncate">@{{ p.username }}<template v-if="p.homeArea"> · {{ p.homeArea }}</template></span>
+                </span>
+              </RouterLink>
+            </li>
+          </ul>
         </section>
 
         <!-- The signed-in person: people they could add, opening each one's profile. -->

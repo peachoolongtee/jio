@@ -4,8 +4,9 @@
 //   <InviteDialog v-model:open="inviteOpen" :session="session" />
 // A search box, then friends (and, when searching, other people on Jio) who are not in the session yet, each
 // picked with a tap. At the bottom: how many are picked and Send invites. Invites are pending until each accepts.
-// A shared session (session.remote, a real account's) has no friends to pick: the popover holds the invite link and the
-// invite by username instead (ShareLink, InviteByUsername).
+// A shared session (session.remote, a real account's) lists its friends too, the people it has shared a session with (ticket
+// #125), with no search box: below them are the invite link and the invite by username (ShareLink, InviteByUsername), which
+// reach anyone else. Send invites shows only while there are friends to pick.
 import { computed, nextTick, ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
@@ -78,20 +79,16 @@ async function send() {
 
 <template>
   <PopoverPanel v-model:open="open" title="Invite friends" :width="380">
-    <template v-if="session.remote">
-      <ShareLink compact :session-id="session.id" :title="session.title" />
-      <InviteByUsername :session="session" />
-      <AppButton variant="tertiary" underline :to="`/sessions/${session.id}/invite`">All invite options</AppButton>
-    </template>
-    <template v-else>
-    <p class="body-sm text-muted">They join {{ session.title }} once they accept.</p>
-    <label class="invite__field">
-      <AppIcon name="search" :size="16" />
-      <input ref="search" v-model="query" type="search" placeholder="Search name or @username" aria-label="Search people" autocomplete="off" />
-    </label>
+    <template v-if="!session.remote">
+      <p class="body-sm text-muted">They join {{ session.title }} once they accept.</p>
+      <label class="invite__field">
+        <AppIcon name="search" :size="16" />
+        <input ref="search" v-model="query" type="search" placeholder="Search name or @username" aria-label="Search people" autocomplete="off" />
+      </label>
 
-    <p v-if="nobodyLeft" class="body-sm text-muted">Everyone you know is already in this session.</p>
-    <p v-else-if="!lists.length" class="body-sm text-muted">Nobody matches “{{ query.trim() }}”.</p>
+      <p v-if="nobodyLeft" class="body-sm text-muted">Everyone you know is already in this session.</p>
+      <p v-else-if="!lists.length" class="body-sm text-muted">Nobody matches “{{ query.trim() }}”.</p>
+    </template>
     <section v-for="list in lists" :key="list.id" class="invite__group" :aria-label="list.title">
       <h3 class="caption-sm text-muted">{{ list.title }}</h3>
       <ul class="invite__list">
@@ -108,9 +105,13 @@ async function send() {
       </ul>
     </section>
     <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
+    <template v-if="session.remote">
+      <ShareLink compact :session-id="session.id" :title="session.title" />
+      <InviteByUsername :session="session" />
+      <AppButton variant="tertiary" underline :to="`/sessions/${session.id}/invite`">All invite options</AppButton>
     </template>
 
-    <template v-if="!session.remote" #footer>
+    <template v-if="!session.remote || lists.length" #footer>
       <span class="caption text-muted tnum invite__count" aria-live="polite">{{ picked.length ? `${picked.length} selected` : '' }}</span>
       <AppButton small :disabled="!picked.length || busy" @click="send">Send invites</AppButton>
     </template>
