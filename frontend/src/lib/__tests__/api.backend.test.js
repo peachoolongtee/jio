@@ -99,6 +99,16 @@ describe('a session planned by the backend', () => {
     expect(after.options.find((o) => o.id === pick.id).venue.name).toBe(pick.name)
   })
 
+  it('lists a place once even when it is added twice at the same moment', async () => {
+    const eat = (await plan()).slots.find((s) => s.category === 'eat')
+    const results = await api.searchVenuesForSlot(id, eat.id, 'food stalls')
+    const pick = results.filter((r) => !r.unfit && !r.added).at(-2)
+    expect(pick).toBeTruthy()
+    await Promise.all([api.addOption(id, eat.id, pick.id), api.addOption(id, eat.id, pick.id)])
+    const after = (await plan()).slots.find((s) => s.id === eat.id)
+    expect(after.options.filter((o) => o.id === pick.id)).toHaveLength(1)
+  })
+
   it('refuses a place that does not fit the slot', async () => {
     const eat = (await plan()).slots.find((s) => s.category === 'eat')
     const [far] = await api.searchVenuesForSlot(id, eat.id, 'maxwell food centre')
