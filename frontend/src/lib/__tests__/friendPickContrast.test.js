@@ -25,8 +25,8 @@ const tint = (c, p) => c.map((v) => Math.round(v * p + 255 * (1 - p)))
 describe('contrast on the invite screens', () => {
   const list = read('../../components/group/FriendPickList.vue')
 
-  it("the streak pill's text reaches 4.5:1 on its 10% tint", () => {
-    const rule = list.match(/\.invite__streak \{[^}]*\}/)[0]
+  it("the outings-together pill's text reaches 4.5:1 on its 10% tint", () => {
+    const rule = list.match(/\.invite__together \{[^}]*\}/)[0]
     expect(rule).toContain('color-mix(in srgb, var(--primary) 10%, var(--canvas))')
     const colour = rule.match(/color: var\((--[a-z-]+)\)/)[1]
     expect(ratio(rgb(token(colour)), tint(rgb(token('--primary')), 0.1))).toBeGreaterThanOrEqual(4.5)
