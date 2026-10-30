@@ -63,7 +63,8 @@ export const WORDS = {
   // A demo account or a local account lives in this browser only; the invite functions are for a real account.
   needsAccount: 'Shared sessions need a Jio account. Log in with one.',
   started: "You can't leave once voting has started; ask the host to cancel.",
-  alreadyInvited: 'You have already invited that person.',
+  alreadyInvited: "You have already invited that person. Send them the session's link instead.",
+  inviteGone: 'That invite has already been answered. Reload to see who is in.',
   startedRemove: "You can't remove someone once voting has started; cancel the session instead.",
   // The server answers not_yet only for a confirmed plan (its itinerary is a later stage's work); voting is served.
   notYet: "That isn't possible once the plan is confirmed.",
@@ -481,6 +482,10 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
       createdAt: Date.parse(row.created_at),
       updatedAt: Date.parse(row.updated_at),
       members: [...joined, ...invited],
+      // Everyone the host has an invitation by name for, in any state (waiting, taken back, declined or used). The database keeps one
+      // per person per session, so none of them can be invited by name again (they can use the link). Only the host and the
+      // invitee read these rows, so for anyone else it is what they can see.
+      namedInvites: inviteRows.filter((i) => i.session_id === row.id && i.invitee_id).map((i) => i.invitee_id),
       planVersion: Number(row.plan_version) || 0,
       ...planningOf(row, memberRows, planning, me()),
       ...planOf(row, memberRows, planning),
@@ -766,6 +771,20 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   async function invitePerson(sessionId, personId) {
     const mine = who()
     answer(await db().from('invites').insert({ session_id: sessionId, created_by: mine, invitee_id: personId }).select('token').single(), WORDS.notSaved)
+  }
+
+  // The host takes back an invitation to one named person that is still waiting for an answer: it is turned off (revoked), so it
+  // leaves the invitee's list and the session's. The database keeps one invitation per person per session, so the same person cannot
+  // be invited by username again; they can still come in with the session's link. Rejects with a sentence when there was no waiting
+  // invitation to take back (it was answered a moment ago, or this is not the host).
+  // How to call: await revokeInvitation('3b1f...', '7f3c...')
+  async function revokeInvitation(sessionId, personId) {
+    who()
+    const rows = answer(
+      await db().from('invites').update({ revoked: true }).eq('session_id', sessionId).eq('invitee_id', personId).eq('revoked', false).eq('uses', 0).is('declined_at', null).select('token'),
+      WORDS.notSaved,
+    )
+    if (!rows.length) throw Object.assign(new Error(WORDS.inviteGone), { code: 'invite_gone' })
   }
 
   // ── What the person who opens a link or invitation does ──────────────────
@@ -1295,5 +1314,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, readPlan, readSlotVotes, suggestOrder, tripsHome, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, changeMeetingPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, preview, join, invitations, decline, removeMember, watch }
+  return { list, get, readPlan, readSlotVotes, suggestOrder, tripsHome, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, changeMeetingPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, revokeInvitation, preview, join, invitations, decline, removeMember, watch }
 }

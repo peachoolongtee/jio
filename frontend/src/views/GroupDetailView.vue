@@ -34,6 +34,7 @@ import SessionNotices from '@/components/event/SessionNotices.vue'
 import InviteDialog from '@/components/group/InviteDialog.vue'
 import LeaveSession from '@/components/group/LeaveSession.vue'
 import RemoveMember from '@/components/group/RemoveMember.vue'
+import TakeBackInvite from '@/components/group/TakeBackInvite.vue'
 import { removeText, removeTitle } from '@/components/group/removeCopy.js'
 import LocationSheet from '@/components/group/LocationSheet.vue'
 import MemberList from '@/components/group/MemberList.vue'
@@ -48,6 +49,7 @@ import { watchSessions } from '@/lib/api.js'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
 import { directionsUrl } from '@/lib/maps.js'
 import { locateNext } from '@/lib/session.js'
+import { takeBackNotice } from '@/lib/takeBackNotice.js'
 import { useReturnFocus } from '@/lib/useReturnFocus.js'
 import { guestLine, hostPendingLine } from '@/lib/startChoice.js'
 import { TRAVEL_TONES } from '@/lib/planner/travel.js'
@@ -353,6 +355,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 
     <div class="screen__body">
       <p class="sr-only" role="status">{{ announcement }}</p>
+      <p class="sr-only" role="status">{{ takeBackNotice }}</p>
       <SessionNotices :session="session" />
       <BannerNote v-if="approvalsBanner" icon="info" dismissible @dismiss="dismissBanner">{{ approvalsBanner.text }}</BannerNote>
       <!-- The host's choice of how to pick the meeting point, for a guest while the group is choosing where to meet. -->
@@ -372,7 +375,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
         </header>
 
         <div class="lobby__group">
-          <h3 class="caption text-muted">In this session <span class="tnum">· {{ lobby.length }}</span></h3>
+          <h3 id="lobby-members" class="caption text-muted" tabindex="-1">In this session <span class="tnum">· {{ lobby.length }}</span></h3>
           <ul class="lobby__list">
             <li v-for="(person, i) in lobby" :key="person.id" class="lobby__row rise" :class="{ 'is-pending': !person.joined }" :style="{ '--i': i }">
               <UserAvatar :name="person.name" :person="person.id" :size="44" />
@@ -384,6 +387,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
               <span v-else-if="person.joined" class="lobby__tag"><AppIcon name="check" :size="14" />Joined</span>
               <span v-else class="lobby__tag lobby__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
               <RemoveMember v-if="session.remote && status === 'inviting' && isHost && person.joined && !person.host" :session-id="session.id" :person="person" />
+              <TakeBackInvite v-if="status === 'inviting' && isHost && !person.joined && !person.host" :session-id="session.id" :person="person" :remote="!!session.remote" focus-id="lobby-members" />
             </li>
           </ul>
         </div>
@@ -502,7 +506,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
           </template>
           <template #map>
             <PlannerMap ref="mapRef" :people="mapPeople" :area="settled && !loading ? settled.area : null" :finding="loading" spokes :keep="settled ? [] : keepPoints" label="Meeting area map" @view="refreshPins" />
-            <SpotPins v-if="!settled && spotList.length" ref="pinsRef" :spots="spotList" :selected-id="shown || ''" :confirmed-id="confirmedId" :project="projectPoint" :names="nameOf" :my-id="myId" @select="picked = $event" />
+            <SpotPins v-if="!settled && spotList.length" ref="pinsRef" :spots="spotList" :session="session" :selected-id="shown || ''" :confirmed-id="confirmedId" :project="projectPoint" :names="nameOf" :my-id="myId" @select="picked = $event" />
             <div v-if="loading" class="map-wait map-wait--finding title-sm" role="status">Finding the meeting point… {{ Math.round(loadPct) }}%</div>
             <!-- Confirming the meeting spot, once it has taken 600 ms: a spinner over the map only (the list view says it on the buttons). -->
             <MapLoading />
@@ -586,11 +590,21 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 .lobby__held { margin: 0; }
 .leave { display: flex; justify-content: center; }
 @media (min-width: 744px) { .lobby__held { margin-right: auto; max-width: 56ch; } }
+/* Phones: the tag (Host, Joined, Invited) goes under the name, so the name keeps the room beside the 44px picture and the 44px ×. */
+@media (max-width: 479px) {
+  .lobby__row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; column-gap: var(--spacing-md); row-gap: 2px; padding: var(--spacing-xs) 0; }
+  .lobby__row > :deep(.avatar) { grid-row: 1 / span 2; align-self: center; }
+  .lobby__row > .lobby__who { grid-column: 2; grid-row: 1; align-self: end; }
+  .lobby__row > .lobby__tag { grid-column: 2; grid-row: 2; justify-self: start; align-self: start; height: 24px; padding: 0 8px; gap: 4px; }
+  .lobby__row > :deep(.icon-btn) { grid-column: 3; grid-row: 1 / span 2; align-self: center; }
+}
 .lobby__tag { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: var(--rounded-full); color: var(--body); font: var(--text-caption); }
 .lobby__tag--host { border-color: color-mix(in srgb, var(--primary) 35%, var(--canvas)); color: var(--primary-active); }
-/* Invited, not joined yet: a dashed tag and a faded row, until they accept. */
+/* Invited, not joined yet: a dashed tag, a faded picture and a softer name, until they accept. The text is never faded with opacity:
+   --body on white is 10.5:1 and the --muted line under it 5.4:1. */
 .lobby__tag--pending { border-style: dashed; color: var(--muted); }
-.lobby__row.is-pending .lobby__who, .lobby__row.is-pending :deep(.avatar) { opacity: 0.55; }
+.lobby__row.is-pending :deep(.avatar) { opacity: 0.55; }
+.lobby__row.is-pending .lobby__who .title-sm { color: var(--body); }
 /* Your route: a plain white card with two rows, start over end, like a ride's pickup and drop-off. A filled Rausch
    dot marks the start, an ink ring the end, and a dotted line joins them down the left. */
 .route { position: relative; display: flex; flex-direction: column; max-width: 560px; padding: var(--spacing-xs); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); background: var(--canvas); }

@@ -20,7 +20,7 @@ export const STATES = {
   cloudy: { label: 'Cloudy', icon: 'cloud' },
   showers: { label: 'Showers', icon: 'rain' },
   thundery: { label: 'Thundery showers', icon: 'thunder' },
-  unknown: { label: 'Not known', icon: 'info' },
+  unknown: { label: 'Weather not known', icon: 'info' },
 }
 
 // The words of the source line that are not "NEA forecast, 14:10".
@@ -53,7 +53,7 @@ function sourceOfBasis(basis, reason) {
 // One planner answer about one place as the weather object the data layer keeps. `result` is a ranking result's `weather`
 // ({ state, phrase, rainLikely }) or one stop of POST /api/weather/stops (the same fields, plus basis, issuedAt, validUntil
 // and reason). `block` is the answer's top-level `weather` block, for the fields a ranking result does not carry. Returns
-// null when there is nothing usable, so a screen shows "Not known".
+// null when there is nothing usable, so a screen says why the weather is not known (unknownLabel).
 // How to call: weatherFrom({ state: 'showers', phrase: null, rainLikely: true }, { source: 'live', basis: 'area', issuedAt: '...' })
 export function weatherFrom(result, block = null) {
   if (!result || typeof result !== 'object') return null
@@ -173,16 +173,37 @@ export function venueSetting(venue) {
   return { indoor, exposed: !indoor && exposure >= 2, exposure }
 }
 
+// The short words on a stop whose weather is not known, and the full reason that goes with them. The full sentence is said once,
+// in the source line under the stops (sourceLine); each stop carries only a short label, so a tag fits a narrow card.
+export const OUTSIDE_WINDOW_LABEL = 'Forecast later'
+export const UNAVAILABLE_LABEL = 'No forecast'
+
+// Why a stop's weather is not known, as a short label and the full reason. The stop's own source wins; a stop with none (an old
+// save, or a failed first check) reads the screen's block. With neither, the stop is outside the window, the usual reason, unless
+// it is on today's date: a forecast that is missing for a stop that day was not held back by the window, so nothing is claimed
+// ("Weather not known"). A live or simulated forecast with a state the backend did not name is "Weather not known" too.
+// `today` is true when the stop's day is Singapore's today.
+// How to call: unknownLabel({ source: 'none', reason: 'outside_window' }) -> { label: 'Forecast later', reason: 'Weather is checked from the day before' }
+export function unknownLabel(weather, block = null, { today = false } = {}) {
+  const own = weather?.source || weather?.reason ? weather : block
+  const kind = sourceLine(own).kind
+  if (kind === 'outside' && !today) return { label: OUTSIDE_WINDOW_LABEL, reason: OUTSIDE_WINDOW_TEXT }
+  if (kind === 'unavailable') return { label: UNAVAILABLE_LABEL, reason: UNAVAILABLE_TEXT }
+  return { label: STATES.unknown.label, reason: '' }
+}
+
 // The words and the look of the mark on one stop.
-//   label  what is shown ("Dry", "Showers", "Indoor", "Outdoor, thundery showers", "Not known")
+//   label  what is shown ("Dry", "Showers", "Indoor", "Outdoor, thundery showers", "Forecast later", "No forecast")
 //   tone   'warning' only for an exposed stop with rain likely (the rain warning); everything else is 'neutral'
 //   icon   an AppIcon name; the words carry the meaning, the icon and the tone only help
 //   state  one of the five names
-//   hint   words for a screen reader after the label: NEA's own phrase, or why the stop is flagged
+//   hint   words for a screen reader after the label: NEA's own phrase, why the stop is flagged, or why its weather is not known
 // An indoor stop reads "Indoor" when rain is likely there, since rain does not matter to it. An exposed stop with rain
-// likely reads "Outdoor, showers": it says why it is flagged.
+// likely reads "Outdoor, showers": it says why it is flagged. A stop whose weather is not known says why in a short label
+// (unknownLabel) and the full reason in the hint; `block` is the screen's weather block it falls back on, and `today` that the
+// stop is on Singapore's today.
 // How to call: stopMark({ state: 'showers', rainLikely: true }, { indoor: false, exposed: true }) -> { label: 'Outdoor, showers', tone: 'warning', ... }
-export function stopMark(weather, { indoor = false, exposed = false } = {}) {
+export function stopMark(weather, { indoor = false, exposed = false, block = null, today = false } = {}) {
   const state = stateOf(weather?.state)
   const rainLikely = weather?.rainLikely === true
   const base = STATES[state]
@@ -190,7 +211,13 @@ export function stopMark(weather, { indoor = false, exposed = false } = {}) {
   const nea = phrase ? `NEA says ${phrase}` : ''
   if (indoor && rainLikely) return { state, label: 'Indoor', tone: 'neutral', icon: 'home', hint: [`${base.label} likely here, under cover`, nea].filter(Boolean).join('. ') }
   if (exposed && rainLikely) {
-    return { state, label: `Outdoor, ${base.label.toLowerCase()}`, tone: 'warning', icon: base.icon, hint: ['Rain is likely at this open-air stop', nea].filter(Boolean).join('. ') }
+    // A warning with no named state still means rain: it says so rather than why the forecast is unknown.
+    const label = state === 'unknown' ? 'Outdoor, rain expected' : `Outdoor, ${base.label.toLowerCase()}`
+    return { state, label, tone: 'warning', icon: state === 'unknown' ? 'rain' : base.icon, hint: ['Rain is likely at this open-air stop', nea].filter(Boolean).join('. ') }
+  }
+  if (state === 'unknown') {
+    const why = unknownLabel(weather, block, { today })
+    return { state, label: why.label, tone: 'neutral', icon: base.icon, hint: why.reason }
   }
   return { state, label: base.label, tone: 'neutral', icon: base.icon, hint: nea }
 }

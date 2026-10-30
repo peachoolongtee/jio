@@ -100,6 +100,23 @@ export function inviteAccess(session, mine, hostName = 'the host') {
   return { open: true, text: '' }
 }
 
+// Whether a person is in the session or waiting on an invite to it (joined or invited), which no screen offers again.
+// How to call: isInOrInvited({ members: [{ id: 'faith', state: 'joined' }] }, 'faith') -> true
+export function isInOrInvited(session, personId) {
+  return !!session?.members?.some((m) => m.id === personId && ['joined', 'invited'].includes(m.state))
+}
+
+// Whether the host can still invite a person to this session by name. For a demo or local session that is anyone not in it or
+// waiting on an invite. For a shared one the database keeps one invitation per person per session, and refuses a person who has
+// any member row (an opted-out one too), so it is also no one who has any row in `members` or whose invitation by name exists in
+// any state (`namedInvites`: waiting, taken back, declined or used). Those people can still come in with the session's link.
+// How to call: canInviteByName({ remote: true, members: [], namedInvites: ['kim'] }, 'kim') -> false
+export function canInviteByName(session, personId) {
+  if (isInOrInvited(session, personId)) return false
+  if (!session?.remote) return true
+  return !session.members.some((m) => m.id === personId) && !(session.namedInvites || []).includes(personId)
+}
+
 // What the itinerary's main button does. 'finish' on the session's day for a confirmed plan (it completes the outing and
 // pays out the coins), and after it for a shared one (`pastDay`: nothing finishes a shared outing by itself, so the host can, from its day
 // on); 'save' before the day (it only goes Home: the plan was saved when it was confirmed); null for a session that is not confirmed

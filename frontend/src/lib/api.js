@@ -16,7 +16,8 @@ import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
-import { dueEnding, earnsCoins, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
+import { canInviteByName, dueEnding, earnsCoins, isInOrInvited, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
+import { dayLabel, validUntilOf, voucherState, voucherValidUntil } from './vouchers.js'
 import { combineWeather, stateOf, venueSetting, weatherFrom } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
 import * as auth from './auth.js'
@@ -2508,8 +2509,9 @@ export async function updateSession(id, fields) {
 // no timer; the invite is accepted by the first read after it passes. The demo's showcase uses it to leave invites pending.
 // How to call: await inviteFriends('s1', ['faith'], { pending: true, acceptAfter: 7 * 24 * 60 * 60 * 1000 })
 export async function inviteFriends(id, personIds, { pending = false, acceptAfter = ACCEPT_AFTER } = {}) {
-  // A real account invites with a link or a username (inviteByUsername), never by picking sample friends.
-  if (onServer()) throw new Error('Invite people with a link or their username.')
+  // A real account's friends are the people it shares a session with (coMemberIds); each one picked gets the same invitation
+  // to them by name that the username search sends, and stays Invited until they answer it on Home.
+  if (onServer()) return inviteFriendsOnServer(id, personIds)
   await wait(DELAY.write)
   const session = sessionById(id)
   let at = Date.now() + acceptAfter
@@ -3093,6 +3095,48 @@ export async function searchPeople(text, { signal } = {}) {
   return rankPeople(sample.map((p) => ({ id: p.id, name: p.name, username: p.username, avatarUrl: p.photo })), term, { metIds: new Set(coMemberIds()), meId: me() })
 }
 
+// A real account's host invites friends by id, one invitation each, in the order picked. Only friends can be picked this way, so
+// a stranger is reached by username or the link (refused before anything is sent). Someone already in the session or waiting on an
+// invite is skipped. Someone who cannot be invited by name (opted out, or an invitation taken back, declined or used: the database
+// keeps one per person) is counted, not tried. A refusal for one person does not stop the rest. The session is read again either way,
+// so the screen shows who is Invited. Resolves with the session as it is then; if anyone could not be invited it rejects with one
+// sentence that says how many and why, and the error's `invited`, `skipped` (already in) and `blocked` (cannot be invited by name) hold ids a retry should not send.
+// How to call: await inviteFriendsOnServer('3b1f...', ['7f3c...', '9a2e...'])
+async function inviteFriendsOnServer(id, personIds) {
+  const friends = new Set(coMemberIds())
+  if (personIds.some((personId) => !friends.has(personId))) throw new Error('Invite people you have not been out with by their username.')
+  const invited = []
+  const skipped = []
+  const blocked = []
+  const failed = []
+  try {
+    const session = await getSession(id)
+    for (const personId of personIds) {
+      if (isInOrInvited(session, personId)) skipped.push(personId)
+      else if (!canInviteByName(session, personId)) blocked.push(personId)
+      else {
+        try {
+          await remote.invitePerson(id, personId)
+          invited.push(personId)
+        } catch (e) {
+          failed.push(e)
+        }
+      }
+    }
+  } finally {
+    warmPeople(personIds)
+    broadcast({ type: 'session', sessionId: id })
+  }
+  const session = await getSession(id)
+  const left = blocked.length + failed.length
+  if (!left) return session
+  const reasons = []
+  if (blocked.length) reasons.push("they were invited before or opted out, so only the session's link works for them")
+  if (failed.length) reasons.push(String(failed[0]?.message || 'the invite did not go through').replace(/\.$/, ''))
+  const who = left === 1 ? '1 person' : `${left} people`
+  throw Object.assign(new Error(`${who} could not be invited: ${reasons.join('; ')}.${invited.length ? ' The rest are invited.' : ''}`), { invited, skipped, blocked })
+}
+
 // The host invites a person by id; they see it on Home. Resolves with the session as it is then.
 // How to call: await inviteByUsername('3b1f...', '7f3c...')
 export async function inviteByUsername(id, personId) {
@@ -3102,6 +3146,25 @@ export async function inviteByUsername(id, personId) {
   const session = await getSession(id)
   broadcast({ type: 'session', sessionId: id })
   return session
+}
+
+// The host takes back an invite that is still waiting for an answer, and the person leaves the list. For a real account the personal
+// invitation is turned off on the server (it cannot be sent to them again; the session's link still works for them); for the demo and
+// local accounts the invited row goes, and they can be invited again. Only the host, and only while the person has not joined.
+// Resolves with the session as it is then. How to call: await revokeInvite('3b1f...', '7f3c...')
+export async function revokeInvite(id, personId) {
+  if (onServer()) {
+    await remote.revokeInvitation(id, personId)
+    broadcast({ type: 'session', sessionId: id })
+    return getSession(id)
+  }
+  await wait(DELAY.write)
+  const session = sessionById(id)
+  if (session.hostId !== me()) throw new Error('Only the host can take back an invite.')
+  const member = session.members.find((m) => m.id === personId)
+  if (member?.state !== 'invited') throw new Error('They are not waiting on an invite. Reload to see who is in.')
+  session.members = session.members.filter((m) => m !== member)
+  return touch(session, 'session')
 }
 
 // What an invite link leads to, for anyone (signed in or not): { title, date, start, end, hostName }, or null when the link
@@ -4935,9 +4998,27 @@ export async function listRewards() {
   return clone(REWARDS)
 }
 
+// Every voucher the signed-in person claimed, newest first, each with its reward and its last day (`validUntil`, worked out from
+// the claim for a voucher claimed before claims carried one). `usedAt` is there once it was marked as used.
+// How to call: await listRedemptions() -> [{ id: 'v3', code: 'JIO-AB12-CD34', at, validUntil: '2026-11-29', reward }]
 export async function listRedemptions() {
   await wait(DELAY.read)
-  return clone(db.redemptions).map((r) => ({ ...r, reward: REWARDS.find((x) => x.id === r.rewardId) }))
+  return clone(db.redemptions).map((r) => ({ ...r, validUntil: validUntilOf(r), reward: REWARDS.find((x) => x.id === r.rewardId) }))
+}
+
+// Marks a claimed voucher as used, today. Refused when it is already used or past its last day.
+// How to call: await markVoucherUsed('v3') -> { id: 'v3', usedAt: 1793325600000, ... }
+export async function markVoucherUsed(redemptionId) {
+  await wait(DELAY.write)
+  requireMe()
+  const redemption = db.redemptions.find((r) => r.id === redemptionId)
+  if (!redemption) throw new Error('This voucher is not one of yours.')
+  const state = voucherState(redemption)
+  if (state === 'used') throw new Error('This voucher is already marked as used.')
+  if (state === 'expired') throw new Error(`This voucher expired: it was valid until ${dayLabel(validUntilOf(redemption))}.`)
+  redemption.usedAt = Date.now()
+  emit({ type: 'stats' })
+  return { ...clone(redemption), validUntil: validUntilOf(redemption), reward: clone(REWARDS.find((x) => x.id === redemption.rewardId)) }
 }
 
 export async function redeemReward(rewardId) {
@@ -4948,7 +5029,9 @@ export async function redeemReward(rewardId) {
   if (stats.points < reward.cost) throw new Error(`You need ${coins(reward.cost - stats.points)} more for this voucher.`)
   stats.points -= reward.cost
   const code = `JIO-${Math.random().toString(36).slice(2, 6).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
-  const redemption = { id: `v${db.seq++}`, rewardId, code, at: Date.now() }
+  const now = Date.now()
+  // The last day it can be used goes in with the claim (lib/vouchers.js says how long).
+  const redemption = { id: `v${db.seq++}`, rewardId, code, at: now, validUntil: voucherValidUntil(now) }
   db.redemptions.unshift(redemption)
   emit({ type: 'stats' })
   return { ...redemption, reward: clone(reward), points: stats.points }
