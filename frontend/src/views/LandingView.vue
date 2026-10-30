@@ -479,6 +479,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
       </div>
       <p class="sr-only" role="status">{{ announce }}</p>
       <RoamFromHome v-if="events.loaded && auth.sampleWorld" class="rise home__roam" :home="homeArea" />
+      <div v-if="events.loaded" class="home__all"><AppButton variant="tertiary" underline to="/places/from-post">Find places from a post</AppButton></div>
 
       <!-- A midpoint: places around it, nearest first. -->
       <section v-if="area" class="section rise" aria-labelledby="home-places">

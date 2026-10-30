@@ -939,3 +939,40 @@ export async function searchAddresses(query, { signal } = {}) {
     throw err
   }
 }
+
+// ── Places from a post: the link reader (backend/docs/link-reader-api.md) ──
+
+// How long a post is waited for. The server reads a video for 10 to 40 seconds and stops gathering after 60.
+export const POST_READ_TIMEOUT_MS = 75000
+
+// What this server can read, or `{ enabled: false }` when it cannot read posts at all. A server started without LINK_READER=1
+// has no such route and answers 404, which is an answer here, not a failure. Any other failure rejects in the client's usual way.
+// How to call: await postReaderCapabilities() -> { enabled: true, youtube: { video: true, ... }, tiktok: { caption: true, ... }, ... }
+export async function postReaderCapabilities() {
+  try {
+    const { data } = await api.get('/api/links/capabilities', { timeout: 8000 })
+    if (typeof data?.enabled !== 'boolean') throw new Error(notJsonMessage())
+    return data
+  } catch (err) {
+    if (err?.status === 404) return { enabled: false }
+    throw err
+  }
+}
+
+// The places named in one post (a YouTube, TikTok, Instagram or Xiaohongshu link), each with its Google match when there is one.
+// Resolves the server's answer as it is: `status` is 'ok' (with `places`) or 'unreadable' (with `reason`, `retryable` and
+// `notes`). A link the server will not read rejects with `code` 'not_a_link' or 'unsupported_site', too many reads with
+// 'rate_limited', and a server whose AI key is missing with 'link_reader_unavailable'. `centre` leans the Google search towards
+// a point in Singapore and may be left out.
+// How to call: await readPost('https://www.youtube.com/watch?v=stubVideo01') -> { status: 'ok', source: {...}, places: [...], notes: [] }
+export async function readPost(url, { centre, signal } = {}) {
+  try {
+    const { data } = await api.post('/api/links/read', { url, ...(centre ? { centre } : {}) }, { timeout: POST_READ_TIMEOUT_MS, signal })
+    if (data?.status === 'ok' && !Array.isArray(data.places)) throw new Error(notJsonMessage())
+    if (data?.status !== 'ok' && data?.status !== 'unreadable') throw new Error(notJsonMessage())
+    return data
+  } catch (err) {
+    if (signal?.aborted) throw Object.assign(new Error('The read was cancelled.'), { name: 'AbortError' })
+    throw err
+  }
+}

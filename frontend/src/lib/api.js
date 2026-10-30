@@ -2157,6 +2157,19 @@ function addressRows(results) {
   return rows
 }
 
+// Can this server read places out of a pasted post? `{ enabled: false }` when it cannot (the route is off, or no AI key).
+// How to call: const { enabled } = await postReaderStatus()
+export function postReaderStatus() {
+  return planner.postReaderCapabilities()
+}
+
+// The places named in a pasted post, with their addresses where Google has them (plannerApi.js readPost says what comes back).
+// Nothing is saved: the screen shows the answer and lets the person open a place in Google Maps.
+// How to call: const answer = await placesFromPost('https://vt.tiktok.com/ZS123/', { signal })
+export function placesFromPost(url, { signal } = {}) {
+  return planner.readPost(url, { signal })
+}
+
 // Search for a start or end location by place name, address or postal code.
 // The areas that match come first and at once (onBuiltIn gets them before any network call, so a caller can show them
 // while the rest is searched). Then the backend's address search (OneMap) adds addresses and buildings, each with the

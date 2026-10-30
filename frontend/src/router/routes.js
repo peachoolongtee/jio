@@ -26,6 +26,8 @@ export const routes = [
   { path: '/sessions/:id/review', name: 'session-review', component: () => import('@/views/ReviewView.vue'), props: true, meta: { title: 'How was it?' } },
   { path: '/sessions/:id/map', name: 'session-map', component: () => import('@/views/SessionMapView.vue'), props: true, meta: { nav: false, title: 'Map' } },
   { path: '/sessions/:id/roam', name: 'session-roam', component: () => import('@/views/RoamView.vue'), props: true, meta: { title: 'What next?' } },
+  // Paste a link to a post and see where its places are (the link reader on the backend). Nothing is saved.
+  { path: '/places/from-post', name: 'post-places', component: () => import('@/views/PostPlacesView.vue'), meta: { title: 'Places from a post' } },
   { path: '/leaderboard', name: 'leaderboard', component: () => import('@/views/LeaderboardView.vue'), meta: { tabs: true, tab: 'leaderboard', title: 'Leaderboard' } },
   { path: '/rewards', name: 'rewards', component: () => import('@/views/RewardsView.vue'), meta: { tabs: true, tab: 'rewards', title: 'Rewards' } },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfileView.vue'), meta: { tabs: true, tab: 'profile', title: 'Profile' } },
