@@ -1,4 +1,4 @@
-// The "entering a game" move from Home's map pin into the create-session screen. A red circle bursts out of the
+// The "entering a game" move from Home's map pin, or from the navigation's Create menu, into the create-session screen. A red circle bursts out of the
 // pin and fills the screen, rings pulse out from it, the next screen is loaded underneath, and
 // then the red dissolves into it. The cover lives on <body>, so it outlasts the screen that started it.
 // Reduced motion just navigates. The styles are in styles/app.css (.enter-game).
@@ -13,7 +13,7 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 // x, y: where the circle starts, in viewport px (the pin's head). go: the navigation, may be async.
 // How to call: await enterGame({ x, y, go: () => router.push('/sessions/new') })
 export async function enterGame({ x, y, go }) {
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+  if (typeof window === 'undefined' || typeof document === 'undefined' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
     await go()
     return
   }

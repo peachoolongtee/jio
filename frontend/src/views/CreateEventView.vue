@@ -13,13 +13,14 @@
 // Invite are one stop in the browser's history (each replaces the other), so Back in the browser never returns to an
 // empty create form.
 // "We already have a place" is not asked here: it is on the Locate step, where the spots are (SpotList).
-// A new session opens with a dropdown, "How are you starting?" (walkthrough, 30 October 2026): "From scratch" is the form above;
-// "Already out" is Home's "Already out? Find something nearby" (RoamFromHome) brought into creating a session. It hides the day and
+// How a new session starts is chosen before this page, in the navigation's Create menu (TabBar, walkthrough, 30 October 2026):
+// "New session" opens the form above (/sessions/new); "Already out" opens it in its own mode (/sessions/new?start=out), which was
+// Home's "Already out? Find something nearby" (RoamFromHome) before it moved here. It is titled "Already out", hides the day and
 // times (it is today, from now), asks "Where are you?" (LocationSheet: an area, the home area or the current location), and its button,
 // "Find places nearby", starts a light meetup there (events.startRoam) and opens its itinerary, the list of places nearby. The title is
 // optional ("Out in <area>"). It is the quick form of the Start choice's "We already know where" (StartView), for when the person is
-// there already and has nobody to wait for. Like Home's row it is for the demo and local accounts only: a shared session cannot be a
-// light meetup yet, so a real account sees no dropdown. `?start=out` opens the form on "Already out".
+// there already and has nobody to wait for. It is for the demo and local accounts only: a shared session cannot be a light meetup yet,
+// so a real account's menu has no "Already out", and `?start=out` gives it the usual form.
 //   <CreateEventView />                  /sessions/new
 //   <CreateEventView id="s1" />          /sessions/s1/edit
 import { computed, onMounted, ref, watch } from 'vue'
@@ -32,7 +33,6 @@ import ClashDialog from '@/components/group/ClashDialog.vue'
 import CalendarPicker from '@/components/ui/CalendarPicker.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import SelectField from '@/components/ui/SelectField.vue'
 import LocationSheet from '@/components/group/LocationSheet.vue'
 import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
 import RadialTimePicker from '@/components/ui/RadialTimePicker.vue'
@@ -57,10 +57,8 @@ const events = useEventsStore()
 const auth = useAuthStore()
 
 const title = ref('')
-// How the session starts: 'scratch' (pick a day and times) or 'out' (already somewhere, today). Only a new one asks.
-const modes = computed(() => (props.id ? [] : startModesFor(auth.sampleWorld)))
-const mode = ref(route.query.start === 'out' ? 'out' : 'scratch')
-const out = computed(() => mode.value === 'out' && modes.value.some((m) => m.value === 'out'))
+// Already out (chosen in the Create menu): a new session only, and only for an account that may start a light meetup.
+const out = computed(() => !props.id && route.query.start === 'out' && startModesFor(auth.sampleWorld).some((m) => m.value === 'out'))
 // Already out: the area picked in "Where are you?", and whether that sheet is open.
 const place = ref(null)
 const placeOpen = ref(false)
@@ -194,7 +192,7 @@ async function next() {
       <!-- Before the title, as on every session screen, so the bar does not move between them. -->
       <SessionSteps :session="session" />
       <div class="screen__titles">
-        <h1 class="display-xl">{{ editing ? 'Edit session' : 'Create session' }}</h1>
+        <h1 class="display-xl">{{ editing ? 'Edit session' : out ? START_MODES.out.label : 'Create session' }}</h1>
       </div>
     </header>
 
@@ -211,7 +209,6 @@ async function next() {
 
     <template v-else>
       <form class="screen__body" novalidate @submit.prevent="next">
-        <SelectField v-if="modes.length > 1" v-model="mode" label="How are you starting?" :options="modes" data-testid="start-mode" />
         <p v-if="out" class="body-sm text-muted">{{ START_MODES.out.note }}</p>
         <div class="stack gap-xs">
           <TextField v-model="title" :label="out ? 'Title (optional)' : 'Title'" :placeholder="out ? `Out in ${place?.areaName || 'your area'}` : 'Name your session'" maxlength="60" />

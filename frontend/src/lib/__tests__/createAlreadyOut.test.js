@@ -1,6 +1,7 @@
-// "How are you starting?" on Create session (walkthrough, 30 October 2026): "From scratch" is the usual form, and "Already out" brings
-// Home's "Already out? Find something nearby" into creating a session: no day or times, "Where are you?", then a light meetup for
-// today and its itinerary. For the demo and local accounts only. The screen is drawn on the in-memory page (domless.js), with the
+// Create session in its two modes (walkthrough, 30 October 2026), chosen beforehand in the navigation's Create menu (createMenu.test.js):
+// "New session" is the usual form, and "Already out" (/sessions/new?start=out), which was Home's "Already out? Find something nearby",
+// has no day or times, asks "Where are you?", then starts a light meetup for today and opens its itinerary. For the demo and local
+// accounts only. The screen is drawn on the in-memory page (domless.js), with the
 // location sheet stood in for by one button that picks Bugis.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { h } from 'vue'
@@ -35,10 +36,9 @@ afterEach(() => {
 afterAll(() => vi.useRealTimers())
 
 describe('the start modes', () => {
-  it('are From scratch and Already out for the demo and local accounts, and From scratch alone for a real account', () => {
-    expect(startModesFor(true)).toEqual([{ value: 'scratch', label: 'From scratch' }, { value: 'out', label: 'Already out' }])
-    expect(startModesFor(false)).toEqual([{ value: 'scratch', label: 'From scratch' }])
+  it('give Already out a line for the page, and a real account no Already out', () => {
     expect(START_MODES.out.note).toContain('today')
+    expect(startModesFor(false).some((m) => m.value === 'out')).toBe(false)
   })
 
   it('names an area by its id', () => {
@@ -70,11 +70,11 @@ describe('Create session, already out', () => {
   }
   const press = (view, label) => view.all('button').find((b) => view.text(b).includes(label))
 
-  it('starts on From scratch, with the day and times', async () => {
+  it('is the usual form for a new session, with the day and times and no choice to make on the page', async () => {
     const { view } = await form()
-    expect(view.one('select').attrs['data-testid']).toBe('start-mode')
-    expect(view.text()).toContain('How are you starting?')
-    expect(view.all('option').map((o) => view.text(o))).toEqual(['From scratch', 'Already out'])
+    expect(view.has('select')).toBe(false)
+    expect(view.text()).not.toContain('How are you starting?')
+    expect(view.text('h1')).toBe('Create session')
     expect(view.has('[data-testid=where-row]')).toBe(false)
     expect(press(view, 'Next')).toBeTruthy()
   })
@@ -82,6 +82,8 @@ describe('Create session, already out', () => {
   it('hides the day and times, asks where you are, and starts a light meetup for today that opens its itinerary', async () => {
     const { api, router, view } = await form('/sessions/new?start=out')
     await until(() => view.has('[data-testid=where-row]'))
+    expect(view.text('h1')).toBe('Already out')
+    expect(view.one('[data-testid=where-row]').attrs['aria-label']).toBe('Where are you? Pick where you are')
     expect(view.text()).toContain(START_MODES.out.note)
     expect(view.has('.tp__input')).toBe(false)
     expect(press(view, 'Find places nearby').disabled).toBe(true)

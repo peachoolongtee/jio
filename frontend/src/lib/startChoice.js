@@ -140,20 +140,20 @@ export async function areaHere(geolocation, placeFromCoords, timeout = 10000) {
   return place
 }
 
-// How a new session starts, asked by the dropdown at the top of Create session (walkthrough, 30 October 2026). 'scratch' is the usual
-// form (a day, times, invites, then the Start choice above); 'out' is for someone already out, who starts a light meetup where they
-// are, today, and goes straight to the places nearby (Home's "Already out?" row). `note` is the line under the dropdown.
+// How a new session starts, chosen in the menu that the navigation's Create opens (walkthrough, 30 October 2026), before the create
+// page. 'scratch' is the usual form (a day, times, invites, then the Start choice above); 'out' is for someone already out, who starts a
+// light meetup where they are, today, and goes straight to the places nearby. `to` is where each one opens, `hint` the line under its
+// name in the menu, and `note` the line on the create page in that mode.
 export const START_MODES = {
-  scratch: { value: 'scratch', label: 'From scratch' },
-  out: { value: 'out', label: 'Already out', note: 'For today, from now. Pick where you are and Jio lists places nearby. You can invite friends from there.' },
+  scratch: { value: 'scratch', label: 'New session', hint: 'Pick a day and invite friends', icon: 'calendar', to: '/sessions/new' },
+  out: { value: 'out', label: 'Already out', hint: 'Find places near you now', icon: 'locate', to: '/sessions/new?start=out', note: 'For today, from now. Pick where you are and Jio lists places nearby. You can invite friends from there.' },
 }
 
-// The dropdown's options for an account. A light meetup is kept in this browser only, so a real account (whose sessions are shared)
-// gets "From scratch" alone, and the screen shows no dropdown.
-// How to call: startModesFor(auth.sampleWorld) -> [{ value: 'scratch', label: 'From scratch' }, { value: 'out', label: 'Already out' }]
+// The choices Create offers an account. A light meetup is kept in this browser only, so a real account (whose sessions are shared)
+// gets "New session" alone, and Create goes straight to it with no menu.
+// How to call: startModesFor(auth.sampleWorld) -> [START_MODES.scratch, START_MODES.out]
 export function startModesFor(sampleWorld) {
-  const { scratch, out } = START_MODES
-  return sampleWorld ? [{ value: scratch.value, label: scratch.label }, { value: out.value, label: out.label }] : [{ value: scratch.value, label: scratch.label }]
+  return sampleWorld ? [START_MODES.scratch, START_MODES.out] : [START_MODES.scratch]
 }
 
 // An area's name by its id, or ''. How to call: areaName('bugis') -> 'Bugis'

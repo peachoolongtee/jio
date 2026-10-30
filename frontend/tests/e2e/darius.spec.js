@@ -11,7 +11,7 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
   // opens, a tick proposes it, and the meetup is then on Home as a live meetup.
   // Starting state: the demo account on Home with no meetups (only the "Jio your friends" pin). Home has no "Already out?" row: it
   // moved into Create session (walkthrough, 30 October 2026).
-  // Steps: press the navigation's Create session, choose "Already out" in "How are you starting?", press "Where are you?", search
+  // Steps: press the navigation's Create session, pick "Already out" in its menu, press "Where are you?", search
   // "bugis", pick the Bugis area, press "Find places nearby"; on the itinerary check the list of
   // places near Bugis and open the first place; close it; propose it with the tick; go back to Home with the back arrow.
   // Checked at the end: Home says "Your group meets at Bugis" and has a meetup "Out in Bugis", confirmed and live now, with no
@@ -23,8 +23,9 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
 
     // 1. Home has no "Already out?" row any more. Create session asks how the person is starting; Already out asks where they are.
     await expect(page.getByRole('button', { name: /Already out/ })).toHaveCount(0)
-    await page.getByRole('link', { name: 'Create session' }).click()
-    await page.getByLabel('How are you starting?').selectOption('out')
+    await page.getByRole('button', { name: 'Create session' }).click()
+    await page.getByRole('menuitem', { name: /^Already out/ }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Already out' })).toBeVisible()
     await page.getByRole('button', { name: /^Where are you\?/ }).click()
     const sheet = page.getByRole('dialog', { name: 'Where are you?' })
     await sheet.getByRole('textbox', { name: 'Place or postal code' }).fill('bugis')
