@@ -53,7 +53,7 @@ import MeetupList from '@/components/home/MeetupList.vue'
 import MeetupPins from '@/components/home/MeetupPins.vue'
 import AddFriends from '@/components/home/AddFriends.vue'
 import * as api from '@/lib/api.js'
-import { MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, meetupsIn, pinName, pinsFor, rangeCounts, selectMeetup } from '@/lib/homeMeetups.js'
+import { MEETUP_RANGES, activeMeetups, needsMe, allMeetupsLabel, dayLabel, defaultRange, homeList, meetupsIn, pinName, pinsFor, rangeCounts, selectMeetup } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useHomeRain } from '@/lib/useHomeRain.js'
@@ -136,7 +136,12 @@ const hasMeetups = computed(() => meetups.value.length > 0)
 const rangePicked = ref(null)
 const range = computed(() => rangePicked.value ?? defaultRange(meetups.value, now.value))
 const counts = computed(() => rangeCounts(meetups.value, now.value))
-const inRangeMeetups = computed(() => meetupsIn(meetups.value, range.value, now.value))
+const inWeek = computed(() => meetupsIn(meetups.value, range.value, now.value))
+// "Your turn", a check chip after the week chips (as Rewards' "Can claim"): only the meetups waiting on the person, within the chosen
+// week. It shows only while at least one is, and the list falls back to the week's when none is left.
+const onlyMine = ref(false)
+const mineInWeek = computed(() => inWeek.value.filter((m) => needsMe(m, auth.myId)))
+const inRangeMeetups = computed(() => (onlyMine.value && mineInWeek.value.length ? mineInWeek.value : inWeek.value))
 // How to call: pickRange('next')
 function pickRange(id) {
   if (counts.value[id]) rangePicked.value = id
@@ -509,8 +514,11 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
           <div class="section__head">
             <h2 id="home-meetups" class="display-sm">Your meetups</h2>
           </div>
-          <div class="scroll-x home__ranges" role="radiogroup" v-radio-group aria-label="Show meetups for" data-testid="meetup-ranges">
-            <ChipButton v-for="r in MEETUP_RANGES" :key="r.id" radio :selected="range === r.id" :disabled="!counts[r.id]" :aria-label="`${r.label}, ${counts[r.id]} ${counts[r.id] === 1 ? 'meetup' : 'meetups'}`" @click="pickRange(r.id)">{{ r.label }}<span class="home__range-count tnum" aria-hidden="true">{{ counts[r.id] }}</span></ChipButton>
+          <div class="home__filters">
+            <div class="scroll-x home__ranges" role="radiogroup" v-radio-group aria-label="Show meetups for" data-testid="meetup-ranges">
+              <ChipButton v-for="r in MEETUP_RANGES" :key="r.id" radio :selected="range === r.id" :disabled="!counts[r.id]" :aria-label="`${r.label}, ${counts[r.id]} ${counts[r.id] === 1 ? 'meetup' : 'meetups'}`" @click="pickRange(r.id)">{{ r.label }}<span class="home__range-count tnum" aria-hidden="true">{{ counts[r.id] }}</span></ChipButton>
+            </div>
+            <ChipButton v-if="mineInWeek.length" check :selected="onlyMine" :aria-label="`Your turn, ${mineInWeek.length} ${mineInWeek.length === 1 ? 'meetup' : 'meetups'}`" data-testid="your-turn-filter" @click="onlyMine = !onlyMine">Your turn<span class="home__range-count tnum" aria-hidden="true">{{ mineInWeek.length }}</span></ChipButton>
           </div>
           <MeetupList :meetups="shownMeetups" :selected-id="selected.id" :my-id="auth.myId" @select="select" />
           <AppButton v-if="moreMeetups" variant="secondary" class="home__see-all" to="/sessions" data-testid="see-all-meetups">{{ allMeetupsLabel(sessions.length) }}<AppIcon name="arrow-right" :size="16" /></AppButton>
@@ -674,7 +682,8 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 .home__meetups { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 .home__all { display: flex; }
 /* The week chips over "Your meetups", each with its count after the label. */
-.home__ranges { margin-top: calc(var(--spacing-xs) * -1); }
+.home__filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-xs) var(--spacing-md); margin-top: calc(var(--spacing-xs) * -1); }
+.home__filters .scroll-x { min-width: 0; flex: 1 1 auto; }
 .home__range-count { margin-left: var(--spacing-xs); opacity: 0.7; }
 /* The way to every meetup: a secondary button under the list, full width on phones and its own width from 744px. */
 .home__see-all { align-self: stretch; }

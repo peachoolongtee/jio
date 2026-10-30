@@ -337,3 +337,35 @@ export function rangeCounts(meetups = [], now = new Date()) {
 export function defaultRange(meetups = [], now = new Date()) {
   return meetupsIn(meetups, 'week', now).length ? 'week' : 'all'
 }
+
+// A meetup's stage on Home, one of four words the whole group shares (host or guest), in the order of the steps bar: inviting and
+// choosing where to meet are "Planning", then "Voting", "Ready" once the plan is confirmed, and "Done". Cancelled says so.
+// How to call: stageOf({ status: 'locating' }) -> 'Planning'
+export function stageOf(session) {
+  const status = session?.status
+  if (status === 'voting') return 'Voting'
+  if (status === 'confirmed') return 'Ready'
+  if (status === 'completed') return 'Done'
+  if (status === 'cancelled') return 'Cancelled'
+  return 'Planning'
+}
+
+// What a row on Home says about a meetup (walkthrough, 30 October 2026: one pill used to mix where the meetup stands, what the person must
+// do and where a link goes, in about 18 different words). `stage` is stageOf. `turn` is the step when it is on the person ("Vote", "Share
+// your start"), shown as "Your turn · Vote"; `waiting` is the words when it is on someone else ("Waiting for the host"); a meetup with
+// nothing to do has neither (tapping the row opens it). Built on nextStepFor, so what counts as the person's turn does not change.
+// How to call: homeStatus(session, 'ian') -> { stage: 'Voting', turn: 'Vote', waiting: '', to: '/sessions/s3/plan' }
+export function homeStatus(session, myId) {
+  const step = nextStepFor(session, myId)
+  return {
+    stage: stageOf(session),
+    turn: step.tone === 'action' ? step.label : '',
+    waiting: step.tone === 'wait' ? step.label : '',
+    to: step.to,
+  }
+}
+
+// Whether a meetup is waiting on the person, for Home's "Your turn" chip. How to call: needsMe(session, 'ian') -> true
+export function needsMe(session, myId) {
+  return nextStepFor(session, myId).tone === 'action'
+}

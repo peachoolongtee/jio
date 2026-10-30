@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FAN_PX, HOME_MEETUPS_SHOWN, MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, inRange, layoutPins, meetupsIn, rangeCounts, nextStepFor, pinName, pinsFor, placeCard, routesFor, selectMeetup, whenLine, whereStands } from '../homeMeetups.js'
+import { FAN_PX, HOME_MEETUPS_SHOWN, MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, inRange, layoutPins, meetupsIn, rangeCounts, nextStepFor, homeStatus, needsMe, stageOf, pinName, pinsFor, placeCard, routesFor, selectMeetup, whenLine, whereStands } from '../homeMeetups.js'
 
 const NOW = new Date('2026-10-10T09:00:00+08:00')
 const BUGIS = { id: 'bugis', name: 'Bugis', lat: 1.30065, lng: 103.85585 }
@@ -424,5 +424,20 @@ describe('laying out the pins on Home', () => {
     const spots = at(layoutPins(points, { ...ROW, maxX: 150 }), points)
     expect(Math.max(...Object.values(spots).map((p) => p.x))).toBeLessThanOrEqual(150)
     expect(overlaps(spots)).toBe(false)
+  })
+})
+
+describe('homeStatus', () => {
+  const two = { activeIds: ['ian', 'darius'], members: [{ id: 'ian', state: 'joined' }, { id: 'darius', state: 'joined' }] }
+
+  it('names the stage in one word', () => {
+    expect(['inviting', 'locating', 'voting', 'confirmed', 'completed', 'cancelled'].map((status) => stageOf(make({ status })))).toEqual(['Planning', 'Planning', 'Voting', 'Ready', 'Done', 'Cancelled'])
+  })
+  it('says "your turn" only when the next step is the person\'s', () => {
+    expect(homeStatus(make(two), 'ian')).toEqual({ stage: 'Planning', turn: 'Start session', waiting: '', to: '/sessions/s1' })
+    expect(needsMe(make(two), 'ian')).toBe(true)
+    const guest = make({ ...two, hostId: 'darius' })
+    expect(homeStatus(guest, 'ian')).toMatchObject({ stage: 'Planning', turn: '', waiting: 'Waiting for the host' })
+    expect(needsMe(guest, 'ian')).toBe(false)
   })
 })
