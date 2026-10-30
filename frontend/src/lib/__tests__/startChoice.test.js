@@ -11,11 +11,11 @@ describe('the two choices', () => {
     expect(CHOICES[1]).toMatchObject({ title: 'We already know where', tag: '' })
   })
 
-  it('name the main button for the choice, with the notes under it', () => {
-    expect(startLabel('fairest')).toBe('Ask everyone to share where they start')
-    expect(startLabel('known')).toBe('Choose the area')
-    expect(START_NOTE).toBe('Guests see that you chose this.')
-    expect(WHERE_NOTE).toBe('Then you choose places together.')
+  it('name the main button Next for either choice, with no note under it (Faith\'s walkthrough, 30 October 2026)', () => {
+    expect(startLabel('fairest')).toBe('Next')
+    expect(startLabel('known')).toBe('Next')
+    expect(START_NOTE).toBe('')
+    expect(WHERE_NOTE).toBe('')
     expect(whereLabel({ name: 'Bishan' })).toBe('Meet at Bishan')
     expect(whereLabel(null, true)).toBe('Use my location')
     expect(whereLabel(null)).toBe('Choose an area')
@@ -62,7 +62,7 @@ describe('what the group is told', () => {
   })
 
   it('reminds the host only when they chose a known place and it is not named yet', () => {
-    expect(hostPendingLine({ ...base, meetBy: 'known' }, 'ian')).toMatch(/Pick the place yourself/)
+    expect(hostPendingLine({ ...base, meetBy: 'known' }, 'ian')).toMatch(/have not named the area yet/)
     expect(hostPendingLine({ ...base, meetBy: 'known' }, 'faith')).toBeNull()
     expect(hostPendingLine({ ...base, meetBy: 'fairest' }, 'ian')).toBeNull()
     expect(hostPendingLine({ ...base, meetBy: 'known', status: 'voting' }, 'ian')).toBeNull()

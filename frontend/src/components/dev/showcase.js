@@ -24,7 +24,7 @@
 import * as api from '@/lib/api.js'
 import { HOST_ID } from '@/lib/mock/people.js'
 import { placeKind } from '@/lib/placeImages.js'
-import { ALBUM, GUEST_SPEC, LONGEST_TITLE, LONG_SPEC, PENDING_FOR, ShowcaseError, assertAllBuilt, buildSessions, hasVotes, todayWindow } from '@/tour/builders.js'
+import { ALBUM, GUEST_SPEC, LONGEST_TITLE, LONG_SPEC, PENDING_FOR, ShowcaseError, assertAllBuilt, buildSessions, todayWindow } from '@/tour/builders.js'
 import { makeDemoPhotos } from './demoPhotos.js'
 import { useOfflinePlanner } from './offlinePlanner.js'
 
@@ -98,9 +98,9 @@ const SPECS = [
     day: 4,
     start: '10:00',
     end: '17:00',
-    // Nobody says which spots work, so the host takes the one the app lists first (useMeetingArea), which stays the app's own
-    // pick (method 'fairest') and moves when a start moves. A spot the group approved is pinned and does not move, so it
-    // could not show this banner: "Votes for places were cleared" can only follow a meeting area that was found.
+    // The group votes on places, then Faith's start moves to the far west. A confirmed meeting area never moves by itself (Faith's
+    // walkthrough, 30 October 2026), so the host chooses it again: the spots are worked out again from everyone's starts, the votes for
+    // places are cleared, and the host confirms the new fairest spot. The group is voting again, on new places.
     build: async ({ id, at, share, voteFor, session }) => {
       at('invites')
       await api.inviteFriends(id, ['darius', 'nicole', 'faith', 'jonathan'])
@@ -116,21 +116,12 @@ const SPECS = [
       await voteFor(id, 'faith', { activity: 1 })
       at('opt-out')
       await api.optOut(id, 'jonathan')
-      // The opt-out may have moved the area and cleared the votes. Votes have to be there for the next move to clear them.
-      if (!hasVotes(await session(id))) {
-        at('votes')
-        await voteFor(id, 'darius', { eat: 0 })
-        await voteFor(id, 'nicole', { activity: 0 })
-      }
-      // Faith's start moves to the far west, which moves the meeting area and clears the votes for places, and the banner says so.
-      // The first place that moves it is used, as the planner decides what moves.
       at('location change')
-      for (const areaId of ['boon-lay', 'jurong-east', 'tuas-link', 'woodlands', 'harbourfront']) {
-        await api.setLocation(id, 'faith', 'start', { areaId })
-        if ((await session(id)).banner?.votesCleared) break
-        if (!hasVotes(await session(id))) await voteFor(id, 'darius', { eat: 0 })
-      }
-      if (!(await session(id)).banner?.votesCleared) throw new Error('moving a start did not move the meeting area')
+      await api.setLocation(id, 'faith', 'start', { areaId: 'boon-lay' })
+      at('meeting area again')
+      await api.changeMeetingPlace(id, { meetBy: 'fairest' })
+      await api.useMeetingArea(id)
+      if ((await session(id)).status !== 'voting') throw new Error('choosing the meeting area again did not go back to voting')
       at('votes')
       await voteFor(id, 'ian', { eat: 0, activity: 1 })
     },

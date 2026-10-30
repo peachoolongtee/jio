@@ -31,13 +31,15 @@ import ChipButton from '@/components/ui/ChipButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import TextField from '@/components/ui/TextField.vue'
+import BannerNote from '@/components/ui/BannerNote.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
+import InviteDialog from '@/components/group/InviteDialog.vue'
 import ChoiceCard from '@/components/start/ChoiceCard.vue'
 import NotFoundView from './NotFoundView.vue'
 import * as api from '@/lib/api.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { vRadioGroup } from '@/lib/radioGroup.js'
-import { CHANGE_HEAD, CHANGE_NOTE, CHOICES, HERE_NOTE, START_NOTE, WHERE_NOTE, areaHere, changeLabel, findAreas, startLabel, whereLabel } from '@/lib/startChoice.js'
+import { CHANGE_HEAD, CHANGE_NOTE, CHOICES, START_NOTE, WHERE_NOTE, areaHere, changeLabel, findAreas, startLabel, whereLabel } from '@/lib/startChoice.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -71,6 +73,8 @@ const areas = computed(() => {
   const found = findAreas(query.value)
   return chosenArea.value && !found.some((a) => a.id === chosenArea.value.id) ? [...found, chosenArea.value] : found
 })
+// With nothing typed, every other area follows the popular ones, so the whole list is on the page.
+const otherAreas = computed(() => (query.value.trim() ? [] : AREAS.filter((a) => !areas.value.some((x) => x.id === a.id)).sort((a, b) => a.name.localeCompare(b.name))))
 // Nothing matches the search (the chosen area is kept in the list, so it is the matches that are counted).
 const noMatch = computed(() => !!query.value.trim() && findAreas(query.value).length === 0)
 
@@ -103,18 +107,25 @@ const pagePath = computed(() => `${sessionPath.value}/${props.change ? 'change-p
 const cameFrom = computed(() => (session.value?.status === 'locating' ? sessionPath.value : `${sessionPath.value}/${session.value?.status === 'confirmed' ? 'itinerary' : 'plan'}`))
 // The host came from Locate's "Pick the place yourself": the session is still choosing where to meet.
 const fromLocate = computed(() => props.change && session.value?.status === 'locating')
-// Who may be here: the host of a session that is inviting with two people in, or that started with "We already know where" and has not
-// got its area yet (a retry). Everyone else belongs on the session page. Not while a save is running: it moves the session on itself.
+// Who may be here: the host of a session that is inviting (however many are in: the page says when a second person is needed), or that
+// started with "We already know where" and has not got its area yet (a retry). Everyone else belongs on the session page. Not while a save
+// is running: it moves the session on itself.
 const allowed = computed(() => {
   const s = session.value
   if (!s || !isHost.value) return false
   if (props.change) return ['voting', 'confirmed'].includes(s.status) || (s.status === 'locating' && step.value === 'where')
-  if (s.status === 'inviting') return (s.activeIds || []).length >= 2
+  if (s.status === 'inviting') return true
   return s.status === 'locating' && s.meetBy === 'known' && step.value === 'where'
 })
 watch([session, allowed, busy, leaving], () => {
   if (session.value && !busy.value && !leaving.value && !allowed.value) router.replace(sessionPath.value)
 })
+
+// A session starts with two people in. Until then (the host came on without inviting, or the invites are still waiting) the page says so,
+// with the way to invite, and its button waits.
+const tooFew = computed(() => session.value?.status === 'inviting' && (session.value.activeIds || []).length < 2)
+const waitingInvites = computed(() => (session.value?.members || []).filter((m) => m.state === 'invited').length)
+const inviteOpen = ref(false)
 
 // Move focus to the new screen's heading when the step changes, so a keyboard or screen reader user lands on the question.
 watch(step, async () => {
@@ -193,9 +204,9 @@ async function meet() {
 }
 
 const primary = computed(() => (step.value === 'how' ? (props.change ? changeLabel(choice.value) : startLabel(choice.value)) : whereLabel(chosenArea.value, hereNow.value)))
-const note = computed(() => (props.change ? CHANGE_NOTE : step.value === 'how' ? START_NOTE : hereNow.value ? HERE_NOTE : WHERE_NOTE))
+const note = computed(() => (props.change ? CHANGE_NOTE : step.value === 'how' ? START_NOTE : WHERE_NOTE))
 const onPrimary = () => (step.value === 'how' ? choose() : meet())
-const primaryOff = computed(() => busy.value || (step.value === 'where' && !hereNow.value && !chosenArea.value))
+const primaryOff = computed(() => busy.value || tooFew.value || (step.value === 'where' && !hereNow.value && !chosenArea.value))
 const primaryText = computed(() => (busy.value ? (step.value === 'where' && hereNow.value ? 'Finding where you are…' : 'Saving…') : primary.value))
 </script>
 
@@ -209,9 +220,13 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
       <template v-if="step === 'how'">
         <div class="head">
           <h2 ref="heading" tabindex="-1" class="display-sm">{{ change ? CHANGE_HEAD.title : 'How do you want to pick the meeting point?' }}</h2>
-          <p class="body-sm text-muted">{{ change ? CHANGE_HEAD.text : 'Everyone sees which one you choose.' }}</p>
+          <p v-if="change" class="body-sm text-muted">{{ CHANGE_HEAD.text }}</p>
         </div>
-        <div class="choices" role="radiogroup" v-radio-group aria-label="How to pick the meeting point">
+        <BannerNote v-if="tooFew" icon="people" data-testid="start-too-few">
+          {{ waitingInvites ? 'Waiting for your friends to accept. The session can start once one of them joins.' : 'Only you are in so far. Invite at least one friend to start the session.' }}
+          <template #actions><AppButton variant="secondary" small @click="inviteOpen = true"><AppIcon name="user-plus" :size="16" />Invite</AppButton></template>
+        </BannerNote>
+        <div class="choices choices--cards" role="radiogroup" v-radio-group aria-label="How to pick the meeting point">
           <ChoiceCard v-for="c in CHOICES" :key="c.key" :selected="choice === c.key" :disabled="busy" :icon="c.icon" @click="choice = c.key">
             <template #title>{{ c.title }}</template>
             <template v-if="c.tag" #tag>{{ c.tag }}</template>
@@ -224,8 +239,8 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
       <!-- 2. "We already know where": the area, or where the host is now. -->
       <template v-else>
         <div class="head">
-          <h2 ref="heading" tabindex="-1" class="display-sm">Where is the place?</h2>
-          <p class="body-sm text-muted">{{ fromLocate ? 'This replaces the list of spots, and the group goes straight to choosing places.' : change ? 'The group then votes on places around it. Votes and the plan are cleared.' : 'The group then goes straight to choosing places.' }}</p>
+          <h2 ref="heading" tabindex="-1" class="display-sm">Pick the meeting area</h2>
+          <p v-if="change && !fromLocate" class="body-sm text-muted">The group then votes on places around it. Votes and the plan are cleared.</p>
         </div>
         <div class="start__search">
           <TextField v-model="query" label="Search for an area" placeholder="Bishan, Tampines, Jurong East" type="text" autocomplete="off" enterkeyhint="search" :maxlength="40">
@@ -238,14 +253,12 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
             <ChipButton v-for="a in areas" :key="a.id" radio :selected="where === a.id" :disabled="busy" @click="where = a.id">{{ a.name }}</ChipButton>
           </div>
           <p v-if="noMatch" class="body-sm text-muted" role="status">No area matches that. Try the start of its name.</p>
-        </div>
-        <div class="or" aria-hidden="true">or</div>
-        <!-- Its own group: the card is not one of the areas. Choosing it, or an area, unchooses the other. -->
-        <div class="choices" role="radiogroup" v-radio-group aria-label="Or use where you are">
-          <ChoiceCard :selected="hereNow" :disabled="busy" icon="locate" @click="where = 'here'">
-            <template #title>We're here now</template>
-            <template #text>Use where you are, asking your browser for it.</template>
-          </ChoiceCard>
+          <template v-if="otherAreas.length">
+            <p class="caption text-muted" aria-hidden="true">All areas</p>
+            <div class="chips">
+              <ChipButton v-for="a in otherAreas" :key="a.id" radio :selected="where === a.id" :disabled="busy" @click="where = a.id">{{ a.name }}</ChipButton>
+            </div>
+          </template>
         </div>
       </template>
 
@@ -253,9 +266,10 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
     </div>
 
     <footer class="screen__footer">
-      <p class="caption-sm text-muted start__note">{{ note }}</p>
-      <AppButton class="start__go" block :disabled="primaryOff" :aria-busy="busy ? 'true' : undefined" @click="onPrimary">{{ primaryText }}</AppButton>
+      <p v-if="note" class="caption-sm text-muted start__note">{{ note }}</p>
+      <AppButton class="start__go" next block :disabled="primaryOff" :aria-busy="busy ? 'true' : undefined" data-testid="start-next" @click="onPrimary">{{ primaryText }}</AppButton>
     </footer>
+    <InviteDialog v-model:open="inviteOpen" :session="session" />
   </main>
   <main v-else-if="loadError" class="screen" data-testid="start-load-error">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
@@ -277,13 +291,15 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
 .head h2:focus { outline: none; }
 .head h2:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; border-radius: var(--rounded-sm); }
 /* The cards, or the chips and the "here now" card, stacked. */
-.choices { display: flex; flex-direction: column; gap: var(--spacing-md); min-width: 0; max-width: 560px; margin: 0; }
+.choices { display: flex; flex-direction: column; gap: var(--spacing-md); min-width: 0; max-width: 880px; margin: 0; }
+/* The two ways to pick the meeting point: stacked on a phone, side by side from 744px, so a wide screen is not one narrow column. */
+@media (min-width: 744px) { .choices--cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; } .choices--cards > * { height: 100%; } }
 .choices p { margin: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 0 var(--spacing-sm); }
 .or { display: flex; align-items: center; gap: var(--spacing-md); font: var(--text-caption-sm); color: var(--muted); }
 .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
 .start__note { margin: 0; }
-.start__search { max-width: 560px; }
+.start__search { max-width: 880px; }
 /* The longest label ("Ask everyone to share where they start") wraps on a 320px phone instead of being cut off. */
 .start__go.btn { height: auto; min-height: 48px; padding-top: var(--spacing-md); padding-bottom: var(--spacing-md); white-space: normal; text-align: center; line-height: 1.25; }
 @media (min-width: 744px) { .start__note { margin-right: auto; } }

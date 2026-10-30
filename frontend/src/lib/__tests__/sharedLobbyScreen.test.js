@@ -95,7 +95,7 @@ describe('the lobby, for the host', () => {
     return { ...t, database, id, token, sam, kimApp }
   }
 
-  it('lists everyone by name, marks the host and "you", and offers Start session to the host', async () => {
+  it('lists everyone by name, marks the host and "you", and offers Next to the host', async () => {
     const { view, id } = await hostLobby()
     expect(view.errors).toEqual([])
     const rows = view.all('li').filter((li) => (li.attrs.class || '').includes('lobby__row'))
@@ -104,8 +104,8 @@ describe('the lobby, for the host', () => {
     expect(view.text(rows[1])).toContain('Joined')
     expect(view.text(rows[1])).not.toContain('(you)')
     // Two people are in, so the host can start it, and nothing says it is held.
-    // Start session is a link to the Start choice, where the host says how to pick the meeting point; pressing it saves nothing.
-    const start = view.all('a').find((a) => view.text(a).includes('Start session'))
+    // Next is a link to the Start choice, where the host says how to pick the meeting point; pressing it saves nothing.
+    const start = view.one('[data-testid=lobby-next]')
     expect(start.attrs.href).toBe(`/sessions/${id}/start`)
     expect(view.has('#start-held')).toBe(false)
     expect(view.all('p').filter((p) => view.text(p).includes('comes in the next update'))).toHaveLength(0)

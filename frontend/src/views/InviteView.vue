@@ -8,16 +8,12 @@
 // number of outings together. With no outings together yet it is one plain list, "Friends" (FriendPickList).
 // A real account's shared session also has the link and the invite by username; its friends are the people it has shared a
 // session with (ticket #125), and picking them sends each an invitation by name, as the username search does.
-// The way on is always at the bottom, also when invites are closed, so a host who came here from the Start choice through the steps
-// bar can get back to it. Its label names where it goes (`onward`): "Start session" (the host of an inviting session with two or more
-// in, to the Start choice) or "Back to session" (the session page). With someone selected, the footer is Send instead; after sending
-// the way on is back, with the same label.
-// After sending, the screen confirms each invite. Each friend shows as Invited until they accept (in the demo, on
-// their own a moment later).
+// The footer has one button (Faith's walkthrough, 30 October 2026: inviting must never be forced). With friends selected it is "Send N
+// invites", and the page stays: each one moves up to "In this session" as Invited, with its × to take it back. With nobody selected it is
+// "Next", which is always there, invites or not: to the Start choice for the host of a session still inviting, otherwise to the session
+// page. A session still needs two people in to start; the Start choice says so when it has fewer.
+// Each friend shows as Invited until they accept (in the demo, on their own some seconds later, long enough to take it back).
 // The host can take back an invite that is still waiting, with the × on its row (TakeBackInvite), and the person leaves the list.
-// The × is on every row that shows a waiting invite to the host: the lists of who is in (also when invites are closed), and the
-// "Invites sent" confirmation right after sending, where a mistaken invite is most likely noticed; there a taken-back row says
-// "Taken back" (walkthrough, 30 October 2026).
 // Once the session has started the page still opens. The host can invite while the group is locating or voting (the data
 // layer allows it, and the header's Invite button already does), and when a confirmed plan is left with too few people.
 // Otherwise (a confirmed plan with enough people, a finished or cancelled session, or anyone but the host) the page lists
@@ -29,8 +25,6 @@ import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import IllustrationBlob from '@/components/ui/IllustrationBlob.vue'
-import ListRow from '@/components/ui/ListRow.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import FriendPickList from '@/components/group/FriendPickList.vue'
@@ -58,7 +52,8 @@ const events = useEventsStore()
 const groups = useGroupsStore()
 
 const picked = ref([])
-const sent = ref([])
+// What a screen reader is told after sending.
+const sentNote = ref('')
 const busy = ref(false)
 const error = ref('')
 
@@ -134,7 +129,7 @@ async function send() {
   error.value = ''
   try {
     await events.invite(props.id, picked.value)
-    sent.value = groups.people.filter((p) => picked.value.includes(p.id))
+    sentNote.value = `Invites sent to ${picked.value.length} ${picked.value.length === 1 ? 'person' : 'people'}`
     picked.value = []
   } catch (e) {
     error.value = e.message
@@ -148,11 +143,12 @@ async function send() {
   busy.value = false
 }
 
-// Where the way on goes: the Start choice for the host of a session that can start (inviting, two or more in), else the session page.
+// Where Next goes: the Start choice for the host of a session still inviting (however many are in: it says when more are needed), else
+// the session page.
 const onward = computed(() => {
   const s = session.value
-  if (s?.status === 'inviting' && mine.value && (s.activeIds || []).length >= 2) return { label: 'Start session', to: `/sessions/${props.id}/start` }
-  return { label: 'Back to session', to: `/sessions/${props.id}` }
+  if (s?.status === 'inviting' && mine.value) return { label: 'Next', to: `/sessions/${props.id}/start` }
+  return { label: 'Next', to: `/sessions/${props.id}` }
 })
 
 // On to the next page. If it is the page just behind this one it goes Back, so the history has no repeat.
@@ -165,8 +161,9 @@ function done() {
 </script>
 
 <template>
-  <main class="screen screen--invite">
+  <main class="screen screen--step-form screen--invite">
     <p class="sr-only" role="status">{{ takeBackNotice }}</p>
+    <p class="sr-only" role="status">{{ sentNote }}</p>
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton :label="back.label" :to="back.to" @click.capture="goBackIfBehind($event, router, back.to)"><AppIcon name="back" /></IconButton>
@@ -174,7 +171,7 @@ function done() {
       <!-- Before the title, as on every session screen, so the bar does not move between them. -->
       <SessionSteps v-if="session" :session="session" />
       <div class="screen__titles">
-        <h1 class="display-xl">{{ sent.length ? 'Invites sent' : access.open ? 'Invite friends' : 'Who is in' }}</h1>
+        <h1 class="display-xl">{{ access.open ? 'Invite friends' : 'Who is in' }}</h1>
       </div>
     </header>
 
@@ -229,24 +226,6 @@ function done() {
           </ul>
         </section>
       </section>
-    </div>
-
-    <!-- After sending: each friend was invited. -->
-    <div v-else-if="sent.length" class="screen__body">
-      <IllustrationBlob name="sent" />
-      <h2 id="invites-sent" class="sr-only" tabindex="-1">Invited</h2>
-      <p class="sr-only" role="status">Invites sent to {{ sent.length }} {{ sent.length === 1 ? "person" : "people" }}</p>
-      <ul data-testid="sent-list">
-        <ListRow v-for="person in sent" :key="person.id" as="li" :title="person.name" :meta="`@${person.username}`">
-          <template #leading><UserAvatar :name="person.name" :person="person.id" /></template>
-          <template #trailing>
-            <span v-if="isInvited(person.id)" class="sent-mark caption"><AppIcon name="check" :size="14" /> Invited</span>
-            <span v-else-if="isMember(person.id)" class="sent-mark caption"><AppIcon name="check" :size="14" /> Joined</span>
-            <span v-else class="sent-mark sent-mark--gone caption">Taken back</span>
-            <TakeBackInvite v-if="mine && isInvited(person.id)" :session-id="session.id" :person="person" :remote="!!session.remote" focus-id="invites-sent" />
-          </template>
-        </ListRow>
-      </ul>
     </div>
 
     <!-- Invites are closed (or this is a guest): who is in, and why nobody can be added. No picker, no Send button. -->
@@ -329,7 +308,7 @@ function done() {
     </div>
 
     <footer v-if="session" class="screen__footer">
-      <AppButton v-if="sent.length || !picked.length || !access.open" next block data-testid="invite-onward" @click="done">{{ onward.label }}</AppButton>
+      <AppButton v-if="!picked.length || !access.open" next block data-testid="invite-onward" @click="done">{{ onward.label }}</AppButton>
       <template v-else>
         <span class="caption text-muted invite__picked" aria-live="polite">{{ picked.length }} selected</span>
         <AppButton block :disabled="!picked.length || busy" @click="send">
@@ -341,10 +320,8 @@ function done() {
 </template>
 
 <style scoped>
-.sent-mark { display: inline-flex; align-items: center; gap: var(--spacing-xs); color: var(--ink); }
-
-/* One column, no wider than a comfortable reading width: the title, the card and the actions share one edge. */
-.screen--invite { max-width: calc(640px + var(--gutter) * 2); }
+/* The card keeps a comfortable reading width; the screen and its steps bar are as wide as every session screen (.screen--step-form). */
+.screen--invite { --step-form-width: 640px; }
 .invite { gap: var(--spacing-lg); }
 .invite__session { display: flex; align-items: center; gap: var(--spacing-base); }
 .invite__badge { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: var(--rounded-md); background: var(--primary); color: var(--on-primary); font: var(--text-display-sm); }

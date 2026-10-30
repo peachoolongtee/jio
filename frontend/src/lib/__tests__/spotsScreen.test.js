@@ -21,7 +21,7 @@ vi.mock('../../components/group/LocationSheet.vue', async () => {
 })
 vi.mock('../../components/ui/ModalDialog.vue', async () => {
   const { defineComponent, h } = await import('vue')
-  return { default: defineComponent({ props: ['open', 'title', 'text'], emits: ['update:open'], setup: (p, { slots }) => () => (p.open ? h('div', [h('h2', p.title), slots.content?.(), slots.default?.()]) : null) }) }
+  return { default: defineComponent({ props: ['open', 'title', 'text'], emits: ['update:open'], setup: (p, { slots }) => () => (p.open ? h('div', [h('h2', p.title), p.text ? h('p', p.text) : null, slots.content?.(), slots.default?.()]) : null) }) }
 })
 
 vi.stubGlobal('localStorage', fakeStorage())
@@ -58,10 +58,10 @@ beforeEach(() => {
   events = useEventsStore()
   for (const name of ['approveMySpot', 'suggestMySpot', 'withdrawMySpot', 'confirmSpot', 'setKnownPlace']) vi.spyOn(events, name).mockResolvedValue({})
 })
-// The list's "Pick the place yourself" is a link, so the page has a router.
+// The list has links (its cards' places), so the page has a router.
 const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:any(.*)*', component: { render: () => null } }] })
 const list = (s, extra = {}) => mount(SpotList, { session: s, myId: 'ian', names, selectedId: 'bugis', isHost: true, hostName: 'Ian', ...extra }, [pinia, router])
-// The host's link to the Start choice's area step, or undefined.
+// A link to name the place, which the list no longer has (Faith's walkthrough, 30 October 2026), or undefined.
 const pickLink = (page) => page.all('a', 'Pick the place yourself')[0]
 
 describe('the list of spots', () => {
@@ -113,8 +113,8 @@ describe('the list of spots', () => {
     expect(text).not.toContain('0 min')
   })
 
-  // The "No spots yet" block is gone: with fewer than two starts the screen shows the people, the "Waiting for N people"
-  // card and the map, and nothing that reads as an error. The host can still name a known place.
+  // The "No spots yet" block is gone: with fewer than two starts the screen shows the people, the line that says who it is
+  // waiting for, and the map, and nothing that reads as an error.
   it('says nothing about the list when fewer than two starts are in, and offers no suggestion', () => {
     const early = session({ locations: { ian: { start: { areaId: 'tampines' } } } })
     early.spots = { list: [], approvals: {}, suggestions: {}, preselectedAreaId: null, appMethod: null }
@@ -123,7 +123,7 @@ describe('the list of spots', () => {
     expect(page.text()).not.toContain('So far')
     expect(page.text()).not.toMatch(/error|could not|cannot/i)
     expect(page.button('Add a spot')).toBeNull()
-    expect(pickLink(page)).toBeTruthy()
+    expect(page.text()).toBe('')
   })
 
   it('shows nothing at all to a member when there is no list yet', () => {
@@ -378,21 +378,37 @@ describe('Add a spot', () => {
     expect(list(session({ status: 'voting' })).button('Add a spot')).toBeNull()
   })
 
-  // Walkthrough, 30 October 2026: the host names a place on one screen only, the Start choice's area step, so Locate has a link to
-  // it in place of its own "We already have a place".
-  it('offers the host "Pick the place yourself", a link to the Start choice\'s area step, and no "We already have a place"', () => {
+  // Faith's walkthrough, 30 October 2026: how to pick the meeting point is settled on the Start choice before Locate, so the list
+  // offers no way to name a place, and no line telling the host how to confirm.
+  it('offers no "Pick the place yourself" or "We already have a place", and tells only a guest how the spot is settled', () => {
     const page = list(session())
-    expect(page.attr(pickLink(page), 'href')).toBe('/sessions/s1/change-place?where=1')
+    expect(pickLink(page)).toBeUndefined()
     expect(page.text()).not.toContain('We already have a place')
-    expect(pickLink(list(session(), { isHost: false }))).toBeUndefined()
+    expect(page.text()).not.toContain('You do not need to wait for anyone')
+    expect(list(session(), { isHost: false }).text()).toContain('Ian confirms the final spot.')
   })
 })
 
 describe('confirming', () => {
-  const confirmBar = (s, props = {}) => mount(SpotConfirm, { session: s, isHost: true, hostName: 'Ian', selectedId: shownSpotId(s.spots), ...props }, [pinia])
+  const confirmBar = (s, props = {}) => mount(SpotConfirm, { session: s, isHost: true, hostName: 'Ian', selectedId: shownSpotId(s.spots), names, ...props }, [pinia])
+  // Everyone has shared where they start, so the host's confirm asks nothing first.
+  const everyone = (s = session()) => ({ ...s, locations: { ...s.locations, faith: { start: { areaId: 'bugis' } } } })
+
+  it('asks first, naming who has not shared a start, and confirms only when the host says so', async () => {
+    const page = confirmBar(session())
+    await page.button('Confirm Bugis').click()
+    expect(events.confirmSpot).not.toHaveBeenCalled()
+    expect(page.text()).toContain('Confirm Bugis without everyone?')
+    expect(page.text()).toContain('Faith has not shared where they start, so their trips are not counted. They stay in the session.')
+    // The dialog's own Confirm, the last button of that name.
+    const inDialog = page.all('button', 'Confirm Bugis').at(-1)
+    for (const fn of [].concat(inDialog.listeners.click || [])) await fn({ target: inDialog })
+    await nextTick()
+    expect(events.confirmSpot).toHaveBeenCalledWith('s1', 'bugis')
+  })
 
   it('offers the host "Confirm <area>" for the spot most people chose, and confirms that area', async () => {
-    const s = session()
+    const s = everyone()
     s.spots.preselectedAreaId = 'bishan'
     expect(shownSpotId(s.spots)).toBe('bishan')
     const page = confirmBar(s)
@@ -402,7 +418,7 @@ describe('confirming', () => {
   })
 
   it('confirms another spot once the host has selected it, with nobody having approved anything', async () => {
-    const s = session()
+    const s = everyone()
     expect(shownSpotId(s.spots, 'novena')).toBe('novena')
     const page = confirmBar(s, { selectedId: shownSpotId(s.spots, 'novena') })
     await page.button('Confirm Novena').click()
@@ -422,7 +438,7 @@ describe('confirming', () => {
   it('tells the host when the planner failed, and the spot stays unsettled', async () => {
     events.confirmSpot.mockRejectedValue(new Error('Cannot reach the Jio planner right now.'))
     const messages = []
-    const page = confirmBar(session(), { onError: (m) => messages.push(m) })
+    const page = confirmBar(everyone(), { onError: (m) => messages.push(m) })
     await page.button('Confirm Bugis').click()
     expect(events.confirmSpot).toHaveBeenCalledTimes(1)
     // The error went up (after the empty message that clears an old one), nothing says the spot was settled, and the same
@@ -441,7 +457,7 @@ describe('confirming', () => {
   it('stays enabled while the confirm is saving, so the focus stays, and ignores a second press', async () => {
     let finish
     events.confirmSpot.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
-    const page = confirmBar(session())
+    const page = confirmBar(everyone())
     const button = page.button('Confirm Bugis')
     const first = button.listeners.click({})
     button.listeners.click({})

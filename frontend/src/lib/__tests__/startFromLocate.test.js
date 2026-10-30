@@ -1,6 +1,6 @@
-// "Pick the place yourself" on Locate (walkthrough, 30 October 2026): the host of a session still choosing where to meet opens the
-// Start choice's area step (/sessions/:id/change-place?where=1), and naming an area there sets the known place, as Locate's own
-// "We already have a place" did before it was taken out. The screen is drawn on the in-memory page (domless.js) for a local account.
+// The Start choice's area step for a session still choosing where to meet (/sessions/:id/change-place?where=1): naming an area there
+// sets the known place. Locate no longer links to it (Faith's walkthrough, 30 October 2026: how to meet is settled on the Start choice),
+// but the address still works. The screen is drawn on the in-memory page (domless.js) for a local account.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { loadApi, stubPlanner, tomorrow } from './planFixture.js'
@@ -45,14 +45,13 @@ async function openStep(path = (id) => `/sessions/${id}/change-place?where=1`) {
   mounted.push(view)
   return { api, id, router, view }
 }
-const press = (view, label) => view.all('button').find((b) => view.text(b) === label)
+const press = (view, label) => view.all('button').find((b) => view.text(b).includes(label))
 
 describe('the area step, from Locate', () => {
-  it('asks where the place is, says the list of spots is replaced, and goes back to Locate', async () => {
+  it('asks for the meeting area and goes back to Locate', async () => {
     const { id, view } = await openStep()
     await until(() => view.has('[data-testid=start-view]'))
-    expect(view.text()).toContain('Where is the place?')
-    expect(view.text()).toContain('This replaces the list of spots, and the group goes straight to choosing places.')
+    expect(view.text()).toContain('Pick the meeting area')
     expect(view.all('a').some((a) => a.attrs.href === `/sessions/${id}`)).toBe(true)
     expect(view.errors).toEqual([])
   })

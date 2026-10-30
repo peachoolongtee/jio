@@ -108,7 +108,7 @@ describe('the × on an Invited row, for a local host', () => {
 })
 
 describe('taking back an invite everywhere it shows (walkthrough, 30 October 2026)', () => {
-  it('offers the × on the "Invites sent" confirmation, and the row then says Taken back', async () => {
+  it('puts a new invite under "In this session" with its × right after sending, and taking it back takes the row away', async () => {
     const { api, id } = await hosting()
     await api.revokeInvite(id, 'faith')
     const view = await draw('invite', `/sessions/${id}/invite`, id)
@@ -116,14 +116,13 @@ describe('taking back an invite everywhere it shows (walkthrough, 30 October 202
     await until(() => !!chip())
     await view.click(chip())
     await view.click(view.all('button').find((b) => view.text(b) === 'Send 1 invite'))
-    await until(() => view.has('[data-testid=sent-list]') && crosses(view).length === 1)
-    expect(view.text('[data-testid=sent-list]')).toContain('Invited')
+    // The page stays (no separate "Invites sent" screen), and says so.
+    await until(() => crosses(view).length === 1 && view.text().includes('Invites sent to 1 person'))
     await view.click(crosses(view)[0])
     await view.click(view.all('button').find((b) => view.text(b) === 'Take back'))
-    await until(() => view.text('[data-testid=sent-list]').includes('Taken back'))
-    expect(crosses(view)).toHaveLength(0)
+    await until(() => crosses(view).length === 0)
     expect(stateOf(await api.getSession(id), 'faith')).toBeUndefined()
-    await until(() => view.focused()?.attrs.id === 'invites-sent')
+    await until(() => view.focused()?.attrs.id === 'invite-in')
   })
 
   it('offers the × when invites are closed by a confirmed plan, but not on a cancelled outing', async () => {

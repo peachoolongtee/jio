@@ -133,26 +133,26 @@ describe('the way on from the Invite page', () => {
     await api.inviteFriends(id, ['faith'])
     const { view, router } = await invitePage(api, id)
     await until(() => !!onward(view))
-    expect(view.text(onward(view))).toContain('Start session')
+    expect(view.text(onward(view))).toContain('Next')
     await view.click(onward(view))
     await until(() => router.currentRoute.value.path === `/sessions/${id}/start`)
   })
 
-  it('says Back to session and goes to the session page while the host is alone', async () => {
+  it('says Next and goes on to the Start choice while the host is alone too: inviting is never forced', async () => {
     const api = await signedIn()
     const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-18', start: '12:00', end: '20:00' })
     const { view, router } = await invitePage(api, id)
     await until(() => !!onward(view))
-    expect(view.text(onward(view))).toContain('Back to session')
-    expect(view.text(onward(view))).not.toContain('Done')
+    expect(view.text(onward(view))).toContain('Next')
+    expect(view.text(onward(view))).not.toContain('Back to session')
     await view.click(onward(view))
-    await until(() => router.currentRoute.value.path === `/sessions/${id}`)
+    await until(() => router.currentRoute.value.path === `/sessions/${id}/start`)
   })
 
   // The Send button and the chip of a friend to invite.
   const sendButton = (view) => view.all('button').find((b) => view.text(b).startsWith('Send'))
 
-  it('labels the way on after sending from where it goes: Start session once two are in, else Back to session', async () => {
+  it('stays on the page after sending, with the invite under "In this session", and Next goes on to the Start choice', async () => {
     const api = await signedIn()
     await api.setFriend('faith', true)
     const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-18', start: '12:00', end: '20:00' })
@@ -161,9 +161,9 @@ describe('the way on from the Invite page', () => {
     await until(() => !!alone.view.all('[aria-label="Select Faith"]')[0])
     await alone.view.click(alone.view.all('[aria-label="Select Faith"]')[0])
     await alone.view.click(sendButton(alone.view))
-    await until(() => alone.view.text().includes('Invites sent'))
-    expect(alone.view.text(onward(alone.view))).toContain('Back to session')
-    expect(alone.view.text(onward(alone.view))).not.toContain('Done')
+    await until(() => alone.view.text().includes('Invites sent to 1 person'))
+    expect(alone.view.text(onward(alone.view))).toContain('Next')
+    expect(alone.view.text('#invite-in')).toBe('In this session')
     alone.view.unmount()
     mounted.pop()
     // With a friend already in: the way on goes to the Start choice, and says so.
@@ -173,8 +173,8 @@ describe('the way on from the Invite page', () => {
     await until(() => !!two.view.all('[aria-label="Select Faith"]')[0])
     await two.view.click(two.view.all('[aria-label="Select Faith"]')[0])
     await two.view.click(sendButton(two.view))
-    await until(() => two.view.text().includes('Invites sent'))
-    expect(two.view.text(onward(two.view))).toContain('Start session')
+    await until(() => two.view.text().includes('Invites sent to 1 person'))
+    expect(two.view.text(onward(two.view))).toContain('Next')
     await two.view.click(onward(two.view))
     await until(() => two.router.currentRoute.value.path === `/sessions/${second}/start`)
   })
@@ -187,7 +187,7 @@ describe('the way on from the Invite page', () => {
     await until(() => !!onward(view))
     // No picker and no Send, only the way on.
     expect(sendButton(view)).toBeUndefined()
-    expect(view.text(onward(view))).toContain('Back to session')
+    expect(view.text(onward(view))).toContain('Next')
     await view.click(onward(view))
     await until(() => router.currentRoute.value.path === `/sessions/${id}`)
   })

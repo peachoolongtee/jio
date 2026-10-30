@@ -20,7 +20,7 @@ export const CHOICES = [
     title: 'We already know where',
     tag: '',
     text: 'You pick the area. The group goes straight to choosing places.',
-    meta: 'Or set it to where you are right now',
+    meta: 'Best when the group has already agreed on an area',
     icon: 'pin',
   },
 ]
@@ -63,10 +63,11 @@ export const CHANGE_PLAN = {
   go: 'Choose a new meeting place',
 }
 
-// The words on the host's main button on the choice screen, and the note under it.
-// How to call: startLabel('known') -> 'Choose the area'
-export const startLabel = (choice) => (choice === 'known' ? 'Choose the area' : 'Ask everyone to share where they start')
-export const START_NOTE = 'Guests see that you chose this.'
+// The words on the host's main button on the choice screen, and the note under it: "Next" for both, like every step's way on (Faith's
+// walkthrough, 30 October 2026), with no note.
+// How to call: startLabel('known') -> 'Next'
+export const startLabel = () => 'Next'
+export const START_NOTE = ''
 // The same, when the host is changing the meeting place after it was set (views/StartView.vue with `change`). The starts are kept, so the first
 // choice does not ask anyone to share them again; the note says what the button will clear.
 // How to call: changeLabel('fairest') -> 'Work out the spots again'
@@ -80,7 +81,7 @@ export function whereLabel(area, here = false) {
   if (here) return 'Use my location'
   return area ? `Meet at ${area.name}` : 'Choose an area'
 }
-export const WHERE_NOTE = 'Then you choose places together.'
+export const WHERE_NOTE = ''
 // Under the button once "We're here now" is chosen: it is the outing's meeting area that is set, not a look at what is nearby.
 export const HERE_NOTE = 'This sets the meeting area to where you are now. Then you choose places together.'
 
@@ -113,7 +114,7 @@ export function guestLine(session, hostName, myId) {
 // How to call: hostPendingLine({ meetBy: 'known', status: 'locating', hostId: 'ian' }, 'ian')
 export function hostPendingLine(session, myId) {
   if (session?.meetBy !== 'known' || session.status !== 'locating' || session.hostId !== myId) return null
-  return 'You chose a place you already know, but have not named the area. Use "Pick the place yourself" below to carry on.'
+  return 'You chose a place you already know, but have not named the area yet.'
 }
 
 // Why the browser could not give a place, in a sentence. `error` is a GeolocationPositionError ({ code }) or an Error with `message`.

@@ -1,8 +1,7 @@
 <script setup>
-// "Where to meet": the meeting spots of a session that is choosing where to meet, with "Vote" on each, "Add a spot" (the
-// area picker, in a popover; it was "Suggest a spot") and, for the host, a quiet "Pick the place yourself" link. That link opens the
-// Start choice's "Where is the place?" (/sessions/:id/change-place?where=1, StartView), so the host names a place on one screen only
-// (walkthrough, 30 October 2026: "We already have a place" was asked here too, and is gone).
+// "Where to meet": the meeting spots of a session that is choosing where to meet, with "Vote" on each and "Add a spot" (the
+// area picker, in a popover; it was "Suggest a spot"). How the meeting point is picked was settled on the Start choice before this
+// screen, so the list has no way to name a place of its own (Faith's walkthrough, 30 October 2026: "Pick the place yourself" is gone).
 //   <SpotList :session="session" my-id="ian" :names="nameOf" :selected-id="shown" :is-host="true" host-name="Ian"
 //             @select="picked = $event" @error="error = $event" />
 // session: a session summary (lib/api.js). selectedId: the area shown as chosen (SpotRow outlines it; the map's pin matches).
@@ -11,11 +10,10 @@
 // Emits select (an area id) and error (a message, or '' to clear). Confirming a spot or setting a known place moves the
 // session on to Voting, and this list stays where it is.
 // States: the group is choosing (the list, with every control); the group has moved on (the same spots with the confirmed
-// one first and marked "Confirmed", and no control on any of them: no "Vote", "Add a spot", "Pick the place yourself" or
-// Withdraw); the planner working it out (placeholder rows); the list while its times are updated; and your own
+// one first and marked "Confirmed", and no control on any of them: no "Vote", "Add a spot" or Withdraw); the planner working it out (placeholder rows); the list while its times are updated; and your own
 // suggestion with no row (a reload caught it before it was priced): "Try again" prices it, "Withdraw" takes it back.
 // With fewer than two starts there is no list and nothing to say about it (the "Waiting for N people" card on the screen
-// says who is missing): the section shows only for the host, who can still name a known place.
+// says who is missing), and the section does not show.
 // A control that starts a change stays enabled while it saves (aria-busy), so a key press never drops the keyboard focus; a
 // second press is ignored until the first is saved. A confirm running anywhere on the screen (the footer's "Confirm …" or this
 // list's "Meet at …", one flag in the events store) counts as saving, so a change and a confirm never overlap; "Meet at …" reads
@@ -26,7 +24,6 @@ import SkeletonRow from '../ui/SkeletonRow.vue'
 import LocationSheet from '../group/LocationSheet.vue'
 import SpotRow from './SpotRow.vue'
 import { useSpotChange } from './spotChange.js'
-import { TRAVEL_TONES } from '@/lib/planner/travel.js'
 import { useEventsStore } from '@/stores/events.js'
 import { canApprove, canSuggest, confirmedAreaId, confirmedLine, isChoosing, spotsToShow, unpricedSuggestion } from './spotText.js'
 
@@ -45,8 +42,6 @@ const events = useEventsStore()
 // A change of this list or the map's card, or a confirm from anywhere, is being saved (one flag, spotChange.js).
 const { busy, run: change, approve: approveSpot } = useSpotChange()
 const suggestOpen = ref(false)
-// Where the host names the place: the Start choice's area step.
-const pickPath = computed(() => `/sessions/${props.session.id}/change-place?where=1`)
 
 const spots = computed(() => props.session.spots || { list: [], approvals: {}, suggestions: {}, preselectedAreaId: null, appMethod: null })
 const choosing = computed(() => isChoosing(props.session))
@@ -57,7 +52,6 @@ const mine = computed(() => new Set(spots.value.approvals?.[props.myId] || []))
 const own = computed(() => spots.value.suggestions?.[props.myId] || null)
 const unpriced = computed(() => unpricedSuggestion(props.session, props.myId))
 const offerSuggest = computed(() => canSuggest(props.session, props.myId))
-const offerKnown = computed(() => props.isHost && isChoosing(props.session))
 const approving = computed(() => canApprove(props.session, props.myId))
 // "Fairest" belongs to the app's first spot, and only when the planner really chose it by fairness.
 const fairestId = computed(() => (choosing.value && spots.value.appMethod === 'fairest' ? list.value.find((s) => s.by === 'app')?.areaId : ''))
@@ -65,14 +59,14 @@ const leadingId = computed(() => {
   const spot = choosing.value ? list.value.find((s) => s.areaId === spots.value.preselectedAreaId) : null
   return spot && spot.approvalCount > 0 ? spot.areaId : ''
 })
-// Is there anything to show? Not with fewer than two starts for anyone who cannot name a known place.
-const visible = computed(() => list.value.length > 0 || !!props.session.findingSpots || offerKnown.value || !!unpriced.value)
-const hasTrips = computed(() => list.value.some((s) => Object.keys(s.times || {}).length > 0))
+// Is there anything to show? Not with fewer than two starts.
+const visible = computed(() => list.value.length > 0 || !!props.session.findingSpots || !!unpriced.value)
+// The host's own buttons say what to do, so only a guest is told how the spots are settled.
 const intro = computed(() => {
   if (!list.value.length) return ''
   if (confirmedId.value) return confirmedLine(list.value[0].area.name)
-  if (!choosing.value) return ''
-  return props.isHost ? 'Pick a spot and confirm it when you are ready. You do not need to wait for anyone.' : `Vote for the spots that work for you. ${props.hostName} confirms the final spot.`
+  if (!choosing.value || props.isHost) return ''
+  return `Vote for the spots that work for you. ${props.hostName} confirms the final spot.`
 })
 
 // Run a change as the signed-in person. A failure goes up as a message; the data layer has already put things back. A press
@@ -106,9 +100,8 @@ const withdraw = () => run(() => change(() => events.withdrawMySpot(props.sessio
     <p v-if="intro" class="body-sm text-muted">{{ intro }}</p>
     <p v-if="own && choosing" class="caption-sm text-muted">You have one suggestion. A new one replaces it.</p>
 
-    <div v-if="offerSuggest || offerKnown" class="spots__actions">
-      <AppButton v-if="offerSuggest" variant="secondary" small :aria-busy="busy ? 'true' : undefined" @click="busy || (suggestOpen = true)">Add a spot</AppButton>
-      <AppButton v-if="offerKnown" variant="tertiary" underline :to="pickPath" data-testid="pick-place">Pick the place yourself</AppButton>
+    <div v-if="offerSuggest" class="spots__actions">
+      <AppButton variant="secondary" small :aria-busy="busy ? 'true' : undefined" @click="busy || (suggestOpen = true)">Add a spot</AppButton>
     </div>
 
     <ul v-if="list.length" class="spots__list" :class="{ 'is-busy': session.findingSpots }" :aria-busy="session.findingSpots ? 'true' : undefined" aria-label="Meeting spots">
@@ -148,10 +141,6 @@ const withdraw = () => run(() => change(() => events.withdrawMySpot(props.sessio
       </div>
     </div>
 
-    <p v-if="hasTrips" class="spots__key" aria-label="Travel time colours">
-      <span v-for="t in TRAVEL_TONES" :key="t.id" class="spots__key-item"><span class="spots__dot" :class="`is-${t.id}`" />{{ t.label }}</span>
-    </p>
-
     <LocationSheet v-model:open="suggestOpen" which="spot" title="Add a spot" @select="suggest" />
   </section>
 </template>
@@ -165,11 +154,5 @@ const withdraw = () => run(() => change(() => events.withdrawMySpot(props.sessio
 .spots__list.is-busy { opacity: 0.6; }
 .spots__empty { display: flex; flex-direction: column; gap: var(--spacing-xs); padding: var(--spacing-base); border: 1px dashed var(--border-strong); border-radius: var(--rounded-md); }
 .spots__empty h3 { margin: 0; }
-.spots__key { display: flex; flex-wrap: wrap; gap: var(--spacing-xs) var(--spacing-base); font: var(--text-caption-sm); color: var(--muted); }
-.spots__key-item { display: inline-flex; align-items: center; gap: var(--spacing-xs); }
-.spots__dot { width: 10px; height: 10px; border-radius: var(--rounded-full); }
-.spots__dot.is-short { background: var(--travel-short); }
-.spots__dot.is-medium { background: var(--travel-medium); }
-.spots__dot.is-long { background: var(--travel-long); }
 @media (prefers-reduced-motion: reduce) { .spots__list { transition: none; } }
 </style>

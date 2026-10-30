@@ -756,8 +756,9 @@ function sessionById(id) {
 // Pending invites. In the demo a friend accepts on their own a moment after being invited (their phone would ask
 // them): each invite stores when it will be accepted, a timer accepts it then, and reading a session accepts any
 // whose time has passed (after a reload, the timers are gone). Returns true when someone joined.
-const ACCEPT_AFTER = 1400
-const ACCEPT_GAP = 900
+// Long enough for the host to see the invite and take it back with its × (Faith's walkthrough, 30 October 2026: at 1.4 s nobody could).
+const ACCEPT_AFTER = 8000
+const ACCEPT_GAP = 3000
 // An invite held longer than this gets no timer (a page that stays open for days should not hold one); a read accepts it.
 const TIMER_MAX = 60 * 1000
 function settleInvites(session, now = Date.now()) {
@@ -1094,9 +1095,12 @@ function preselectedSpot(session) {
   return list.filter((s) => approvalCount(session, s.areaId) === most).reduce((best, s) => (longestTrip(s) < longestTrip(best) ? s : best))
 }
 
-// A meeting that was chosen, not found: its area stays when a start changes, and only the travel times move.
+// A meeting that was chosen, not found: its area stays when a start changes, and only the travel times move. Once the group has moved on
+// from choosing where to meet (voting or later), every meeting area is chosen, also the app's first spot confirmed with no votes on it: a
+// changed start never moves it on its own (Faith's walkthrough, 30 October 2026, as on the server). The host chooses it again from new
+// suggestions instead (changeMeetingPlace), which the session page offers.
 // How to call: pinnedAreaOf(session) -> 'bugis', or null
-const pinnedAreaOf = (session) => (['voted', 'chosen'].includes(session.meeting?.method) ? session.meeting.areaId : null)
+const pinnedAreaOf = (session) => (session.meeting && (['voted', 'chosen'].includes(session.meeting.method) || !['inviting', 'locating'].includes(session.status)) ? session.meeting.areaId : null)
 
 // A chosen meeting area, with its travel times from the starts there are. Asks the planner once, to price that area.
 // With no start shared there is nothing to ask. Returns { meeting, pinnedSpot } (pinnedSpot: the area's new numbers).

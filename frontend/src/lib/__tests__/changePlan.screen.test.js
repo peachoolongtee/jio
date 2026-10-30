@@ -166,7 +166,7 @@ describe('the cards in change mode', () => {
     await view.click(view.all('button').find((b) => b.attrs.role === 'radio' && view.text(b).includes('We already know where')))
     await view.click(press(view, 'Choose the area'))
     await until(() => router.currentRoute.value.query.where === '1')
-    expect(view.text()).toContain('Where is the place?')
+    expect(view.text()).toContain('Pick the meeting area')
     expect(row(w, id).status).toBe('voting')
     await view.click(view.all('button').find((b) => b.attrs.role === 'radio' && view.text(b) === 'Orchard'))
     await view.click(press(view, 'Meet at Orchard'))
@@ -222,7 +222,8 @@ describe('what a guest and the host see on Locate', () => {
     await expect(events.changeMeetingPlace(id, { meetBy: 'known', areaId: 'orchard' })).rejects.toMatchObject({ released: true })
     await until(() => view.has('[data-testid=place-failure]'))
     expect(view.text('[data-testid=place-failure]')).toContain('The meeting place was released, but the new area could not be set')
-    expect(view.text()).toContain('Pick the place yourself')
+    // The way on: the reminder's "Pick the area", to the Start choice's area step.
+    expect(view.all('a').some((a) => view.text(a).includes('Pick the area') && a.attrs.href === `/sessions/${id}/start?where=1`)).toBe(true)
     expect(router.currentRoute.value.path).toBe(`/sessions/${id}`)
     // The failure's own Dismiss (the release notice has one too): the button inside its banner.
     const inside = (node) => (node.tag === 'button' ? [node] : (node.children || []).flatMap(inside))

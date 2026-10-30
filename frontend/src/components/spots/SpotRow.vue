@@ -1,7 +1,8 @@
 <script setup>
 // One meeting spot in the list: its name and who put it forward, the longest trip, the average and each person's
 // minutes, a "Vote" toggle with the people who chose it, and, on your own suggestion, "We are here already" and
-// Withdraw. The name is a real button that selects the spot (and its pin on the map).
+// Withdraw. The whole card selects the spot (and its pin on the map) when pressed anywhere but on its own controls (Faith's walkthrough,
+// 30 October 2026: the name alone was too small a target); the name stays a real button, for the keyboard and screen readers.
 //   <SpotRow :spot="spot" :number="1" :selected="true" :mine="false" :names="nameOf" my-id="ian" can-approve fairest
 //            @select="pick" @approve="(on) => ..." />
 // spot: one entry of session.spots.list. number: its place in the list, drawn on its pin too. mine: you said it works
@@ -36,10 +37,17 @@ const props = defineProps({
   myId: { type: String, default: '' },
 })
 const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
+
+// A press on the card selects it, unless it was on a control of its own (Vote, Withdraw, the name's button handles itself).
+// How to call: <li @click="pick">
+function pick(event) {
+  if (['button', 'a', 'input', 'label'].some((tag) => event.target.closest?.(tag))) return
+  emit('select')
+}
 </script>
 
 <template>
-  <li class="spot" :class="{ 'is-selected': selected }" :data-area="spot.areaId">
+  <li class="spot" :class="{ 'is-selected': selected }" :data-area="spot.areaId" @click="pick">
     <button type="button" class="spot__head" :aria-pressed="selected" @click="emit('select')">
       <span class="spot__num tnum" aria-hidden="true">{{ number }}</span>
       <span class="spot__text">
@@ -88,7 +96,8 @@ const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
 
 <style scoped>
 /* A flat card with a hairline. The selected spot has a 2px ink outline (the padding gives back the pixel so nothing moves). */
-.spot { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+.spot { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); cursor: pointer; transition: border-color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
+@media (hover: hover) { .spot:not(.is-selected):hover { border-color: var(--border-strong); background: var(--surface-soft); } }
 .spot.is-selected { padding: 11px calc(var(--spacing-base) - 1px); border: 2px solid var(--ink); background: var(--surface-soft); }
 .spot__head { display: flex; align-items: center; gap: var(--spacing-md); width: 100%; min-height: var(--tap-min); margin: 0; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .spot__head:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
