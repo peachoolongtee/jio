@@ -103,3 +103,45 @@ describe('outings together on the profile screens', () => {
     expect(view.all('[data-testid=outings-together]')).toHaveLength(0)
   })
 })
+
+describe('the milestone line on a finished outing', () => {
+  let t
+  beforeAll(async () => {
+    t = await boot()
+  })
+
+  // The component for the tour's finished outing (the save the last checkpoint shows). With `read` false the sessions are marked unread.
+  // How to call: const view = await milestone(t, { announce: true })
+  async function milestone(t, props = {}, read = true) {
+    t.tour.select(9)
+    await t.events.loadSessions()
+    const { visibleSessions } = await import('@/lib/sessionFilter.js')
+    const session = visibleSessions(t.events.sessions).find((x) => x.status === 'completed')
+    t.events.loaded = read
+    const { default: View } = await import('@/components/event/OutingMilestone.vue')
+    const { useGroupsStore } = await import('@/stores/groups.js')
+    await useGroupsStore().loadPeople()
+    const view = await mountScreen(View, { plugins: [t.pinia], props: { session, ...props } })
+    await view.tick()
+    return view
+  }
+
+  it('says nothing until the sessions have been read, as the count needs them', async () => {
+    const view = await milestone(t, {}, false)
+    expect(view.has('[data-testid=outing-milestone]')).toBe(false)
+  })
+
+  it('names the friends of a first outing together, in a polite status when the person just finished it', async () => {
+    const view = await milestone(t, { announce: true })
+    const line = view.one('[data-testid=outing-milestone]')
+    expect(view.text(line)).toMatch(/^That's your first outing with \w+, \w+ and 1 other\.$/)
+    expect(line.attrs.role).toBe('status')
+  })
+
+  it('is plain text, with no role, when the person did not just finish it', async () => {
+    const view = await milestone(t)
+    const line = view.one('[data-testid=outing-milestone]')
+    expect(view.text(line)).toContain("That's your first outing with")
+    expect(line.attrs.role).toBeUndefined()
+  })
+})

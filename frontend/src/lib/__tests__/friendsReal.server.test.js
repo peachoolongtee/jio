@@ -35,6 +35,7 @@ const NEXT = { ...SESSION, title: 'Sunday', date: '2026-10-11' }
 const SCREENS = {
   'views/InviteView': () => import('@/views/InviteView.vue'),
   'views/ProfileView': () => import('@/views/ProfileView.vue'),
+  'components/event/OutingMilestone': () => import('@/components/event/OutingMilestone.vue'),
 }
 
 // A new account on the stand-in database, signed in.
@@ -240,6 +241,32 @@ describe("a real account's outings together", () => {
     const { view: theirs } = await draw('views/ProfileView', `/people/${lee.user.id}`, { id: lee.user.id })
     await until(() => theirs.has('[data-testid="outings-together-line"]'))
     expect(theirs.text(theirs.one('[data-testid="outings-together-line"]'))).toMatch(/^1 outing together · last on \d{1,2} [A-Z][a-z]{2} 2026$/)
+  })
+
+  it('make a first outing a milestone: the finished itinerary says so to the host and the guest alike, and not before it has finished', async () => {
+    const { database, first, sam, lee } = await world()
+    // The page reads the list of sessions before the line can count (EventView does); here it is read on the screen's own store.
+    const read = async (path, props) => {
+      const drawn = await draw('components/event/OutingMilestone', path, props)
+      const { useEventsStore } = await import('@/stores/events.js')
+      await useEventsStore().loadSessions()
+      await drawn.view.tick()
+      return drawn
+    }
+    const sessionOf = async () => (await sam.api.listSessions()).find((s) => s.id === first)
+    const { view: before } = await read('/', { session: await sessionOf(), announce: true })
+    expect(before.has('[data-testid="outing-milestone"]')).toBe(false)
+    finish(database, first)
+    const { view } = await read('/', { session: await sessionOf(), announce: true })
+    // The names arrive when the people are read.
+    await until(() => view.has('[data-testid="outing-milestone"]') && view.text().includes('Lee'))
+    expect(view.text(view.one('[data-testid="outing-milestone"]'))).toBe("That's your first outing with Lee.")
+    // The guest sees the same outing as their first with Sam.
+    await boot(lee.fake, {}, { shared: true })
+    const { view: guest } = await read('/', { session: (await lee.api.listSessions()).find((s) => s.id === first) })
+    await until(() => guest.has('[data-testid="outing-milestone"]') && !guest.text().includes('Someone'))
+    expect(guest.text(guest.one('[data-testid="outing-milestone"]'))).toMatch(/^That's your first outing with .+\.$/)
+    expect(guest.one('[data-testid="outing-milestone"]').attrs.role).toBeUndefined()
   })
 
   it('show nothing while the outing has not finished', async () => {
