@@ -149,19 +149,17 @@ export async function createSession(page, { title, day = daysAhead(3), start, en
   return page.url().match(/\/sessions\/([^/]+)\/invite$/)[1]
 }
 
-// From the Invite screen: invite some of the demo account's friends, go to the session, press Start session, choose "Find the
-// fairest spot" and ask everyone to share where they start. Ends on the Locate step. Friends are named as in the list ("Darius").
+// From the Invite screen: invite some of the demo account's friends, wait until they have joined, press Next, choose "Find the
+// fairest spot" and press Next. Ends on the Locate step. Friends are named as in the list ("Darius").
 // How to call: await inviteAndStart(page, ['Darius', 'Nicole'])
 export async function inviteAndStart(page, friends) {
   for (const name of friends) await page.getByRole('button', { name: `Select ${name}`, exact: true }).click()
   await page.getByRole('button', { name: `Send ${friends.length} ${friends.length === 1 ? 'invite' : 'invites'}` }).click()
-  await page.getByRole('button', { name: 'Back to session' }).click()
-  // In the demo the friends accept one after another, a moment apart. A friend who has not accepted when the session starts is
-  // left out of it, so wait until all have joined.
-  const everyone = friends.length + 1
-  await expect(page.getByRole('region', { name: `Joined: ${everyone} of ${everyone}` })).toBeVisible({ timeout: 20_000 })
-  await page.getByRole('link', { name: 'Start session' }).click()
+  // The page stays, with each friend under "In this session". In the demo they accept one after another, some seconds apart (time to
+  // take an invite back). A friend who has not accepted when the session starts is left out of it, so wait until all have joined.
+  await expect(page.locator('.invite__tag', { hasText: 'Joined' })).toHaveCount(friends.length, { timeout: 30_000 })
+  await page.getByTestId('invite-onward').click()
   await expect(page.getByRole('heading', { level: 2, name: 'How do you want to pick the meeting point?' })).toBeVisible()
-  await page.getByRole('button', { name: 'Ask everyone to share where they start' }).click()
+  await page.getByTestId('start-next').click()
   await expect(page.getByRole('group', { name: 'Your locations' })).toBeVisible()
 }

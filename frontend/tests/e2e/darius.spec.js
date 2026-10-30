@@ -21,10 +21,10 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
     await signInDemo(page)
     await expect(page.getByRole('link', { name: 'Jio your friends' })).toBeVisible()
 
-    // 1. Home has no "Already out?" row any more. Create session asks how the person is starting; Already out asks where they are.
+    // 1. Home has no "Already out?" row any more. Create session opens the form, which links to Already out; it asks where they are.
     await expect(page.getByRole('button', { name: /Already out/ })).toHaveCount(0)
     await page.getByRole('button', { name: 'Create session' }).click()
-    await page.getByRole('menuitem', { name: /^Already out/ }).click()
+    await page.getByTestId('create-already-out').click()
     await expect(page.getByRole('heading', { level: 1, name: 'Already out' })).toBeVisible()
     await page.getByRole('button', { name: /^Where are you\?/ }).click()
     const sheet = page.getByRole('dialog', { name: 'Where are you?' })
@@ -66,7 +66,7 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
   // What it proves: finishing an outing on its day asks how it was, and takes it off Home's current meetups and files it under Past.
   // Starting state: the demo account with the showcase (ten sessions, one in each state). "Chinatown makan crawl" is the showcase's
   // confirmed outing for today (4 November, 09:30 to 15:30), and the fixed clock says it is 10:00, so it is live now.
-  // Steps: open it from Home's meetup card to see "Today's plan"; press the footer's "Finish outing", then "Finish outing" in the
+  // Steps: open it from Home's meetup card to see "Today's plan"; press the footer's "Finish and review", then "Yes, finish and review" in the
   // question that follows; on "How was it?" give it 5 stars and save; open Sessions and its Past tab.
   // Checked at the end: "How was it?" says the outing is finished; saving goes Home, which no longer lists "Chinatown makan crawl"
   // (nor counts it among the meetups going, 9 become 8); and the Past tab lists it as Completed.
@@ -86,10 +86,10 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
     await expect(openMeetup).toHaveCount(1)
     await openMeetup.click()
     await expect(page.getByRole('heading', { level: 1, name: "Today's plan" })).toBeVisible()
-    await page.getByRole('button', { name: 'Finish outing' }).click()
-    const question = page.getByRole('dialog', { name: 'Finish outing?' })
+    await page.getByTestId('finish-outing').click()
+    const question = page.getByRole('dialog', { name: 'Is the outing done?' })
     await expect(question).toBeVisible()
-    await question.getByRole('button', { name: 'Finish outing' }).click()
+    await question.getByRole('button', { name: 'Yes, finish and review' }).click()
 
     // 2. "How was it?": it says the outing is finished; 5 stars, and save.
     await expect(page).toHaveURL(/\/sessions\/[^/]+\/review$/)
