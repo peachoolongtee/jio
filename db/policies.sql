@@ -20,6 +20,12 @@ alter table public.profile_private enable row level security;
 alter table public.sessions enable row level security;
 alter table public.session_members enable row level security;
 alter table public.session_member_places enable row level security;
+-- A member's needs for one outing, and the needs the group chose not to filter for: no policy, so only the server reads or
+-- writes them (migration 20261030000000).
+alter table public.session_member_diet enable row level security;
+alter table public.session_diet_dropped enable row level security;
+revoke all on public.session_member_diet, public.session_diet_dropped from anon, authenticated;
+grant all on public.session_member_diet, public.session_diet_dropped to service_role;
 alter table public.invites enable row level security;
 alter table public.slots enable row level security;
 alter table public.slot_options enable row level security;

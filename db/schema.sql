@@ -455,6 +455,28 @@ create table if not exists public.session_member_places (
   check ((end_lat is null) = (end_lng is null))
 );
 
+-- A member's dietary needs for one outing, picked on Vote; they win over the profile's for that outing only. A row means the
+-- person confirmed their needs for the outing (possibly none). Only the server reads and writes it (no policy at all), and what
+-- it answers names no one (GET /api/sessions/:id/dietary). Migration 20261030000000.
+create table if not exists public.session_member_diet (
+  session_id uuid not null,
+  user_id uuid not null,
+  needs text[] not null default '{}'
+    check (needs <@ array['halal', 'vegetarian', 'vegan']::text[] and public.array_is_unique(needs)),
+  updated_at timestamptz not null default now(),
+  primary key (session_id, user_id),
+  foreign key (session_id, user_id) references public.session_members (session_id, user_id) on delete cascade
+);
+
+-- The needs someone in an outing has that the group chose not to filter for (only the host drops one, with three or more
+-- joined). Names no person. Only the server reads and writes it. Migration 20261030000000.
+create table if not exists public.session_diet_dropped (
+  session_id uuid not null references public.sessions (id) on delete cascade,
+  need text not null check (need in ('halal', 'vegetarian', 'vegan')),
+  dropped_at timestamptz not null default now(),
+  primary key (session_id, need)
+);
+
 -- Invite links, and invitations to one named person. The token is 32 random bytes, so links cannot be guessed
 -- or counted through. A link expires 7 days after it is made unless the host sets an earlier time, and never
 -- later than 30 days. A host can revoke a link and nothing else about it changes.
@@ -1882,6 +1904,8 @@ create or replace trigger sessions_set_updated_at before update on public.sessio
 create or replace trigger session_members_set_updated_at before update on public.session_members
   for each row execute function public.set_updated_at();
 create or replace trigger session_member_places_set_updated_at before update on public.session_member_places
+  for each row execute function public.set_updated_at();
+create or replace trigger session_member_diet_set_updated_at before update on public.session_member_diet
   for each row execute function public.set_updated_at();
 create or replace trigger slots_set_updated_at before update on public.slots
   for each row execute function public.set_updated_at();
