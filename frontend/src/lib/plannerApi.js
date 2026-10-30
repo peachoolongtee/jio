@@ -296,16 +296,35 @@ export async function removeSessionMember(sessionId, personId = 'me') {
   return data
 }
 
-// An outing's dietary needs, together and without names (GET /api/sessions/:id/dietary, ticket #107): `dietary` is every
-// joined member's needs, `others` everyone's but the signed-in person's. Only the server can read a member's needs, so this
-// is how "Confirm dietary needs" learns a real friend's. Needs a login; a refusal arrives as an Error with the server's `code`
-// (session_not_found, invalid_input). Anything but two lists of known needs is an error, never a guess.
-// How to call: await sessionDietary('3b1f...') -> { dietary: ['halal', 'vegan'], others: ['halal'] }
+// An outing's dietary needs, together and without names (GET /api/sessions/:id/dietary, ticket #107): `dietary` is what the
+// places are filtered for, `others` everyone's but the signed-in person's. Only the server can read a member's needs, so this
+// is how "Confirm dietary needs" learns a real friend's. A server with the outing's own needs (UAT item 5) also answers `mine`
+// (the signed-in person's for this outing), `dropped` (needs the host chose not to filter for) and `checked` (whether they confirmed
+// for this outing); an older one does not, and those are then left out. Needs a login; a refusal arrives as an Error with the
+// server's `code` (session_not_found, invalid_input). Anything but lists of known needs is an error, never a guess.
+// How to call: await sessionDietary('3b1f...') -> { dietary: ['halal', 'vegan'], others: ['halal'], mine: ['vegan'], dropped: [], checked: true }
 export async function sessionDietary(sessionId) {
   const { data } = await api.get(`/api/sessions/${encodeURIComponent(sessionId)}/dietary`, { timeout: 8000 })
+  return dietaryAnswer(data)
+}
+
+// A dietary answer of the server, checked: two lists always, and the outing's own fields when all three are there and right.
+// How to call: dietaryAnswer({ dietary: [], others: [], mine: [], dropped: [], checked: false })
+function dietaryAnswer(data) {
   const known = (list) => Array.isArray(list) && list.every((n) => ['halal', 'vegetarian', 'vegan'].includes(n))
   if (!known(data?.dietary) || !known(data?.others)) throw new Error(notJsonMessage())
-  return { dietary: data.dietary, others: data.others }
+  const outing = known(data.mine) && known(data.dropped) && typeof data.checked === 'boolean'
+  return { dietary: data.dietary, others: data.others, ...(outing && { mine: data.mine, dropped: data.dropped, checked: data.checked }) }
+}
+
+// Saves the signed-in person's own dietary needs for this outing (`mine`) and, optionally, the others' needs the group should not
+// filter for (`dropped`, the host's alone), with PUT /api/sessions/:id/dietary. While voting the server ranks the places again.
+// Resolves with the same answer as sessionDietary, and `planVersion`. A refusal arrives with the server's `code` (host_only,
+// not_joined, plan_settled, not_set_up).
+// How to call: await putSessionDietary('3b1f...', { mine: ['vegan'], dropped: ['halal'] })
+export async function putSessionDietary(sessionId, { mine, dropped }) {
+  const { data } = await api.put(sessionPath(sessionId, '/dietary'), { mine, ...(dropped !== undefined && { dropped }) }, { timeout: SESSION_TIMEOUT_MS })
+  return { ...dietaryAnswer(data), planVersion: data.planVersion }
 }
 
 // How long a search for people is waited for. Typing makes many of them, so a slow one is given up on sooner than a ranking.

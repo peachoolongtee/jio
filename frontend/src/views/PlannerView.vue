@@ -810,7 +810,7 @@ async function keepDialog(e) {
             <InfoTag v-for="need in shownNeeds" :key="need" :tone="need === 'halal' ? 'halal' : 'veg'" data-testid="diet-mine">{{ needLabel(need) }}</InfoTag>
             <span v-if="!shownNeeds.length" class="caption" data-testid="diet-mine">None</span>
           </div>
-          <DietaryChips :mine="shownMine" :others="plan.othersDietary || []" :dropped="shownDropped" :busy="dietBusy" @change="saveDiet" />
+          <DietaryChips :mine="shownMine" :others="plan.othersDietary || []" :dropped="shownDropped" :busy="dietBusy" :can-drop="isHost" @change="saveDiet" />
         </div>
 
         <SplitView v-model:view="view" label="Places">
@@ -918,7 +918,7 @@ async function keepDialog(e) {
 
     <PlaceDetail v-if="reviewing" :place="reviewing.place" :reviews="reviewing.reviews" :outing="outingIds" :from="session.area.name" @close="closeReviews" />
 
-    <DietaryConfirm v-if="plan" v-model:open="dietOpen" :mine="plan.myDietary || []" :others="plan.othersDietary || []" :dropped="plan.dietDropped || []" :busy="dietBusy" :error="dietError" @confirm="confirmDiet" />
+    <DietaryConfirm v-if="plan" v-model:open="dietOpen" :mine="plan.myDietary || []" :others="plan.othersDietary || []" :dropped="plan.dietDropped || []" :busy="dietBusy" :can-drop="isHost" :error="dietError" @confirm="confirmDiet" />
 
     <ClashDialog v-model:open="showRejoinClash" :clash="rejoinClash" mode="join" />
 

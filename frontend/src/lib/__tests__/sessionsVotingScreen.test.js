@@ -85,8 +85,9 @@ describe('the places and the way back', () => {
     expect(view.has('[data-testid=voting-next]')).toBe(false)
     expect(view.text()).not.toContain('Voting with friends comes next')
     expect(view.text()).toContain('Walking times are from')
-    // Nothing was asked of the planner: the page read the database, and the cards' places (once) from the server's place list.
-    expect(w.server.calls.every((c) => c.route === 'venues')).toBe(true)
+    // Nothing was asked of the planner: the page read the database, the cards' places (once) from the server's place list, and the
+    // outing's dietary needs (GET .../dietary, for the chips).
+    expect(w.server.calls.every((c) => ['venues', 'getDietary'].includes(c.route))).toBe(true)
   })
 
   it('says it is finding places while it loads', async () => {
@@ -154,8 +155,8 @@ describe('voting', () => {
     await view.click(voteButton(view, name))
     await until(() => view.text(voteButton(view, name)) === 'Vote')
     expect(w.database.tables.votes).toEqual([])
-    // No request went to the Jio server for any of it, and the planner was never asked.
-    expect(w.server.calls.every((c) => c.route === 'venues')).toBe(true)
+    // No request went to the Jio server for any of it but the reads of the places and the outing's needs, and the planner was never asked.
+    expect(w.server.calls.every((c) => ['venues', 'getDietary'].includes(c.route))).toBe(true)
   })
 
   it('shows the person\'s own vote before the database has answered', async () => {

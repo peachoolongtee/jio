@@ -479,7 +479,7 @@ describe('reading only what a live vote changed', () => {
   })
 
   it('reads the session whole when it has never been read, or has no slot to read votes for', async () => {
-    const { w, kim, id } = await voting()
+    const { w, kim, id } = await voting({ dietChecked: false })
     w.ops.length = 0
     const session = await kim.api.getSession(id, { votesOnly: true })
     expect(tablesRead(w, kim)).toEqual(expect.arrayContaining(['sessions', 'session_members', 'slots', 'votes']))

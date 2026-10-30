@@ -874,7 +874,7 @@ export async function outingDietary(id) {
   const mine = cleanDietary(db.user?.dietary)
   if (onServer() && serverMembers.has(id)) {
     const answer = await planner.sessionDietary(id)
-    return { dietary: cleanDietary(answer.dietary), others: cleanDietary(answer.others), mine, dropped: [] }
+    return { dietary: cleanDietary(answer.dietary), others: cleanDietary(answer.others), mine: cleanDietary(answer.mine ?? mine), dropped: cleanDietary(answer.dropped ?? []) }
   }
   const session = sessionById(id)
   return { dietary: groupNeeds(session), others: othersNeeds(session), mine: dietaryOf(me(), session), dropped: droppedNeeds(session) }
@@ -3301,6 +3301,13 @@ export async function setRadius(id, metres) {
 // anyone.
 // How to call: await confirmDiet('s1', ['vegan'], ['halal'])
 export async function confirmDiet(id, dietary, dropped) {
+  // A shared session keeps each person's needs for the outing on the server, which ranks the places again when they change.
+  if (onServer() && serverMembers.has(id)) {
+    await planner.putSessionDietary(id, { mine: cleanDietary(dietary), ...(dropped !== undefined && { dropped: cleanDietary(dropped) }) })
+    namedNeedsCache.delete(id)
+    broadcast({ type: 'session', sessionId: id })
+    return getSession(id)
+  }
   await wait(DELAY.write)
   const session = sessionById(id)
   requireMe()
@@ -3566,20 +3573,31 @@ const NAMED_NEEDS_MS = 60_000
 // words that name no need, that a need of the group is unconfirmed for a place (`checkNeeds`). The server stores no need in a slot's
 // places and sends none in a search, so in a group of two a need is never the other person's to read. A failure to ask is the
 // same as not being told: the person's own needs, and the neutral line.
-// How to call: await namedNeedsOf('3b1f...', ['u1', 'u2', 'u3']) -> { needs: ['halal'], complete: true }
-async function namedNeedsOf(sessionId, joined) {
+// It also carries the outing's own needs (`diet`) when the server keeps them. A plan `version` that moved (a change of needs ranks
+// the places again) asks again, so nobody's chips stay behind another person's change.
+// How to call: await namedNeedsOf('3b1f...', ['u1', 'u2', 'u3'], 7) -> { needs: ['halal'], complete: true, diet: { mine, others, dropped, checked } }
+async function namedNeedsOf(sessionId, joined, version = null) {
   const mine = cleanDietary(db.user?.dietary)
-  if (joined.length < MIN_JOINED_FOR_OTHERS) return { needs: mine, complete: false }
-  const key = `${[...joined].sort().join(',')}|${mine.join(',')}`
+  const complete = joined.length >= MIN_JOINED_FOR_OTHERS
+  const key = `${[...joined].sort().join(',')}|${mine.join(',')}|${version}`
   const kept = namedNeedsCache.get(sessionId)
   if (kept && kept.key === key && Date.now() - kept.at < NAMED_NEEDS_MS) return kept.value
   try {
     const answer = await planner.sessionDietary(sessionId)
-    const value = { needs: cleanDietary([...mine, ...answer.others]), complete: true }
+    // A server that keeps the outing's own needs says what this person picked for it and what was dropped; an older one does not,
+    // and then the profile's needs stand in, as before, and the Vote page offers no chips (`diet` is null).
+    const own = answer.mine ?? mine
+    const dropped = answer.dropped ?? []
+    const others = complete ? answer.others : []
+    const value = {
+      needs: cleanDietary([...own, ...others]).filter((need) => !dropped.includes(need)),
+      complete,
+      diet: answer.mine ? { mine: cleanDietary(answer.mine), others: cleanDietary(others), dropped: cleanDietary(dropped), checked: answer.checked } : null,
+    }
     namedNeedsCache.set(sessionId, { key, at: Date.now(), value })
     return value
   } catch {
-    return { needs: mine, complete: false }
+    return { needs: mine, complete: false, diet: null }
   }
 }
 
@@ -3605,7 +3623,7 @@ async function planFromServer(id, { votesOnly = false } = {}) {
   const ticket = ++readCount
   const held = votesOnly ? newestPlanRead.get(id) : null
   const read = held?.read ? { ...held.read, votes: await remote.readSlotVotes(held.read.slotRows.map((slot) => slot.id), held.read.joined) } : await remote.readPlan(id)
-  const named = held?.read ? held.named : await namedNeedsOf(id, read.joined)
+  const named = held?.read ? held.named : await namedNeedsOf(id, read.joined, read.version)
   await ensureVenues(Object.values(read.optionRows).flatMap((rows) => rows.map((r) => r.venueId)))
   if (asked !== epoch) throw Object.assign(new Error('That was read for another account.'), { code: 'stale' })
   return newestPlan(
@@ -3694,6 +3712,16 @@ function planView(read, named = { needs: [], complete: false }) {
     ...(forecast ? { weather: forecast } : {}),
     slots,
     voters: P.voters(read.votes, ids),
+    // The outing's dietary needs, as the local plan carries them, when the server keeps them (namedNeedsOf): the needs the person may
+    // name (their own, and the others' once three have joined), their own for this outing, the others' together, the dropped ones,
+    // and whether they confirmed. No names, no count.
+    ...(named.diet && {
+      dietary: named.needs,
+      myDietary: named.diet.mine,
+      othersDietary: named.diet.others,
+      dietDropped: named.diet.dropped,
+      dietChecked: named.diet.checked,
+    }),
     prefs: clone(read.prefs),
     counts: P.categoryCounts(read.prefs),
     stayUntil: P.groupStayUntil(read.prefs, endOf),

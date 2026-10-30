@@ -1,6 +1,7 @@
 <script>
 // The chips for an outing's dietary needs: every need, selected when someone in the outing has it and the group has not
-// dropped it, or when it is the viewer's own. `shared` marks a need someone else has, which needs a "Sure?" before it goes.
+// dropped it. `shared` marks a need someone else has, which needs a "Sure?" before it goes. The viewer's own need that was dropped
+// shows unselected, so a tap brings it back.
 // How to call: dietChips({ mine: ['vegan'], others: ['halal'], dropped: [] })
 //   -> [{ value: 'halal', label: 'Halal', selected: true, shared: true }, { value: 'vegetarian', ..., selected: false, shared: false }, { value: 'vegan', ..., selected: true, shared: false }]
 import { DIETARY_OPTIONS } from '@/lib/signupRules.js'
@@ -8,7 +9,7 @@ import { DIETARY_OPTIONS } from '@/lib/signupRules.js'
 export function dietChips({ mine = [], others = [], dropped = [] }) {
   return DIETARY_OPTIONS.map((o) => {
     const shared = others.includes(o.value)
-    return { ...o, selected: (shared && !dropped.includes(o.value)) || (!shared && mine.includes(o.value)), shared }
+    return { ...o, selected: (mine.includes(o.value) || shared) && !dropped.includes(o.value), shared }
   })
 }
 </script>
@@ -17,9 +18,10 @@ export function dietChips({ mine = [], others = [], dropped = [] }) {
 // The Halal, Vegetarian and Vegan chips of an outing (ticket #107), used inline on the Vote page and inside "Confirm dietary
 // needs". A tap picks a need or takes it off. Taking off a need someone else in the outing has asks first, in a dialog that
 // reminds the person someone needs it ("Unselect halal?"); then the group's places no longer have to fit it. Selecting it again
-// brings it back with no question. It holds no state: each change is sent as `change({ mine, dropped })`, for the caller to keep
-// or save.
-//   <DietaryChips :mine="mine" :others="others" :dropped="dropped" label="Your dietary needs" @change="save" />
+// brings it back with no question. Only the host may take off a need someone else has (`canDrop`); anyone else is told so, and
+// can bring back a dropped need only when it is their own. It holds no state: each change is sent as `change({ mine, dropped })`,
+// for the caller to keep or save.
+//   <DietaryChips :mine="mine" :others="others" :dropped="dropped" :can-drop="isHost" label="Your dietary needs" @change="save" />
 import { computed, ref } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import ChipButton from '../ui/ChipButton.vue'
@@ -34,6 +36,8 @@ const props = defineProps({
   others: { type: Array, default: () => [] },
   dropped: { type: Array, default: () => [] },
   busy: { type: Boolean, default: false },
+  // May this person take off a need someone else has, or bring one back that is not theirs? The host only.
+  canDrop: { type: Boolean, default: true },
   // The group's accessible name.
   label: { type: String, default: 'Dietary needs' },
 })
@@ -44,6 +48,9 @@ const chips = computed(() => dietChips({ mine: props.mine, others: props.others,
 
 // The need waiting for "Unselect halal?", or ''.
 const asking = ref('')
+// The need someone who is not the host tried to take off or bring back, for the dialog that says only the host can, or ''.
+const hostOnly = ref('')
+const hostOnlyWord = computed(() => needsText([hostOnly.value]))
 const askingWord = computed(() => needsText([asking.value]))
 
 // How to call: send(['vegan'], ['halal'])
@@ -55,10 +62,18 @@ function toggle(chip) {
   if (props.busy) return
   const need = chip.value
   if (chip.selected && chip.shared) {
-    asking.value = need
+    if (props.canDrop) asking.value = need
+    else hostOnly.value = need
     return
   }
-  // Back on, for a need someone else has: the group filters for it again.
+  // Back on, for a dropped need: the group filters for it again. Anyone brings back their own; someone else's is the host's to.
+  if (props.dropped.includes(need)) {
+    if (!props.canDrop && !props.mine.includes(need)) {
+      hostOnly.value = need
+      return
+    }
+    return send(props.mine, props.dropped.filter((n) => n !== need))
+  }
   if (chip.shared) return send(props.mine, props.dropped.filter((n) => n !== need))
   send(props.mine.includes(need) ? props.mine.filter((n) => n !== need) : [...props.mine, need], props.dropped)
 }
@@ -88,6 +103,16 @@ function dropAsked() {
   >
     <AppButton block data-testid="diet-keep" @click="asking = ''">Keep {{ askingWord }}</AppButton>
     <AppButton block variant="secondary" data-testid="diet-drop" @click="dropAsked">Unselect {{ askingWord }}</AppButton>
+  </ModalDialog>
+
+  <!-- Someone who is not the host tapped a need someone else has. -->
+  <ModalDialog
+    :open="!!hostOnly"
+    :title="`Only the host can change ${hostOnlyWord}`"
+    :text="`Someone in this outing needs ${hostOnlyWord}, so the places are filtered for it unless the host says otherwise. You can add or remove your own needs.`"
+    @update:open="(v) => { if (!v) hostOnly = '' }"
+  >
+    <AppButton block data-testid="diet-host-only" @click="hostOnly = ''">OK</AppButton>
   </ModalDialog>
 </template>
 

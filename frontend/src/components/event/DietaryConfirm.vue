@@ -20,6 +20,8 @@ const props = defineProps({
   others: { type: Array, default: () => [] },
   dropped: { type: Array, default: () => [] },
   busy: { type: Boolean, default: false },
+  // Only the host may take off a need someone else has (DietaryChips).
+  canDrop: { type: Boolean, default: true },
   error: { type: String, default: '' },
   title: { type: String, default: 'Confirm dietary needs' },
 })
@@ -64,7 +66,7 @@ function confirm() {
   <ModalDialog v-model:open="open" :title="title" text="Food places for this outing will fit these needs. Your picks are for this outing only, and stay private: the group sees which needs places fit, never whose." @close="confirm">
     <template #content>
       <div data-testid="diet-confirm">
-        <DietaryChips :mine="picked" :others="others" :dropped="droppedNow" :busy="busy" @change="keep" />
+        <DietaryChips :mine="picked" :others="others" :dropped="droppedNow" :busy="busy" :can-drop="canDrop" @change="keep" />
       </div>
       <p v-if="sharedText" class="caption-sm text-muted diet-note" data-testid="diet-locked">{{ sharedText }}</p>
       <p v-if="droppedText" class="caption-sm text-muted diet-note" data-testid="diet-dropped">{{ droppedText }}</p>

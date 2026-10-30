@@ -11,12 +11,12 @@ afterEach(() => vi.unstubAllGlobals())
 
 // The dialog, open, with `mine` and `others`; `sent` collects what Confirm sends.
 // How to call: const { view, sent } = await dialog({ mine: [], others: ['halal'] })
-async function dialog({ mine = [], others = [], title } = {}) {
+async function dialog({ mine = [], others = [], title, dropped = [], canDrop = true } = {}) {
   await liven(DietaryConfirm)
   const open = ref(true)
   const sent = []
   const Host = defineComponent({
-    setup: () => () => h(DietaryConfirm, { ...(title ? { title } : {}), open: open.value, 'onUpdate:open': (v) => (open.value = v), mine, others, onConfirm: (needs) => sent.push(needs) }),
+    setup: () => () => h(DietaryConfirm, { ...(title ? { title } : {}), open: open.value, 'onUpdate:open': (v) => (open.value = v), mine, others, dropped, canDrop, onConfirm: (needs) => sent.push(needs) }),
   })
   return { view: await mountScreen(Host), sent }
 }
@@ -115,5 +115,33 @@ describe('the dietary chips on the Vote page', () => {
     await view.click(chip(view, 'Halal'))
     expect(view.all('h2').length).toBe(0)
     expect(sent.at(-1)).toEqual({ mine: [], dropped: [] })
+  })
+})
+
+describe('only the host takes off a need someone else has (UAT of 29 October 2026, item 5)', () => {
+  it('tells a guest only the host can, and changes nothing, while their own needs still come and go', async () => {
+    const { view, sent } = await dialog({ mine: [], others: ['halal'], canDrop: false })
+    await view.click(chip(view, 'Halal'))
+    expect(view.all('h2').map((h) => view.text(h))).toEqual(['Confirm dietary needs', 'Only the host can change halal'])
+    expect(view.has('[data-testid="diet-drop"]')).toBe(false)
+    await view.click('[data-testid="diet-host-only"]')
+    expect(chips(view)[0]).toEqual(['Halal', true])
+    await view.click(chip(view, 'Vegan'))
+    await view.click('[data-testid="diet-confirm-button"]')
+    expect(sent.at(-1)).toEqual({ mine: ['vegan'], dropped: [] })
+  })
+
+  it('lets a guest bring back their own need the host dropped, shown unselected, and not someone else\'s', async () => {
+    const own = await dialog({ mine: ['halal'], others: [], dropped: ['halal'], canDrop: false })
+    expect(chips(own.view)[0]).toEqual(['Halal', false])
+    await own.view.click(chip(own.view, 'Halal'))
+    expect(chips(own.view)[0]).toEqual(['Halal', true])
+    await own.view.click('[data-testid="diet-confirm-button"]')
+    expect(own.sent.at(-1)).toEqual({ mine: ['halal'], dropped: [] })
+
+    const theirs = await dialog({ mine: [], others: ['vegan'], dropped: ['vegan'], canDrop: false })
+    await theirs.view.click(chip(theirs.view, 'Vegan'))
+    expect(theirs.view.all('h2').map((h) => theirs.view.text(h)).at(-1)).toBe('Only the host can change vegan')
+    expect(chips(theirs.view)[2]).toEqual(['Vegan', false])
   })
 })

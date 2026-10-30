@@ -78,10 +78,18 @@ export async function locating({ places = false, third = false, hostLast = false
 
 // Sam hosts a session with Kim in it, both with a start, and the host has confirmed the first spot: the group is voting, and the server
 // has made the slots and their places. `plan` is the first slot (the first category of the plan) as Sam reads it.
+// Everyone has answered "Confirm dietary needs" (with none), as each person does when they first open Vote, so the dialog does not cover
+// the page; `dietChecked: false` leaves it unanswered (dietaryShared.test.js).
 // How to call: const { w, sam, kim, id, slot } = await voting()
-export async function voting({ third = false, hostLast = false } = {}) {
+export async function voting({ third = false, hostLast = false, dietChecked = true } = {}) {
   const world = await locating({ places: true, third, hostLast })
   await world.sam.api.useMeetingArea(world.id)
+  if (dietChecked) {
+    for (const person of [world.sam, world.kim, world.lee].filter(Boolean)) {
+      await person.api.getSession(world.id)
+      await person.api.confirmDiet(world.id, [])
+    }
+  }
   const plan = await world.sam.api.getPlan(world.id)
   world.w.server.calls.length = 0
   return { ...world, plan, slot: plan.slots[0] }

@@ -13,6 +13,11 @@
 //   POST   /api/sessions/:id/opt-out, /rejoin                      E10, E11
 //   DELETE /api/sessions/:id/members/:userId|me                   E25 (leave, remove)
 //   POST   /api/sessions/:id/change-meeting-place { meetBy, areaId? }   the host lets the meeting area go (voting or confirmed)
+//   GET    /api/sessions/:id/dietary                                  an outing's needs together (UAT item 5): { dietary, others, mine, dropped, checked }
+//   PUT    /api/sessions/:id/dietary          { mine, dropped? }      the caller's own needs for the outing, and the host's dropped ones
+//          SIMPLER: the outing's needs are kept in this server's memory (the real one keeps them in session_member_diet and
+//          session_diet_dropped), and a change ranks nothing again; it only raises the version, as a re-rank would
+//          (backend/tests/sessions-dietary.test.js checks the real re-rank).
 //
 // Stage 4 (voting, ticket 129; the design's E3 to E9, E17, E18, and E1 in voting) adds, on the same terms:
 //   POST   /api/sessions/:id/plan/sync                                E3: slots and places worked out again from people's picks
@@ -335,9 +340,63 @@ export function fakeSessionsServer(database) {
     }
   }
 
+  // An outing's own dietary needs, as the real server keeps them in two tables: each person's picks for it, and the dropped needs.
+  const NEEDS = ['halal', 'vegetarian', 'vegan']
+  const cleanNeeds = (list) => NEEDS.filter((need) => Array.isArray(list) && list.includes(need))
+  const outingDiet = new Map()
+  // How to call: dietOf('3b1f...') -> { mine: Map { userId => ['halal'] }, dropped: ['vegan'] }
+  const dietOf = (id) => {
+    if (!outingDiet.has(id)) outingDiet.set(id, { mine: new Map(), dropped: [] })
+    return outingDiet.get(id)
+  }
+  // The answer of GET .../dietary for `user`, as backend/src/services/sessions.js works it out. How to call: await dietaryAnswer(id, user)
+  async function dietaryAnswer(id, user) {
+    const rows = (await database.run({ as: SERVICE, kind: 'rpc', fn: 'session_member_needs', args: { sid: id } })).data ?? []
+    const outing = dietOf(id)
+    const needs = rows.map((r) => ({ user_id: r.user_id, needs: outing.mine.get(r.user_id) ?? cleanNeeds(r.dietary) }))
+    const dropped = rows.length >= 3 ? outing.dropped : []
+    const all = cleanNeeds(needs.flatMap((r) => r.needs))
+    const others = rows.length >= 3 ? cleanNeeds(needs.filter((r) => r.user_id !== user).flatMap((r) => r.needs)) : []
+    return {
+      dietary: all.filter((need) => !dropped.includes(need)),
+      others,
+      mine: needs.find((r) => r.user_id === user)?.needs ?? [],
+      dropped: dropped.filter((need) => all.includes(need)),
+      checked: outing.mine.has(user),
+    }
+  }
+
   // The routes ------------------------------------------------------------
 
   const routes = {
+    async getDietary(user, id) {
+      const { member } = load(user, id, { joined: false })
+      if (member.state !== 'joined') refuse(404, 'session_not_found', 'This session does not exist, or you are not in it.')
+      return { status: 200, body: await dietaryAnswer(id, user) }
+    },
+    async putDietary(user, id, body) {
+      const { session } = load(user, id)
+      if (!['inviting', 'locating', 'voting'].includes(session.status)) refuse(409, 'wrong_status', 'This cannot be done now.')
+      const known = (list) => Array.isArray(list) && list.every((n) => NEEDS.includes(n)) && new Set(list).size === list.length
+      if (!known(body.mine) || (body.dropped !== undefined && !known(body.dropped))) refuse(400, 'invalid_input', 'Some fields are not valid.')
+      const before = await dietaryAnswer(id, user)
+      const host = session.host_id === user
+      const requested = body.dropped === undefined ? before.dropped : cleanNeeds(body.dropped)
+      const adding = requested.filter((need) => !before.dropped.includes(need) && before.others.includes(need))
+      const bringing = before.dropped.filter((need) => !requested.includes(need))
+      if (adding.length && !host) refuse(403, 'host_only', "Only the host can stop filtering for someone else's need.")
+      if (bringing.some((need) => !host && !body.mine.includes(need))) refuse(403, 'host_only', "Only the host can bring back someone else's need.")
+      const wanted = cleanNeeds([...before.dropped.filter((need) => requested.includes(need)), ...adding])
+      const outing = dietOf(id)
+      outing.mine.set(user, cleanNeeds(body.mine))
+      outing.dropped = wanted.filter((need) => !(body.mine.includes(need) && !before.mine.includes(need)))
+      const after = await dietaryAnswer(id, user)
+      // The real server ranks the places again while voting when what the group is filtered for changed, which raises the version.
+      if (session.status === 'voting' && after.dietary.join() !== before.dietary.join()) {
+        await write({ kind: 'update', table: 'sessions', values: { plan_version: session.plan_version + 1 }, filters: [eq('id', id)] })
+      }
+      return { status: 200, body: { planVersion: sessionOf(id).plan_version, ...after } }
+    },
     // E1
     async meetingArea(user, id) {
       const { session } = load(user, id)
@@ -713,6 +772,8 @@ export function fakeSessionsServer(database) {
   // Which route a request is, with the session id and the rest.
   // How to call: route('POST', '/api/sessions/3b1f.../voting') -> { name: 'confirm', id: '3b1f...' }
   const PATTERNS = [
+    ['GET', /^\/dietary$/, 'getDietary'],
+    ['PUT', /^\/dietary$/, 'putDietary'],
     ['POST', /^\/meeting-area$/, 'meetingArea'],
     ['PUT', /^\/spots\/mine$/, 'putSpot'],
     ['DELETE', /^\/spots\/mine$/, 'deleteSpot'],
