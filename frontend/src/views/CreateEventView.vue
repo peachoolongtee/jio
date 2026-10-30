@@ -222,10 +222,10 @@ async function next() {
 
         <!-- Already out: where the person is, in place of the day and times. -->
         <div v-if="out" class="where">
-          <span id="where-label" class="caption text-muted">Where are you?</span>
-          <button type="button" class="where__row" :class="{ 'is-empty': !place }" aria-labelledby="where-label where-value" data-testid="where-row" @click="placeOpen = true">
+          <span class="caption text-muted" aria-hidden="true">Where are you?</span>
+          <button type="button" class="where__row" :class="{ 'is-empty': !place }" :aria-label="`Where are you? ${place ? place.areaName : 'Pick where you are'}`" data-testid="where-row" @click="placeOpen = true">
             <span class="where__icon" aria-hidden="true"><AppIcon name="locate" :size="20" /></span>
-            <span id="where-value" class="where__value truncate">{{ place ? place.areaName : 'Pick where you are' }}</span>
+            <span class="where__value truncate">{{ place ? place.areaName : 'Pick where you are' }}</span>
             <AppIcon class="where__go" :name="place ? 'chevron-right' : 'plus'" :size="18" />
           </button>
         </div>

@@ -24,8 +24,8 @@
 // overdueOuting). A confirmed one finishes by itself: when its end time passes while Home is open, the list is read again,
 // which completes it (lib/api.js settleOutings). A shared outing is finished by its host, from its day on, so past its end time it gets a
 // banner of its own that says so (nothing closes it by a clock).
-// "Already out? Find something nearby" (RoamFromHome) sits under the meetups, or alone under the band when there are none,
-// for a local account: it starts a light meetup around one area and opens its itinerary, which lists places nearby (ticket #98).
+// "Already out?" is not on Home any more: it is the "Already out" choice on Create session (walkthrough, 30 October 2026), reached
+// from the navigation's Create, so there is one way to start a light meetup.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { format, parseISO } from 'date-fns'
@@ -48,7 +48,6 @@ import SessionCard from '@/components/event/SessionCard.vue'
 import MeetupDetail from '@/components/home/MeetupDetail.vue'
 import MeetupList from '@/components/home/MeetupList.vue'
 import MeetupPins from '@/components/home/MeetupPins.vue'
-import RoamFromHome from '@/components/home/RoamFromHome.vue'
 import * as api from '@/lib/api.js'
 import { activeMeetups, dayLabel, pinName, pinsFor, routesFor, selectMeetup } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
@@ -131,8 +130,6 @@ const selected = computed(() => selectMeetup(meetups.value, route.query.meetup))
 const past = computed(() => sessions.value.filter((s) => !meetups.value.includes(s)).slice(0, 3))
 const hasFinished = computed(() => sessions.value.length > meetups.value.length)
 const area = computed(() => selected.value?.area || null)
-// The person's home area, a quick choice for "Already out?".
-const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAreaId, name: auth.user.homeAreaName } : null))
 
 // Outings past their end time that have not been completed, each with when it closes by itself. A confirmed one is left
 // out: it is finishing (below).
@@ -478,7 +475,6 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <div v-else-if="hasFinished" class="home__all"><AppButton variant="tertiary" underline to="/sessions">All meetups</AppButton></div>
       </div>
       <p class="sr-only" role="status">{{ announce }}</p>
-      <RoamFromHome v-if="events.loaded && auth.sampleWorld" class="rise home__roam" :home="homeArea" />
       <div v-if="events.loaded" class="home__all"><AppButton variant="tertiary" underline to="/places/from-post">Find places from a post</AppButton></div>
 
       <!-- A midpoint: places around it, nearest first. -->

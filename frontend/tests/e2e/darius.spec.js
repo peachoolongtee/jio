@@ -1,29 +1,35 @@
-// Owner: Darius. Feature: Home (the meetups on it and the places near them), "Already out?" (a light meetup started from Home),
-// and finishing an outing.
+// Owner: Darius. Feature: Home (the meetups on it and the places near them), "Already out" (a light meetup started from Create
+// session), and finishing an outing.
 //
 // Run only this file, from the repo root:
 //   pnpm --filter jio-frontend exec playwright test tests/e2e/darius.spec.js
 import { test, expect, signInDemo } from './fixtures.js'
 
 test.describe('Home, "Already out?" and finishing an outing', () => {
-  // What it proves: "Already out? Find something nearby" starts a light meetup around the area the person picks and opens its
+  // What it proves: "Already out" on Create session starts a light meetup around the area the person picks and opens its
   // itinerary, which lists places near it until the first stop is in (so the itinerary and "What next?" are one page); a place
   // opens, a tick proposes it, and the meetup is then on Home as a live meetup.
-  // Starting state: the demo account on Home with no meetups (only the "Jio your friends" pin and the "Already out?" row).
-  // Steps: press "Already out?", search "bugis" in "Where are you?", pick the Bugis area; on the itinerary check the list of
+  // Starting state: the demo account on Home with no meetups (only the "Jio your friends" pin). Home has no "Already out?" row: it
+  // moved into Create session (walkthrough, 30 October 2026).
+  // Steps: press the navigation's Create session, choose "Already out" in "How are you starting?", press "Where are you?", search
+  // "bugis", pick the Bugis area, press "Find places nearby"; on the itinerary check the list of
   // places near Bugis and open the first place; close it; propose it with the tick; go back to Home with the back arrow.
   // Checked at the end: Home says "Your group meets at Bugis" and has a meetup "Out in Bugis", confirmed and live now, with no
   // friends yet, and a "Places near Bugis" section.
   // Good to know: the stub backend lists the places (the app reads them from it); the places' reviews are sample data, as the app says. The light meetup is made for today on the fixed clock, 4 November from 10:00.
-  test('"Already out?" starts a light meetup that shows on Home', async ({ page }) => {
+  test('"Already out" on Create session starts a light meetup that shows on Home', async ({ page }) => {
     await signInDemo(page)
     await expect(page.getByRole('link', { name: 'Jio your friends' })).toBeVisible()
 
-    // 1. Ask where the person is, and pick an area.
-    await page.getByRole('button', { name: /Already out/ }).click()
+    // 1. Home has no "Already out?" row any more. Create session asks how the person is starting; Already out asks where they are.
+    await expect(page.getByRole('button', { name: /Already out/ })).toHaveCount(0)
+    await page.getByRole('link', { name: 'Create session' }).click()
+    await page.getByLabel('How are you starting?').selectOption('out')
+    await page.getByRole('button', { name: /^Where are you\?/ }).click()
     const sheet = page.getByRole('dialog', { name: 'Where are you?' })
     await sheet.getByRole('textbox', { name: 'Place or postal code' }).fill('bugis')
     await sheet.getByRole('list', { name: 'Results' }).getByRole('button', { name: /^Bugis/ }).click()
+    await page.getByRole('button', { name: 'Find places nearby' }).click()
 
     // 2. The light meetup opens on its itinerary, which lists the places around the area while it has no stops.
     await expect(page).toHaveURL(/\/sessions\/[^/]+\/itinerary$/)
