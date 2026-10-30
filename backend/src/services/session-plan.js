@@ -20,6 +20,11 @@ export const APP_SPOTS = 3
 // A spot needs this many members with a start. Fewer than two and there is nothing to be fair about.
 export const MIN_STARTS = 2
 
+// The rule the meeting spots are ranked by: the planner's default, "longest". The place where the longest trip is shortest wins, and a person's
+// past travel (their debt) only breaks an exact tie on that trip (planner/engine.js, meetingArea). The spots' input says it outright so the line
+// that tells a person their past travel was counted (services/session-lean.js) names the rule that is really in use.
+export const SPOT_RULE = 'longest'
+
 // Starts closer than this are "the same place" (50 m, as the browser's planner counts it). Area centres of different areas never are.
 const SAME_PLACE_KM = 0.05
 

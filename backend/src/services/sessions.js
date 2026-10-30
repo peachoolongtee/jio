@@ -38,6 +38,7 @@ import {
   withoutStop,
   withPlace,
 } from './session-itinerary.js'
+import { leanFor, NOT_OWED, picksFor } from './session-lean.js'
 import { homeTripsRun, ledgerFor, ledgerPeople, minutesBetween } from './session-ledger.js'
 import { createSessionQueue } from './session-queue.js'
 import {
@@ -57,6 +58,7 @@ import {
   relistedRows,
   releasedBannerText,
   spotRowsFrom,
+  SPOT_RULE,
   suggestedAreaIds,
 } from './session-plan.js'
 import { dietaryView, effectiveNeeds, heldByOthers, MIN_MEMBERS_FOR_OTHERS, needsInEffect, needsOf, sameNeeds, without } from './session-dietary.js'
@@ -363,6 +365,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     const input = {
       members: located,
       method: 'station',
+      rule: SPOT_RULE,
       alternatives: APP_SPOTS - 1,
       include: suggestedAreaIds(draft.suggestions, draft.members, areasById),
       dateTime: dateTimeOf(draft.session),
@@ -2166,6 +2169,37 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     return { trips: Object.entries(minutes).map(([user, m]) => ({ userId: user, minutes: Math.max(0, Math.round(m)) })), approximate }
   }
 
+  // GET /api/sessions/:id/travel-lean: does the planner count the caller's own past travel in the pick of the meeting spots, for the one quiet line
+  // on the Locate step. A joined member asks. The answer is the caller's own flag and the rule the spots use: { owed, rule }. It says nothing
+  // of anyone else (no debt, no number, no comparison), and nothing is written or stored: it is worked out from the ledger already in
+  // Supabase (session_travel_debt(), read with the service key after admission has proved the caller is joined). `owed` is false unless the
+  // group is choosing where to meet, the host did not name the place, two starts are in, and the caller's debt is more than nothing. A history
+  // that cannot be read, or is too slow, is not owed: the screen shows nothing, as a ranking goes on without it (the same soft read).
+  //
+  // How to call:
+  //   await sessions.travelLean({ client: req.supabase, id, userId: req.user.id }) // { owed: true, rule: 'longest' }
+  async function travelLean({ client, id, userId }) {
+    userId = lower(userId)
+    const state = await admit(client, id, userId)
+    requireJoined(state, userId)
+    const pick = { status: state.session.status, members: state.members, areasById, userId }
+    // Cheap answers first: nothing more is read for a session with no pick to speak of.
+    if (!picksFor({ ...pick, meetBy: null })) return NOT_OWED
+    // How the host chose is read apart (loadAdmission does not carry it). A read that fails says 'known': nothing is claimed.
+    const meetBy = await soft(
+      async () => {
+        const read = await client.from('sessions').select('meet_by').eq('id', id).maybeSingle()
+        if (read.error) throw read.error
+        return read.data?.meet_by ?? null
+      },
+      'reading how the host chose',
+      'known',
+    )
+    if (meetBy === 'known') return NOT_OWED
+    const debts = await soft(() => loadDebts(service, id), 'reading the travel debt', null)
+    return leanFor({ ...pick, meetBy, debts })
+  }
+
   // POST /api/sessions/:id/complete: the host finishes the outing (E14), confirmed to completed. The server works the travel ledger out from
   // stored rows, never from the browser: for each joined person who has minutes in (stored when the meeting spot was confirmed), the minutes in,
   // the minutes between stops (the stored leg minutes), and the minutes home, routed from the last stop to the centre of the area they end the
@@ -2326,6 +2360,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     keepRain,
     completeOuting,
     tripsHome,
+    travelLean,
     proposeStop,
     resolveProposal,
     queue,
