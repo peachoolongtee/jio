@@ -1877,3 +1877,16 @@ Darryl's UAT items 5 and 6. **The lead's word:** "only the host can drop and for
   - **Server:** a failed PUT puts back what it wrote (the member's row, the drops) before answering the error; a drop is in force only with three or more joined and a need a member other than the host holds, and is deleted when that stops being true (on every read of the outing's needs, and after a leave, opt-out or removal); under three joined GET and PUT answer the caller's own needs alone; only the host's `dropped` changes a drop; the PUT has its own limit of 20 a minute; the db test's last step is scoped to its own sessions; the duplicate `needsOf`/`knownNeeds` is gone. A ranking reads the needs for the people the run's draft says have joined (`needsReader`).
   - **Screens:** the stand-in database has the two tables; only the host sends `dropped`, compared with the list the screen shows; a failed or limited read keeps the last answer and shows "Couldn't load the group's dietary needs" with a retry; the needs are asked for only while voting, beside the plan's rows; one plan read after a diet write; a locked chip that is on carries a lock and the note holds for the guest's own need too; photos load when the day begins on a page left open.
   - **Checks:** backend 2070 passed (also with outbound calls blocked), frontend 2889 passed under `TZ=UTC`, build succeeded, e2e 17 of 17, and every `db/tests` file passed in PGlite on a fresh build (`outing_dietary.sql` 32 of 32). Not run on the live project.
+- **Checked by the session on `d416464`:**
+  - backend 2070 passed, also with outbound calls blocked;
+  - frontend 2889 passed under `TZ=UTC`;
+  - build succeeded;
+  - e2e 17 of 17.
+- **Applied at the lead's word ("apply"), 30 October,** through the Supabase connection, from the file unchanged: `20261030065517 jio_outing_dietary`.
+  - **Before:** the tables were absent, `session_member_needs` was `f5e1334…`, and the last migration was `20261029032155`.
+  - **After:**
+    - both tables are there, with row-level security on and no policy;
+    - `authenticated` has no select on them and cannot run the function;
+    - `session_member_needs` is `6589abe1…`;
+    - `apply_session_plan` and `guard_session_changes` are unchanged;
+    - rows are unchanged (9 sessions, 6 users, 14 members).
