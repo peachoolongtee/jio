@@ -11,6 +11,7 @@
 //   - The pictures are not part of the session summary (it has photoCount): they load with events.loadPhotos.
 //   - Share (under the line, for the print in the middle, and in the viewer) hands a photo to the phone's share sheet, for
 //     WhatsApp, Instagram and the rest; where the browser cannot, a dialog offers to save it and open the app (ShareDialog).
+//   - Photos open on the outing's Singapore day, for every member, and not before: until then the page says so, with the way back.
 //   - A session on the server has no photos yet (they would need storage of their own, a later update): the page says so, with the way
 //     back to the itinerary, and offers no camera.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -29,7 +30,8 @@ import ShareDialog from '@/components/event/ShareDialog.vue'
 import NotFoundView from './NotFoundView.vue'
 import { PHOTOS_MAX } from '@/lib/api.js'
 import { compressImage } from '@/lib/image.js'
-import { sessionPath, singaporeDate, singaporeMinutes } from '@/lib/session.js'
+import { photosOpen, sessionPath, singaporeDate, singaporeMinutes } from '@/lib/session.js'
+import { useNow } from '@/lib/useNow.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -58,7 +60,10 @@ const sharer = ref(null)
 const session = computed(() => events.byId[props.id])
 // An outing that closed by itself never had a plan, so photos stay shut for it (lib/api.js addPhoto refuses too).
 const photosOff = computed(() => !!session.value?.remote)
-const open = computed(() => ['confirmed', 'completed'].includes(session.value?.status) && session.value?.endedBy !== 'closed' && !photosOff.value)
+// Is there a plan to take pictures of? Photos then open on the outing's day (lib/api.js addPhoto refuses before it too).
+const planned = computed(() => ['confirmed', 'completed'].includes(session.value?.status) && session.value?.endedBy !== 'closed' && !photosOff.value)
+const now = useNow()
+const open = computed(() => planned.value && photosOpen(session.value, now.value))
 // undefined until the pictures have loaded.
 const loaded = computed(() => events.photos[props.id])
 
@@ -190,7 +195,10 @@ async function confirmDelete() {
       <EmptyState v-if="photosOff" title="Photos are not shared yet" text="They come in a later update. Everyone in the session will be able to post pictures from the day." data-testid="photos-later">
         <AppButton variant="secondary" :to="`/sessions/${id}/itinerary`">Back to the itinerary</AppButton>
       </EmptyState>
-      <EmptyState v-else-if="!open" title="Photos open once the plan is confirmed" text="Everyone in the session can post pictures from the day after that.">
+      <EmptyState v-else-if="!planned" title="Photos open once the plan is confirmed" text="Everyone in the session can post pictures from the day after that.">
+        <AppButton variant="secondary" :to="sessionPath(session)">Back to the session</AppButton>
+      </EmptyState>
+      <EmptyState v-else-if="!open" title="Photos open on the day" text="Everyone in the session can post pictures from the day of the outing." data-testid="photos-before-day">
         <AppButton variant="secondary" :to="sessionPath(session)">Back to the session</AppButton>
       </EmptyState>
       <div v-else-if="loadError" class="stack gap-md" role="alert">

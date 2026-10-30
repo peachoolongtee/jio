@@ -14,6 +14,18 @@ export function singaporeDate(now = new Date()) {
   return `${parts.year}-${parts.month}-${parts.day}`
 }
 
+// Are photos open for an outing? From its Singapore day on, for every member, and not before. The demo's session-day switch
+// (`isToday`) counts today as the day, as it does for the countdown. A session with no date is not open.
+// How to call: photosOpen({ date: '2026-10-17' }, new Date('2026-10-16T16:30:00Z')) -> true (it is the 17th in Singapore)
+export function photosOpen(session, now = new Date()) {
+  const today = singaporeDate(now)
+  const day = session?.isToday ? today : session?.date
+  return !!day && day <= today
+}
+
+// The words for adding a photo before the outing's day. How to call: throw new Error(PHOTOS_BEFORE_DAY)
+export const PHOTOS_BEFORE_DAY = 'Photos open on the day of the outing.'
+
 // The time of day in Singapore at an instant, as HH:mm.
 // How to call: singaporeTime(new Date('2026-10-17T08:30:00Z')) -> '16:30'
 export function singaporeTime(now = new Date()) {
