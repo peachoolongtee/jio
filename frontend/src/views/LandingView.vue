@@ -40,7 +40,8 @@ import RangeSlider from '@/components/ui/RangeSlider.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
-import PlaceCard from '@/components/event/PlaceCard.vue'
+import PlaceTile from '@/components/event/PlaceTile.vue'
+import PlaceCarousel from '@/components/ui/PlaceCarousel.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import WeatherSource from '@/components/weather/WeatherSource.vue'
 import InvitationList from '@/components/event/InvitationList.vue'
@@ -309,7 +310,7 @@ function clearApplied() {
 
 // ── Place detail ──
 // The open place lives in the URL, so Back closes it and a link opens it straight away. The card and the detail
-// view share view-transition names (PlaceCard `morph`, PlaceDetail), so the card grows into the view and back.
+// view share view-transition names (PlaceTile `morph`, PlaceDetail), so the card grows into the view and back.
 // Without the View Transitions API, or when the card is out of sight, the view simply opens and closes.
 const openPlace = ref(null)
 const reviews = ref(null)
@@ -502,16 +503,22 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <EmptyState v-else-if="!filtered.length" title="No places match">
           <AppButton variant="secondary" @click="clearApplied">Clear all</AppButton>
         </EmptyState>
-        <template v-else>
-          <ul class="grid-3">
-            <li v-for="(place, i) in filtered.slice(0, shown)" :key="place.id" class="rise" :style="{ '--i': i % PAGE }">
-              <RouterLink :to="{ query: { ...route.query, place: place.id } }" class="place-link" :data-place="place.id">
-                <PlaceCard :place="place" :morph="morphId === place.id" />
-              </RouterLink>
-            </li>
-          </ul>
-          <AppButton v-if="filtered.length > shown" variant="secondary" class="home__more" @click="shown += PAGE">Show more</AppButton>
-        </template>
+        <!-- One row that scrolls sideways (walkthrough, 30 October 2026: the grid showed every place at once). "Show more" is the row's
+             last card and adds the next twelve. -->
+        <PlaceCarousel v-else :items="filtered.slice(0, shown)" :label="`Places near ${area.name}`" data-testid="home-places">
+          <template #item="{ item: place }">
+            <RouterLink :to="{ query: { ...route.query, place: place.id } }" class="place-link place-link--tile" :data-place="place.id">
+              <PlaceTile :place="place" :morph="morphId === place.id" />
+            </RouterLink>
+          </template>
+          <template v-if="filtered.length > shown" #end>
+            <button type="button" class="home__more-card" data-testid="home-places-more" @click="shown += PAGE">
+              <span class="home__more-icon" aria-hidden="true"><AppIcon name="plus" :size="20" /></span>
+              <span class="title-sm">Show more</span>
+              <span class="caption-sm text-muted">{{ filtered.length - shown }} more nearby</span>
+            </button>
+          </template>
+        </PlaceCarousel>
       </section>
     </div>
 
@@ -635,6 +642,12 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 
 /* A place card is a link to its detail view. */
 .place-link { display: block; border-radius: var(--rounded-md); color: inherit; text-decoration: none; }
+.place-link--tile { height: 100%; }
+/* The carousel's last card: more places, as a dashed empty card with a + in a circle. */
+.home__more-card { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-sm); min-height: 100%; padding: var(--spacing-base); border: 1px dashed var(--border-strong); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); font: inherit; text-align: center; cursor: pointer; }
+@media (hover: hover) { .home__more-card:hover { border-color: var(--ink); background: var(--surface-soft); } }
+.home__more-card:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.home__more-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--rounded-full); background: var(--surface-strong); }
 .place-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .home__more { align-self: center; }
 .filter-btn {
