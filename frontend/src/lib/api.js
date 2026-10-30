@@ -4976,7 +4976,7 @@ export async function getLedger(id) {
 // Completes an outing. `how` is kept as `endedBy`: 'hand' ("Finish outing"), 'auto' (its end time passed) or 'closed' (two days
 // past its end with no confirmed plan). A confirmed plan pays every member who is in it, but only when at least two people are
 // (lib/session.js earnsCoins): an outing of one is a way to find places, not a way to earn coins, so it can be repeated for
-// nothing. A closed one pays nobody, and counts for nobody's Jio streak. The session keeps `paid` (whether coins were paid) so
+// nothing. A closed one pays nobody, and counts for nobody's outings together. The session keeps `paid` (whether coins were paid) so
 // its page can say why none were. Saves nothing itself: the caller saves. Answers whether coins were paid.
 // How to call: if (completeOuting(session, 'auto')) emit({ type: 'stats' })
 function completeOuting(session, how) {
