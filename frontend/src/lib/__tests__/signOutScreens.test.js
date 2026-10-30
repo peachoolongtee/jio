@@ -100,14 +100,16 @@ describe('signing out of a local account', () => {
     expect(view.has('[data-testid=local-account-note]')).toBe(false)
   })
 
-  it('lands on /login when real accounts are on, and says on the Profile screen that the account lives only in this browser', async () => {
+  it('lands on /login when real accounts are on, with no note on the Profile screen about the account living in this browser', async () => {
     const fake = fakeSupabase()
     const { store, router, view } = await setUp(fake)
     // The demo account is local even with Supabase set up.
     const { DEMO_ACCOUNT } = await import('../../components/dev/demoAccount.js')
     await store.signUpAs(DEMO_ACCOUNT)
-    await until(() => view.has('[data-testid=local-account-note]'))
-    expect(view.text('[data-testid=local-account-note]')).toContain('This account lives only in this browser.')
+    await until(() => view.has('[data-testid=profile-view]') && view.text().includes('Edit profile'))
+    // Removed at the lead's walkthrough (30 October 2026): the sign-out dialog still says what is erased.
+    expect(view.has('[data-testid=local-account-note]')).toBe(false)
+    expect(view.text()).not.toContain('This account lives only in this browser')
     await openDialog(view)
     expect(view.text('[role=dialog]')).toContain('Erase everything and sign out?')
     await view.click(buttonLabelled(view, 'Erase and sign out'))

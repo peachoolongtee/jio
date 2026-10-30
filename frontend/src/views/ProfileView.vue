@@ -6,24 +6,26 @@
 //   "Edit profile" there (/profile/edit), and nobody else's does. The signed-in person's own
 //   has no create button: the navbar has one.
 //   Then the meetup graph, and the signed-in person's sessions or the other person's recent activity. The sessions have
-//   time chips, All, Upcoming and Completed (lib/profileSessions.js), styled like the ones on Rewards. The signed-in
+//   time chips, All, Upcoming and Completed (lib/profileSessions.js), styled like the ones on Rewards, and a search box that
+//   narrows them by title or meeting area. Clicking a day on the graph shows only that day's sessions (or, on someone else's
+//   profile, that day's activity) and picks All, so the day is never hidden by a chip; the day shows as a chip with a × above the
+//   list, and the × (or clicking the same day again) brings the whole list back (walkthrough, 30 October 2026). The signed-in
 //   person's own also lists their Friends (for a real account, the people they have shared a session with; the first six, and
 //   "Show N more" for the rest), then
 //   Suggested people (anyone they are not friends with yet), each opening their profile, with "Add friend" in the sample world. These used to be on the invite page, which now shows friends only (ticket #121).
 //   The signed-in person's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
 //   the demo" note, because other people's profiles are hand-written.
 //   Signing out of a local account (one that lives only in this browser) erases everything saved here, so its dialog
-//   says so. Signing out of a real account keeps its meetups on this device and the dialog says that instead. A local
-//   account in a build with real accounts also gets a note saying it lives only in this browser. A person with no
+//   says so. Signing out of a real account keeps its meetups on this device and the dialog says that instead. The profile
+//   itself carries no note about a local account (removed at the lead's walkthrough, 30 October 2026). A person with no
 //   season points has no rank: it reads "No rank yet".
 //   Signing out empties the signed-in person while this screen is still drawn, so every read of the signed-in person
 //   is guarded.
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
-import BannerNote from '@/components/ui/BannerNote.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import CoinBadge from '@/components/ui/CoinBadge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -41,7 +43,7 @@ import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 import { personColour } from '@/lib/people.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
-import { EMPTY_TEXT, SESSION_FILTERS, profileSessions } from '@/lib/profileSessions.js'
+import { EMPTY_TEXT, SESSION_FILTERS, narrowSessions, narrowedEmptyText, profileSessions } from '@/lib/profileSessions.js'
 import { useNow } from '@/lib/useNow.js'
 import { vRadioGroup } from '@/lib/radioGroup.js'
 
@@ -56,8 +58,6 @@ const signOutOpen = ref(false)
 // Which dialog was opened: 'real' (the account is kept, the meetups stay here) or 'local' (everything is erased). It is
 // fixed when the dialog opens, because signing out empties the signed-in person while the dialog is still on screen.
 const signOutKind = ref('local')
-// A local account in a build where real accounts are on: it works, but only in this browser.
-const localOnly = computed(() => auth.realAccounts && !!auth.user?.local)
 
 // How to call: openSignOut()
 function openSignOut() {
@@ -88,7 +88,28 @@ const sessions = computed(() => visibleSessions(events.sessions))
 // The time chip chosen, and the sessions it shows in its order. The clock moves a session to the top while it is live.
 const sessionFilter = ref('all')
 const now = useNow()
-const shownSessions = computed(() => profileSessions(sessions.value, sessionFilter.value, now.value))
+// What was typed in the search box, and the day picked on the graph ('yyyy-MM-dd' or '').
+const query = ref('')
+const day = ref('')
+const narrowing = computed(() => !!query.value.trim() || !!day.value)
+const shownSessions = computed(() => narrowSessions(profileSessions(sessions.value, sessionFilter.value, now.value), { query: query.value, day: day.value }, now.value))
+const shownActivity = computed(() => narrowSessions(person.value?.activity || [], { day: day.value }, now.value))
+const dayText = (d) => format(parseISO(d), 'EEE d MMM yyyy')
+const emptyText = computed(() => (narrowing.value ? narrowedEmptyText({ query: query.value, day: day.value }, dayText) : EMPTY_TEXT[sessionFilter.value]))
+// A day picked on the graph, or null when the same day was picked again. Picking a day shows All, so a past day is not hidden
+// by Upcoming. How to call: pickDay('2026-09-11')
+// The list sits under Friends and Suggested on your own profile, so a picked day brings its heading into view (at once under reduced motion).
+async function pickDay(picked) {
+  day.value = picked || ''
+  if (!picked) return
+  sessionFilter.value = 'all'
+  await nextTick()
+  const head = typeof document !== 'undefined' ? document.getElementById(isMe.value ? 'my-sessions' : 'activity-head') : null
+  const still = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  head?.scrollIntoView?.({ behavior: still ? 'auto' : 'smooth', block: 'start' })
+}
+// The day goes when another person's profile opens.
+watch(personId, () => { day.value = ''; query.value = '' })
 const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const dateText = (d) => format(parseISO(d), 'd MMM yyyy')
 const colour = computed(() => personColour(personId.value))
@@ -193,10 +214,9 @@ async function signOut() {
       </section>
 
       <div class="screen__body">
-        <BannerNote v-if="isMe && localOnly" data-testid="local-account-note">This account lives only in this browser. Signing out erases it, and you cannot log in to it from another device.</BannerNote>
         <section class="card graph-card rise" style="--i: 1" aria-labelledby="graph-head">
           <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
-          <MeetupGraph :history="person.history" :planned="person.planned" />
+          <MeetupGraph :history="person.history" :planned="person.planned" :selected="day" @select="pickDay" />
         </section>
 
         <!-- The signed-in person: their friends, opening each one's profile. -->
@@ -248,10 +268,23 @@ async function signOut() {
           </div>
           <div v-if="!events.loaded" class="stack"><SkeletonRow v-for="n in 2" :key="n" :lines="3" /></div>
           <template v-else>
-            <div class="scroll-x session-filters" role="radiogroup" v-radio-group aria-label="Show sessions">
-              <ChipButton v-for="f in SESSION_FILTERS" :key="f.id" radio :selected="sessionFilter === f.id" @click="sessionFilter = f.id">{{ f.label }}</ChipButton>
+            <div class="session-filters">
+              <div class="scroll-x" role="radiogroup" v-radio-group aria-label="Show sessions">
+                <ChipButton v-for="f in SESSION_FILTERS" :key="f.id" radio :selected="sessionFilter === f.id" @click="sessionFilter = f.id">{{ f.label }}</ChipButton>
+              </div>
+              <label class="session-search">
+                <AppIcon name="search" :size="18" />
+                <span class="sr-only">Search sessions</span>
+                <input v-model="query" type="search" placeholder="Search by title or area" autocomplete="off" data-testid="session-search" />
+              </label>
             </div>
-            <p v-if="!shownSessions.length" class="body-md text-muted">{{ EMPTY_TEXT[sessionFilter] }}</p>
+            <p v-if="day" class="day-filter">
+              <button type="button" class="day-chip caption" data-testid="day-filter" :aria-label="`Show every day, not only ${dayText(day)}`" @click="day = ''">
+                <AppIcon name="calendar" :size="14" />{{ dayText(day) }}<AppIcon name="close" :size="14" />
+              </button>
+            </p>
+            <p class="sr-only" role="status">{{ day ? `Showing ${dayText(day)} only` : '' }}</p>
+            <p v-if="!shownSessions.length" class="body-md text-muted" data-testid="sessions-empty">{{ emptyText }}</p>
             <ul v-else class="grid-3">
               <li v-for="s in shownSessions" :key="s.id"><SessionCard :session="s" :names="nameOf" /></li>
             </ul>
@@ -261,9 +294,15 @@ async function signOut() {
         <!-- Someone else: recent activity -->
         <section v-else class="section" aria-labelledby="activity-head">
           <h2 id="activity-head" class="display-sm">Recent activity</h2>
+          <p v-if="day" class="day-filter">
+            <button type="button" class="day-chip caption" data-testid="day-filter" :aria-label="`Show every day, not only ${dayText(day)}`" @click="day = ''">
+              <AppIcon name="calendar" :size="14" />{{ dayText(day) }}<AppIcon name="close" :size="14" />
+            </button>
+          </p>
           <EmptyState v-if="!person.activity.length" title="No activity yet" />
+          <p v-else-if="!shownActivity.length" class="body-md text-muted" data-testid="activity-empty">No activity on {{ dayText(day) }}</p>
           <ul v-else class="activity">
-            <li v-for="(item, i) in person.activity" :key="i" class="activity__row">
+            <li v-for="(item, i) in shownActivity" :key="i" class="activity__row">
               <span class="activity__icon"><AppIcon :name="item.text.startsWith('Redeemed') ? 'gift' : 'trophy'" :size="16" /></span>
               <span class="stack">
                 <RouterLink v-if="item.sessionId" :to="`/sessions/${item.sessionId}/itinerary`" class="title-sm activity__link">{{ item.text }}</RouterLink>
@@ -290,8 +329,22 @@ async function signOut() {
 </template>
 
 <style scoped>
-/* The time chips above the Sessions grid, spaced as the filters on Rewards. */
-.session-filters { margin-bottom: var(--spacing-base); }
+/* The time chips and the search box above the Sessions grid, spaced as the filters on Rewards: one row from tablet up, the
+   search under the chips on phones. */
+.session-filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm) var(--spacing-md); margin-bottom: var(--spacing-base); }
+.session-filters .scroll-x { min-width: 0; flex: 1 1 auto; }
+.session-search { display: flex; flex: 1 1 260px; align-items: center; gap: var(--spacing-sm); max-width: 360px; min-height: var(--tap-min); padding: 0 var(--spacing-base); border: 1px solid var(--border-control); border-radius: var(--rounded-full); background: var(--canvas); color: var(--muted); }
+@media (max-width: 743.98px) { .session-search { max-width: none; } }
+.session-search:focus-within { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.session-search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: var(--text-body-md); outline: none; }
+.session-search input::placeholder { color: var(--muted); }
+/* The headings a picked day scrolls to, clear of the top bar. */
+#my-sessions, #activity-head { scroll-margin-top: calc(var(--topbar-real-height) + var(--spacing-base)); }
+/* The day picked on the graph: an ink chip, like a selected one, whose × lets it go. 44px tall to tap. */
+.day-filter { margin: 0 0 var(--spacing-base); }
+.day-chip { display: inline-flex; align-items: center; gap: var(--spacing-xs); min-height: var(--tap-min); padding: 0 var(--spacing-md); border: 0; border-radius: var(--rounded-full); background: var(--selected); color: var(--on-selected); cursor: pointer; }
+.day-chip:hover { background: var(--body); }
+.day-chip:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* ── The top ── */
 .hero { margin-bottom: var(--spacing-lg); }
 /* The banner: the person's colour, deep at one corner and light at the other, with two soft shapes for depth. */
