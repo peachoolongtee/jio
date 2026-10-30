@@ -303,7 +303,8 @@ const NEEDS = ['halal', 'vegetarian', 'vegan']
 // effect, the dropped ones taken out) and `others` (everyone's but the caller's, empty under three joined, the dropped ones
 // included) are always lists of known needs. `mine` (the caller's own needs for this outing), `dropped` and `checked` (whether the
 // caller confirmed for this outing) are kept when the server sends them; an older server sends only the first two. The server
-// names nobody in any of it. `replanNeeded` is kept when a write could not pick the places again.
+// names nobody in any of it. A write's answer also carries `planVersion` and `repicked` (true when the places were picked again, so
+// the plan is read again).
 // How to call: dietaryAnswer({ dietary: ['halal'], others: ['halal'], mine: [], checked: false, dropped: [] })
 function dietaryAnswer(data) {
   const known = (list) => Array.isArray(list) && list.every((n) => NEEDS.includes(n))
@@ -315,7 +316,8 @@ function dietaryAnswer(data) {
     ...(data.mine !== undefined ? { mine: data.mine } : {}),
     ...(data.dropped !== undefined ? { dropped: data.dropped } : {}),
     ...(data.checked !== undefined ? { checked: data.checked } : {}),
-    ...(data.replanNeeded === true ? { replanNeeded: true } : {}),
+    ...(Number.isInteger(data.planVersion) ? { planVersion: data.planVersion } : {}),
+    ...(data.repicked === true ? { repicked: true } : {}),
   }
 }
 
@@ -331,11 +333,12 @@ export async function sessionDietary(sessionId) {
 }
 
 // The signed-in person confirms or changes their needs for this outing, or the host drops someone else's need
-// (PUT /api/sessions/:id/dietary). `body` has any of `mine` (the person's own needs), `checked: true` (they confirmed), `dropped` (the
-// others' needs not to filter for: the host's alone) and `planVersion`. Answers like sessionDietary, once the write is made. While
-// the group is voting, a change of the needs in effect has the server pick each slot's places again, which takes as long as a
-// ranking; `replanNeeded: true` says it could not, and the plan is read again either way. A refusal arrives as an Error with
-// the server's `code`: host_only, session_not_found, session_closed (or wrong_status) and stale_plan.
+// (PUT /api/sessions/:id/dietary). `body` has at least one of `mine` (the person's whole list of own needs), `checked: true` (they
+// confirmed; a chip tap sends none), `dropped` (the whole list of others' needs not to filter for: the host's alone) and, with them,
+// `planVersion` (the one the page saw). Answers like sessionDietary plus `planVersion` and `repicked`. While the group is voting, a
+// change of the needs in effect has the server pick each slot's places again, which takes as long as a ranking. A refusal arrives as
+// an Error with the server's `code`: invalid_input, not_joined, host_only, session_not_found, session_closed, wrong_status,
+// needs_three_people, stale_plan, need_not_found.
 // How to call: await putSessionDietary('3b1f...', { mine: ['vegan'], checked: true })
 export async function putSessionDietary(sessionId, body) {
   const { data } = await api.put(sessionPath(sessionId, '/dietary'), body, { timeout: SESSION_TIMEOUT_MS })

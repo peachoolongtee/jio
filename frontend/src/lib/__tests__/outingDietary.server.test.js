@@ -40,14 +40,14 @@ function standIn(w, apps, profiles, hostId, { joined = 3, refuse = null } = {}) 
         if (status >= 400) throw new AxiosError(`Request failed with status code ${status}`, 'ERR_BAD_REQUEST', config, {}, response)
         return response
       }
-      if (refuse) return respond(refuse.status, { error: refuse.error, message: 'No.' })
+      if (refuse && method === 'PUT') return respond(refuse.status, { error: refuse.error, message: 'No.' })
       if (method === 'PUT') {
         if (body.dropped && user !== hostId) return respond(403, { error: 'host_only', message: 'Only the host can drop a need.' })
         if (body.mine) outing.mine[user] = body.mine
         if (body.checked) outing.checked[user] = true
         if (body.dropped) outing.dropped = body.dropped
       }
-      return respond(200, answerFor(user))
+      return respond(200, { ...answerFor(user), planVersion: 1, repicked: method === 'PUT' })
     }
   }
   return { calls, outing }
@@ -92,7 +92,10 @@ describe('confirming and changing needs on a real account', () => {
     const diet = standIn(w, [sam, kim, lee], { [sam.id]: ['halal'], [kim.id]: [], [lee.id]: [] }, sam.id)
     await kim.api.getPlan(id)
     await kim.api.confirmDiet(id, ['vegan'])
-    expect(diet.calls.filter((c) => c.method === 'PUT')).toEqual([{ method: 'PUT', body: { mine: ['vegan'], checked: true }, as: kim.id }])
+    const puts = diet.calls.filter((c) => c.method === 'PUT')
+    expect(puts).toHaveLength(1)
+    // The version the page saw rides along, so a write over a newer outing is refused.
+    expect(puts[0]).toMatchObject({ body: { mine: ['vegan'], checked: true, planVersion: expect.any(Number) }, as: kim.id })
     const plan = await kim.api.getPlan(id)
     expect(plan.myDietary).toEqual(['vegan'])
     expect(plan.dietChecked).toBe(true)
@@ -117,7 +120,7 @@ describe('confirming and changing needs on a real account', () => {
     const diet = standIn(w, [sam, kim, lee], { [sam.id]: [], [kim.id]: ['halal'], [lee.id]: [] }, sam.id)
     await sam.api.getPlan(id)
     await sam.api.confirmDiet(id, [], ['halal'])
-    expect(diet.calls.filter((c) => c.method === 'PUT').at(-1).body).toEqual({ mine: [], checked: true, dropped: ['halal'] })
+    expect(diet.calls.filter((c) => c.method === 'PUT').at(-1).body).toMatchObject({ mine: [], checked: true, dropped: ['halal'] })
     const plan = await sam.api.getPlan(id)
     expect(plan.dietDropped).toEqual(['halal'])
     expect(plan.dietary).toEqual([])
@@ -134,7 +137,28 @@ describe('confirming and changing needs on a real account', () => {
     expect(diet.calls.filter((c) => c.method === 'PUT')).toEqual([])
     // Sending back the list the outing already has is not a drop.
     await expect(kim.api.confirmDiet(id, ['vegan'], [])).resolves.toBeTruthy()
-    expect(diet.calls.filter((c) => c.method === 'PUT').at(-1).body).toEqual({ mine: ['vegan'], checked: true })
+    expect(diet.calls.filter((c) => c.method === 'PUT').at(-1).body).toMatchObject({ mine: ['vegan'], checked: true })
+    expect(diet.calls.filter((c) => c.method === 'PUT').at(-1).body.dropped).toBeUndefined()
+  })
+
+  it('saves a chip tap without confirming the outing for the person', async () => {
+    const { w, sam, kim, lee, id } = await voting({ third: true })
+    const diet = standIn(w, [sam, kim, lee], { [sam.id]: [], [kim.id]: [], [lee.id]: [] }, sam.id)
+    await kim.api.getPlan(id)
+    await kim.api.confirmDiet(id, ['vegetarian'], [], { confirmed: false })
+    expect(diet.calls.filter((c) => c.method === 'PUT').at(-1).body.checked).toBeUndefined()
+    const plan = await kim.api.getPlan(id)
+    expect(plan.myDietary).toEqual(['vegetarian'])
+    expect(plan.dietChecked).toBe(false)
+  })
+
+  it('reads the outing again and says why when the server finds the page out of date', async () => {
+    const { w, sam, kim, lee, id } = await voting({ third: true })
+    const diet = standIn(w, [sam, kim, lee], { [sam.id]: [], [kim.id]: [], [lee.id]: [] }, sam.id)
+    await kim.api.getPlan(id)
+    standIn(w, [kim], { [kim.id]: [] }, sam.id, { refuse: { status: 409, error: 'stale_plan' } })
+    await expect(kim.api.confirmDiet(id, ['vegan'])).rejects.toThrow('The outing changed while you were looking. It is up to date now; try again.')
+    expect(diet.calls.filter((c) => c.method === 'PUT')).toEqual([])
   })
 
   it('says it in words when the server refuses the drop, and when the outing is closed', async () => {
@@ -145,7 +169,11 @@ describe('confirming and changing needs on a real account', () => {
     await expect(sam.api.confirmDiet(id, ['vegan'], undefined)).rejects.toThrow("Only the host can change someone else's need.")
     expect(refused.calls.length).toBeGreaterThan(0)
     standIn(w, [sam], { [sam.id]: ['halal'] }, sam.id, { refuse: { status: 409, error: 'session_closed' } })
-    await expect(sam.api.confirmDiet(id, ['vegan'], undefined)).rejects.toThrow('Dietary needs can no longer change for this outing.')
+    await expect(sam.api.confirmDiet(id, ['vegan'], undefined)).rejects.toThrow('This session has ended.')
+    standIn(w, [sam], { [sam.id]: ['halal'] }, sam.id, { refuse: { status: 409, error: 'wrong_status' } })
+    await expect(sam.api.confirmDiet(id, ['vegan'], undefined)).rejects.toThrow('Dietary needs can only change while the group is voting.')
+    standIn(w, [sam], { [sam.id]: ['halal'] }, sam.id, { refuse: { status: 409, error: 'needs_three_people' } })
+    await expect(sam.api.confirmDiet(id, ['vegan'], undefined)).rejects.toThrow('Someone else\'s need can be changed once three people have joined.')
   })
 
   it('tells the screens a real friend’s needs from the server, and the person’s own for this outing', async () => {

@@ -381,7 +381,7 @@ async function saveDiet({ mine, dropped }) {
   pendingDiet.value = { mine, dropped }
   error.value = ''
   try {
-    const answer = await refilter(() => planner.confirmDiet(props.id, mine, dropped))
+    const answer = await refilter(() => planner.confirmDiet(props.id, mine, dropped, { confirmed: false }))
     if (answer?.syncError) error.value = answer.syncError
   } catch (e) {
     error.value = e.message

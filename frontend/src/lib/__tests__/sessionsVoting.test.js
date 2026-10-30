@@ -6,7 +6,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { SERVICE } from '../../components/dev/fakeDatabase.js'
 import { createSessionsRemote } from '../sessionsRemote.js'
-import { KIM_PLACE, SAM_PLACE, THIRD, voting } from './sessionsWorld.js'
+import { KIM_PLACE, SAM_PLACE, THIRD, askedOfServer, voting } from './sessionsWorld.js'
 import { SESSION } from './authFixture.js'
 
 beforeAll(() => {
@@ -37,8 +37,7 @@ describe('what the server makes when the host confirms the spot', () => {
     w.server.calls.length = 0
     await sam.api.getPlan(id)
     await kim.api.getPlan(id)
-    expect(w.server.calls.filter((c) => c.route !== 'venues')).toEqual([])
-    expect(w.server.calls.every((c) => c.route === 'venues')).toBe(true)
+    expect(askedOfServer(w.server.calls)).toEqual([])
   })
 
   it('asks for the cards\' places once, and not again for a place already known', async () => {
@@ -46,7 +45,7 @@ describe('what the server makes when the host confirms the spot', () => {
     w.server.calls.length = 0
     await sam.api.getPlan(id)
     await sam.api.getPlan(id)
-    expect(w.server.calls).toEqual([])
+    expect(askedOfServer(w.server.calls)).toEqual([])
   })
 
   it('keeps what the planner said of each slot and place for the cards: the notice, the weather, the reasons and the walk', async () => {

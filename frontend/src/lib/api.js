@@ -16,7 +16,7 @@ import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
-import { canInviteByName, dueEnding, earnsCoins, isInOrInvited, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
+import { PHOTOS_BEFORE_DAY, canInviteByName, dueEnding, earnsCoins, isInOrInvited, photosOpen, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
 import { dayLabel, validUntilOf, voucherState, voucherValidUntil } from './vouchers.js'
 import { combineWeather, stateOf, venueSetting, weatherFrom } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
@@ -3326,11 +3326,14 @@ const DROP_HOST_ONLY = "Only the host can change someone else's need."
 // longer fit go with their votes, and a banner says the places changed, without naming anyone.
 // For a session on the server the same is one write to the server (PUT /api/sessions/:id/dietary), which keeps the outing's needs,
 // picks the places again while voting and answers with what it holds; nothing is kept here but the session read afterwards.
-// How to call: await confirmDiet('s1', ['vegan'], ['halal'])
-export async function confirmDiet(id, dietary, dropped) {
+// `confirmed: false` (a tap on the Vote page's chips) saves the needs without marking the outing confirmed for the person, on the server.
+// How to call: await confirmDiet('s1', ['vegan'], ['halal']); await confirmDiet('s1', ['vegan'], undefined, { confirmed: false })
+export async function confirmDiet(id, dietary, dropped, { confirmed = true } = {}) {
   if (onServer() && serverMembers.has(id)) {
     requireMe()
-    const body = { mine: cleanDietary(dietary), checked: true }
+    // A chip tap saves the needs without confirming them (`confirmed: false`); only "Confirm" marks the outing confirmed for the person.
+    const planVersion = newestRead.get(id)?.version ?? newestPlanRead.get(id)?.version
+    const body = { mine: cleanDietary(dietary), ...(confirmed ? { checked: true } : {}), ...(Number.isInteger(planVersion) ? { planVersion } : {}) }
     if (dropped !== undefined) {
       const wanted = cleanDietary(dropped)
       const seen = newestPlanRead.get(id)?.diet ?? (await dietaryStateOf(id))
@@ -3340,7 +3343,13 @@ export async function confirmDiet(id, dietary, dropped) {
         body.dropped = wanted
       }
     }
-    await remote.setDietary(id, body)
+    try {
+      await remote.setDietary(id, body)
+    } catch (err) {
+      // The outing moved on since this page last read it: it is read again, so the page shows what is true now.
+      if (err.code === 'stale_plan') await afterServerWrite(id, 'diet').catch(() => {})
+      throw err
+    }
     return afterServerWrite(id, 'diet')
   }
   await wait(DELAY.write)
@@ -4969,7 +4978,9 @@ function settleOutings(now = new Date()) {
 
 // ── Photos: everyone in a session can post pictures from the day ────────────
 
-// Everyone in a session can post up to PHOTOS_MAX pictures. src is a data URL (see image.js).
+// Everyone in a session can post up to PHOTOS_MAX pictures, from the outing's day on (not before, and none on a session on the
+// server). src is a data URL (see image.js).
+// How to call: await addPhoto('s1', 'ian', 'data:image/jpeg;base64,...')
 export async function addPhoto(id, personId, src) {
   // Photos are not on the server yet: they would need their own private storage (the design leaves them out), so a session of the server says so.
   if (onServer() && !db.sessions.some((s) => s.id === id)) throw new Error(SHARING_WORDS.photosLater)
@@ -4977,6 +4988,8 @@ export async function addPhoto(id, personId, src) {
   requireMe(personId)
   const session = sessionById(id)
   if (!['confirmed', 'completed'].includes(session.status)) throw new Error('Photos open once the plan is confirmed.')
+  // From the outing's day on, for every member; a typed address gets no further than the screen's own check.
+  if (!photosOpen({ date: session.date, isToday: isSessionDay(session) })) throw new Error(PHOTOS_BEFORE_DAY)
   // An outing that closed by itself never had a plan, so there was no outing to take pictures of.
   if (session.endedBy === 'closed') throw new Error('This outing closed without a plan, so it has no photos.')
   if ((session.photos || []).length >= PHOTOS_MAX) throw new Error(`A session holds up to ${PHOTOS_MAX} photos. Delete one to add another.`)

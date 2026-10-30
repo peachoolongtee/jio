@@ -126,7 +126,10 @@ export const WORDS = {
   hostRadius: 'Only the host can change how far to search.',
   // Dietary needs for one outing: everyone changes their own, and only the host drops someone else's.
   hostDiet: "Only the host can change someone else's need.",
-  dietClosed: 'Dietary needs can no longer change for this outing.',
+  dietConfirmed: 'Dietary needs can only change while the group is voting.',
+  dietThree: "Someone else's need can be changed once three people have joined.",
+  dietStale: 'The outing changed while you were looking. It is up to date now; try again.',
+  dietUnknown: 'That need could not be found.',
   hostSlots: 'Only the host can remove or bring back a category.',
   memberClash: 'Someone in this meetup already has plans at that time. Pick another time.',
   rejoinClosed: "You can't rejoin once the plan is confirmed.",
@@ -1066,7 +1069,7 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   // afterwards; the answer says what the server now holds. A refusal rejects with its sentence.
   // How to call: await dietary('3b1f...'); await setDietary('3b1f...', { mine: ['vegan'], checked: true })
   const dietary = (sessionId) => ask(() => backend.getDietary(sessionId))
-  const setDietary = (sessionId, body) => ask(() => backend.putDietary(sessionId, body), { host_only: WORDS.hostDiet, session_closed: WORDS.dietClosed, wrong_status: WORDS.dietClosed })
+  const setDietary = (sessionId, body) => ask(() => backend.putDietary(sessionId, body), { host_only: WORDS.hostDiet, wrong_status: WORDS.dietConfirmed, needs_three_people: WORDS.dietThree, stale_plan: WORDS.dietStale, need_not_found: WORDS.dietUnknown })
   // The host takes a category off the list and brings them back. How to call: await removeSlot('3b1f...', '9a2c...'); await restoreSlots('3b1f...')
   const removeSlot = (sessionId, slotId) => ask(() => backend.deleteSlot(sessionId, slotId), { host_only: WORDS.hostSlots, wrong_status: WORDS.placesClosed })
   const restoreSlots = (sessionId) => ask(() => backend.restoreSlots(sessionId), { host_only: WORDS.hostSlots, wrong_status: WORDS.placesClosed })
