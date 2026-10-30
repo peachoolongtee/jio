@@ -356,6 +356,16 @@ function done() {
 .invite__tag--host { border-color: color-mix(in srgb, var(--primary) 35%, var(--canvas)); color: var(--primary-active); }
 .invite__picked { display: none; }
 
+/* Phones: the tag (Host, Joined, Invited) goes under the name, so the name keeps the room. Beside the 44px picture and the 44px ×
+   the tag, 92px wide, left the name nothing at 320px. */
+@media (max-width: 479px) {
+  .invite__row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; column-gap: var(--spacing-md); row-gap: 2px; }
+  .invite__row > :deep(.avatar) { grid-row: 1 / span 2; align-self: center; }
+  .invite__row > .invite__who { grid-column: 2; grid-row: 1; align-self: end; }
+  .invite__row > .invite__tag { grid-column: 2; grid-row: 2; justify-self: start; align-self: start; height: 24px; padding: 0 8px; gap: 4px; }
+  .invite__row > :deep(.icon-btn) { grid-column: 3; grid-row: 1 / span 2; align-self: center; }
+}
+
 /* Tablet and up: the action follows the card: "N selected" on the left, Send invites on the right. Phones keep the
    pinned full-width Send button, where the thumb is. There is no Cancel: the back arrow already goes back a step. */
 @media (min-width: 744px) {

@@ -590,6 +590,14 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 .lobby__held { margin: 0; }
 .leave { display: flex; justify-content: center; }
 @media (min-width: 744px) { .lobby__held { margin-right: auto; max-width: 56ch; } }
+/* Phones: the tag (Host, Joined, Invited) goes under the name, so the name keeps the room beside the 44px picture and the 44px ×. */
+@media (max-width: 479px) {
+  .lobby__row { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; column-gap: var(--spacing-md); row-gap: 2px; padding: var(--spacing-xs) 0; }
+  .lobby__row > :deep(.avatar) { grid-row: 1 / span 2; align-self: center; }
+  .lobby__row > .lobby__who { grid-column: 2; grid-row: 1; align-self: end; }
+  .lobby__row > .lobby__tag { grid-column: 2; grid-row: 2; justify-self: start; align-self: start; height: 24px; padding: 0 8px; gap: 4px; }
+  .lobby__row > :deep(.icon-btn) { grid-column: 3; grid-row: 1 / span 2; align-self: center; }
+}
 .lobby__tag { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: var(--rounded-full); color: var(--body); font: var(--text-caption); }
 .lobby__tag--host { border-color: color-mix(in srgb, var(--primary) 35%, var(--canvas)); color: var(--primary-active); }
 /* Invited, not joined yet: a dashed tag, a faded picture and a softer name, until they accept. The text is never faded with opacity:
