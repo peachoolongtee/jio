@@ -1137,13 +1137,13 @@ A member's needs for an outing start as the ones on their profile. Changing or c
 
 | Answer | When |
 |---|---|
-| 200 `{ "dietary": ["halal", "vegan"], "others": ["halal"], "mine": ["vegan"], "checked": false, "dropped": [] }` | `dietary` is the group's needs in effect: every joined member's needs for this outing together, without the ones the host dropped. `others` is everyone's but the caller's (the ones the caller cannot take off, dropped ones included so the host can take a drop back), and `[]` until at least three members have joined. `mine` is the caller's own needs for the outing. `checked` is whether the caller confirmed their needs for this outing. `dropped` is the needs the host dropped, listed only while three or more have joined and only needs someone in the outing has (a dropped need nobody has now is not listed, and with fewer than three joined nothing is listed, because naming it would tell the caller it is the other person's); a dropped need is out of `dietary` in every case. Each list is in the app's order (halal, vegetarian, vegan), each need once; anything else in a row is left out. Never an id, a count or another private field (home area, budget, step-free). `Cache-Control: no-store`. |
+| 200 `{ "dietary": ["halal", "vegan"], "others": ["halal"], "mine": ["vegan"], "checked": false, "dropped": [] }` | `dietary` is the group's needs in effect: every joined member's needs for this outing together, without the ones the host dropped. `others` is everyone's but the caller's (the ones the caller cannot take off, dropped ones included so the host can take a drop back), and `[]` until at least three members have joined. `mine` is the caller's own needs for the outing. `checked` is whether the caller confirmed their needs for this outing. `dropped` is the needs the host dropped that are in force: listed only while three or more have joined and only needs a member other than the host has (a drop whose need no one but the host has any more is deleted, and with fewer than three joined nothing is listed, because naming it would tell the caller it is the other person's); a dropped need is out of `dietary`. **With fewer than three joined, `dietary` is the caller's own `mine`, and `others` and `dropped` are `[]`:** nothing a member reads says anything about the other person's needs, even when the caller's own list is empty. Each list is in the app's order (halal, vegetarian, vegan), each need once; anything else in a row is left out. Never an id, a count or another private field (home area, budget, step-free). `Cache-Control: no-store`. |
 | 400 `invalid_input` | `:id` is not a uuid. |
 | 401 `unauthenticated`, 503 `auth_unavailable` | The login check. |
 | 404 `session_not_found` | No such session, or the caller is not a joined member of it (an opted-out member too; the same answer, so a stranger learns nothing, and no private row is read). |
-| 429 `rate_limited` | More than `SESSION_RATE_LIMIT_PER_MINUTE` (60 by default) a minute from one person, counted apart from the writes. |
+| 429 `rate_limited` | More than `SESSION_RATE_LIMIT_PER_MINUTE` (60 by default) a minute from one person, counted apart from the writes and from the PUT. |
 
-With fewer than three joined members `others` is `[]`: in a group of two it would be the other person's own list, and it is never offered for the "Unselect" warning. (`dietary` is still everyone's together, because the places are filtered for it; the line "Showing places that fit halal" says as much.) Members who opted out count for nothing here: they add no need and are not part of the three.
+With fewer than three joined members the answer holds the caller's own needs alone: in a group of two `dietary` or `others` would be the other person's own list (or, with an empty `mine`, would say that they have a need), and it is never offered for the "Unselect" warning. The places are still filtered for everyone's needs; the screen says only that they fit the caller's own. Members who opted out count for nothing here: they add no need and are not part of the three.
 
 ### PUT
 
@@ -1155,12 +1155,14 @@ Body, at least one of `mine`, `checked`, `dropped` (an extra field is a 400):
 
 - `mine`: the caller's own needs for this outing, the whole list (up to 3 of `halal`, `vegetarian`, `vegan`, in any letter case, repeats ignored; `[]` removes every need for this outing). Any joined member.
 - `checked: true`: the caller confirms their needs for this outing. Without `mine` the outing keeps the needs the caller has now (a row of their own is made from the profile's if they had none). Confirmation is never undone.
-- `dropped`: the needs the host drops for the outing, the whole list (`[]` takes every drop back). The host only; it needs three joined members; it may add only a need that someone else in the outing has (the same needs `others` told the host), and a need already dropped may stay on the list.
+- `dropped`: the needs the host drops for the outing, the whole list (`[]` takes every drop back). The host only; it needs three joined members; it may add only a need that a member other than the host has (the same needs `others` told the host), and a need already dropped may stay on the list while that holds. A drop is in force only while three or more are joined and a member other than the host has the need; when the last of them removes it or leaves, the drop is deleted, so a member who joins later with the need is not ignored by an old drop.
 - `planVersion`: the version of the session the caller saw. A stale one is refused with nothing written.
 
-A member who adds a need to their own list that the host had dropped brings the drop back (their own need is theirs to claim), unless the same request sets `dropped`. Sending the list they already have changes nothing.
+**Only the host lifts a drop.** A member who adds a dropped need to their own list keeps it there, and it stays dropped (it is not filtered for); only the host's `dropped` list changes a drop. Sending the list they already have changes nothing.
 
-It works while the session is `inviting`, `locating` or `voting`. Every ranking that reads needs (a voting slot, a swap, an added place, the search of a slot, Roam, a replaced stop) reads the outing's needs without the dropped ones (`loadNeeds`).
+**A request that fails leaves nothing saved.** The member's row and the drops are written before the slots are ranked; if the run then fails (the planner, the database, a refused or stale write, the deadline), what the request wrote is put back before the error is answered, so a retry finds the needs and the places as they were and picks again. The outing's dropped needs that no one holds are deleted when anything reads the outing's needs, and straight after a member leaves, opts out or is removed.
+
+It works while the session is `inviting`, `locating` or `voting`. Every ranking that reads needs (a voting slot, a swap, an added place, the search of a slot, Roam, a replaced stop) reads the outing's needs for the people the run says are joined, without the drops in force (`needsReader` in `services/sessions.js`, `needsInEffect` in `services/session-dietary.js`).
 
 **A change while voting picks the places again.** When the group's needs in effect change while the session is voting, the same run ranks every slot again (the radius's way: `plan: { rank: 'all' }`): only voted places that still fit stay, with their votes, and the rest are the planner's best for the new needs; votes for places that went go with them (the server never writes a vote; it only takes the votes of options it removes). If a place moved or a vote went, `sessions.banner` becomes `{ "text": "The group's dietary needs changed, so the places were picked again.", "at", "byDiet": true }` (with `"votesCleared": true` and " Votes for places that no longer fit were cleared." when votes went); it names nobody and no need. A change that moves nothing takes back its own earlier notice and leaves any other. A change that does not alter the group's needs in effect (another member has the same need) ranks nothing. While inviting or locating no slot exists and nothing is ranked.
 
@@ -1174,8 +1176,8 @@ It works while the session is `inviting`, `locating` or `voting`. Every ranking 
 | 409 `session_closed` | The session has ended (completed or cancelled). 409 `wrong_status`: it is confirmed. |
 | 409 `needs_three_people` | `dropped` with fewer than three joined members. |
 | 409 `stale_plan` | `planVersion` is not the session's version. |
-| 422 `need_not_found` | `dropped` adds a need nobody else in the outing has. |
-| 429 `rate_limited` | Over the session routes' limit (`SESSION_RATE_LIMIT_PER_MINUTE`, 60 by default, shared with the other writes). |
+| 422 `need_not_found` | `dropped` adds a need no member other than the host has. |
+| 429 `rate_limited` | Over this route's own limit: 20 a minute per person (or `SESSION_RATE_LIMIT_PER_MINUTE` when that is lower), counted apart from the other writes and from reading, because a change can rank every slot again. |
 
 ## Limits
 
