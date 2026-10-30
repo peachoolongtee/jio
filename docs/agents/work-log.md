@@ -1807,3 +1807,27 @@ The lead asked for a review of every fix on Darryl's branch (no pull request), t
 - **Two frontend agents, each in its own worktree on separate files:**
   - A, invites: the friend list, the send, the take-back's tests and copy, crowded Invited rows on phones, focus after a take-back, the Select chip's name, the streak and pending-row contrast, a cap on the profile's Friends;
   - B, the rest: the weather tag, the Rewards confirm and focus, the map card's place after its content changes.
+- **Results, both agents' branches merged (`review/uat-a`, `review/uat-b`):**
+  - **Invites:**
+    - friends who cannot be invited by name are left off (`canInviteByName` in `lib/session.js`, the session's `namedInvites`), and a send carries on past one refusal and drops what was sent from the picks;
+    - Kim's taken-back invitation is refused and the session's link still admits her (tested);
+    - the confirm says the take-back is final for a name;
+    - the Invited tag sits under the name below 480 px;
+    - focus goes to the list's heading with a polite "Kim's invite taken back";
+    - the chip reads "Select Ana";
+    - the streak pill is 4.85:1, and the pending row's text is no longer faded;
+    - the profile shows six friends, with "Show N more".
+  - **The rest:**
+    - a stop with no forecast reads "Forecast later" or "No forecast" (on its own day "Weather not known"), with the full reason once in the line under the stops and in the hint;
+    - "Mark as used?" puts "Not now" first, focuses the Used heading and says "Marked as used", and no longer repeats Used and Expired as tags;
+    - the map card is placed again when its size changes;
+    - a busy chip dims.
+- **Checked by the session (merged branch):**
+  - frontend suite under `TZ=UTC`, also with outbound calls blocked: 2842 passed, 173 files, both times;
+  - build: succeeded;
+  - the 15 end-to-end tests twice: 30 of 30;
+  - a throwaway Playwright check at 320 px: the stop mark is "Forecast later", 116 px wide; the Invited row's name gets 110 px beside the ×; no horizontal overflow on either page.
+- **Left as they are:**
+  - names in the friend picker's rows still truncate beside the Select chip at 320 px;
+  - on the plan's day before the first weather check returns, the line under the stops can still say "checked from the day before" while a mark says "Weather not known";
+  - "Upcoming" on the profile includes overdue sessions, which Darryl's test pins.
