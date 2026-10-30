@@ -455,6 +455,34 @@ create table if not exists public.session_member_places (
   check ((end_lat is null) = (end_lng is null))
 );
 
+-- Each member's dietary needs for one outing, when they changed them or confirmed them for it (20261030000000). Server only. The group
+-- sees needs together and never whose: the host's dropped needs are in the second table, not tied to a person either. A row goes with the
+-- member's row.
+create table if not exists public.session_member_dietary (
+  session_id uuid not null,
+  user_id uuid not null,
+  -- The needs this member has for this outing: a flat list of at most 3, no repeats (the shape of profile_private.dietary).
+  dietary text[] not null default '{}'
+    constraint outing_dietary_values check (dietary <@ array['halal', 'vegetarian', 'vegan']::text[])
+    constraint outing_dietary_shape check (
+      coalesce(array_ndims(dietary), 1) = 1
+      and cardinality(dietary) <= 3
+      and public.array_is_unique(dietary)
+    ),
+  -- When the member confirmed their needs for this outing; null until they do.
+  confirmed_at timestamptz,
+  updated_at timestamptz not null default now(),
+  primary key (session_id, user_id),
+  foreign key (session_id, user_id) references public.session_members (session_id, user_id) on delete cascade
+);
+
+create table if not exists public.session_dietary_dropped (
+  session_id uuid not null references public.sessions (id) on delete cascade,
+  need text not null check (need in ('halal', 'vegetarian', 'vegan')),
+  dropped_at timestamptz not null default now(),
+  primary key (session_id, need)
+);
+
 -- Invite links, and invitations to one named person. The token is 32 random bytes, so links cannot be guessed
 -- or counted through. A link expires 7 days after it is made unless the host sets an earlier time, and never
 -- later than 30 days. A host can revoke a link and nothing else about it changes.
@@ -981,16 +1009,16 @@ begin
 end;
 $$;
 
--- Each joined member's private planner needs, for the server only (the service key). The backend
--- first loads the session as the signed-in user, which proves they are a member, then calls this.
+-- Each joined member's private planner needs, for the server only (the service key): the dietary needs are the member's for this outing.
 --   const { data } = await serviceClient.rpc('session_member_needs', { sid: sessionId })
 create or replace function public.session_member_needs(sid uuid)
 returns table (user_id uuid, home_area_id text, dietary text[], budget_max_per_person numeric, needs_step_free boolean)
 language sql stable security definer set search_path = ''
 as $$
-  select m.user_id, pp.home_area_id, pp.dietary, pp.budget_max_per_person, pp.needs_step_free
+  select m.user_id, pp.home_area_id, coalesce(d.dietary, pp.dietary), pp.budget_max_per_person, pp.needs_step_free
   from public.session_members m
   join public.profile_private pp on pp.id = m.user_id
+  left join public.session_member_dietary d on d.session_id = m.session_id and d.user_id = m.user_id
   where m.session_id = sid and m.state = 'joined';
 $$;
 
@@ -1882,6 +1910,8 @@ create or replace trigger sessions_set_updated_at before update on public.sessio
 create or replace trigger session_members_set_updated_at before update on public.session_members
   for each row execute function public.set_updated_at();
 create or replace trigger session_member_places_set_updated_at before update on public.session_member_places
+  for each row execute function public.set_updated_at();
+create or replace trigger session_member_dietary_set_updated_at before update on public.session_member_dietary
   for each row execute function public.set_updated_at();
 create or replace trigger slots_set_updated_at before update on public.slots
   for each row execute function public.set_updated_at();
