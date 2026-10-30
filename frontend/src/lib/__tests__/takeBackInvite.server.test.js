@@ -148,7 +148,7 @@ describe('what taking back an invite does to the person, in the database', () =>
   it('cannot invite her by name again, and the refusal points to the link', async () => {
     const { id, sam, kim } = await invited()
     await sam.api.revokeInvite(id, kim.user.id)
-    await expect(sam.api.inviteByUsername(id, kim.user.id)).rejects.toThrow("Send them the link")
+    await expect(sam.api.inviteByUsername(id, kim.user.id)).rejects.toThrow("You have already invited that person. Send them the session's link instead.")
   })
 })
 

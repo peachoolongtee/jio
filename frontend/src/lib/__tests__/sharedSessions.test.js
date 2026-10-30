@@ -427,7 +427,7 @@ describe('invitations by username', () => {
     const invited = await sam.api.inviteByUsername(id, found[0].id)
     expect(invited.members.map((m) => [m.id, m.state])).toEqual([[sam.id, 'joined'], [kim.id, 'invited']])
     expect(invited.activeIds).toEqual([sam.id])
-    await expect(sam.api.inviteByUsername(id, found[0].id)).rejects.toThrow('You have already invited that person.')
+    await expect(sam.api.inviteByUsername(id, found[0].id)).rejects.toThrow("You have already invited that person. Send them the session's link instead.")
   })
 
   it('passes the server\'s failure on as its sentence', async () => {

@@ -63,7 +63,7 @@ export const WORDS = {
   // A demo account or a local account lives in this browser only; the invite functions are for a real account.
   needsAccount: 'Shared sessions need a Jio account. Log in with one.',
   started: "You can't leave once voting has started; ask the host to cancel.",
-  alreadyInvited: "That person was already invited to this session, so only the session's link will work for them. Send them the link.",
+  alreadyInvited: "You have already invited that person. Send them the session's link instead.",
   inviteGone: 'That invite has already been answered. Reload to see who is in.',
   startedRemove: "You can't remove someone once voting has started; cancel the session instead.",
   // The server answers not_yet only for a confirmed plan (its itinerary is a later stage's work); voting is served.
