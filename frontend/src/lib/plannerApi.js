@@ -296,16 +296,50 @@ export async function removeSessionMember(sessionId, personId = 'me') {
   return data
 }
 
-// An outing's dietary needs, together and without names (GET /api/sessions/:id/dietary, ticket #107): `dietary` is every
-// joined member's needs, `others` everyone's but the signed-in person's. Only the server can read a member's needs, so this
-// is how "Confirm dietary needs" learns a real friend's. Needs a login; a refusal arrives as an Error with the server's `code`
-// (session_not_found, invalid_input). Anything but two lists of known needs is an error, never a guess.
-// How to call: await sessionDietary('3b1f...') -> { dietary: ['halal', 'vegan'], others: ['halal'] }
+// The needs a dietary answer may carry. How to call: NEEDS.includes('halal') -> true
+const NEEDS = ['halal', 'vegetarian', 'vegan']
+
+// An outing's dietary answer as the screens read it, or an Error when the server sent something else. `dietary` (the needs in
+// effect, the dropped ones taken out) and `others` (everyone's but the caller's, empty under three joined, the dropped ones
+// included) are always lists of known needs. `mine` (the caller's own needs for this outing), `dropped` and `checked` (whether the
+// caller confirmed for this outing) are kept when the server sends them; an older server sends only the first two. The server
+// names nobody in any of it. `replanNeeded` is kept when a write could not pick the places again.
+// How to call: dietaryAnswer({ dietary: ['halal'], others: ['halal'], mine: [], checked: false, dropped: [] })
+function dietaryAnswer(data) {
+  const known = (list) => Array.isArray(list) && list.every((n) => NEEDS.includes(n))
+  if (!known(data?.dietary) || !known(data?.others)) throw new Error(notJsonMessage())
+  if ((data.mine !== undefined && !known(data.mine)) || (data.dropped !== undefined && !known(data.dropped)) || (data.checked !== undefined && typeof data.checked !== 'boolean')) throw new Error(notJsonMessage())
+  return {
+    dietary: data.dietary,
+    others: data.others,
+    ...(data.mine !== undefined ? { mine: data.mine } : {}),
+    ...(data.dropped !== undefined ? { dropped: data.dropped } : {}),
+    ...(data.checked !== undefined ? { checked: data.checked } : {}),
+    ...(data.replanNeeded === true ? { replanNeeded: true } : {}),
+  }
+}
+
+// An outing's dietary needs, together and without names (GET /api/sessions/:id/dietary, ticket #107): `dietary` is the needs in
+// effect, `others` everyone's but the signed-in person's, `mine` the person's own for this outing, `checked` whether they confirmed
+// them, `dropped` the others' needs the host chose not to filter for. Only the server can read a member's needs, so this is how
+// "Confirm dietary needs" learns a real friend's. Needs a login; a refusal arrives as an Error with the server's `code`
+// (session_not_found, invalid_input). Anything but lists of known needs is an error, never a guess.
+// How to call: await sessionDietary('3b1f...') -> { dietary: ['halal', 'vegan'], others: ['halal'], mine: ['vegan'], checked: true, dropped: [] }
 export async function sessionDietary(sessionId) {
   const { data } = await api.get(`/api/sessions/${encodeURIComponent(sessionId)}/dietary`, { timeout: 8000 })
-  const known = (list) => Array.isArray(list) && list.every((n) => ['halal', 'vegetarian', 'vegan'].includes(n))
-  if (!known(data?.dietary) || !known(data?.others)) throw new Error(notJsonMessage())
-  return { dietary: data.dietary, others: data.others }
+  return dietaryAnswer(data)
+}
+
+// The signed-in person confirms or changes their needs for this outing, or the host drops someone else's need
+// (PUT /api/sessions/:id/dietary). `body` has any of `mine` (the person's own needs), `checked: true` (they confirmed), `dropped` (the
+// others' needs not to filter for: the host's alone) and `planVersion`. Answers like sessionDietary, once the write is made. While
+// the group is voting, a change of the needs in effect has the server pick each slot's places again, which takes as long as a
+// ranking; `replanNeeded: true` says it could not, and the plan is read again either way. A refusal arrives as an Error with
+// the server's `code`: host_only, session_not_found, session_closed (or wrong_status) and stale_plan.
+// How to call: await putSessionDietary('3b1f...', { mine: ['vegan'], checked: true })
+export async function putSessionDietary(sessionId, body) {
+  const { data } = await api.put(sessionPath(sessionId, '/dietary'), body, { timeout: SESSION_TIMEOUT_MS })
+  return dietaryAnswer(data)
 }
 
 // How long a search for people is waited for. Typing makes many of them, so a slow one is given up on sooner than a ranking.
