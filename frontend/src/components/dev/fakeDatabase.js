@@ -97,7 +97,14 @@ const PRIMARY_KEY = {
   stops: ['id'],
   commute_ledger: ['session_id', 'user_id'],
   stop_proposals: ['id'],
+  // The dietary needs of one outing (db/migrations/20261030000000_jio_outing_dietary.sql): server only, see SERVER_ONLY.
+  session_member_dietary: ['session_id', 'user_id'],
+  session_dietary_dropped: ['session_id', 'need'],
 }
+// The tables only the server's key touches: a browser has no privilege on them at all, not even for its own row.
+const SERVER_ONLY = ['session_member_dietary', 'session_dietary_dropped']
+// The dietary needs a person can have (the migration's check on both tables).
+const NEEDS = ['halal', 'vegetarian', 'vegan']
 // The tables the supabase_realtime publication carries (db/policies.sql). The others raise no live events.
 const PUBLISHED = new Set(['sessions', 'session_members', 'invites', 'spot_approvals', 'slots', 'slot_options', 'votes', 'stops'])
 const PLACE_COLUMNS = ['start_label', 'start_lat', 'start_lng', 'end_label', 'end_lat', 'end_lng']
@@ -119,6 +126,8 @@ const GRANTS = {
   stops: { insert: [], update: [] },
   commute_ledger: { insert: [], update: [] },
   stop_proposals: { insert: [], update: [] },
+  session_member_dietary: { insert: [], update: [] },
+  session_dietary_dropped: { insert: [], update: [] },
 }
 
 // A database error as the client reports it: { message, code, details, hint }, with the HTTP status PostgREST would use.
@@ -151,6 +160,8 @@ const UUID_COLUMNS = {
   stops: ['id', 'session_id', 'slot_id'],
   commute_ledger: ['session_id', 'user_id'],
   stop_proposals: ['id', 'session_id', 'proposed_by', 'resolved_by'],
+  session_member_dietary: ['session_id', 'user_id'],
+  session_dietary_dropped: ['session_id'],
 }
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -197,7 +208,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
   // The private planner needs of each person, as `profile_private` holds them (home_area_id, dietary, budget_max_per_person,
   // needs_step_free). Nobody reads them as a table; only `session_member_needs()` does, for the service key.
   const privateNeeds = new Map(Object.entries(needs).map(([id, row]) => [id, structuredClone(row)]))
-  const tables = { sessions: [], session_members: [], invites: [], session_member_places: [], session_spots: [], spot_suggestions: [], spot_approvals: [], slots: [], slot_options: [], votes: [], stops: [], commute_ledger: [], stop_proposals: [] }
+  const tables = { sessions: [], session_members: [], invites: [], session_member_places: [], session_spots: [], spot_suggestions: [], spot_approvals: [], slots: [], slot_options: [], votes: [], stops: [], commute_ledger: [], stop_proposals: [], session_member_dietary: [], session_dietary_dropped: [] }
   const subscribers = new Set()
   // The events of the statement being run, or null outside one.
   let queue = null
@@ -510,6 +521,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     // The accounts' public profiles are only read (the server looks up names to write a notice): never written here.
     if (table !== 'profiles' && !PRIMARY_KEY[table]) throw new DbError('42P01', `relation "public.${table}" does not exist`, { status: 404 })
     if (!as) throw denied(table)
+    if (as !== SERVICE && SERVER_ONLY.includes(table)) throw denied(table)
     checkFilters(table, op.filters)
     const readable = table === 'profiles' ? Object.entries(profiles).map(([id, row]) => ({ id, ...row })) : tables[table].filter((r) => self.canSee(as, table, r))
     let rows = filterRows(readable, op.filters)
@@ -560,9 +572,9 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       publish(table, 'DELETE', row)
       const children = []
       if (table === 'sessions') {
-        for (const child of ['session_members', 'invites', 'session_member_places', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'stops', 'commute_ledger', 'stop_proposals']) children.push([child, tables[child].filter((r) => r.session_id === row.id)])
+        for (const child of ['session_members', 'invites', 'session_member_places', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'stops', 'commute_ledger', 'stop_proposals', 'session_member_dietary', 'session_dietary_dropped']) children.push([child, tables[child].filter((r) => r.session_id === row.id)])
       } else if (table === 'session_members') {
-        for (const child of ['session_member_places', 'spot_suggestions', 'spot_approvals']) children.push([child, tables[child].filter((r) => r.session_id === row.session_id && r.user_id === row.user_id)])
+        for (const child of ['session_member_places', 'spot_suggestions', 'spot_approvals', 'session_member_dietary']) children.push([child, tables[child].filter((r) => r.session_id === row.session_id && r.user_id === row.user_id)])
         // A proposal goes with its proposer (the foreign key to the member row cascades).
         children.push(['stop_proposals', tables.stop_proposals.filter((r) => r.session_id === row.session_id && r.proposed_by === row.user_id)])
       } else if (table === 'session_spots') {
@@ -588,7 +600,9 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     const { as, table } = op
     if (!PRIMARY_KEY[table]) throw new DbError('42P01', `relation "public.${table}" does not exist`, { status: 404 })
     if (!as) throw denied(table)
+    if (as !== SERVICE && SERVER_ONLY.includes(table)) throw denied(table)
     const list = Array.isArray(op.values) ? op.values : [op.values]
+    if (op.upsert && !SERVER_ONLY.includes(table)) throw new Error(`The stand-in does not upsert into ${table}.`)
     if (as !== SERVICE) {
       if (!GRANTS[table].insert.length) throw denied(table)
       for (const v of list) if (Object.keys(v).some((c) => !GRANTS[table].insert.includes(c))) throw denied(table)
@@ -604,6 +618,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
       if (table === 'slot_options') return insertOption(v)
       if (['session_spots', 'spot_suggestions'].includes(table)) return insertSpotRow(table, v)
       if (['stops', 'commute_ledger', 'stop_proposals'].includes(table)) return insertPlanRow(table, v)
+      if (SERVER_ONLY.includes(table)) return upsertDietary(table, v, op.upsert === true)
       throw new Error('The stand-in lets only the server insert into session_members (the trigger and join_session do it).')
     })
     if (table === 'stops') checkStopSeq()
@@ -744,6 +759,37 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     }
   }
 
+  // The server's rows for an outing's dietary needs, written with an upsert (the key is the table's primary key): a member's needs for the
+  // outing (a list of up to 3 of the known needs, no repeats; a member row of that session must exist) and a need the host dropped.
+  // A column left out of an upsert keeps its value.
+  // How to call: upsertDietary('session_member_dietary', { session_id, user_id, dietary: ['halal'], confirmed_at: '2026-10-30T08:00:00.000Z' }, true)
+  function upsertDietary(table, values, upsert) {
+    const key = PRIMARY_KEY[table]
+    if (!sessionOf(values.session_id)) throw new DbError('23503', `insert or update on table "${table}" violates foreign key constraint "${table}_session_id_fkey"`, { status: 409 })
+    if (table === 'session_dietary_dropped') {
+      if (!NEEDS.includes(values.need)) throw new DbError('23514', `new row for relation "${table}" violates check constraint "${table}_need_check"`)
+    } else {
+      if (!isMember(values.user_id, values.session_id)) throw new DbError('23503', `insert or update on table "${table}" violates foreign key constraint "${table}_session_id_user_id_fkey"`, { status: 409 })
+      if ('dietary' in values) {
+        const list = values.dietary
+        if (!Array.isArray(list) || list.length > 3 || new Set(list).size !== list.length || list.some((need) => !NEEDS.includes(need))) {
+          throw new DbError('23514', `new row for relation "${table}" violates check constraint "outing_dietary_values"`)
+        }
+      }
+    }
+    const old = tables[table].find((r) => key.every((k) => r[k] === values[k]))
+    if (old && !upsert) throw new DbError('23505', `duplicate key value violates unique constraint "${table}_pkey"`, { status: 409 })
+    if (old) {
+      Object.assign(old, structuredClone(values), table === 'session_member_dietary' ? { updated_at: iso(now()) } : {})
+      return old
+    }
+    const row = table === 'session_dietary_dropped'
+      ? { session_id: values.session_id, need: values.need, dropped_at: iso(now()) }
+      : { session_id: values.session_id, user_id: values.user_id, dietary: [], confirmed_at: null, updated_at: iso(now()), ...structuredClone(values) }
+    tables[table].push(row)
+    return row
+  }
+
   // The server writes these (the service key only; the grants keep the browser out).
   // How to call: insertPlanRow('stops', { session_id, seq: 0, slot_id, category: 'eat', venue_id: 'v25', planned_start_minute: 720, duration_minutes: 60 })
   function insertPlanRow(table, values) {
@@ -781,6 +827,7 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
     const { as, table } = op
     if (!PRIMARY_KEY[table]) throw new DbError('42P01', `relation "public.${table}" does not exist`, { status: 404 })
     if (!as) throw denied(table)
+    if (as !== SERVICE && SERVER_ONLY.includes(table)) throw denied(table)
     checkFilters(table, op.filters)
     const patch = op.values || {}
     if (as !== SERVICE && Object.keys(patch).some((c) => !GRANTS[table].update.includes(c))) throw denied(table)
@@ -1350,7 +1397,8 @@ export function createDatabase({ profiles = {}, needs = {}, now = () => Date.now
           return {
             user_id: m.user_id,
             home_area_id: row.home_area_id ?? null,
-            dietary: structuredClone(row.dietary ?? []),
+            // The member's own list for this outing if they have one, else their profile's (db/migrations/20261030000000_jio_outing_dietary.sql).
+            dietary: structuredClone(tables.session_member_dietary.find((d) => d.session_id === args.sid && d.user_id === m.user_id)?.dietary ?? row.dietary ?? []),
             budget_max_per_person: row.budget_max_per_person ?? null,
             needs_step_free: row.needs_step_free ?? false,
           }
@@ -1460,6 +1508,13 @@ export function createDataClient({ database, as, leaveMs = 30 }) {
       },
       update(values) {
         op.kind = 'update'
+        op.values = values
+        return builder
+      },
+      // supabase-js's upsert: an insert that updates the row with the same key. Only the server's dietary tables take it here.
+      upsert(values) {
+        op.kind = 'insert'
+        op.upsert = true
         op.values = values
         return builder
       },

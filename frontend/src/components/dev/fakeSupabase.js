@@ -311,7 +311,7 @@ export function fakeSupabase(options = {}) {
     removeChannel: (channel) => data.removeChannel(channel),
     from(table) {
       // The sessions side of the database has its own tables and rules (fakeDatabase.js).
-      if (['sessions', 'session_members', 'invites', 'session_member_places', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'slot_options', 'votes', 'stops', 'commute_ledger', 'stop_proposals'].includes(table)) return data.from(table)
+      if (['sessions', 'session_members', 'invites', 'session_member_places', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'slot_options', 'votes', 'stops', 'commute_ledger', 'stop_proposals', 'session_member_dietary', 'session_dietary_dropped'].includes(table)) return data.from(table)
       const rows = table === 'profiles' ? state.profiles : state.priv
       return {
         select(columns) {
