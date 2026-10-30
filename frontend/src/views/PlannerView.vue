@@ -6,17 +6,20 @@
 //   The plan is made from the categories people voted in, laid out in the session window.
 //   Step 7  "Confirm plan" once at least 2 people have voted.
 // The list and the map show the same places, and the map has a key to the categories of the places on it.
-// Search within (ticket #122): while voting, a row of radius chips under the filter (Auto, 100 m to 3 km). The map draws the
-// radius as a ring round the meeting area, and the places follow it: places outside drop out with their votes, and each
-// category tops up again (lib/api.js setRadius). A category with too few places inside offers "Widen to ...".
+// Search within (ticket #122): while voting, a slider under the filter (Auto, 100 m to 3 km; Faith's walkthrough, 30 October 2026, in
+// place of a row of chips). The map draws the radius as a ring round the meeting area as the slider moves, and once it rests the places
+// follow it: places outside drop out with their votes, and each category tops up again (lib/api.js setRadius). A category with too few
+// places inside offers "Widen to ...".
+// Search: one box at the top finds places to add, in the category the filter shows or in every category (each place goes to its own
+// category's list). Under each category a down arrow adds more of the planner's places.
 // Weather: a card keeps its small rain mark (SuggestionCard), and one muted line under the list says where the forecast came
 // from (WeatherSource); a simulated forecast also shows a banner at the top.
 // Dietary needs (ticket #107): when the group has any, one line under Eat says which needs the places fit ("Showing places
 // that fit halal and vegetarian"), with no names and no count. Food places are filtered strictly; when fewer than 3 fit, a
 // line says so and offers "Show places we couldn't confirm", each then labelled on its card. "Only places that fit" goes back.
-// Each person is asked once per outing, when it reaches voting, to "Confirm dietary needs" (DietaryConfirm), with the outing's
-// needs already selected; their picks are for this outing only, and the profile is left as it is. While voting, "Group dietary
-// needs" under the radius holds the same chips (DietaryChips), saved at each tap, so the needs can be changed at any time. A
+// The person's own needs start from their profile, already selected, with no question first (Faith's walkthrough, 30 October 2026: the
+// "Confirm dietary needs" popup is gone). "Group dietary needs" under the radius holds the chips (DietaryChips), saved at each tap, so
+// the needs can be changed at any time; a change is for this outing only, and the profile is left as it is. A
 // shared session shows none of this yet: its places are chosen by the server, which already filters them by the group's needs.
 // A shared session (one kept on the server, session.remote) reaches this page once the host has confirmed the meeting spot. It shows the
 // places the server offered for each category, read from the database (a reload asks the planner nothing), and the votes of everyone
@@ -50,9 +53,9 @@ import IconButton from '@/components/ui/IconButton.vue'
 import InfoTag from '@/components/ui/InfoTag.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
 import ClashDialog from '@/components/group/ClashDialog.vue'
-import PopoverPanel from '@/components/ui/PopoverPanel.vue'
 import PriceTier from '@/components/ui/PriceTier.vue'
 import ProgressDonut from '@/components/ui/ProgressDonut.vue'
+import RangeSlider from '@/components/ui/RangeSlider.vue'
 import SegmentTabs from '@/components/ui/SegmentTabs.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import SplitView from '@/components/ui/SplitView.vue'
@@ -63,7 +66,6 @@ import SessionNotices from '@/components/event/SessionNotices.vue'
 import ChangePlan from '@/components/event/ChangePlan.vue'
 import DietaryChips, { dietChips } from '@/components/event/DietaryChips.vue'
 import { DIETARY_OPTIONS } from '@/lib/signupRules.js'
-import DietaryConfirm from '@/components/event/DietaryConfirm.vue'
 import SuggestionCard from '@/components/event/SuggestionCard.vue'
 import WeatherSource from '@/components/weather/WeatherSource.vue'
 import CategoryKey from '@/components/map/CategoryKey.vue'
@@ -111,7 +113,8 @@ const busy = ref(false)
 // Inside the Confirm dialog of a shared session: why the orders were drawn again, and why a confirm did not go through.
 const staleNote = ref('')
 const confirmError = ref('')
-const adding = ref({ open: false, slot: null, query: '', results: [] })
+// The search at the top: what was typed, the places found (each with the slot of its own category), and whether it is asking.
+const finding = ref({ query: '', results: [], busy: false })
 const loadingMore = ref('')
 
 // How to call: load() (on mount, when the id changes, and from Try again)
@@ -233,27 +236,34 @@ async function swap(slot, option) {
   }
 }
 
-function openAdd(slot) {
-  adding.value = { open: true, slot, query: '', results: [] }
-}
+// Search the slots the filter shows (every category under All), each for places of its own category, so each place found is checked
+// against its own slot's time and goes to its own list. Fitting places first, at most 12.
+// How to call: await findPlaces('laksa')
 let searchTimer = null
-watch(() => adding.value.query, (q) => {
+async function findPlaces(q) {
+  const targets = filter.value ? slots.value.filter((s) => s.category === filter.value) : slots.value
+  if (!q.trim() || !targets.length) {
+    finding.value = { query: q, results: [], busy: false }
+    return
+  }
+  finding.value = { ...finding.value, busy: true }
+  try {
+    const lists = await Promise.all(targets.map((slot) => planner.searchVenues(props.id, slot.id, q).then((rs) => rs.filter((r) => r.category === slot.category).map((r) => ({ ...r, slot })))))
+    // Only the newest typing applies; an answer for older text is dropped.
+    if (finding.value.query !== q) return
+    const results = lists.flat().sort((a, b) => Number(!!a.unfit) - Number(!!b.unfit)).slice(0, 12)
+    finding.value = { query: q, results, busy: false }
+  } catch (e) {
+    if (finding.value.query === q) finding.value = { ...finding.value, busy: false }
+    error.value = e.message
+  }
+}
+watch([() => finding.value.query, filter], ([q]) => {
   clearTimeout(searchTimer)
-  searchTimer = setTimeout(async () => {
-    if (!adding.value.slot) return
-    try {
-      const results = await planner.searchVenues(props.id, adding.value.slot.id, q)
-      // Only the newest typing applies; an answer for older text is dropped.
-      if (adding.value.query === q) adding.value.results = results
-    } catch (e) {
-      error.value = e.message
-    }
-  }, 150)
+  searchTimer = setTimeout(() => findPlaces(q), 200)
 })
-const addSlotFull = computed(() => {
-  const slot = slots.value.find((s) => s.id === adding.value.slot?.id)
-  return slot ? slot.options.length >= 6 : false
-})
+// A category that already has six places takes no more. How to call: slotFull(result.slot) -> true
+const slotFull = (slot) => (slots.value.find((s) => s.id === slot?.id)?.options.length ?? 0) >= 6
 function unfitText(result, slot) {
   if (result.unfit === 'category') return `${CATEGORY_LABELS[result.category]}, not ${CATEGORY_LABELS[slot.category]}`
   if (result.unfit === 'far') return `Too far from ${session.value.area.name}`
@@ -268,8 +278,8 @@ function unfitText(result, slot) {
 async function add(result) {
   error.value = ''
   try {
-    await planner.addOption(props.id, adding.value.slot.id, result.id)
-    adding.value.results = await planner.searchVenues(props.id, adding.value.slot.id, adding.value.query)
+    await planner.addOption(props.id, result.slot.id, result.id)
+    await findPlaces(finding.value.query)
   } catch (e) {
     error.value = e.message
   }
@@ -302,6 +312,26 @@ async function setRadius(metres) {
 const radiusFor = (km) => RADII.find((m) => m != null && m >= km * 1000) ?? null
 // How far the places may be, in words: the chosen radius, or the planner's own limit of 3 km under Auto.
 const reachText = computed(() => radiusLabel(radius.value ?? 3000))
+// The slider runs over the choices (0 is Auto). While it moves the map's ring follows it at once (`draftRadius`); once it has rested for
+// a moment the radius is saved and the places follow.
+const RADIUS_SETTLE_MS = 500
+const draftRadius = ref(undefined)
+const shownRadius = computed(() => (draftRadius.value !== undefined ? draftRadius.value : radius.value))
+const radiusStep = computed({
+  get: () => Math.max(0, RADII.indexOf(shownRadius.value)),
+  set: (i) => {
+    draftRadius.value = RADII[i]
+    clearTimeout(radiusTimer)
+    radiusTimer = setTimeout(async () => {
+      await setRadius(RADII[i])
+      draftRadius.value = undefined
+    }, RADIUS_SETTLE_MS)
+  },
+})
+let radiusTimer = 0
+onBeforeUnmount(() => clearTimeout(radiusTimer))
+// The slider's words for a choice: "Auto" or the distance. How to call: radiusStepText(3) -> '500 m'
+const radiusStepText = (i) => (RADII[i] == null ? 'Auto' : `Within ${radiusLabel(RADII[i])}`)
 
 // ── Dietary needs ──
 // The line under Eat, or '' when the group has no needs.
@@ -353,14 +383,10 @@ const dietError = ref('')
 const dietChecked = computed(() => plan.value?.dietChecked)
 const hasMeeting = computed(() => !!session.value?.meeting)
 const dietAnswered = new Set()
-watch(
-  [voting, hasMeeting, dietChecked],
-  ([isVoting, meeting, checked]) => {
-    if (checked === true) dietOpen.value = false
-    else if (isVoting && meeting && checked === false && !dietAnswered.has(props.id)) dietOpen.value = true
-  },
-  { immediate: true },
-)
+// The dialog no longer opens by itself (the needs start from the profile, and the chips below change them); it stays for a later way in.
+watch(dietChecked, (checked) => {
+  if (checked === true) dietOpen.value = false
+})
 // A need's name for its tag. How to call: needLabel('halal') -> 'Halal'
 const needLabel = (need) => DIETARY_OPTIONS.find((o) => o.value === need)?.label ?? need
 // The change being saved, { mine, dropped }, or null. The tags and chips show it at once, while the places load behind them.
@@ -794,17 +820,33 @@ async function keepDialog(e) {
           </ChipButton>
         </div>
 
+        <!-- Search for a place to add, in the category the filter shows (or every category). -->
+        <div v-if="voting && slots.length && !optedOut" class="find" data-testid="place-search">
+          <TextField v-model="finding.query" :label="filter ? `Search ${CATEGORY_LABELS[filter]} places` : 'Search places'" hide-label :placeholder="filter ? `Search ${CATEGORY_LABELS[filter]} places to add` : 'Search places to add'" type="search" inputmode="search" autocomplete="off">
+            <template #leading><AppIcon name="search" :size="18" /></template>
+          </TextField>
+          <ul v-if="finding.query.trim() && finding.results.length" class="add-results" aria-label="Places found">
+            <li v-for="r in finding.results" :key="`${r.slot.id}:${r.id}`" class="add-row">
+              <CategoryIcon :category="r.category" :size="32" />
+              <span class="add-row__text">
+                <span class="title-sm truncate">{{ r.name }}</span>
+                <span v-if="r.unfit" class="caption-sm text-error">{{ unfitText(r, r.slot) }}</span>
+                <span v-else class="caption-sm text-muted">{{ CATEGORY_LABELS[r.category] }} · about {{ r.walk }} min walk</span>
+              </span>
+              <InfoTag v-if="r.added" tone="strong">Added</InfoTag>
+              <AppButton v-else variant="secondary" small :disabled="!!r.unfit || slotFull(r.slot)" :title="slotFull(r.slot) ? `${CATEGORY_LABELS[r.category]} already has 6 places` : undefined" :aria-label="`Add ${r.name}`" @click="add(r)">Add</AppButton>
+            </li>
+          </ul>
+          <p v-else-if="finding.query.trim() && !finding.busy" class="body-sm text-muted">No places match "{{ finding.query.trim() }}".</p>
+        </div>
+
         <!-- How far from the meeting area places may be. The map shows it as a ring. -->
         <div v-if="voting && slots.length && !canSetRadius" class="radius" data-testid="radius-readonly">
           <span class="caption text-muted">Search within</span>
           <span class="body-sm">{{ radius == null ? 'Auto' : radiusLabel(radius) }} of {{ session.area.name }}, set by {{ hostName }}.</span>
         </div>
         <div v-else-if="voting && slots.length" class="radius" data-testid="radius">
-          <span id="radius-label" class="caption text-muted">Search within</span>
-          <div class="filter scroll-x" role="radiogroup" v-radio-group aria-labelledby="radius-label">
-            <ChipButton v-for="m in RADII" :key="m ?? 'auto'" radio :selected="radius === m" :disabled="settingRadius" @click="setRadius(m)">{{ radiusLabel(m) }}</ChipButton>
-          </div>
-          <span class="caption-sm text-muted" aria-live="polite">{{ radius == null ? 'Auto starts at 500 m and looks further out until 3 places fit.' : `Only places within ${radiusLabel(radius)} of ${session.area.name}.` }}</span>
+          <RangeSlider v-model="radiusStep" class="radius__slider" :label="`Search within, from ${session.area.name}`" :min="0" :max="RADII.length - 1" :step="1" :format="radiusStepText" data-testid="radius-slider" />
         </div>
 
         <!-- The outing's dietary needs, laid out like "Search within": the label with the needs selected below as tags, then the
@@ -873,9 +915,10 @@ async function keepDialog(e) {
                   <span class="caption-sm text-muted">Only {{ slot.few.found }} {{ slot.few.found === 1 ? 'place fits' : 'places fit' }} within {{ radiusLabel(radius) }}.</span>
                   <AppButton v-if="canSetRadius && slot.few.widenToKm && radiusFor(slot.few.widenToKm)" variant="tertiary" underline small :disabled="settingRadius" @click="setRadius(radiusFor(slot.few.widenToKm))">Widen to {{ radiusLabel(radiusFor(slot.few.widenToKm)) }}</AppButton>
                 </p>
-                <div v-if="voting && !optedOut && slot.options.length < 6" class="slot__more">
-                  <AppButton variant="tertiary" underline small :disabled="!slot.canAddMore || loadingMore === slot.id" @click="more(slot)">More places</AppButton>
-                  <AppButton variant="tertiary" underline small @click="openAdd(slot)">Search</AppButton>
+                <div v-if="voting && !optedOut && slot.options.length < 6 && slot.canAddMore" class="slot__more">
+                  <button type="button" class="more-arrow" :disabled="loadingMore === slot.id" :aria-busy="loadingMore === slot.id ? 'true' : undefined" :aria-label="`More ${CATEGORY_LABELS[slot.category]} places`" :title="`More ${CATEGORY_LABELS[slot.category]} places`" :data-testid="`more-${slot.category}`" @click="more(slot)">
+                    <AppIcon name="chevron-down" :size="20" />
+                  </button>
                 </div>
               </template>
             </section>
@@ -884,7 +927,7 @@ async function keepDialog(e) {
           </template>
 
           <template #map>
-            <PlannerMap :area="session.area" :places="mapPlaces" :radius="voting ? radius || 0 : 0" :selected="selected" label="Places map" @select="selected = $event" />
+            <PlannerMap :area="session.area" :places="mapPlaces" :radius="voting ? shownRadius || 0 : 0" :selected="selected" label="Places map" @select="selected = $event" />
             <CategoryKey :categories="mapPlaces.map((p) => p.category)" />
             <div v-if="selectedOption" class="pin-card" role="dialog" :aria-label="selectedOption.venue.name">
               <div class="row between gap-sm">
@@ -929,8 +972,6 @@ async function keepDialog(e) {
 
     <PlaceDetail v-if="reviewing" :place="reviewing.place" :reviews="reviewing.reviews" :outing="outingIds" :from="session.area.name" @close="closeReviews" />
 
-    <DietaryConfirm v-if="plan" v-model:open="dietOpen" :mine="plan.myDietary || []" :others="plan.othersDietary || []" :dropped="plan.dietDropped || []" :can-drop="isHost" :busy="dietBusy" :error="dietError" @confirm="confirmDiet" />
-
     <ClashDialog v-model:open="showRejoinClash" :clash="rejoinClash" mode="join" />
 
     <ModalDialog v-model:open="cancelOpen" :title="CANCEL_OUTING.title" :text="CANCEL_OUTING.text">
@@ -958,7 +999,6 @@ async function keepDialog(e) {
             <AppIcon :name="sourceIcon(orderView.note)" :size="14" />
             <span>{{ sourceText(orderView.note) }}</span>
           </template>
-          <template v-else>You can rearrange stops after confirming.</template>
         </p>
         <p v-if="shared && order?.failed" class="order-failed caption-sm text-muted" data-testid="order-failed">
           {{ order.refusal || 'Could not get the order of the stops.' }}
@@ -972,23 +1012,6 @@ async function keepDialog(e) {
       <AppButton block variant="secondary" @click="confirmOpen = false">Not yet</AppButton>
     </ModalDialog>
 
-    <PopoverPanel v-model:open="adding.open" :title="adding.slot ? `Add to ${CATEGORY_LABELS[adding.slot.category]}` : 'Add a place'" :width="420">
-      <TextField v-model="adding.query" label="Search places" hide-label placeholder="Search places" type="text" inputmode="search" autocomplete="off" />
-      <p v-if="addSlotFull" class="body-sm text-error" role="alert">{{ CATEGORY_LABELS[adding.slot.category] }} already has 6 places.</p>
-      <ul v-if="adding.results.length" class="add-results">
-        <li v-for="r in adding.results" :key="r.id" class="add-row">
-          <CategoryIcon :category="r.category" :size="32" />
-          <span class="add-row__text">
-            <span class="title-sm truncate">{{ r.name }}</span>
-            <span v-if="r.unfit" class="caption-sm text-error">{{ unfitText(r, adding.slot) }}</span>
-            <span v-else class="caption-sm text-muted">about {{ r.walk }} min walk</span>
-          </span>
-          <InfoTag v-if="r.added" tone="strong">Added</InfoTag>
-          <AppButton v-else variant="secondary" small :disabled="!!r.unfit || addSlotFull" :aria-label="`Add ${r.name}`" @click="add(r)">Add</AppButton>
-        </li>
-      </ul>
-      <p v-else-if="adding.query.trim()" class="body-sm text-muted">No places match "{{ adding.query.trim() }}".</p>
-    </PopoverPanel>
   </main>
   <main v-else class="screen" data-testid="planner-view">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
@@ -1021,7 +1044,15 @@ async function keepDialog(e) {
 .slot + .slot { padding-top: var(--spacing-lg); }
 .slot__head { display: flex; align-items: center; gap: var(--spacing-md); }
 .slot__options { display: flex; flex-direction: column; gap: var(--spacing-md); }
-.slot__more { display: flex; gap: var(--spacing-base); }
+/* More places: a round down arrow under the category's cards. */
+.slot__more { display: flex; justify-content: center; }
+.more-arrow { display: inline-flex; align-items: center; justify-content: center; width: var(--tap-min); height: var(--tap-min); border: 1px solid var(--hairline); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); cursor: pointer; transition: background-color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out); }
+@media (hover: hover) { .more-arrow:not(:disabled):hover { border-color: var(--ink); background: var(--surface-soft); } }
+.more-arrow:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.more-arrow:disabled { opacity: 0.5; cursor: progress; }
+/* The search at the top and what it found, in one column no wider than the cards. */
+.find { display: flex; flex-direction: column; gap: var(--spacing-xs); max-width: 560px; }
+.radius__slider { max-width: 560px; }
 .empty-wrap { padding-top: var(--spacing-lg); }
 .empty-actions { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
 .confirm-next { margin: 0 0 var(--spacing-sm); text-align: center; }

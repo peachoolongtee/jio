@@ -267,15 +267,18 @@ describe('voting', () => {
 })
 
 describe('the radius', () => {
-  it('lets the host choose one, and shows it', async () => {
+  // The slider runs over Auto, 100 m, 250 m, 500 m, 1 km, 2 km and 3 km; a step is saved once the slider rests.
+  const slide = (view, step) => view.type('input[type=range]', String(step))
+
+  it('lets the host choose one with the slider, and shows it', async () => {
     const { w, id } = await voting()
     const { view } = await draw(id)
     await until(() => view.has('[data-testid=radius]'))
-    await view.click(press(view, '1 km'))
+    slide(view, 4)
     await until(() => w.server.calls.some((c) => c.route === 'radius'))
     expect(w.server.calls.find((c) => c.route === 'radius').body).toEqual({ radiusMeters: 1000 })
-    await until(() => view.text(view.one('[data-testid=radius]')).includes('Only places within 1 km'))
-    expect(w.database.tables.sessions[0].radius_meters).toBe(1000)
+    await until(() => w.database.tables.sessions[0].radius_meters === 1000)
+    expect(view.one('input[type=range]').attrs['aria-valuetext']).toBe('Within 1 km')
   })
 
   it('shows a guest the host\'s radius as a line, not as choices', async () => {
@@ -288,16 +291,16 @@ describe('the radius', () => {
     expect(view.has('[data-testid=radius]')).toBe(false)
   })
 
-  it('says why in plain words when the radius cannot be set, and offers the choices again', async () => {
+  it('says why in plain words when the radius cannot be set, and the slider tries again', async () => {
     const { w, id } = await voting()
     const { view } = await draw(id)
     await until(() => view.has('[data-testid=radius]'))
     w.server.down = true
-    await view.click(press(view, '500 m'))
+    slide(view, 3)
     await until(() => view.has('p[role=alert]'))
     expect(view.text(view.one('p[role=alert]'))).toMatch(/Cannot reach|could not be reached/)
     w.server.down = false
-    await view.click(press(view, '500 m'))
+    slide(view, 3)
     await until(() => w.database.tables.sessions[0].radius_meters === 500)
   })
 })
@@ -323,7 +326,8 @@ describe('more places and the search', () => {
     const { view } = await draw(id)
     await until(() => view.has('article[data-option]'))
     const before = view.all('article[data-option]').length
-    const more = view.all('button').filter((b) => view.text(b) === 'More places' && !b.disabled)[0]
+    // A round down arrow under each category's cards, named for the category.
+    const more = view.all('button').filter((b) => /^More \w+ places$/.test(b.attrs['aria-label'] || '') && !b.disabled)[0]
     expect(more).toBeTruthy()
     await view.click(more)
     await until(() => w.server.calls.some((c) => c.route === 'moreOptions'))
