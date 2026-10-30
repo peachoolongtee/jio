@@ -133,9 +133,9 @@ describe('what taking back an invite does to the person, in the database', () =>
     expect((await kim.api.listInvitations()).length).toBe(1)
     await sam.api.revokeInvite(id, kim.user.id)
     expect(kimsInvite(database, kim).revoked).toBe(true)
-    // The invitation no longer joins her (join_session: "This invite link is no longer valid."), and she has no row in the session.
+    // The invitation no longer joins her (join_session says the link is no longer valid), and she has no row in the session.
     expect(await kim.api.listInvitations()).toEqual([])
-    await expect(kim.api.joinWithLink(personal)).rejects.toThrow(/no longer valid|invalid|link/i)
+    await expect(kim.api.joinWithLink(personal)).rejects.toThrow("This link no longer works.")
     expect(database.tables.session_members.some((m) => m.session_id === id && m.user_id === kim.user.id)).toBe(false)
     expect(kimsInvite(database, kim).uses).toBe(0)
     // The session's link, which is not tied to a name, still brings her in.
