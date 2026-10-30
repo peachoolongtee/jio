@@ -81,7 +81,7 @@ Each teammate owns one file with two tests. `create-session.spec.js` is the exam
 
 | Person | Their two tests | File |
 |---|---|---|
-| Ian | Writes his own two | No file yet |
+| Ian | Planning an outing end to end<br>Change the meeting place after voting | `ian.spec.js` |
 | Faith | Set a start by searching: the group sees the area, not the place<br>The fairest spot is first, with each person's minutes | `faith.spec.js` |
 | Nichole | Create refuses the past: a past day and a start that has already passed<br>Dates lock once a session starts | `nichole.spec.js` |
 | darryl | A halal need reaches Vote and only fitting places are offered<br>The host replaces a confirmed stop and the times follow | `darryl.spec.js` |
