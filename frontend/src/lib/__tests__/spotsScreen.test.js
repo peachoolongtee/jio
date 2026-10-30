@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick, reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { fakeStorage } from './planFixture.js'
 import { mount } from './miniDom.js'
 
@@ -57,7 +58,11 @@ beforeEach(() => {
   events = useEventsStore()
   for (const name of ['approveMySpot', 'suggestMySpot', 'withdrawMySpot', 'confirmSpot', 'setKnownPlace']) vi.spyOn(events, name).mockResolvedValue({})
 })
-const list = (s, extra = {}) => mount(SpotList, { session: s, myId: 'ian', names, selectedId: 'bugis', isHost: true, hostName: 'Ian', ...extra }, [pinia])
+// The list's "Pick the place yourself" is a link, so the page has a router.
+const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:any(.*)*', component: { render: () => null } }] })
+const list = (s, extra = {}) => mount(SpotList, { session: s, myId: 'ian', names, selectedId: 'bugis', isHost: true, hostName: 'Ian', ...extra }, [pinia, router])
+// The host's link to the Start choice's area step, or undefined.
+const pickLink = (page) => page.all('a', 'Pick the place yourself')[0]
 
 describe('the list of spots', () => {
   it('shows the app\'s spots and a member\'s suggestion with its label and "We are here already"', () => {
@@ -117,8 +122,8 @@ describe('the list of spots', () => {
     expect(page.text()).not.toContain('No spots yet')
     expect(page.text()).not.toContain('So far')
     expect(page.text()).not.toMatch(/error|could not|cannot/i)
-    expect(page.button('Suggest a spot')).toBeNull()
-    expect(page.button('We already have a place')).not.toBeNull()
+    expect(page.button('Add a spot')).toBeNull()
+    expect(pickLink(page)).toBeTruthy()
   })
 
   it('shows nothing at all to a member when there is no list yet', () => {
@@ -126,7 +131,7 @@ describe('the list of spots', () => {
     early.spots = { list: [], approvals: {}, suggestions: {}, preselectedAreaId: null, appMethod: null }
     const page = list(early, { isHost: false })
     expect(page.text()).toBe('')
-    expect(page.button('We already have a place')).toBeNull()
+    expect(pickLink(page)).toBeUndefined()
   })
 
   it('still shows the placeholder rows while the planner works the first list out', () => {
@@ -198,7 +203,7 @@ describe('Vote', () => {
       await nextTick()
       button.listeners.click({})
       // The others stay enabled too, and every one says the list is busy.
-      const controls = page.all('button').filter((b) => /Vote|We are here already|Withdraw|Suggest a spot/.test(page.textOf(b)))
+      const controls = page.all('button').filter((b) => /Vote|We are here already|Withdraw|Add a spot/.test(page.textOf(b)))
       expect(controls.length).toBeGreaterThan(3)
       for (const other of controls) {
         expect(other.props.disabled).toBeFalsy()
@@ -219,15 +224,15 @@ describe('Vote', () => {
     const page = list(session())
     const first = page.button('Vote').listeners.click({})
     await nextTick()
-    await page.button('Suggest a spot').click()
-    expect(page.button('Picker: Suggest a spot')).toBeNull()
+    await page.button('Add a spot').click()
+    expect(page.button('Picker: Add a spot')).toBeNull()
     finish({})
     await first
   })
 
   it('shows the message the data layer gave when a change is refused', async () => {
     events.approveMySpot.mockRejectedValue(new Error('Cannot reach the Jio planner right now.'))
-    const page = mount(SpotList, { session: session(), myId: 'ian', names, selectedId: 'bugis', isHost: true, onError: (m) => (page.message = m) }, [pinia])
+    const page = mount(SpotList, { session: session(), myId: 'ian', names, selectedId: 'bugis', isHost: true, onError: (m) => (page.message = m) }, [pinia, router])
     await page.button('Vote').click()
     expect(page.message).toBe('Cannot reach the Jio planner right now.')
   })
@@ -354,11 +359,11 @@ describe('a suggestion with no row', () => {
   })
 })
 
-describe('Suggest a spot', () => {
+describe('Add a spot', () => {
   it('opens the area picker and suggests the area picked, never the place', async () => {
     const page = list(session())
-    await page.button('Suggest a spot').click()
-    await page.button('Picker: Suggest a spot').click()
+    await page.button('Add a spot').click()
+    await page.button('Picker: Add a spot').click()
     expect(events.suggestMySpot).toHaveBeenCalledWith('s1', 'kovan', { here: false })
   })
 
@@ -370,22 +375,16 @@ describe('Suggest a spot', () => {
     const full = session()
     full.spots.suggestions = Object.fromEntries(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((id) => [`p${id}`, { areaId: id, here: false }]))
     expect(canSuggest(full, 'ian')).toBe(false)
-    expect(list(session({ status: 'voting' })).button('Suggest a spot')).toBeNull()
+    expect(list(session({ status: 'voting' })).button('Add a spot')).toBeNull()
   })
 
-  it('offers "We already have a place" to the host only', () => {
-    expect(list(session()).button('We already have a place')).not.toBeNull()
-    expect(list(session(), { isHost: false }).button('We already have a place')).toBeNull()
-  })
-
-  it('asks before setting a known place, then sets it', async () => {
+  // Walkthrough, 30 October 2026: the host names a place on one screen only, the Start choice's area step, so Locate has a link to
+  // it in place of its own "We already have a place".
+  it('offers the host "Pick the place yourself", a link to the Start choice\'s area step, and no "We already have a place"', () => {
     const page = list(session())
-    await page.button('We already have a place').click()
-    await page.button('Picker: Where is the place?').click()
-    expect(page.text()).toContain('Meet at Kovan?')
-    expect(events.setKnownPlace).not.toHaveBeenCalled()
-    await page.button('Meet at Kovan').click()
-    expect(events.setKnownPlace).toHaveBeenCalledWith('s1', 'kovan')
+    expect(page.attr(pickLink(page), 'href')).toBe('/sessions/s1/change-place?where=1')
+    expect(page.text()).not.toContain('We already have a place')
+    expect(pickLink(list(session(), { isHost: false }))).toBeUndefined()
   })
 })
 
@@ -527,12 +526,13 @@ describe('the list once a spot is confirmed', () => {
     expect(rows(page).map((li) => page.attr(li, 'data-area'))).toEqual(['bishan', 'bugis', 'novena'])
   })
 
-  it('has no control on any spot: no "Vote", "Suggest a spot", "We already have a place", Withdraw or Confirm', () => {
+  it('has no control on any spot: no "Vote", "Add a spot", "Pick the place yourself", Withdraw or Confirm', () => {
     const s = settled()
     s.spots.suggestions = { ian: { areaId: 'novena', here: false } }
     s.spots.list[2] = spot('novena', 'Novena', { by: 'ian', byName: 'Ian' })
     const page = list(s, { selectedId: shownFor(s) })
-    for (const name of ['Vote', 'Suggest a spot', 'We already have a place', 'Withdraw', 'We are here already', 'Try again']) expect(page.button(name)).toBeNull()
+    for (const name of ['Vote', 'Add a spot', 'Withdraw', 'We are here already', 'Try again']) expect(page.button(name)).toBeNull()
+    expect(pickLink(page)).toBeUndefined()
     expect(page.text()).not.toContain('Confirm Bishan')
     expect(page.text()).not.toContain('You have one suggestion')
     // What is left to press is the row's own button, which only selects the spot.
@@ -547,7 +547,7 @@ describe('the list once a spot is confirmed', () => {
         expect(page.text()).toContain('Bishan is confirmed as the meeting spot.')
         expect(rows(page)).toHaveLength(3)
         expect(page.button('Vote')).toBeNull()
-        expect(page.button('We already have a place')).toBeNull()
+        expect(pickLink(page)).toBeUndefined()
       }
     }
   })

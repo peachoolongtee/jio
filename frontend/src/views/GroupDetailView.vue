@@ -7,7 +7,7 @@
 //   Locating  Ian's start and end (a guest first reads what the host chose: "Ian chose to find the fairest spot"), then "Where to meet": the meeting spots (the app's three and each member's own
 //             suggestion) with everyone's travel time, "Vote" on each, and a map with a pin for every spot.
 //             From two starts on the list opens; the host confirms a spot at any time ("Confirm <area>", the one
-//             main action; others see who they are waiting for) or sets a known place ("We already have a place").
+//             main action; others see who they are waiting for) or names the place itself ("Pick the place yourself", which opens StartView's area step).
 //             While the planner works the spots out, the list and the map say so.
 //             While some people have not set a start, a card lists them. The host can carry on without each one
 //             (after a confirmation); others only see who it is waiting for. In a shared session that takes them out of it,

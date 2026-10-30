@@ -62,7 +62,7 @@ describe('what the group is told', () => {
   })
 
   it('reminds the host only when they chose a known place and it is not named yet', () => {
-    expect(hostPendingLine({ ...base, meetBy: 'known' }, 'ian')).toMatch(/We already have a place/)
+    expect(hostPendingLine({ ...base, meetBy: 'known' }, 'ian')).toMatch(/Pick the place yourself/)
     expect(hostPendingLine({ ...base, meetBy: 'known' }, 'faith')).toBeNull()
     expect(hostPendingLine({ ...base, meetBy: 'fairest' }, 'ian')).toBeNull()
     expect(hostPendingLine({ ...base, meetBy: 'known', status: 'voting' }, 'ian')).toBeNull()

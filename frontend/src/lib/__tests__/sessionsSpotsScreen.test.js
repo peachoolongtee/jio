@@ -120,8 +120,8 @@ describe('the Locate step, for the host', () => {
     expect(spots).toHaveLength(3)
     for (const spot of spots) expect(view.text()).toContain(spot.area.name)
     expect(view.text()).toContain('Suggested by Jio')
-    expect(view.text()).toContain('We already have a place')
-    expect(view.text()).toContain('Suggest a spot')
+    expect(view.text()).toContain('Pick the place yourself')
+    expect(view.text()).toContain('Add a spot')
     // The one main action, named for the spot shown first. Removing Kim would leave Sam alone, so it is not offered; a host cannot leave.
     expect(press(view, `Confirm ${spots[0].area.name}`)).toBeTruthy()
     expect(view.all('button[aria-label="Remove Kim"]')).toHaveLength(0)

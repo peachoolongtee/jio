@@ -14,6 +14,10 @@
 // set: the session is voting or confirmed (not inviting), the cards are the same, the main buttons say what they do ("Work out the spots again",
 // "Meet at <area>"), nothing is changed until the last button (events.changeMeetingPlace: the votes, the places to vote on and the plan are cleared,
 // everyone's starts are kept), and the back arrow goes to the Vote or Itinerary screen the host came from.
+// The host of a session still choosing where to meet (locating) reaches the follow-up from Locate's "Pick the place yourself"
+// (/sessions/:id/change-place?where=1; walkthrough, 30 October 2026, in place of Locate's own "We already have a place"). There the
+// area is set as the known place (events.setKnownPlace, which is what that button did): nothing was voted on yet, so nothing is
+// released, and back goes to Locate.
 // Loading, not found and failed loads have their own states. A person who is not the host, or a session that has gone past inviting, goes
 // back to the session page. If the follow-up fails after the session has started (the choice is already saved), this page stays open on
 // the follow-up, and pressing the button again names the area without starting twice.
@@ -96,13 +100,15 @@ watch(() => props.id, load)
 const sessionPath = computed(() => `/sessions/${props.id}`)
 // This page's own address, and where the host came from (the Itinerary for a plan, the Vote screen before it).
 const pagePath = computed(() => `${sessionPath.value}/${props.change ? 'change-place' : 'start'}`)
-const cameFrom = computed(() => `${sessionPath.value}/${session.value?.status === 'confirmed' ? 'itinerary' : 'plan'}`)
+const cameFrom = computed(() => (session.value?.status === 'locating' ? sessionPath.value : `${sessionPath.value}/${session.value?.status === 'confirmed' ? 'itinerary' : 'plan'}`))
+// The host came from Locate's "Pick the place yourself": the session is still choosing where to meet.
+const fromLocate = computed(() => props.change && session.value?.status === 'locating')
 // Who may be here: the host of a session that is inviting with two people in, or that started with "We already know where" and has not
 // got its area yet (a retry). Everyone else belongs on the session page. Not while a save is running: it moves the session on itself.
 const allowed = computed(() => {
   const s = session.value
   if (!s || !isHost.value) return false
-  if (props.change) return ['voting', 'confirmed'].includes(s.status)
+  if (props.change) return ['voting', 'confirmed'].includes(s.status) || (s.status === 'locating' && step.value === 'where')
   if (s.status === 'inviting') return (s.activeIds || []).length >= 2
   return s.status === 'locating' && s.meetBy === 'known' && step.value === 'where'
 })
@@ -117,7 +123,7 @@ watch(step, async () => {
 })
 
 // The back button at the top left: from the follow-up to the choice, from the choice to the session's page.
-const back = computed(() => (step.value === 'where' ? pagePath.value : props.change ? cameFrom.value : sessionPath.value))
+const back = computed(() => (step.value === 'where' && !fromLocate.value ? pagePath.value : props.change ? cameFrom.value : sessionPath.value))
 
 // Run a save with the busy flag on; the flag is cleared whatever happens, and a failure is the screen's error line.
 // How to call: await run(() => events.start(props.id, { meetBy: 'fairest' }))
@@ -131,7 +137,7 @@ async function run(fn) {
   } catch (e) {
     error.value = e.message
     // The change went through as far as releasing the meeting area (only the naming of the new area failed): the session is locating again, so
-    // this page is no longer the host's. They go to Locate, where the store shows what went wrong and "We already have a place" finishes it.
+    // this page is no longer the host's. They go to Locate, where the store shows what went wrong and "Pick the place yourself" finishes it.
     if (e?.released) {
       leaving.value = true
       router.replace(sessionPath.value)
@@ -172,7 +178,9 @@ async function meet() {
     const areaId = hereNow.value ? (await areaHere(typeof navigator === 'undefined' ? null : navigator.geolocation, api.placeFromCoords)).areaId : where.value
     // The host went back while the browser was asking: nothing is started.
     if (cancelled) return
-    if (props.change) {
+    if (fromLocate.value) {
+      await events.setKnownPlace(props.id, areaId)
+    } else if (props.change) {
       await events.changeMeetingPlace(props.id, { meetBy: 'known', areaId })
     } else {
       if (session.value?.status === 'inviting') await events.start(props.id, { meetBy: 'known' })
@@ -217,7 +225,7 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
       <template v-else>
         <div class="head">
           <h2 ref="heading" tabindex="-1" class="display-sm">Where is the place?</h2>
-          <p class="body-sm text-muted">{{ change ? 'The group then votes on places around it. Votes and the plan are cleared.' : 'The group then goes straight to choosing places.' }}</p>
+          <p class="body-sm text-muted">{{ fromLocate ? 'This replaces the list of spots, and the group goes straight to choosing places.' : change ? 'The group then votes on places around it. Votes and the plan are cleared.' : 'The group then goes straight to choosing places.' }}</p>
         </div>
         <div class="start__search">
           <TextField v-model="query" label="Search for an area" placeholder="Bishan, Tampines, Jurong East" type="text" autocomplete="off" enterkeyhint="search" :maxlength="40">

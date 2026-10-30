@@ -222,7 +222,7 @@ describe('what a guest and the host see on Locate', () => {
     await expect(events.changeMeetingPlace(id, { meetBy: 'known', areaId: 'orchard' })).rejects.toMatchObject({ released: true })
     await until(() => view.has('[data-testid=place-failure]'))
     expect(view.text('[data-testid=place-failure]')).toContain('The meeting place was released, but the new area could not be set')
-    expect(view.text()).toContain('We already have a place')
+    expect(view.text()).toContain('Pick the place yourself')
     expect(router.currentRoute.value.path).toBe(`/sessions/${id}`)
     // The failure's own Dismiss (the release notice has one too): the button inside its banner.
     const inside = (node) => (node.tag === 'button' ? [node] : (node.children || []).flatMap(inside))

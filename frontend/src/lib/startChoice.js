@@ -113,7 +113,7 @@ export function guestLine(session, hostName, myId) {
 // How to call: hostPendingLine({ meetBy: 'known', status: 'locating', hostId: 'ian' }, 'ian')
 export function hostPendingLine(session, myId) {
   if (session?.meetBy !== 'known' || session.status !== 'locating' || session.hostId !== myId) return null
-  return 'You chose a place you already know, but have not named the area. Use "We already have a place" below to carry on.'
+  return 'You chose a place you already know, but have not named the area. Use "Pick the place yourself" below to carry on.'
 }
 
 // Why the browser could not give a place, in a sentence. `error` is a GeolocationPositionError ({ code }) or an Error with `message`.

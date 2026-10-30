@@ -335,7 +335,7 @@ describe('what the host reads on the Locate step', () => {
     await sam.api.startSession(id, { meetBy: 'known' })
     const { view } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
     await until(() => view.has('[data-testid=meet-by-pending]'))
-    expect(view.text(view.one('[data-testid=meet-by-pending]'))).toContain('We already have a place')
+    expect(view.text(view.one('[data-testid=meet-by-pending]'))).toContain('Pick the place yourself')
     expect(view.has('[data-testid=meet-by-note]')).toBe(false)
   })
 

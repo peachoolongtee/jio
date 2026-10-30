@@ -12,7 +12,7 @@
 // edit, and only while the session is still inviting; after that the screen says the day and times are locked. Create and
 // Invite are one stop in the browser's history (each replaces the other), so Back in the browser never returns to an
 // empty create form.
-// "We already have a place" is not asked here: it is on the Locate step, where the spots are (SpotList).
+// How the meeting point is picked is not asked here: it is the Start choice (StartView), when the host starts the session.
 // How a new session starts is chosen before this page, in the navigation's Create menu (TabBar, walkthrough, 30 October 2026):
 // "New session" opens the form above (/sessions/new); "Already out" opens it in its own mode (/sessions/new?start=out), which was
 // Home's "Already out? Find something nearby" (RoamFromHome) before it moved here. It is titled "Already out", hides the day and
