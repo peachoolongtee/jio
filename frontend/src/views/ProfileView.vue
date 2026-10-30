@@ -5,10 +5,12 @@
 //   also has "Add friend" / "Friends" under the numbers (in the sample world only); the signed-in person's own has
 //   "Edit profile" there (/profile/edit), and nobody else's does. The signed-in person's own
 //   has no create button: the navbar has one.
+//   Someone else's also has one line under the name, "3 outings together · last on 12 Oct 2026", when the two of them have been out
+//   together (lib/hangouts.js outingsWith: finished outings with both in them, as the invite page counts them); with none, no line.
 //   Then the meetup graph, and the signed-in person's sessions or the other person's recent activity. The sessions have
 //   time chips, All, Upcoming and Completed (lib/profileSessions.js), styled like the ones on Rewards. The signed-in
 //   person's own also lists their Friends (for a real account, the people they have shared a session with; the first six, and
-//   "Show N more" for the rest), then
+//   "Show N more" for the rest; a friend they have been out with has the count of outings together beside the name), then
 //   Suggested people (anyone they are not friends with yet), each opening their profile, with "Add friend" in the sample world. These used to be on the invite page, which now shows friends only (ticket #121).
 //   The signed-in person's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
 //   the demo" note, because other people's profiles are hand-written.
@@ -23,6 +25,7 @@ import { useRouter } from 'vue-router'
 import { format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import OutingsTogether from '@/components/group/OutingsTogether.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import CoinBadge from '@/components/ui/CoinBadge.vue'
@@ -39,6 +42,7 @@ import NotFoundView from './NotFoundView.vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
+import { outingsTogether, outingsWith, togetherLine } from '@/lib/hangouts.js'
 import { personColour } from '@/lib/people.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { EMPTY_TEXT, SESSION_FILTERS, profileSessions } from '@/lib/profileSessions.js'
@@ -71,7 +75,10 @@ const isMe = computed(() => personId.value === auth.myId)
 async function load() {
   missing.value = false
   try {
-    await Promise.all([groups.loadProfile(personId.value), groups.loadPeople(), groups.loadLeaderboard(), isMe.value ? events.loadSessions() : null])
+    // The sessions are read on someone else's profile too, for the outings together; a failed read there only leaves that line out.
+    // The sessions are read once: a profile opened again, or another person's after it, uses the list already read.
+    const sessionsRead = events.loaded ? null : isMe.value ? events.loadSessions() : events.loadSessions().catch(() => null)
+    await Promise.all([groups.loadProfile(personId.value), groups.loadPeople(), groups.loadLeaderboard(), sessionsRead])
   } catch {
     missing.value = true
   }
@@ -91,6 +98,10 @@ const now = useNow()
 const shownSessions = computed(() => profileSessions(sessions.value, sessionFilter.value, now.value))
 const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const dateText = (d) => format(parseISO(d), 'd MMM yyyy')
+// Outings together: with each friend (beside their name in Friends), and with the person whose profile this is (the line under the name).
+const togetherCounts = computed(() => (isMe.value ? outingsTogether(sessions.value, auth.myId) : {}))
+const togetherWithThem = computed(() => (!isMe.value && auth.myId ? outingsWith(sessions.value, auth.myId, personId.value) : { count: 0, last: null }))
+const togetherSentence = computed(() => togetherLine(togetherWithThem.value.count, togetherWithThem.value.last ? dateText(togetherWithThem.value.last) : ''))
 const colour = computed(() => personColour(personId.value))
 const rank = computed(() => groups.leaderboard.find((r) => r.id === personId.value)?.rank ?? null)
 const ordinal = (n) => {
@@ -162,6 +173,7 @@ async function signOut() {
             <div class="hero__who">
               <h1 class="hero__name" data-grid-avoid>{{ person.name }}<span v-if="isMe" class="hero__you caption">You</span></h1>
               <p class="body-md text-muted">@{{ person.username }}<template v-if="person.homeArea"> · {{ person.homeArea }}</template></p>
+              <p v-if="togetherSentence" class="body-md" data-testid="outings-together-line">{{ togetherSentence }}</p>
               <SampleNote v-if="person.sample" />
             </div>
             <div class="hero__side">
@@ -209,7 +221,10 @@ async function signOut() {
               <RouterLink :to="`/people/${p.id}`" class="suggested__who">
                 <UserAvatar :name="p.name" :src="p.photo" :person="p.id" :size="44" />
                 <span class="stack suggested__text">
-                  <span class="title-sm truncate">{{ p.name }}</span>
+                  <span class="suggested__name">
+                    <span class="title-sm truncate">{{ p.name }}</span>
+                    <OutingsTogether :count="togetherCounts[p.id]" />
+                  </span>
                   <span class="caption-sm text-muted truncate">@{{ p.username }}<template v-if="p.homeArea"> · {{ p.homeArea }}</template></span>
                 </span>
               </RouterLink>
@@ -337,4 +352,5 @@ async function signOut() {
 .suggested__row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 68px; border-bottom: 1px solid var(--hairline-soft); }
 .suggested__who { display: flex; flex: 1; align-items: center; gap: var(--spacing-md); min-width: 0; color: var(--ink); text-decoration: none; }
 .suggested__text { min-width: 0; gap: 0; }
+.suggested__name { display: flex; align-items: center; gap: var(--spacing-xs); min-width: 0; }
 </style>

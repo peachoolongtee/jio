@@ -4,7 +4,7 @@
 // host, and Home for a guest. One card, one column at every size: the session and how many are in it, a search box, who
 // is already in (the host first, with a Host badge), then friends to pick, and Send invites. Friends only: suggested people
 // are on the profile page. The friends come in two groups (lib/hangouts.js): "Frequent hangouts", the people the signed-in
-// person has completed the most outings with, most first, then "All friends". Each name has its Jio streak beside it, the
+// person has completed the most outings with, most first, then "All friends". Each name has its count of outings together beside it, the
 // number of outings together. With no outings together yet it is one plain list, "Friends" (FriendPickList).
 // A real account's shared session also has the link and the invite by username; its friends are the people it has shared a
 // session with (ticket #125), and picking them sends each an invitation by name, as the username search does.
@@ -63,7 +63,7 @@ const error = ref('')
 let stopWatching = () => {}
 onMounted(async () => {
   stopWatching = watchSessions()
-  // Every session is read too, for the streaks: the completed ones say who has been out with whom.
+  // Every session is read too, for the counts: the completed ones say who has been out with whom.
   await Promise.all([events.loadSession(props.id).catch(() => null), groups.loadPeople(), events.loaded ? null : events.loadSessions().catch(() => null)])
 })
 onBeforeUnmount(() => stopWatching())
@@ -101,10 +101,10 @@ const members = computed(() => {
   return [...rows.filter((r) => r.host), ...rows.filter((r) => !r.host)]
 })
 // The sessions the lists show: the demo tour hides the saves of its story that are not selected, so the finished one does not
-// give the friends a streak at the checkpoints before it (lib/sessionFilter.js).
-const streaks = computed(() => outingsTogether(visibleSessions(events.sessions), auth.myId))
+// give the friends outings together at the checkpoints before it (lib/sessionFilter.js).
+const togetherCounts = computed(() => outingsTogether(visibleSessions(events.sessions), auth.myId))
 const lists = computed(() => {
-  const { frequent, all } = inviteGroups(groups.friends.filter((p) => offered(p.id) && matches(p)), streaks.value)
+  const { frequent, all } = inviteGroups(groups.friends.filter((p) => offered(p.id) && matches(p)), togetherCounts.value)
   if (!frequent.length) return [{ id: 'friends', title: 'Friends', people: all }]
   return [
     { id: 'frequent', title: 'Frequent hangouts', people: frequent },

@@ -8,6 +8,7 @@ import {
   api,
   confirmSessionSpot,
   deleteSessionSpot,
+  getSessionTravelLean,
   optOutOfSession,
   putSessionKnownPlace,
   putSessionSpot,
@@ -31,6 +32,21 @@ function answer(data) {
   }
   return sent
 }
+
+describe('the quiet line about past travel', () => {
+  it('asks GET travel-lean and hands back the flag and the rule, and nothing else the server might add', async () => {
+    const sent = answer({ owed: true, rule: 'longest', minutes: 12.5, someone: 'x' })
+    expect(await getSessionTravelLean(ID)).toEqual({ owed: true, rule: 'longest' })
+    expect(sent.map((c) => [c.method, c.url, c.timeout])).toEqual([['get', `/api/sessions/${ID}/travel-lean`, SESSION_TIMEOUT_MS]])
+  })
+
+  it('refuses an answer that is not a flag and a known rule, so nothing is shown on a guess', async () => {
+    for (const data of [{}, { owed: 'yes', rule: 'longest' }, { owed: true }, { owed: true, rule: 'shortest' }, null]) {
+      answer(data)
+      await expect(getSessionTravelLean(ID)).rejects.toThrow()
+    }
+  })
+})
 
 describe('the calls', () => {
   it('works the spots out again: POST meeting-area with the trigger, or an empty body', async () => {

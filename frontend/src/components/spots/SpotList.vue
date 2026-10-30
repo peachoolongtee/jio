@@ -14,11 +14,16 @@
 // suggestion with no row (a reload caught it before it was priced): "Try again" prices it, "Withdraw" takes it back.
 // With fewer than two starts there is no list and nothing to say about it (the "Waiting for N people" card on the screen
 // says who is missing): the section shows only for the host, who can still name a known place.
+// "Jio remembers": on the first spot's own row only, one quiet line, "This spot is closer to you.", for the person whose past travel the planner
+// counts when it picks that spot, and only when their own minutes to it are below the group's average (lib/travelLean.js). The answer is the
+// signed-in person's own flag (api.travelLean), asked once the group is choosing with two starts in. It shows nothing when the answer is no, when
+// it could not be read, when the planner did not pick by fairness (everyone starts together), when the host named a known place, or when the
+// minutes are missing. It names no one, and no one else's answer is ever read.
 // A control that starts a change stays enabled while it saves (aria-busy), so a key press never drops the keyboard focus; a
 // second press is ignored until the first is saved. A confirm running anywhere on the screen (the footer's "Confirm …" or this
 // list's "Meet at …", one flag in the events store) counts as saving, so a change and a confirm never overlap; "Meet at …" reads
 // "Confirming…" while it runs.
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
 import SkeletonRow from '../ui/SkeletonRow.vue'
@@ -26,9 +31,10 @@ import LocationSheet from '../group/LocationSheet.vue'
 import SpotRow from './SpotRow.vue'
 import { useSpotChange } from './spotChange.js'
 import { AREAS } from '@/lib/mock/places.js'
+import { closerToYou, leanLine } from '@/lib/travelLean.js'
 import { TRAVEL_TONES } from '@/lib/planner/travel.js'
 import { useEventsStore } from '@/stores/events.js'
-import { canApprove, canSuggest, confirmedAreaId, confirmedLine, isChoosing, spotsToShow, unpricedSuggestion } from './spotText.js'
+import { canApprove, canSuggest, confirmedAreaId, confirmedLine, isChoosing, spotsToShow, startsShared, unpricedSuggestion } from './spotText.js'
 
 const props = defineProps({
   session: { type: Object, required: true },
@@ -76,6 +82,21 @@ const intro = computed(() => {
   if (!choosing.value) return ''
   return props.isHost ? 'Pick a spot and confirm it when you are ready. You do not need to wait for anyone.' : `Say which spots work for you. ${props.hostName} confirms the final spot.`
 })
+
+// The line for the first spot, "This spot is closer to you.", or '' (nothing to say). The signed-in person's own answer must be yes (the planner
+// counted their past travel), the group must be choosing, the host must not have named the place, and the planner must have picked the first spot
+// by fairness (the caller passes only that spot). It also has to be true on the screen: the person's own minutes to the spot, among the figures
+// its row shows everyone, are below their average (lib/travelLean.js closerToYou). Missing minutes show nothing.
+// How to call: leanNote(list.value[0]) // 'This spot is closer to you.'
+function leanNote(spot) {
+  const answer = events.leans[props.session.id]
+  if (!answer?.owed || !choosing.value || !props.myId || props.session.meetBy === 'known' || spots.value.appMethod !== 'fairest') return ''
+  return closerToYou(spot.times, props.myId) ? leanLine(answer.rule) : ''
+}
+// Ask again when the group starts choosing, or when the number of starts shared or the person's own start changes: the answer depends on them.
+// How to call: leanKey.value // 's1|true|2|true'
+const leanKey = computed(() => `${props.session.id}|${choosing.value}|${startsShared(props.session)}|${!!props.session.locations?.[props.myId]?.start}`)
+watch(leanKey, () => { if (choosing.value && props.myId && startsShared(props.session) >= 2) events.loadLean(props.session.id) }, { immediate: true })
 
 // Run a change as the signed-in person. A failure goes up as a message; the data layer has already put things back. A press
 // while an earlier change is still being saved does nothing.
@@ -151,6 +172,7 @@ async function settleKnown() {
         :busy="busy"
         :names="names"
         :my-id="myId"
+        :note="spot.areaId === fairestId ? leanNote(spot) : ''"
         @select="emit('select', spot.areaId)"
         @approve="(on) => approve(spot, on)"
         @here="(on) => setHere(spot, on)"
