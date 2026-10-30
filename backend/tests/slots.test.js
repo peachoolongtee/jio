@@ -138,15 +138,16 @@ test('meetingArea station: picks the area where the longest journey is shortest'
   assert.deepStrictEqual(out.centre, { lat: out.area.lat, lng: out.area.lng });
 });
 test('meetingArea station: maxCandidates 16 finds the same answer as trying every area, for every pair and trio', () => {
-  // 8 is NOT enough: Jurong East + Woodlands gets Ang Mo Kio (51.9 min) instead of Bishan (49.4 min).
+  // On the first 37 areas 8 is NOT enough: Jurong East + Woodlands gets Ang Mo Kio (51.9 min) instead of Bishan (49.4 min). On all 145 the
+  // stations are close enough together that 8 is enough for these six people.
   const ids = mock.members.map(m => m.id);
   for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) for (const k of [null, ...ids.slice(j + 1)]) {
     const members = [ids[i], ids[j], k].filter(Boolean).map(member);
     const fast = meetingArea({ members, maxCandidates: 16 }, data), full = meetingArea({ members }, data);
     assert.ok(Math.abs(fast.worstMinutes - full.worstMinutes) < 1e-9, members.map(m => m.id).join('+'));
   }
-  const pair = ['darius', 'jonathan'].map(member);
-  assert.ok(meetingArea({ members: pair, maxCandidates: 8 }, data).worstMinutes > meetingArea({ members: pair }, data).worstMinutes);
+  const pair = ['darius', 'jonathan'].map(member), first37 = { ...data, areas: data.areas.slice(0, 37) };
+  assert.ok(meetingArea({ members: pair, maxCandidates: 8 }, first37).worstMinutes > meetingArea({ members: pair }, first37).worstMinutes);
 });
 test('meetingArea weighted_centroid: debt pulls the point toward the person owed, named after the nearest area', () => {
   const even = group.map(m => ({ ...m, travelDebtMinutes: 0 }));

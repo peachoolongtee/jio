@@ -12,6 +12,7 @@ import { haversineKm } from '../../src/planner/geo.js'
 //                is close to the table's without being the same.
 //   latencyMs  - How long a call takes (real time). Default 3.
 //   cached     - Trips to start with in the cache: [[a, b, minutes]].
+//   areas      - The areas the default times are read on. Default: the planner's current areas.
 //
 // What you get: the OneMap service's routingEnabled, routeMinutes, peekRoute and reportFallback, and
 //   calls      [{ a, b, cache }] every routeMinutes call
@@ -32,8 +33,8 @@ const hash = (text) => {
   return (h >>> 0) / 4294967296
 }
 
-export function cachedOneMap({ minutes = null, latencyMs = 3, cached = [] } = {}) {
-  const estimator = createAreaEstimator({ areas: loadPlanData().areas, table: loadAreaTimes() })
+export function cachedOneMap({ minutes = null, latencyMs = 3, cached = [], areas = loadPlanData().areas } = {}) {
+  const estimator = createAreaEstimator({ areas, table: loadAreaTimes() })
   const answer = minutes ?? ((a, b) => Math.max(3, estimator(a, b) - 2 + 5 * hash(keyOf(a, b))))
   const cache = new Map(cached.map(([a, b, m]) => [keyOf(a, b), m]))
   const calls = []

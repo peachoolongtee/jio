@@ -61,7 +61,8 @@ async function voting({ known = null, lee = false, samProfile = PROFILE, kimProf
   await kim.api.joinWithLink(token)
   if (third) await third.api.joinWithLink(token)
   await sam.api.startSession(id)
-  await sam.api.setLocation(id, sam.id, 'start', { areaId: 'tampines', label: 'Tampines Mall' })
+  // Paya Lebar and Bishan meet where all four categories have places. From Tampines the fairest MRT station is Ubi, with no shop or bar near.
+  await sam.api.setLocation(id, sam.id, 'start', { areaId: 'paya-lebar', label: 'Paya Lebar Square' })
   await kim.api.setLocation(id, kim.id, 'start', { areaId: 'bishan', label: 'Bishan Junction 8' })
   if (known) await sam.api.setKnownPlace(id, known)
   else await sam.api.confirmSpot(id)

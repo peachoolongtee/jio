@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { loadAreaTimes } from '../src/db/area-times.js'
-import { loadPlanData } from '../src/db/venues.js'
+import { recordedPlanData } from './helpers/recorded-areas.js'
 import { OneMapUnavailableError } from '../src/services/budget.js'
 import { createHttp, ExternalApiError } from '../src/services/http.js'
 import { cachedOneMap } from './helpers/cached-onemap.js'
@@ -27,7 +27,7 @@ import { cachedOneMap } from './helpers/cached-onemap.js'
 const FRONTEND = 'http://localhost:5173'
 const BASELINE = JSON.parse(readFileSync(fileURLToPath(new URL('./fixtures/meeting-area-baseline.json', import.meta.url)), 'utf8'))
 const FIXTURE = fileURLToPath(new URL('./fixtures/meeting-area-table-baseline.json', import.meta.url))
-const planData = loadPlanData()
+const planData = recordedPlanData() // the 37 areas the fixture was recorded on
 const areaTimes = loadAreaTimes()
 
 // The OneMap each of the old modes becomes in table mode. Returns { onemap, options, calls } for a fresh app.
@@ -40,17 +40,17 @@ function onemapFor(mode) {
     case 'off':
       return { onemap: null, options: {} }
     case 'stub':
-      return { onemap: cachedOneMap(), options: {} }
+      return { onemap: cachedOneMap({ areas: planData.areas }), options: {} }
     case 'failing':
-      return { onemap: { ...cachedOneMap(), routeMinutes: async () => { throw down(503) } }, options: {} }
+      return { onemap: { ...cachedOneMap({ areas: planData.areas }), routeMinutes: async () => { throw down(503) } }, options: {} }
     case 'no-route':
-      return { onemap: { ...cachedOneMap(), routeMinutes: async () => null }, options: {} }
+      return { onemap: { ...cachedOneMap({ areas: planData.areas }), routeMinutes: async () => null }, options: {} }
     case 'down':
-      return { onemap: { ...cachedOneMap(), routeMinutes: async () => { throw down(503) } }, options: {} }
+      return { onemap: { ...cachedOneMap({ areas: planData.areas }), routeMinutes: async () => { throw down(503) } }, options: {} }
     case 'used-up':
-      return { onemap: { ...cachedOneMap(), routeMinutes: async () => { throw new OneMapUnavailableError('budget_empty', 'used up') } }, options: {} }
+      return { onemap: { ...cachedOneMap({ areas: planData.areas }), routeMinutes: async () => { throw new OneMapUnavailableError('budget_empty', 'used up') } }, options: {} }
     case 'tiny-budget': {
-      const inner = cachedOneMap()
+      const inner = cachedOneMap({ areas: planData.areas })
       let left = 3
       return {
         onemap: { ...inner, routeMinutes: async (...args) => { if (left-- <= 0) throw new OneMapUnavailableError('budget_empty', 'used up'); return inner.routeMinutes(...args) } },
@@ -58,7 +58,7 @@ function onemapFor(mode) {
       }
     }
     case 'hung':
-      return { onemap: { ...cachedOneMap(), routeMinutes: () => new Promise(() => {}) }, options: { routingDeadlineMs: 30 } }
+      return { onemap: { ...cachedOneMap({ areas: planData.areas }), routeMinutes: () => new Promise(() => {}) }, options: { routingDeadlineMs: 30 } }
     default:
       throw new Error(`unknown mode ${mode}`)
   }
