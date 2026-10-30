@@ -206,14 +206,22 @@ const ROUTE_STARTS = ['boon-lay', 'jurong-east', 'woodlands', 'punggol', 'tampin
 // Where each pin is drawn (MeetupPins `drawn`): a pin in a row of nearby ones stands a little off its own area, and the routes meet at
 // its tip, not under the pin beside it.
 const drawnAt = ref({})
+// The routes converge only on something on screen: the selected meetup's pin, or the "Jio your friends" pin when there is no meetup. When
+// the selected meetup has no pin (no meeting point yet, as with a chip whose meetups have none), nothing is drawn where they would meet, so
+// they do not converge on an empty spot: they run round the island one after another instead (IDLE_LOOP), people out and about.
+const selectedPinned = computed(() => !!selected.value && pins.value.some((pin) => pin.id === selected.value.id))
+const converging = computed(() => !hasMeetups.value || selectedPinned.value)
+const IDLE_LOOP = ['boon-lay', 'woodlands', 'punggol', 'tampines', 'harbourfront', 'jurong-east'].map(at)
+const IDLE_ROUTES = IDLE_LOOP.map((from, i) => ({ from, to: IDLE_LOOP[(i + 1) % IDLE_LOOP.length] }))
 const routeEnd = computed(() => {
   const area = selected.value?.area
-  if (!area || !Number.isFinite(area.lat) || !Number.isFinite(area.lng)) return MEET
+  if (!selectedPinned.value || !Number.isFinite(area?.lat) || !Number.isFinite(area?.lng)) return MEET
   return drawnAt.value[selected.value.id] || { lat: area.lat, lng: area.lng }
 })
-const mapRoutes = computed(() => ROUTE_STARTS.map((from) => ({ from, to: routeEnd.value })))
-// A new key redraws the routes when they converge somewhere else (rounded, so a sub-pixel change in the measured box does not redraw).
-const mapKey = computed(() => `${routeEnd.value.lat.toFixed(4)},${routeEnd.value.lng.toFixed(4)}`)
+const mapRoutes = computed(() => (converging.value ? ROUTE_STARTS.map((from) => ({ from, to: routeEnd.value })) : IDLE_ROUTES))
+// A new key redraws the routes when they converge somewhere else (rounded, so a sub-pixel change in the measured box does not redraw), or
+// when they stop converging.
+const mapKey = computed(() => (converging.value ? `${routeEnd.value.lat.toFixed(4)},${routeEnd.value.lng.toFixed(4)}` : 'idle'))
 // The first draw is the full, slow one; a redraw after the person changes the selection is quicker.
 const quickMap = ref(false)
 watch(() => selected.value?.id, (id, before) => { if (id && before && id !== before) quickMap.value = true })
@@ -260,7 +268,8 @@ const fadeRain = computed(() => !rainPlacesKey.value || rainFaded.value !== rain
 // One line under the greeting, about where things stand.
 const blurb = computed(() => {
   if (!selected.value) return 'Pick a day, invite your friends, and Jio finds the fairest place for everyone to meet.'
-  if (meetups.value.length > 1) return `You have ${meetups.value.length} meetups going. Pick one to see where it stands.`
+  // Several going: the pins and the list say it, so there is no line (Faith's walkthrough, 30 October 2026).
+  if (meetups.value.length > 1) return ''
   if (area.value) return `Your group meets at ${area.value.name}. Here is what is nearby.`
   return 'Once everyone shares where they are starting, Jio works out the midpoint.'
 })
@@ -444,7 +453,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
       <div class="hero__hello">
         <p class="caption text-muted">{{ today }}</p>
         <h1 id="home-hello" class="hello"><span class="hello__hi">Hi,</span> <span class="hello__name">{{ auth.user?.name }}</span></h1>
-        <p class="body-md home__blurb">{{ blurb }}</p>
+        <p v-if="blurb" class="body-md home__blurb">{{ blurb }}</p>
         <!-- An invitation waiting for an answer: the list is lower down the page, so the band says so and links to it. -->
         <RouterLink v-if="events.invitations.length" :to="{ query: route.query, hash: '#invitations' }" class="home__invites" data-testid="home-invites">
           <AppIcon name="user-plus" :size="16" />{{ events.invitations.length === 1 ? 'You have an invitation' : `You have ${events.invitations.length} invitations` }}

@@ -353,8 +353,8 @@ describe('the week chips on Home', () => {
   const list = [on('overdue', '2026-10-28'), on('today', '2026-10-30'), on('sun', '2026-11-01'), on('mon', '2026-11-02'), on('nextsun', '2026-11-08'), on('later', '2026-11-09')]
   const ids = (xs) => xs.map((x) => x.id)
 
-  it('are This week, Next week, Later and All', () => {
-    expect(MEETUP_RANGES.map((r) => r.label)).toEqual(['This week', 'Next week', 'Later', 'All'])
+  it('are This week, Next week, After next week and All', () => {
+    expect(MEETUP_RANGES.map((r) => r.label)).toEqual(['This week', 'Next week', 'After next week', 'All'])
   })
 
   it('put each meetup in exactly one of the first three, Monday to Sunday in Singapore, an overdue one in this week', () => {

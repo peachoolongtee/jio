@@ -303,7 +303,7 @@ export function allMeetupsLabel(count) {
 export const MEETUP_RANGES = [
   { id: 'week', label: 'This week' },
   { id: 'next', label: 'Next week' },
-  { id: 'later', label: 'Later' },
+  { id: 'later', label: 'After next week' },
   { id: 'all', label: 'All' },
 ]
 

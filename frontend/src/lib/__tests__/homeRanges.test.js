@@ -1,4 +1,4 @@
-// Home's week chips (walkthrough, 30 October 2026): This week, Next week, Later and All choose which meetups "Your meetups" lists, and the
+// Home's week chips (walkthrough, 30 October 2026): This week, Next week, After next week and All choose which meetups "Your meetups" lists, and the
 // map pins only those, so each pin has its row. Drawn for real (domless.js) on the stand-in planner, for a local account; the pins need a
 // browser and are stood in for by an element that says how many it was given and for which areas, and the dotted map by one that says how
 // many routes it draws and where they end. Also: the routes, always six, converge on the selected pin.
@@ -67,7 +67,7 @@ describe('the week chips on Home', () => {
     expect(chip(view, 'This week').attrs['aria-checked']).toBe('true')
     expect(chip(view, 'This week').attrs['aria-label']).toBe('This week, 1 meetup')
     expect(chip(view, 'Next week').attrs['aria-label']).toBe('Next week, 2 meetups')
-    expect(chip(view, 'Later').attrs['aria-disabled']).toBe('true')
+    expect(chip(view, 'After next week').attrs['aria-disabled']).toBe('true')
     expect(view.text('[data-testid=pins]')).toBe('1')
     expect(view.one('[data-testid=pins]').attrs['data-areas']).toBe('Bugis')
     expect(view.errors).toEqual([])
@@ -84,7 +84,7 @@ describe('the week chips on Home', () => {
 
   it('ignore a chip with nothing in it', async () => {
     const view = await drawHome()
-    await view.click(chip(view, 'Later'))
+    await view.click(chip(view, 'After next week'))
     expect(chip(view, 'This week').attrs['aria-checked']).toBe('true')
     expect(view.text('[data-testid=pins]')).toBe('1')
   })
