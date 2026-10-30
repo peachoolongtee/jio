@@ -147,6 +147,15 @@ describe('milestones', () => {
     expect(outingMilestones(sessions, 'ian', session)).toEqual([{ id: 'faith', n: 5 }])
   })
 
+  it('orders two outings that finished at the same moment by id as numbers, so s9 comes before s10', () => {
+    const at = { completedAt: 5000 }
+    const s9 = { id: 's9', ...outing('completed', ['ian', 'faith']), date: '2026-10-30', ...at }
+    const s10 = { id: 's10', ...outing('completed', ['ian', 'faith']), date: '2026-10-30', ...at }
+    const all = [...history(['faith'], 3), s10, s9]
+    expect(outingMilestones(all, 'ian', s9)).toEqual([])
+    expect(outingMilestones(all, 'ian', s10)).toEqual([{ id: 'faith', n: 5 }])
+  })
+
   it('names nobody for a cancelled outing, a closed one, or one I was not in', () => {
     const before = history(['faith'], 4)
     expect(milestonesAfter(before, finished(['faith'], { status: 'cancelled' }))).toEqual([])

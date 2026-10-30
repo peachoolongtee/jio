@@ -8,8 +8,11 @@
 // How many people the "Frequent hangouts" group holds at most; the rest of the friends are under "All friends".
 export const FREQUENT_MAX = 5
 
+// Is `id` joined to this outing?
+// How to call: joined({ members: [{ id: 'faith', state: 'joined' }] }, 'faith') -> true
 const joined = (session, id) => (session.members || []).some((m) => m.id === id && m.state === 'joined')
 // Did this outing really happen, with `myId` in it?
+// How to call: happened({ status: 'completed', endedBy: 'hand', members: [{ id: 'ian', state: 'joined' }] }, 'ian') -> true
 const happened = (session, myId) => session.status === 'completed' && session.endedBy !== 'closed' && joined(session, myId)
 
 // The outings together with each person: how many completed outings they shared with `myId`. People with none are left out.
@@ -86,6 +89,7 @@ export function ordinalWord(n) {
 }
 
 // When an outing finished, to put two in order: the time it was completed, else the start of its day.
+// How to call: finishedAt({ completedAt: 1790000000000 }) -> 1790000000000
 const finishedAt = (s) => (Number.isFinite(s.completedAt) ? s.completedAt : Date.parse(`${s.date}T${s.start || '00:00'}:00`) || 0)
 
 // The friends for whom this outing was a milestone: [{ id, n }], where `n` is which outing together it was with that friend, counting
@@ -99,7 +103,7 @@ export function outingMilestones(sessions, myId, session) {
   const out = []
   for (const member of session.members) {
     if (member.id === myId || member.state !== 'joined') continue
-    const shared = all.filter((s) => happened(s, myId) && joined(s, member.id)).sort((a, b) => finishedAt(a) - finishedAt(b) || String(a.id).localeCompare(String(b.id)))
+    const shared = all.filter((s) => happened(s, myId) && joined(s, member.id)).sort((a, b) => finishedAt(a) - finishedAt(b) || String(a.id).localeCompare(String(b.id), undefined, { numeric: true }))
     const n = shared.findIndex((s) => s.id === session.id) + 1
     if (isMilestone(n)) out.push({ id: member.id, n })
   }
