@@ -15,12 +15,13 @@
 //   a keyboard   focus on the pin (a mouse click does not count); Escape closes it and keeps focus on the pin
 //   a touch      a tap selects the pin and opens its card; a tap elsewhere or on another pin closes or moves it
 // It sits above the pin (below or beside when there is no room), slides to stay in the map's box and, on a phone, may use
-// the viewport (lib/homeMeetups.js placeCard). It is not a dialog: no backdrop, no focus trap. Its "Works for me" sits
+// the viewport (lib/homeMeetups.js placeCard), and is placed again when its own size changes (lib/sizeWatch.js). It is not a dialog: no backdrop, no focus trap. Its "Works for me" sits
 // inside the pin's wrapper, so pressing it neither closes a card a tap opened nor lets a hovered or focused one fade.
 // Only areas are shown, never a member's exact place.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { barHeights } from '@/lib/bars.js'
 import { placeCard } from '@/lib/homeMeetups.js'
+import { sizeWatch } from '@/lib/sizeWatch.js'
 import SpotCard from './SpotCard.vue'
 import { pinName } from './spotText.js'
 
@@ -174,16 +175,20 @@ function boxes() {
 }
 // Measure the card once it is in the page and put it by its pin. The wrapper has no size: its corner is the pin's tip.
 let placedFor = ''
+// The open card's size is watched, so a new error line or a changed "works for" count places it again and it never runs past the
+// map's edge. The same card placed again keeps showing while it moves.
+const resized = sizeWatch(() => place(openId.value))
 // How to call: await place('bugis') (or place('') to clear)
 async function place(id) {
   // The same card placed again (its pin was selected and grew) keeps showing while it moves; a new one starts hidden.
   if (id !== placedFor) placement.value = null
   placedFor = id
-  if (!id) return
+  if (!id) return resized.stop()
   await nextTick()
   const card = layer.value?.querySelector(`[id="${cardId(id)}"]`)
   const anchor = card?.parentElement
   if (!anchor) return
+  resized.watch(card)
   const tip = { x: anchor.getBoundingClientRect().x, y: anchor.getBoundingClientRect().y }
   const { map, viewport } = boxes()
   const reach = id === props.selectedId ? REACH.selected : REACH.rest
@@ -203,6 +208,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   clearTimers()
+  resized.stop()
   cancelAnimationFrame(frame)
   document.removeEventListener('pointerdown', onOutside)
   window.removeEventListener('resize', hide)
