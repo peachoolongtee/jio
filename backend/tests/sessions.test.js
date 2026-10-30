@@ -311,9 +311,9 @@ describe('GET /api/sessions/:id/dietary (an outing’s needs, together)', () => 
     const t = await start()
     const asGuest = await t.needs(SESSION, GUEST)
     expect(asGuest.status).toBe(200)
-    expect(asGuest.body).toEqual({ dietary: ['halal', 'vegan'], others: ['vegan'] })
-    expect((await t.needs(SESSION, HOST)).body).toEqual({ dietary: ['halal', 'vegan'], others: ['halal'] })
-    expect((await t.needs(SESSION, OTHER)).body).toEqual({ dietary: ['halal', 'vegan'], others: ['halal', 'vegan'] })
+    expect(asGuest.body).toEqual({ dietary: ['halal', 'vegan'], others: ['vegan'], mine: ['halal'], checked: false, dropped: [] })
+    expect((await t.needs(SESSION, HOST)).body).toEqual({ dietary: ['halal', 'vegan'], others: ['halal'], mine: ['vegan'], checked: false, dropped: [] })
+    expect((await t.needs(SESSION, OTHER)).body).toEqual({ dietary: ['halal', 'vegan'], others: ['halal', 'vegan'], mine: [], checked: false, dropped: [] })
     // No ids, no counts, no other private field, and an unknown need is dropped.
     const text = JSON.stringify(asGuest.body)
     for (const leak of [HOST, GUEST, OTHER, 'tampines', 'bishan', 'durian', 'budget', 'step']) expect(text).not.toContain(leak)
@@ -330,8 +330,8 @@ describe('GET /api/sessions/:id/dietary (an outing’s needs, together)', () => 
     world.profile_private.push({ id: STRANGER, dietary: ['vegetarian'], home_area_id: 'bugis', budget_max_per_person: null, needs_step_free: false })
     const asHost = await t.needs(SMALL, HOST)
     expect(asHost.status).toBe(200)
-    expect(asHost.body).toEqual({ dietary: ['halal', 'vegan'], others: [] })
-    expect((await t.needs(SMALL, GUEST)).body).toEqual({ dietary: ['halal', 'vegan'], others: [] })
+    expect(asHost.body).toEqual({ dietary: ['halal', 'vegan'], others: [], mine: ['vegan'], checked: false, dropped: [] })
+    expect((await t.needs(SMALL, GUEST)).body).toEqual({ dietary: ['halal', 'vegan'], others: [], mine: ['halal'], checked: false, dropped: [] })
   })
 
   it('tells the others’ needs once three have joined, as a list of needs only: no ids, no counts', async () => {
@@ -343,8 +343,8 @@ describe('GET /api/sessions/:id/dietary (an outing’s needs, together)', () => 
     // The third joined member has a need too, so the union of the others is told but not who has what.
     world.profile_private.find((p) => p.id === OTHER).dietary = ['halal', 'vegetarian']
     const asHost = await t.needs(SMALL, HOST)
-    expect(asHost.body).toEqual({ dietary: ['halal', 'vegetarian', 'vegan'], others: ['halal', 'vegetarian'] })
-    expect(Object.keys(asHost.body).sort()).toEqual(['dietary', 'others'])
+    expect(asHost.body).toEqual({ dietary: ['halal', 'vegetarian', 'vegan'], others: ['halal', 'vegetarian'], mine: ['vegan'], checked: false, dropped: [] })
+    expect(Object.keys(asHost.body).sort()).toEqual(['checked', 'dietary', 'dropped', 'mine', 'others'])
     const text = JSON.stringify(asHost.body)
     for (const leak of [HOST, GUEST, OTHER, '3', 'count']) expect(text).not.toContain(leak)
   })
@@ -357,7 +357,7 @@ describe('GET /api/sessions/:id/dietary (an outing’s needs, together)', () => 
     addMember(world, SMALL, STRANGER, { state: 'opted_out' })
     world.profile_private.push({ id: STRANGER, dietary: ['vegetarian'], home_area_id: 'bugis', budget_max_per_person: null, needs_step_free: false })
     // Three rows, two joined: the others’ list stays empty, and the opted-out person’s need is in neither list.
-    expect((await t.needs(SMALL, HOST)).body).toEqual({ dietary: ['halal', 'vegan'], others: [] })
+    expect((await t.needs(SMALL, HOST)).body).toEqual({ dietary: ['halal', 'vegan'], others: [], mine: ['vegan'], checked: false, dropped: [] })
   })
 
   it('answers a member who opted out as it answers a stranger: the same 404, and no private read', async () => {
@@ -378,6 +378,8 @@ describe('GET /api/sessions/:id/dietary (an outing’s needs, together)', () => 
     expect(world.calls.map((c) => [c.table ?? c.rpc, c.kind, c.who])).toEqual([
       ['session_members', 'select', GUEST.toLowerCase()],
       ['session_member_needs', 'rpc', null],
+      ['session_member_dietary', 'select', null],
+      ['session_dietary_dropped', 'select', null],
     ])
   })
 

@@ -1127,19 +1127,55 @@ At most 5 people, in this order: the exact match, then people who share (or shar
 | 401 `unauthenticated`, 503 `auth_unavailable` | The login check, as for every route that needs one. |
 | 429 `rate_limited` | More than `PEOPLE_SEARCH_RATE_LIMIT_PER_MINUTE` (120) a minute from one person. |
 
-## GET /api/sessions/:id/dietary
+## GET and PUT /api/sessions/:id/dietary
 
-An outing's dietary needs, together and without names (ticket #107), so "Confirm dietary needs" can open with them selected for a real friend's need too. Not a planner route: it needs a login and Supabase, as `DELETE /api/sessions/:id/members/:userId` does; without Supabase it does not exist and answers 404. A need is private (`profile_private`, read only by its owner and the server), so the server reads every joined member's through `session_member_needs()` with its own key, after checking as the caller that they are in the session, and answers only the needs.
+An outing's dietary needs (ticket #107), and the changes a member and the host can make to them for one outing. Not planner routes: they need a login and Supabase, as `DELETE /api/sessions/:id/members/:userId` does; without Supabase they do not exist and answer 404. A need is private (`profile_private`, read only by its owner and the server), so the server reads every joined member's through `session_member_needs()` with its own key, after checking as the caller that they are in the session, and answers only needs, never whose.
+
+A member's needs for an outing start as the ones on their profile. Changing or confirming them saves a row of their own for this outing in `session_member_dietary`; the host's dropped needs are rows of `session_dietary_dropped`. Both tables are server only (migration `db/migrations/20261030000000_jio_outing_dietary.sql`; no policy and no privilege for a browser, so no person reads or writes them, even their own row), and `session_member_needs()` answers each joined member's needs for the outing (their row if they have one, else their profile's). The backend refuses to start until the migration is applied (`checkPlanSchema`). The profile is never changed by any of it.
+
+### GET
 
 | Answer | When |
 |---|---|
-| 200 `{ "dietary": ["halal", "vegan"], "others": ["halal"] }` | `dietary` is every joined member's needs together; `others` is everyone's but the caller's (the ones the caller cannot take off), and `[]` until at least three members have joined. Each list is in the app's order (halal, vegetarian, vegan), each need once; anything else in a row is left out. Never an id, a count or another private field (home area, budget, step-free). `Cache-Control: no-store`. |
+| 200 `{ "dietary": ["halal", "vegan"], "others": ["halal"], "mine": ["vegan"], "checked": false, "dropped": [] }` | `dietary` is the group's needs in effect: every joined member's needs for this outing together, without the ones the host dropped. `others` is everyone's but the caller's (the ones the caller cannot take off, dropped ones included so the host can take a drop back), and `[]` until at least three members have joined. `mine` is the caller's own needs for the outing. `checked` is whether the caller confirmed their needs for this outing. `dropped` is the needs the host dropped, listed only while three or more have joined and only needs someone in the outing has (a dropped need nobody has now is not listed, and with fewer than three joined nothing is listed, because naming it would tell the caller it is the other person's); a dropped need is out of `dietary` in every case. Each list is in the app's order (halal, vegetarian, vegan), each need once; anything else in a row is left out. Never an id, a count or another private field (home area, budget, step-free). `Cache-Control: no-store`. |
 | 400 `invalid_input` | `:id` is not a uuid. |
 | 401 `unauthenticated`, 503 `auth_unavailable` | The login check. |
 | 404 `session_not_found` | No such session, or the caller is not a joined member of it (an opted-out member too; the same answer, so a stranger learns nothing, and no private row is read). |
-| 429 `rate_limited` | More than `SESSION_RATE_LIMIT_PER_MINUTE` (30) a minute from one person, counted apart from leaving. |
+| 429 `rate_limited` | More than `SESSION_RATE_LIMIT_PER_MINUTE` (60 by default) a minute from one person, counted apart from the writes. |
 
 With fewer than three joined members `others` is `[]`: in a group of two it would be the other person's own list, and it is never offered for the "Unselect" warning. (`dietary` is still everyone's together, because the places are filtered for it; the line "Showing places that fit halal" says as much.) Members who opted out count for nothing here: they add no need and are not part of the three.
+
+### PUT
+
+Body, at least one of `mine`, `checked`, `dropped` (an extra field is a 400):
+
+```json
+{ "mine": ["vegetarian"], "checked": true, "dropped": ["halal"], "planVersion": 12 }
+```
+
+- `mine`: the caller's own needs for this outing, the whole list (up to 3 of `halal`, `vegetarian`, `vegan`, in any letter case, repeats ignored; `[]` removes every need for this outing). Any joined member.
+- `checked: true`: the caller confirms their needs for this outing. Without `mine` the outing keeps the needs the caller has now (a row of their own is made from the profile's if they had none). Confirmation is never undone.
+- `dropped`: the needs the host drops for the outing, the whole list (`[]` takes every drop back). The host only; it needs three joined members; it may add only a need that someone else in the outing has (the same needs `others` told the host), and a need already dropped may stay on the list.
+- `planVersion`: the version of the session the caller saw. A stale one is refused with nothing written.
+
+A member who adds a need to their own list that the host had dropped brings the drop back (their own need is theirs to claim), unless the same request sets `dropped`. Sending the list they already have changes nothing.
+
+It works while the session is `inviting`, `locating` or `voting`. Every ranking that reads needs (a voting slot, a swap, an added place, the search of a slot, Roam, a replaced stop) reads the outing's needs without the dropped ones (`loadNeeds`).
+
+**A change while voting picks the places again.** When the group's needs in effect change while the session is voting, the same run ranks every slot again (the radius's way: `plan: { rank: 'all' }`): only voted places that still fit stay, with their votes, and the rest are the planner's best for the new needs; votes for places that went go with them (the server never writes a vote; it only takes the votes of options it removes). If a place moved or a vote went, `sessions.banner` becomes `{ "text": "The group's dietary needs changed, so the places were picked again.", "at", "byDiet": true }` (with `"votesCleared": true` and " Votes for places that no longer fit were cleared." when votes went); it names nobody and no need. A change that moves nothing takes back its own earlier notice and leaves any other. A change that does not alter the group's needs in effect (another member has the same need) ranks nothing. While inviting or locating no slot exists and nothing is ranked.
+
+| Answer | When |
+|---|---|
+| 200 `{ "dietary", "others", "mine", "checked", "dropped", "planVersion": 13, "repicked": true }` | The GET's answer after the change, with the session's version, and `repicked`: the slots were ranked again because the group's needs in effect changed while voting. |
+| 400 `invalid_input` | A body that is wrong, empty or has a field that is not listed; `:id` is not a uuid. |
+| 401, 503 | The login check. |
+| 403 `not_joined` | The caller opted out. 403 `host_only`: `dropped` from someone who is not the host. |
+| 404 `session_not_found` | No such session, or the caller is not in it. |
+| 409 `session_closed` | The session has ended (completed or cancelled). 409 `wrong_status`: it is confirmed. |
+| 409 `needs_three_people` | `dropped` with fewer than three joined members. |
+| 409 `stale_plan` | `planVersion` is not the session's version. |
+| 422 `need_not_found` | `dropped` adds a need nobody else in the outing has. |
+| 429 `rate_limited` | Over the session routes' limit (`SESSION_RATE_LIMIT_PER_MINUTE`, 60 by default, shared with the other writes). |
 
 ## Limits
 

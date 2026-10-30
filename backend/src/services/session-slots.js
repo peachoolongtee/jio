@@ -358,5 +358,13 @@ export function meetingDiffers(session, members, meeting) {
 //   radiusBannerText(1000) // 'Votes for places outside the new ring were cleared.'
 export const radiusBannerText = (metres) => (metres == null ? 'Votes for places that no longer fit were cleared.' : 'Votes for places outside the new ring were cleared.')
 
+// The notice when the group's dietary needs changed and the places were picked again. It names nobody and no need (every member reads it, and in
+// a small group a named need is a person's). When votes for places that no longer fit were cleared, it says so after.
+//
+// How to call:
+//   dietBannerText(0) // "The group's dietary needs changed, so the places were picked again."
+export const dietBannerText = (votesLost) =>
+  `The group's dietary needs changed, so the places were picked again.${votesLost > 0 ? ' Votes for places that no longer fit were cleared.' : ''}`
+
 // The sentence that follows a notice when the meeting area moved and took the votes with it.
 export const VOTES_CLEARED = 'Votes for places were cleared.'

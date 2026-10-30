@@ -5,9 +5,12 @@ import {
   loadDebts,
   loadNames,
   loadNeeds,
+  loadOutingDietary,
   loadPastOutings,
   loadState,
   PlanRefused,
+  saveDroppedNeeds,
+  saveMemberDietary,
 } from '../db/sessions.js'
 import { arrangeCandidates, freshCandidates } from '../planner/arrange.js'
 import { fromMinutes, moreOptions, OPTIONS_MAX, OPTIONS_MORE } from '../planner/slot-plan.js'
@@ -56,6 +59,7 @@ import {
   spotRowsFrom,
   suggestedAreaIds,
 } from './session-plan.js'
+import { dietaryView, effectiveNeeds, MIN_MEMBERS_FOR_OTHERS, needsOf, sameNeeds, without } from './session-dietary.js'
 import { categoryOfSlot, optionRow, optionsOf, roamReply } from './session-slots.js'
 import { createVoting, dateTimeOf, newAllowance, spend } from './session-voting.js'
 import { ROUTING_DEADLINE_MS } from './travel-times.js'
@@ -388,6 +392,10 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
       state,
       venueOf: (venueId) => voting.venues.get(venueId),
       needs: () => (needsRead ??= within(loadNeeds(service, sessionId), dbDeadlineMs, "reading the members' needs")),
+      // A job that changed the needs in the database makes the next ranking of this run read them again.
+      forgetNeeds: () => {
+        needsRead = undefined
+      },
       debts: () => (debtsRead ??= soft(() => loadDebts(service, sessionId), 'reading the travel debt', null)),
       visits: () =>
         (visitsRead ??= soft(
@@ -1211,6 +1219,94 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
             plan: { rank: 'all' },
             answer: ({ version }) => ({ planVersion: version, changed: version !== Number(state.session.plan_version) }),
           }
+        },
+      },
+    )
+  }
+
+  // PUT /api/sessions/:id/dietary: a joined member sets their dietary needs for this outing (`mine`, the whole list; it starts as their profile's) and
+  // confirms them (`checked`), and the host drops a need of someone else's for the outing, or takes a drop back (`dropped`, the whole list). It works
+  // while the session is inviting, locating or voting. Nothing here is a browser's to write: the server writes the two tables with the service key.
+  //
+  // The rules, all checked before anything is written:
+  //   - the caller is joined (403 not_joined); an outing that has ended is 409 session_closed, a confirmed plan 409 wrong_status; a stale `planVersion` 409 stale_plan;
+  //   - `dropped` is the host's (403 host_only), needs three joined members (409 needs_three_people), and may only add a need that someone else has
+  //     (422 need_not_found): the others' needs are what the host was told, so the refusal tells nothing new. A need already dropped may stay on the list;
+  //   - a member adding a need to their own list that the host dropped brings it back (their own need is theirs to claim), unless the same request sets `dropped`.
+  // While the session is voting and the group's needs in effect (everyone's together, without the dropped ones) changed, the slots are ranked again in the
+  // same run: only voted places that still fit stay, the rest are the planner's best for the new needs, and the notice names nobody (the radius's way:
+  // `plan: { rank: 'all', diet: true }`). The server never writes a vote. The answer is the GET's, with `planVersion` and `repicked`.
+  //
+  // How to call:
+  //   await sessions.setDietary({ client: req.supabase, id, userId: req.user.id, mine: ['halal'], checked: true })
+  //   // { dietary, others, mine, checked, dropped, planVersion, repicked }
+  function setDietary({ client, id, userId, mine, checked, dropped, planVersion }) {
+    userId = lower(userId)
+    const check = (state) => {
+      requireJoined(state, userId)
+      requireStatus(state, ['inviting', 'locating', 'voting'], { closed: 'session_closed', what: 'change dietary needs' })
+      if (dropped !== undefined) requireHost(state, userId, 'drop a need')
+      if (planVersion !== undefined && Number(state.session.plan_version) !== planVersion) {
+        throw refuse(409, 'stale_plan', 'The session changed since you looked at it. Look at it again.')
+      }
+    }
+    // Sticky across the run's attempts: a retry reads what the first attempt wrote and would find nothing changed.
+    let groupChanged = false
+    return submit(
+      { client, id, userId },
+      {
+        check,
+        prepare: async (draft, ctx) => {
+          check(draft)
+          const joined = draft.members.filter((m) => m.state === 'joined').length
+          const { rows, saved, dropped: storedDropped } = await within(loadOutingDietary(service, id), dbDeadlineMs, "reading the outing's dietary needs")
+          const mineBefore = needsOf([rows.find((r) => lower(r.user_id) === userId)?.dietary])
+          const othersBefore = needsOf(rows.filter((r) => lower(r.user_id) !== userId).map((r) => r.dietary))
+          const mineNext = mine === undefined ? mineBefore : needsOf([mine])
+
+          let droppedNext = storedDropped
+          if (dropped !== undefined) {
+            if (joined < MIN_MEMBERS_FOR_OTHERS) throw refuse(409, 'needs_three_people', 'Needs can be dropped once three people have joined.')
+            droppedNext = needsOf([dropped])
+            if (without(droppedNext, storedDropped).some((need) => !othersBefore.includes(need))) {
+              throw refuse(422, 'need_not_found', "Only a need that someone else in the outing has can be dropped.")
+            }
+          } else {
+            // A need the member adds back to their own list is not left dropped.
+            droppedNext = without(storedDropped, without(mineNext, mineBefore))
+          }
+
+          // The member's own row is written when they send a list that differs from what they have (or they have no row yet), or confirm for the first time.
+          const hadRow = saved.has(userId)
+          const confirmedBefore = (saved.get(userId) ?? null) !== null
+          const newList = mine !== undefined && (!hadRow || !sameNeeds(mineNext, mineBefore))
+          const newConfirm = checked === true && !confirmedBefore
+          if (newList || newConfirm) {
+            // Confirming without a list keeps the one they have: a row of their own is made from their profile's needs if they had none.
+            await within(
+              saveMemberDietary(service, id, userId, { ...((mine !== undefined || !hadRow) && { dietary: mineNext }), confirm: newConfirm }),
+              dbDeadlineMs,
+              'saving the dietary needs',
+            )
+            saved.set(userId, newConfirm ? new Date().toISOString() : (saved.get(userId) ?? null))
+          }
+          const add = without(droppedNext, storedDropped)
+          const remove = without(storedDropped, droppedNext)
+          if (add.length > 0 || remove.length > 0) await within(saveDroppedNeeds(service, id, { add, remove }), dbDeadlineMs, "saving the outing's dropped needs")
+
+          // The needs the rankings of this run read are the ones just written.
+          ctx.forgetNeeds()
+          const rowsNext = rows.some((r) => lower(r.user_id) === userId)
+            ? rows.map((r) => (lower(r.user_id) === userId ? { ...r, dietary: mineNext } : r))
+            : rows
+          if (!sameNeeds(effectiveNeeds(rows, storedDropped), effectiveNeeds(rowsNext, droppedNext))) groupChanged = true
+          const repick = groupChanged && draft.session.status === 'voting'
+          const answer = ({ version }) => ({
+            ...dietaryView({ me: userId, joined, rows: rowsNext, saved, dropped: droppedNext }),
+            planVersion: version,
+            repicked: repick,
+          })
+          return repick ? { ops: [], needs: 'none', plan: { rank: 'all', diet: true }, answer } : { ops: [], needs: 'none', answer }
         },
       },
     )
@@ -2149,6 +2245,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     setKnownPlace,
     changeMeetingPlace,
     syncPlan,
+    setDietary,
     setRadius,
     deleteSlot,
     restoreSlots,

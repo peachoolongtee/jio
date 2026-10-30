@@ -74,8 +74,8 @@ import { createWeather } from './services/weather.js'
 //   supabase       - The server's Supabase clients, from createSupabase(). Without it the routes that
 //                    need a login (GET /api/me) are not mounted.
 //   sessionRateLimit - { windowMs, max } to limit how often one signed-in caller may use the session endpoints (the meeting spots,
-//                    opting out, leaving, removing a guest), and, counted apart, read an outing's dietary needs
-//                    (GET /api/sessions/:id/dietary), or leave it out for no limit. index.js sets it outside stub mode.
+//                    opting out, leaving, removing a guest, changing an outing's dietary needs with PUT /api/sessions/:id/dietary), and, counted apart,
+//                    read an outing's dietary needs (GET /api/sessions/:id/dietary), or leave it out for no limit. index.js sets it outside stub mode.
 //   venueRateLimit - { windowMs, max } to limit how often one signed-in caller may search the saved places for a slot
 //                    (GET /api/sessions/:id/slots/:slotId/venue-search) and fetch the places behind the cards (GET /api/venues). Each route
 //                    counts apart, and apart from sessionRateLimit, so showing cards never uses up the allowance of the writes. Leave it out
