@@ -56,9 +56,11 @@ describe('localDebts', () => {
       done('this', { ian: 90, darius: 10 }),
       done('c', { ian: 90, darius: 10 }, { status: 'cancelled' }),
       done('d', { ian: 90, darius: 10 }, { status: 'confirmed' }),
+      done('closed', { ian: 90, darius: 10 }, { endedBy: 'closed' }),
+      done('hand', { ian: 40, darius: 20 }, { endedBy: 'hand' }),
       { id: 'e', status: 'completed', completedAt: NOW - DAY },
     ]
-    expect(localDebts(sessions, { now: NOW, exceptId: 'this' }).get('ian')).toBe(15)
+    expect(localDebts(sessions, { now: NOW, exceptId: 'this' }).get('ian')).toBe(25)
   })
 
   it('counts nothing for an outing with fewer than two trips, or trips that are not minutes', () => {

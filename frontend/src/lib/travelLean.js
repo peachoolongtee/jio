@@ -42,8 +42,9 @@ export const leanLine = (rule) => LEAN_LINES[rule] ?? ''
 // (other than `exceptId`), a person's trip to the meeting area minus the average of the people who had a trip. Positive means they travelled
 // more than their share, as the ledger's delta_from_mean does on the server (which also counts the legs between stops and the trip home; a
 // session kept in this browser keeps only the trip in). Outings with one person with a trip leave everyone at nothing. Only people who were in
-// a counted outing are in the answer.
-//   sessions  [{ id, status, completedAt, meeting: { times: { <person id>: minutes } } }]
+// a counted outing are in the answer. An outing that closed by itself with no confirmed plan (`endedBy` 'closed') never happened, so it is not
+// counted, as lib/hangouts.js does not count it.
+//   sessions  [{ id, status, endedBy, completedAt, meeting: { times: { <person id>: minutes } } }]
 //
 // How to call:
 //   localDebts(db.sessions, { now: Date.now(), exceptId: 's9' }) // Map { 'ian' => 8.5, 'faith' => -8.5 }
@@ -51,7 +52,7 @@ export function localDebts(sessions, { now, exceptId = null }) {
   const since = now - DEBT_DAYS * 24 * 3600 * 1000
   const debts = new Map()
   for (const session of sessions) {
-    if (session.id === exceptId || session.status !== 'completed' || !(session.completedAt > since)) continue
+    if (session.id === exceptId || session.status !== 'completed' || session.endedBy === 'closed' || !(session.completedAt > since)) continue
     const trips = Object.entries(session.meeting?.times || {}).filter(([, minutes]) => Number.isFinite(minutes) && minutes >= 0)
     if (trips.length < 2) continue
     const mean = trips.reduce((sum, [, minutes]) => sum + minutes, 0) / trips.length
