@@ -640,3 +640,77 @@ describe('your own trip on the meeting spot card', () => {
     expect(myTripLine(view(13, ''), 'ian')).toBe('About 13 min from your start')
   })
 })
+
+// "Jio remembers": the one muted line under the list for the person whose past travel the planner counts. The data layer's answer is kept in
+// the events store (`leans`); here it is set directly, and the reads are counted. The data layer's own rules are in travelLean.local.test.js and
+// travelLean.server.test.js.
+describe('the line about past travel', () => {
+  const LINE = 'You have travelled more than your share lately. If two spots tie on the longest trip, Jio counts your trip more.'
+  const BALANCED = 'You have travelled more than your share lately, so Jio counts your trip for more when it picks a spot.'
+  const asked = () => vi.spyOn(events, 'loadLean').mockResolvedValue(undefined)
+  const answer = (rule = 'longest', owed = true) => { events.leans = { s1: { owed, rule } } }
+
+  it('shows the line for the rule in use under the list, and says it once', () => {
+    asked()
+    answer()
+    const page = list(session())
+    expect(page.text()).toContain(LINE)
+    expect(page.text().split(LINE)).toHaveLength(2)
+    answer('balanced')
+    expect(list(session()).text()).toContain(BALANCED)
+    expect(list(session()).text()).not.toContain('tie on the longest trip')
+  })
+
+  it('shows it for the person it applies to and not for another member of the same session', () => {
+    // The store holds the signed-in person's own answer. Another member's app holds its own, here no.
+    asked()
+    answer()
+    expect(list(session(), { myId: 'ian' }).text()).toContain(LINE)
+    events.leans = { s1: { owed: false, rule: 'longest' } }
+    expect(list(session(), { myId: 'jonathan' }).text()).not.toContain('travelled more than your share')
+    events.leans = {}
+    expect(list(session(), { myId: 'jonathan' }).text()).not.toContain('travelled more than your share')
+  })
+
+  it('names no one and gives no number, in the page that shows it', () => {
+    asked()
+    answer()
+    const text = list(session()).text()
+    const line = text.slice(text.indexOf('You have travelled'))
+    expect(line).not.toMatch(/Ian|Jonathan|Faith/)
+    expect(line.slice(0, LINE.length)).toBe(LINE)
+  })
+
+  it('shows nothing when the answer is no, is missing, or names a rule it does not know', () => {
+    asked()
+    answer('longest', false)
+    expect(list(session()).text()).not.toContain('travelled more than your share')
+    events.leans = {}
+    expect(list(session()).text()).not.toContain('travelled more than your share')
+    answer('shortest')
+    expect(list(session()).text()).not.toContain('travelled more than your share')
+  })
+
+  it('shows nothing once the group has moved on, when the host named the place, or when the planner did not pick by fairness', () => {
+    asked()
+    answer()
+    expect(list(session({ status: 'voting' })).text()).not.toContain('travelled more than your share')
+    expect(list(session({ meetBy: 'known' })).text()).not.toContain('travelled more than your share')
+    const same = session()
+    same.spots.appMethod = 'same'
+    expect(list(same).text()).not.toContain('travelled more than your share')
+    const empty = session()
+    empty.spots.list = []
+    expect(list(empty).text()).not.toContain('travelled more than your share')
+  })
+
+  it('asks once the group is choosing with two starts in, and not before', () => {
+    const read = asked()
+    list(session())
+    expect(read).toHaveBeenCalledWith('s1')
+    read.mockClear()
+    list(session({ locations: { ian: { start: { areaId: 'tampines' } } } }))
+    list(session({ status: 'voting' }))
+    expect(read).not.toHaveBeenCalled()
+  })
+})

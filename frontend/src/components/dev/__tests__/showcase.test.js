@@ -210,6 +210,15 @@ describe('the showcase with the planner backend not running', () => {
     expectHome(await sessionsOf(ctx.api))
   })
 
+  it('has Ian owed for his travel in the finished outing, so the two spot votes show "Jio remembers" to him and no other session does', async () => {
+    const s = await sessionsOf(ctx.api)
+    const owed = Object.fromEntries(await Promise.all(s.all.map(async (x) => [x.id, (await ctx.api.travelLean(x.id)).owed])))
+    expect(Object.keys(owed).filter((id) => owed[id]).sort()).toEqual([s.long.id, s.guest.id].sort())
+    // The finished outing is why: Ian's trip there was above the group's average.
+    const times = s.completed.meeting.times
+    expect(times.ian).toBeGreaterThan(Object.values(times).reduce((sum, m) => sum + m, 0) / Object.values(times).length)
+  })
+
   it('is stored as the data layer wants it: reloading keeps all ten', async () => {
     const reloaded = await loadApi({ data: { [STORAGE_KEY]: ctx.storage.store[STORAGE_KEY] } })
     expect((await reloaded.listSessions()).map((s) => s.id).sort()).toHaveLength(10)

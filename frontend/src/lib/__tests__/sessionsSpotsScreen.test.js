@@ -349,7 +349,8 @@ describe('the Locate step, for a guest', () => {
     await view.click(press(view, 'Rejoin'))
     await until(() => w.database.tables.session_members.every((m) => m.state === 'joined'))
     await until(() => !view.text().includes('You opted out of this session'))
-    expect(w.server.calls.at(-1)).toMatchObject({ route: 'rejoin' })
+    // The quiet line about past travel asks again once the person is back among the starts, so the last write is the last call that is not that read.
+    expect(w.server.calls.filter((c) => c.route !== 'travelLean').at(-1)).toMatchObject({ route: 'rejoin' })
   })
 })
 
