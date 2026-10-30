@@ -76,7 +76,9 @@ async function load() {
   missing.value = false
   try {
     // The sessions are read on someone else's profile too, for the outings together; a failed read there only leaves that line out.
-    await Promise.all([groups.loadProfile(personId.value), groups.loadPeople(), groups.loadLeaderboard(), isMe.value ? events.loadSessions() : events.loadSessions().catch(() => null)])
+    // The sessions are read once: a profile opened again, or another person's after it, uses the list already read.
+    const sessionsRead = events.loaded ? null : isMe.value ? events.loadSessions() : events.loadSessions().catch(() => null)
+    await Promise.all([groups.loadProfile(personId.value), groups.loadPeople(), groups.loadLeaderboard(), sessionsRead])
   } catch {
     missing.value = true
   }

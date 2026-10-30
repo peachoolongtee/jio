@@ -97,6 +97,26 @@ describe('outings together on the profile screens', () => {
     expect(view.text(badges[0])).toMatch(/outings? together/)
   })
 
+  it('reads the sessions only when they have not been read, not on every mount or change of person', async () => {
+    t.tour.select(9)
+    await t.events.loadSessions()
+    const read = vi.spyOn(t.events, 'loadSessions')
+    const { routes } = await import('@/router/routes.js')
+    const stub = { render: () => null }
+    const router = createRouter({ history: createMemoryHistory(), routes: routes.map((r) => ({ ...r, component: stub })) })
+    await router.push('/people/darius')
+    const { default: View } = await import('@/views/ProfileView.vue')
+    const view = await mountScreen(View, { plugins: [t.pinia, router], props: { id: 'darius' } })
+    await until(() => view.has('[data-testid=profile-view]'))
+    expect(t.events.loaded).toBe(true)
+    expect(read).not.toHaveBeenCalled()
+    t.events.loaded = false
+    const again = await mountScreen(View, { plugins: [t.pinia, router], props: { id: 'darius' } })
+    await until(() => again.has('[data-testid=profile-view]'))
+    expect(read).toHaveBeenCalledTimes(1)
+    read.mockRestore()
+  })
+
   it('shows no badge in Friends at checkpoint 1', async () => {
     t.tour.select(0)
     const view = await profile(t, '/profile')
