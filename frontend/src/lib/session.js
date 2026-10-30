@@ -140,7 +140,7 @@ export function itineraryAction(session) {
 }
 
 // When the session starts, relative to now: "Starts in 50 min", "Starts in 3 h", "Tomorrow", "In 5 days",
-// "Live now" during the time window and "Ended" after it. Null for completed or cancelled sessions.
+// "Happening now" during the time window (it was "Live now" until the walkthrough of 30 October 2026) and "Ended" after it. Null for completed or cancelled sessions.
 // `isToday` (the demo's session-day switch) moves the session to today's date.
 export function startsIn(session, now = new Date()) {
   if (!session?.date || ['completed', 'cancelled'].includes(session.status)) return null
@@ -150,7 +150,7 @@ export function startsIn(session, now = new Date()) {
   if (!start || !end) return null
   const minutes = Math.round((start - now) / 60000)
   if (now >= end) return { text: 'Ended', tone: 'muted' }
-  if (now >= start) return { text: 'Live now', tone: 'live' }
+  if (now >= start) return { text: 'Happening now', tone: 'live' }
   if (minutes < 60) return { text: `Starts in ${Math.max(1, minutes)} min`, tone: 'soon' }
   if (minutes < 12 * 60) return { text: `Starts in ${Math.round(minutes / 60)} h`, tone: 'soon' }
   // Whole days between two Singapore calendar dates.

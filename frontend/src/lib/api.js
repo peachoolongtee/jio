@@ -2007,7 +2007,31 @@ export async function getPerson(id) {
   for (const s of sessions.filter((x) => x.status === 'completed')) counts[s.date] = (counts[s.date] || 0) + 1
   const planned = sessions.filter((x) => !['completed', 'cancelled'].includes(x.status)).map((x) => x.date)
   const history = Object.entries(counts).map(([date, count]) => ({ date, count }))
-  return { ...publicPerson(id), sessions, activity, history, planned }
+  const { ids: friendIds, common } = friendsOf(id)
+  await people.load(friendIds.filter((x) => !people.get(x)))
+  const friends = friendIds.map(publicPerson).sort((a, b) => a.name.localeCompare(b.name))
+  return { ...publicPerson(id), sessions, activity, history, planned, friends, friendsInCommon: common }
+}
+
+// Whose friends a profile lists (walkthrough, 30 October 2026: a "Friends" count on every profile opens the list, as on Instagram).
+// The signed-in person: their own friends (the ones they added, or for a real account the people they have shared a session with).
+// Someone else, for the demo and local accounts: sample data, the rest of the sample circle (Darius, Jonathan, Nicole, Faith, Darryl
+// are friends with each other), plus the signed-in person if they are friends. Someone else, for a real account: another person's
+// friends cannot be read, so it is the friends in common (`common: true`), the people who have been in a session with both.
+// How to call: friendsOf('darius') -> { ids: ['faith', 'nicole', ...], common: false }
+function friendsOf(id) {
+  const meId = me()
+  if (id === meId) return { ids: isReal() ? coMemberIds() : [...db.friends], common: false }
+  if (isReal()) {
+    const mine = new Set(coMemberIds())
+    const shared = new Set()
+    const memberLists = [...serverMembers.values(), ...db.sessions.map((x) => x.members.map((m) => m.id))]
+    for (const members of memberLists) if (members.includes(id)) for (const other of members) if (other !== id && other !== meId && mine.has(other)) shared.add(other)
+    return { ids: [...shared], common: true }
+  }
+  const sample = isCommunity(id) ? [] : PEOPLE.filter((p) => !isCommunity(p.id) && p.id !== id && p.id !== HOST_ID).map((p) => p.id)
+  const withMe = db.friends.includes(id) && meId ? [meId] : []
+  return { ids: [...new Set([...withMe, ...sample])].filter((x) => x !== id), common: false }
 }
 
 // Add or remove a friend. Only the demo and local accounts keep a list of their own; a real account's friends are the people

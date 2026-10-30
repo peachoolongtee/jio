@@ -235,3 +235,22 @@ export function placeCard({ tip, pin, size, bounds, fallback = null, gap = 8, ca
   const c = at(side, b)
   return { ...c, top: clamp(c.top, b.top, b.bottom - size.h), inside: false }
 }
+
+// How many meetups Home's "Your meetups" lists (walkthrough, 30 October 2026: the whole list was too long). The rest are on Sessions,
+// behind "See all N meetups".
+export const HOME_MEETUPS_SHOWN = 4
+
+// The meetups Home lists: the first HOME_MEETUPS_SHOWN, soonest first, with the selected one always among them (it takes the last
+// place when it is further down), so the row for the card above the list is never missing.
+// How to call: homeList(meetups, 's7') -> [s1, s2, s3, s7]
+export function homeList(meetups = [], selectedId = '', max = HOME_MEETUPS_SHOWN) {
+  const first = meetups.slice(0, max)
+  if (!selectedId || first.some((m) => m.id === selectedId)) return first
+  const selected = meetups.find((m) => m.id === selectedId)
+  return selected ? [...first.slice(0, max - 1), selected] : first
+}
+
+// The words on Home's button to the Sessions list. How to call: allMeetupsLabel(9) -> 'See all 9 meetups'
+export function allMeetupsLabel(count) {
+  return count > 1 ? `See all ${count} meetups` : 'See all meetups'
+}

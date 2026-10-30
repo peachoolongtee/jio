@@ -54,7 +54,7 @@ describe('when a session starts and ends', () => {
     // 00:30 on the 11th: eight hours to a 08:30 start that day.
     expect(startsIn(session(), AFTER_MIDNIGHT)).toEqual({ text: 'Starts in 8 h', tone: 'soon' })
     expect(startsIn(session({ start: '00:45' }), AFTER_MIDNIGHT)).toEqual({ text: 'Starts in 15 min', tone: 'soon' })
-    expect(startsIn(session({ start: '00:00', end: '17:00' }), AFTER_MIDNIGHT)).toEqual({ text: 'Live now', tone: 'live' })
+    expect(startsIn(session({ start: '00:00', end: '17:00' }), AFTER_MIDNIGHT)).toEqual({ text: 'Happening now', tone: 'live' })
     expect(startsIn(session({ start: '00:00', end: '00:30' }), AFTER_MIDNIGHT)).toEqual({ text: 'Ended', tone: 'muted' })
   })
 

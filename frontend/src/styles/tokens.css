@@ -17,7 +17,7 @@
 
 :root {
   /* Brand */
-  --primary: #ff385c; /* Rausch. Primary CTAs, the create orb, the meeting-area pin, "Live now". White text on it is 3.5:1; this brighter red was chosen over the darker #d10027 on 2026-10-09. */
+  --primary: #ff385c; /* Rausch. Primary CTAs, the create orb, the meeting-area pin, "Happening now". White text on it is 3.5:1; this brighter red was chosen over the darker #d10027 on 2026-10-09. */
   --primary-bright: #ff385c; /* The same Rausch, for decoration: glows, washes, rings. Kept as its own name in case --primary changes again. */
   --brand-logo: #f93d64; /* The official logo pink (components/ui/JioLogo.vue, the favicon). For the logo only, never for text. */
   --primary-active: #e00b41; /* Rausch pressed. */

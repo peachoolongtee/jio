@@ -49,7 +49,7 @@ import MeetupDetail from '@/components/home/MeetupDetail.vue'
 import MeetupList from '@/components/home/MeetupList.vue'
 import MeetupPins from '@/components/home/MeetupPins.vue'
 import * as api from '@/lib/api.js'
-import { activeMeetups, dayLabel, pinName, pinsFor, routesFor, selectMeetup } from '@/lib/homeMeetups.js'
+import { activeMeetups, allMeetupsLabel, dayLabel, homeList, pinName, pinsFor, routesFor, selectMeetup } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useHomeRain } from '@/lib/useHomeRain.js'
@@ -129,6 +129,9 @@ const hasMeetups = computed(() => meetups.value.length > 0)
 const selected = computed(() => selectMeetup(meetups.value, route.query.meetup))
 const past = computed(() => sessions.value.filter((s) => !meetups.value.includes(s)).slice(0, 3))
 const hasFinished = computed(() => sessions.value.length > meetups.value.length)
+// "Your meetups" lists a few (lib/homeMeetups.js homeList); "See all N meetups" opens Sessions when there are more, or finished ones.
+const shownMeetups = computed(() => homeList(meetups.value, selected.value?.id))
+const moreMeetups = computed(() => meetups.value.length > shownMeetups.value.length || hasFinished.value)
 const area = computed(() => selected.value?.area || null)
 
 // Outings past their end time that have not been completed, each with when it closes by itself. A confirmed one is left
@@ -467,12 +470,12 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <section v-if="meetups.length > 1" class="section rise" style="--i: 1" aria-labelledby="home-meetups">
           <div class="section__head">
             <h2 id="home-meetups" class="display-sm">Your meetups</h2>
-            <AppButton v-if="hasFinished" variant="tertiary" underline to="/sessions">All meetups</AppButton>
           </div>
-          <MeetupList :meetups="meetups" :selected-id="selected.id" :my-id="auth.myId" @select="select" />
+          <MeetupList :meetups="shownMeetups" :selected-id="selected.id" :my-id="auth.myId" @select="select" />
+          <AppButton v-if="moreMeetups" variant="secondary" class="home__see-all" to="/sessions" data-testid="see-all-meetups">{{ allMeetupsLabel(sessions.length) }}<AppIcon name="arrow-right" :size="16" /></AppButton>
         </section>
         <!-- One meetup: its card is above, and no list. -->
-        <div v-else-if="hasFinished" class="home__all"><AppButton variant="tertiary" underline to="/sessions">All meetups</AppButton></div>
+        <div v-else-if="hasFinished" class="home__all"><AppButton variant="secondary" class="home__see-all" to="/sessions" data-testid="see-all-meetups">{{ allMeetupsLabel(sessions.length) }}<AppIcon name="arrow-right" :size="16" /></AppButton></div>
       </div>
       <p class="sr-only" role="status">{{ announce }}</p>
       <div v-if="events.loaded" class="home__all"><AppButton variant="tertiary" underline to="/places/from-post">Find places from a post</AppButton></div>
@@ -620,6 +623,9 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
    card stays in view as a long list scrolls. */
 .home__meetups { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 .home__all { display: flex; }
+/* The way to every meetup: a secondary button under the list, full width on phones and its own width from 744px. */
+.home__see-all { align-self: stretch; }
+@media (min-width: 744px) { .home__see-all { align-self: flex-start; } }
 @media (min-width: 744px) {
   .home__meetups:not(.is-split) > * { max-width: var(--form-max-width); }
   .home__meetups.is-split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }

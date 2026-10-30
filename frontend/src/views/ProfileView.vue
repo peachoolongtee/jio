@@ -6,6 +6,9 @@
 //   "Edit profile" there (/profile/edit), and nobody else's does. The signed-in person's own
 //   has no create button: the navbar has one.
 //   Then the meetup graph, and the signed-in person's sessions or the other person's recent activity. The sessions have
+//   The strip of numbers also has Friends (walkthrough, 30 October 2026, as Instagram's followers): pressing it opens a sheet listing
+//   them, each opening their profile. On someone else's profile in a real account it is the friends in common, since another person's
+//   friends cannot be read (lib/api.js friendsOf). The signed-in person's friends used to be a section of the page; the sheet replaced it.
 //   time chips, All, Upcoming and Completed (lib/profileSessions.js), styled like the ones on Rewards, and a search box that
 //   narrows them by title or meeting area. Clicking a day on the graph shows only that day's sessions (or, on someone else's
 //   profile, that day's activity) and picks All, so the day is never hidden by a chip; the day shows as a chip with a × above the
@@ -26,6 +29,7 @@ import { useRouter } from 'vue-router'
 import { format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import BottomSheet from '@/components/ui/BottomSheet.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import CoinBadge from '@/components/ui/CoinBadge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -119,13 +123,16 @@ const ordinal = (n) => {
   const v = n % 100
   return n + (s[(v - 20) % 10] || s[v] || s[0])
 }
-// The signed-in person's friends: the ones they added (the demo and local accounts), or the people they have shared a session
-// with (a real account, ticket #125).
-// Six show, as with Suggested below; "Show N more" opens the rest, and "Show fewer" closes them again.
-const FRIENDS_SHOWN = 6
-const allFriends = computed(() => (isMe.value ? groups.friends : []))
-const showAllFriends = ref(false)
-const friends = computed(() => (showAllFriends.value ? allFriends.value : allFriends.value.slice(0, FRIENDS_SHOWN)))
+// The person's friends, in the sheet the Friends number opens: the ones the signed-in person added (or, for a real account, the
+// people they have shared a session with), or, on someone else's profile, theirs or the friends in common (lib/api.js friendsOf).
+const friends = computed(() => person.value?.friends || [])
+const friendsTitle = computed(() => (person.value?.friendsInCommon ? 'Friends in common' : 'Friends'))
+const friendsOpen = ref(false)
+// A friend's profile opens from the sheet: close it first. How to call: openFriend('faith')
+function openFriend(id) {
+  friendsOpen.value = false
+  router.push(id === auth.myId ? '/profile' : `/people/${id}`)
+}
 // People the signed-in person could add, at most six.
 const suggested = computed(() => (isMe.value ? groups.suggested.slice(0, 6) : []))
 const adding = ref('')
@@ -199,6 +206,12 @@ async function signOut() {
                   <dt class="caption-sm">Balance</dt>
                   <dd class="stats__value tnum"><CoinBadge :size="18" />{{ person.points }}</dd>
                 </div>
+                <div class="stats__item">
+                  <dt class="caption-sm">{{ person.friendsInCommon ? 'In common' : 'Friends' }}</dt>
+                  <dd class="stats__value tnum">
+                    <button type="button" class="stats__button" :aria-label="`${friends.length} ${person.friendsInCommon ? 'friends in common' : friends.length === 1 ? 'friend' : 'friends'}, show the list`" aria-haspopup="dialog" data-testid="friends-count" @click="friendsOpen = true"><AppIcon name="heart" :size="18" />{{ friends.length }}</button>
+                  </dd>
+                </div>
               </dl>
               <AppButton v-if="!isMe && auth.sampleWorld" block :variant="person.isFriend ? 'secondary' : 'primary'" :disabled="friendBusy" :aria-pressed="String(person.isFriend)" @click="toggleFriend">
                 <AppIcon :name="person.isFriend ? 'check' : 'plus'" />
@@ -217,27 +230,6 @@ async function signOut() {
         <section class="card graph-card rise" style="--i: 1" aria-labelledby="graph-head">
           <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
           <MeetupGraph :history="person.history" :planned="person.planned" :selected="day" @select="pickDay" />
-        </section>
-
-        <!-- The signed-in person: their friends, opening each one's profile. -->
-        <section v-if="allFriends.length" class="section" aria-labelledby="friends-head" data-testid="profile-friends">
-          <div class="section__head">
-            <h2 id="friends-head" class="display-sm">Friends</h2>
-          </div>
-          <ul class="suggested">
-            <li v-for="p in friends" :key="p.id" class="suggested__row">
-              <RouterLink :to="`/people/${p.id}`" class="suggested__who">
-                <UserAvatar :name="p.name" :src="p.photo" :person="p.id" :size="44" />
-                <span class="stack suggested__text">
-                  <span class="title-sm truncate">{{ p.name }}</span>
-                  <span class="caption-sm text-muted truncate">@{{ p.username }}<template v-if="p.homeArea"> · {{ p.homeArea }}</template></span>
-                </span>
-              </RouterLink>
-            </li>
-          </ul>
-          <AppButton v-if="allFriends.length > FRIENDS_SHOWN" variant="tertiary" underline :aria-expanded="String(showAllFriends)" data-testid="profile-friends-more" @click="showAllFriends = !showAllFriends">
-            {{ showAllFriends ? 'Show fewer friends' : `Show ${allFriends.length - FRIENDS_SHOWN} more` }}
-          </AppButton>
         </section>
 
         <!-- The signed-in person: people they could add, opening each one's profile. -->
@@ -316,6 +308,23 @@ async function signOut() {
     </template>
     <div v-else class="screen__body profile__loading"><SkeletonRow v-for="n in 3" :key="n" avatar /></div>
 
+    <BottomSheet v-model:open="friendsOpen" :title="friendsTitle">
+      <p v-if="!friends.length" class="body-md text-muted" data-testid="friends-empty">{{ person?.friendsInCommon ? 'No friends in common yet.' : isMe ? 'No friends yet. People you go out with show up here.' : 'No friends to show yet.' }}</p>
+      <ul v-else class="friend-list" data-testid="friends-list">
+        <li v-for="p in friends" :key="p.id">
+          <button type="button" class="friend-list__row" @click="openFriend(p.id)">
+            <UserAvatar :name="p.name" :src="p.photo" :person="p.id" :size="44" />
+            <span class="stack friend-list__text">
+              <span class="title-sm truncate">{{ p.name }}<template v-if="p.id === auth.myId"> (you)</template></span>
+              <span class="caption-sm text-muted truncate"><template v-if="p.username">@{{ p.username }}</template><template v-if="p.username && p.homeArea"> · </template>{{ p.homeArea }}</span>
+            </span>
+            <AppIcon class="friend-list__go" name="chevron-right" :size="18" />
+          </button>
+        </li>
+      </ul>
+      <SampleNote v-if="!isMe && person?.sample && friends.length" />
+    </BottomSheet>
+
     <ModalDialog v-model:open="signOutOpen" :title="signOutKind === 'real' ? 'Sign out?' : 'Erase everything and sign out?'">
       <template #content>
         <p v-if="signOutKind === 'real'" class="body-md">Your meetups, votes and points stay in this browser. Log in here again to get them back. They are not saved to your account yet, so another device will not have them.</p>
@@ -369,7 +378,7 @@ async function signOut() {
 .hero__side { display: flex; flex-direction: column; gap: var(--spacing-md); }
 
 /* Three numbers in a bordered strip, split by thin lines. */
-.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: var(--spacing-md) 0; border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: var(--spacing-md) 0; border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
 .stats__item { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xxs); padding: 0 var(--spacing-sm); text-align: center; }
 .stats__item + .stats__item { border-left: 1px solid var(--hairline); }
 .stats__value { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--ink); font: var(--text-display-sm); }
@@ -378,6 +387,18 @@ async function signOut() {
 /* The label comes first in the markup (for screen readers) and shows under its number. */
 .stats__item dt { order: 2; color: var(--muted); }
 .stats__item dd { order: 1; }
+/* Friends opens the list: the number is a button that looks like the others, underlined on hover. 44px to tap. */
+.stats__button { display: inline-flex; align-items: center; gap: 6px; min-height: var(--tap-min); margin: calc((var(--tap-min) - 28px) / -2) 0; padding: 0 var(--spacing-sm); border: 0; border-radius: var(--rounded-sm); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.stats__button :deep(svg) { color: var(--pc); }
+@media (hover: hover) { .stats__button:hover { text-decoration: underline; } }
+.stats__button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* The friends sheet: one row per friend, opening their profile. */
+.friend-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.friend-list__row { display: flex; align-items: center; gap: var(--spacing-md); width: 100%; min-height: 64px; padding: var(--spacing-sm) 0; border: 0; border-bottom: 1px solid var(--hairline-soft); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+@media (hover: hover) { .friend-list__row:hover { background: var(--surface-soft); } }
+.friend-list__row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.friend-list__text { flex: 1; min-width: 0; gap: 0; }
+.friend-list__go { flex-shrink: 0; color: var(--muted); }
 
 .graph-card { overflow: hidden; padding: var(--spacing-base); }
 .activity { display: flex; flex-direction: column; }

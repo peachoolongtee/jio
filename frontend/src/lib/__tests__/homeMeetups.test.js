@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FAN_PX, activeMeetups, dayLabel, nextStepFor, pinName, pinsFor, placeCard, routesFor, selectMeetup, whenLine, whereStands } from '../homeMeetups.js'
+import { FAN_PX, HOME_MEETUPS_SHOWN, activeMeetups, allMeetupsLabel, dayLabel, homeList, nextStepFor, pinName, pinsFor, placeCard, routesFor, selectMeetup, whenLine, whereStands } from '../homeMeetups.js'
 
 const NOW = new Date('2026-10-10T09:00:00+08:00')
 const BUGIS = { id: 'bugis', name: 'Bugis', lat: 1.30065, lng: 103.85585 }
@@ -321,5 +321,28 @@ describe('placeCard', () => {
     const c = placeCard({ tip: { x: 100, y: 120 }, pin, size, bounds: tiny })
     expect(c.inside).toBe(false)
     expect(c.top).toBeGreaterThanOrEqual(tiny.top)
+  })
+})
+
+// Walkthrough, 30 October 2026: Home lists a few meetups and points to the rest with "See all N meetups".
+describe('the meetups Home lists', () => {
+  const m = (id) => ({ id })
+  const six = ['a', 'b', 'c', 'd', 'e', 'f'].map(m)
+
+  it('lists at most four, soonest first as given', () => {
+    expect(HOME_MEETUPS_SHOWN).toBe(4)
+    expect(homeList(six).map((x) => x.id)).toEqual(['a', 'b', 'c', 'd'])
+    expect(homeList(six.slice(0, 2)).map((x) => x.id)).toEqual(['a', 'b'])
+  })
+
+  it('always keeps the selected one, in the last place when it is further down', () => {
+    expect(homeList(six, 'b').map((x) => x.id)).toEqual(['a', 'b', 'c', 'd'])
+    expect(homeList(six, 'f').map((x) => x.id)).toEqual(['a', 'b', 'c', 'f'])
+    expect(homeList(six, 'gone').map((x) => x.id)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('says how many there are in all', () => {
+    expect(allMeetupsLabel(9)).toBe('See all 9 meetups')
+    expect(allMeetupsLabel(1)).toBe('See all meetups')
   })
 })

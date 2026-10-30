@@ -58,7 +58,7 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
     await expect(page.getByRole('heading', { level: 1, name: /Hi,\s*Ian/ })).toBeVisible()
     const meetup = page.getByRole('region', { name: 'Out in Bugis' })
     await expect(meetup).toBeVisible()
-    await expect(meetup).toContainText('Live now')
+    await expect(meetup).toContainText('Happening now')
     await expect(meetup).toContainText('No friends yet')
     await expect(page.getByRole('region', { name: 'Places near Bugis' })).toBeVisible()
   })
@@ -104,7 +104,7 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
     await expect(page.getByRole('button', { name: /^Chinatown makan crawl/ })).toHaveCount(0)
 
     // 4. Sessions, Past: it is there, finished.
-    await page.getByRole('link', { name: 'All meetups' }).click()
+    await page.getByRole('link', { name: /^See all \d+ meetups/ }).click()
     await expect(page.getByRole('heading', { level: 1, name: 'Sessions' })).toBeVisible()
     await page.getByRole('button', { name: 'Past', exact: true }).click()
     const finished = page.getByRole('link', { name: /Chinatown makan crawl/ })

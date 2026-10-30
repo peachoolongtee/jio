@@ -1,5 +1,5 @@
 <script setup>
-// When a session starts, live: "Starts in 50 min", "Tomorrow, 15:00", "Live now", "Ended".
+// When a session starts, live: "Starts in 50 min", "Tomorrow, 15:00", "Happening now", "Ended".
 //   <CountdownChip :session="session" />
 // Renders nothing for completed or cancelled sessions.
 import { computed } from 'vue'
