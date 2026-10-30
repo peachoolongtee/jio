@@ -226,6 +226,33 @@ describe('friends who cannot be invited by name', () => {
   })
 })
 
+describe("a real account's outings together", () => {
+  // The first outing, which Sam hosted and Lee joined, finishes (the stand-in lets a test set what the server alone writes).
+  const finish = (database, id) => Object.assign(database.tables.sessions.find((s) => s.id === id), { status: 'completed', completed_at: '2026-10-09T09:00:00Z' })
+
+  it("show beside Lee in Sam's Friends once an outing has finished, and as a line on Lee's profile", async () => {
+    const { database, first, lee } = await world()
+    finish(database, first)
+    const { view: own } = await draw('views/ProfileView', '/profile')
+    await until(() => own.has('[data-testid="profile-friends"]') && own.has('[data-testid="outings-together"]'))
+    expect(own.text(own.one('[data-testid="outings-together"]'))).toContain('1 outing together')
+    expect(own.has('[data-testid="outings-together-line"]')).toBe(false)
+    const { view: theirs } = await draw('views/ProfileView', `/people/${lee.user.id}`, { id: lee.user.id })
+    await until(() => theirs.has('[data-testid="outings-together-line"]'))
+    expect(theirs.text(theirs.one('[data-testid="outings-together-line"]'))).toMatch(/^1 outing together · last on \d{1,2} [A-Z][a-z]{2} 2026$/)
+  })
+
+  it('show nothing while the outing has not finished', async () => {
+    const { lee } = await world()
+    const { view: own } = await draw('views/ProfileView', '/profile')
+    await until(() => own.has('[data-testid="profile-friends"]'))
+    expect(own.has('[data-testid="outings-together"]')).toBe(false)
+    const { view: theirs } = await draw('views/ProfileView', `/people/${lee.user.id}`, { id: lee.user.id })
+    await until(() => theirs.has('[data-testid="profile-view"]'))
+    expect(theirs.has('[data-testid="outings-together-line"]')).toBe(false)
+  })
+})
+
 describe("the profile's Friends list", () => {
   it('shows six, says how many more, and opens the rest', async () => {
     const database = createDatabase({ profiles: {} })

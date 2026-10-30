@@ -1,0 +1,105 @@
+// Outings together on the profile screens, drawn for real (lib/__tests__/domless.js) on the demo tour's data: someone's profile
+// says "N outings together · last on <day>" only when the two have finished an outing together, and the signed-in person's Friends
+// list carries the count beside each name. The tour's last save is the finished outing; at checkpoint 1 it is hidden
+// (lib/sessionFilter.js), so nothing is shown. The planner backend is not there (a closed port).
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import { createPinia, setActivePinia } from 'pinia'
+import { loadApi } from '../../lib/__tests__/planFixture.js'
+import { mountScreen, until } from '../../lib/__tests__/domless.js'
+import { DEMO_ACCOUNT } from '../../components/dev/demoAccount.js'
+
+vi.mock('../../components/ui/GridPulse.vue', () => ({ default: { name: 'GridPulse', render: () => null } }))
+vi.mock('../../components/ui/MeetupGraph.vue', () => ({ default: { name: 'MeetupGraph', render: () => null } }))
+vi.setConfig({ testTimeout: 90000, hookTimeout: 90000 })
+
+const NOW = new Date('2026-10-10T14:20:00')
+const stubPhotos = async (kinds, count) => Array.from({ length: count }, (_, i) => `data:image/jpeg;base64,AAAA${i}`)
+
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(NOW)
+})
+afterAll(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
+
+// The data layer on a fake storage, signed in as the demo account, the tour loaded and attached.
+// How to call: const t = await boot()
+async function boot() {
+  const api = await loadApi()
+  await api.signUp(DEMO_ACCOUNT)
+  api.api.defaults.baseURL = 'http://127.0.0.1:1'
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const { useTourStore } = await import('../store.js')
+  const tour = useTourStore()
+  await tour.attach()
+  await tour.settled()
+  await tour.start({ now: NOW, makePhotos: stubPhotos })
+  const { useAuthStore } = await import('@/stores/auth.js')
+  await useAuthStore().init()
+  const { useEventsStore } = await import('@/stores/events.js')
+  return { api, tour, pinia, events: useEventsStore(), auth: useAuthStore() }
+}
+
+// The profile screen at a path, with the sessions read again for the checkpoint that is selected.
+// How to call: const view = await profile(t, '/people/darius', { id: 'darius' })
+async function profile(t, path, props = {}) {
+  t.events.sessions = []
+  t.events.loaded = false
+  const { routes } = await import('@/router/routes.js')
+  const stub = { render: () => null }
+  const router = createRouter({ history: createMemoryHistory(), routes: routes.map((r) => ({ ...r, component: stub })) })
+  await router.push(path)
+  const { default: View } = await import('@/views/ProfileView.vue')
+  const view = await mountScreen(View, { plugins: [t.pinia, router], props })
+  await until(() => view.has('[data-testid=profile-view]') && t.events.loaded)
+  await view.tick()
+  return view
+}
+
+describe('outings together on the profile screens', () => {
+  let t
+  beforeAll(async () => {
+    t = await boot()
+  })
+
+  it('says nothing on a friend\'s profile at checkpoint 1, where no outing has finished', async () => {
+    t.tour.select(0)
+    const view = await profile(t, '/people/darius', { id: 'darius' })
+    expect(view.errors).toEqual([])
+    expect(view.has('[data-testid=outings-together-line]')).toBe(false)
+  })
+
+  it('says how many and the day of the last on a friend\'s profile once the outing has finished', async () => {
+    t.tour.select(9)
+    const view = await profile(t, '/people/darius', { id: 'darius' })
+    expect(view.errors).toEqual([])
+    const line = view.text(view.all('[data-testid=outings-together-line]')[0])
+    expect(line).toMatch(/^\d+ outings? together · last on \d{1,2} [A-Z][a-z]{2} 2026$/)
+  })
+
+  it('says nothing on a profile of someone the person has not been out with', async () => {
+    t.tour.select(9)
+    const view = await profile(t, '/people/jonathan', { id: 'jonathan' })
+    expect(view.has('[data-testid=outings-together-line]')).toBe(false)
+  })
+
+  it('puts the count beside the names in the signed-in person\'s own Friends, and no line under their own name', async () => {
+    t.tour.select(9)
+    const view = await profile(t, '/profile')
+    expect(view.errors).toEqual([])
+    expect(view.has('[data-testid=outings-together-line]')).toBe(false)
+    const badges = view.all('[data-testid=outings-together]')
+    expect(badges.length).toBeGreaterThanOrEqual(1)
+    expect(view.text(badges[0])).toMatch(/outings? together/)
+  })
+
+  it('shows no badge in Friends at checkpoint 1', async () => {
+    t.tour.select(0)
+    const view = await profile(t, '/profile')
+    expect(view.all('[data-testid=outings-together]')).toHaveLength(0)
+  })
+})

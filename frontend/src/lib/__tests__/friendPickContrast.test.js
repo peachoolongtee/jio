@@ -23,10 +23,10 @@ const ratio = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.mi
 const tint = (c, p) => c.map((v) => Math.round(v * p + 255 * (1 - p)))
 
 describe('contrast on the invite screens', () => {
-  const list = read('../../components/group/FriendPickList.vue')
+  const badge = read('../../components/group/OutingsTogether.vue')
 
   it("the outings-together pill's text reaches 4.5:1 on its 10% tint", () => {
-    const rule = list.match(/\.invite__together \{[^}]*\}/)[0]
+    const rule = badge.match(/\.together \{[^}]*\}/)[0]
     expect(rule).toContain('color-mix(in srgb, var(--primary) 10%, var(--canvas))')
     const colour = rule.match(/color: var\((--[a-z-]+)\)/)[1]
     expect(ratio(rgb(token(colour)), tint(rgb(token('--primary')), 0.1))).toBeGreaterThanOrEqual(4.5)
