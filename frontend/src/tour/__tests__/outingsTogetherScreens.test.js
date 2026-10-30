@@ -122,13 +122,58 @@ describe('the milestone line on a finished outing', () => {
     const { useGroupsStore } = await import('@/stores/groups.js')
     await useGroupsStore().loadPeople()
     const view = await mountScreen(View, { plugins: [t.pinia], props: { session, ...props } })
-    await view.tick()
+    // The line waits for the people to be read, so give that read time to finish.
+    if (read) await until(() => view.has('[data-testid=outing-milestone]'))
+    else await view.tick()
     return view
   }
 
   it('says nothing until the sessions have been read, as the count needs them', async () => {
     const view = await milestone(t, {}, false)
     expect(view.has('[data-testid=outing-milestone]')).toBe(false)
+  })
+
+  it('draws nothing while the people are being read, so the status never says "Someone", then names the friends', async () => {
+    t.tour.select(9)
+    await t.events.loadSessions()
+    const { visibleSessions } = await import('@/lib/sessionFilter.js')
+    const session = visibleSessions(t.events.sessions).find((x) => x.status === 'completed')
+    t.events.loaded = true
+    const { useGroupsStore } = await import('@/stores/groups.js')
+    const groups = useGroupsStore()
+    await groups.loadPeople()
+    const people = [...groups.people]
+    groups.people = []
+    let release
+    const real = groups.loadPeople
+    groups.loadPeople = () => new Promise((resolve) => { release = () => { groups.people = people; resolve() } })
+    const { default: View } = await import('@/components/event/OutingMilestone.vue')
+    const view = await mountScreen(View, { plugins: [t.pinia], props: { session, announce: true } })
+    await view.tick()
+    expect(view.has('[data-testid=outing-milestone]')).toBe(false)
+    expect(view.text()).not.toContain('Someone')
+    release()
+    await until(() => view.has('[data-testid=outing-milestone]'))
+    expect(view.text(view.one('[data-testid=outing-milestone]'))).not.toContain('Someone')
+    groups.loadPeople = real
+  })
+
+  it('draws the line with the neutral name when the people cannot be read', async () => {
+    t.tour.select(9)
+    await t.events.loadSessions()
+    const { visibleSessions } = await import('@/lib/sessionFilter.js')
+    const session = visibleSessions(t.events.sessions).find((x) => x.status === 'completed')
+    t.events.loaded = true
+    const { useGroupsStore } = await import('@/stores/groups.js')
+    const groups = useGroupsStore()
+    const real = groups.loadPeople
+    groups.people = []
+    groups.loadPeople = () => Promise.reject(new Error('offline'))
+    const { default: View } = await import('@/components/event/OutingMilestone.vue')
+    const view = await mountScreen(View, { plugins: [t.pinia], props: { session } })
+    await until(() => view.has('[data-testid=outing-milestone]'))
+    expect(view.text(view.one('[data-testid=outing-milestone]'))).toContain('Someone')
+    groups.loadPeople = real
   })
 
   it('names the friends of a first outing together, in a polite status when the person just finished it', async () => {
