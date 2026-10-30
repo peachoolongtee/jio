@@ -225,3 +225,36 @@ describe('friends who cannot be invited by name', () => {
     expect(inviteTo(database, next, kim)).toBeUndefined()
   })
 })
+
+describe("the profile's Friends list", () => {
+  it('shows six, says how many more, and opens the rest', async () => {
+    const database = createDatabase({ profiles: {} })
+    const guests = []
+    for (let n = 1; n <= 9; n++) guests.push(await open(database, { ...OTHER, email: `g${n}@example.com`, name: `Guest ${n}`, username: `guest_${n}` }))
+    const sam = await open(database, PROFILE)
+    const { id } = await sam.api.createSession({ ...SESSION })
+    const { token } = await sam.api.makeInviteLink(id)
+    for (const guest of guests) await guest.api.joinWithLink(token)
+    await boot(sam.fake, {}, { shared: true })
+    const { view } = await draw('views/ProfileView', '/profile')
+    const rows = () => view.all('a').filter((a) => a.attrs.href?.startsWith('/people/') && view.text(a).includes('@guest_'))
+    await until(() => view.has('[data-testid="profile-friends-more"]'))
+    expect(rows()).toHaveLength(6)
+    const more = view.one('[data-testid="profile-friends-more"]')
+    expect(view.text(more)).toBe('Show 3 more')
+    expect(more.attrs['aria-expanded']).toBe('false')
+    await view.click(more)
+    expect(rows()).toHaveLength(9)
+    expect(view.text(view.one('[data-testid="profile-friends-more"]'))).toBe('Show fewer friends')
+    await view.click(view.one('[data-testid="profile-friends-more"]'))
+    expect(rows()).toHaveLength(6)
+  })
+
+  it('has no button when there are six or fewer', async () => {
+    const { lee } = await world()
+    const { view } = await draw('views/ProfileView', '/profile')
+    await until(() => view.has('[data-testid="profile-friends"]'))
+    expect(view.has('[data-testid="profile-friends-more"]')).toBe(false)
+    expect(lee).toBeDefined()
+  })
+})

@@ -7,7 +7,8 @@
 //   has no create button: the navbar has one.
 //   Then the meetup graph, and the signed-in person's sessions or the other person's recent activity. The sessions have
 //   time chips, All, Upcoming and Completed (lib/profileSessions.js), styled like the ones on Rewards. The signed-in
-//   person's own also lists their Friends (for a real account, the people they have shared a session with), then
+//   person's own also lists their Friends (for a real account, the people they have shared a session with; the first six, and
+//   "Show N more" for the rest), then
 //   Suggested people (anyone they are not friends with yet), each opening their profile, with "Add friend" in the sample world. These used to be on the invite page, which now shows friends only (ticket #121).
 //   The signed-in person's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
 //   the demo" note, because other people's profiles are hand-written.
@@ -99,7 +100,11 @@ const ordinal = (n) => {
 }
 // The signed-in person's friends: the ones they added (the demo and local accounts), or the people they have shared a session
 // with (a real account, ticket #125).
-const friends = computed(() => (isMe.value ? groups.friends : []))
+// Six show, as with Suggested below; "Show N more" opens the rest, and "Show fewer" closes them again.
+const FRIENDS_SHOWN = 6
+const allFriends = computed(() => (isMe.value ? groups.friends : []))
+const showAllFriends = ref(false)
+const friends = computed(() => (showAllFriends.value ? allFriends.value : allFriends.value.slice(0, FRIENDS_SHOWN)))
 // People the signed-in person could add, at most six.
 const suggested = computed(() => (isMe.value ? groups.suggested.slice(0, 6) : []))
 const adding = ref('')
@@ -195,7 +200,7 @@ async function signOut() {
         </section>
 
         <!-- The signed-in person: their friends, opening each one's profile. -->
-        <section v-if="friends.length" class="section" aria-labelledby="friends-head" data-testid="profile-friends">
+        <section v-if="allFriends.length" class="section" aria-labelledby="friends-head" data-testid="profile-friends">
           <div class="section__head">
             <h2 id="friends-head" class="display-sm">Friends</h2>
           </div>
@@ -210,6 +215,9 @@ async function signOut() {
               </RouterLink>
             </li>
           </ul>
+          <AppButton v-if="allFriends.length > FRIENDS_SHOWN" variant="tertiary" underline :aria-expanded="String(showAllFriends)" data-testid="profile-friends-more" @click="showAllFriends = !showAllFriends">
+            {{ showAllFriends ? 'Show fewer friends' : `Show ${allFriends.length - FRIENDS_SHOWN} more` }}
+          </AppButton>
         </section>
 
         <!-- The signed-in person: people they could add, opening each one's profile. -->
