@@ -14,6 +14,7 @@ import PopoverPanel from '../ui/PopoverPanel.vue'
 import UserAvatar from '../ui/UserAvatar.vue'
 import InviteByUsername from './InviteByUsername.vue'
 import ShareLink from './ShareLink.vue'
+import { canInviteByName } from '@/lib/session.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 
@@ -40,8 +41,9 @@ watch(open, async (isOpen) => {
   search.value?.focus()
 })
 
-// Anyone joined or already invited is not offered again.
-const taken = (id) => props.session.members.some((m) => m.id === id && ['joined', 'invited'].includes(m.state))
+// Anyone joined or already invited is not offered again; nor, in a shared session, anyone who opted out or whose invitation by name
+// was taken back or declined (the database keeps one per person; they can use the link).
+const taken = (id) => !canInviteByName(props.session, id)
 const matches = (p) => {
   const q = query.value.trim().toLowerCase().replace(/^@/, '')
   return !q || p.name.toLowerCase().includes(q) || p.username.toLowerCase().includes(q)
@@ -72,6 +74,12 @@ async function send() {
     close()
   } catch (e) {
     error.value = e.message
+    // The ones that did go through, and the ones that cannot be invited by name, are not picked any more, so a retry does not send them
+    // again and the count stays true. The rest stay picked.
+    const gone = [...(e.invited || []), ...(e.skipped || []), ...(e.blocked || [])]
+    picked.value = picked.value.filter((id) => !gone.includes(id))
+    // Some of the invitations were written, so the list is read again to show who is Invited.
+    if (gone.length) events.loadSession(props.session.id).catch(() => null)
   }
   busy.value = false
 }

@@ -37,7 +37,7 @@ import TakeBackInvite from '@/components/group/TakeBackInvite.vue'
 import ShareLink from '@/components/group/ShareLink.vue'
 import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
 import { watchSessions } from '@/lib/api.js'
-import { inviteAccess } from '@/lib/session.js'
+import { canInviteByName, inviteAccess } from '@/lib/session.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { inviteGroups, outingsTogether } from '@/lib/hangouts.js'
 import { exitFor, goBackIfBehind, isBehind } from '@/lib/stepNav.js'
@@ -76,7 +76,9 @@ const back = computed(() => (session.value ? backFor(session.value, route.path, 
 const hostName = computed(() => (session.value?.hostId === auth.myId ? auth.user?.name : groups.people.find((p) => p.id === session.value?.hostId)?.name) || 'the host')
 // Whether this person can add people now, and if not, why not.
 const access = computed(() => (session.value ? inviteAccess(session.value, mine.value, hostName.value) : { open: false, text: '' }))
-const inSession = (personId) => session.value?.members.some((m) => m.id === personId && ['joined', 'invited'].includes(m.state))
+// Who can be picked: not in the session, and for a shared one not someone who opted out or whose invitation by name was taken back or
+// declined either (the database keeps one per person; they can use the link).
+const offered = (personId) => !!session.value && canInviteByName(session.value, personId)
 const isInvited = (personId) => session.value?.members.some((m) => m.id === personId && m.state === 'invited')
 // Search by name or @username. Empty: everyone.
 const query = ref('')
@@ -101,7 +103,7 @@ const members = computed(() => {
 // give the friends a streak at the checkpoints before it (lib/sessionFilter.js).
 const streaks = computed(() => outingsTogether(visibleSessions(events.sessions), auth.myId))
 const lists = computed(() => {
-  const { frequent, all } = inviteGroups(groups.friends.filter((p) => !inSession(p.id) && matches(p)), streaks.value)
+  const { frequent, all } = inviteGroups(groups.friends.filter((p) => offered(p.id) && matches(p)), streaks.value)
   if (!frequent.length) return [{ id: 'friends', title: 'Friends', people: all }]
   return [
     { id: 'frequent', title: 'Frequent hangouts', people: frequent },
@@ -110,7 +112,7 @@ const lists = computed(() => {
 })
 const noMatches = computed(() => query.value.trim() && lists.value.every((l) => !l.people.length))
 const initial = computed(() => (session.value?.title.trim()[0] || 'J').toUpperCase())
-const available = computed(() => groups.friends.filter((p) => !inSession(p.id)))
+const available = computed(() => groups.friends.filter((p) => offered(p.id)))
 const allPicked = computed(() => available.value.length > 0 && available.value.every((p) => picked.value.includes(p.id)))
 
 function toggle(personId) {
@@ -131,6 +133,12 @@ async function send() {
     picked.value = []
   } catch (e) {
     error.value = e.message
+    // The ones that did go through, and the ones that cannot be invited by name, are not picked any more, so a retry does not send them
+    // again and the count of those selected stays true. The rest stay picked.
+    const gone = [...(e.invited || []), ...(e.skipped || []), ...(e.blocked || [])]
+    picked.value = picked.value.filter((id) => !gone.includes(id))
+    // Some of the invitations were written, so the list is read again to show who is Invited.
+    if (gone.length) events.loadSession(props.id).catch(() => null)
   }
   busy.value = false
 }

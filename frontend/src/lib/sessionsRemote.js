@@ -63,7 +63,7 @@ export const WORDS = {
   // A demo account or a local account lives in this browser only; the invite functions are for a real account.
   needsAccount: 'Shared sessions need a Jio account. Log in with one.',
   started: "You can't leave once voting has started; ask the host to cancel.",
-  alreadyInvited: 'You have already invited that person.',
+  alreadyInvited: "That person was already invited to this session, so only the session's link will work for them. Send them the link.",
   inviteGone: 'That invite has already been answered. Reload to see who is in.',
   startedRemove: "You can't remove someone once voting has started; cancel the session instead.",
   // The server answers not_yet only for a confirmed plan (its itinerary is a later stage's work); voting is served.
@@ -482,6 +482,10 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
       createdAt: Date.parse(row.created_at),
       updatedAt: Date.parse(row.updated_at),
       members: [...joined, ...invited],
+      // Everyone the host has an invitation by name for, in any state (waiting, taken back, declined or used). The database keeps one
+      // per person per session, so none of them can be invited by name again (they can use the link). Only the host and the
+      // invitee read these rows, so for anyone else it is what they can see.
+      namedInvites: inviteRows.filter((i) => i.session_id === row.id && i.invitee_id).map((i) => i.invitee_id),
       planVersion: Number(row.plan_version) || 0,
       ...planningOf(row, memberRows, planning, me()),
       ...planOf(row, memberRows, planning),

@@ -16,7 +16,7 @@ import * as Season from './season.js'
 import * as P from './planner/index.js'
 import * as planner from './plannerApi.js'
 import { ROAM, isRoamStop, nextStopStart, placeState, proposalsOf, proposeBlock } from './roam.js'
-import { dueEnding, earnsCoins, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
+import { canInviteByName, dueEnding, earnsCoins, isInOrInvited, singaporeDate, singaporeMinutes, startHasPassed } from './session.js'
 import { dayLabel, validUntilOf, voucherState, voucherValidUntil } from './vouchers.js'
 import { combineWeather, stateOf, venueSetting, weatherFrom } from './weatherText.js'
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS, displayName, sameKey } from './placeSearch.js'
@@ -3096,21 +3096,45 @@ export async function searchPeople(text, { signal } = {}) {
 }
 
 // A real account's host invites friends by id, one invitation each, in the order picked. Only friends can be picked this way, so
-// a stranger is reached by username or the link. The ones before a refusal stay invited, and the session is read again either way
-// so the screen shows who is Invited. Resolves with the session as it is then.
+// a stranger is reached by username or the link (refused before anything is sent). Someone already in the session or waiting on an
+// invite is skipped. Someone who cannot be invited by name (opted out, or an invitation taken back, declined or used: the database
+// keeps one per person) is counted, not tried. A refusal for one person does not stop the rest. The session is read again either way,
+// so the screen shows who is Invited. Resolves with the session as it is then; if anyone could not be invited it rejects with one
+// sentence that says how many and why, and the error's `invited`, `skipped` (already in) and `blocked` (cannot be invited by name) hold ids a retry should not send.
 // How to call: await inviteFriendsOnServer('3b1f...', ['7f3c...', '9a2e...'])
 async function inviteFriendsOnServer(id, personIds) {
   const friends = new Set(coMemberIds())
+  if (personIds.some((personId) => !friends.has(personId))) throw new Error('Invite people you have not been out with by their username.')
+  const invited = []
+  const skipped = []
+  const blocked = []
+  const failed = []
   try {
+    const session = await getSession(id)
     for (const personId of personIds) {
-      if (!friends.has(personId)) throw new Error('Invite people you have not been out with by their username.')
-      await remote.invitePerson(id, personId)
+      if (isInOrInvited(session, personId)) skipped.push(personId)
+      else if (!canInviteByName(session, personId)) blocked.push(personId)
+      else {
+        try {
+          await remote.invitePerson(id, personId)
+          invited.push(personId)
+        } catch (e) {
+          failed.push(e)
+        }
+      }
     }
   } finally {
     warmPeople(personIds)
     broadcast({ type: 'session', sessionId: id })
   }
-  return getSession(id)
+  const session = await getSession(id)
+  const left = blocked.length + failed.length
+  if (!left) return session
+  const reasons = []
+  if (blocked.length) reasons.push("they were invited before or opted out, so only the session's link works for them")
+  if (failed.length) reasons.push(String(failed[0]?.message || 'the invite did not go through').replace(/\.$/, ''))
+  const who = left === 1 ? '1 person' : `${left} people`
+  throw Object.assign(new Error(`${who} could not be invited: ${reasons.join('; ')}.${invited.length ? ' The rest are invited.' : ''}`), { invited, skipped, blocked })
 }
 
 // The host invites a person by id; they see it on Home. Resolves with the session as it is then.
