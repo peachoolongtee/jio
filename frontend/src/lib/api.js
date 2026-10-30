@@ -2505,6 +2505,9 @@ export async function updateSession(id, fields) {
 // does, each one is Invited until they accept, which in the demo they do on their own, one after another.
 // acceptAfter (with pending): how long the first invite stays pending, in ms, instead of ACCEPT_AFTER. A long wait gets
 // no timer; the invite is accepted by the first read after it passes. The demo's showcase uses it to leave invites pending.
+// Inviting someone makes them a friend (walkthrough, 30 October 2026): for the demo and local accounts each invitee is added to the
+// account's own list, so the demo tools' invites of people not yet on it count too. A real account's friends are the people in its
+// sessions, invitees included, so nothing is stored for it.
 // How to call: await inviteFriends('s1', ['faith'], { pending: true, acceptAfter: 7 * 24 * 60 * 60 * 1000 })
 export async function inviteFriends(id, personIds, { pending = false, acceptAfter = ACCEPT_AFTER } = {}) {
   // A real account's friends are the people it shares a session with (coMemberIds); each one picked gets the same invitation
@@ -2529,6 +2532,11 @@ export async function inviteFriends(id, personIds, { pending = false, acceptAfte
       member.state = 'joined'
       delete member.acceptAt
     }
+  }
+  const added = isReal() ? [] : personIds.filter((personId) => personId !== me() && !db.friends.includes(personId))
+  if (added.length) {
+    db.friends = [...db.friends, ...added]
+    emit({ type: 'friends' })
   }
   return touch(session, 'session')
 }

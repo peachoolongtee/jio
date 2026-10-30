@@ -126,6 +126,19 @@ describe("a real account's friends", () => {
   })
 })
 
+describe('inviting someone makes them a friend (walkthrough, 30 October 2026)', () => {
+  it("counts a person the host invited by username as a friend while the invite waits, and not once it is taken back", async () => {
+    const { next, sam, kim } = await world()
+    await sam.api.listSessions()
+    expect((await sam.api.listPeople()).filter((p) => p.isFriend).map((p) => p.id)).not.toContain(kim.user.id)
+    await sam.api.inviteByUsername(next, kim.user.id)
+    await sam.api.getSession(next)
+    expect((await sam.api.listPeople()).find((p) => p.id === kim.user.id)?.isFriend).toBe(true)
+    await sam.api.revokeInvite(next, kim.user.id)
+    expect((await sam.api.listPeople()).find((p) => p.id === kim.user.id)?.isFriend).not.toBe(true)
+  })
+})
+
 // Sam's friends here are Kim, Lee and Mia, all of whom joined Saturday with its link; Sunday is the next outing.
 // How to call: const { database, profiles, next, sam, kim, lee, mia } = await crowd()
 async function crowd() {

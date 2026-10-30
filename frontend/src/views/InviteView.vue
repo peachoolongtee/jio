@@ -15,6 +15,9 @@
 // After sending, the screen confirms each invite. Each friend shows as Invited until they accept (in the demo, on
 // their own a moment later).
 // The host can take back an invite that is still waiting, with the × on its row (TakeBackInvite), and the person leaves the list.
+// The × is on every row that shows a waiting invite to the host: the lists of who is in (also when invites are closed), and the
+// "Invites sent" confirmation right after sending, where a mistaken invite is most likely noticed; there a taken-back row says
+// "Taken back" (walkthrough, 30 October 2026).
 // Once the session has started the page still opens. The host can invite while the group is locating or voting (the data
 // layer allows it, and the header's Invite button already does), and when a confirmed plan is left with too few people.
 // Otherwise (a confirmed plan with enough people, a finished or cancelled session, or anyone but the host) the page lists
@@ -81,6 +84,7 @@ const access = computed(() => (session.value ? inviteAccess(session.value, mine.
 // declined either (the database keeps one per person; they can use the link).
 const offered = (personId) => !!session.value && canInviteByName(session.value, personId)
 const isInvited = (personId) => session.value?.members.some((m) => m.id === personId && m.state === 'invited')
+const isMember = (personId) => session.value?.members.some((m) => m.id === personId && m.state === 'joined')
 // Search by name or @username. Empty: everyone.
 const query = ref('')
 const matches = (p) => {
@@ -228,13 +232,18 @@ function done() {
     </div>
 
     <!-- After sending: each friend was invited. -->
-    <div v-else-if="sent.length" class="screen__body" role="status">
+    <div v-else-if="sent.length" class="screen__body">
       <IllustrationBlob name="sent" />
-      <ul>
+      <h2 id="invites-sent" class="sr-only" tabindex="-1">Invited</h2>
+      <p class="sr-only" role="status">Invites sent to {{ sent.length }} {{ sent.length === 1 ? "person" : "people" }}</p>
+      <ul data-testid="sent-list">
         <ListRow v-for="person in sent" :key="person.id" as="li" :title="person.name" :meta="`@${person.username}`">
           <template #leading><UserAvatar :name="person.name" :person="person.id" /></template>
           <template #trailing>
-            <span class="sent-mark caption"><AppIcon name="check" :size="14" /> Invited</span>
+            <span v-if="isInvited(person.id)" class="sent-mark caption"><AppIcon name="check" :size="14" /> Invited</span>
+            <span v-else-if="isMember(person.id)" class="sent-mark caption"><AppIcon name="check" :size="14" /> Joined</span>
+            <span v-else class="sent-mark sent-mark--gone caption">Taken back</span>
+            <TakeBackInvite v-if="mine && isInvited(person.id)" :session-id="session.id" :person="person" :remote="!!session.remote" focus-id="invites-sent" />
           </template>
         </ListRow>
       </ul>
@@ -264,6 +273,7 @@ function done() {
               <span v-if="person.host" class="invite__tag invite__tag--host"><AppIcon name="crown" :size="14" />Host</span>
               <span v-else-if="isInvited(person.id)" class="invite__tag invite__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
               <span v-else class="invite__tag"><AppIcon name="check" :size="14" />Joined</span>
+              <TakeBackInvite v-if="mine && !person.host && isInvited(person.id) && !['completed', 'cancelled'].includes(session.status)" :session-id="session.id" :person="person" :remote="!!session.remote" focus-id="invite-in" />
             </li>
           </ul>
         </section>
