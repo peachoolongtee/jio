@@ -39,9 +39,10 @@ describe('the rules, on their own', () => {
     expect(sessionEnd({ date: '2026-10-10', end: 'late' })).toBeNull()
   })
 
-  it('finishes a confirmed plan from its end time, never before', () => {
+  it('never finishes a confirmed plan by the clock: the person finishes it (Faith\'s walkthrough, 30 October 2026)', () => {
     expect(dueEnding(session('confirmed'), now('2026-10-10T19:59:59+08:00'))).toBeNull()
-    expect(dueEnding(session('confirmed'), now('2026-10-10T20:00:00+08:00'))).toBe('finish')
+    expect(dueEnding(session('confirmed'), now('2026-10-10T20:00:00+08:00'))).toBeNull()
+    expect(dueEnding(session('confirmed'), now('2026-10-13T20:00:00+08:00'))).toBeNull()
   })
 
   it('leaves an outing with no confirmed plan open for two days after its end, then closes it', () => {
@@ -84,18 +85,17 @@ describe('the data layer finishes outings when the list is read', () => {
     expect(s.status).toBe('confirmed')
   })
 
-  it('completes a confirmed plan after its end time and pays everyone in it', async () => {
+  it('leaves a confirmed plan open after its end time, unpaid, until someone finishes it', async () => {
     const { api, id } = await loadConfirmed()
     const before = { ian: pointsOf(api, 'ian'), jonathan: pointsOf(api, 'jonathan') }
     at('2026-10-10T20:01:00+08:00')
     const [s] = await api.listSessions()
-    expect(s).toMatchObject({ id, status: 'completed', endedBy: 'auto' })
+    expect(s).toMatchObject({ id, status: 'confirmed' })
+    expect(pointsOf(api, 'ian')).toBe(before.ian)
+    const done = await api.endPlan(id)
+    expect(done).toMatchObject({ status: 'completed', endedBy: 'hand' })
     expect(pointsOf(api, 'ian')).toBe(before.ian + POINTS_PER_MEETUP)
     expect(pointsOf(api, 'jonathan')).toBe(before.jonathan + POINTS_PER_MEETUP)
-    // Saved, and paid once: a second read changes nothing.
-    expect(stored(api).sessions[0].status).toBe('completed')
-    await api.listSessions()
-    expect(pointsOf(api, 'ian')).toBe(before.ian + POINTS_PER_MEETUP)
   })
 
   it('still lets "Finish outing" end a plan early, by hand', async () => {

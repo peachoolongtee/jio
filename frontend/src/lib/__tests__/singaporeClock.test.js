@@ -74,10 +74,11 @@ describe('when a session starts and ends', () => {
     expect(sessionEnd(null)).toBeNull()
   })
 
-  it('finishes a confirmed plan at its end in Singapore, never an hour or eight before', () => {
+  it('reminds about a confirmed plan from its end in Singapore, never an hour or eight before, and never finishes it by itself', () => {
     const plan = { status: 'confirmed', date: '2026-10-10', end: '23:00' }
-    expect(dueEnding(plan, new Date('2026-10-10T14:59:00Z'))).toBeNull() // 22:59 in Singapore
-    expect(dueEnding(plan, new Date('2026-10-10T15:00:00Z'))).toBe('finish') // 23:00 in Singapore, before 23:00 in UTC
+    expect(overdueOuting(plan, new Date('2026-10-10T14:59:00Z'))).toBeNull() // 22:59 in Singapore
+    expect(overdueOuting(plan, new Date('2026-10-10T15:00:00Z'))).toEqual({ closesAt: null }) // 23:00 in Singapore, before 23:00 in UTC
+    expect(dueEnding(plan, new Date('2026-10-10T15:00:00Z'))).toBeNull()
   })
 
   it('closes a session with no plan two days after its end in Singapore', () => {

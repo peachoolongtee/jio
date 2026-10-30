@@ -169,17 +169,19 @@ export function sessionEnd(session) {
   return singaporeInstant(session?.date, session?.end)
 }
 
-// What should happen now to a session whose end time has passed. 'finish': a confirmed plan finishes by itself, and pays
-// out its coins as "Finish outing" does. 'close': a session with no confirmed plan, two days past its end, is completed
-// with no coins. null: nothing yet, and never anything for a completed or cancelled session, or for a demo session built to
-// stay as it is (keepOpen, set by the showcase and the tour: their times are fixed when they are loaded, whatever the hour).
-// How to call: dueEnding({ status: 'confirmed', date: '2026-10-10', end: '21:00' }, new Date('2026-10-10T21:05:00+08:00')) -> 'finish'
+// What should happen now to a session whose end time has passed. 'close': a session with no confirmed plan, two days past its end, is
+// completed with no coins. null: nothing yet, and never anything for a confirmed plan (the person finishes it), a completed or
+// cancelled session, or a demo session built to stay as it is (keepOpen, set by the showcase and the tour: their times are fixed when
+// they are loaded, whatever the hour).
+// How to call: dueEnding({ status: 'voting', date: '2026-10-10', end: '21:00' }, new Date('2026-10-12T21:05:00+08:00')) -> 'close'
 export function dueEnding(session, now = new Date()) {
   // A shared outing is finished by its host (POST /complete), never by a browser's clock: there is no sweep on the server yet.
   if (!session || session.keepOpen || session.remote || ['completed', 'cancelled'].includes(session.status)) return null
   const end = sessionEnd(session)
   if (!end || now < end) return null
-  if (session.status === 'confirmed') return 'finish'
+  // A confirmed plan is finished by the person, with "Finish and review" on the itinerary, never by the clock (Faith's walkthrough, 30
+  // October 2026: it said "Completed" before anyone had said it was done). Only a session that never got a plan closes by itself.
+  if (session.status === 'confirmed') return null
   return now - end >= CLOSE_AFTER_MS ? 'close' : null
 }
 
@@ -191,7 +193,7 @@ export function overdueOuting(session, now = new Date()) {
   if (!session || session.keepOpen || ['completed', 'cancelled'].includes(session.status)) return null
   const end = sessionEnd(session)
   if (!end || now < end) return null
-  return { closesAt: session.remote ? null : new Date(end.getTime() + CLOSE_AFTER_MS) }
+  return { closesAt: session.remote || session.status === 'confirmed' ? null : new Date(end.getTime() + CLOSE_AFTER_MS) }
 }
 
 // Is the plan under way, so that people can ask "What next?" and propose places? Yes for a confirmed plan on the session's

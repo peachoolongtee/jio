@@ -57,11 +57,13 @@ async function openHomeAt(iso, { shared = false } = {}) {
 }
 
 describe('Home, opened with the list already loaded', () => {
-  it('finishes a confirmed outing whose end time passed meanwhile, and pays it once', async () => {
+  it('does not finish a confirmed outing by a clock either: it stays confirmed, unpaid, and Home says it stays open until it is finished', async () => {
     const { api, events, view } = await openHomeAt('2026-10-10T20:30:00+08:00')
-    await until(() => events.sessions[0].status === 'completed')
-    expect(events.sessions[0]).toMatchObject({ endedBy: 'auto', paid: true })
-    expect(JSON.parse(api.storage.store[STORAGE_KEY]).sessions[0].status).toBe('completed')
+    await view.tick()
+    await view.tick()
+    expect(events.sessions[0].status).toBe('confirmed')
+    expect(JSON.parse(api.storage.store[STORAGE_KEY]).sessions[0].status).toBe('confirmed')
+    expect(view.text('[data-testid="home-overdue"]')).toContain('has passed its end time. It stays open until its host finishes it.')
     view.unmount()
   })
 
