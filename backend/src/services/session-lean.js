@@ -13,6 +13,13 @@ import { lower, MIN_STARTS, SPOT_RULE } from './session-plan.js'
 // How to call:
 //   leanFor({ status: 'locating', meetBy: 'fairest', members, areasById, userId, debts }) // { owed: true, rule: 'longest' }
 
+// How many minutes of past travel a person must be owed before the line is shown to them. A smaller debt can only settle an exact tie, which is
+// too rare to say anything about. The browser's own path holds the same number (frontend/src/lib/travelLean.js MIN_DEBT_MINUTES).
+//
+// How to call:
+//   MIN_DEBT_MINUTES // 5
+export const MIN_DEBT_MINUTES = 5
+
 // The answer when the line is not for this person now.
 //
 // How to call:
@@ -33,8 +40,8 @@ export function picksFor({ status, meetBy, members, areasById, userId }) {
   return located.length >= MIN_STARTS && located.some((m) => lower(m.user_id) === me)
 }
 
-// Does the planner count the caller's past travel in a pick that is made now? Only when a pick is made for them (picksFor) and the caller's own
-// debt is more than nothing. A debt that could not be read (`debts` is null, or has no entry for the caller) is not owed.
+// Does the planner count the caller's past travel in a pick that is made now, enough to say so? Only when a pick is made for them (picksFor) and the
+// caller's own debt is at least MIN_DEBT_MINUTES. A debt that could not be read (`debts` is null, or has no entry for the caller) is not owed.
 //   debts  Map of lower-case user id to minutes, or null
 //
 // How to call:
@@ -42,5 +49,5 @@ export function picksFor({ status, meetBy, members, areasById, userId }) {
 export function leanFor({ debts, ...pick }) {
   if (!picksFor(pick)) return NOT_OWED
   const debt = debts?.get(lower(pick.userId))
-  return typeof debt === 'number' && Number.isFinite(debt) && debt > 0 ? { owed: true, rule: SPOT_RULE } : NOT_OWED
+  return typeof debt === 'number' && Number.isFinite(debt) && debt >= MIN_DEBT_MINUTES ? { owed: true, rule: SPOT_RULE } : NOT_OWED
 }

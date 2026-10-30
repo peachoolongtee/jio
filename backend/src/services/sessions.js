@@ -2173,7 +2173,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   // on the Locate step. A joined member asks. The answer is the caller's own flag and the rule the spots use: { owed, rule }. It says nothing
   // of anyone else (no debt, no number, no comparison), and nothing is written or stored: it is worked out from the ledger already in
   // Supabase (session_travel_debt(), read with the service key after admission has proved the caller is joined). `owed` is false unless the
-  // group is choosing where to meet, the host did not name the place, two starts are in, and the caller's debt is more than nothing. A history
+  // group is choosing where to meet, the host did not name the place, two starts are in, and the caller's debt is at least MIN_DEBT_MINUTES (services/session-lean.js). A history
   // that cannot be read, or is too slow, is not owed: the screen shows nothing, as a ranking goes on without it (the same soft read).
   //
   // How to call:

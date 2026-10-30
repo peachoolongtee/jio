@@ -1,7 +1,7 @@
 // "Jio remembers" (lib/travelLean.js): the words for each rule, the debt worked out from the outings this browser has finished, and the rules that
 // decide whether the line is for the signed-in person. Pure functions, no network.
 import { describe, expect, it } from 'vitest'
-import { DEBT_DAYS, LEAN_LINES, LOCAL_RULE, leanLine, localDebts, localLean } from '../travelLean.js'
+import { DEBT_DAYS, LEAN_LINES, LOCAL_RULE, MIN_DEBT_MINUTES, leanLine, localDebts, localLean } from '../travelLean.js'
 
 const DAY = 24 * 3600 * 1000
 const NOW = Date.parse('2026-10-30T06:00:00Z')
@@ -10,8 +10,9 @@ const done = (id, times, over = {}) => ({ id, status: 'completed', completedAt: 
 describe('the words follow the rule', () => {
   it('says, under the longest-trip rule, only that a tie is broken by the person\'s trip, and not that the pick moved', () => {
     const line = leanLine('longest')
-    expect(line).toBe('You have travelled more than your share lately. If two spots tie on the longest trip, Jio counts your trip more.')
+    expect(line).toBe('You have travelled more than your share lately. Jio uses that to settle a tie between two spots.')
     expect(line).toMatch(/tie/)
+    expect(line).not.toMatch(/longest|counts your trip/i)
     expect(line).not.toMatch(/closer to you|nearer|moved|most|last time/i)
   })
 
@@ -70,8 +71,15 @@ describe('localLean', () => {
   const session = { status: 'locating', meetBy: 'fairest' }
   const base = { session, myId: 'ian', debts: new Map([['ian', 10], ['darius', -10]]), routing: true, starts: 2, mine: true }
 
-  it('is owed for the person with a debt above nothing, in the rule the planner uses', () => {
+  it('is owed for the person with a debt of 5 minutes or more, in the rule the planner uses', () => {
     expect(localLean(base)).toEqual({ owed: true, rule: 'longest' })
+    expect(MIN_DEBT_MINUTES).toBe(5)
+  })
+
+  it('is not owed for a debt under 5 minutes, which can only settle a rare tie', () => {
+    expect(localLean({ ...base, debts: new Map([['ian', 4.99]]) }).owed).toBe(false)
+    expect(localLean({ ...base, debts: new Map([['ian', 0.01]]) }).owed).toBe(false)
+    expect(localLean({ ...base, debts: new Map([['ian', 5]]) }).owed).toBe(true)
   })
 
   it('is not owed for the other member of the same session, whose debt is below nothing, or for a debt of nothing or none', () => {

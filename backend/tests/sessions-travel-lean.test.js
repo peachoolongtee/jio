@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { meetingArea } from '../src/planner/engine.js'
-import { leanFor, NOT_OWED, picksFor } from '../src/services/session-lean.js'
+import { leanFor, MIN_DEBT_MINUTES, NOT_OWED, picksFor } from '../src/services/session-lean.js'
 import { SPOT_RULE } from '../src/services/session-plan.js'
 import { createWorld } from './helpers/fake-supabase.js'
 import { addMember, addSession, GUEST, HOST, OTHER, SESSION, startSessionApp, STRANGER } from './helpers/session-app.js'
@@ -69,6 +69,15 @@ describe('GET /api/sessions/:id/travel-lean', () => {
     await start({ owes: { [HOST]: 5 } })
     world.commute_ledger.push({ session_id: '99999999-9999-4999-8999-999999999992', user_id: HOST, minutes_in: 1, minutes_between: 0, minutes_home: 0, delta_from_mean: -5 })
     expect((await get(HOST)).body.owed).toBe(false)
+  })
+
+  it('is not owed for a debt under 5 minutes, and is owed from 5', async () => {
+    await start({ owes: { [HOST]: 4.9 } })
+    expect((await get(HOST)).body.owed).toBe(false)
+    await t.stop()
+    started.pop()
+    await start({ owes: { [HOST]: 5 } })
+    expect((await get(HOST)).body.owed).toBe(true)
   })
 
   it('does not count the outing itself or one older than 90 days', async () => {
@@ -203,10 +212,14 @@ describe('leanFor and picksFor (pure)', () => {
     { user_id: 'u2', state: 'joined', start_area_id: 'clementi' },
     { user_id: 'u3', state: 'joined', start_area_id: null },
   ]
-  const base = { status: 'locating', meetBy: 'fairest', members, areasById, userId: 'u1', debts: new Map([['u1', 0.01]]) }
+  const base = { status: 'locating', meetBy: 'fairest', members, areasById, userId: 'u1', debts: new Map([['u1', 12.5]]) }
 
-  it('is owed for any debt above nothing, in the rule in use', () => {
+  it('is owed for a debt of 5 minutes or more, and not for less, in the rule in use', () => {
+    expect(MIN_DEBT_MINUTES).toBe(5)
     expect(leanFor(base)).toEqual({ owed: true, rule: SPOT_RULE })
+    expect(leanFor({ ...base, debts: new Map([['u1', 5]]) })).toEqual({ owed: true, rule: SPOT_RULE })
+    expect(leanFor({ ...base, debts: new Map([['u1', 4.99]]) })).toBe(NOT_OWED)
+    expect(leanFor({ ...base, debts: new Map([['u1', 0.01]]) })).toBe(NOT_OWED)
     expect(leanFor({ ...base, debts: new Map([['u1', 0]]) })).toBe(NOT_OWED)
     expect(leanFor({ ...base, debts: new Map([['u1', -3]]) })).toBe(NOT_OWED)
     expect(leanFor({ ...base, debts: new Map([['u1', Number.NaN]]) })).toBe(NOT_OWED)

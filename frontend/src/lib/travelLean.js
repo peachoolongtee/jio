@@ -4,25 +4,31 @@
 // (localDebts), and the spot list shows what leanLine says.
 //
 // What is true, and so what may be said, depends on the rule the spots are picked by (backend planner/engine.js and balance.js):
-//   longest   the spot where the longest trip is shortest wins; a person's past travel only breaks an exact tie between spots. The line says
-//             exactly that, and does not say the pick moved for them.
+//   longest   the spot where the longest trip is shortest wins; a person's past travel only settles a tie between spots. The line says only
+//             that, and does not say the pick moved for them.
 //   balanced  a person's trip counts up to three times as much while the spot is chosen, among spots about as good for the group. The line
 //             says their trip is counted for more.
-// Either line is about the person it is shown to alone: no name, no other person, no number of minutes, no "the most".
+// Either line is about the person it is shown to alone: no name, no other person, no number of minutes, no "the most". It shows only for
+// a debt of MIN_DEBT_MINUTES or more.
 //
 // How to call:
-//   leanLine('longest') // 'You have travelled more than your share lately. If two spots tie on the longest trip, Jio counts your trip more.'
+//   leanLine('longest') // 'You have travelled more than your share lately. Jio uses that to settle a tie between two spots.'
 
 // The rule the browser's own planner requests use for the meeting spots: the default, "longest" (lib/plannerApi.js meetingArea sends neither a
-// rule nor 'balanced'). Routing off asks for the geographic centre instead, which counts nobody's past travel (see localLean).
+// rule nor 'balanced'). Routing off asks for the geographic centre instead: the first spot is then the centre, which counts nobody's
+// past travel, so the line is not shown (see localLean). The runners-up are still ordered by the worst trip and then the fair mean, where a debt
+// counts, but the line says nothing of them.
 export const LOCAL_RULE = 'longest'
+
+// How many minutes of past travel a person must be owed before the line is shown: the server's number (backend services/session-lean.js).
+export const MIN_DEBT_MINUTES = 5
 
 // How far back finished outings count, in days: the server's session_travel_debt() reads the same 90.
 export const DEBT_DAYS = 90
 
 // The line for each rule. A rule not listed has no line: nothing is claimed that the rule does not do.
 export const LEAN_LINES = Object.freeze({
-  longest: 'You have travelled more than your share lately. If two spots tie on the longest trip, Jio counts your trip more.',
+  longest: 'You have travelled more than your share lately. Jio uses that to settle a tie between two spots.',
   balanced: 'You have travelled more than your share lately, so Jio counts your trip for more when it picks a spot.',
 })
 
@@ -56,7 +62,7 @@ export function localDebts(sessions, { now, exceptId = null }) {
 
 // Does this browser's planner count the signed-in person's past travel in the pick for this session? The same rules as the server's: the group
 // is choosing where to meet (`locating`), the host did not name the place, the person and at least one other have shared where they start,
-// routing is on (off, the planner takes the geographic centre and counts nobody's past travel), and the person's debt is above nothing.
+// routing is on (off, the planner takes the geographic centre, so no spot is picked by a trip), and the person's debt is at least MIN_DEBT_MINUTES.
 //   starts  how many active people have shared a start      mine  whether the signed-in person is one of them
 //
 // How to call:
@@ -64,5 +70,5 @@ export function localDebts(sessions, { now, exceptId = null }) {
 export function localLean({ session, myId, debts, routing, starts, mine }) {
   const none = { owed: false, rule: LOCAL_RULE }
   if (session.status !== 'locating' || session.meetBy === 'known' || !routing || !mine || starts < 2) return none
-  return (debts.get(myId) ?? 0) > 0 ? { owed: true, rule: LOCAL_RULE } : none
+  return (debts.get(myId) ?? 0) >= MIN_DEBT_MINUTES ? { owed: true, rule: LOCAL_RULE } : none
 }

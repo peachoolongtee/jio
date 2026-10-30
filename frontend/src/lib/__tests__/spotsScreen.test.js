@@ -645,7 +645,7 @@ describe('your own trip on the meeting spot card', () => {
 // the events store (`leans`); here it is set directly, and the reads are counted. The data layer's own rules are in travelLean.local.test.js and
 // travelLean.server.test.js.
 describe('the line about past travel', () => {
-  const LINE = 'You have travelled more than your share lately. If two spots tie on the longest trip, Jio counts your trip more.'
+  const LINE = 'You have travelled more than your share lately. Jio uses that to settle a tie between two spots.'
   const BALANCED = 'You have travelled more than your share lately, so Jio counts your trip for more when it picks a spot.'
   const asked = () => vi.spyOn(events, 'loadLean').mockResolvedValue(undefined)
   const answer = (rule = 'longest', owed = true) => { events.leans = { s1: { owed, rule } } }
@@ -659,6 +659,17 @@ describe('the line about past travel', () => {
     answer('balanced')
     expect(list(session()).text()).toContain(BALANCED)
     expect(list(session()).text()).not.toContain('tie on the longest trip')
+  })
+
+  it('puts the line right under the heading, above the intro and the spot rows, so a long list does not bury it', () => {
+    asked()
+    answer()
+    const els = list(session()).all()
+    const at = (pick) => els.findIndex(pick)
+    const lean = at((el) => el.props['data-testid'] === 'spots-lean')
+    expect(lean).toBeGreaterThan(at((el) => el.props.id === 'spots-head'))
+    expect(lean).toBeLessThan(at((el) => el.props['aria-label'] === 'Meeting spots'))
+    expect(lean).toBeLessThan(at((el) => el.tag === 'p' && el.props.class === 'body-sm text-muted'))
   })
 
   it('shows it for the person it applies to and not for another member of the same session', () => {
@@ -676,9 +687,9 @@ describe('the line about past travel', () => {
     asked()
     answer()
     const text = list(session()).text()
-    const line = text.slice(text.indexOf('You have travelled'))
-    expect(line).not.toMatch(/Ian|Jonathan|Faith/)
-    expect(line.slice(0, LINE.length)).toBe(LINE)
+    const line = text.slice(text.indexOf('You have travelled'), text.indexOf('You have travelled') + LINE.length)
+    expect(line).toBe(LINE)
+    expect(line).not.toMatch(/Ian|Jonathan|Faith|\d/)
   })
 
   it('shows nothing when the answer is no, is missing, or names a rule it does not know', () => {

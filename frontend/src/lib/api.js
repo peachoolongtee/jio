@@ -818,7 +818,7 @@ const pastDebts = (exceptId) => localDebts(db.sessions, { now: Date.now(), excep
 // { owed, rule }, where `rule` is the one the pick is made by (the line says what is true of that rule, lib/travelLean.js). Their own flag
 // only: it says nothing of anyone else. A session on the server asks the server (GET /api/sessions/:id/travel-lean, worked out from the ledger
 // in Supabase); a session in this browser works it out from the outings this browser has finished, by the same rules (it is locating, the host
-// did not name the place, two starts are in, routing is on, and the debt is above nothing). Resolves null when the account changed meanwhile.
+// did not name the place, two starts are in, routing is on, and the debt is at least MIN_DEBT_MINUTES). Resolves null when the account changed meanwhile.
 // Rejects when the server cannot answer; the screen then shows nothing.
 // How to call: await travelLean('s1') -> { owed: true, rule: 'longest' }
 export async function travelLean(id) {

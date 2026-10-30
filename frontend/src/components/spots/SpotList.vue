@@ -14,8 +14,8 @@
 // suggestion with no row (a reload caught it before it was priced): "Try again" prices it, "Withdraw" takes it back.
 // With fewer than two starts there is no list and nothing to say about it (the "Waiting for N people" card on the screen
 // says who is missing): the section shows only for the host, who can still name a known place.
-// "Jio remembers": under the list, one muted line for the person whose past travel the planner counts when it picks the app's spot (lib/travelLean.js
-// says what is true of the rule in use). It is the signed-in person's own flag (api.travelLean), asked once the group is choosing with two starts in,
+// "Jio remembers": right under the heading, above the spot rows (a long list would bury it), one muted line for the person whose past travel the
+// planner counts when it picks the app's spot (lib/travelLean.js says what is true of the rule in use). It is the signed-in person's own flag (api.travelLean), asked once the group is choosing with two starts in,
 // and it shows nothing when the answer is no, when it could not be read, when the planner did not pick by fairness (everyone starts together),
 // or when the host named a known place. It names no one, and no one else's answer is ever read.
 // A control that starts a change stays enabled while it saves (aria-busy), so a key press never drops the keyboard focus; a
@@ -83,12 +83,14 @@ const intro = computed(() => {
 })
 
 // The line about past travel, or '' (nothing to say). Only while the group is choosing and the planner picked the app's spot by fairness.
+// How to call: leanText.value // 'You have travelled more than your share lately. Jio uses that to settle a tie between two spots.'
 const leanText = computed(() => {
   const answer = events.leans[props.session.id]
   if (!answer?.owed || !choosing.value || !props.myId || props.session.meetBy === 'known' || spots.value.appMethod !== 'fairest') return ''
   return leanLine(answer.rule)
 })
 // Ask again when the group starts choosing, or when the number of starts shared or the person's own start changes: the answer depends on them.
+// How to call: leanKey.value // 's1|true|2|true'
 const leanKey = computed(() => `${props.session.id}|${choosing.value}|${startsShared(props.session)}|${!!props.session.locations?.[props.myId]?.start}`)
 watch(leanKey, () => { if (choosing.value && props.myId && startsShared(props.session) >= 2) events.loadLean(props.session.id) }, { immediate: true })
 
@@ -141,6 +143,7 @@ async function settleKnown() {
     <div class="section__head">
       <h2 id="spots-head" class="display-sm">Where to meet</h2>
     </div>
+    <p v-if="leanText && list.length" class="caption-sm text-muted" data-testid="spots-lean">{{ leanText }}</p>
     <p v-if="intro" class="body-sm text-muted">{{ intro }}</p>
     <p v-if="own && choosing" class="caption-sm text-muted">You have one suggestion. A new one replaces it.</p>
 
@@ -176,7 +179,6 @@ async function settleKnown() {
       <SkeletonRow v-for="n in 3" :key="n" />
     </div>
     <p v-if="list.length && session.findingSpots" class="caption-sm text-muted" role="status">Updating travel times…</p>
-    <p v-if="leanText && list.length" class="caption-sm text-muted" data-testid="spots-lean">{{ leanText }}</p>
 
     <div v-if="unpriced" class="spots__empty" role="group" aria-label="Your suggestion">
       <h3 class="title-md">{{ unpriced.name }} has no travel times yet</h3>

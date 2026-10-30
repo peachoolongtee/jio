@@ -49,7 +49,7 @@ describe('the line on the Locate step of a session on the server', () => {
     const { view } = await draw(id)
     await until(() => view.has(LINE))
     expect(view.text(view.one(LINE))).toBe(leanLine('longest'))
-    expect(view.text(view.one(LINE))).toBe('You have travelled more than your share lately. If two spots tie on the longest trip, Jio counts your trip more.')
+    expect(view.text(view.one(LINE))).toBe('You have travelled more than your share lately. Jio uses that to settle a tie between two spots.')
     expect(leanCalls(w).every((c) => c.as === sam.id)).toBe(true)
     expect(view.text()).not.toMatch(/Kim.{0,40}travelled/)
     expect(view.errors).toEqual([])
