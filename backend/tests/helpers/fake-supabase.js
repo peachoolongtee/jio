@@ -49,7 +49,10 @@ export async function jwksFetch(input) {
   return new Response('{}', { status: 404 })
 }
 
-const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'slot_options', 'votes', 'stops', 'stop_proposals', 'commute_ledger', 'profiles', 'profile_private', 'session_member_places']
+const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'slot_options', 'votes', 'stops', 'stop_proposals', 'commute_ledger', 'profiles', 'profile_private', 'session_member_places', 'session_member_dietary', 'session_dietary_dropped']
+
+// The tables only the server's key may touch (db/migrations/20261030000000_jio_outing_dietary.sql): no privilege for a browser, so every read and write by a person is refused.
+const SERVER_ONLY = ['session_member_dietary', 'session_dietary_dropped']
 
 // An empty database. `calls` records every request: { table | rpc, kind, who } with who = the user id, or null for the service key.
 // Fields a test may set:
@@ -63,6 +66,8 @@ const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestion
 //                       (a promise holds the read until it settles)
 //   profile_private     [{ id, dietary, home_area_id, budget_max_per_person, needs_step_free }]: the private rows that
 //                       session_member_needs reads (no client may read them as a table)
+//   session_member_dietary [{ session_id, user_id, dietary, confirmed_at }]: a member's needs for one outing (server only); session_member_needs answers it over the profile's
+//   session_dietary_dropped [{ session_id, need }]: the needs the host dropped (server only)
 //   failNeeds           true: session_member_needs fails as a database error
 //   failDebt            true: session_travel_debt fails as a database error (the function is not on the project yet, say)
 //   failPast            true: the server's read of the finished outings of the group (the members' outings, a read of session_members by user) fails as a database error
@@ -399,6 +404,7 @@ function apply(world, session, patch) {
       if (member) {
         world.session_members = world.session_members.filter((m) => m !== member)
         world.session_member_places = world.session_member_places.filter((p) => !(p.session_id === sid && p.user_id === user))
+        world.session_member_dietary = world.session_member_dietary.filter((d) => !(d.session_id === sid && sameValue(d.user_id, user)))
         dropApprovals((a) => a.user_id === user)
         dropSuggestions((g) => g.user_id === user)
         changed = true
@@ -873,6 +879,7 @@ function query(world, table, who) {
   }
   const execute = () => {
     const rows = world[table]
+    if (who !== null && SERVER_ONLY.includes(table)) return { data: null, error: dbError('42501', `permission denied for table ${table}`) }
     if (op.kind === 'select' && world.failPast && table === 'session_members' && op.filters.some(([column]) => column === 'user_id')) {
       return { data: null, error: dbError('XX000', 'boom') }
     }
@@ -891,7 +898,7 @@ function query(world, table, who) {
         for (const row of op.rows) {
           const denied = refuseWrite(row, 'insert')
           if (denied) return { data: null, error: denied }
-          const key = (r) => (table === 'spot_approvals' ? [r.session_id, r.area_id, r.user_id] : table === 'votes' ? [r.slot_id, r.user_id] : [r.session_id, r.user_id]).join('|')
+          const key = (r) => (table === 'spot_approvals' ? [r.session_id, r.area_id, r.user_id] : table === 'votes' ? [r.slot_id, r.user_id] : table === 'session_dietary_dropped' ? [r.session_id, r.need] : [r.session_id, r.user_id]).join('|')
           const dup = rows.find((r) => key(r) === key(row))
           if (dup && !op.upsert) return { data: null, error: dbError('23505', `duplicate key in ${table}`) }
           if (dup) Object.assign(dup, row)
@@ -981,7 +988,7 @@ function query(world, table, who) {
 }
 
 // session_member_needs(sid), as db/schema.sql defines it: one row per joined member of the session (an opted-out member has
-// none), with their private fields. Only the service key may call it.
+// none), with their private fields; the dietary needs are the member's for this outing (their row in session_member_dietary, else their profile's). Only the service key may call it.
 //
 // How to call:
 //   return memberNeeds(world, null, { sid: SESSION })
@@ -990,9 +997,13 @@ function memberNeeds(world, who, { sid }) {
   if (world.failNeeds) return { data: null, error: dbError('XX000', 'boom') }
   const rows = world.session_members
     .filter((m) => sameValue(m.session_id, sid) && m.state === 'joined')
-    .map((m) => (world.profile_private || []).find((p) => sameValue(p.id, m.user_id)))
-    .filter(Boolean)
-    .map((p) => ({ user_id: p.id, home_area_id: p.home_area_id ?? null, dietary: p.dietary ?? [], budget_max_per_person: p.budget_max_per_person ?? null, needs_step_free: p.needs_step_free ?? false }))
+    .map((m) => [m, (world.profile_private || []).find((p) => sameValue(p.id, m.user_id))])
+    .filter(([, p]) => p)
+    .map(([m, p]) => {
+      // The member's own list for this outing, if they have one, else their profile's (db/migrations/20261030000000_jio_outing_dietary.sql).
+      const own = world.session_member_dietary.find((d) => sameValue(d.session_id, sid) && sameValue(d.user_id, m.user_id))
+      return { user_id: p.id, home_area_id: p.home_area_id ?? null, dietary: own ? own.dietary : (p.dietary ?? []), budget_max_per_person: p.budget_max_per_person ?? null, needs_step_free: p.needs_step_free ?? false }
+    })
   return { data: rows, error: null }
 }
 

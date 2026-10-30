@@ -1831,3 +1831,62 @@ The lead asked for a review of every fix on Darryl's branch (no pull request), t
   - names in the friend picker's rows still truncate beside the Select chip at 320 px;
   - on the plan's day before the first weather check returns, the line under the stops can still say "checked from the day before" while a mark says "Weather not known";
   - "Upcoming" on the profile includes overdue sessions, which Darryl's test pins.
+
+## Round 45: dietary needs for one outing on the server, and photos on the outing's day (2026-10-30)
+
+Darryl's UAT items 5 and 6. **The lead's word:** "only the host can drop and for the photos just open on the outing day".
+- **Item 5, decided:**
+  - every member may add or remove their own need for one outing;
+  - only the host may drop someone else's need (in an outing of three or more, after the "Unselect halal?" warning), for the demo and local accounts too;
+  - a need is still never tied to a name.
+- **Item 6, decided:** the Photos row opens on the outing's day for every member, not before. No shared photo storage is built, so a real account still has no photos (its photos would live only in one browser, against the lead's rule of 26 October).
+- **Before any schema change, the live project:**
+  - twelve migrations, the last `20261029032155 jio_no_clashing_meetups`;
+  - sixteen public tables;
+  - `session_member_needs` md5 `f5e1334147b2bea89140ffd885b50306`, `apply_session_plan` `c2b499a…` and `guard_session_changes` `1235eb7…` as recorded.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Database and server | implementer | `feat/outing-dietary`, off `dev` at `ceab93c` | The migration:<br>- a server-only table of each member's needs for one outing, plus the host's dropped needs;<br>- `session_member_needs` reads the outing's picks first.<br>`GET` and a new `PUT /api/sessions/:id/dietary`, with host-only drops. A change while voting re-picks the places through the existing machinery. The migration gets a rolled-back test file. |
+| Screens | frontend engineer | `feat/outing-dietary-screens`, off `dev` | A real account's Vote gets the chips and "Confirm dietary needs" over the new routes.<br>Host-only "Unselect" of others' needs, demo too.<br>The Photos row opens on the outing's day. |
+- **Results of the two pieces:**
+  - **Database and server** (`feat/outing-dietary`, `56a4404`): two server-only tables, `session_member_needs` preferring the outing's row, `GET`/`PUT /api/sessions/:id/dietary`, and a re-pick while voting through the queued plan run with a `byDiet` banner. Backend suite 2063 passed.
+  - **The live test:** `db/tests/outing_dietary.sql` passed 32 of 32 on the live project, rolled back. Counts unchanged (9 sessions, 6 users, 14 members, 10 invites), `session_member_needs` still `f5e1334…`.
+  - **Screens** (`feat/outing-dietary-screens`, `5314e56`): the chips and the confirm for a real account, host-only drops, and photos on the outing's day. Frontend suite 2873 passed.
+- **Joined on `feat/outing-dietary-integration`:**
+  - backend 2063 passed, also with outbound calls blocked;
+  - build succeeded;
+  - e2e 17 of 17;
+  - the frontend failed 18 tests. The shared-session tests run the real backend on the frontend's stand-in database (`components/dev/fakeDatabase.js`), which has no new tables.
+- **Two reviews, findings to fix:**
+  - **Server:**
+    - a failed run after the needs are written leaves the places stale, and a retry sees no change;
+    - a stored drop outlives its holders and can silently ignore a need in a group of two;
+    - under three joined, `dietary` minus `mine` names the other person's need;
+    - any member can lift the host's drop by adding the need;
+    - the db test counts every row.
+  - **Screens:**
+    - a guest's chip taps can all be refused by a dropped-list mismatch;
+    - a failed or rate-limited read silently hides the chips;
+    - too many reads;
+    - a guest's shared chip note is wrong;
+    - the test helper hides how often the needs are read.
+- **The lead's rule applied:** lifting a drop is the host's alone, like dropping.
+- **One frontend engineer** fixes all of it on `feat/outing-dietary-integration`, both halves, because the findings cross them.
+- **The fix round, done on `feat/outing-dietary-integration`:**
+  - **Server:** a failed PUT puts back what it wrote (the member's row, the drops) before answering the error; a drop is in force only with three or more joined and a need a member other than the host holds, and is deleted when that stops being true (on every read of the outing's needs, and after a leave, opt-out or removal); under three joined GET and PUT answer the caller's own needs alone; only the host's `dropped` changes a drop; the PUT has its own limit of 20 a minute; the db test's last step is scoped to its own sessions; the duplicate `needsOf`/`knownNeeds` is gone. A ranking reads the needs for the people the run's draft says have joined (`needsReader`).
+  - **Screens:** the stand-in database has the two tables; only the host sends `dropped`, compared with the list the screen shows; a failed or limited read keeps the last answer and shows "Couldn't load the group's dietary needs" with a retry; the needs are asked for only while voting, beside the plan's rows; one plan read after a diet write; a locked chip that is on carries a lock and the note holds for the guest's own need too; photos load when the day begins on a page left open.
+  - **Checks:** backend 2070 passed (also with outbound calls blocked), frontend 2889 passed under `TZ=UTC`, build succeeded, e2e 17 of 17, and every `db/tests` file passed in PGlite on a fresh build (`outing_dietary.sql` 32 of 32). Not run on the live project.
+- **Checked by the session on `d416464`:**
+  - backend 2070 passed, also with outbound calls blocked;
+  - frontend 2889 passed under `TZ=UTC`;
+  - build succeeded;
+  - e2e 17 of 17.
+- **Applied at the lead's word ("apply"), 30 October,** through the Supabase connection, from the file unchanged: `20261030065517 jio_outing_dietary`.
+  - **Before:** the tables were absent, `session_member_needs` was `f5e1334…`, and the last migration was `20261029032155`.
+  - **After:**
+    - both tables are there, with row-level security on and no policy;
+    - `authenticated` has no select on them and cannot run the function;
+    - `session_member_needs` is `6589abe1…`;
+    - `apply_session_plan` and `guard_session_changes` are unchanged;
+    - rows are unchanged (9 sessions, 6 users, 14 members).

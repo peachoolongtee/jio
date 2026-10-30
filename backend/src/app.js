@@ -20,6 +20,9 @@ import { createSessions } from './services/sessions.js'
 import { scenarioMiddleware } from './services/scenario.js'
 import { createWeather } from './services/weather.js'
 
+// How many changes of an outing's dietary needs one caller may make in a window: each can rank every slot again, with OneMap routing. How to call: Math.min(sessionRateLimit.max, DIETARY_WRITES_PER_WINDOW)
+const DIETARY_WRITES_PER_WINDOW = 20
+
 // Builds the Express app without listening, so tests can start it on a free port.
 //
 // How to call:
@@ -74,8 +77,8 @@ import { createWeather } from './services/weather.js'
 //   supabase       - The server's Supabase clients, from createSupabase(). Without it the routes that
 //                    need a login (GET /api/me) are not mounted.
 //   sessionRateLimit - { windowMs, max } to limit how often one signed-in caller may use the session endpoints (the meeting spots,
-//                    opting out, leaving, removing a guest), and, counted apart, read an outing's dietary needs
-//                    (GET /api/sessions/:id/dietary), or leave it out for no limit. index.js sets it outside stub mode.
+//                    opting out, leaving, removing a guest), and, counted apart, read an outing's dietary needs (GET /api/sessions/:id/dietary) and
+//                    change them (PUT, at most 20 a window, as a change can rank every slot again), or leave it out for no limit. index.js sets it outside stub mode.
 //   venueRateLimit - { windowMs, max } to limit how often one signed-in caller may search the saved places for a slot
 //                    (GET /api/sessions/:id/slots/:slotId/venue-search) and fetch the places behind the cards (GET /api/venues). Each route
 //                    counts apart, and apart from sessionRateLimit, so showing cards never uses up the allowance of the writes. Leave it out
@@ -199,6 +202,8 @@ export function createApp({
       sessions,
       limiter: sessionLimiter,
       readLimiter: sessionRateLimit ? rateLimit(sessionRateLimit) : null,
+      // A change of an outing's needs can rank every slot again, so it is held to fewer a minute than the other writes, counted apart.
+      dietaryWriteLimiter: sessionRateLimit ? rateLimit({ ...sessionRateLimit, max: Math.min(sessionRateLimit.max, DIETARY_WRITES_PER_WINDOW) }) : null,
       searchLimiter: venueRateLimit ? rateLimit(venueRateLimit) : null,
       // The rain swap, Replace's list and Roam rank places, so they count with the planner routes.
       plannerLimiter: limiter,

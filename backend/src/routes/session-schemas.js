@@ -13,6 +13,8 @@ import { categoryList, MAX, pointInput } from './plan-schemas.js'
 const areaId = z.string().min(1).max(MAX.areaId)
 // A place's id: the same limit as the database's on slot_options.venue_id (160, so the long ids of saved OneMap places fit).
 const venueId = z.string().min(1).max(MAX.venueId)
+// A dietary need, in lower case; anything but these three is a 400 (the database refuses it too).
+const need = z.string().transform((s) => s.toLowerCase()).pipe(z.enum(['halal', 'vegetarian', 'vegan']))
 // A uuid in a path or a body, in lower case (see sessionId).
 const uuid = z.string().uuid().transform((id) => id.toLowerCase())
 
@@ -37,6 +39,18 @@ export const sessionSchemas = {
     .object({ meetBy: z.enum(['fairest', 'known']), areaId: areaId.optional(), planVersion: z.number().int().min(0).optional() })
     .strict()
     .refine((body) => (body.meetBy === 'known') === (body.areaId !== undefined), { message: 'send an area with "known", and none with "fairest"', path: ['areaId'] }),
+  // PUT /api/sessions/:id/dietary. `mine` is the caller's own needs for this outing (the whole list), `checked: true` that they confirmed them, `dropped` the
+  // needs the host drops for the outing (the whole list; the host only). At least one of the three. `planVersion` is the version the caller saw (a stale one is
+  // 409 `stale_plan`, nothing written).
+  outingDietary: z
+    .object({
+      mine: z.array(need).max(MAX.dietary).optional(),
+      checked: z.literal(true).optional(),
+      dropped: z.array(need).max(MAX.dietary).optional(),
+      planVersion: z.number().int().min(0).optional(),
+    })
+    .strict()
+    .refine((body) => body.mine !== undefined || body.checked !== undefined || body.dropped !== undefined, { message: 'send "mine", "checked" or "dropped"', path: [] }),
   // A slot in a path.
   slotId: uuid,
   // A place in a path (swap).

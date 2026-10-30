@@ -20,6 +20,7 @@ export const MAX = {
   // database's limit on slot_options.venue_id (and stops and stop_proposals): 160, so no saved place is refused as an option.
   venueId: 160,
   members: 30,
+  dietary: 3, // dietary needs a person can have (halal, vegetarian, vegan); the database's limit on a member's list for an outing
   alternatives: 3, // runners-up a /meeting-area request may ask for
   includedAreas: 8, // areas a /meeting-area request may name in `include`
   areaId: 60, // characters in an area id; the database's own limit on session_spots.area_id and the members' start and end areas

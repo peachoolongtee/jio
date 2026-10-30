@@ -20,6 +20,8 @@ alter table public.profile_private enable row level security;
 alter table public.sessions enable row level security;
 alter table public.session_members enable row level security;
 alter table public.session_member_places enable row level security;
+alter table public.session_member_dietary enable row level security;
+alter table public.session_dietary_dropped enable row level security;
 alter table public.invites enable row level security;
 alter table public.slots enable row level security;
 alter table public.slot_options enable row level security;
@@ -281,6 +283,11 @@ create policy spot_approvals_insert_own on public.spot_approvals for insert to a
 drop policy if exists spot_approvals_delete_own on public.spot_approvals;
 create policy spot_approvals_delete_own on public.spot_approvals for delete to authenticated
   using (user_id = (select auth.uid()) and session_id in (select public.my_locating_session_ids()));
+
+-- session_member_dietary and session_dietary_dropped (20261030000000) have no policy and no privilege for a browser either: a member's
+-- needs for one outing and the host's dropped needs are read and written by the server only, with the service key.
+revoke all on public.session_member_dietary, public.session_dietary_dropped from anon, authenticated;
+grant all on public.session_member_dietary, public.session_dietary_dropped to service_role;
 
 -- route_cache has no policy on purpose: with row-level security on and no policy, only the
 -- server's service key can read or write it.

@@ -373,6 +373,12 @@ const shownNeeds = computed(() => (pendingDiet.value
   ? dietChips({ mine: shownMine.value, others: plan.value?.othersDietary || [], dropped: shownDropped.value }).filter((c) => c.selected).map((c) => c.value)
   : plan.value?.dietary || []))
 
+// Asks again for the outing's dietary needs, by reading the plan again. A failure shows on the line again, so nothing else is said.
+// How to call: await retryDiet()
+async function retryDiet() {
+  await planner.loadPlan(props.id, { quiet: true }).catch(() => {})
+}
+
 // A tap on the Vote page's dietary chips, saved at once: the person's own needs and the others' needs not to filter for.
 // How to call: await saveDiet({ mine: ['halal'], dropped: [] })
 async function saveDiet({ mine, dropped }) {
@@ -381,7 +387,7 @@ async function saveDiet({ mine, dropped }) {
   pendingDiet.value = { mine, dropped }
   error.value = ''
   try {
-    const answer = await refilter(() => planner.confirmDiet(props.id, mine, dropped))
+    const answer = await refilter(() => planner.confirmDiet(props.id, mine, dropped, { confirmed: false }))
     if (answer?.syncError) error.value = answer.syncError
   } catch (e) {
     error.value = e.message
@@ -803,14 +809,19 @@ async function keepDialog(e) {
 
         <!-- The outing's dietary needs, laid out like "Search within": the label with the needs selected below as tags, then the
              Halal, Vegetarian and Vegan chips the places are filtered by. A tap saves at once; taking off a need someone else has
-             asks first (DietaryChips). -->
+             is the host's alone, and asks first (DietaryChips). -->
+        <!-- The server could not say what the outing needs (a failure, or the limit): the last answer stays on the page, and this says so. -->
+        <p v-if="voting && plan?.dietUnavailable" class="diet-unavailable caption-sm text-muted" role="status" data-testid="diet-unavailable">
+          Couldn't load the group's dietary needs.
+          <AppButton variant="tertiary" underline small :disabled="loading" data-testid="diet-retry" @click="retryDiet">Try again</AppButton>
+        </p>
         <div v-if="voting && plan?.myDietary" class="diet-edit" data-testid="diet-edit">
           <div class="diet-edit__mine">
             <span class="caption text-muted">Group dietary needs</span>
             <InfoTag v-for="need in shownNeeds" :key="need" :tone="need === 'halal' ? 'halal' : 'veg'" data-testid="diet-mine">{{ needLabel(need) }}</InfoTag>
             <span v-if="!shownNeeds.length" class="caption" data-testid="diet-mine">None</span>
           </div>
-          <DietaryChips :mine="shownMine" :others="plan.othersDietary || []" :dropped="shownDropped" :busy="dietBusy" @change="saveDiet" />
+          <DietaryChips :mine="shownMine" :others="plan.othersDietary || []" :dropped="shownDropped" :can-drop="isHost" :busy="dietBusy" @change="saveDiet" />
         </div>
 
         <SplitView v-model:view="view" label="Places">
@@ -918,7 +929,7 @@ async function keepDialog(e) {
 
     <PlaceDetail v-if="reviewing" :place="reviewing.place" :reviews="reviewing.reviews" :outing="outingIds" :from="session.area.name" @close="closeReviews" />
 
-    <DietaryConfirm v-if="plan" v-model:open="dietOpen" :mine="plan.myDietary || []" :others="plan.othersDietary || []" :dropped="plan.dietDropped || []" :busy="dietBusy" :error="dietError" @confirm="confirmDiet" />
+    <DietaryConfirm v-if="plan" v-model:open="dietOpen" :mine="plan.myDietary || []" :others="plan.othersDietary || []" :dropped="plan.dietDropped || []" :can-drop="isHost" :busy="dietBusy" :error="dietError" @confirm="confirmDiet" />
 
     <ClashDialog v-model:open="showRejoinClash" :clash="rejoinClash" mode="join" />
 
@@ -1003,6 +1014,7 @@ async function keepDialog(e) {
 .walk-from { margin: 0; }
 .diet-line { margin: 0; }
 /* "Group dietary needs": the same stack as "Search within" above it; the label and the selected needs share a line. */
+.diet-unavailable { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing-xs); margin: 0; }
 .diet-edit { display: flex; flex-direction: column; gap: var(--spacing-xs); }
 .diet-edit__mine { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-sm); }
 .slot { display: flex; flex-direction: column; gap: var(--spacing-md); }

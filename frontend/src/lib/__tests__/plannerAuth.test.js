@@ -3,7 +3,7 @@
 import { AxiosError } from 'axios'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as auth from '../auth.js'
-import { api, goesToPlanner, meetingArea, plannerErrorMessage, rankSlot, sessionDietary } from '../plannerApi.js'
+import { api, goesToPlanner, meetingArea, plannerErrorMessage, putSessionDietary, rankSlot, sessionDietary } from '../plannerApi.js'
 import { AUTH_STORAGE_KEY } from '../supabase.js'
 import { fakeStorage } from './planFixture.js'
 import { fakeSupabase } from './authFixture.js'
@@ -400,19 +400,47 @@ describe('the existing error sentences', () => {
   })
 })
 
-describe('an outing’s dietary needs (GET /api/sessions/:id/dietary)', () => {
-  it('sends the login token, and gives the two lists back', async () => {
-    script([200, { dietary: ['halal', 'vegan'], others: ['halal'] }])
-    expect(await sessionDietary('3b1f')).toEqual({ dietary: ['halal', 'vegan'], others: ['halal'] })
+describe('an outing’s dietary needs (GET and PUT /api/sessions/:id/dietary)', () => {
+  it('sends the login token, and gives the lists back', async () => {
+    script([200, { dietary: ['halal', 'vegan'], others: ['halal'], mine: ['vegan'], checked: true, dropped: [] }])
+    expect(await sessionDietary('3b1f')).toEqual({ dietary: ['halal', 'vegan'], others: ['halal'], mine: ['vegan'], checked: true, dropped: [] })
     expect(seen).toEqual(['Bearer token-1'])
   })
 
-  it('refuses an answer that is not two lists of known needs, and passes the server’s code on', async () => {
+  it('still reads an answer of the first two lists alone, as an older server sends it', async () => {
+    script([200, { dietary: ['halal', 'vegan'], others: ['halal'] }])
+    expect(await sessionDietary('3b1f')).toEqual({ dietary: ['halal', 'vegan'], others: ['halal'] })
+  })
+
+  it('refuses an answer that is not lists of known needs, and passes the server’s code on', async () => {
     script([200, { dietary: ['halal'], others: ['pescatarian'] }])
     await expect(sessionDietary('3b1f')).rejects.toThrow()
     script([200, { dietary: ['halal'] }])
     await expect(sessionDietary('3b1f')).rejects.toThrow()
+    script([200, { dietary: [], others: [], mine: ['kosher'] }])
+    await expect(sessionDietary('3b1f')).rejects.toThrow()
+    script([200, { dietary: [], others: [], mine: [], checked: 'yes' }])
+    await expect(sessionDietary('3b1f')).rejects.toThrow()
     script([404, { error: 'session_not_found', message: 'This session does not exist, or you are not in it.' }])
     await expect(sessionDietary('3b1f')).rejects.toMatchObject({ code: 'session_not_found', status: 404 })
+  })
+
+  it('puts the person’s change with the token and gives what the server now holds, with the version and whether the places were picked again', async () => {
+    script([200, { dietary: ['vegan'], others: [], mine: ['vegan'], checked: true, dropped: [], planVersion: 7, repicked: true }])
+    const scripted = api.defaults.adapter
+    let sent
+    api.defaults.adapter = async (config) => ((sent = config), scripted(config))
+    expect(await putSessionDietary('3b1f', { mine: ['vegan'], checked: true })).toEqual({ dietary: ['vegan'], others: [], mine: ['vegan'], checked: true, dropped: [], planVersion: 7, repicked: true })
+    expect(seen).toEqual(['Bearer token-1'])
+    expect(sent).toMatchObject({ method: 'put', url: '/api/sessions/3b1f/dietary', data: JSON.stringify({ mine: ['vegan'], checked: true }) })
+  })
+
+  it('passes the server’s refusals on by their codes', async () => {
+    script([403, { error: 'host_only', message: 'Only the host can do that.' }])
+    await expect(putSessionDietary('3b1f', { dropped: ['halal'] })).rejects.toMatchObject({ code: 'host_only', status: 403 })
+    script([409, { error: 'session_closed', message: 'This session has ended.' }])
+    await expect(putSessionDietary('3b1f', { mine: [] })).rejects.toMatchObject({ code: 'session_closed', status: 409 })
+    script([409, { error: 'stale_plan', message: 'The session changed.' }])
+    await expect(putSessionDietary('3b1f', { mine: [], planVersion: 2 })).rejects.toMatchObject({ code: 'stale_plan', status: 409 })
   })
 })

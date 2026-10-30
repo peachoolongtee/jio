@@ -1,6 +1,8 @@
 import { Router } from 'express'
 import { ZodError } from 'zod'
 import { requireUser } from '../middleware/auth.js'
+import { loadOutingDietary } from '../db/sessions.js'
+import { dietaryView } from '../services/session-dietary.js'
 import { SessionError } from '../services/sessions.js'
 import { sessionSchemas } from './session-schemas.js'
 
@@ -18,6 +20,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   DELETE /api/sessions/:id/members/me                               the caller leaves
 //   DELETE /api/sessions/:id/members/:userId                          the host removes a guest
 //   GET    /api/sessions/:id/dietary                                  the outing's dietary needs together, no names (below)
+//   PUT    /api/sessions/:id/dietary          { mine?, checked?, dropped?, planVersion? }  the caller's needs for this outing, their confirmation, the host's dropped needs (below)
 //   POST   /api/sessions/:id/plan/sync                                work the slots and their places out again (after picks changed)
 //   PUT    /api/sessions/:id/radius           { radiusMeters }        the host sets how far places are offered (100 to 3000, or null)
 //   DELETE /api/sessions/:id/slots/:slotId                            the host removes a slot
@@ -95,14 +98,23 @@ import { sessionSchemas } from './session-schemas.js'
 // How to call it from the frontend (lib/plannerApi.js):
 //   await api.put(`/api/sessions/${id}/spots/mine`, { areaId: 'bugis', here: true })
 //
-// An outing's dietary needs (ticket #107), for "Confirm dietary needs", which opens with them selected:
-//   GET /api/sessions/:id/dietary   →   { dietary: ['halal', 'vegetarian'], others: ['halal'] }
-// `dietary` is every joined member's needs together; `others` is everyone's but the caller's, the ones the caller cannot take
-// off. A need is private (profile_private, read only by its owner and the server), so the answer never says whose a need is,
-// how many people have it, or anything else from a member's private row (home area, budget, step-free). The caller must be in
-// the session (404 session_not_found otherwise, the same as for a session that does not exist). The needs are read with the
-// service key through session_member_needs(), which only the server may call. The answer is not cached anywhere. It has its
-// own per-person limit (`readLimiter`), so reading never uses up the other routes'.
+// An outing's dietary needs (ticket #107, and the changes for one outing), for "Confirm dietary needs", which opens with them selected:
+//   GET /api/sessions/:id/dietary   →   { dietary: ['halal', 'vegan'], others: ['halal'], mine: ['vegan'], checked: false, dropped: [] }
+//   PUT /api/sessions/:id/dietary   { mine?: ['vegan'], checked?: true, dropped?: ['halal'], planVersion?: 12 }   →   the same, with planVersion and repicked
+// `dietary` is the group's needs in effect: every joined member's needs for this outing together, without the ones the host dropped. `others` is
+// everyone's but the caller's (dropped ones included, so the host can take a drop back), the ones the caller cannot take off. With fewer than
+// three joined nothing of anyone else's is told: `dietary` is the caller's own `mine`, `others` and `dropped` are empty (the places are still
+// picked for everyone's needs). `mine` is the caller's own needs for this outing (they start as their profile's), `checked` whether they confirmed
+// them for this outing, `dropped` the needs the host dropped that are in force (three or more joined, and a member other than the host has the need). A need is private (profile_private,
+// read only by its owner and the server), so no answer says whose a need is, how many people have it, or anything else from a member's private
+// row (home area, budget, step-free). The caller must be joined (404 session_not_found otherwise, the same as for a session that does not exist).
+// The needs are read with the service key through session_member_needs() and the two server-only tables of db/migrations/20261030000000_jio_outing_dietary.sql.
+// The answer is not cached anywhere. GET has its own per-person limit (`readLimiter`), so reading never uses up the other routes'; PUT has a tighter one of its own (`dietaryWriteLimiter`, 20 a minute), as a change can rank every slot again.
+// PUT: `mine` and `dropped` are whole lists; at least one of `mine`, `checked`, `dropped`. It works while the session is inviting, locating or
+// voting (409 session_closed once it has ended, 409 wrong_status when confirmed). `dropped` is the host's (403 host_only), needs three joined (409
+// needs_three_people) and may add only a need a member other than the host has (422 need_not_found). Only the host's `dropped` changes a drop. A stale `planVersion` is 409 stale_plan. While voting, a change
+// of the group's needs in effect picks the places again (services/sessions.js setDietary): only voted places that still fit stay, the rest are the
+// planner's best, a notice that names nobody is written (`sessions.banner`, `byDiet: true`), and `repicked` is true. The server never writes a vote.
 //   const { data } = await api.get(`/api/sessions/${id}/dietary`)   (lib/plannerApi.js sessionDietary)
 
 // Answers in the flat error shape. How to call: refuse(res, 403, 'host_only', 'Only the host can remove someone.')
@@ -110,26 +122,18 @@ function refuse(res, status, error, message, extra = {}) {
   res.status(status).json({ error, message, ...extra })
 }
 
-// The needs a person can have, in the order the app shows them. Anything else in the database is left out.
-const NEEDS = ['halal', 'vegetarian', 'vegan']
-
-// How many joined members an outing needs before the others' needs are told to a member. With fewer, the others' list would be
-// one known person's own list (two members), so it is empty. How to call: joined.length >= MIN_MEMBERS_FOR_OTHERS
-const MIN_MEMBERS_FOR_OTHERS = 3
-
-// Needs from many rows, each once, in the app's order. How to call: needsOf([['vegan'], ['halal', 'vegan'], null]) -> ['halal', 'vegan']
-const needsOf = (lists) => NEEDS.filter((need) => lists.some((list) => Array.isArray(list) && list.includes(need)))
-
 // Builds the router over the session rules (`sessions`, services/sessions.js). `limiter` limits how often one signed-in caller
-// may use the session routes, `readLimiter` how often they may read an outing's needs, and `searchLimiter` how often they may search
-// the saved places for a slot (three counters, so reading and searching never use up the allowance of the writes). Each is null for no
-// limit (tests only).
+// may use the session routes, `readLimiter` how often they may read an outing's needs, `dietaryWriteLimiter` how often they may change them
+// (it can rank every slot again), and `searchLimiter` how often they may search the saved places for a slot (four counters, so reading,
+// changing needs and searching never use up the allowance of the writes). Each is null for no limit (tests only).
 //
 // How to call:
 //   const router = createSessionsRouter({ supabase, sessions, limiter: rateLimit({ windowMs: 60_000, max: 60 }), readLimiter: rateLimit({ windowMs: 60_000, max: 30 }), searchLimiter: rateLimit({ windowMs: 60_000, max: 120 }) })
-export function createSessionsRouter({ supabase, sessions, limiter = null, readLimiter = null, searchLimiter = null, plannerLimiter = null }) {
+export function createSessionsRouter({ supabase, sessions, limiter = null, readLimiter = null, searchLimiter = null, plannerLimiter = null, dietaryWriteLimiter = null }) {
   const router = Router()
   const guard = [requireUser({ supabase }), ...(limiter ? [limiter] : [])]
+  // A change of an outing's dietary needs can rank every slot again (with OneMap routing), so it has a tighter limit of its own, counted apart.
+  const dietaryWriteGuard = [requireUser({ supabase }), ...(dietaryWriteLimiter ? [dietaryWriteLimiter] : [])]
   const searchGuard = [requireUser({ supabase }), ...(searchLimiter ? [searchLimiter] : [])]
   // The reads that rank places for a plan (the rain swap, Replace's list, Roam) share the planner routes' limit, so they cost a caller what a ranking does.
   const rankGuard = [requireUser({ supabase }), ...(plannerLimiter ? [plannerLimiter] : [])]
@@ -144,7 +148,7 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
       // needs: one who opted out gets the same answer as a stranger.
       const { data: members, error: membersError } = await req.supabase
         .from('session_members')
-        .select('user_id, state')
+        .select('user_id, state, role')
         .eq('session_id', id.data)
       if (membersError) throw new Error(`Could not load the members: ${membersError.message}`)
       const joined = (members ?? []).filter((m) => m.state === 'joined')
@@ -152,19 +156,13 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
         return refuse(res, 404, 'session_not_found', 'This session does not exist, or you are not in it.')
       }
 
-      // The server's own key: only it may read the members' private needs.
-      const { data: rows, error: needsError } = await supabase.service.rpc('session_member_needs', { sid: id.data })
-      if (needsError) throw new Error(`Could not load the members' needs: ${needsError.message}`)
-      const list = Array.isArray(rows) ? rows : []
+      // The server's own key: only it may read the members' private needs and the outing's own tables.
+      const hostId = String((members ?? []).find((m) => m.role === 'host')?.user_id ?? '').toLowerCase()
+      const { rows, saved, dropped } = await loadOutingDietary(supabase.service, id.data, hostId)
       res.set('Cache-Control', 'no-store')
-      // With one other joined member, "the others' needs" would be that person's own list. So nothing is said about the others
-      // until at least three have joined (the caller and two more): see MIN_MEMBERS_FOR_OTHERS.
-      res.json({
-        dietary: needsOf(list.map((r) => r.dietary)),
-        others: joined.length >= MIN_MEMBERS_FOR_OTHERS
-          ? needsOf(list.filter((r) => String(r.user_id).toLowerCase() !== me).map((r) => r.dietary))
-          : [],
-      })
+      // With one other joined member, "the others' needs" would be that person's own list. So with fewer than three joined the answer holds
+      // the caller's own needs alone (see MIN_MEMBERS_FOR_OTHERS and dietaryView).
+      res.json(dietaryView({ me, joined: joined.length, hostId, rows, saved, dropped }))
     } catch (err) {
       next(err)
     }
@@ -194,6 +192,11 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
       }
     }
   }
+
+  router.put('/sessions/:id/dietary', ...dietaryWriteGuard, handle((who, req) => {
+    const { mine, checked, dropped, planVersion } = sessionSchemas.outingDietary.parse(req.body ?? {})
+    return sessions.setDietary({ ...who, mine, checked, dropped, planVersion })
+  }))
 
   router.post('/sessions/:id/meeting-area', ...guard, handle((who, req) => {
     const { trigger } = sessionSchemas.meetingArea.parse(req.body ?? {})

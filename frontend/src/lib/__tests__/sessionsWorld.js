@@ -9,6 +9,16 @@ export const SAM_PLACE = { areaId: 'tampines', label: 'Tampines Mall, level 2' }
 export const KIM_PLACE = { areaId: 'bishan', label: 'Blk 123 Bishan St 12, #05-67' }
 export const BASE = 'http://jio.test'
 
+// The requests that reached the Jio server, except the descriptions of places (venues). The reads of the outing's dietary needs
+// (GET .../dietary) are counted: every full read of a plan that is voting makes one, because only the server may read a member's needs,
+// and a test that says the server was asked nothing says how many of those it expects with `dietaryReads`.
+// How to call: expect(askedOfServer(w.server.calls)).toEqual(dietaryReads(2))
+export const askedOfServer = (calls) => calls.filter((c) => c.route !== 'venues').map((c) => `${c.method} ${String(c.path).replace(/^\/api\/sessions\/[^/]+/, '')}`)
+
+// What askedOfServer lists when the only requests were `count` reads of the outing's dietary needs.
+// How to call: dietaryReads(2) -> ['GET /dietary', 'GET /dietary']
+export const dietaryReads = (count) => Array.from({ length: count }, () => 'GET /dietary')
+
 // One database, the Jio server on it, and a way to open the app as someone. `ops` is every request that reached the database from
 // a browser; `subscriptions` every live subscription asked for; `gate.hold(op)` may return a promise that delays an answer.
 // How to call: const w = world(); const sam = await w.open(PROFILE)

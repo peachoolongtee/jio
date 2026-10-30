@@ -2,7 +2,7 @@
 // can ask for the places we could not confirm, a need changed mid-vote re-ranks and says so without naming anyone, and the
 // outing asks each person to confirm the group's needs once, when it reaches voting. The planner is stood in for, as in outingReview.test.js.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { loadApi, stubPlanner } from './planFixture.js'
+import { STORAGE_KEY, loadApi, stubPlanner } from './planFixture.js'
 import { VENUES } from '../mock/venues.js'
 import { SAMPLE_DIETARY } from '../mock/people.js'
 import { CHECK_NEEDS_TEXT, dietCaveats, dietTags, fewLine, fitLine, needsText, unfitDietText, unfitGroupNeedsText } from '../dietText.js'
@@ -177,6 +177,34 @@ describe('a need someone else has, dropped for the outing', () => {
   })
 })
 
+describe('only the host drops a need someone else has', () => {
+  it('refuses a guest, whose own needs still change, and leaves the outing as it was', async () => {
+    const { api: hosted, id } = await voting(['faith', 'nicole'])
+    // The same outing, hosted by Faith: the signed-in person is a guest.
+    const saved = JSON.parse(hosted.storage.store[STORAGE_KEY])
+    saved.sessions.find((s) => s.id === id).hostId = 'faith'
+    const api = await loadApi({ data: { [STORAGE_KEY]: JSON.stringify(saved) } })
+    expect((await api.getSession(id)).hostId).toBe('faith')
+    await expect(api.confirmDiet(id, [], ['halal'])).rejects.toThrow("Only the host can change someone else's need.")
+    expect((await api.getPlan(id)).dietDropped).toEqual([])
+    // Their own needs are theirs, and sending the list the outing already has is not a drop.
+    await expect(api.confirmDiet(id, ['vegan'], [])).resolves.toBeTruthy()
+    const plan = await api.getPlan(id)
+    expect(plan.myDietary).toEqual(['vegan'])
+    expect(plan.dietDropped).toEqual([])
+    expect(plan.dietChecked).toBe(true)
+  })
+
+  it('lets the host drop it and bring it back', async () => {
+    const { api, id } = await voting(['faith', 'nicole'])
+    expect((await api.getSession(id)).hostId).toBe('ian')
+    await api.confirmDiet(id, [], ['halal'])
+    expect((await api.getPlan(id)).dietDropped).toEqual(['halal'])
+    await api.confirmDiet(id, [], [])
+    expect((await api.getPlan(id)).dietDropped).toEqual([])
+  })
+})
+
 describe('the places we could not confirm, in order', () => {
   it('puts the places that likely meet more of the group’s needs first, whatever their score', async () => {
     // Three food places: one likely meets halal and vegetarian, one only halal, one neither. The planner scores the worst
@@ -233,10 +261,11 @@ describe('"Confirm dietary needs" on an outing', () => {
     expect(plan.dietChecked).toBe(false)
     expect(plan.myDietary).toEqual(['vegan'])
     expect(plan.othersDietary).toEqual(['halal', 'vegetarian'])
-    expect(dietChips({ mine: plan.myDietary, others: plan.othersDietary, dropped: plan.dietDropped })).toEqual([
-      { value: 'halal', label: 'Halal', selected: true, shared: true },
-      { value: 'vegetarian', label: 'Vegetarian', selected: true, shared: true },
-      { value: 'vegan', label: 'Vegan', selected: true, shared: false },
+    // The host (the person here) may take a shared need off; a guest could not (the default of canDrop is false).
+    expect(dietChips({ mine: plan.myDietary, others: plan.othersDietary, dropped: plan.dietDropped, canDrop: true })).toEqual([
+      { value: 'halal', label: 'Halal', selected: true, shared: true, locked: false },
+      { value: 'vegetarian', label: 'Vegetarian', selected: true, shared: true, locked: false },
+      { value: 'vegan', label: 'Vegan', selected: true, shared: false, locked: false },
     ])
     await api.confirmDiet(id, ['vegan'])
     plan = await api.getPlan(id)

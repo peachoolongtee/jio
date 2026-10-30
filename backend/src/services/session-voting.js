@@ -15,6 +15,7 @@ import {
   priceAreaRun,
 } from './session-plan.js'
 import {
+  dietBannerText,
   engineMembers,
   groupConstraints,
   groupSafeResult,
@@ -140,7 +141,7 @@ export function createVoting({ data, areasById, runs }) {
   //   // { ok, rows: Map(venueId -> result), rankedIds, current: Set, widened, few, empty, weather }
   async function rankSlot(draft, slot, currentIds, ctx, { last = false, exclude = [] } = {}) {
     const centre = areasById.get(draft.session.meeting_area_id)
-    const needs = await ctx.needs()
+    const needs = await ctx.needs(draft)
     const [debts, visits] = await Promise.all([ctx.debts?.(), ctx.visits?.()])
     const members = engineMembers(draft, areasById, needs, centre, debts ?? null)
     const resolved = await runs.resolveWeather({ dateTime: `${draft.session.date}T${fromMinutes(slot.start_minute)}` })
@@ -174,7 +175,7 @@ export function createVoting({ data, areasById, runs }) {
   //   const { result, weather } = await roamAround(draft, { current: { lat: 1.3, lng: 103.8 }, categories: ['eat'], dateTime: '2026-10-25T15:00', minutes: 60 }, ctx)
   async function roamAround(draft, { current, categories, dateTime, minutes }, ctx) {
     const centre = areasById.get(draft.session.meeting_area_id)
-    const needs = await ctx.needs()
+    const needs = await ctx.needs(draft)
     const [debts, visits] = await Promise.all([ctx.debts?.(), ctx.visits?.()])
     const members = engineMembers(draft, areasById, needs, centre, debts ?? null)
     const resolved = await runs.resolveWeather({ dateTime })
@@ -319,6 +320,9 @@ export function createVoting({ data, areasById, runs }) {
     const info = { moved: false, votesCleared: false, paused: false }
     const trigger = wants.find((w) => w.trigger)?.trigger
     const radius = wants.some((w) => w.radius)
+    const diet = wants.some((w) => w.diet)
+    const optionKeys = () => new Set(draft.options.map((o) => `${o.category}|${o.venue_id}`))
+    const optionsBefore = optionKeys()
     let figuresChanged = false
     let previousName = null
     let nextName = null
@@ -355,7 +359,8 @@ export function createVoting({ data, areasById, runs }) {
 
     // The notice. A moved area (or a paused one) says so and, when votes went, that they did. A radius change says it only when it took
     // votes away, and takes back its own earlier notice when it did not. A start or end that left the area where it was says so only when
-    // the travel times changed. A repeat that changes nothing writes no notice.
+    // the travel times changed. A change of the group's dietary needs says the places were picked again, when one moved or a vote went.
+    // A repeat that changes nothing writes no notice.
     // (A re-plan names no change of the group, so figures that moved without the area moving are not announced.)
     if (info.moved || (wants.some((w) => w.meeting) && figuresChanged && trigger && trigger.kind !== 'replan')) {
       if (trigger) {
@@ -365,6 +370,12 @@ export function createVoting({ data, areasById, runs }) {
     } else if (radius) {
       if (lost > 0) session.banner = { text: radiusBannerText(draft.session.radius_meters), votesCleared: true, byRadius: true }
       else if (draft.session.banner?.byRadius) session.banner = null
+    } else if (diet) {
+      // A change of the group's dietary needs says so when it moved a place or took a vote, and takes back its own earlier notice when it did not.
+      const afterKeys = optionKeys()
+      const moved = optionsBefore.size !== afterKeys.size || [...afterKeys].some((key) => !optionsBefore.has(key))
+      if (moved || lost > 0) session.banner = { text: dietBannerText(lost), ...(lost > 0 && { votesCleared: true }), byDiet: true }
+      else if (draft.session.banner?.byDiet) session.banner = null
     }
     draft.votes = survivors
     return { ops, session, items: slotItems(draft, dirty), info }
@@ -378,7 +389,7 @@ export function createVoting({ data, areasById, runs }) {
   //   const results = await searchSlot(draft, slot, 'ya kun', ctx) // [{ venueId, name, area, category, source, fits, unfit, ... }]
   async function searchSlot(draft, slot, query, ctx) {
     const centre = areasById.get(draft.session.meeting_area_id)
-    const needs = await ctx.needs()
+    const needs = await ctx.needs(draft)
     const members = engineMembers(draft, areasById, needs, centre)
     const text = query.trim()
     const found = searchVenues(

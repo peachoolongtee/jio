@@ -13,7 +13,7 @@ describe('checkPlanSchema', () => {
   it('passes when every table and column is there', async () => {
     const asked = []
     await checkPlanSchema(service((table, columns) => (asked.push([table, columns]), { error: null })))
-    expect(asked.map(([table]) => table)).toEqual(['sessions', 'stops', 'stop_proposals'])
+    expect(asked.map(([table]) => table)).toEqual(['sessions', 'stops', 'stop_proposals', 'session_member_dietary', 'session_dietary_dropped'])
     expect(asked[0][1]).toContain('weather_kept')
   })
 
@@ -23,6 +23,14 @@ describe('checkPlanSchema', () => {
       expect(failure.message).toContain('20261023000000_jio_apply_session_plan_stops.sql')
       expect(failure.message).toContain('stops')
       expect(failure.unreachable).toBeUndefined()
+    }
+  })
+
+  it('names the outing-dietary migration when its tables are missing', async () => {
+    for (const table of ['session_member_dietary', 'session_dietary_dropped']) {
+      const failure = await checkPlanSchema(service((asked) => (asked === table ? { error: { code: '42P01', message: 'no such table' } } : { error: null }))).catch((e) => e)
+      expect(failure.message).toContain('20261030000000_jio_outing_dietary.sql')
+      expect(failure.message).toContain(table)
     }
   })
 
