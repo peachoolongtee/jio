@@ -49,7 +49,7 @@ export async function jwksFetch(input) {
   return new Response('{}', { status: 404 })
 }
 
-const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'slot_options', 'votes', 'stops', 'stop_proposals', 'commute_ledger', 'profiles', 'profile_private', 'session_member_places']
+const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestions', 'spot_approvals', 'slots', 'slot_options', 'votes', 'stops', 'stop_proposals', 'commute_ledger', 'profiles', 'profile_private', 'session_member_places', 'session_member_diet', 'session_diet_dropped']
 
 // An empty database. `calls` records every request: { table | rpc, kind, who } with who = the user id, or null for the service key.
 // Fields a test may set:
@@ -64,6 +64,9 @@ const TABLES = ['sessions', 'session_members', 'session_spots', 'spot_suggestion
 //   profile_private     [{ id, dietary, home_area_id, budget_max_per_person, needs_step_free }]: the private rows that
 //                       session_member_needs reads (no client may read them as a table)
 //   failNeeds           true: session_member_needs fails as a database error
+//   session_member_diet [{ session_id, user_id, needs }]: a member's needs for one outing (only the service key reads or writes them)
+//   session_diet_dropped [{ session_id, need }]: the needs the host dropped for an outing (the same)
+//   noDietTables        true: a project without those two tables (migration 20261030000000 not applied)
 //   failDebt            true: session_travel_debt fails as a database error (the function is not on the project yet, say)
 //   failPast            true: the server's read of the finished outings of the group (the members' outings, a read of session_members by user) fails as a database error
 //
@@ -808,6 +811,8 @@ function canSee(world, table, row, who) {
   if (table === 'profiles') return true
   if (table === 'session_member_places') return row.user_id === who
   if (table === 'profile_private') return row.id === who
+  // A member's needs for one outing, and the dropped needs: no browser reads them (no policy), only the server.
+  if (table === 'session_member_diet' || table === 'session_diet_dropped') return false
   // Options and votes belong to a slot, and a slot to a session: a member of the session reads them (my_slot_ids()).
   if (table === 'slot_options' || table === 'votes') {
     const slot = world.slots.find((x) => x.id === row.slot_id)
@@ -873,6 +878,10 @@ function query(world, table, who) {
   }
   const execute = () => {
     const rows = world[table]
+    // A project without migration 20261030000000: the two dietary tables are not there.
+    if (world.noDietTables && (table === 'session_member_diet' || table === 'session_diet_dropped')) {
+      return { data: null, error: dbError('42P01', `relation "public.${table}" does not exist`) }
+    }
     if (op.kind === 'select' && world.failPast && table === 'session_members' && op.filters.some(([column]) => column === 'user_id')) {
       return { data: null, error: dbError('XX000', 'boom') }
     }
@@ -891,7 +900,7 @@ function query(world, table, who) {
         for (const row of op.rows) {
           const denied = refuseWrite(row, 'insert')
           if (denied) return { data: null, error: denied }
-          const key = (r) => (table === 'spot_approvals' ? [r.session_id, r.area_id, r.user_id] : table === 'votes' ? [r.slot_id, r.user_id] : [r.session_id, r.user_id]).join('|')
+          const key = (r) => (table === 'spot_approvals' ? [r.session_id, r.area_id, r.user_id] : table === 'votes' ? [r.slot_id, r.user_id] : table === 'session_diet_dropped' ? [r.session_id, r.need] : [r.session_id, r.user_id]).join('|')
           const dup = rows.find((r) => key(r) === key(row))
           if (dup && !op.upsert) return { data: null, error: dbError('23505', `duplicate key in ${table}`) }
           if (dup) Object.assign(dup, row)

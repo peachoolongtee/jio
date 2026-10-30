@@ -43,6 +43,18 @@ export const sessionSchemas = {
   venueId,
   // PUT /api/sessions/:id/radius. Metres from 100 to 3000, or null to let the planner widen on its own.
   radius: z.object({ radiusMeters: z.number().int().min(100).max(3000).nullable() }).strict(),
+  // PUT /api/sessions/:id/dietary. The caller's own needs for the outing (none is an answer too) and, optionally, the others' needs the
+  // group should not filter for. Each list holds a need at most once.
+  dietary: z
+    .object({
+      mine: z.array(z.enum(['halal', 'vegetarian', 'vegan'])).max(3),
+      dropped: z.array(z.enum(['halal', 'vegetarian', 'vegan'])).max(3).optional(),
+    })
+    .strict()
+    .refine((body) => new Set(body.mine).size === body.mine.length && new Set(body.dropped ?? []).size === (body.dropped ?? []).length, {
+      message: 'a need is listed twice',
+      path: ['mine'],
+    }),
   // POST /api/sessions/:id/slots/restore. Without a slot, every removed slot comes back.
   restoreSlots: z.object({ slotId: uuid.optional() }).strict(),
   // POST /api/sessions/:id/slots/:slotId/options

@@ -22,6 +22,7 @@ import {
   meetingDiffers,
   optionRow,
   optionsOf,
+  dietBannerText,
   radiusBannerText,
   rankingInput,
   RANKED_PER_SLOT,
@@ -306,7 +307,7 @@ export function createVoting({ data, areasById, runs }) {
 
   // The voting half of a run, after the jobs have changed the draft: the meeting area (when a job asked), the slots (when a job asked),
   // the votes that go with a moved area, and the notice the group sees. `wants` are the jobs' requests:
-  //   { meeting?: true, rank?: 'all' | [category], trigger?: { kind, name }, radius?: true }
+  //   { meeting?: true, rank?: 'all' | [category], trigger?: { kind, name }, radius?: true, diet?: true }
   // Returns what to write: { ops, session, items, info }. `session` holds the meeting and the banner when they change; `items` are the
   // patch's slots; `info` is what the answers say (moved, votesCleared, meetingAreaId, slotCount, paused).
   //
@@ -319,6 +320,7 @@ export function createVoting({ data, areasById, runs }) {
     const info = { moved: false, votesCleared: false, paused: false }
     const trigger = wants.find((w) => w.trigger)?.trigger
     const radius = wants.some((w) => w.radius)
+    const diet = wants.some((w) => w.diet)
     let figuresChanged = false
     let previousName = null
     let nextName = null
@@ -365,6 +367,9 @@ export function createVoting({ data, areasById, runs }) {
     } else if (radius) {
       if (lost > 0) session.banner = { text: radiusBannerText(draft.session.radius_meters), votesCleared: true, byRadius: true }
       else if (draft.session.banner?.byRadius) session.banner = null
+    } else if (diet) {
+      // A change in the group's dietary needs always says so (the browser's own sessions do the same), and that votes went when they did.
+      session.banner = { text: dietBannerText(lost > 0), ...(lost > 0 && { votesCleared: true }), byDiet: true }
     }
     draft.votes = survivors
     return { ops, session, items: slotItems(draft, dirty), info }

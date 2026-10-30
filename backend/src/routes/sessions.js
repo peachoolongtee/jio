@@ -97,28 +97,22 @@ import { sessionSchemas } from './session-schemas.js'
 //
 // An outing's dietary needs (ticket #107), for "Confirm dietary needs", which opens with them selected:
 //   GET /api/sessions/:id/dietary   →   { dietary: ['halal', 'vegetarian'], others: ['halal'] }
-// `dietary` is every joined member's needs together; `others` is everyone's but the caller's, the ones the caller cannot take
-// off. A need is private (profile_private, read only by its owner and the server), so the answer never says whose a need is,
-// how many people have it, or anything else from a member's private row (home area, budget, step-free). The caller must be in
-// the session (404 session_not_found otherwise, the same as for a session that does not exist). The needs are read with the
-// service key through session_member_needs(), which only the server may call. The answer is not cached anywhere. It has its
-// own per-person limit (`readLimiter`), so reading never uses up the other routes'.
+// `dietary` is what the places are filtered for (every joined member's needs together, less the dropped ones); `others` is
+// everyone's but the caller's, the ones the caller cannot take off; `mine` is the caller's own for this outing; `dropped` is the
+// others' needs the host chose not to filter for; `checked` says whether the caller confirmed their needs for this outing. A need is
+// private (profile_private, and a member's needs for one outing in session_member_diet, read only by the server), so the answer never
+// says whose a need is, how many people have it, or anything else from a member's private row (home area, budget, step-free). Below
+// three joined, `others` and `dropped` are empty. The caller must be a joined member (404 session_not_found otherwise, the same as for
+// a session that does not exist). The needs are read with the service key. The answer is not cached anywhere. It has its own
+// per-person limit (`readLimiter`), so reading never uses up the other routes'.
 //   const { data } = await api.get(`/api/sessions/${id}/dietary`)   (lib/plannerApi.js sessionDietary)
+// PUT /api/sessions/:id/dietary saves the caller's own needs for the outing and the host's dropped needs (services/sessions.js,
+// setDietary), and answers the same fields with the plan version.
 
 // Answers in the flat error shape. How to call: refuse(res, 403, 'host_only', 'Only the host can remove someone.')
 function refuse(res, status, error, message, extra = {}) {
   res.status(status).json({ error, message, ...extra })
 }
-
-// The needs a person can have, in the order the app shows them. Anything else in the database is left out.
-const NEEDS = ['halal', 'vegetarian', 'vegan']
-
-// How many joined members an outing needs before the others' needs are told to a member. With fewer, the others' list would be
-// one known person's own list (two members), so it is empty. How to call: joined.length >= MIN_MEMBERS_FOR_OTHERS
-const MIN_MEMBERS_FOR_OTHERS = 3
-
-// Needs from many rows, each once, in the app's order. How to call: needsOf([['vegan'], ['halal', 'vegan'], null]) -> ['halal', 'vegan']
-const needsOf = (lists) => NEEDS.filter((need) => lists.some((list) => Array.isArray(list) && list.includes(need)))
 
 // Builds the router over the session rules (`sessions`, services/sessions.js). `limiter` limits how often one signed-in caller
 // may use the session routes, `readLimiter` how often they may read an outing's needs, and `searchLimiter` how often they may search
@@ -134,41 +128,6 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
   // The reads that rank places for a plan (the rain swap, Replace's list, Roam) share the planner routes' limit, so they cost a caller what a ranking does.
   const rankGuard = [requireUser({ supabase }), ...(plannerLimiter ? [plannerLimiter] : [])]
 
-  router.get('/sessions/:id/dietary', requireUser({ supabase }), ...(readLimiter ? [readLimiter] : []), async (req, res, next) => {
-    try {
-      const id = sessionSchemas.sessionId.safeParse(req.params.id)
-      if (!id.success) return refuse(res, 400, 'invalid_input', 'The session id is not valid.')
-      const me = req.user.id.toLowerCase()
-
-      // Read as the caller: the database shows a session's members only to people in it. Only a joined member may read the
-      // needs: one who opted out gets the same answer as a stranger.
-      const { data: members, error: membersError } = await req.supabase
-        .from('session_members')
-        .select('user_id, state')
-        .eq('session_id', id.data)
-      if (membersError) throw new Error(`Could not load the members: ${membersError.message}`)
-      const joined = (members ?? []).filter((m) => m.state === 'joined')
-      if (!joined.some((m) => m.user_id.toLowerCase() === me)) {
-        return refuse(res, 404, 'session_not_found', 'This session does not exist, or you are not in it.')
-      }
-
-      // The server's own key: only it may read the members' private needs.
-      const { data: rows, error: needsError } = await supabase.service.rpc('session_member_needs', { sid: id.data })
-      if (needsError) throw new Error(`Could not load the members' needs: ${needsError.message}`)
-      const list = Array.isArray(rows) ? rows : []
-      res.set('Cache-Control', 'no-store')
-      // With one other joined member, "the others' needs" would be that person's own list. So nothing is said about the others
-      // until at least three have joined (the caller and two more): see MIN_MEMBERS_FOR_OTHERS.
-      res.json({
-        dietary: needsOf(list.map((r) => r.dietary)),
-        others: joined.length >= MIN_MEMBERS_FOR_OTHERS
-          ? needsOf(list.filter((r) => String(r.user_id).toLowerCase() !== me).map((r) => r.dietary))
-          : [],
-      })
-    } catch (err) {
-      next(err)
-    }
-  })
 
   // Wraps a handler: checks the session id, runs the handler with who is asking ({ client, id, userId }) and the request,
   // answers its result, and turns a bad body and the service's refusals into the flat error shape.
@@ -194,6 +153,17 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
       }
     }
   }
+
+  // Reading an outing's needs has its own limit; one who opted out gets the same 404 as a stranger (the service checks). Never cached.
+  router.get('/sessions/:id/dietary', requireUser({ supabase }), ...(readLimiter ? [readLimiter] : []), (req, res, next) => {
+    res.set('Cache-Control', 'no-store')
+    return handle((who) => sessions.readDietary(who))(req, res, next)
+  })
+
+  router.put('/sessions/:id/dietary', ...guard, handle((who, req) => {
+    const { mine, dropped } = sessionSchemas.dietary.parse(req.body ?? {})
+    return sessions.setDietary({ ...who, mine, dropped })
+  }))
 
   router.post('/sessions/:id/meeting-area', ...guard, handle((who, req) => {
     const { trigger } = sessionSchemas.meetingArea.parse(req.body ?? {})

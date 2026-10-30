@@ -7,6 +7,8 @@
 //   - state, with the service key, after admission has proved the caller is a member: everything a run needs about the session,
 //     never an exact place (session_member_places is not read anywhere here). Members' private needs (what they cannot eat, a
 //     budget, step-free access) come from session_member_needs(), and only when a ranking needs them.
+// A member's needs for one outing and the needs the host dropped (session_member_diet, session_diet_dropped) are read and written
+// here too, with the service key only: no browser may read them, and only the outing's needs together ever leave the server.
 // Every write is the one function apply_session_plan (db/migrations/20261020000000_jio_apply_session_plan.sql), which locks the
 // session row, compares the version and the status the run loaded, and writes nothing if either has moved.
 //
@@ -125,8 +127,83 @@ export async function loadState(service, id) {
 // How to call:
 //   const needs = await loadNeeds(supabase.service, id) // [{ user_id, dietary: ['halal'], budget_max_per_person: 20, needs_step_free: false }]
 export async function loadNeeds(service, id) {
-  const rows = unwrap(await service.rpc('session_member_needs', { sid: id }), "the members' needs")
-  return rows ?? []
+  return withOutingDiet(await loadProfileNeeds(service, id), await loadOutingDiet(service, id))
+}
+
+// session_member_needs()'s rows as they are: each joined member's profile needs, before anything picked for the outing.
+// How to call: const rows = await loadProfileNeeds(supabase.service, id)
+export async function loadProfileNeeds(service, id) {
+  return unwrap(await service.rpc('session_member_needs', { sid: id }), "the members' needs") ?? []
+}
+
+// The dietary needs the app knows, in its order. Anything else is left out. How to call: cleanNeeds(['vegan', 'kosher']) // ['vegan']
+export const DIET_NEEDS = ['halal', 'vegetarian', 'vegan']
+export const cleanNeeds = (list) => DIET_NEEDS.filter((need) => Array.isArray(list) && list.includes(need))
+
+// How many joined members an outing needs before a need can be dropped, or the dropped ones count. With two, a dropped need would be
+// the other person's own, so below three nothing is dropped (and nothing about the others' needs is told: routes/sessions.js).
+export const MIN_MEMBERS_TO_DROP = 3
+
+// Is this the error of a table that is not on the project yet (the migration 20261030000000 not applied)? Postgres says 42P01; the
+// API in front of it, PGRST205. How to call: missingTable({ code: '42P01' }) // true
+const missingTable = (error) => error?.code === '42P01' || error?.code === 'PGRST205'
+
+// What each person picked for this outing, and the needs the host dropped: { mine: Map { userId => ['halal'] }, dropped: ['vegan'],
+// ready }. `ready` is false on a project without the tables yet, and then nothing is picked or dropped, so every need comes from the
+// profile, as before. Any other failure throws. Service key only.
+//
+// How to call:
+//   const outing = await loadOutingDiet(supabase.service, id) // { mine: Map { 'ab12...' => ['vegan'] }, dropped: [], ready: true }
+export async function loadOutingDiet(service, id) {
+  const [picked, dropped] = await Promise.all([
+    service.from('session_member_diet').select('user_id, needs').eq('session_id', id),
+    service.from('session_diet_dropped').select('need').eq('session_id', id),
+  ])
+  if (missingTable(picked.error) || missingTable(dropped.error)) return { mine: new Map(), dropped: [], ready: false }
+  const pickedRows = unwrap(picked, "the members' needs for the outing") ?? []
+  const droppedRows = unwrap(dropped, 'the dropped needs') ?? []
+  return {
+    mine: new Map(pickedRows.map((r) => [String(r.user_id).toLowerCase(), cleanNeeds(r.needs)])),
+    dropped: cleanNeeds(droppedRows.map((r) => r.need)),
+    ready: true,
+  }
+}
+
+// Each member's needs for the outing before anything is dropped: what they picked for it, else their profile's. Rows are
+// session_member_needs()'s. How to call: outingNeedsOf(rows, outing) // [{ user_id, needs: ['halal'] }]
+export function outingNeedsOf(rows, outing) {
+  return rows.map((r) => ({ user_id: String(r.user_id).toLowerCase(), needs: outing.mine.get(String(r.user_id).toLowerCase()) ?? cleanNeeds(r.dietary) }))
+}
+
+// The needs dropped for this outing, while three or more have joined; none below that. `joined` is how many have joined.
+// How to call: droppedFor(3, outing) // ['halal']
+export const droppedFor = (joined, outing) => (joined >= MIN_MEMBERS_TO_DROP ? outing.dropped : [])
+
+// session_member_needs()'s rows with `dietary` as the ranking should filter by: the outing's needs in place of the profile's, less
+// the dropped ones. Every other field is as the function gave it. `joined` is how many have joined: one row each, since every
+// account has a private row (the sign-up trigger).
+// How to call: withOutingDiet(rows, outing) // [{ user_id, dietary: ['vegan'], budget_max_per_person, ... }]
+export function withOutingDiet(rows, outing, joined = rows.length) {
+  const dropped = droppedFor(joined, outing)
+  const needs = new Map(outingNeedsOf(rows, outing).map((r) => [r.user_id, r.needs]))
+  return rows.map((r) => ({ ...r, dietary: needs.get(String(r.user_id).toLowerCase()).filter((need) => !dropped.includes(need)) }))
+}
+
+// Saves one person's needs for the outing (a row means they confirmed them, possibly none) and the dropped needs as `dropped` lists
+// them. THROWS a plain Error on a failure, and one with `code: 'not_set_up'` on a project without the tables.
+//
+// How to call:
+//   await saveOutingDiet(supabase.service, id, { userId, mine: ['vegan'], dropped: ['halal'], before: ['halal', 'vegan'] })
+export async function saveOutingDiet(service, id, { userId, mine, dropped, before }) {
+  const check = ({ error }, what) => {
+    if (missingTable(error)) throw Object.assign(new Error('Dietary needs for an outing are not set up on this project yet.'), { code: 'not_set_up' })
+    if (error) throw new Error(`Could not save ${what}: ${error.message}`)
+  }
+  check(await service.from('session_member_diet').upsert({ session_id: id, user_id: userId, needs: cleanNeeds(mine) }), 'your needs for the outing')
+  const gone = before.filter((need) => !dropped.includes(need))
+  const added = dropped.filter((need) => !before.includes(need))
+  if (gone.length) check(await service.from('session_diet_dropped').delete().eq('session_id', id).in('need', gone), 'the dropped needs')
+  if (added.length) check(await service.from('session_diet_dropped').upsert(added.map((need) => ({ session_id: id, need }))), 'the dropped needs')
 }
 
 // Each joined member's travel debt in minutes (their share of the effort in their other outings in the last 90 days, positive when they

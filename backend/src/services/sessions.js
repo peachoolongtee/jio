@@ -4,8 +4,15 @@ import {
   loadAdmission,
   loadDebts,
   loadNames,
+  cleanNeeds,
+  droppedFor,
   loadNeeds,
+  loadOutingDiet,
   loadPastOutings,
+  loadProfileNeeds,
+  MIN_MEMBERS_TO_DROP,
+  outingNeedsOf,
+  saveOutingDiet,
   loadState,
   PlanRefused,
 } from '../db/sessions.js'
@@ -1250,6 +1257,107 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     )
   }
 
+  // An outing's dietary needs as the caller may know them (GET /api/sessions/:id/dietary): `dietary`, what the places are filtered
+  // for (everyone's together, less the dropped ones); `others`, everyone's but the caller's, the ones the caller cannot take off
+  // (empty below three joined, when it would be one known person's); `mine`, the caller's own for this outing (what they picked, else
+  // their profile's); `dropped`, the others' needs the host chose not to filter for (none below three joined); `checked`, whether the
+  // caller has confirmed their needs for this outing. Never whose a need is, or how many have it.
+  //
+  // How to call:
+  //   const needs = await sessions.readDietary({ client: req.supabase, id, userId }) // { dietary, others, mine, dropped, checked }
+  async function readDietary({ client, id, userId }) {
+    userId = lower(userId)
+    id = lower(id)
+    const state = await admit(client, id, userId)
+    // Someone who opted out is told what a stranger is: the needs are the joined members'.
+    if (requireMember(state, userId).state !== 'joined') throw refuse(404, 'session_not_found', 'This session does not exist, or you are not in it.')
+    return dietaryAnswer(await dietaryState(id, state), userId)
+  }
+
+  // Everything the dietary answer and its change are worked out from: the joined members' profile rows, the outing's picks and drops,
+  // and how many have joined, counted from the session's members as the caller read them (`state`), not from the private rows.
+  // How to call: const now = await dietaryState(id, state) // { rows, outing, joined }
+  async function dietaryState(id, state) {
+    const [rows, outing] = await Promise.all([
+      within(loadProfileNeeds(service, id), dbDeadlineMs, "reading the members' needs"),
+      within(loadOutingDiet(service, id), dbDeadlineMs, "reading the outing's needs"),
+    ])
+    return { rows, outing, joined: state.members.filter((m) => m.state === 'joined').length }
+  }
+
+  // The answer of GET .../dietary from a dietaryState. How to call: dietaryAnswer(await dietaryState(id), userId)
+  function dietaryAnswer({ rows, outing, joined }, userId) {
+    const needs = outingNeedsOf(rows, outing)
+    const dropped = droppedFor(joined, outing)
+    const all = cleanNeeds(needs.flatMap((r) => r.needs))
+    const others = joined >= MIN_MEMBERS_TO_DROP ? cleanNeeds(needs.filter((r) => r.user_id !== userId).flatMap((r) => r.needs)) : []
+    return {
+      dietary: all.filter((need) => !dropped.includes(need)),
+      others,
+      mine: needs.find((r) => r.user_id === userId)?.needs ?? [],
+      // Every dropped need someone in the outing still has, the caller's own too (so they can see theirs is not filtered for).
+      dropped: dropped.filter((need) => all.includes(need)),
+      checked: outing.mine.has(userId),
+    }
+  }
+
+  // PUT /api/sessions/:id/dietary: the caller confirms their own needs for this outing (`mine`, any of halal, vegetarian and vegan, or
+  // none) and, optionally, which of the others' needs the group should not filter for (`dropped`). Anyone in the outing adds or takes
+  // off their own. Only the host stops filtering for someone else's need, and only with three or more joined (a need nobody else has is
+  // ignored, as the browser does); a dropped need comes back when the host asks, or when the person who has it selects it again. The
+  // profile is not changed. While voting, a change in what the group is filtered for ranks every slot again, as the radius does: places
+  // that no longer fit go with their votes, and a notice says so without naming anyone. Until then the needs are read at the next
+  // ranking. Answers the dietary answer and the plan version.
+  //
+  // How to call:
+  //   await sessions.setDietary({ client: req.supabase, id, userId, mine: ['vegan'], dropped: ['halal'] }) // { planVersion, dietary, others, mine, dropped, checked }
+  async function setDietary({ client, id, userId, mine, dropped }) {
+    userId = lower(userId)
+    id = lower(id)
+    const state = await admit(client, id, userId)
+    const check = (s) => {
+      requireJoined(s, userId)
+      requireStatus(s, ['inviting', 'locating', 'voting'], { started: 'plan_settled', startedIn: ['confirmed'], what: 'change the dietary needs' })
+    }
+    check(state)
+    const host = lower(state.session.host_id) === userId
+    const before = await dietaryState(id, state)
+    const answerBefore = dietaryAnswer(before, userId)
+    const nextMine = cleanNeeds(mine)
+    // Left out, the dropped needs stay as they are. Only the others' needs as they are before this change can newly be dropped; the
+    // caller's own are never theirs to drop.
+    const current = answerBefore.dropped
+    const requested = dropped === undefined ? current : cleanNeeds(dropped)
+    const adding = requested.filter((need) => !current.includes(need) && answerBefore.others.includes(need))
+    const bringing = current.filter((need) => !requested.includes(need))
+    const wanted = cleanNeeds([...current.filter((need) => requested.includes(need)), ...adding])
+    if (adding.length && !host) throw refuse(403, 'host_only', "Only the host can stop filtering for someone else's need.")
+    // Anyone brings back a need they have themselves; anyone else's comes back only at the host's word.
+    if (bringing.some((need) => !host && !nextMine.includes(need))) throw refuse(403, 'host_only', "Only the host can bring back someone else's need.")
+    // A need the caller newly selects for themselves is filtered for again, whoever dropped it. Confirming the same needs again does not.
+    const keep = wanted.filter((need) => !(nextMine.includes(need) && !answerBefore.mine.includes(need)))
+    try {
+      await within(saveOutingDiet(service, id, { userId, mine: nextMine, dropped: keep, before: before.outing.dropped }), dbDeadlineMs, "saving the outing's needs")
+    } catch (err) {
+      if (err.code === 'not_set_up') throw refuse(503, 'not_set_up', err.message)
+      throw err
+    }
+    const answer = dietaryAnswer(await dietaryState(id, state), userId)
+    const changed = answer.dietary.join() !== answerBefore.dietary.join()
+    if (!changed || state.session.status !== 'voting') return { planVersion: Number(state.session.plan_version), ...answer }
+    return submit(
+      { client, id, userId },
+      {
+        check,
+        prepare: (draft) => {
+          check(draft)
+          if (draft.session.status !== 'voting') return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, ...answer }) }
+          return { ops: [], needs: 'none', plan: { rank: 'all', diet: true }, answer: ({ version }) => ({ planVersion: version, ...answer }) }
+        },
+      },
+    )
+  }
+
   // DELETE /api/sessions/:id/slots/:slotId: the host removes a slot (E5). Its places and their votes go with it. Already removed is a no-op.
   //
   // How to call:
@@ -2150,6 +2258,8 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     changeMeetingPlace,
     syncPlan,
     setRadius,
+    readDietary,
+    setDietary,
     deleteSlot,
     restoreSlots,
     addOption,
