@@ -16,11 +16,25 @@ export const usePlannerStore = defineStore('planner', () => {
   const errors = ref({})
   const conditions = ref({ rain: false, routing: true, sessionDay: false })
   const seq = {}
+  // The load of each plan that is running now, so a caller can wait for it instead of starting another.
+  const reading = {}
 
   // Only the newest load of a plan applies. A load that fails sets errors[id] and still throws, so the caller can react.
   // With `votesOnly` (a live vote in a shared session) the data layer reads only the votes and makes the plan again from the rest it has.
   // How to call: await loadPlan('3b1f...'); await loadPlan('3b1f...', { quiet: true, votesOnly: true })
-  async function loadPlan(id, { quiet = false, votesOnly = false } = {}) {
+  function loadPlan(id, options) {
+    const load = readPlan(id, options)
+    // Only a whole read counts: a read of the votes alone is not the plan a write waits for.
+    if (!options?.votesOnly) {
+      reading[id] = load
+      const done = () => {
+        if (reading[id] === load) delete reading[id]
+      }
+      load.then(done, done)
+    }
+    return load
+  }
+  async function readPlan(id, { quiet = false, votesOnly = false } = {}) {
     const ticket = (seq[id] = (seq[id] || 0) + 1)
     if (!quiet || !plans.value[id]) loading.value = { ...loading.value, [id]: true }
     try {
@@ -90,7 +104,9 @@ export const usePlannerStore = defineStore('planner', () => {
   async function afterReload(id, change) {
     const answer = await change
     await api.whenRefiltered()
-    await reload(id)
+    // A write tells the screens (api.js), which read the plan: wait for that read rather than make a second one. Only a plan nobody is
+    // reading is read here.
+    await (reading[id]?.catch(() => {}) ?? reload(id))
     return answer
   }
   // How to call: await planner.setUnconfirmed(id, true)

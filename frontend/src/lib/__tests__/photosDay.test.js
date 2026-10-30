@@ -138,4 +138,28 @@ describe('the Photos page', () => {
     await until(() => view.all('input').some((i) => i.attrs.type === 'file'))
     expect(view.has('[data-testid="photos-before-day"]')).toBe(false)
   })
+
+  it('loads the pictures by itself when the page is left open past midnight and the day begins', async () => {
+    // The shared clock (lib/useNow.js) ticks every 30 seconds; here it is a value the test moves.
+    const { ref } = await import('vue')
+    const clock = ref(new Date('2026-10-09T23:59:00+08:00'))
+    vi.doMock('@/lib/useNow.js', () => ({ useNow: () => clock }))
+    try {
+      const { api, id } = await outingAt('2026-10-09T23:59:00+08:00')
+      const view = await draw(api, `/sessions/${id}/photos`, 'PhotosView', { id })
+      await until(() => view.has('[data-testid="photos-before-day"]'))
+      const { useEventsStore } = await import('@/stores/events.js')
+      const events = useEventsStore()
+      expect(events.photos[id]).toBeUndefined()
+      // The day opens: the page opens by itself and the pictures are asked for.
+      at('2026-10-10T00:01:00+08:00')
+      clock.value = new Date('2026-10-10T00:01:00+08:00')
+      await until(() => view.all('input').some((i) => i.attrs.type === 'file'))
+      await until(() => Array.isArray(events.photos[id]))
+      expect(view.has('[data-testid="photos-before-day"]')).toBe(false)
+    } finally {
+      vi.doUnmock('@/lib/useNow.js')
+      at('2026-10-09T10:00:00+08:00')
+    }
+  })
 })

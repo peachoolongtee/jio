@@ -77,6 +77,12 @@ async function load() {
     return
   }
   if (!open.value) return
+  await loadPhotos()
+}
+// The pictures and the itinerary they hang on, once the page is open.
+// How to call: await loadPhotos()
+async function loadPhotos() {
+  loadError.value = ''
   try {
     await Promise.all([events.loadItinerary(props.id), events.loadPhotos(props.id)])
   } catch (e) {
@@ -85,6 +91,11 @@ async function load() {
 }
 onMounted(load)
 watch(() => props.id, load)
+// A page left open until the day begins (past midnight in Singapore) opens by itself, so it loads the pictures then; one that already has them
+// (or is loading them) does not ask again.
+watch(open, (now, was) => {
+  if (now && !was && !loaded.value) loadPhotos()
+})
 
 // Newest first, for the gallery and the viewer alike, so swiping on moves back in time.
 const ordered = computed(() => [...(loaded.value || [])].reverse())

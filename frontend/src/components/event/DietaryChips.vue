@@ -6,7 +6,7 @@
 //   -> [{ value: 'halal', label: 'Halal', selected: true, shared: true, locked: true }, { value: 'vegetarian', ..., selected: false, shared: false, locked: false }, { value: 'vegan', ..., selected: true, shared: false, locked: false }]
 import { DIETARY_OPTIONS } from '@/lib/signupRules.js'
 
-export function dietChips({ mine = [], others = [], dropped = [], canDrop = true }) {
+export function dietChips({ mine = [], others = [], dropped = [], canDrop = false }) {
   return DIETARY_OPTIONS.map((o) => {
     const shared = others.includes(o.value)
     const selected = (shared && !dropped.includes(o.value)) || (!shared && mine.includes(o.value))
@@ -26,6 +26,7 @@ export function dietChips({ mine = [], others = [], dropped = [], canDrop = true
 //   <DietaryChips :mine="mine" :others="others" :dropped="dropped" :can-drop="isHost" label="Your dietary needs" @change="save" />
 import { computed, ref, useId } from 'vue'
 import AppButton from '../ui/AppButton.vue'
+import AppIcon from '../ui/AppIcon.vue'
 import ChipButton from '../ui/ChipButton.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
 import { cleanDietary } from '@/lib/signupRules.js'
@@ -47,7 +48,8 @@ const props = defineProps({
 const emit = defineEmits(['change'])
 
 const chips = computed(() => dietChips({ mine: props.mine, others: props.others, dropped: props.dropped, canDrop: props.canDrop }))
-// The line under the chips for a guest, while a need someone else has is locked; it names no one. Each locked chip points to it.
+// The line under the chips for a guest, while a need someone else has is locked (also when it is the guest's own need too); it names no
+// one. Each locked chip points to it.
 const noteId = useId()
 const locked = computed(() => chips.value.some((c) => c.locked))
 
@@ -86,9 +88,11 @@ function dropAsked() {
     <div class="diet-chips" :class="{ 'is-busy': busy }" role="group" :aria-busy="busy ? 'true' : undefined" :aria-label="label" data-testid="diet-chips">
       <ChipButton v-for="chip in chips" :key="chip.value" check :selected="chip.selected" :disabled="busy || chip.locked" :aria-describedby="chip.locked ? noteId : undefined" @click="toggle(chip)">
         {{ chip.label }}
+        <!-- A chip that is on and cannot be turned off carries a small lock, so it does not look like a choice. -->
+        <AppIcon v-if="chip.locked && chip.selected" name="lock" :size="12" aria-hidden="true" data-testid="diet-lock" />
       </ChipButton>
     </div>
-    <p v-if="locked" :id="noteId" class="caption-sm text-muted" data-testid="diet-locked-reason">Only the host can change someone else's need.</p>
+    <p v-if="locked" :id="noteId" class="caption-sm text-muted" data-testid="diet-locked-reason">Someone in the outing needs this, so it stays on. Only the host can change that.</p>
 
     <!-- Taking off a need someone else in the outing has (the host only): the safer choice first. -->
     <ModalDialog

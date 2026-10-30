@@ -5,9 +5,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, ref } from 'vue'
 import { liven, mountScreen } from './domless.js'
 import DietaryConfirm from '../../components/event/DietaryConfirm.vue'
-import DietaryChips from '../../components/event/DietaryChips.vue'
+import DietaryChips, { dietChips } from '../../components/event/DietaryChips.vue'
 
 afterEach(() => vi.unstubAllGlobals())
+
+// The line under the chips while a need is locked for a guest (it holds for the guest's own need too).
+const LOCKED_NOTE = 'Someone in the outing needs this, so it stays on. Only the host can change that.'
 
 // The dialog, open, with `mine` and `others`; `sent` collects what Confirm sends. `canDrop` is true for the host.
 // How to call: const { view, sent } = await dialog({ mine: [], others: ['halal'], canDrop: false })
@@ -60,7 +63,7 @@ describe('Confirm dietary needs', () => {
   it('shows a guest the needs of others selected and locked, says why, and sends their own picks only', async () => {
     const { view, sent } = await dialog({ mine: [], others: ['halal'], canDrop: false })
     expect(chip(view, 'Halal').attrs['aria-disabled']).toBe('true')
-    expect(view.text('[data-testid="diet-locked-reason"]')).toBe("Only the host can change someone else's need.")
+    expect(view.text('[data-testid="diet-locked-reason"]')).toBe(LOCKED_NOTE)
     await view.click(chip(view, 'Halal'))
     // No question, and the need stays on.
     expect(view.all('h2').length).toBe(1)
@@ -74,6 +77,26 @@ describe('Confirm dietary needs', () => {
     const { view } = await dialog({ mine: [], others: ['halal'] })
     expect(chip(view, 'Halal').attrs['aria-disabled']).toBeUndefined()
     expect(view.all('[data-testid="diet-locked-reason"]').length).toBe(0)
+    expect(view.all('[data-testid="diet-lock"]').length).toBe(0)
+  })
+
+  it('marks a locked chip that is on with a lock, also when the need is the guest’s own as well, and says why in words that hold for both', async () => {
+    // Someone else has halal and so does the guest: the chip is on and locked, whoever's need it started as.
+    const { view, sent } = await dialog({ mine: ['halal'], others: ['halal'], canDrop: false })
+    expect(chips(view)[0]).toEqual(['Halal', true])
+    expect(chip(view, 'Halal').attrs['aria-disabled']).toBe('true')
+    expect(view.text('[data-testid="diet-locked-reason"]')).toBe(LOCKED_NOTE)
+    expect(view.all('[data-testid="diet-lock"]').length).toBe(1)
+    expect(view.text('[data-testid="diet-locked-reason"]')).not.toMatch(/someone else's need/i)
+    // A tap changes nothing.
+    await view.click(chip(view, 'Halal'))
+    await view.click('[data-testid="diet-confirm-button"]')
+    expect(sent.at(-1)).toEqual({ mine: ['halal'], dropped: [] })
+  })
+
+  it('has chips a guest cannot turn off by default: canDrop is false unless the host says so', () => {
+    expect(dietChips({ mine: [], others: ['halal'] })[0]).toMatchObject({ value: 'halal', selected: true, shared: true, locked: true })
+    expect(dietChips({ mine: [], others: ['halal'], canDrop: true })[0].locked).toBe(false)
   })
 
   it('is titled for confirming, and for editing when opened again from the Vote page', async () => {
@@ -138,7 +161,7 @@ describe('the dietary chips on the Vote page', () => {
 
   it('locks a need someone else has for a guest, and keeps a guest’s own needs free', async () => {
     const { view, sent } = await inline({ mine: [], others: ['halal'], canDrop: false })
-    expect(view.text('[data-testid="diet-locked-reason"]')).toBe("Only the host can change someone else's need.")
+    expect(view.text('[data-testid="diet-locked-reason"]')).toBe(LOCKED_NOTE)
     await view.click(chip(view, 'Halal'))
     expect(view.all('h2').length).toBe(0)
     expect(sent).toEqual([])

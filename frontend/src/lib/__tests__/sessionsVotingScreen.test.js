@@ -3,11 +3,12 @@
 // the radius (the host's to change), the failure state with its retry, a person who opted out, and who confirms the plan (stage 5:
 // sessionsPlanScreen.test.js has the Confirm dialog). No network.
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { AxiosError } from 'axios'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
 import { OTHER, PROFILE, SESSION } from './authFixture.js'
 import { mountScreen, until } from './domless.js'
-import { KIM_PLACE, SAM_PLACE, askedOfServer, world } from './sessionsWorld.js'
+import { KIM_PLACE, SAM_PLACE, askedOfServer, dietaryReads, world } from './sessionsWorld.js'
 import { SERVICE } from '../../components/dev/fakeDatabase.js'
 
 // The map needs a real browser (Leaflet).
@@ -85,8 +86,9 @@ describe('the places and the way back', () => {
     expect(view.has('[data-testid=voting-next]')).toBe(false)
     expect(view.text()).not.toContain('Voting with friends comes next')
     expect(view.text()).toContain('Walking times are from')
-    // Nothing was asked of the planner: the page read the database, and the cards' places (once) from the server's place list.
-    expect(askedOfServer(w.server.calls)).toEqual([])
+    // Nothing was asked of the planner: the page read the database, and the cards' places (once) from the server's place list. The server was
+    // called for the outing's needs alone: once by the first read above and once by the page.
+    expect(askedOfServer(w.server.calls)).toEqual(dietaryReads(2))
   })
 
   it('says it is finding places while it loads', async () => {
@@ -139,6 +141,65 @@ describe('the places and the way back', () => {
   })
 })
 
+describe('the group\'s dietary needs', () => {
+  // The Jio server stand-in has no dietary route, so one is put in front of the app's adapter: GET answers the person's own needs (confirmed,
+  // so the question stays shut), PUT keeps what it is sent, and `control.status` makes every GET fail with that status until it is null.
+  // How to call: const control = dietaryRoute(sam); control.status = 429
+  function dietaryRoute(app) {
+    const control = { status: null, mine: [], gets: 0, puts: 0 }
+    const original = app.api.api.defaults.adapter
+    app.api.api.defaults.adapter = async (config) => {
+      if (!/\/dietary$/.test(String(config.url))) return original(config)
+      const method = String(config.method).toLowerCase()
+      const respond = (status, data) => {
+        const response = { data, status, statusText: String(status), headers: {}, config, request: {} }
+        if (status >= 400) throw new AxiosError(`Request failed with status code ${status}`, 'ERR_BAD_REQUEST', config, {}, response)
+        return response
+      }
+      if (method === 'put') {
+        control.puts += 1
+        control.mine = JSON.parse(config.data).mine ?? control.mine
+      } else {
+        control.gets += 1
+        if (control.status) return respond(control.status, { error: 'rate_limited', message: 'No.' })
+      }
+      return respond(200, { dietary: control.mine, others: [], mine: control.mine, checked: true, dropped: [], planVersion: 1, repicked: method === 'put' })
+    }
+    return control
+  }
+
+  it('says the needs could not be loaded when the server cannot answer, keeps the chips, and loads them again on Try again', async () => {
+    const { sam, id } = await voting()
+    const control = dietaryRoute(sam)
+    const { view, planner } = await draw(id)
+    await until(() => view.has('[data-testid=diet-edit]'))
+    expect(view.has('[data-testid=diet-unavailable]')).toBe(false)
+    control.status = 429
+    await planner.loadPlan(id, { quiet: true })
+    await until(() => view.has('[data-testid=diet-unavailable]'))
+    expect(view.text(view.one('[data-testid=diet-unavailable]'))).toContain("Couldn't load the group's dietary needs.")
+    // The last answer is still on the page.
+    expect(view.has('[data-testid=diet-edit]')).toBe(true)
+    expect(view.has('article[data-option]')).toBe(true)
+    control.status = null
+    await view.click(view.one('[data-testid=diet-retry]'))
+    await until(() => !view.has('[data-testid=diet-unavailable]'))
+    expect(view.has('[data-testid=diet-edit]')).toBe(true)
+  })
+
+  it('reads the plan once after a change of needs, not twice', async () => {
+    const { sam, id } = await voting()
+    const control = dietaryRoute(sam)
+    const { planner } = await draw(id)
+    await until(() => !!planner.plans[id]?.myDietary)
+    const reads = control.gets
+    await planner.confirmDiet(id, ['vegan'], undefined, { confirmed: false })
+    expect(control.puts).toBe(1)
+    expect(control.gets - reads).toBe(1)
+    expect(planner.plans[id].myDietary).toEqual(['vegan'])
+  })
+})
+
 describe('voting', () => {
   it('writes the vote, marks the card "Voted" and counts the person in the donut, and taps again to take it back', async () => {
     const { w, sam, id } = await voting()
@@ -154,8 +215,9 @@ describe('voting', () => {
     await view.click(voteButton(view, name))
     await until(() => view.text(voteButton(view, name)) === 'Vote')
     expect(w.database.tables.votes).toEqual([])
-    // No request went to the Jio server for any of it, and the planner was never asked.
-    expect(askedOfServer(w.server.calls)).toEqual([])
+    // No request went to the Jio server for the votes, and the planner was never asked: the two calls are the full reads of the plan (the card lookup and
+    // the page), which read the outing's needs. A vote reads the votes alone.
+    expect(askedOfServer(w.server.calls)).toEqual(dietaryReads(2))
   })
 
   it('shows the person\'s own vote before the database has answered', async () => {

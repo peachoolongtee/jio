@@ -844,8 +844,8 @@ const groupNeeds = (session) => cleanDietary(membersDietary(session, activeIds(s
 // someone needs it). Only the host may drop one or bring it back. How to call: droppedNeeds(session) -> ['halal']
 const droppedNeeds = (session) => cleanDietary(session.dietDropped)
 
-// How many people an outing needs before the others' needs are listed. With two, the others' list would be the other person's
-// own, so it is empty (the server answers the same, backend/src/routes/sessions.js).
+// How many people an outing needs before the others' needs are listed, and before the host may drop a need. With two, the others' list
+// would be the other person's own, so it is empty (the server answers the same: backend/src/services/session-dietary.js).
 const MIN_MEMBERS_FOR_OTHERS = 3
 
 // The needs of everyone in the outing but the signed-in person, together and without names: the ones they cannot take off
@@ -3335,9 +3335,11 @@ export async function confirmDiet(id, dietary, dropped, { confirmed = true } = {
     const planVersion = newestRead.get(id)?.version ?? newestPlanRead.get(id)?.version
     const body = { mine: cleanDietary(dietary), ...(confirmed ? { checked: true } : {}), ...(Number.isInteger(planVersion) ? { planVersion } : {}) }
     if (dropped !== undefined) {
+      // Compared with the list the screen shows (the dropped needs that someone else has), not the server's raw one: a guest whose own need is
+      // dropped sees none dropped, and sends the same. Only the host ever sends `dropped`; a guest who asks for a different list is refused.
       const wanted = cleanDietary(dropped)
       const seen = newestPlanRead.get(id)?.diet ?? (await dietaryStateOf(id))
-      if (wanted.join() !== cleanDietary(seen?.dropped).join()) {
+      if (wanted.join() !== shownDropped(seen).join()) {
         const hostId = newestRead.get(id)?.session?.hostId ?? (await getSession(id)).hostId
         if (hostId !== me()) throw new Error(DROP_HOST_ONLY)
         body.dropped = wanted
@@ -3606,21 +3608,30 @@ function newestPlan(sessionId, ticket, version, make, held) {
   return plan
 }
 
-// The fewest people who must have joined before the server tells a member the needs of the others (backend/src/routes/sessions.js,
-// MIN_MEMBERS_FOR_OTHERS): with two, "the others' needs" would be the one other person's own.
-const MIN_JOINED_FOR_OTHERS = 3
-
 // What the server says of an outing's dietary needs for the signed-in person (GET /api/sessions/:id/dietary, no names): the needs in
 // effect, everyone else's together, the person's own for this outing, whether they confirmed them, and the others' needs the host
-// dropped. It is asked again at every full read of the plan, because the host can change it from another device. A failure to ask is
-// the same as not being told (null): the Vote page then shows no dietary chips, and a card names only the person's own needs.
-// How to call: await dietaryStateOf('3b1f...') -> { dietary: ['halal'], others: ['halal'], mine: [], checked: false, dropped: [] }
-async function dietaryStateOf(sessionId) {
+// dropped. Asked again at every full read of a plan that is voting, because the host can change it from another device. When the
+// server cannot answer (a failure, or the limit) the last good answer stays, so the chips and the cards do not change, and `failed`
+// says so for the page to offer a retry; with no good answer yet `diet` is null.
+// How to call: await readDiet('3b1f...') -> { diet: { dietary: ['halal'], others: ['halal'], mine: [], checked: false, dropped: [] }, failed: false }
+async function readDiet(sessionId) {
   try {
-    return await remote.dietary(sessionId)
+    return { diet: await remote.dietary(sessionId), failed: false }
   } catch {
-    return null
+    return { diet: newestPlanRead.get(sessionId)?.diet ?? null, failed: true }
   }
+}
+
+// The same, without the failure flag, for a write that needs the outing's needs once. How to call: await dietaryStateOf('3b1f...')
+async function dietaryStateOf(sessionId) {
+  return (await readDiet(sessionId)).diet
+}
+
+// The dropped needs a screen shows: those the server lists that someone else has (a guest whose own need is dropped sees none).
+// How to call: shownDropped({ others: ['halal'], dropped: ['halal', 'vegan'] }) -> ['halal']
+const shownDropped = (state) => {
+  const others = cleanDietary(state?.others)
+  return cleanDietary(state?.dropped).filter((need) => others.includes(need))
 }
 
 // The dietary needs the signed-in person may name on the cards of a shared session: their own for this outing, and the others' only
@@ -3630,7 +3641,7 @@ async function dietaryStateOf(sessionId) {
 // How to call: namedNeedsOf(['u1', 'u2', 'u3'], state) -> { needs: ['halal'], complete: true }
 function namedNeedsOf(joined, state) {
   const mine = cleanDietary(state?.mine ?? db.user?.dietary)
-  if (!state || joined.length < MIN_JOINED_FOR_OTHERS) return { needs: mine, complete: false }
+  if (!state || joined.length < MIN_MEMBERS_FOR_OTHERS) return { needs: mine, complete: false }
   return { needs: cleanDietary([...mine, ...state.others]), complete: true }
 }
 
@@ -3641,14 +3652,14 @@ function namedNeedsOf(joined, state) {
 // How to call: dietaryView({ dietary: ['halal'], others: ['halal'], mine: [], checked: false, dropped: [] }, 3) -> { dietary: ['halal'], myDietary: [], ... }
 function dietaryView(state, joinedCount) {
   if (!state?.mine) return {}
-  const open = joinedCount >= MIN_JOINED_FOR_OTHERS
+  const open = joinedCount >= MIN_MEMBERS_FOR_OTHERS
   const others = open ? cleanDietary(state.others) : []
   return {
     dietary: open ? cleanDietary(state.dietary) : cleanDietary(state.mine),
     unconfirmed: false,
     myDietary: cleanDietary(state.mine),
     othersDietary: others,
-    dietDropped: cleanDietary(state.dropped).filter((need) => others.includes(need)),
+    dietDropped: shownDropped({ others, dropped: state.dropped }),
     dietChecked: state.checked !== false,
   }
 }
@@ -3674,8 +3685,19 @@ async function planFromServer(id, { votesOnly = false } = {}) {
   const asked = epoch
   const ticket = ++readCount
   const held = votesOnly ? newestPlanRead.get(id) : null
+  // The outing's needs are asked for only while the session is voting (only then can they change or be shown), and at the same time as the
+  // plan's rows when the session is known to be voting, or not known yet. A session known to be in another state asks nothing; if the rows
+  // then say it is voting, the needs are asked after. Otherwise the last answer stays.
+  const known = newestRead.get(id)?.session?.status
+  const early = held?.read ? null : known === undefined || known === 'voting' ? readDiet(id) : null
   const read = held?.read ? { ...held.read, votes: await remote.readSlotVotes(held.read.slotRows.map((slot) => slot.id), held.read.joined) } : await remote.readPlan(id)
-  const diet = held?.read ? held.diet : await dietaryStateOf(id)
+  const { diet, failed: dietFailed } = held?.read
+    ? { diet: held.diet, failed: held.dietFailed }
+    : early
+      ? await early
+      : read.status === 'voting'
+        ? await readDiet(id)
+        : { diet: newestPlanRead.get(id)?.diet ?? null, failed: false }
   const named = held?.read ? held.named : namedNeedsOf(read.joined, diet)
   await ensureVenues(Object.values(read.optionRows).flatMap((rows) => rows.map((r) => r.venueId)))
   if (asked !== epoch) throw Object.assign(new Error('That was read for another account.'), { code: 'stale' })
@@ -3685,18 +3707,18 @@ async function planFromServer(id, { votesOnly = false } = {}) {
     read.version,
     () => {
       rememberSlots(id, read.slotRows)
-      return planView(read, named, diet)
+      return planView(read, named, diet, dietFailed)
     },
-    { read, named, diet },
+    { read, named, diet, dietFailed },
   )
 }
 
 // A shared session's plan from the rows read for it. `named` is what the person may name of the group's dietary needs (namedNeedsOf):
 // each food place's caveats are worked out here from the place's own diet levels for those needs, and a place the server flagged
 // (`checkNeeds`) that these needs do not account for says only "check it fits everyone's needs". `diet` is the server's word on the
-// outing's dietary needs (dietaryStateOf), or null.
-// How to call: planView(await remote.readPlan('3b1f...'), { needs: ['halal'], complete: false }, null)
-function planView(read, named = { needs: [], complete: false }, diet = null) {
+// outing's dietary needs (readDiet), or null, and `dietFailed` that the last ask for them failed (the page then says so and offers a retry).
+// How to call: planView(await remote.readPlan('3b1f...'), { needs: ['halal'], complete: false }, null, false)
+function planView(read, named = { needs: [], complete: false }, diet = null, dietFailed = false) {
   const area = read.meetingAreaId ? areaById(read.meetingAreaId) : null
   const ids = read.joined
   const startOf = P.toMinutes(read.start)
@@ -3764,6 +3786,7 @@ function planView(read, named = { needs: [], complete: false }, diet = null) {
     area: { ...area },
     radius: read.radius ?? null,
     ...dietaryView(diet, ids.length),
+    ...(dietFailed ? { dietUnavailable: true } : {}),
     ...(forecast ? { weather: forecast } : {}),
     slots,
     voters: P.voters(read.votes, ids),

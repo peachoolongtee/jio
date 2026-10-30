@@ -6,7 +6,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { SERVICE } from '../../components/dev/fakeDatabase.js'
 import { createSessionsRemote } from '../sessionsRemote.js'
-import { KIM_PLACE, SAM_PLACE, THIRD, askedOfServer, voting } from './sessionsWorld.js'
+import { KIM_PLACE, SAM_PLACE, THIRD, askedOfServer, dietaryReads, voting } from './sessionsWorld.js'
 import { SESSION } from './authFixture.js'
 
 beforeAll(() => {
@@ -33,11 +33,11 @@ describe('what the server makes when the host confirms the spot', () => {
     const seen = await kim.api.getPlan(id)
     expect(seen.slots.map((s) => [s.id, idsOf(s)])).toEqual(plan.slots.map((s) => [s.id, idsOf(s)]))
     expect(seen).toMatchObject({ remote: true, radius: null, area: { id: (await sam.api.getSession(id)).meeting.areaId } })
-    // Reading it again, as a reload does, asks the planner for nothing: the server was not called at all.
+    // Reading it again, as a reload does, asks the planner for nothing: the only calls to the server are the two reads of the outing's needs (one per full read).
     w.server.calls.length = 0
     await sam.api.getPlan(id)
     await kim.api.getPlan(id)
-    expect(askedOfServer(w.server.calls)).toEqual([])
+    expect(askedOfServer(w.server.calls)).toEqual(dietaryReads(2))
   })
 
   it('asks for the cards\' places once, and not again for a place already known', async () => {
@@ -45,7 +45,8 @@ describe('what the server makes when the host confirms the spot', () => {
     w.server.calls.length = 0
     await sam.api.getPlan(id)
     await sam.api.getPlan(id)
-    expect(askedOfServer(w.server.calls)).toEqual([])
+    // Two full reads, two reads of the outing's needs, and no request for a place.
+    expect(askedOfServer(w.server.calls)).toEqual(dietaryReads(2))
   })
 
   it('keeps what the planner said of each slot and place for the cards: the notice, the weather, the reasons and the walk', async () => {
