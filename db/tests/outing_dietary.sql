@@ -322,7 +322,7 @@ begin
   insert into public.session_dietary_dropped (session_id, need) values (s2, 'vegan');
   perform pg_temp.as_owner();
   delete from public.sessions where id in (s, s2);
-  select (select count(*) from public.session_member_dietary) + (select count(*) from public.session_dietary_dropped) into n;
+  select (select count(*) from public.session_member_dietary where session_id in (s, s2)) + (select count(*) from public.session_dietary_dropped where session_id in (s, s2)) into n;
   if n <> 0 then raise exception 'FAIL step 32: % rows were left after the outings went', n; end if;
   raise notice 'ok step 32: deleting an outing deletes its rows';
 
