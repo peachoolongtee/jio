@@ -1,10 +1,10 @@
 <script setup>
 // "Confirm dietary needs" (ticket #107): asked of each person once per outing, when it reaches voting, on the Vote page. It
 // opens with the outing's needs already selected, so the group's needs are in front of everyone before they vote. The chips
-// are DietaryChips: a need someone else has is selected with no name, and taking it off asks first ("Unselect halal?"). The
-// person's own picks are for this outing only (kept on the outing; the profile, their standing setting, is left as it is) and
-// rank its places again. Closing it any other way confirms it as it is.
-//   <DietaryConfirm v-model:open="open" :mine="plan.myDietary" :others="plan.othersDietary" :dropped="plan.dietDropped" @confirm="confirm" />
+// are DietaryChips: a need someone else has is selected with no name. Only the host (`canDrop`) can take it off, after a question
+// ("Unselect halal?"); to a guest it is locked, with the reason. The person's own picks are for this outing only (kept on the outing;
+// the profile, their standing setting, is left as it is) and rank its places again. Closing it any other way confirms it as it is.
+//   <DietaryConfirm v-model:open="open" :mine="plan.myDietary" :others="plan.othersDietary" :dropped="plan.dietDropped" :can-drop="isHost" @confirm="confirm" />
 import { computed, ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
@@ -19,6 +19,8 @@ const props = defineProps({
   mine: { type: Array, default: () => [] },
   others: { type: Array, default: () => [] },
   dropped: { type: Array, default: () => [] },
+  // Whether the person may drop a need someone else has: the host only.
+  canDrop: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
   error: { type: String, default: '' },
   title: { type: String, default: 'Confirm dietary needs' },
@@ -64,7 +66,7 @@ function confirm() {
   <ModalDialog v-model:open="open" :title="title" text="Food places for this outing will fit these needs. Your picks are for this outing only, and stay private: the group sees which needs places fit, never whose." @close="confirm">
     <template #content>
       <div data-testid="diet-confirm">
-        <DietaryChips :mine="picked" :others="others" :dropped="droppedNow" :busy="busy" @change="keep" />
+        <DietaryChips :mine="picked" :others="others" :dropped="droppedNow" :can-drop="canDrop" :busy="busy" @change="keep" />
       </div>
       <p v-if="sharedText" class="caption-sm text-muted diet-note" data-testid="diet-locked">{{ sharedText }}</p>
       <p v-if="droppedText" class="caption-sm text-muted diet-note" data-testid="diet-dropped">{{ droppedText }}</p>

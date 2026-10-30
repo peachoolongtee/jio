@@ -803,14 +803,14 @@ async function keepDialog(e) {
 
         <!-- The outing's dietary needs, laid out like "Search within": the label with the needs selected below as tags, then the
              Halal, Vegetarian and Vegan chips the places are filtered by. A tap saves at once; taking off a need someone else has
-             asks first (DietaryChips). -->
+             is the host's alone, and asks first (DietaryChips). -->
         <div v-if="voting && plan?.myDietary" class="diet-edit" data-testid="diet-edit">
           <div class="diet-edit__mine">
             <span class="caption text-muted">Group dietary needs</span>
             <InfoTag v-for="need in shownNeeds" :key="need" :tone="need === 'halal' ? 'halal' : 'veg'" data-testid="diet-mine">{{ needLabel(need) }}</InfoTag>
             <span v-if="!shownNeeds.length" class="caption" data-testid="diet-mine">None</span>
           </div>
-          <DietaryChips :mine="shownMine" :others="plan.othersDietary || []" :dropped="shownDropped" :busy="dietBusy" @change="saveDiet" />
+          <DietaryChips :mine="shownMine" :others="plan.othersDietary || []" :dropped="shownDropped" :can-drop="isHost" :busy="dietBusy" @change="saveDiet" />
         </div>
 
         <SplitView v-model:view="view" label="Places">
@@ -918,7 +918,7 @@ async function keepDialog(e) {
 
     <PlaceDetail v-if="reviewing" :place="reviewing.place" :reviews="reviewing.reviews" :outing="outingIds" :from="session.area.name" @close="closeReviews" />
 
-    <DietaryConfirm v-if="plan" v-model:open="dietOpen" :mine="plan.myDietary || []" :others="plan.othersDietary || []" :dropped="plan.dietDropped || []" :busy="dietBusy" :error="dietError" @confirm="confirmDiet" />
+    <DietaryConfirm v-if="plan" v-model:open="dietOpen" :mine="plan.myDietary || []" :others="plan.othersDietary || []" :dropped="plan.dietDropped || []" :can-drop="isHost" :busy="dietBusy" :error="dietError" @confirm="confirmDiet" />
 
     <ClashDialog v-model:open="showRejoinClash" :clash="rejoinClash" mode="join" />
 
