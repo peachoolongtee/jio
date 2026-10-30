@@ -1849,3 +1849,27 @@ Darryl's UAT items 5 and 6. **The lead's word:** "only the host can drop and for
 |---|---|---|---|
 | Database and server | implementer | `feat/outing-dietary`, off `dev` at `ceab93c` | The migration:<br>- a server-only table of each member's needs for one outing, plus the host's dropped needs;<br>- `session_member_needs` reads the outing's picks first.<br>`GET` and a new `PUT /api/sessions/:id/dietary`, with host-only drops. A change while voting re-picks the places through the existing machinery. The migration gets a rolled-back test file. |
 | Screens | frontend engineer | `feat/outing-dietary-screens`, off `dev` | A real account's Vote gets the chips and "Confirm dietary needs" over the new routes.<br>Host-only "Unselect" of others' needs, demo too.<br>The Photos row opens on the outing's day. |
+- **Results of the two pieces:**
+  - **Database and server** (`feat/outing-dietary`, `56a4404`): two server-only tables, `session_member_needs` preferring the outing's row, `GET`/`PUT /api/sessions/:id/dietary`, and a re-pick while voting through the queued plan run with a `byDiet` banner. Backend suite 2063 passed.
+  - **The live test:** `db/tests/outing_dietary.sql` passed 32 of 32 on the live project, rolled back. Counts unchanged (9 sessions, 6 users, 14 members, 10 invites), `session_member_needs` still `f5e1334…`.
+  - **Screens** (`feat/outing-dietary-screens`, `5314e56`): the chips and the confirm for a real account, host-only drops, and photos on the outing's day. Frontend suite 2873 passed.
+- **Joined on `feat/outing-dietary-integration`:**
+  - backend 2063 passed, also with outbound calls blocked;
+  - build succeeded;
+  - e2e 17 of 17;
+  - the frontend failed 18 tests. The shared-session tests run the real backend on the frontend's stand-in database (`components/dev/fakeDatabase.js`), which has no new tables.
+- **Two reviews, findings to fix:**
+  - **Server:**
+    - a failed run after the needs are written leaves the places stale, and a retry sees no change;
+    - a stored drop outlives its holders and can silently ignore a need in a group of two;
+    - under three joined, `dietary` minus `mine` names the other person's need;
+    - any member can lift the host's drop by adding the need;
+    - the db test counts every row.
+  - **Screens:**
+    - a guest's chip taps can all be refused by a dropped-list mismatch;
+    - a failed or rate-limited read silently hides the chips;
+    - too many reads;
+    - a guest's shared chip note is wrong;
+    - the test helper hides how often the needs are read.
+- **The lead's rule applied:** lifting a drop is the host's alone, like dropping.
+- **One frontend engineer** fixes all of it on `feat/outing-dietary-integration`, both halves, because the findings cross them.
