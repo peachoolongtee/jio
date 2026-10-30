@@ -1796,3 +1796,14 @@ Darryl's UAT file (`uat-2026-10-29/uat-feedback.md`, outside the repo) on branch
 - **Item 3, take back a pending invite:** a × with a confirm on each "Invited" row for the host, on the Invite page and the session page. A real account revokes the personal invitation (`invites.revoked`, which `invites_update_host` already allows); the demo drops the pending member.
 - **Item 1, vouchers used or expired:** "Mark as used" with a confirm, a greyed "Used" group with the date, and "Valid until" with an Expired look after it. Browser storage, as the rest of Rewards.
 - **Item 4, "Works for me" in the map pin's popup on Locate:** the same rules and the same call as the list's toggle.
+
+## Round 44: review of the UAT fixes on `fix/uat-2026-10-29` (2026-10-30)
+
+The lead asked for a review of every fix on Darryl's branch (no pull request), then "do the second one": the session takes it through a review branch, `review/uat-2026-10-29` (Darryl's `08a1cad`, on `dev` at `d380480`), into `dev`. Darryl's branch is left as it is.
+- **Reviews:** one read-only code reviewer and one design reviewer. On `08a1cad` the frontend suite (also with outbound calls blocked), the build and the 15 end-to-end tests passed.
+- **Confirmed by the session in the code:**
+  - a friend whose invitation was taken back or declined, or who opted out, is offered again, and the send fails on the database's one invitation per person per session; sending stops at the first refusal and keeps the picks, so a retry fails again;
+  - a stop's unknown weather repeats the banner's "Weather is checked from the day before" on every stop, in a tag that does not wrap.
+- **Two frontend agents, each in its own worktree on separate files:**
+  - A, invites: the friend list, the send, the take-back's tests and copy, crowded Invited rows on phones, focus after a take-back, the Select chip's name, the streak and pending-row contrast, a cap on the profile's Friends;
+  - B, the rest: the weather tag, the Rewards confirm and focus, the map card's place after its content changes.
