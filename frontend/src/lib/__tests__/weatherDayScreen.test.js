@@ -173,19 +173,26 @@ describe('the itinerary before its day', () => {
     expect(page.all('', 'rain expected')).toHaveLength(0)
   })
 
-  it('shows an old save, whose stops have no weather, as Not known with the line for a stop outside the window, and no error', async () => {
-    const page = await open({ itinerary: itinerary({ stops: stops([null, null]), weather: null }) })
-    expect(marks(page)).toEqual(['Not known', 'Not known'])
+  it('shows an old save, whose stops have no weather, as "Forecast later" with the full reason once, in the line, and no error', async () => {
+    const page = await open({ session: session({ date: '2026-10-12' }), itinerary: itinerary({ stops: stops([null, null]), weather: null }) })
+    expect(marks(page)).toEqual(['Forecast later . Weather is checked from the day before', 'Forecast later . Weather is checked from the day before'])
     expect(page.textOf(lines(page)[0])).toContain('Weather is checked from the day before')
     expect(page.all('', 'undefined')).toHaveLength(0)
     expect(page.all('p').filter((p) => p.props.role === 'alert')).toHaveLength(0)
   })
 
-  it('reads a stop outside the forecast window as Not known too', async () => {
+  it('reads a stop outside the forecast window as "Forecast later" too, and keeps the long sentence out of the mark itself', async () => {
     const outside = { state: 'unknown', rainLikely: false, source: 'none', basis: 'none', reason: 'outside_window' }
-    const page = await open({ itinerary: itinerary({ stops: stops([outside, outside]), weather: { source: 'none', basis: 'none', reason: 'outside_window' } }) })
-    expect(marks(page)).toEqual(['Not known', 'Not known'])
+    const page = await open({ session: session({ date: '2026-10-12' }), itinerary: itinerary({ stops: stops([outside, outside]), weather: { source: 'none', basis: 'none', reason: 'outside_window' } }) })
+    expect(marks(page)).toEqual(['Forecast later . Weather is checked from the day before', 'Forecast later . Weather is checked from the day before'])
+    const visible = page.all().filter((el) => el.props['data-testid'] === 'weather-mark').map((el) => el.children.filter((c) => c.type === 'text').map((c) => c.text).join('').trim())
+    for (const text of visible) expect(text.length).toBeLessThan(20)
     expect(page.textOf(lines(page)[0])).toContain('Weather is checked from the day before')
+  })
+
+  it('says only "Weather not known" for a stop later today whose forecast never arrived, not that it is checked from the day before', async () => {
+    const page = await open({ itinerary: itinerary({ stops: stops([null, null]), weather: null }) })
+    expect(marks(page)).toEqual(['Weather not known', 'Weather not known'])
   })
 
   it('says "Indoor" for an indoor stop when rain is likely there, and not in the warning tone', async () => {
@@ -325,7 +332,7 @@ describe('the check on the day', () => {
   it('says the weather is not available when the first check fails and the plan kept nothing', async () => {
     api.checkStopWeather.mockRejectedValue(new Error('down'))
     const page = await open({ itinerary: itinerary({ stops: stops([null, null]), weather: null }) })
-    expect(marks(page)).toEqual(['Not known', 'Not known'])
+    expect(marks(page)).toEqual(['No forecast . Weather is not available right now', 'No forecast . Weather is not available right now'])
     expect(page.textOf(lines(page)[0])).toContain('Weather is not available right now')
   })
 
@@ -333,7 +340,7 @@ describe('the check on the day', () => {
     const down = { state: 'unknown', rainLikely: false, source: 'unavailable', basis: 'none', reason: 'unavailable' }
     api.checkStopWeather.mockResolvedValue({ checkedAt: Date.now(), stops: { eat: down, activity: down }, weather: { source: 'unavailable', basis: 'none', reason: 'unavailable' } })
     const page = await open()
-    expect(marks(page)).toEqual(['Not known', 'Not known'])
+    expect(marks(page)).toEqual(['No forecast . Weather is not available right now', 'No forecast . Weather is not available right now'])
     expect(page.textOf(lines(page)[0])).toContain('Weather is not available right now')
   })
 

@@ -153,7 +153,7 @@ export async function createSession(page, { title, day = daysAhead(3), start, en
 // fairest spot" and ask everyone to share where they start. Ends on the Locate step. Friends are named as in the list ("Darius").
 // How to call: await inviteAndStart(page, ['Darius', 'Nicole'])
 export async function inviteAndStart(page, friends) {
-  for (const name of friends) await page.getByRole('button', { name: `Invite ${name}` }).click()
+  for (const name of friends) await page.getByRole('button', { name: `Select ${name}`, exact: true }).click()
   await page.getByRole('button', { name: `Send ${friends.length} ${friends.length === 1 ? 'invite' : 'invites'}` }).click()
   await page.getByRole('button', { name: 'Back to session' }).click()
   // In the demo the friends accept one after another, a moment apart. A friend who has not accepted when the session starts is

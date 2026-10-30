@@ -1789,3 +1789,45 @@ The lead's session runs `db/tests/no_clashing_meetups.sql` with the migration on
   - rows are unchanged (7 sessions, 5 users, 10 members, 6 invites).
 - **Not run on the live project before applying:** six of the eight `db/tests` files (PGlite only).
 - **After applying, the lead ran the other six `db/tests` on the live project** in the SQL editor, each with the clash migration installed and rolled back. They are `apply_session_plan`, `invites_access`, `meeting_spots_access`, `session_meet_by_access`, `session_plan_access` and `slot_details_access`. All passed. All eight database tests have now passed on the live project with the rule.
+
+## Round 43: the UAT of 29 October, items 1, 3 and 4 (2026-10-30)
+
+Darryl's UAT file (`uat-2026-10-29/uat-feedback.md`, outside the repo) on branch `fix/uat-2026-10-29`. Items 7 and 2 were built in the session itself and pushed (`0e8ff5f`, `cb63025`). Items 5, 6 and 8 need a database change and wait for the lead. Three frontend agents, each in its own worktree on separate files, commit to their own branches; the session merges each into `fix/uat-2026-10-29`, takes a screenshot, and pushes only at Darryl's word.
+- **Item 3, take back a pending invite:** a × with a confirm on each "Invited" row for the host, on the Invite page and the session page. A real account revokes the personal invitation (`invites.revoked`, which `invites_update_host` already allows); the demo drops the pending member.
+- **Item 1, vouchers used or expired:** "Mark as used" with a confirm, a greyed "Used" group with the date, and "Valid until" with an Expired look after it. Browser storage, as the rest of Rewards.
+- **Item 4, "Works for me" in the map pin's popup on Locate:** the same rules and the same call as the list's toggle.
+
+## Round 44: review of the UAT fixes on `fix/uat-2026-10-29` (2026-10-30)
+
+The lead asked for a review of every fix on Darryl's branch (no pull request), then "do the second one": the session takes it through a review branch, `review/uat-2026-10-29` (Darryl's `08a1cad`, on `dev` at `d380480`), into `dev`. Darryl's branch is left as it is.
+- **Reviews:** one read-only code reviewer and one design reviewer. On `08a1cad` the frontend suite (also with outbound calls blocked), the build and the 15 end-to-end tests passed.
+- **Confirmed by the session in the code:**
+  - a friend whose invitation was taken back or declined, or who opted out, is offered again, and the send fails on the database's one invitation per person per session; sending stops at the first refusal and keeps the picks, so a retry fails again;
+  - a stop's unknown weather repeats the banner's "Weather is checked from the day before" on every stop, in a tag that does not wrap.
+- **Two frontend agents, each in its own worktree on separate files:**
+  - A, invites: the friend list, the send, the take-back's tests and copy, crowded Invited rows on phones, focus after a take-back, the Select chip's name, the streak and pending-row contrast, a cap on the profile's Friends;
+  - B, the rest: the weather tag, the Rewards confirm and focus, the map card's place after its content changes.
+- **Results, both agents' branches merged (`review/uat-a`, `review/uat-b`):**
+  - **Invites:**
+    - friends who cannot be invited by name are left off (`canInviteByName` in `lib/session.js`, the session's `namedInvites`), and a send carries on past one refusal and drops what was sent from the picks;
+    - Kim's taken-back invitation is refused and the session's link still admits her (tested);
+    - the confirm says the take-back is final for a name;
+    - the Invited tag sits under the name below 480 px;
+    - focus goes to the list's heading with a polite "Kim's invite taken back";
+    - the chip reads "Select Ana";
+    - the streak pill is 4.85:1, and the pending row's text is no longer faded;
+    - the profile shows six friends, with "Show N more".
+  - **The rest:**
+    - a stop with no forecast reads "Forecast later" or "No forecast" (on its own day "Weather not known"), with the full reason once in the line under the stops and in the hint;
+    - "Mark as used?" puts "Not now" first, focuses the Used heading and says "Marked as used", and no longer repeats Used and Expired as tags;
+    - the map card is placed again when its size changes;
+    - a busy chip dims.
+- **Checked by the session (merged branch):**
+  - frontend suite under `TZ=UTC`, also with outbound calls blocked: 2842 passed, 173 files, both times;
+  - build: succeeded;
+  - the 15 end-to-end tests twice: 30 of 30;
+  - a throwaway Playwright check at 320 px: the stop mark is "Forecast later", 116 px wide; the Invited row's name gets 110 px beside the ×; no horizontal overflow on either page.
+- **Left as they are:**
+  - names in the friend picker's rows still truncate beside the Select chip at 320 px;
+  - on the plan's day before the first weather check returns, the line under the stops can still say "checked from the day before" while a mark says "Weather not known";
+  - "Upcoming" on the profile includes overdue sessions, which Darryl's test pins.

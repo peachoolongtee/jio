@@ -2,11 +2,12 @@
 // Real, focusable pins laid over the Locate screen's map, one per meeting spot, each with a small card of the spot's
 // details that opens AT the pin. The same pins and card as Home's (MeetupPins), on a Leaflet map.
 //   <PlannerMap ref="map" ... @view="pins.refresh()" />
-//   <SpotPins ref="pins" :spots="spots" :selected-id="shown" :project="(lat, lng) => map.project(lat, lng)" :names="nameOf"
-//             my-id="ian" confirmed-id="bugis" @select="picked = $event" />
+//   <SpotPins ref="pins" :spots="spots" :session="session" :selected-id="shown" :project="(lat, lng) => map.project(lat, lng)"
+//             :names="nameOf" my-id="ian" confirmed-id="bugis" @select="picked = $event" />
 // Give it the same box as the map (it fills its parent, which must be positioned). Call refresh() whenever the map moves
 // (PlannerMap's `view` event): a pin is placed from the map's own projection, so it stays on its area.
-// spots: the session's spots as the screen lists them (spotsToShow). project: (lat, lng) => { x, y } in px from the map's top-left, or null before the map exists.
+// spots: the session's spots as the screen lists them (spotsToShow). session: the session summary; with it the card has
+// "Works for me" while the group is choosing (SpotCard), without it the card only reads. project: (lat, lng) => { x, y } in px from the map's top-left, or null before the map exists.
 // Each pin is a button with the spot's number in its head (the number on its row) and a name a screen reader can say.
 // The selected pin is larger, filled red with a white head, and bobs; a click or Enter selects it (so does a row).
 // The card (one at a time, never changes the selection):
@@ -14,15 +15,20 @@
 //   a keyboard   focus on the pin (a mouse click does not count); Escape closes it and keeps focus on the pin
 //   a touch      a tap selects the pin and opens its card; a tap elsewhere or on another pin closes or moves it
 // It sits above the pin (below or beside when there is no room), slides to stay in the map's box and, on a phone, may use
-// the viewport (lib/homeMeetups.js placeCard). It is not a dialog: no backdrop, no focus trap.
+// the viewport (lib/homeMeetups.js placeCard), and is placed again when its own size changes (lib/sizeWatch.js). It is not a dialog: no backdrop, no focus trap. Its "Works for me" sits
+// inside the pin's wrapper, so pressing it neither closes a card a tap opened nor lets a hovered or focused one fade.
 // Only areas are shown, never a member's exact place.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { barHeights } from '@/lib/bars.js'
 import { placeCard } from '@/lib/homeMeetups.js'
-import { ABOUT_NOTE, byLine, pinName, tripsLine, worksForText } from './spotText.js'
+import { sizeWatch } from '@/lib/sizeWatch.js'
+import SpotCard from './SpotCard.vue'
+import { pinName } from './spotText.js'
 
 const props = defineProps({
   spots: { type: Array, default: () => [] },
+  // The session summary (lib/api.js), for the card's "Works for me"; null leaves the card with no control.
+  session: { type: Object, default: null },
   selectedId: { type: String, default: '' },
   project: { type: Function, required: true },
   // (id) => name, for the card.
@@ -169,16 +175,20 @@ function boxes() {
 }
 // Measure the card once it is in the page and put it by its pin. The wrapper has no size: its corner is the pin's tip.
 let placedFor = ''
+// The open card's size is watched, so a new error line or a changed "works for" count places it again and it never runs past the
+// map's edge. The same card placed again keeps showing while it moves.
+const resized = sizeWatch(() => place(openId.value))
 // How to call: await place('bugis') (or place('') to clear)
 async function place(id) {
   // The same card placed again (its pin was selected and grew) keeps showing while it moves; a new one starts hidden.
   if (id !== placedFor) placement.value = null
   placedFor = id
-  if (!id) return
+  if (!id) return resized.stop()
   await nextTick()
   const card = layer.value?.querySelector(`[id="${cardId(id)}"]`)
   const anchor = card?.parentElement
   if (!anchor) return
+  resized.watch(card)
   const tip = { x: anchor.getBoundingClientRect().x, y: anchor.getBoundingClientRect().y }
   const { map, viewport } = boxes()
   const reach = id === props.selectedId ? REACH.selected : REACH.rest
@@ -198,6 +208,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   clearTimers()
+  resized.stop()
   cancelAnimationFrame(frame)
   document.removeEventListener('pointerdown', onOutside)
   window.removeEventListener('resize', hide)
@@ -240,11 +251,7 @@ onBeforeUnmount(() => {
       </button>
       <Transition name="scard">
         <div v-if="pin.spot.areaId === openId" :id="cardId(pin.spot.areaId)" class="scard" :data-side="placement?.side" :style="cardStyle">
-          <p class="scard__name title-md">{{ pin.spot.area.name }}</p>
-          <p v-if="pin.spot.areaId === confirmedId" class="body-sm"><strong>Confirmed</strong></p>
-          <p class="caption-sm text-muted">{{ byLine(pin.spot, myId) }}<template v-if="pin.spot.here"> · We are here already</template></p>
-          <p v-if="tripsLine(pin.spot)" class="body-sm tnum" :title="pin.spot.approximate ? ABOUT_NOTE : undefined">{{ tripsLine(pin.spot) }}</p>
-          <p class="body-sm" :class="{ 'text-muted': !pin.spot.approvalCount }">{{ worksForText(pin.spot) }}</p>
+          <SpotCard :spot="pin.spot" :session="session" :my-id="myId" :confirmed="pin.spot.areaId === confirmedId" />
         </div>
       </Transition>
     </div>
@@ -303,7 +310,6 @@ onBeforeUnmount(() => {
 
 /* The card: white, flat with the float shadow, a small caret toward the pin. Its side and place come from placeCard. */
 .scard { position: absolute; z-index: 1; display: flex; flex-direction: column; gap: var(--spacing-xs); width: 264px; max-width: calc(100vw - 16px); padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); color: var(--ink); text-align: left; pointer-events: auto; }
-.scard p { margin: 0; overflow-wrap: anywhere; }
 .scard::before { content: ""; position: absolute; width: 10px; height: 10px; border: 1px solid var(--hairline); background: var(--canvas); transform: rotate(45deg); }
 .scard[data-side="above"]::before { bottom: -6px; left: calc(var(--caret) - 5px); border-top-color: transparent; border-left-color: transparent; }
 .scard[data-side="below"]::before { top: -6px; left: calc(var(--caret) - 5px); border-right-color: transparent; border-bottom-color: transparent; }

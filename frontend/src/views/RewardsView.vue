@@ -3,9 +3,13 @@
 //   - The balance sits at the top right; the + beside it opens a small popover on how JioCoins are earned.
 //   - Café vouchers, filtered by category and, with "Can claim", to the ones the balance covers. Redeeming one asks first, then shows its code and lowers the balance. A voucher that costs
 //     more than the balance has a disabled Claim button, and the JioCoins that are missing are written beside it.
-//   - Your vouchers: every code redeemed so far.
+//   - Your vouchers: every code redeemed so far, each valid for a while after it is claimed (lib/vouchers.js). A usable code has
+//     "Mark as used", which asks first; a used code moves to a greyed "Used" group with the day it was used, and a code past its
+//     last day to a greyed "Expired" group, where it can no longer be marked. Both groups sit below the usable codes. Each group's
+//     heading says the state once, so a row does not repeat it. After a code is marked, focus goes to the "Used" heading (the button
+//     that opened the dialog is gone) and a polite live region says "Marked as used".
 import { coins } from '@/lib/currency.js'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
@@ -19,6 +23,8 @@ import { useGroupsStore } from '@/stores/groups.js'
 import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
 import { REWARD_CATEGORIES } from '@/lib/mock/rewards.js'
 import { vRadioGroup } from '@/lib/radioGroup.js'
+import { useNow } from '@/lib/useNow.js'
+import { dayLabel, voucherGroups } from '@/lib/vouchers.js'
 
 const groups = useGroupsStore()
 const confirming = ref(null)
@@ -56,6 +62,43 @@ const shownRewards = computed(() =>
   groups.rewards.filter((r) => (category.value === 'all' || r.category === category.value) && (!claimable.value || r.cost <= points.value)),
 )
 const iconFor = (reward) => REWARD_CATEGORIES.find((c) => c.id === reward.category)?.icon || 'drink'
+
+// The claimed codes, usable first, then used, then expired, on a clock that moves so a code greys out once its last day passes.
+const now = useNow()
+const mine = computed(() => voucherGroups(groups.redemptions, now.value))
+// The code being marked as used, while "Mark as used?" asks.
+const using = ref(null)
+const useBusy = ref(false)
+const useError = ref('')
+// The words for a screen reader after a code is marked, and the "Used" heading that takes focus then.
+const announcement = ref('')
+const usedHead = ref(null)
+
+// Asks before a code is marked as used. How to call: askUse(redemption)
+function askUse(redemption) {
+  useError.value = ''
+  using.value = redemption
+}
+
+// Marks the code in the dialog as used, then closes it; a refusal (it expired meanwhile, say) stays in the dialog. The button that
+// opened the dialog leaves the page with the code, so focus goes to the "Used" heading once the page has redrawn, and the live
+// region says what happened (cleared first, so a second code is announced too).
+// How to call: await markUsed()
+async function markUsed() {
+  useBusy.value = true
+  useError.value = ''
+  try {
+    await groups.markUsed(using.value.id)
+    using.value = null
+    announcement.value = ''
+    await nextTick()
+    usedHead.value?.focus()
+    announcement.value = 'Marked as used'
+  } catch (e) {
+    useError.value = e.message
+  }
+  useBusy.value = false
+}
 
 async function redeem() {
   busy.value = true
@@ -139,15 +182,53 @@ async function redeem() {
 
       <section v-if="groups.redemptions.length" class="section" aria-labelledby="mine-head">
         <h2 id="mine-head" class="display-sm">Your vouchers</h2>
-        <ul class="stack">
-          <li v-for="r in groups.redemptions" :key="r.id" class="code-row">
+        <p class="sr-only" role="status" data-testid="voucher-status">{{ announcement }}</p>
+        <p v-if="!mine.usable.length" class="body-sm text-muted" data-testid="no-usable-vouchers">No codes to use right now.</p>
+        <ul v-else class="stack" data-testid="usable-vouchers">
+          <li v-for="r in mine.usable" :key="r.id" class="code-row">
             <span class="stack">
-              <span class="title-sm">{{ r.reward.offer }}</span>
-              <span class="caption-sm text-muted">{{ r.reward.cafe }}</span>
+              <span class="title-sm">{{ r.reward?.offer }}</span>
+              <span class="caption-sm text-muted">{{ r.reward?.cafe }}</span>
+              <span v-if="r.validUntil" class="caption-sm text-muted">Valid until {{ dayLabel(r.validUntil) }}</span>
             </span>
-            <code class="code">{{ r.code }}</code>
+            <span class="code-row__end">
+              <code class="code">{{ r.code }}</code>
+              <AppButton variant="secondary" small @click="askUse(r)">Mark as used</AppButton>
+            </span>
           </li>
         </ul>
+
+        <template v-if="mine.used.length">
+          <h3 id="used-head" ref="usedHead" class="title-md code-group" tabindex="-1">Used</h3>
+          <ul class="stack" aria-labelledby="used-head" data-testid="used-vouchers">
+            <li v-for="r in mine.used" :key="r.id" class="code-row is-done">
+              <span class="stack">
+                <span class="title-sm">{{ r.reward?.offer }}</span>
+                <span class="caption-sm">{{ r.reward?.cafe }}</span>
+                <span class="caption-sm">Used on {{ dayLabel(r.usedAt) }}</span>
+              </span>
+              <span class="code-row__end">
+                <code class="code">{{ r.code }}</code>
+              </span>
+            </li>
+          </ul>
+        </template>
+
+        <template v-if="mine.expired.length">
+          <h3 id="expired-head" class="title-md code-group">Expired</h3>
+          <ul class="stack" aria-labelledby="expired-head" data-testid="expired-vouchers">
+            <li v-for="r in mine.expired" :key="r.id" class="code-row is-done">
+              <span class="stack">
+                <span class="title-sm">{{ r.reward?.offer }}</span>
+                <span class="caption-sm">{{ r.reward?.cafe }}</span>
+                <span class="caption-sm">Was valid until {{ dayLabel(r.validUntil) }}</span>
+              </span>
+              <span class="code-row__end">
+                <code class="code">{{ r.code }}</code>
+              </span>
+            </li>
+          </ul>
+        </template>
       </section>
     </div>
 
@@ -166,10 +247,24 @@ async function redeem() {
         <div v-if="redeemed" class="stack gap-sm">
           <span class="body-md">{{ redeemed.reward.offer }} · {{ redeemed.reward.cafe }}</span>
           <code class="code code--big">{{ redeemed.code }}</code>
+          <span v-if="redeemed.validUntil" class="body-sm">Valid until {{ dayLabel(redeemed.validUntil) }}</span>
           <span class="caption text-muted">A demo code only. Balance <CoinBadge :amount="redeemed.points" />.</span>
         </div>
       </template>
       <AppButton block @click="redeemed = null">Done</AppButton>
+    </ModalDialog>
+
+    <ModalDialog :open="!!using" title="Mark as used?" @update:open="(v) => !v && (using = null)">
+      <template #content>
+        <div v-if="using" class="stack gap-sm">
+          <span class="body-md">{{ using.reward?.offer }} · {{ using.reward?.cafe }}</span>
+          <code class="code">{{ using.code }}</code>
+          <span class="caption text-muted">Do this once the café has taken the code. It moves to Used and cannot be undone.</span>
+        </div>
+        <p v-if="useError" class="body-sm text-error" role="alert">{{ useError }}</p>
+      </template>
+      <AppButton block variant="secondary" @click="using = null">Not now</AppButton>
+      <AppButton block :disabled="useBusy" @click="markUsed">Mark as used</AppButton>
     </ModalDialog>
   </main>
 </template>
@@ -203,7 +298,13 @@ async function redeem() {
 .voucher__icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--rounded-full); background: var(--cat-drink-bg); color: var(--cat-drink-fg); }
 .voucher__cost { padding: var(--spacing-xxs) var(--spacing-sm); border: 1px solid var(--ink); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font: var(--text-badge); }
 .voucher.is-short .voucher__cost { border-color: var(--hairline); background: var(--surface-strong); color: var(--muted); }
-.code-row { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); min-height: 56px; border-bottom: 1px solid var(--hairline-soft); }
+.code-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm) var(--spacing-md); min-height: 56px; padding: var(--spacing-sm) 0; border-bottom: 1px solid var(--hairline-soft); }
+.code-row__end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm); }
+/* Used and expired codes: greyed, still readable (muted is 5.4:1 on white), the code struck through so it is not read out at a till. */
+.code-row.is-done { color: var(--muted); }
+.code-row.is-done .code { color: var(--muted); text-decoration: line-through; }
+.code-group { margin-top: var(--spacing-lg); color: var(--muted); }
+.code-group:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: var(--rounded-xs); }
 .code { padding: var(--spacing-xs) var(--spacing-sm); border-radius: var(--rounded-xs); background: var(--surface-strong); font: var(--text-caption); letter-spacing: 1px; }
 .code--big { align-self: flex-start; padding: var(--spacing-sm) var(--spacing-base); font: var(--text-display-sm); }
 </style>

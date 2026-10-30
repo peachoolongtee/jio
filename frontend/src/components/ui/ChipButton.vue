@@ -5,7 +5,8 @@
 // Without it the chip is a toggle. `check` shows a tick when selected.
 // The `leading` slot holds an avatar or an icon.
 // Set --chip-on (for example to a category colour) to fill the selected chip with it instead of ink.
-// A disabled chip stays focusable (aria-disabled) and ignores clicks, so focus is not lost while a request runs.
+// A disabled chip stays focusable (aria-disabled) and ignores clicks, so focus is not lost while a request runs. A chip given
+// aria-busy="true" dims while its change is saved.
 // A set of radio chips gets one Tab stop and the arrow keys from v-radio-group on its radiogroup.
 import AppIcon from './AppIcon.vue'
 
@@ -90,6 +91,9 @@ function onClick(event) {
 /* A disabled chip that is not chosen fades. A chosen one keeps its fill and white text, so it stays readable. */
 .chip[aria-disabled="true"] { cursor: not-allowed; }
 .chip[aria-disabled="true"]:not(.is-selected) .chip__pill { border-color: var(--hairline); color: var(--muted-soft); }
+/* A chip that is saving (aria-busy) dims and shows the progress cursor, and stays enabled so the keyboard focus stays. */
+.chip[aria-busy="true"] { cursor: progress; }
+.chip[aria-busy="true"] .chip__pill { opacity: 0.6; }
 /* The focus ring sits on the pill, not on the larger tap area. */
 .chip:focus-visible { outline: none; }
 .chip:focus-visible .chip__pill { outline: 2px solid var(--ink); outline-offset: 2px; }

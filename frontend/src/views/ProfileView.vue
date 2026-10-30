@@ -5,9 +5,11 @@
 //   also has "Add friend" / "Friends" under the numbers (in the sample world only); the signed-in person's own has
 //   "Edit profile" there (/profile/edit), and nobody else's does. The signed-in person's own
 //   has no create button: the navbar has one.
-//   Then the meetup graph, and the signed-in person's sessions or the other person's recent activity. The signed-in
-//   person's own also lists Suggested people (anyone they are not friends with yet), each opening their profile, with
-//   "Add friend" in the sample world. These used to be on the invite page, which now shows friends only (ticket #121).
+//   Then the meetup graph, and the signed-in person's sessions or the other person's recent activity. The sessions have
+//   time chips, All, Upcoming and Completed (lib/profileSessions.js), styled like the ones on Rewards. The signed-in
+//   person's own also lists their Friends (for a real account, the people they have shared a session with; the first six, and
+//   "Show N more" for the rest), then
+//   Suggested people (anyone they are not friends with yet), each opening their profile, with "Add friend" in the sample world. These used to be on the invite page, which now shows friends only (ticket #121).
 //   The signed-in person's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
 //   the demo" note, because other people's profiles are hand-written.
 //   Signing out of a local account (one that lives only in this browser) erases everything saved here, so its dialog
@@ -22,6 +24,7 @@ import { format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import BannerNote from '@/components/ui/BannerNote.vue'
+import ChipButton from '@/components/ui/ChipButton.vue'
 import CoinBadge from '@/components/ui/CoinBadge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import GridPulse from '@/components/ui/GridPulse.vue'
@@ -38,6 +41,9 @@ import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 import { personColour } from '@/lib/people.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
+import { EMPTY_TEXT, SESSION_FILTERS, profileSessions } from '@/lib/profileSessions.js'
+import { useNow } from '@/lib/useNow.js'
+import { vRadioGroup } from '@/lib/radioGroup.js'
 
 const props = defineProps({ id: { type: String, default: '' } })
 
@@ -79,6 +85,10 @@ watch(() => props.id, (id) => id === auth.myId && router.replace('/profile'), { 
 const person = computed(() => groups.profiles[personId.value])
 // The sessions listed on your own profile: all of them, unless the demo tour is on (lib/sessionFilter.js).
 const sessions = computed(() => visibleSessions(events.sessions))
+// The time chip chosen, and the sessions it shows in its order. The clock moves a session to the top while it is live.
+const sessionFilter = ref('all')
+const now = useNow()
+const shownSessions = computed(() => profileSessions(sessions.value, sessionFilter.value, now.value))
 const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const dateText = (d) => format(parseISO(d), 'd MMM yyyy')
 const colour = computed(() => personColour(personId.value))
@@ -88,6 +98,13 @@ const ordinal = (n) => {
   const v = n % 100
   return n + (s[(v - 20) % 10] || s[v] || s[0])
 }
+// The signed-in person's friends: the ones they added (the demo and local accounts), or the people they have shared a session
+// with (a real account, ticket #125).
+// Six show, as with Suggested below; "Show N more" opens the rest, and "Show fewer" closes them again.
+const FRIENDS_SHOWN = 6
+const allFriends = computed(() => (isMe.value ? groups.friends : []))
+const showAllFriends = ref(false)
+const friends = computed(() => (showAllFriends.value ? allFriends.value : allFriends.value.slice(0, FRIENDS_SHOWN)))
 // People the signed-in person could add, at most six.
 const suggested = computed(() => (isMe.value ? groups.suggested.slice(0, 6) : []))
 const adding = ref('')
@@ -182,6 +199,27 @@ async function signOut() {
           <MeetupGraph :history="person.history" :planned="person.planned" />
         </section>
 
+        <!-- The signed-in person: their friends, opening each one's profile. -->
+        <section v-if="allFriends.length" class="section" aria-labelledby="friends-head" data-testid="profile-friends">
+          <div class="section__head">
+            <h2 id="friends-head" class="display-sm">Friends</h2>
+          </div>
+          <ul class="suggested">
+            <li v-for="p in friends" :key="p.id" class="suggested__row">
+              <RouterLink :to="`/people/${p.id}`" class="suggested__who">
+                <UserAvatar :name="p.name" :src="p.photo" :person="p.id" :size="44" />
+                <span class="stack suggested__text">
+                  <span class="title-sm truncate">{{ p.name }}</span>
+                  <span class="caption-sm text-muted truncate">@{{ p.username }}<template v-if="p.homeArea"> · {{ p.homeArea }}</template></span>
+                </span>
+              </RouterLink>
+            </li>
+          </ul>
+          <AppButton v-if="allFriends.length > FRIENDS_SHOWN" variant="tertiary" underline :aria-expanded="String(showAllFriends)" data-testid="profile-friends-more" @click="showAllFriends = !showAllFriends">
+            {{ showAllFriends ? 'Show fewer friends' : `Show ${allFriends.length - FRIENDS_SHOWN} more` }}
+          </AppButton>
+        </section>
+
         <!-- The signed-in person: people they could add, opening each one's profile. -->
         <section v-if="suggested.length" class="section" aria-labelledby="suggested-head" data-testid="suggested-people">
           <div class="section__head">
@@ -209,9 +247,15 @@ async function signOut() {
             <h2 id="my-sessions" class="display-sm">Sessions</h2>
           </div>
           <div v-if="!events.loaded" class="stack"><SkeletonRow v-for="n in 2" :key="n" :lines="3" /></div>
-          <ul v-else class="grid-3">
-            <li v-for="s in sessions" :key="s.id"><SessionCard :session="s" :names="nameOf" /></li>
-          </ul>
+          <template v-else>
+            <div class="scroll-x session-filters" role="radiogroup" v-radio-group aria-label="Show sessions">
+              <ChipButton v-for="f in SESSION_FILTERS" :key="f.id" radio :selected="sessionFilter === f.id" @click="sessionFilter = f.id">{{ f.label }}</ChipButton>
+            </div>
+            <p v-if="!shownSessions.length" class="body-md text-muted">{{ EMPTY_TEXT[sessionFilter] }}</p>
+            <ul v-else class="grid-3">
+              <li v-for="s in shownSessions" :key="s.id"><SessionCard :session="s" :names="nameOf" /></li>
+            </ul>
+          </template>
         </section>
 
         <!-- Someone else: recent activity -->
@@ -246,6 +290,8 @@ async function signOut() {
 </template>
 
 <style scoped>
+/* The time chips above the Sessions grid, spaced as the filters on Rewards. */
+.session-filters { margin-bottom: var(--spacing-base); }
 /* ── The top ── */
 .hero { margin-bottom: var(--spacing-lg); }
 /* The banner: the person's colour, deep at one corner and light at the other, with two soft shapes for depth. */
