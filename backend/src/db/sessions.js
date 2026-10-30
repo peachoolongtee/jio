@@ -15,6 +15,8 @@
 //   const state = await loadState(supabase.service, id)
 //   const version = await applyPlan(supabase.service, id, { version: state.session.plan_version, status: state.session.status }, patch)
 
+import { heldByOthers, needsOf, without } from '../services/session-dietary.js'
+
 // The database errors a write is tried again after (deadlock detected, serialization failure). How to call: RETRYABLE.has('40P01') // true
 const RETRYABLE = new Set(['40P01', '40001'])
 
@@ -119,44 +121,33 @@ export async function loadState(service, id) {
   }
 }
 
-// The dietary needs a person can have. Anything else in the database is left out of every answer.
-export const NEEDS = ['halal', 'vegetarian', 'vegan']
-
-// Keeps the needs of the list that are known ones, each once, in the app's order. How to call: knownNeeds(['vegan', 'durian-free', 'vegan']) -> ['vegan']
-export const knownNeeds = (list) => NEEDS.filter((need) => Array.isArray(list) && list.includes(need))
-
 // An outing's dietary needs as the database holds them (db/migrations/20261030000000_jio_outing_dietary.sql), for the server only: every joined
 // member's private needs for THIS outing (their own list for it if they changed or confirmed it, else their profile's: session_member_needs()),
 // which of them have a list of their own for the outing, and the needs the host dropped. Read with the service key; call it only after admission.
-// `rows` still carry the dropped needs, so the host can be told which are dropped and take a drop back; a ranking reads loadNeeds() instead.
+// `rows` still carry the dropped needs, so the host can be told which are dropped and take a drop back; session-dietary.js says which drops are in
+// force (none under three joined) and takes them off for a ranking.
+//
+// A drop never outlives its need: a stored drop that no joined member other than the host holds any more is deleted here (best effort: a failed
+// delete is ignored, as such a drop is not in force anyway) and left out of `dropped`, so a member who joins later with that need is not ignored.
 //
 // How to call:
-//   const { rows, saved, dropped } = await loadOutingDietary(supabase.service, id)
+//   const { rows, saved, dropped } = await loadOutingDietary(supabase.service, id, hostId)
 //   // rows: [{ user_id, dietary, budget_max_per_person, ... }], saved: Map { 'user id' => confirmed_at | null }, dropped: ['halal']
-export async function loadOutingDietary(service, id) {
+export async function loadOutingDietary(service, id, hostId) {
   const [needs, saved, dropped] = await Promise.all([
     service.rpc('session_member_needs', { sid: id }),
     service.from('session_member_dietary').select('user_id, confirmed_at').eq('session_id', id),
     service.from('session_dietary_dropped').select('need').eq('session_id', id),
   ])
+  const rows = unwrap(needs, "the members' needs") ?? []
+  const stored = needsOf((unwrap(dropped, "the outing's dropped needs") ?? []).map((r) => [r.need]))
+  const stale = stored.filter((need) => !heldByOthers(rows, need, hostId))
+  if (stale.length > 0) await service.from('session_dietary_dropped').delete().eq('session_id', id).in('need', stale)
   return {
-    rows: unwrap(needs, "the members' needs") ?? [],
+    rows,
     saved: new Map((unwrap(saved, "the members' needs for the outing") ?? []).map((r) => [String(r.user_id).toLowerCase(), r.confirmed_at ?? null])),
-    dropped: knownNeeds((unwrap(dropped, "the outing's dropped needs") ?? []).map((r) => r.need)),
+    dropped: without(stored, stale),
   }
-}
-
-// Each joined member's private planner needs: { user_id, dietary, budget_max_per_person, needs_step_free }, for the outing: the dietary needs
-// are the member's for this outing, without the ones the host dropped (so every ranking, which reads them here, stops filtering for a dropped
-// need). Only the service key can call the functions, and only a ranking asks: a spot never needs them. Nothing here leaves the server except
-// as which places pass.
-//
-// How to call:
-//   const needs = await loadNeeds(supabase.service, id) // [{ user_id, dietary: ['halal'], budget_max_per_person: 20, needs_step_free: false }]
-export async function loadNeeds(service, id) {
-  const { rows, dropped } = await loadOutingDietary(service, id)
-  if (dropped.length === 0) return rows
-  return rows.map((row) => ({ ...row, dietary: Array.isArray(row.dietary) ? row.dietary.filter((need) => !dropped.includes(need)) : row.dietary }))
 }
 
 // Saves a member's dietary needs for one outing: the list they have for it, and (`confirm`) that they confirmed it. A write with the service key,
@@ -168,6 +159,19 @@ export async function saveMemberDietary(service, id, userId, { dietary, confirm 
   const row = { session_id: id, user_id: userId, ...(dietary !== undefined && { dietary }), ...(confirm && { confirmed_at: new Date().toISOString() }) }
   const { error } = await service.from('session_member_dietary').upsert(row, { onConflict: 'session_id,user_id' })
   if (error) throw new Error(`Could not save the member's dietary needs: ${error.message}`)
+}
+
+// Puts a member's row for an outing back as it was before a request changed it: `before` is { dietary, confirmed_at } to write, or null for no row
+// (the member had none, so theirs is deleted). Used when a request fails after it saved the member's needs, so the failed request leaves nothing behind.
+//
+// How to call:
+//   await restoreMemberDietary(supabase.service, id, userId, { dietary: ['halal'], confirmed_at: null })
+export async function restoreMemberDietary(service, id, userId, before) {
+  const { error } =
+    before === null
+      ? await service.from('session_member_dietary').delete().eq('session_id', id).eq('user_id', userId)
+      : await service.from('session_member_dietary').upsert({ session_id: id, user_id: userId, dietary: before.dietary, confirmed_at: before.confirmed_at }, { onConflict: 'session_id,user_id' })
+  if (error) throw new Error(`Could not restore the member's dietary needs: ${error.message}`)
 }
 
 // Sets the needs the host dropped for an outing to exactly this list: the ones no longer on it are taken back, the new ones are dropped.

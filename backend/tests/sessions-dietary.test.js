@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { loadNeeds } from '../src/db/sessions.js'
+import { loadOutingDietary } from '../src/db/sessions.js'
+import { needsInEffect } from '../src/services/session-dietary.js'
 import { loadPlanData } from '../src/db/venues.js'
 import { createWorld, fakeSupabase, userClient } from './helpers/fake-supabase.js'
 import { addMember, addSession, GUEST, HOST, OTHER, SESSION, startSessionApp, STRANGER } from './helpers/session-app.js'
@@ -226,7 +227,29 @@ describe('PUT /api/sessions/:id/dietary (a member’s own needs for this outing)
     expect((await get(HOST)).body.dietary).toEqual(['vegan'])
   })
 
-  it('has its own limit, shared with the other writes of the session', async () => {
+  it('in a group of two tells the caller their own needs alone, on GET and on PUT, even when theirs is empty and the other person’s is not', async () => {
+    await start({ people: [HOST, GUEST], profiles: { [HOST]: ['vegan'], [GUEST]: [], [OTHER]: [] } })
+    expect((await get(GUEST)).body).toEqual({ dietary: [], others: [], mine: [], checked: false, dropped: [] })
+    const sent = await put(GUEST, { checked: true })
+    expect(sent.body).toMatchObject({ dietary: [], others: [], mine: [], checked: true, dropped: [] })
+    const changed = await put(GUEST, { mine: ['vegetarian'] })
+    expect(changed.body).toMatchObject({ dietary: ['vegetarian'], others: [], mine: ['vegetarian'], dropped: [] })
+    // The host reads their own list alone too; and no answer carries the other person's need.
+    expect((await get(HOST)).body).toEqual({ dietary: ['vegan'], others: [], mine: ['vegan'], checked: false, dropped: [] })
+    expect(JSON.stringify([sent.body, (await get(GUEST)).body])).not.toContain('vegan')
+  })
+
+  it('has its own limit of 20 a minute, counted apart from the other writes and from reading', async () => {
+    await start({ appOptions: { sessionRateLimit: { windowMs: 60_000, max: 60 } } })
+    for (let i = 0; i < 20; i += 1) expect((await put(GUEST, { mine: i % 2 === 0 ? [] : ['halal'] })).status, `change ${i + 1}`).toBe(200)
+    expect((await put(GUEST, { mine: [] })).status).toBe(429)
+    // Another person has their own count, and the guest can still read and make the other writes.
+    expect((await put(OTHER, { mine: [] })).status).toBe(200)
+    expect((await get(GUEST)).status).toBe(200)
+    expect((await t.call('POST', path('/meeting-area'), {}, GUEST)).status).not.toBe(429)
+  })
+
+  it('is held to a lower limit than the other writes when those are lower still', async () => {
     await start({ appOptions: { sessionRateLimit: { windowMs: 60_000, max: 2 } } })
     expect((await put(GUEST, { mine: [] })).status).toBe(200)
     expect((await put(GUEST, { mine: ['halal'] })).status).toBe(200)
@@ -291,40 +314,86 @@ describe('PUT /api/sessions/:id/dietary (the host’s dropped needs)', () => {
     expect(droppedRows()).toEqual([])
   })
 
-  it('keeps a need that is already dropped on the list even when nobody else has it now', async () => {
+  it('goes with its need: when nobody but the host has the need any more the drop is cleared, and the host cannot keep it on the list', async () => {
     await start()
     await put(HOST, { dropped: ['halal'] })
-    // The guest who had halal changes their list for the outing: halal is no longer anyone else's, and still dropped.
-    await put(GUEST, { mine: ['vegetarian'] })
-    expect(droppedRows()).toEqual(['halal'])
-    const res = await put(HOST, { dropped: ['halal', 'vegetarian'] })
+    // The guest who had halal changes their list for the outing: halal is no longer anyone else's, so the drop is gone.
+    const res = await put(GUEST, { mine: ['vegetarian'] })
     expect(res.status).toBe(200)
-    expect(droppedRows().sort()).toEqual(['halal', 'vegetarian'])
+    expect(droppedRows()).toEqual([])
+    expect(res.body.dropped).toEqual([])
+    // Adding it back later is not ignored by the old drop.
+    const back = await put(GUEST, { mine: ['halal'] })
+    expect(back.body).toMatchObject({ dietary: expect.arrayContaining(['halal']), dropped: [] })
+    // The host cannot put a need on the list that no one else has.
+    await put(GUEST, { mine: [] })
+    expect((await put(HOST, { dropped: ['halal'] })).body.error).toBe('need_not_found')
   })
 
-  it('brings a drop back when a member adds the need to their own list', async () => {
+  it('does not count the host’s own need as the one a drop is for', async () => {
+    await start({ profiles: { [HOST]: ['halal'], [GUEST]: ['halal'], [OTHER]: [] } })
+    await put(HOST, { dropped: ['halal'] })
+    expect(droppedRows()).toEqual(['halal'])
+    // Once the guest's halal goes, only the host has it: the host's own need is not dropped by a drop made for the guest's.
+    const res = await put(GUEST, { mine: [] })
+    expect(droppedRows()).toEqual([])
+    expect(res.body).toMatchObject({ dietary: ['halal'], dropped: [] })
+  })
+
+  it('is the host’s alone to lift: a member adding a dropped need to their own list, or removing and adding it, does not undo the drop', async () => {
     await start()
     await put(HOST, { dropped: ['halal'] })
-    const res = await put(OTHER, { mine: ['halal'] })
-    expect(res.body.dropped).toEqual([])
-    expect(droppedRows()).toEqual([])
-    expect(res.body.dietary).toEqual(['halal', 'vegan'])
-    // Sending the list they already have does not bring a drop back: only adding the need does.
-    await put(HOST, { dropped: ['halal'] })
-    await put(OTHER, { mine: ['halal'] })
+    const added = await put(OTHER, { mine: ['halal'] })
+    expect(added.body).toMatchObject({ dropped: ['halal'], dietary: ['vegan'], mine: ['halal'] })
     expect(droppedRows()).toEqual(['halal'])
+    // The guest who had halal removes it and adds it again: still dropped, and OTHER keeps holding it.
+    await put(GUEST, { mine: [] })
+    const again = await put(GUEST, { mine: ['halal'] })
+    expect(again.body).toMatchObject({ dropped: ['halal'], dietary: ['vegan'], mine: ['halal'] })
+    expect(droppedRows()).toEqual(['halal'])
+    // Only the host's list takes it back.
+    expect((await put(HOST, { dropped: [] })).body).toMatchObject({ dropped: [], dietary: ['halal', 'vegan'] })
   })
 
   it('takes a drop off the rankings: the needs a ranking reads are the outing’s, without the dropped ones', async () => {
     await start()
     const service = fakeSupabase(world, null).service
-    expect((await loadNeeds(service, SESSION)).map((n) => n.dietary).sort()).toEqual([[], ['halal'], ['vegan']])
+    const inEffect = async (joined = 3) => {
+      const { rows, dropped } = await loadOutingDietary(service, SESSION, HOST)
+      return needsInEffect({ rows, dropped, joined, hostId: HOST })
+    }
+    expect((await inEffect()).map((n) => n.dietary).sort()).toEqual([[], ['halal'], ['vegan']])
     await put(GUEST, { mine: ['halal', 'vegetarian'] })
     await put(HOST, { dropped: ['halal'] })
-    const needs = await loadNeeds(service, SESSION)
+    const needs = await inEffect()
     expect(needs.map((n) => [...n.dietary].sort())).toEqual([['vegan'], ['vegetarian'], []])
     // The other private fields are untouched.
     expect(needs.every((n) => n.home_area_id === 'bugis' && n.needs_step_free === false)).toBe(true)
+    // With fewer than three joined a drop is never in force.
+    expect((await inEffect(2)).map((n) => [...n.dietary].sort())).toEqual([['vegan'], ['halal', 'vegetarian'], []])
+  })
+
+  it('a drop does not outlive the people it was for: four to two joined, then a late joiner with the need', async () => {
+    await start({ people: [HOST, GUEST, OTHER, STRANGER], profiles: { [HOST]: ['vegan'], [GUEST]: ['halal'], [OTHER]: [], [STRANGER]: [] } })
+    const service = fakeSupabase(world, null).service
+    expect((await put(HOST, { dropped: ['halal'] })).body).toMatchObject({ dietary: ['vegan'], dropped: ['halal'] })
+    // Two leave: only two are joined, so the drop is not in force and nothing is told about the other person's needs.
+    for (const who of [OTHER, STRANGER]) expect((await t.call('DELETE', path('/members/me'), undefined, who)).status).toBe(200)
+    const asGuest = (await get(GUEST)).body
+    expect(asGuest).toEqual({ dietary: ['halal'], others: [], mine: ['halal'], checked: false, dropped: [] })
+    const { rows, dropped } = await loadOutingDietary(service, SESSION, HOST)
+    expect(needsInEffect({ rows, dropped, joined: 2, hostId: HOST }).map((n) => n.dietary)).toContainEqual(['halal'])
+    // The guest with halal leaves too: nobody has it, the drop is cleared from the database at once.
+    expect((await t.call('DELETE', path('/members/me'), undefined, GUEST)).status).toBe(200)
+    expect(droppedRows()).toEqual([])
+    // Two people join later, one with halal: the old drop does not ignore it.
+    world.profile_private.find((p) => p.id === STRANGER).dietary = ['halal']
+    addMember(world, SESSION, STRANGER, { role: 'guest' })
+    addMember(world, SESSION, OTHER, { role: 'guest' })
+    const late = (await get(OTHER)).body
+    expect(late).toMatchObject({ dietary: ['halal', 'vegan'], dropped: [] })
+    const after = await loadOutingDietary(service, SESSION, HOST)
+    expect(needsInEffect({ rows: after.rows, dropped: after.dropped, joined: 3, hostId: HOST }).map((n) => n.dietary)).toContainEqual(['halal'])
   })
 
   it('a stale planVersion is refused for a drop too', async () => {
@@ -456,6 +525,63 @@ describe('a change of the group’s needs while voting picks the places again', 
     const after = optionIds('eat')
     expect(after.length).toBeGreaterThan(0)
     for (const id of after) expect(fits(id, 'vegan'), id).toBe(true)
+  })
+
+  it('a run that fails leaves nothing saved: a retry finds the needs as they were and picks the places again', async () => {
+    await voting()
+    const before = optionIds('eat')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    world.failApply = true
+    const failed = await put(GUEST, { mine: ['vegan'] })
+    expect(failed.status).toBe(500)
+    expect(dietaryRows()).toEqual([])
+    expect(optionIds('eat')).toEqual(before)
+    world.failApply = false
+    const retry = await put(GUEST, { mine: ['vegan'] })
+    expect(retry.status).toBe(200)
+    expect(retry.body).toMatchObject({ dietary: ['vegan'], repicked: true })
+    for (const id of optionIds('eat')) expect(fits(id, 'vegan'), id).toBe(true)
+  })
+
+  it('a failed run puts back a confirmed list and a drop too', async () => {
+    await voting({ [HOST]: [], [GUEST]: ['halal'], [OTHER]: [] })
+    world.session_member_dietary.push({ session_id: SESSION, user_id: GUEST, dietary: ['halal'], confirmed_at: '2026-10-20T08:00:00Z' })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    world.failApply = true
+    expect((await put(GUEST, { mine: ['vegetarian'] })).status).toBe(500)
+    expect(dietaryRows()).toEqual([expect.objectContaining({ user_id: GUEST, dietary: ['halal'], confirmed_at: '2026-10-20T08:00:00Z' })])
+    expect((await put(HOST, { dropped: ['halal'] })).status).toBe(500)
+    expect(droppedRows()).toEqual([])
+    world.failApply = false
+    expect((await put(HOST, { dropped: ['halal'] })).body).toMatchObject({ dropped: ['halal'], repicked: true })
+    // And a drop taken back by a failed run is put back as it was.
+    world.failApply = true
+    expect((await put(HOST, { dropped: [] })).status).toBe(500)
+    expect(droppedRows()).toEqual(['halal'])
+  })
+
+  it('a stale write is tried again, and picks the places for the needs; with a planVersion the caller saw, it answers stale_plan and saves nothing', async () => {
+    await voting()
+    world.staleApply = 1
+    const retried = await put(GUEST, { mine: ['vegan'] })
+    expect(retried.status).toBe(200)
+    expect(retried.body).toMatchObject({ dietary: ['vegan'], repicked: true })
+    for (const id of optionIds('eat')) expect(fits(id, 'vegan'), id).toBe(true)
+
+    // The session moves on between the attempts: the caller's planVersion is no longer the session's.
+    world.staleApply = 1
+    let reads = 0
+    world.hooks.beforeRead = ({ table }) => {
+      if (table === 'sessions' && (reads += 1) === 2) session().plan_version += 1
+      return undefined
+    }
+    const seen = session().plan_version
+    const stale = await put(OTHER, { mine: ['halal'], planVersion: seen })
+    expect(stale.status).toBe(409)
+    expect(stale.body.error).toBe('stale_plan')
+    expect(dietaryRows().find((d) => d.user_id === OTHER)).toBeUndefined()
+    expect(world.hooks.beforeRead).toBeTypeOf('function')
+    expect(reads).toBeGreaterThanOrEqual(2)
   })
 
   it('searching a slot for a place uses the new needs at once', async () => {

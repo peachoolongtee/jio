@@ -141,7 +141,7 @@ export function createVoting({ data, areasById, runs }) {
   //   // { ok, rows: Map(venueId -> result), rankedIds, current: Set, widened, few, empty, weather }
   async function rankSlot(draft, slot, currentIds, ctx, { last = false, exclude = [] } = {}) {
     const centre = areasById.get(draft.session.meeting_area_id)
-    const needs = await ctx.needs()
+    const needs = await ctx.needs(draft)
     const [debts, visits] = await Promise.all([ctx.debts?.(), ctx.visits?.()])
     const members = engineMembers(draft, areasById, needs, centre, debts ?? null)
     const resolved = await runs.resolveWeather({ dateTime: `${draft.session.date}T${fromMinutes(slot.start_minute)}` })
@@ -175,7 +175,7 @@ export function createVoting({ data, areasById, runs }) {
   //   const { result, weather } = await roamAround(draft, { current: { lat: 1.3, lng: 103.8 }, categories: ['eat'], dateTime: '2026-10-25T15:00', minutes: 60 }, ctx)
   async function roamAround(draft, { current, categories, dateTime, minutes }, ctx) {
     const centre = areasById.get(draft.session.meeting_area_id)
-    const needs = await ctx.needs()
+    const needs = await ctx.needs(draft)
     const [debts, visits] = await Promise.all([ctx.debts?.(), ctx.visits?.()])
     const members = engineMembers(draft, areasById, needs, centre, debts ?? null)
     const resolved = await runs.resolveWeather({ dateTime })
@@ -389,7 +389,7 @@ export function createVoting({ data, areasById, runs }) {
   //   const results = await searchSlot(draft, slot, 'ya kun', ctx) // [{ venueId, name, area, category, source, fits, unfit, ... }]
   async function searchSlot(draft, slot, query, ctx) {
     const centre = areasById.get(draft.session.meeting_area_id)
-    const needs = await ctx.needs()
+    const needs = await ctx.needs(draft)
     const members = engineMembers(draft, areasById, needs, centre)
     const text = query.trim()
     const found = searchVenues(

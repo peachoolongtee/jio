@@ -330,8 +330,9 @@ describe('GET /api/sessions/:id/dietary (an outing’s needs, together)', () => 
     world.profile_private.push({ id: STRANGER, dietary: ['vegetarian'], home_area_id: 'bugis', budget_max_per_person: null, needs_step_free: false })
     const asHost = await t.needs(SMALL, HOST)
     expect(asHost.status).toBe(200)
-    expect(asHost.body).toEqual({ dietary: ['halal', 'vegan'], others: [], mine: ['vegan'], checked: false, dropped: [] })
-    expect((await t.needs(SMALL, GUEST)).body).toEqual({ dietary: ['halal', 'vegan'], others: [], mine: ['halal'], checked: false, dropped: [] })
+    // `dietary` is the caller's own list alone: a union would tell each of the two the other's.
+    expect(asHost.body).toEqual({ dietary: ['vegan'], others: [], mine: ['vegan'], checked: false, dropped: [] })
+    expect((await t.needs(SMALL, GUEST)).body).toEqual({ dietary: ['halal'], others: [], mine: ['halal'], checked: false, dropped: [] })
   })
 
   it('tells the others’ needs once three have joined, as a list of needs only: no ids, no counts', async () => {
@@ -357,7 +358,7 @@ describe('GET /api/sessions/:id/dietary (an outing’s needs, together)', () => 
     addMember(world, SMALL, STRANGER, { state: 'opted_out' })
     world.profile_private.push({ id: STRANGER, dietary: ['vegetarian'], home_area_id: 'bugis', budget_max_per_person: null, needs_step_free: false })
     // Three rows, two joined: the others’ list stays empty, and the opted-out person’s need is in neither list.
-    expect((await t.needs(SMALL, HOST)).body).toEqual({ dietary: ['halal', 'vegan'], others: [], mine: ['vegan'], checked: false, dropped: [] })
+    expect((await t.needs(SMALL, HOST)).body).toEqual({ dietary: ['vegan'], others: [], mine: ['vegan'], checked: false, dropped: [] })
   })
 
   it('answers a member who opted out as it answers a stranger: the same 404, and no private read', async () => {
