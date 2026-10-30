@@ -11,7 +11,7 @@ async function reachVote(page) {
   await inviteAndStart(page, ['Darius', 'Nicole'])
   await page.getByRole('button', { name: 'Starting from Add where you are starting' }).click()
   await page.getByRole('textbox', { name: 'Place or postal code' }).fill('Bishan')
-  await page.getByRole('button', { name: 'Bishan MRT station and area' }).click()
+  await page.getByRole('button', { name: 'Bishan MRT station · NS17 · CC15' }).click()
   await expect(page.getByRole('button', { name: 'Starting from Bishan' })).toBeVisible();
 
 

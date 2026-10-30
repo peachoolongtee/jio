@@ -2208,7 +2208,8 @@ export async function searchPlaces(query, { signal, onBuiltIn } = {}) {
   const q = text.toLowerCase()
   if (!q) return { places: [], unavailable: false }
   if (signal?.aborted) throw cancelled()
-  const areas = AREAS.filter((a) => a.name.toLowerCase().includes(q)).map((a) => ({ id: a.id, label: a.name, sub: 'MRT station and area', areaId: a.id, areaName: a.name, near: null }))
+  // A station is found by its name or by one of its codes ("NS17" finds Bishan), and says its codes under its name.
+  const areas = AREAS.filter((a) => a.name.toLowerCase().includes(q) || (a.codes || []).some((c) => c.toLowerCase() === q.replace(/\s+/g, ''))).map((a) => ({ id: a.id, label: a.name, sub: ['MRT station', ...(a.codes || [])].join(' · '), areaId: a.id, areaName: a.name, near: null }))
   onBuiltIn?.(areas.slice(0, PLACE_ROWS))
 
   let found = []

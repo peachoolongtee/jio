@@ -86,9 +86,9 @@ export function mergeCuratedWithCdc(curated, cdc) {
 
 // Mock and CDC venues do not say how far the MRT is, so the "last stop near an MRT" rule could only ever
 // pick curated venues. Estimate it from the nearest station in areas.json, with the frontend's walking
-// formula (5 km/h, streets 25% longer than a straight line). areas.json lists only 37 of Singapore's
-// stations, so the estimate can only be LONGER than the real walk: it may wrongly exclude a venue, never
-// wrongly include one. Labelled mrtWalkEstimated so the UI and the team can tell.
+// formula (5 km/h, streets 25% longer than a straight line). areas.json lists every open MRT station (145 since
+// 30 October 2026; it was 37), but not the LRT, so the estimate can only be LONGER than the real walk: it may wrongly exclude a
+// venue, never wrongly include one. Labelled mrtWalkEstimated so the UI and the team can tell.
 export function withEstimatedMrtWalk(venue, stations) {
   if (venue.mrtWalkMinutes != null) return venue
   let nearest = null
