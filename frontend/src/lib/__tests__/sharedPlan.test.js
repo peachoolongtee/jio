@@ -750,8 +750,9 @@ describe('changing a stop\'s place, the one way', () => {
     await sam.api.replaceStop(id, drink.slotId, options[0].id, undefined, drink.venue.id)
     const call = callsTo(w, 'stopPlace')[0]
     expect(call).toMatchObject({ method: 'PUT', path: `/api/sessions/${id}/stops/${drink.stopId}/place`, body: { venueId: options[0].id, seenVenueId: drink.venue.id, category: 'drink' } })
-    const mine = await sam.api.getItinerary(id)
-    const theirs = await kim.api.getItinerary(id)
+    // With the trips home on both: Sam's app asked for them at its first read, so they may already be there, while Kim's asks now.
+    const mine = await itineraryWithTrips(sam.api, id)
+    const theirs = await itineraryWithTrips(kim.api, id)
     expect(theirs).toEqual(mine)
     expect(stopOf(mine, 'drink').venue.id).toBe(options[0].id)
     expect(stopOf(mine, 'drink').start).toBeGreaterThanOrEqual(drink.start)
