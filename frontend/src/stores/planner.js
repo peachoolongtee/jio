@@ -98,7 +98,9 @@ export const usePlannerStore = defineStore('planner', () => {
   // Confirm the signed-in person's dietary needs for this outing only (the profile is left as it is), and which of the
   // others' needs the group should not filter for.
   // How to call: await planner.confirmDiet(id, ['halal'], [])
-  const confirmDiet = (id, dietary, dropped) => afterReload(id, api.confirmDiet(id, dietary, dropped))
+  // `options.confirmed: false` is a tap on the chips: the needs are saved, the outing is not marked confirmed.
+  // How to call: await planner.confirmDiet(id, ['halal'], [], { confirmed: false })
+  const confirmDiet = (id, dietary, dropped, options) => afterReload(id, api.confirmDiet(id, dietary, dropped, options))
 
   // A live reload that fails has nowhere to throw to: the failure is in errors[id]. A live vote reads the votes alone.
   // How to call: reload('3b1f...'); reload('3b1f...', { votesOnly: true })

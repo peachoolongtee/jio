@@ -38,7 +38,7 @@
 //
 // `client()` is the Supabase client (or null), `me()` the signed-in user's id, `backend` the calls to the Jio server
 // (`removeMember`, `refreshSpots`, `putSpot`, `deleteSpot`, `confirmSpot`, `knownPlace`, `optOut`, `rejoin`, and from stage 4 `syncPlan`,
-// `setRadius`, `deleteSlot`, `restoreSlots`, `addOption`, `moreOptions`, `swapOption`, `searchSlot`, `venues`, and from stage 5
+// `setRadius`, `getDietary`, `putDietary`, `deleteSlot`, `restoreSlots`, `addOption`, `moreOptions`, `swapOption`, `searchSlot`, `venues`, and from stage 5
 // `suggestOrder`, `tripsHome`, `confirmPlan`, `replan`, `complete`, `patchStop`, `deleteStop`, `reorderStops`, `stopSwap`, `stopChoices`,
 // `changeStopPlace`, `keepRain`, `roam`, `propose`, `resolve`), `now()` the clock
 // in milliseconds.
@@ -124,6 +124,12 @@ export const WORDS = {
   noVenue: 'That place could not be found.',
   doesNotFit: 'That place does not fit this category.',
   hostRadius: 'Only the host can change how far to search.',
+  // Dietary needs for one outing: everyone changes their own, and only the host drops someone else's.
+  hostDiet: "Only the host can change someone else's need.",
+  dietConfirmed: 'Dietary needs can only change while the group is voting.',
+  dietThree: "Someone else's need can be changed once three people have joined.",
+  dietStale: 'The outing changed while you were looking. It is up to date now; try again.',
+  dietUnknown: 'That need could not be found.',
   hostSlots: 'Only the host can remove or bring back a category.',
   memberClash: 'Someone in this meetup already has plans at that time. Pick another time.',
   rejoinClosed: "You can't rejoin once the plan is confirmed.",
@@ -1058,6 +1064,12 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   // session is read again afterwards), so a refusal needs nothing taken back.
   // How to call: await setRadius('3b1f...', 1000)
   const setRadius = (sessionId, metres) => ask(() => backend.setRadius(sessionId, metres), { host_only: WORDS.hostRadius, wrong_status: WORDS.placesClosed })
+  // The outing's dietary needs, as the server tells them (no names), and a change of them: the person's own for this outing, that
+  // they confirmed, or the needs the host drops. A change picks the slots' places again on the server, so the plan is read again
+  // afterwards; the answer says what the server now holds. A refusal rejects with its sentence.
+  // How to call: await dietary('3b1f...'); await setDietary('3b1f...', { mine: ['vegan'], checked: true })
+  const dietary = (sessionId) => ask(() => backend.getDietary(sessionId))
+  const setDietary = (sessionId, body) => ask(() => backend.putDietary(sessionId, body), { host_only: WORDS.hostDiet, wrong_status: WORDS.dietConfirmed, needs_three_people: WORDS.dietThree, stale_plan: WORDS.dietStale, need_not_found: WORDS.dietUnknown })
   // The host takes a category off the list and brings them back. How to call: await removeSlot('3b1f...', '9a2c...'); await restoreSlots('3b1f...')
   const removeSlot = (sessionId, slotId) => ask(() => backend.deleteSlot(sessionId, slotId), { host_only: WORDS.hostSlots, wrong_status: WORDS.placesClosed })
   const restoreSlots = (sessionId) => ask(() => backend.restoreSlots(sessionId), { host_only: WORDS.hostSlots, wrong_status: WORDS.placesClosed })
@@ -1314,5 +1326,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, readPlan, readSlotVotes, suggestOrder, tripsHome, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, changeMeetingPlace, optOut, rejoin, castVote, setRadius, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, revokeInvitation, preview, join, invitations, decline, removeMember, watch }
+  return { list, get, readPlan, readSlotVotes, suggestOrder, tripsHome, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, changeMeetingPlace, optOut, rejoin, castVote, setRadius, dietary, setDietary, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, revokeInvitation, preview, join, invitations, decline, removeMember, watch }
 }

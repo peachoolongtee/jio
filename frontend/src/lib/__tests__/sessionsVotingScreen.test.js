@@ -7,7 +7,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
 import { OTHER, PROFILE, SESSION } from './authFixture.js'
 import { mountScreen, until } from './domless.js'
-import { KIM_PLACE, SAM_PLACE, world } from './sessionsWorld.js'
+import { KIM_PLACE, SAM_PLACE, askedOfServer, world } from './sessionsWorld.js'
 import { SERVICE } from '../../components/dev/fakeDatabase.js'
 
 // The map needs a real browser (Leaflet).
@@ -86,7 +86,7 @@ describe('the places and the way back', () => {
     expect(view.text()).not.toContain('Voting with friends comes next')
     expect(view.text()).toContain('Walking times are from')
     // Nothing was asked of the planner: the page read the database, and the cards' places (once) from the server's place list.
-    expect(w.server.calls.every((c) => c.route === 'venues')).toBe(true)
+    expect(askedOfServer(w.server.calls)).toEqual([])
   })
 
   it('says it is finding places while it loads', async () => {
@@ -155,7 +155,7 @@ describe('voting', () => {
     await until(() => view.text(voteButton(view, name)) === 'Vote')
     expect(w.database.tables.votes).toEqual([])
     // No request went to the Jio server for any of it, and the planner was never asked.
-    expect(w.server.calls.every((c) => c.route === 'venues')).toBe(true)
+    expect(askedOfServer(w.server.calls)).toEqual([])
   })
 
   it('shows the person\'s own vote before the database has answered', async () => {
