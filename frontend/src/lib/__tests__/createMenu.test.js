@@ -1,6 +1,6 @@
-// The navigation's Create (walkthrough, 30 October 2026): a menu asks how to start, "New session" or "Already out", before the create
-// page opens, and a real account (which has no "Already out") goes straight in. Drawn on the in-memory page (domless.js); the
-// "entering a game" move needs a browser, so here it just navigates.
+// The navigation's Create goes straight into the create page, for every account (Faith's walkthrough, 30 October 2026: the menu that
+// asked "New session" or "Already out" first is gone; "Already out" is a link on the create page). Drawn on the in-memory page
+// (domless.js); the "entering a game" move needs a browser, so here it just navigates.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { mountScreen, until } from './domless.js'
@@ -39,43 +39,14 @@ describe('Create in the navigation', () => {
   }
   const button = (view) => view.one('[data-testid=create-button]')
 
-  it('is a menu button that opens New session and Already out, and opens nothing until one is picked', async () => {
+  it('goes straight to the create page for the demo account, with no menu', async () => {
     const { view, router } = await draw()
-    expect(button(view).attrs['aria-haspopup']).toBe('menu')
-    expect(button(view).attrs['aria-expanded']).toBe('false')
+    expect(button(view).attrs['aria-haspopup']).toBeUndefined()
     expect(button(view).attrs['aria-label']).toBe('Create session')
-    expect(view.has('[data-testid=create-menu]')).toBe(false)
     await view.click(button(view))
-    expect(button(view).attrs['aria-expanded']).toBe('true')
-    expect(view.one('[data-testid=create-menu]').attrs.role).toBe('menu')
-    const items = view.all('[role=menuitem]').map((b) => view.text(b))
-    expect(items).toHaveLength(2)
-    expect(items[0]).toMatch(/^New session.*Pick a day and invite friends$/)
-    expect(items[1]).toMatch(/^Already out.*Find places near you now$/)
-    expect(router.currentRoute.value.fullPath).toBe('/')
-    expect(view.errors).toEqual([])
-  })
-
-  it('opens the create page in Already out mode, and closes the menu', async () => {
-    const { view, router } = await draw()
-    await view.click(button(view))
-    await view.click('[data-testid=create-out]')
-    await until(() => router.currentRoute.value.fullPath === '/sessions/new?start=out')
-    expect(view.has('[data-testid=create-menu]')).toBe(false)
-  })
-
-  it('opens the usual create page for New session', async () => {
-    const { view, router } = await draw()
-    await view.click(button(view))
-    await view.click('[data-testid=create-scratch]')
     await until(() => router.currentRoute.value.fullPath === '/sessions/new')
-  })
-
-  it('closes on a second press of Create', async () => {
-    const { view } = await draw()
-    await view.click(button(view))
-    await view.click(button(view))
     expect(view.has('[data-testid=create-menu]')).toBe(false)
+    expect(view.errors).toEqual([])
   })
 
   it('goes straight to the create page for a real account, with no menu', async () => {

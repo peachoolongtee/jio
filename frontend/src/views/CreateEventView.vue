@@ -57,8 +57,10 @@ const events = useEventsStore()
 const auth = useAuthStore()
 
 const title = ref('')
-// Already out (chosen in the Create menu): a new session only, and only for an account that may start a light meetup.
+// Already out (the link on the create page): a new session only, and only for an account that may start a light meetup.
 const out = computed(() => !props.id && route.query.start === 'out' && startModesFor(auth.sampleWorld).some((m) => m.value === 'out'))
+// A new session's form offers "Already out?" as a link (Create has no menu first), for an account that may start a light meetup.
+const canGoOut = computed(() => !props.id && startModesFor(auth.sampleWorld).some((m) => m.value === 'out'))
 // Already out: the area picked in "Where are you?", and whether that sheet is open.
 const place = ref(null)
 const placeOpen = ref(false)
@@ -184,7 +186,7 @@ async function next() {
 
 <template>
   <NotFoundView v-if="missing" />
-  <main v-else class="screen screen--wide-form" data-testid="create-event-view">
+  <main v-else class="screen screen--step-form" data-testid="create-event-view">
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton :label="back.label" :to="back.to" @click.capture="goBackIfBehind($event, router, back.to)"><AppIcon name="back" /></IconButton>
@@ -210,6 +212,8 @@ async function next() {
     <template v-else>
       <form class="screen__body" novalidate @submit.prevent="next">
         <p v-if="out" class="body-sm text-muted">{{ START_MODES.out.note }}</p>
+        <!-- Create opens the usual form straight away; someone already out takes this link instead of a menu first. -->
+        <div v-else-if="canGoOut" class="create__out"><AppButton variant="tertiary" underline :to="START_MODES.out.to" data-testid="create-already-out">Already out? {{ START_MODES.out.hint }}</AppButton></div>
         <div class="stack gap-xs">
           <TextField v-model="title" :label="out ? 'Title (optional)' : 'Title'" :placeholder="out ? `Out in ${place?.areaName || 'your area'}` : 'Name your session'" maxlength="60" />
           <div v-if="!out" class="scroll-x" role="group" aria-label="Title ideas">
@@ -250,6 +254,7 @@ async function next() {
 
 <style scoped>
 
+.create__out { display: flex; }
 /* Already out: one row like Locate's "Starting from", opening the location sheet. */
 .where { display: flex; flex-direction: column; gap: var(--spacing-xs); }
 .where__row { display: flex; align-items: center; gap: var(--spacing-md); width: 100%; min-height: 64px; padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--border-control); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); font: var(--text-title-sm); text-align: left; cursor: pointer; }

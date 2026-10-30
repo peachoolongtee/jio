@@ -8,10 +8,9 @@
 // Home, Leaderboard, Create, Rewards, Profile.
 // Which tab is current comes from the route (router `meta.tab`), so Home is current on the Sessions list too.
 // The phone pill is never wider than the screen less 8px each side; under 400px the current tab shows only its icon.
-// Create (walkthrough, 30 October 2026) asks how to start before the create page opens: a small menu, "New session" or "Already out"
-// (lib/startChoice.js), above the phone pill's + circle or under the top bar's button. Picking one plays the "entering a game" move
-// from the button (lib/enterGame.js, as Home's map pin does) into the create page in that mode. A real account has no "Already out",
-// so its Create goes straight in, with the same move. It is a menu button: aria-haspopup="menu" and aria-expanded on the button,
+// Create goes straight into the create page, playing the "entering a game" move from the button (lib/enterGame.js, as Home's map pin
+// does). It can still hold a small menu of ways to start (lib/startChoice.js) when `choices` has more than one; it has one today, as
+// "Already out" is a link on the create page. With a menu it is a menu button: aria-haspopup="menu" and aria-expanded on the button,
 // role="menu" and role="menuitem" inside. The arrow keys (and Home, End) move between the items, opening by keyboard focuses the first,
 // and Escape, a press outside it or Tab closes it (Escape hands focus back to the button).
 import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
@@ -19,8 +18,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import JioLogo from './JioLogo.vue'
 import { enterGame } from '@/lib/enterGame.js'
-import { startModesFor } from '@/lib/startChoice.js'
-import { useAuthStore } from '@/stores/auth.js'
+import { START_MODES } from '@/lib/startChoice.js'
 
 defineProps({
   tabs: {
@@ -36,9 +34,9 @@ defineProps({
 })
 
 const route = useRoute()
-const auth = useAuthStore()
-// The ways to start: both for the demo and local accounts, "New session" alone for a real account.
-const choices = computed(() => startModesFor(auth.sampleWorld))
+// The ways to start: "New session" alone, so Create goes straight into the create page with no menu (Faith's walkthrough, 30 October
+// 2026: choosing first was a step too many). "Already out" is a link on the create page instead. The menu below stays for a second way in.
+const choices = computed(() => [START_MODES.scratch])
 
 const isActive = (tab) => route.meta.tab === tab.id
 
