@@ -5,9 +5,11 @@
 //     more than the balance has a disabled Claim button, and the JioCoins that are missing are written beside it.
 //   - Your vouchers: every code redeemed so far, each valid for a while after it is claimed (lib/vouchers.js). A usable code has
 //     "Mark as used", which asks first; a used code moves to a greyed "Used" group with the day it was used, and a code past its
-//     last day to a greyed "Expired" group, where it can no longer be marked. Both groups sit below the usable codes.
+//     last day to a greyed "Expired" group, where it can no longer be marked. Both groups sit below the usable codes. Each group's
+//     heading says the state once, so a row does not repeat it. After a code is marked, focus goes to the "Used" heading (the button
+//     that opened the dialog is gone) and a polite live region says "Marked as used".
 import { coins } from '@/lib/currency.js'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
@@ -15,7 +17,6 @@ import CoinBadge from '@/components/ui/CoinBadge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import GridPulse from '@/components/ui/GridPulse.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import InfoTag from '@/components/ui/InfoTag.vue'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import { useGroupsStore } from '@/stores/groups.js'
@@ -69,6 +70,9 @@ const mine = computed(() => voucherGroups(groups.redemptions, now.value))
 const using = ref(null)
 const useBusy = ref(false)
 const useError = ref('')
+// The words for a screen reader after a code is marked, and the "Used" heading that takes focus then.
+const announcement = ref('')
+const usedHead = ref(null)
 
 // Asks before a code is marked as used. How to call: askUse(redemption)
 function askUse(redemption) {
@@ -76,7 +80,9 @@ function askUse(redemption) {
   using.value = redemption
 }
 
-// Marks the code in the dialog as used, then closes it; a refusal (it expired meanwhile, say) stays in the dialog.
+// Marks the code in the dialog as used, then closes it; a refusal (it expired meanwhile, say) stays in the dialog. The button that
+// opened the dialog leaves the page with the code, so focus goes to the "Used" heading once the page has redrawn, and the live
+// region says what happened (cleared first, so a second code is announced too).
 // How to call: await markUsed()
 async function markUsed() {
   useBusy.value = true
@@ -84,6 +90,10 @@ async function markUsed() {
   try {
     await groups.markUsed(using.value.id)
     using.value = null
+    announcement.value = ''
+    await nextTick()
+    usedHead.value?.focus()
+    announcement.value = 'Marked as used'
   } catch (e) {
     useError.value = e.message
   }
@@ -172,6 +182,7 @@ async function redeem() {
 
       <section v-if="groups.redemptions.length" class="section" aria-labelledby="mine-head">
         <h2 id="mine-head" class="display-sm">Your vouchers</h2>
+        <p class="sr-only" role="status" data-testid="voucher-status">{{ announcement }}</p>
         <p v-if="!mine.usable.length" class="body-sm text-muted" data-testid="no-usable-vouchers">No codes to use right now.</p>
         <ul v-else class="stack" data-testid="usable-vouchers">
           <li v-for="r in mine.usable" :key="r.id" class="code-row">
@@ -188,7 +199,7 @@ async function redeem() {
         </ul>
 
         <template v-if="mine.used.length">
-          <h3 id="used-head" class="title-md code-group">Used</h3>
+          <h3 id="used-head" ref="usedHead" class="title-md code-group" tabindex="-1">Used</h3>
           <ul class="stack" aria-labelledby="used-head" data-testid="used-vouchers">
             <li v-for="r in mine.used" :key="r.id" class="code-row is-done">
               <span class="stack">
@@ -198,7 +209,6 @@ async function redeem() {
               </span>
               <span class="code-row__end">
                 <code class="code">{{ r.code }}</code>
-                <InfoTag>Used</InfoTag>
               </span>
             </li>
           </ul>
@@ -215,7 +225,6 @@ async function redeem() {
               </span>
               <span class="code-row__end">
                 <code class="code">{{ r.code }}</code>
-                <InfoTag>Expired</InfoTag>
               </span>
             </li>
           </ul>
@@ -254,8 +263,8 @@ async function redeem() {
         </div>
         <p v-if="useError" class="body-sm text-error" role="alert">{{ useError }}</p>
       </template>
-      <AppButton block :disabled="useBusy" @click="markUsed">Mark as used</AppButton>
       <AppButton block variant="secondary" @click="using = null">Not now</AppButton>
+      <AppButton block :disabled="useBusy" @click="markUsed">Mark as used</AppButton>
     </ModalDialog>
   </main>
 </template>
@@ -295,6 +304,7 @@ async function redeem() {
 .code-row.is-done { color: var(--muted); }
 .code-row.is-done .code { color: var(--muted); text-decoration: line-through; }
 .code-group { margin-top: var(--spacing-lg); color: var(--muted); }
+.code-group:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: var(--rounded-xs); }
 .code { padding: var(--spacing-xs) var(--spacing-sm); border-radius: var(--rounded-xs); background: var(--surface-strong); font: var(--text-caption); letter-spacing: 1px; }
 .code--big { align-self: flex-start; padding: var(--spacing-sm) var(--spacing-base); font: var(--text-display-sm); }
 </style>
