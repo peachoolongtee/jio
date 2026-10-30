@@ -109,7 +109,7 @@ describe('the Sessions list on your own profile', () => {
     expect(view.one('[data-testid=day-filter]').attrs['aria-label']).toBe('Show every day, not only Mon 12 Oct 2026')
     expect(view.text()).toContain('Dinner catch-up')
     expect(view.text()).not.toContain('Saturday hangout')
-    expect(view.text('[role=status]')).toContain('Showing Mon 12 Oct 2026 only')
+    expect(view.all('[role=status]').some((n) => view.text(n) === 'Showing Mon 12 Oct 2026 only')).toBe(true)
     await view.click('[data-testid=day-filter]')
     await until(() => view.text().includes('Saturday hangout'))
     expect(view.has('[data-testid=day-filter]')).toBe(false)

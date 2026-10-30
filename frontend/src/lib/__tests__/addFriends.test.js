@@ -109,3 +109,38 @@ describe('Add friends on Home', () => {
     await until(() => router.currentRoute.value.path === '/sessions/new')
   })
 })
+
+describe("the profile's Suggested", () => {
+  it('sends the same friend request: Requested, then Friends after two seconds, and the row stays', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] })
+    const { sendFriendRequest, useFriendRequests } = await import('../friendRequests.js')
+    const setFriend = vi.fn().mockResolvedValue()
+    const accepted = vi.fn()
+    const { requested, announcement } = useFriendRequests()
+    const done = sendFriendRequest({ id: 'kai', name: 'Kai' }, setFriend, { onAccepted: accepted })
+    expect(requested.value.has('kai')).toBe(true)
+    expect(announcement.value).toBe('Friend request sent to Kai')
+    // A second press while it waits sends nothing more.
+    sendFriendRequest({ id: 'kai', name: 'Kai' }, setFriend)
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(setFriend).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    await done
+    expect(setFriend).toHaveBeenCalledTimes(1)
+    expect(setFriend).toHaveBeenCalledWith('kai', true)
+    expect(accepted).toHaveBeenCalledWith('kai')
+    expect(requested.value.has('kai')).toBe(false)
+    expect(announcement.value).toBe('Kai accepted your friend request')
+  })
+
+  it('says why when the friendship could not be saved, and lets the person try again', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] })
+    const { sendFriendRequest, useFriendRequests } = await import('../friendRequests.js')
+    const failed = vi.fn()
+    const done = sendFriendRequest({ id: 'siti', name: 'Siti' }, vi.fn().mockRejectedValue(new Error('Saving failed.')), { onFailed: failed })
+    await vi.advanceTimersByTimeAsync(2000)
+    await done
+    expect(failed).toHaveBeenCalledWith('Saving failed.')
+    expect(useFriendRequests().requested.value.has('siti')).toBe(false)
+  })
+})

@@ -4,11 +4,10 @@
 // the same people as the profile's Suggested.
 //   <AddFriends />   or, in a test, <AddFriends :accept-after="50" />
 // The demo and local accounts: a search box (name or @username) over everyone they are not friends with yet, each row opening that
-// person's profile, with "Add friend". Pressing it sends a friend request (simulated, as the sample people are): the button reads
-// "Requested" with a clock, and after `acceptAfter` (2 s) the person accepts, the button reads "Friends" with a tick, and they are a
-// friend (groups.setFriend). A polite status line says "Friend request sent to Kai", then "Kai accepted your friend request". The
-// acceptance still happens if the sheet is closed meanwhile. The row stays until the sheet closes, so the list does not jump under the
-// finger. A real account's friends are the people it has been out with (CLAUDE.md, ticket #125), and a
+// person's profile, with "Add friend". Pressing it sends a friend request (lib/friendRequests.js, shared with the profile's Suggested):
+// the button reads "Requested" with a clock, and after `acceptAfter` (2 s) the person accepts, the row reads "Friends" with a tick, and
+// they are a friend. A polite status line says "Friend request sent to Kai", then "Kai accepted your friend request". The acceptance
+// still happens if the sheet is closed meanwhile. The row stays until the sheet closes, so the list does not jump under the finger. A real account's friends are the people it has been out with (CLAUDE.md, ticket #125), and a
 // list of its own would need a table on the server, so its sheet says how people become friends and offers to start a session.
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -16,12 +15,13 @@ import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import BottomSheet from '../ui/BottomSheet.vue'
 import UserAvatar from '../ui/UserAvatar.vue'
+import { FRIEND_ACCEPT_MS, sendFriendRequest, useFriendRequests } from '@/lib/friendRequests.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useGroupsStore } from '@/stores/groups.js'
 
 const props = defineProps({
   // How long the other person takes to accept a friend request, in ms.
-  acceptAfter: { type: Number, default: 2000 },
+  acceptAfter: { type: Number, default: FRIEND_ACCEPT_MS },
 })
 
 const router = useRouter()
@@ -31,10 +31,10 @@ const open = ref(false)
 const query = ref('')
 // The people shown while the sheet is open: fixed when it opens, so a person just added stays on the list, marked.
 const shown = ref([])
-const added = ref(new Set())
-// Requests sent and not yet accepted, by person id.
-const requested = ref(new Set())
-const announcement = ref('')
+// Requests waiting (from here or the profile) and the status line's words.
+const { requested, announcement } = useFriendRequests()
+// Friends now, from the store, so a request answered anywhere shows here.
+const isFriend = (id) => !!groups.people.find((p) => p.id === id)?.isFriend
 const error = ref('')
 
 watch(open, (isOpen) => {
@@ -42,7 +42,6 @@ watch(open, (isOpen) => {
   query.value = ''
   error.value = ''
   shown.value = [...groups.suggested]
-  added.value = new Set()
 })
 
 // Search by name or username, any case, with or without the @. How to call: matches({ name: 'Mei Ling', username: 'meiling' })
@@ -52,27 +51,10 @@ const matches = (p) => {
 }
 const results = computed(() => shown.value.filter(matches))
 
-const nameOf = (id) => shown.value.find((p) => p.id === id)?.name || groups.nameOf(id) || 'They'
-
-// Sends a friend request, which the person accepts after `acceptAfter`; then they are a friend. How to call: add('meiling')
-function add(id) {
-  if (requested.value.has(id) || added.value.has(id)) return
+// Sends a friend request, which the person accepts after `acceptAfter`; then they are a friend. How to call: add({ id: 'kai', name: 'Kai' })
+function add(person) {
   error.value = ''
-  requested.value = new Set([...requested.value, id])
-  announcement.value = `Friend request sent to ${nameOf(id)}`
-  setTimeout(async () => {
-    try {
-      await groups.setFriend(id, true)
-      added.value = new Set([...added.value, id])
-      announcement.value = `${nameOf(id)} accepted your friend request`
-    } catch (e) {
-      error.value = e?.message || 'Could not add them. Try again.'
-    } finally {
-      const left = new Set(requested.value)
-      left.delete(id)
-      requested.value = left
-    }
-  }, props.acceptAfter)
+  sendFriendRequest(person, groups.setFriend, { after: props.acceptAfter, onFailed: (message) => (error.value = message) })
 }
 
 // A name opens that person's profile; the sheet closes first. How to call: openProfile('meiling')
@@ -110,9 +92,9 @@ function startSession() {
               <span class="caption-sm text-muted truncate">@{{ p.username }}<template v-if="p.homeArea"> · {{ p.homeArea }}</template></span>
             </span>
           </button>
-          <span v-if="added.has(p.id)" class="people__done caption" data-testid="friend-added"><AppIcon name="check" :size="14" />Friends</span>
+          <span v-if="isFriend(p.id)" class="people__done caption" data-testid="friend-added"><AppIcon name="check" :size="14" />Friends</span>
           <span v-else-if="requested.has(p.id)" class="people__pending caption" data-testid="friend-requested"><AppIcon name="clock" :size="14" />Requested</span>
-          <AppButton v-else small variant="secondary" :aria-label="`Add ${p.name} as a friend`" @click="add(p.id)"><AppIcon name="plus" :size="16" />Add friend</AppButton>
+          <AppButton v-else small variant="secondary" :aria-label="`Add ${p.name} as a friend`" @click="add(p)"><AppIcon name="plus" :size="16" />Add friend</AppButton>
         </li>
       </ul>
       <p class="sr-only" role="status" data-testid="add-friends-status">{{ announcement }}</p>

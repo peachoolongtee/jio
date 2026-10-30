@@ -46,6 +46,7 @@ import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 import { personColour } from '@/lib/people.js'
+import { sendFriendRequest, useFriendRequests } from '@/lib/friendRequests.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { EMPTY_TEXT, SESSION_FILTERS, narrowSessions, narrowedEmptyText, profileSessions } from '@/lib/profileSessions.js'
 import { useNow } from '@/lib/useNow.js'
@@ -133,17 +134,16 @@ function openFriend(id) {
   friendsOpen.value = false
   router.push(id === auth.myId ? '/profile' : `/people/${id}`)
 }
-// People the signed-in person could add, at most six.
-const suggested = computed(() => (isMe.value ? groups.suggested.slice(0, 6) : []))
-const adding = ref('')
-// How to call: addFriend('faith')
-async function addFriend(id) {
-  adding.value = id
-  try {
-    await groups.setFriend(id, true)
-  } finally {
-    adding.value = ''
-  }
+// People the signed-in person could add, at most six. "Add friend" sends a friend request, accepted after two seconds, as on Home's "Add
+// friends" (lib/friendRequests.js, one set of requests for both): the row reads "Requested", then "Friends" with a tick, and stays on the
+// list while the page is open (`befriended`) instead of vanishing the moment the person becomes a friend.
+const befriended = ref(new Set())
+const suggested = computed(() => (isMe.value ? groups.people.filter((p) => !p.isFriend || befriended.value.has(p.id)).slice(0, 6) : []))
+const { requested, announcement: requestNote } = useFriendRequests()
+// How to call: addFriend({ id: 'faith', name: 'Faith' })
+function addFriend(person) {
+  befriended.value = new Set([...befriended.value, person.id])
+  sendFriendRequest(person, groups.setFriend)
 }
 
 const friendBusy = ref(false)
@@ -246,11 +246,16 @@ async function signOut() {
                   <span class="caption-sm text-muted truncate">@{{ p.username }}<template v-if="p.homeArea"> · {{ p.homeArea }}</template></span>
                 </span>
               </RouterLink>
-              <AppButton v-if="auth.sampleWorld" small variant="secondary" :disabled="adding === p.id" :aria-label="`Add ${p.name} as a friend`" @click="addFriend(p.id)">
-                <AppIcon name="plus" :size="16" />Add friend
-              </AppButton>
+              <template v-if="auth.sampleWorld">
+                <span v-if="p.isFriend" class="request request--done caption" data-testid="suggested-added"><AppIcon name="check" :size="14" />Friends</span>
+                <span v-else-if="requested.has(p.id)" class="request caption" data-testid="suggested-requested"><AppIcon name="clock" :size="14" />Requested</span>
+                <AppButton v-else small variant="secondary" :aria-label="`Add ${p.name} as a friend`" @click="addFriend(p)">
+                  <AppIcon name="plus" :size="16" />Add friend
+                </AppButton>
+              </template>
             </li>
           </ul>
+          <p class="sr-only" role="status" data-testid="suggested-status">{{ requestNote }}</p>
         </section>
 
         <!-- The signed-in person: their sessions, once they have some. -->
@@ -408,6 +413,9 @@ async function signOut() {
 .profile__loading { padding-top: var(--spacing-xl); }
 .suggested { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-xs) var(--spacing-lg); margin: 0; padding: 0; list-style: none; }
 @media (min-width: 744px) { .suggested { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* A friend request on a Suggested row: a dashed pill while it waits, ink with a tick once accepted (Home's "Add friends" looks the same). */
+.request { display: inline-flex; flex-shrink: 0; align-items: center; gap: var(--spacing-xs); min-height: 36px; padding: 0 var(--spacing-md); border: 1px dashed var(--border-strong); border-radius: var(--rounded-full); color: var(--muted); }
+.request--done { border: 0; color: var(--ink); font-weight: 600; }
 .suggested__row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 68px; border-bottom: 1px solid var(--hairline-soft); }
 .suggested__who { display: flex; flex: 1; align-items: center; gap: var(--spacing-md); min-width: 0; color: var(--ink); text-decoration: none; }
 .suggested__text { min-width: 0; gap: 0; }
