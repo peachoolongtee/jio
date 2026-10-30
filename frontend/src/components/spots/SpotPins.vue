@@ -36,6 +36,8 @@ const props = defineProps({
   myId: { type: String, default: '' },
   // The area the host confirmed, or '': its pin and card say so.
   confirmedId: { type: String, default: '' },
+  // The signed-in person is the host: the card also has "Confirm <area>" (SpotCard).
+  isHost: { type: Boolean, default: false },
 })
 const emit = defineEmits(['select'])
 
@@ -251,7 +253,7 @@ onBeforeUnmount(() => {
       </button>
       <Transition name="scard">
         <div v-if="pin.spot.areaId === openId" :id="cardId(pin.spot.areaId)" class="scard" :data-side="placement?.side" :style="cardStyle">
-          <SpotCard :spot="pin.spot" :session="session" :my-id="myId" :confirmed="pin.spot.areaId === confirmedId" />
+          <SpotCard :spot="pin.spot" :session="session" :my-id="myId" :confirmed="pin.spot.areaId === confirmedId" :is-host="isHost" />
         </div>
       </Transition>
     </div>

@@ -256,9 +256,31 @@ describe('Works for me on the map card', () => {
     expect(page.text()).toContain('Bugis')
   })
 
-  it('never offers the host the confirm: that stays in the list', () => {
+  it('offers no confirm to someone who is not the host', () => {
     const text = card(session(), { confirmed: false }).text()
     expect(text).not.toMatch(/Confirm/)
+  })
+
+  // Walkthrough, 30 October 2026: on a phone the host confirms the meeting spot on the map, from the pin's card.
+  it('offers the host "Confirm <area>" while the group is choosing, which confirms that spot', async () => {
+    const page = card(session(), { isHost: true })
+    const button = page.button('Confirm Bugis')
+    expect(button).not.toBeNull()
+    await button.click()
+    expect(events.confirmSpot).toHaveBeenLastCalledWith('s1', 'bugis')
+  })
+
+  it('offers the host no confirm once the group has moved on, or on the spot already confirmed', () => {
+    expect(card(session({ status: 'voting', meeting: { areaId: 'bugis', times: {} } }), { isHost: true }).text()).not.toMatch(/Confirm /)
+    expect(card(session(), { isHost: true, confirmed: true }).text()).not.toMatch(/Confirm /)
+  })
+
+  it('says a refused confirm in the card', async () => {
+    events.confirmSpot.mockRejectedValue(new Error('Someone changed the spots. Look again.'))
+    const page = card(session(), { isHost: true })
+    await page.button('Confirm Bugis').click()
+    await nextTick()
+    expect(page.text()).toContain('Someone changed the spots. Look again.')
   })
 
   it('goes the list\'s way, updates the count in place, and takes your mark back when pressed again', async () => {
