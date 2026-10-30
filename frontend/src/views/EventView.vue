@@ -39,14 +39,15 @@
 //   - Finishing the outing goes on to "How was it?" (/sessions/:id/review: stars and photos). A finished outing the person has
 //     not reviewed shows a row that leads there.
 //   - Travel and trip-home times are estimates from distance, so they read "about" or "est.".
-//   - Weather (a confirmed plan): a mark on each stop (Dry, Cloudy, Showers, Thundery showers, or why it is not known; "Indoor" for an indoor
+//   - Weather (a confirmed plan): a mark on each stop (Dry, Cloudy, Showers, Thundery showers, or "Forecast later" / "No forecast" when it is not known; "Indoor" for an indoor
 //     stop when rain is likely; "Outdoor, showers" for an exposed stop, in the warning tone) and one muted line under the stops
 //     for the source and time. The marks are what the plan kept when it was confirmed. On the plan's day the screen asks the
 //     planner for the stops' weather when it opens and every 30 minutes while it stays open (lib/weatherCheck.js; stopped when
 //     the page is left, paused while hidden, one at a time, a failure keeps the last answer), and shows a rain banner for
 //     everyone, with "Swap to <indoor place>?" for the host (RainBanners). A simulated forecast adds a banner at the top.
 import { coins } from '@/lib/currency.js'
-import { NO_COINS, earnsCoins, itineraryAction, roamOpen } from '@/lib/session.js'
+import { NO_COINS, earnsCoins, itineraryAction, roamOpen, singaporeDate } from '@/lib/session.js'
+import { dayOf } from '@/lib/homeMeetups.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -230,10 +231,12 @@ const showWeather = computed(() => confirmed.value && !!itinerary.value)
 const check = computed(() => events.weatherChecks[props.id])
 // The shared clock: rain is drawn only while its forecast is current.
 const now = useNow()
+// Are the stops on Singapore's today? A stop that day with no forecast was not held back by the forecast window, so its mark does not say so.
+const stopsToday = computed(() => !!session.value && dayOf(session.value, now.value) === singaporeDate(now.value))
 // A stop's weather: the check's if there is one, else the plan's. How to call: weatherOf(itinerary.stops[0]) -> { state: 'dry', ... } or null
 const weatherOf = (stop) => check.value?.stops?.[stop.slotId] ?? stop.weather
 // The mark under a stop, or null when the plan is not confirmed. How to call: markOf(itinerary.stops[0]) -> { label: 'Dry', tone: 'neutral', ... }
-const markOf = (stop) => (showWeather.value ? stopMark(weatherOf(stop), { ...venueSetting(stop.venue), block: weatherBlock.value }) : null)
+const markOf = (stop) => (showWeather.value ? stopMark(weatherOf(stop), { ...venueSetting(stop.venue), block: weatherBlock.value, today: stopsToday.value }) : null)
 // The block the line reads: the latest check; else what the plan kept; else "not available" when the check failed and the plan
 // kept nothing.
 const weatherBlock = computed(() => {
