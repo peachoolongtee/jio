@@ -1831,3 +1831,21 @@ The lead asked for a review of every fix on Darryl's branch (no pull request), t
   - names in the friend picker's rows still truncate beside the Select chip at 320 px;
   - on the plan's day before the first weather check returns, the line under the stops can still say "checked from the day before" while a mark says "Weather not known";
   - "Upcoming" on the profile includes overdue sessions, which Darryl's test pins.
+
+## Round 45: dietary needs for one outing on the server, and photos on the outing's day (2026-10-30)
+
+Darryl's UAT items 5 and 6. **The lead's word:** "only the host can drop and for the photos just open on the outing day".
+- **Item 5, decided:**
+  - every member may add or remove their own need for one outing;
+  - only the host may drop someone else's need (in an outing of three or more, after the "Unselect halal?" warning), for the demo and local accounts too;
+  - a need is still never tied to a name.
+- **Item 6, decided:** the Photos row opens on the outing's day for every member, not before. No shared photo storage is built, so a real account still has no photos (its photos would live only in one browser, against the lead's rule of 26 October).
+- **Before any schema change, the live project:**
+  - twelve migrations, the last `20261029032155 jio_no_clashing_meetups`;
+  - sixteen public tables;
+  - `session_member_needs` md5 `f5e1334147b2bea89140ffd885b50306`, `apply_session_plan` `c2b499a…` and `guard_session_changes` `1235eb7…` as recorded.
+
+| Piece | Agent | Branch | Brief, in short |
+|---|---|---|---|
+| Database and server | implementer | `feat/outing-dietary`, off `dev` at `ceab93c` | The migration:<br>- a server-only table of each member's needs for one outing, plus the host's dropped needs;<br>- `session_member_needs` reads the outing's picks first.<br>`GET` and a new `PUT /api/sessions/:id/dietary`, with host-only drops. A change while voting re-picks the places through the existing machinery. The migration gets a rolled-back test file. |
+| Screens | frontend engineer | `feat/outing-dietary-screens`, off `dev` | A real account's Vote gets the chips and "Confirm dietary needs" over the new routes.<br>Host-only "Unselect" of others' needs, demo too.<br>The Photos row opens on the outing's day. |
