@@ -195,4 +195,40 @@ describe('the Rewards screen', () => {
     expect(stored(api.storage).redemptions[0].usedAt).toBe(new Date('2026-10-30T10:00:00+08:00').getTime())
     expect(view.errors).toEqual([])
   })
+
+  it('puts the safer choice first in the dialog, and "Mark as used" last', async () => {
+    const { view } = await drawRewards(claims)
+    await view.click(buttonLabelled(view, 'Mark as used'))
+    await until(() => view.has('[role=dialog]'))
+    const labels = view.all('button').map((b) => view.text(b)).filter((t) => t === 'Not now' || t === 'Mark as used')
+    // The page's own button comes first, then the dialog's two.
+    expect(labels).toEqual(['Mark as used', 'Not now', 'Mark as used'])
+  })
+
+  it('moves focus to the Used heading and says "Marked as used" in a polite live region once a code is marked', async () => {
+    const { view } = await drawRewards(claims)
+    expect(view.text('[data-testid=voucher-status]')).toBe('')
+    await view.click(buttonLabelled(view, 'Mark as used'))
+    await until(() => view.has('[role=dialog]'))
+    await view.click(view.all('button').filter((b) => view.text(b) === 'Mark as used').at(-1))
+    await until(() => view.has('[data-testid=used-vouchers]'))
+    await until(() => view.text('[data-testid=voucher-status]') === 'Marked as used')
+    expect(view.all('p').some((p) => p.attrs.role === 'status' && view.text(p) === 'Marked as used')).toBe(true)
+    expect(view.focused()?.id).toBe('used-head')
+    expect(view.errors).toEqual([])
+  })
+
+  it('says Used and Expired once each: in the group heading, not again as a tag on the row', async () => {
+    const { view } = await drawRewards(claims)
+    const expired = view.text('[data-testid=expired-vouchers]')
+    expect(expired).not.toMatch(/\bExpired\b/)
+    expect(expired).toContain('Was valid until')
+    await view.click(buttonLabelled(view, 'Mark as used'))
+    await until(() => view.has('[role=dialog]'))
+    await view.click(view.all('button').filter((b) => view.text(b) === 'Mark as used').at(-1))
+    await until(() => view.has('[data-testid=used-vouchers]'))
+    const used = view.text('[data-testid=used-vouchers]')
+    expect(used.match(/\bUsed\b/g)).toHaveLength(1)
+    expect(used).toContain('Used on 30 Oct 2026')
+  })
 })

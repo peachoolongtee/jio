@@ -49,7 +49,7 @@ describe('the mark on a stop', () => {
     ['cloudy', 'Cloudy'],
     ['showers', 'Showers'],
     ['thundery', 'Thundery showers'],
-    ['unknown', 'Weather is checked from the day before'],
+    ['unknown', 'Forecast later'],
   ])('says %s as "%s" in words with an icon, in the neutral tone, when rain does not matter', (state, label) => {
     const mark = stopMark({ state, rainLikely: false }, SHELTERED)
     expect(mark.label).toBe(label)
@@ -85,21 +85,35 @@ describe('the mark on a stop', () => {
   it('is never the warning tone for a state the backend did not send, or for no weather at all', () => {
     for (const weather of [undefined, null, {}, { state: 'hail' }, { state: 'unknown', rainLikely: false }]) {
       const mark = stopMark(weather, EXPOSED)
-      expect(mark.label).toBe('Weather is checked from the day before')
+      expect(mark.label).toBe('Forecast later')
       expect(mark.tone).toBe('neutral')
     }
   })
 
-  it('says why the weather is not known: beyond the forecast, not fetched, or a state the backend did not name', () => {
+  it('says why the weather is not known in a short label, with the full reason in the hint for a screen reader', () => {
     const outside = { state: 'unknown', source: 'none', basis: 'none', reason: 'outside_window' }
     const down = { state: 'unknown', source: 'unavailable', basis: 'none', reason: 'unavailable' }
-    expect(stopMark(outside, SHELTERED).label).toBe('Weather is checked from the day before')
-    expect(stopMark(down, SHELTERED).label).toBe('Weather is not available right now')
-    expect(stopMark({ state: 'hail', source: 'live' }, SHELTERED).label).toBe('Weather not known')
+    expect(stopMark(outside, SHELTERED)).toMatchObject({ label: 'Forecast later', hint: OUTSIDE_WINDOW_TEXT })
+    expect(stopMark(down, SHELTERED)).toMatchObject({ label: 'No forecast', hint: UNAVAILABLE_TEXT })
+    expect(stopMark({ state: 'hail', source: 'live' }, SHELTERED)).toMatchObject({ label: 'Weather not known', hint: '' })
     // A stop with no weather of its own reads the screen's block.
-    expect(stopMark(null, { ...SHELTERED, block: { source: 'unavailable', reason: 'unavailable' } }).label).toBe('Weather is not available right now')
-    expect(stopMark(outside, { ...SHELTERED, block: { source: 'unavailable', reason: 'unavailable' } }).label).toBe('Weather is checked from the day before')
-    expect(unknownLabel(undefined)).toBe('Weather is checked from the day before')
+    expect(stopMark(null, { ...SHELTERED, block: { source: 'unavailable', reason: 'unavailable' } }).label).toBe('No forecast')
+    expect(stopMark(outside, { ...SHELTERED, block: { source: 'unavailable', reason: 'unavailable' } }).label).toBe('Forecast later')
+    expect(unknownLabel(undefined)).toEqual({ label: 'Forecast later', reason: OUTSIDE_WINDOW_TEXT })
+  })
+
+  it('never puts the long sentences in a label, so a tag fits a 320 px card', () => {
+    for (const weather of [undefined, { source: 'none', reason: 'outside_window' }, { source: 'unavailable', reason: 'unavailable' }, { state: 'hail', source: 'live' }]) {
+      expect(stopMark(weather, SHELTERED).label.length).toBeLessThanOrEqual(17)
+    }
+  })
+
+  it('does not claim the forecast window for a stop that is today, with no forecast or none known', () => {
+    const outside = { state: 'unknown', source: 'none', basis: 'none', reason: 'outside_window' }
+    expect(stopMark(null, { ...SHELTERED, today: true })).toMatchObject({ label: 'Weather not known', hint: '' })
+    expect(stopMark(outside, { ...SHELTERED, today: true }).label).toBe('Weather not known')
+    // A failed fetch is still said, today or not.
+    expect(stopMark(null, { ...SHELTERED, today: true, block: { source: 'unavailable', reason: 'unavailable' } }).label).toBe('No forecast')
   })
 
   it('puts NEA\'s own phrase in the words for a screen reader, not in the label', () => {
