@@ -26,6 +26,7 @@ import { createPeopleSource, isUuid, personFromRow } from './peopleSource.js'
 import { isSearchable, rankPeople, searchTerm } from './peopleSearch.js'
 import { WORDS as SHARING_WORDS, createSessionsRemote } from './sessionsRemote.js'
 import { releasedNotice } from './startChoice.js'
+import { localDebts, localLean } from './travelLean.js'
 import { ClashError, findClash } from './clash.js'
 import { tallyOptions } from './planVotes.js'
 import { isLegacyRealSave, remapLegacySave } from './legacySave.js'
@@ -432,6 +433,7 @@ const remote = createSessionsRemote({
     syncPlan: (sessionId) => planner.syncSessionPlan(sessionId),
     setRadius: (sessionId, metres) => planner.putSessionRadius(sessionId, metres),
     getDietary: (sessionId) => planner.sessionDietary(sessionId),
+    getTravelLean: (sessionId) => planner.getSessionTravelLean(sessionId),
     putDietary: (sessionId, body) => planner.putSessionDietary(sessionId, body),
     deleteSlot: (sessionId, slotId) => planner.deleteSessionSlot(sessionId, slotId),
     restoreSlots: (sessionId) => planner.restoreSessionSlots(sessionId),
@@ -793,15 +795,42 @@ function isSessionDay(session) {
 
 // Each person with a start location, as the backend expects them: start and end as points. A name is not sent: the planner
 // uses only the id (a name it would only echo back, and a long one made of emoji can be over its limit while within the
-// database's, which would refuse every request of a session).
+// database's, which would refuse every request of a session). A person who travelled more than their share in the outings this browser has
+// finished lately carries it as `travelDebtMinutes`, which the planner counts as it does a real account's ledger (lib/travelLean.js); a
+// person with none sends no such field, so the request is as it always was.
 function membersFor(session) {
+  const debts = pastDebts(session.id)
   return activeIds(session)
     .filter((id) => session.locations[id]?.start)
     .map((id) => {
       const start = areaById(session.locations[id].start.areaId)
       const end = endPlaceOf(session, id)
-      return { id, start: { lat: start.lat, lng: start.lng }, end: { lat: end.lat, lng: end.lng } }
+      const owed = Math.round((debts.get(id) ?? 0) * 100) / 100
+      return { id, start: { lat: start.lat, lng: start.lng }, end: { lat: end.lat, lng: end.lng }, ...(owed > 0 ? { travelDebtMinutes: owed } : {}) }
     })
+}
+
+// Each person's travel debt from the outings this browser has finished in the last 90 days, other than the session `exceptId`.
+// How to call: pastDebts('s9').get('ian') -> 8.5
+const pastDebts = (exceptId) => localDebts(db.sessions, { now: Date.now(), exceptId })
+
+// Whether the signed-in person's own past travel counts in the pick of this session's meeting spots, for the quiet line on the Locate step:
+// { owed, rule }, where `rule` is the one the pick is made by (the line says what is true of that rule, lib/travelLean.js). Their own flag
+// only: it says nothing of anyone else. A session on the server asks the server (GET /api/sessions/:id/travel-lean, worked out from the ledger
+// in Supabase); a session in this browser works it out from the outings this browser has finished, by the same rules (it is locating, the host
+// did not name the place, two starts are in, routing is on, and the debt is above nothing). Resolves null when the account changed meanwhile.
+// Rejects when the server cannot answer; the screen then shows nothing.
+// How to call: await travelLean('s1') -> { owed: true, rule: 'longest' }
+export async function travelLean(id) {
+  if (onServer() && serverMembers.has(id)) {
+    const asked = epoch
+    const answer = await remote.travelLean(id)
+    return asked === epoch ? answer : null
+  }
+  const session = sessionById(id)
+  const mine = me()
+  const located = membersFor(session)
+  return localLean({ session, myId: mine, debts: pastDebts(id), routing: db.conditions.routing, starts: located.length, mine: located.some((m) => m.id === mine) })
 }
 
 // Who ranking places is for: the people with a start, as membersFor sends them. A known place can be set before

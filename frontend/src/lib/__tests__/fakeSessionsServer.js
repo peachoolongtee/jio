@@ -13,6 +13,9 @@
 //   POST   /api/sessions/:id/opt-out, /rejoin                      E10, E11
 //   DELETE /api/sessions/:id/members/:userId|me                   E25 (leave, remove)
 //   POST   /api/sessions/:id/change-meeting-place { meetBy, areaId? }   the host lets the meeting area go (voting or confirmed)
+//   GET    /api/sessions/:id/travel-lean                           whether the caller's own past travel counts in the pick of the spots
+//                                                                  (SIMPLER: answers { owed: server.owed.has(<caller id>), rule: server.leanRule } while locating; the server's own
+//                                                                  rules for it are tested in backend/tests/sessions-travel-lean.test.js)
 //
 // Stage 4 (voting, ticket 129; the design's E3 to E9, E17, E18, and E1 in voting) adds, on the same terms:
 //   POST   /api/sessions/:id/plan/sync                                E3: slots and places worked out again from people's picks
@@ -67,7 +70,8 @@ export function tripMinutes(fromId, toId) {
 export function fakeSessionsServer(database) {
   const calls = []
   const after = {}
-  const server = { calls, after, down: false, adapter: null }
+  // `owed`: the ids of the people whose past travel counts (the ledger is not modelled here); `leanRule`: the rule the answer names.
+  const server = { calls, after, down: false, adapter: null, owed: new Set(), leanRule: 'longest' }
 
   const rows = (table) => database.tables[table]
   const sessionOf = (id) => rows('sessions').find((s) => s.id === id)
@@ -708,6 +712,16 @@ export function fakeSessionsServer(database) {
     },
   }
 
+  // GET travel-lean: the caller's own flag and the rule, nothing about anyone else. A joined member asks; it is owed only while the group is
+  // locating and the caller is one of at least two people with a start.
+  routes.travelLean = async (user, id) => {
+    const { session } = load(user, id)
+    await after.travelLean?.(id)
+    const people = located(id)
+    const owed = session.status === 'locating' && session.meet_by !== 'known' && people.length >= 2 && people.some((p) => p.id === user) && server.owed.has(user)
+    return { status: 200, body: { owed, rule: server.leanRule } }
+  }
+
   // The adapter -------------------------------------------------------------
 
   // Which route a request is, with the session id and the rest.
@@ -724,6 +738,7 @@ export function fakeSessionsServer(database) {
     ['DELETE', /^\/members\/([^/]+)$/, 'removeMember', ['who']],
     ['POST', /^\/plan\/sync$/, 'syncPlan'],
     ['PUT', /^\/radius$/, 'radius'],
+    ['GET', /^\/travel-lean$/, 'travelLean'],
     ['POST', /^\/slots\/restore$/, 'restoreSlots'],
     ['DELETE', /^\/slots\/([^/]+)$/, 'deleteSlot', ['slot']],
     ['POST', /^\/slots\/([^/]+)\/options$/, 'addOption', ['slot']],

@@ -14,11 +14,15 @@
 // suggestion with no row (a reload caught it before it was priced): "Try again" prices it, "Withdraw" takes it back.
 // With fewer than two starts there is no list and nothing to say about it (the "Waiting for N people" card on the screen
 // says who is missing): the section shows only for the host, who can still name a known place.
+// "Jio remembers": under the list, one muted line for the person whose past travel the planner counts when it picks the app's spot (lib/travelLean.js
+// says what is true of the rule in use). It is the signed-in person's own flag (api.travelLean), asked once the group is choosing with two starts in,
+// and it shows nothing when the answer is no, when it could not be read, when the planner did not pick by fairness (everyone starts together),
+// or when the host named a known place. It names no one, and no one else's answer is ever read.
 // A control that starts a change stays enabled while it saves (aria-busy), so a key press never drops the keyboard focus; a
 // second press is ignored until the first is saved. A confirm running anywhere on the screen (the footer's "Confirm …" or this
 // list's "Meet at …", one flag in the events store) counts as saving, so a change and a confirm never overlap; "Meet at …" reads
 // "Confirming…" while it runs.
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
 import SkeletonRow from '../ui/SkeletonRow.vue'
@@ -26,9 +30,10 @@ import LocationSheet from '../group/LocationSheet.vue'
 import SpotRow from './SpotRow.vue'
 import { useSpotChange } from './spotChange.js'
 import { AREAS } from '@/lib/mock/places.js'
+import { leanLine } from '@/lib/travelLean.js'
 import { TRAVEL_TONES } from '@/lib/planner/travel.js'
 import { useEventsStore } from '@/stores/events.js'
-import { canApprove, canSuggest, confirmedAreaId, confirmedLine, isChoosing, spotsToShow, unpricedSuggestion } from './spotText.js'
+import { canApprove, canSuggest, confirmedAreaId, confirmedLine, isChoosing, spotsToShow, startsShared, unpricedSuggestion } from './spotText.js'
 
 const props = defineProps({
   session: { type: Object, required: true },
@@ -76,6 +81,16 @@ const intro = computed(() => {
   if (!choosing.value) return ''
   return props.isHost ? 'Pick a spot and confirm it when you are ready. You do not need to wait for anyone.' : `Say which spots work for you. ${props.hostName} confirms the final spot.`
 })
+
+// The line about past travel, or '' (nothing to say). Only while the group is choosing and the planner picked the app's spot by fairness.
+const leanText = computed(() => {
+  const answer = events.leans[props.session.id]
+  if (!answer?.owed || !choosing.value || !props.myId || props.session.meetBy === 'known' || spots.value.appMethod !== 'fairest') return ''
+  return leanLine(answer.rule)
+})
+// Ask again when the group starts choosing, or when the number of starts shared or the person's own start changes: the answer depends on them.
+const leanKey = computed(() => `${props.session.id}|${choosing.value}|${startsShared(props.session)}|${!!props.session.locations?.[props.myId]?.start}`)
+watch(leanKey, () => { if (choosing.value && props.myId && startsShared(props.session) >= 2) events.loadLean(props.session.id) }, { immediate: true })
 
 // Run a change as the signed-in person. A failure goes up as a message; the data layer has already put things back. A press
 // while an earlier change is still being saved does nothing.
@@ -161,6 +176,7 @@ async function settleKnown() {
       <SkeletonRow v-for="n in 3" :key="n" />
     </div>
     <p v-if="list.length && session.findingSpots" class="caption-sm text-muted" role="status">Updating travel times…</p>
+    <p v-if="leanText && list.length" class="caption-sm text-muted" data-testid="spots-lean">{{ leanText }}</p>
 
     <div v-if="unpriced" class="spots__empty" role="group" aria-label="Your suggestion">
       <h3 class="title-md">{{ unpriced.name }} has no travel times yet</h3>
