@@ -84,6 +84,26 @@ describe('travelLean on a local account', () => {
     expect(await api.travelLean(id)).toMatchObject({ owed: true })
   })
 
+  it('sends the debt on the meeting-area request only, and never on a ranking of places or a search', async () => {
+    await withFinishedOuting()
+    stubPlanner(planner)
+    const id = await locating()
+    expect(planner.meetingArea.mock.calls.at(-1)[0].members.find((m) => m.id === 'ian').travelDebtMinutes).toBe(10)
+    planner.meetingArea.mockClear()
+    await api.useMeetingArea(id)
+    // Pricing the chosen area is a meeting-area request too, but it is not the pick of the spots: it carries no debt.
+    for (const [request] of planner.meetingArea.mock.calls) expect(JSON.stringify(request.members)).not.toContain('travelDebtMinutes')
+    await api.setPreferences(id, 'ian', { categories: ['eat'], until: null })
+    await api.setPreferences(id, 'darius', { categories: ['eat'], until: null })
+    const [slot] = (await api.getPlan(id)).slots
+    await api.searchVenuesForSlot(id, slot.id, 'cafe')
+    expect(planner.searchSlot).toHaveBeenCalled()
+    expect(planner.rankSlot.mock.calls.length).toBeGreaterThan(0)
+    for (const [request] of [...planner.rankSlot.mock.calls, ...planner.searchSlot.mock.calls]) {
+      expect(JSON.stringify(request.members)).not.toContain('travelDebtMinutes')
+    }
+  })
+
   it('answers a bare flag and the rule, nothing about the other member', async () => {
     await withFinishedOuting()
     const id = await locating()
