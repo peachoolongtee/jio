@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FAN_PX, HOME_MEETUPS_SHOWN, activeMeetups, allMeetupsLabel, dayLabel, homeList, nextStepFor, pinName, pinsFor, placeCard, routesFor, selectMeetup, whenLine, whereStands } from '../homeMeetups.js'
+import { FAN_PX, HOME_MEETUPS_SHOWN, MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, inRange, meetupsIn, rangeCounts, nextStepFor, pinName, pinsFor, placeCard, routesFor, selectMeetup, whenLine, whereStands } from '../homeMeetups.js'
 
 const NOW = new Date('2026-10-10T09:00:00+08:00')
 const BUGIS = { id: 'bugis', name: 'Bugis', lat: 1.30065, lng: 103.85585 }
@@ -344,5 +344,40 @@ describe('the meetups Home lists', () => {
   it('says how many there are in all', () => {
     expect(allMeetupsLabel(9)).toBe('See all 9 meetups')
     expect(allMeetupsLabel(1)).toBe('See all meetups')
+  })
+})
+
+// Walkthrough, 30 October 2026: chips choose which meetups Home's list and map show. Friday 30 October 2026 in Singapore; this week
+// runs Monday 26 October to Sunday 1 November, next week 2 to 8 November.
+describe('the week chips on Home', () => {
+  const NOW = new Date('2026-10-30T10:00:00+08:00')
+  const on = (id, date) => ({ id, date })
+  const list = [on('overdue', '2026-10-28'), on('today', '2026-10-30'), on('sun', '2026-11-01'), on('mon', '2026-11-02'), on('nextsun', '2026-11-08'), on('later', '2026-11-09')]
+  const ids = (xs) => xs.map((x) => x.id)
+
+  it('are This week, Next week, Later and All', () => {
+    expect(MEETUP_RANGES.map((r) => r.label)).toEqual(['This week', 'Next week', 'Later', 'All'])
+  })
+
+  it('put each meetup in exactly one of the first three, Monday to Sunday in Singapore, an overdue one in this week', () => {
+    expect(ids(meetupsIn(list, 'week', NOW))).toEqual(['overdue', 'today', 'sun'])
+    expect(ids(meetupsIn(list, 'next', NOW))).toEqual(['mon', 'nextsun'])
+    expect(ids(meetupsIn(list, 'later', NOW))).toEqual(['later'])
+    expect(ids(meetupsIn(list, 'all', NOW))).toEqual(ids(list))
+    const counts = rangeCounts(list, NOW)
+    expect(counts).toEqual({ week: 3, next: 2, later: 1, all: 6 })
+    expect(counts.week + counts.next + counts.later).toBe(counts.all)
+  })
+
+  it('reads the day in Singapore, whatever the browser\'s zone: late Sunday night there is next week already', () => {
+    const sundayNight = new Date('2026-11-01T16:30:00Z') // 00:30 on Monday 2 November in Singapore
+    expect(inRange(on('mon', '2026-11-02'), 'week', sundayNight)).toBe(true)
+    expect(inRange(on('nextmon', '2026-11-09'), 'next', sundayNight)).toBe(true)
+  })
+
+  it('start on This week, or All when nothing is on this week', () => {
+    expect(defaultRange(list, NOW)).toBe('week')
+    expect(defaultRange([on('mon', '2026-11-02')], NOW)).toBe('all')
+    expect(defaultRange([], NOW)).toBe('all')
   })
 })

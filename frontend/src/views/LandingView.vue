@@ -31,6 +31,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import ChipButton from '@/components/ui/ChipButton.vue'
+import { vRadioGroup } from '@/lib/radioGroup.js'
 import BannerNote from '@/components/ui/BannerNote.vue'
 import BottomSheet from '@/components/ui/BottomSheet.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -50,7 +52,7 @@ import MeetupDetail from '@/components/home/MeetupDetail.vue'
 import MeetupList from '@/components/home/MeetupList.vue'
 import MeetupPins from '@/components/home/MeetupPins.vue'
 import * as api from '@/lib/api.js'
-import { activeMeetups, allMeetupsLabel, dayLabel, homeList, pinName, pinsFor, routesFor, selectMeetup } from '@/lib/homeMeetups.js'
+import { MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, meetupsIn, pinName, pinsFor, rangeCounts, routesFor, selectMeetup } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useHomeRain } from '@/lib/useHomeRain.js'
@@ -127,11 +129,22 @@ const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf
 const sessions = computed(() => visibleSessions(events.sessions))
 const meetups = computed(() => activeMeetups(sessions.value, now.value))
 const hasMeetups = computed(() => meetups.value.length > 0)
-const selected = computed(() => selectMeetup(meetups.value, route.query.meetup))
+// Which meetups "Your meetups" and the map show (walkthrough, 30 October 2026): This week, Next week, Later or All, starting on This
+// week (or All when nothing is on this week). A chip with nothing in it is faded and cannot be chosen. The selected meetup comes from the
+// chip's meetups, so the card, the rows and the pins always agree.
+const rangePicked = ref(null)
+const range = computed(() => rangePicked.value ?? defaultRange(meetups.value, now.value))
+const counts = computed(() => rangeCounts(meetups.value, now.value))
+const inRangeMeetups = computed(() => meetupsIn(meetups.value, range.value, now.value))
+// How to call: pickRange('next')
+function pickRange(id) {
+  if (counts.value[id]) rangePicked.value = id
+}
+const selected = computed(() => selectMeetup(inRangeMeetups.value.length ? inRangeMeetups.value : meetups.value, route.query.meetup))
 const past = computed(() => sessions.value.filter((s) => !meetups.value.includes(s)).slice(0, 3))
 const hasFinished = computed(() => sessions.value.length > meetups.value.length)
 // "Your meetups" lists a few (lib/homeMeetups.js homeList); "See all N meetups" opens Sessions when there are more, or finished ones.
-const shownMeetups = computed(() => homeList(meetups.value, selected.value?.id))
+const shownMeetups = computed(() => homeList(inRangeMeetups.value, selected.value?.id))
 const moreMeetups = computed(() => meetups.value.length > shownMeetups.value.length || hasFinished.value)
 const area = computed(() => selected.value?.area || null)
 
@@ -187,6 +200,9 @@ onMounted(() => {
 onBeforeUnmount(() => narrowQuery?.removeEventListener('change', syncNarrow))
 const mapSpan = computed(() => (!fullMap.value ? [340, 260] : narrow.value ? [340, 300] : [400, 320]))
 const MEET = at('toa-payoh')
+// A few place names on the dotted map, spread round the island, so where a pin stands can be read at a glance. "City" is Raffles Place.
+const MAP_PLACES = [['woodlands', 'Woodlands'], ['jurong-east', 'Jurong'], ['bishan', 'Bishan'], ['punggol', 'Punggol'], ['tampines', 'Tampines'], ['raffles-place', 'City']]
+  .map(([id, name]) => ({ name, lat: at(id).lat, lng: at(id).lng }))
 const defaultRoutes = ['boon-lay', 'jurong-east', 'woodlands', 'punggol', 'tampines', 'harbourfront'].map((id) => ({ from: at(id), to: MEET }))
 const ownRoutes = computed(() => (selected.value ? routesFor(selected.value) : []))
 const mapRoutes = computed(() => (ownRoutes.value.length ? ownRoutes.value : defaultRoutes))
@@ -196,10 +212,15 @@ const mapKey = computed(() => (ownRoutes.value.length ? `${selected.value.id}:${
 const quickMap = ref(false)
 watch(() => selected.value?.id, (id, before) => { if (id && before && id !== before) quickMap.value = true })
 
-// The pins: one per meetup with a meeting point, each with its day and the words a screen reader says.
+// The pins: one per meetup listed under "Your meetups" that has a meeting point (so a pin always has its row, and the map is not
+// crowded with meetups the list leaves out), each with its day and the words a screen reader says. With one meetup going there is no
+// list, and that one is pinned.
+// The place names on the map, less any under a pin (about 2 km around it), so a name never sits behind a pin or its area's tag.
+const mapPlaces = computed(() => MAP_PLACES.filter((place) => !pins.value.some((pin) => Math.abs(pin.lat - place.lat) < 0.02 && Math.abs(pin.lng - place.lng) < 0.025)))
 const pins = computed(() => {
   const byId = Object.fromEntries(meetups.value.map((m) => [m.id, m]))
-  return pinsFor(meetups.value).map((pin) => ({ ...pin, label: dayLabel(byId[pin.id], now.value), name: pinName(byId[pin.id], now.value) }))
+  const pinned = meetups.value.length > 1 ? shownMeetups.value : meetups.value
+  return pinsFor(pinned).map((pin) => ({ ...pin, label: dayLabel(byId[pin.id], now.value), name: pinName(byId[pin.id], now.value) }))
 })
 
 // Rain on the map: only when an outing is within two hours. With none, nothing is asked and nothing is drawn. The layer is on
@@ -433,7 +454,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 
       <!-- The map, with the button where the routes meet, or a pin for each meetup. -->
       <div class="hero__stage">
-        <SingaporeMap :key="mapKey" class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" :quick="quickMap" :rain="rain.view.value?.places || []" :fade-rain="fadeRain" hide-meet />
+        <SingaporeMap :key="mapKey" class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" :quick="quickMap" :rain="rain.view.value?.places || []" :fade-rain="fadeRain" :places="mapPlaces" hide-meet />
         <div v-if="rainChip && rainChipFrame" class="hero__rain" :style="rainChipFrame" aria-hidden="true"><RainChip :text="rainChip" class="hero__rain-chip" /></div>
         <template v-if="hasMeetups">
           <MeetupPins class="hero__pins" :pins="pins" :meetups="meetups" :my-id="auth.myId" :names="nameOf" :selected-id="selected.id" :center="MEET" :span="mapSpan" @select="select" />
@@ -471,6 +492,9 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <section v-if="meetups.length > 1" class="section rise" style="--i: 1" aria-labelledby="home-meetups">
           <div class="section__head">
             <h2 id="home-meetups" class="display-sm">Your meetups</h2>
+          </div>
+          <div class="scroll-x home__ranges" role="radiogroup" v-radio-group aria-label="Show meetups for" data-testid="meetup-ranges">
+            <ChipButton v-for="r in MEETUP_RANGES" :key="r.id" radio :selected="range === r.id" :disabled="!counts[r.id]" :aria-label="`${r.label}, ${counts[r.id]} ${counts[r.id] === 1 ? 'meetup' : 'meetups'}`" @click="pickRange(r.id)">{{ r.label }}<span class="home__range-count tnum" aria-hidden="true">{{ counts[r.id] }}</span></ChipButton>
           </div>
           <MeetupList :meetups="shownMeetups" :selected-id="selected.id" :my-id="auth.myId" @select="select" />
           <AppButton v-if="moreMeetups" variant="secondary" class="home__see-all" to="/sessions" data-testid="see-all-meetups">{{ allMeetupsLabel(sessions.length) }}<AppIcon name="arrow-right" :size="16" /></AppButton>
@@ -630,6 +654,9 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
    card stays in view as a long list scrolls. */
 .home__meetups { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 .home__all { display: flex; }
+/* The week chips over "Your meetups", each with its count after the label. */
+.home__ranges { margin-top: calc(var(--spacing-xs) * -1); }
+.home__range-count { margin-left: var(--spacing-xs); opacity: 0.7; }
 /* The way to every meetup: a secondary button under the list, full width on phones and its own width from 744px. */
 .home__see-all { align-self: stretch; }
 @media (min-width: 744px) { .home__see-all { align-self: flex-start; } }

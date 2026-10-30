@@ -1,7 +1,7 @@
 // Everything Home decides about the meetups going now that needs no screen: which are current and in what order,
 // what each one needs from the signed-in person, where it stands, where its pin goes, and which one is selected.
 // All of it takes plain session summaries (lib/api.js), so it is tested without a browser.
-import { differenceInCalendarDays, format, isValid, parseISO } from 'date-fns'
+import { addDays, differenceInCalendarDays, format, isValid, parseISO, startOfWeek } from 'date-fns'
 import { proposalsOf } from './roam.js'
 import { isPaused, sessionPath, singaporeDate } from './session.js'
 
@@ -160,7 +160,7 @@ export function nextStepFor(session, myId) {
 // One pin per meetup that has a meeting point. Meetups that share an area are spread sideways by FAN_PX (in px, so
 // they stay apart at every map size), in the order they were given, centred on the area. Nothing here is a member's
 // exact place: a pin is always the meeting area.
-// How to call: pinsFor(meetups) -> [{ id, areaId, areaName, lat, lng, offset: { x: 0, y: 0 } }]
+// How to call: pinsFor(meetups) -> [{ id, areaId, areaName, lat, lng, offset: { x: 0, y: 0 }, showArea: true }]
 export function pinsFor(meetups) {
   const placed = meetups.filter((m) => m.area && Number.isFinite(m.area.lat) && Number.isFinite(m.area.lng))
   const sharing = {}
@@ -170,7 +170,8 @@ export function pinsFor(meetups) {
     const index = seen[m.area.id] || 0
     seen[m.area.id] = index + 1
     const x = (index - (sharing[m.area.id] - 1) / 2) * FAN_PX
-    return { id: m.id, areaId: m.area.id, areaName: m.area.name, lat: m.area.lat, lng: m.area.lng, offset: { x, y: 0 } }
+    // The area's name is written once under its pins (the first of them), so pins that share an area do not repeat it.
+    return { id: m.id, areaId: m.area.id, areaName: m.area.name, lat: m.area.lat, lng: m.area.lng, offset: { x, y: 0 }, showArea: index === 0 }
   })
 }
 
@@ -253,4 +254,46 @@ export function homeList(meetups = [], selectedId = '', max = HOME_MEETUPS_SHOWN
 // The words on Home's button to the Sessions list. How to call: allMeetupsLabel(9) -> 'See all 9 meetups'
 export function allMeetupsLabel(count) {
   return count > 1 ? `See all ${count} meetups` : 'See all meetups'
+}
+
+// The chips over Home's "Your meetups" (walkthrough, 30 October 2026): which meetups the list and the map's pins show. Weeks run Monday to
+// Sunday on Singapore's calendar. The first three do not overlap, so each meetup is in exactly one and their counts add up to All's:
+// "This month" was tried and dropped, because at a month's end it held fewer than "Next week", which read as wrong. A meetup from an
+// earlier day that is still waiting to finish counts as this week.
+export const MEETUP_RANGES = [
+  { id: 'week', label: 'This week' },
+  { id: 'next', label: 'Next week' },
+  { id: 'later', label: 'Later' },
+  { id: 'all', label: 'All' },
+]
+
+// Whether a meetup falls in a range. How to call: inRange({ date: '2026-11-03' }, 'next', new Date('2026-10-30T10:00:00+08:00')) -> true
+export function inRange(session, range, now = new Date()) {
+  if (range === 'all') return true
+  const day = dayOf(session, now)
+  if (!day) return false
+  const today = parseISO(singaporeDate(now))
+  const monday = startOfWeek(today, { weekStartsOn: 1 })
+  const key = (d) => format(d, 'yyyy-MM-dd')
+  const endOfThisWeek = key(addDays(monday, 6))
+  if (range === 'week') return day <= endOfThisWeek
+  if (range === 'next') return day > endOfThisWeek && day <= key(addDays(monday, 13))
+  if (range === 'later') return day > key(addDays(monday, 13))
+  return false
+}
+
+// The meetups in a range, in the order given. How to call: meetupsIn(meetups, 'week', now) -> [...]
+export function meetupsIn(meetups = [], range = 'all', now = new Date()) {
+  return meetups.filter((m) => inRange(m, range, now))
+}
+
+// How many meetups each chip holds. How to call: rangeCounts(meetups, now) -> { week: 2, next: 1, later: 2, all: 5 }
+export function rangeCounts(meetups = [], now = new Date()) {
+  return Object.fromEntries(MEETUP_RANGES.map((r) => [r.id, meetupsIn(meetups, r.id, now).length]))
+}
+
+// The chip Home starts on: this week, or all of them when nothing is on this week, so the list is never empty while there are meetups.
+// How to call: defaultRange(meetups, now) -> 'week'
+export function defaultRange(meetups = [], now = new Date()) {
+  return meetupsIn(meetups, 'week', now).length ? 'week' : 'all'
 }

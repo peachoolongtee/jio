@@ -7,7 +7,10 @@
 // projection and view box, so it sits on its meeting point at any size. The map is decoration and hidden from screen
 // readers; these buttons are the way in.
 // pins: [{ id, lat, lng, offset: { x, y }, label, name }] (lib/homeMeetups.js pinsFor, with a label and a name added).
-// label: the short word on the pin ("Sat"). name: what a screen reader says (title, area and date).
+// label: the short word on the pin ("Sat"). name: what a screen reader says (title, area and date). Under the selected pin's tip, a small
+// white tag names its area ("Bishan", walkthrough of 30 October 2026, so the dotted map reads as a place), centred on the area when pins
+// share it. Only the selected pin has one: nearby areas' tags would cover each other's pins. The pin's own name already says the area, so
+// the tag is hidden from screen readers.
 // The selected pin is bigger, filled red, white inside and bobbing, so it differs from the rest by more than colour.
 // A pin stays inside the box (its tip is moved in from the edge if its area is near it).
 // The popover (MeetupSummary, compact), one at a time, never changes the selection (clicking a pin does):
@@ -216,6 +219,7 @@ onBeforeUnmount(() => {
         </span>
         <span class="mpin__shadow" aria-hidden="true" />
       </button>
+      <span v-if="pin.id === selectedId && pin.areaName" class="mpin__area caption-sm" aria-hidden="true">{{ pin.areaName }}</span>
       <Transition name="mcard">
         <div v-if="pin.id === openId" :id="cardId(pin.id)" class="mcard" :data-side="placement?.side" :style="cardStyle">
           <MeetupSummary compact :meetup="byId[pin.id]" :my-id="myId" :names="names" />
@@ -274,6 +278,8 @@ onBeforeUnmount(() => {
 .is-selected .mpin .mpin__shape circle { fill: var(--canvas); }
 /* The day sits in the round head, whose centre is 47/128 of the way down. */
 .mpin__day { position: absolute; left: 0; right: 0; top: 36.7%; transform: translateY(-50%); color: var(--ink); font: var(--text-badge); font-weight: 700; line-height: 1; text-align: center; white-space: nowrap; }
+/* The area's name under the tip: a small white tag with a hairline, centred on the area (not on a fanned pin), under the pins and cards. */
+.mpin__area { position: absolute; left: calc(var(--ox, 0) * -1px); top: 8px; z-index: -1; padding: 1px var(--spacing-sm); border: 1px solid var(--hairline); border-radius: var(--rounded-full); background: color-mix(in srgb, var(--canvas) 92%, transparent); color: var(--body); font-weight: 600; white-space: nowrap; pointer-events: none; transform: translateX(-50%); }
 .mpin__shadow { position: absolute; left: 50%; bottom: -3px; z-index: -1; width: 22px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--ink) 22%, transparent); transform: translateX(-50%); filter: blur(2px); }
 /* Only the selected pin bobs, as the main button does: it rises and its shadow shrinks. */
 .is-selected .mpin .mpin__bob { animation: meetup-pin-bob 2.8s ease-in-out infinite; }
