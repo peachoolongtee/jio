@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { STORAGE_KEY, loadApi } from './planFixture.js'
 import { mountScreen, until } from './domless.js'
-import { VOUCHER_VALID_DAYS, dayLabel, validUntilOf, voucherGroups, voucherState, voucherValidUntil } from '../vouchers.js'
+import { VOUCHER_VALID_DAYS, claimCounts, claimLabel, dayLabel, validUntilOf, voucherGroups, voucherState, voucherValidUntil } from '../vouchers.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn() }))
 vi.mock('../plannerApi.js', () => planner)
@@ -68,6 +68,15 @@ describe('the rules of a voucher', () => {
     expect(groups.usable.map((r) => r.id)).toEqual(['fresh'])
     expect(groups.used.map((r) => r.id)).toEqual(['used'])
     expect(groups.expired.map((r) => r.id)).toEqual(['old', 'older'])
+  })
+
+  it('counts the claims of each voucher and says whether it was claimed (walkthrough, 30 October 2026)', () => {
+    expect(claimCounts([{ rewardId: 'r-nylon' }, { rewardId: 'r-tbb' }, { rewardId: 'r-nylon' }, {}])).toEqual({ 'r-nylon': 2, 'r-tbb': 1 })
+    expect(claimCounts()).toEqual({})
+    expect(claimLabel(undefined)).toBe('Not claimed')
+    expect(claimLabel(0)).toBe('Not claimed')
+    expect(claimLabel(1)).toBe('Claimed')
+    expect(claimLabel(3)).toBe('Claimed 3 times')
   })
 
   it('writes days the way the app does', () => {
@@ -230,5 +239,22 @@ describe('the Rewards screen', () => {
     const used = view.text('[data-testid=used-vouchers]')
     expect(used.match(/\bUsed\b/g)).toHaveLength(1)
     expect(used).toContain('Used on 30 Oct 2026')
+  })
+
+  it('says on each voucher card whether it was claimed, and updates the card after a claim', async () => {
+    const { view } = await drawRewards(claims)
+    const card = (offer) => view.all('[data-testid=voucher-card]').find((c) => view.text(c).includes(offer))
+    // Kopi Corner was claimed (an expired claim still counts); the cupcake never was.
+    expect(view.text(card('SGD 3 off any coffee'))).toContain('Claimed')
+    expect(view.text(card('SGD 5 off'))).toContain('Claimed')
+    expect(view.text(card('One free cupcake'))).toContain('Not claimed')
+    const inside = (node, box) => !!node && (node === box || inside(node.parent, box))
+    const claim = view.all('button').find((b) => view.text(b) === 'Claim' && inside(b, card('One free cupcake')))
+    await view.click(claim)
+    await until(() => view.has('[role=dialog]'))
+    await view.click(buttonLabelled(view, 'Claim voucher'))
+    await until(() => !view.text(card('One free cupcake')).includes('Not claimed'))
+    expect(view.text(card('One free cupcake'))).toContain('Claimed')
+    expect(view.errors).toEqual([])
   })
 })
