@@ -13,6 +13,13 @@
 // Invite are one stop in the browser's history (each replaces the other), so Back in the browser never returns to an
 // empty create form.
 // "We already have a place" is not asked here: it is on the Locate step, where the spots are (SpotList).
+// A new session opens with a dropdown, "How are you starting?" (walkthrough, 30 October 2026): "From scratch" is the form above;
+// "Already out" is Home's "Already out? Find something nearby" (RoamFromHome) brought into creating a session. It hides the day and
+// times (it is today, from now), asks "Where are you?" (LocationSheet: an area, the home area or the current location), and its button,
+// "Find places nearby", starts a light meetup there (events.startRoam) and opens its itinerary, the list of places nearby. The title is
+// optional ("Out in <area>"). It is the quick form of the Start choice's "We already know where" (StartView), for when the person is
+// there already and has nobody to wait for. Like Home's row it is for the demo and local accounts only: a shared session cannot be a
+// light meetup yet, so a real account sees no dropdown. `?start=out` opens the form on "Already out".
 //   <CreateEventView />                  /sessions/new
 //   <CreateEventView id="s1" />          /sessions/s1/edit
 import { computed, onMounted, ref, watch } from 'vue'
@@ -25,6 +32,8 @@ import ClashDialog from '@/components/group/ClashDialog.vue'
 import CalendarPicker from '@/components/ui/CalendarPicker.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import SelectField from '@/components/ui/SelectField.vue'
+import LocationSheet from '@/components/group/LocationSheet.vue'
 import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
 import RadialTimePicker from '@/components/ui/RadialTimePicker.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
@@ -34,6 +43,7 @@ import { toMinutes } from '@/lib/planner/format.js'
 import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
 import { useReturnFocus } from '@/lib/useReturnFocus.js'
 import { defaultDate, defaultSessionEnd, defaultTimes, endHasPassed, singaporeDate, startHasPassed } from '@/lib/session.js'
+import { START_MODES, areaName, startModesFor } from '@/lib/startChoice.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -47,6 +57,14 @@ const events = useEventsStore()
 const auth = useAuthStore()
 
 const title = ref('')
+// How the session starts: 'scratch' (pick a day and times) or 'out' (already somewhere, today). Only a new one asks.
+const modes = computed(() => (props.id ? [] : startModesFor(auth.sampleWorld)))
+const mode = ref(route.query.start === 'out' ? 'out' : 'scratch')
+const out = computed(() => mode.value === 'out' && modes.value.some((m) => m.value === 'out'))
+// Already out: the area picked in "Where are you?", and whether that sheet is open.
+const place = ref(null)
+const placeOpen = ref(false)
+const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAreaId, name: auth.user.homeAreaName } : null))
 // A new session starts with real times (and, late at night, with tomorrow as the day: the default start is after midnight); an
 // edited one takes the session's own (fill, below).
 const date = ref(props.id ? '' : defaultDate()) // yyyy-MM-dd
@@ -118,9 +136,32 @@ const ready = computed(() => title.value.trim().length > 0 && date.value !== '' 
 const endShown = computed(() => endError.value || taken.value)
 watch([date, start, end], () => { taken.value = '' })
 
+// Already out: starts the light meetup where the person is and opens its itinerary (the places nearby) in place of this screen.
+// How to call: await goOut()
+async function goOut() {
+  if (!place.value?.areaId || busy.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    const session = await events.startRoam({ areaId: place.value.areaId, title: title.value })
+    await router.replace(`/sessions/${session.id}/itinerary`)
+  } catch (e) {
+    error.value = e?.message || 'Could not start. Try again.'
+    busy.value = false
+  }
+}
+
+// The area picked in "Where are you?": only the area is kept, with its name for the screen.
+// How to call: pickPlace({ areaId: 'bugis', label: 'Bugis Junction' })
+function pickPlace(picked) {
+  if (!picked?.areaId) return
+  place.value = { areaId: picked.areaId, areaName: areaName(picked.areaId) || picked.label || '' }
+}
+
 // Creates the session, or saves the changes to it, and goes on to the invite step in place of this screen.
 // How to call: next()
 async function next() {
+  if (out.value) return goOut()
   if (!ready.value || busy.value) return
   busy.value = true
   error.value = ''
@@ -170,14 +211,26 @@ async function next() {
 
     <template v-else>
       <form class="screen__body" novalidate @submit.prevent="next">
+        <SelectField v-if="modes.length > 1" v-model="mode" label="How are you starting?" :options="modes" data-testid="start-mode" />
+        <p v-if="out" class="body-sm text-muted">{{ START_MODES.out.note }}</p>
         <div class="stack gap-xs">
-          <TextField v-model="title" label="Title" placeholder="Name your session" maxlength="60" />
-          <div class="scroll-x" role="group" aria-label="Title ideas">
+          <TextField v-model="title" :label="out ? 'Title (optional)' : 'Title'" :placeholder="out ? `Out in ${place?.areaName || 'your area'}` : 'Name your session'" maxlength="60" />
+          <div v-if="!out" class="scroll-x" role="group" aria-label="Title ideas">
             <ChipButton v-for="idea in TITLE_IDEAS" :key="idea" :selected="title === idea" @click="title = idea">{{ idea }}</ChipButton>
           </div>
         </div>
 
-        <section class="when" aria-labelledby="when-label">
+        <!-- Already out: where the person is, in place of the day and times. -->
+        <div v-if="out" class="where">
+          <span id="where-label" class="caption text-muted">Where are you?</span>
+          <button type="button" class="where__row" :class="{ 'is-empty': !place }" aria-labelledby="where-label where-value" data-testid="where-row" @click="placeOpen = true">
+            <span class="where__icon" aria-hidden="true"><AppIcon name="locate" :size="20" /></span>
+            <span id="where-value" class="where__value truncate">{{ place ? place.areaName : 'Pick where you are' }}</span>
+            <AppIcon class="where__go" :name="place ? 'chevron-right' : 'plus'" :size="18" />
+          </button>
+        </div>
+
+        <section v-else class="when" aria-labelledby="when-label">
           <span id="when-label" class="sr-only">Date and time</span>
           <CalendarPicker v-model="date" class="when__calendar" label="Date" :max="lastDay" />
           <div class="when__times">
@@ -189,14 +242,26 @@ async function next() {
       </form>
 
       <footer class="screen__footer">
-        <AppButton next block :disabled="!ready || busy" @click="remember($event); next()">Next</AppButton>
+        <AppButton v-if="out" next block :disabled="!place || busy" @click="goOut">{{ busy ? 'Starting' : 'Find places nearby' }}</AppButton>
+        <AppButton v-else next block :disabled="!ready || busy" @click="remember($event); next()">Next</AppButton>
       </footer>
+      <LocationSheet v-model:open="placeOpen" which="spot" title="Where are you?" :home="homeArea" @select="pickPlace" />
     </template>
     <ClashDialog v-model:open="showClash" :clash="clash" />
   </main>
 </template>
 
 <style scoped>
+
+/* Already out: one row like Locate's "Starting from", opening the location sheet. */
+.where { display: flex; flex-direction: column; gap: var(--spacing-xs); }
+.where__row { display: flex; align-items: center; gap: var(--spacing-md); width: 100%; min-height: 64px; padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--border-control); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); font: var(--text-title-sm); text-align: left; cursor: pointer; }
+.where__row.is-empty { color: var(--muted); }
+@media (hover: hover) { .where__row:hover { border-color: var(--ink); background: var(--surface-soft); } }
+.where__row:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.where__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
+.where__value { flex: 1; min-width: 0; }
+.where__go { flex-shrink: 0; color: var(--muted); }
 
 /* Date and time: the calendar, then the times. Phones stack them; from tablet up the times sit to the right,
    start at the top and end at the bottom, each centred so its buttons have room to fly out. */

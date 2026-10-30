@@ -139,3 +139,24 @@ export async function areaHere(geolocation, placeFromCoords, timeout = 10000) {
   if (!place) throw new Error('Your location is outside Singapore. Pick an area instead.')
   return place
 }
+
+// How a new session starts, asked by the dropdown at the top of Create session (walkthrough, 30 October 2026). 'scratch' is the usual
+// form (a day, times, invites, then the Start choice above); 'out' is for someone already out, who starts a light meetup where they
+// are, today, and goes straight to the places nearby (Home's "Already out?" row). `note` is the line under the dropdown.
+export const START_MODES = {
+  scratch: { value: 'scratch', label: 'From scratch' },
+  out: { value: 'out', label: 'Already out', note: 'For today, from now. Pick where you are and Jio lists places nearby. You can invite friends from there.' },
+}
+
+// The dropdown's options for an account. A light meetup is kept in this browser only, so a real account (whose sessions are shared)
+// gets "From scratch" alone, and the screen shows no dropdown.
+// How to call: startModesFor(auth.sampleWorld) -> [{ value: 'scratch', label: 'From scratch' }, { value: 'out', label: 'Already out' }]
+export function startModesFor(sampleWorld) {
+  const { scratch, out } = START_MODES
+  return sampleWorld ? [{ value: scratch.value, label: scratch.label }, { value: out.value, label: out.label }] : [{ value: scratch.value, label: scratch.label }]
+}
+
+// An area's name by its id, or ''. How to call: areaName('bugis') -> 'Bugis'
+export function areaName(id) {
+  return AREAS.find((a) => a.id === id)?.name || ''
+}
