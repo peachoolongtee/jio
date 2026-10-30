@@ -13,9 +13,6 @@
 // within two hours; the words for it are on the page, and so is the chip, as the map is hidden from screen readers. It fades in
 // over 900 ms (`fadeRain` turns that off) and the drops fall; under reduced motion neither happens and the wash and drops stand still. It is under the routes
 // and the pins, and takes no pointer events.
-// places: [{ name, lat, lng }] a few faint place names written on the island (walkthrough, 30 October 2026: without them the dots
-// read as decoration, not a map), so a pin's position can be read at a glance. Each name sits just below its point, clear of a route's ring there. Under the routes, rain and pins; hidden from screen
-// readers like the rest of the map.
 // quick: draw the routes in about twice as fast, for a map that redraws when the choice changes (give it a new
 // :key to redraw it): <SingaporeMap :key="selected.id" :routes="routes" quick />
 // Built after Aceternity's World Map, with Singapore from lib/singaporeDots.js instead of the world.
@@ -38,7 +35,6 @@ const props = defineProps({
   // Fade the rain in over 900 ms. A map that is drawn again for the same rain (Home picks another meetup) turns it off, so the rain does not
   // fade out and in again.
   fadeRain: { type: Boolean, default: true },
-  places: { type: Array, default: () => [] },
 })
 
 // How far the rain wash reaches around a place, in map units (6.2 km: a forecast area and the ground around it, wide enough to
@@ -70,7 +66,6 @@ const lines = computed(() =>
     return { a, b, d: curve(a, b) }
   }),
 )
-const placeNames = computed(() => props.places.map((p) => ({ name: p.name, ...project(p.lat, p.lng) })))
 const patches = computed(() => props.rain.slice(0, MAX_RAIN_PATCHES).map((p, i) => ({ ...project(p.lat, p.lng), i })))
 
 // Every route ends at the same place, so draw the meeting point once.
@@ -82,9 +77,6 @@ const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
     <svg :viewBox="viewBox" preserveAspectRatio="xMidYMid meet" class="sgmap__svg">
       <path class="sgmap__dots sgmap__dots--near" :d="NEARBY_DOTS" :stroke-width="DOT" />
       <path class="sgmap__dots" :d="SINGAPORE_DOTS" :stroke-width="DOT" />
-      <g v-if="placeNames.length" class="sgmap__places" data-testid="map-places">
-        <text v-for="p in placeNames" :key="p.name" :x="p.x" :y="p.y + 9" text-anchor="middle" dominant-baseline="middle">{{ p.name }}</text>
-      </g>
 
       <defs>
         <!-- Rain: a wash and a white feather (both fade to nothing at the edge), and one tile of drops for each layer. -->
@@ -131,8 +123,6 @@ const meet = computed(() => (props.hideMeet ? null : lines.value[0]?.b || null))
 </template>
 
 <style scoped>
-/* The place names: small, muted and spaced out, with a white halo so they read over the dots. */
-.sgmap__places text { fill: var(--muted); font: 600 7.4px var(--font-sans); letter-spacing: 0.03em; paint-order: stroke; stroke: var(--surface-soft); stroke-width: 2.2px; stroke-linejoin: round; }
 .sgmap { position: relative; overflow: hidden; pointer-events: none; user-select: none; }
 .sgmap__svg { display: block; width: 100%; height: 100%; overflow: visible; }
 /* Dots: a path of zero-length lines with round caps. Singapore in a pale grey, its neighbours paler still. */

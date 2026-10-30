@@ -52,7 +52,7 @@ import MeetupDetail from '@/components/home/MeetupDetail.vue'
 import MeetupList from '@/components/home/MeetupList.vue'
 import MeetupPins from '@/components/home/MeetupPins.vue'
 import * as api from '@/lib/api.js'
-import { MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, meetupsIn, pinName, pinsFor, rangeCounts, routesFor, selectMeetup } from '@/lib/homeMeetups.js'
+import { MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, meetupsIn, pinName, pinsFor, rangeCounts, selectMeetup } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useHomeRain } from '@/lib/useHomeRain.js'
@@ -181,9 +181,7 @@ function select(id) {
   router.replace({ query: { ...route.query, meetup: id } })
 }
 
-// The routes on the map. With no meetups, or one with no meeting point yet: friends from all round the island meeting
-// in the middle (Toa Payoh), always these, spread out, rather than one meetup's starts (often a few stops apart).
-// With a selected meetup that has a meeting point: from each member's start area to that meeting area.
+// The routes on the map: friends from all round the island converging on the selected meetup's pin (ROUTE_STARTS, below).
 const at = (id) => AREAS.find((a) => a.id === id)
 // Until there is a meetup Home has nothing below the band, so the band fills the screen and Singapore is drawn large.
 const fullMap = computed(() => events.loaded && !hasMeetups.value)
@@ -200,14 +198,17 @@ onMounted(() => {
 onBeforeUnmount(() => narrowQuery?.removeEventListener('change', syncNarrow))
 const mapSpan = computed(() => (!fullMap.value ? [340, 260] : narrow.value ? [340, 300] : [400, 320]))
 const MEET = at('toa-payoh')
-// A few place names on the dotted map, spread round the island, so where a pin stands can be read at a glance. "City" is Raffles Place.
-const MAP_PLACES = [['woodlands', 'Woodlands'], ['jurong-east', 'Jurong'], ['bishan', 'Bishan'], ['punggol', 'Punggol'], ['tampines', 'Tampines'], ['raffles-place', 'City']]
-  .map(([id, name]) => ({ name, lat: at(id).lat, lng: at(id).lng }))
-const defaultRoutes = ['boon-lay', 'jurong-east', 'woodlands', 'punggol', 'tampines', 'harbourfront'].map((id) => ({ from: at(id), to: MEET }))
-const ownRoutes = computed(() => (selected.value ? routesFor(selected.value) : []))
-const mapRoutes = computed(() => (ownRoutes.value.length ? ownRoutes.value : defaultRoutes))
-// A new key redraws the routes: when the selection changes, or the selected meetup's starts or meeting area do.
-const mapKey = computed(() => (ownRoutes.value.length ? `${selected.value.id}:${ownRoutes.value.map((r) => `${r.from.lat},${r.from.lng}`).join('|')}` : 'default'))
+// The routes always start from the same six places round the island, so every pin gets the same number of lines (walkthrough, 30 October
+// 2026: they used to be the members' own starts, a different number for each meetup). They converge on the selected meetup's pin, its
+// meeting area; with no meetup selected, or one with no meeting point yet, on the middle (Toa Payoh), where no pin is.
+const ROUTE_STARTS = ['boon-lay', 'jurong-east', 'woodlands', 'punggol', 'tampines', 'harbourfront'].map(at)
+const routeEnd = computed(() => {
+  const area = selected.value?.area
+  return area && Number.isFinite(area.lat) && Number.isFinite(area.lng) ? { lat: area.lat, lng: area.lng } : MEET
+})
+const mapRoutes = computed(() => ROUTE_STARTS.map((from) => ({ from, to: routeEnd.value })))
+// A new key redraws the routes when they converge somewhere else.
+const mapKey = computed(() => `${routeEnd.value.lat},${routeEnd.value.lng}`)
 // The first draw is the full, slow one; a redraw after the person changes the selection is quicker.
 const quickMap = ref(false)
 watch(() => selected.value?.id, (id, before) => { if (id && before && id !== before) quickMap.value = true })
@@ -215,8 +216,6 @@ watch(() => selected.value?.id, (id, before) => { if (id && before && id !== bef
 // The pins: one per meetup listed under "Your meetups" that has a meeting point (so a pin always has its row, and the map is not
 // crowded with meetups the list leaves out), each with its day and the words a screen reader says. With one meetup going there is no
 // list, and that one is pinned.
-// The place names on the map, less any under a pin (about 2 km around it), so a name never sits behind a pin or its area's tag.
-const mapPlaces = computed(() => MAP_PLACES.filter((place) => !pins.value.some((pin) => Math.abs(pin.lat - place.lat) < 0.02 && Math.abs(pin.lng - place.lng) < 0.025)))
 const pins = computed(() => {
   const byId = Object.fromEntries(meetups.value.map((m) => [m.id, m]))
   const pinned = meetups.value.length > 1 ? shownMeetups.value : meetups.value
@@ -454,7 +453,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 
       <!-- The map, with the button where the routes meet, or a pin for each meetup. -->
       <div class="hero__stage">
-        <SingaporeMap :key="mapKey" class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" :quick="quickMap" :rain="rain.view.value?.places || []" :fade-rain="fadeRain" :places="mapPlaces" hide-meet />
+        <SingaporeMap :key="mapKey" class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" :quick="quickMap" :rain="rain.view.value?.places || []" :fade-rain="fadeRain" hide-meet />
         <div v-if="rainChip && rainChipFrame" class="hero__rain" :style="rainChipFrame" aria-hidden="true"><RainChip :text="rainChip" class="hero__rain-chip" /></div>
         <template v-if="hasMeetups">
           <MeetupPins class="hero__pins" :pins="pins" :meetups="meetups" :my-id="auth.myId" :names="nameOf" :selected-id="selected.id" :center="MEET" :span="mapSpan" @select="select" />

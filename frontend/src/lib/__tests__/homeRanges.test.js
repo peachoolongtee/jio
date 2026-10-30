@@ -1,6 +1,7 @@
 // Home's week chips (walkthrough, 30 October 2026): This week, Next week, Later and All choose which meetups "Your meetups" lists, and the
 // map pins only those, so each pin has its row. Drawn for real (domless.js) on the stand-in planner, for a local account; the pins need a
-// browser and are stood in for by an element that says how many it was given and for which areas.
+// browser and are stood in for by an element that says how many it was given and for which areas, and the dotted map by one that says how
+// many routes it draws and where they end. Also: the routes, always six, converge on the selected pin.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { h } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -11,6 +12,9 @@ const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(),
 vi.mock('../plannerApi.js', () => planner)
 vi.mock('../../components/home/MeetupPins.vue', () => ({
   default: { props: ['pins'], setup: (props) => () => h('div', { 'data-testid': 'pins', 'data-areas': props.pins.map((p) => p.areaName).join(',') }, String(props.pins.length)) },
+}))
+vi.mock('../../components/ui/SingaporeMap.vue', () => ({
+  default: { props: ['routes'], setup: (props) => () => h('div', { 'data-testid': 'routes', 'data-ends': [...new Set(props.routes.map((r) => `${r.to.lat},${r.to.lng}`))].join('|') }, String(props.routes.length)) },
 }))
 vi.setConfig({ testTimeout: 60000, hookTimeout: 60000 })
 
@@ -83,5 +87,27 @@ describe('the week chips on Home', () => {
     await view.click(chip(view, 'Later'))
     expect(chip(view, 'This week').attrs['aria-checked']).toBe('true')
     expect(view.text('[data-testid=pins]')).toBe('1')
+  })
+})
+
+describe('the routes on the map', () => {
+  const BISHAN = '1.35092,103.84822'
+  const ORCHARD = '1.30406,103.83186'
+
+  it('are always six, from the same starts, converging on the selected meetup\'s pin, and move when another is picked', async () => {
+    const view = await drawHome()
+    const { AREAS } = await import('../mock/places.js')
+    const at = (id) => AREAS.find((a) => a.id === id)
+    const bugis = `${at('bugis').lat},${at('bugis').lng}`
+    expect(view.text('[data-testid=routes]')).toBe('6')
+    expect(view.one('[data-testid=routes]').attrs['data-ends']).toBe(bugis)
+    await view.click(chip(view, 'Next week'))
+    await until(() => view.one('[data-testid=routes]').attrs['data-ends'] === BISHAN)
+    expect(view.text('[data-testid=routes]')).toBe('6')
+    // Picking the Orchard meetup's row moves them there, still six.
+    const row = view.all('button').find((b) => view.text(b).includes('Out 2026-11-04'))
+    await view.click(row)
+    await until(() => view.one('[data-testid=routes]').attrs['data-ends'] === ORCHARD)
+    expect(view.text('[data-testid=routes]')).toBe('6')
   })
 })

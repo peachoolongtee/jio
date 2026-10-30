@@ -160,7 +160,7 @@ export function nextStepFor(session, myId) {
 // One pin per meetup that has a meeting point. Meetups that share an area are spread sideways by FAN_PX (in px, so
 // they stay apart at every map size), in the order they were given, centred on the area. Nothing here is a member's
 // exact place: a pin is always the meeting area.
-// How to call: pinsFor(meetups) -> [{ id, areaId, areaName, lat, lng, offset: { x: 0, y: 0 }, showArea: true }]
+// How to call: pinsFor(meetups) -> [{ id, areaId, areaName, lat, lng, offset: { x: 0, y: 0 } }]
 export function pinsFor(meetups) {
   const placed = meetups.filter((m) => m.area && Number.isFinite(m.area.lat) && Number.isFinite(m.area.lng))
   const sharing = {}
@@ -170,8 +170,7 @@ export function pinsFor(meetups) {
     const index = seen[m.area.id] || 0
     seen[m.area.id] = index + 1
     const x = (index - (sharing[m.area.id] - 1) / 2) * FAN_PX
-    // The area's name is written once under its pins (the first of them), so pins that share an area do not repeat it.
-    return { id: m.id, areaId: m.area.id, areaName: m.area.name, lat: m.area.lat, lng: m.area.lng, offset: { x, y: 0 }, showArea: index === 0 }
+    return { id: m.id, areaId: m.area.id, areaName: m.area.name, lat: m.area.lat, lng: m.area.lng, offset: { x, y: 0 } }
   })
 }
 
