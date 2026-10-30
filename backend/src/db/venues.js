@@ -113,8 +113,11 @@ function namesOf(venue) {
 
 /**
  * A OneMap place that a hand-made list already has (the frontend's Tiong Bahru Market, the mock data's museum) is
- * left out, so a place is never suggested twice. Same place = within 300 m with a similar name, or the same kind of
- * place within 50 m. A name is compared in every way the place is written, so the name in a hawker centre's bracket
+ * left out, so a place is never suggested twice. Same place = the same category within 300 m with a similar name, or the
+ * same kind of place within 50 m. The category keeps a place inside a building apart from the building: curated mall
+ * "Bukit Panjang Plaza" does not hide OneMap's "Bukit Panjang Library" inside it, nor "Kampung Admiralty" its hawker
+ * centre, nor "Chinatown Complex Food Centre" the Chinatown district. A place with no category is compared by name and
+ * distance alone. A name is compared in every way the place is written, so the name in a hawker centre's bracket
  * counts: curated "Chinatown Complex Food Centre" is OneMap's "Smith Street Blk 335 (Chinatown Complex Market)", 60 m
  * away, and curated "Kovan 209 Market and Food Centre" is "Hougang Street 21 Blk 209 (Kovan Hougang Market and Food
  * Centre)", 140 m away. Distance alone is not enough for two hawker centres: neighbouring blocks are different centres.
@@ -128,8 +131,9 @@ function namesOf(venue) {
 export function dropKnownPlaces(candidates, known, { meters = 300, minSimilarity = 0.5, sameKindMeters = 50 } = {}) {
   return candidates.filter((c) => !known.some((k) => {
     const m = haversineKm(c, k) * 1000
-    const similar = namesOf(c).some((a) => namesOf(k).some((b) => nameSimilarity(a, b) >= minSimilarity))
-    return (m <= meters && similar) || (sameKindMeters > 0 && m <= sameKindMeters && c.kind && c.kind === (k.kind ?? k.cuisine))
+    const sameCategory = !c.category || !k.category || c.category === k.category
+    const similar = sameCategory && namesOf(c).some((a) => namesOf(k).some((b) => nameSimilarity(a, b) >= minSimilarity))
+    return (m <= meters && similar) ||(sameKindMeters > 0 && m <= sameKindMeters && c.kind && c.kind === (k.kind ?? k.cuisine))
   }))
 }
 

@@ -85,13 +85,13 @@ const data = loadPlanData();
 test('loadPlanData: the pool holds exactly these counts per source, so a change that moves them fails loudly', () => {
   // If a build, a rule or the de-duplication moves these, update the Venues row in CLAUDE.md and backend/docs/engine-integration.md.
   const counts = (d) => ({ mock: d._meta.sources.mock, curated: d._meta.sources.curated, onemap: d._meta.sources.onemap, cdc: d._meta.sources.cdc, total: d.venues.length });
-  assert.deepStrictEqual(counts(loadPlanData({ includeFictional: false })), { mock: 0, curated: 63, onemap: 417, cdc: 1302, total: 1782 });
-  assert.deepStrictEqual(counts(loadPlanData({ includeFictional: true })), { mock: 36, curated: 63, onemap: 416, cdc: 1303, total: 1818 });
+  assert.deepStrictEqual(counts(loadPlanData({ includeFictional: false })), { mock: 0, curated: 155, onemap: 418, cdc: 1302, total: 1875 });
+  assert.deepStrictEqual(counts(loadPlanData({ includeFictional: true })), { mock: 36, curated: 155, onemap: 417, cdc: 1303, total: 1911 });
 });
 
 test('loadPlanData: all four sources, no duplicate ids, every venue has what the engine reads', () => {
   const { sources } = data._meta;
-  assert.ok(sources.mock === 36 && sources.curated === 63 && sources.cdc > 1000 && sources.onemap > 400);
+  assert.ok(sources.mock === 36 && sources.curated === 155 && sources.cdc > 1000 && sources.onemap > 400);
   assert.strictEqual(data.venues.length, sources.mock + sources.curated + sources.onemap + sources.cdc);
   assert.strictEqual(new Set(data.venues.map(v => v.id)).size, data.venues.length);
   for (const v of data.venues) {
