@@ -1,5 +1,6 @@
 // "Add friends" on Home (walkthrough, 30 October 2026): a people button that opens a sheet for finding people on Jio and adding them.
-// For a local account: search by name or @username, "Add friend" turns into "Friends" and the person is a friend; for a real account,
+// For a local account: "Suggested friends", searched by name or @username, each with a round red button with no words that sends a friend
+// request (waiting, then accepted after 2 s, then a friend); for a real account,
 // whose friends are the people it has been out with, the sheet says so instead. Drawn on the in-memory page (domless.js).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -8,6 +9,9 @@ import { mountScreen, until } from './domless.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn() }))
 vi.mock('../plannerApi.js', () => planner)
+// The profile's canvas drawings need a browser; what is under test is the page and its sheet.
+vi.mock('@/components/ui/GridPulse.vue', () => ({ default: { render: () => null } }))
+vi.mock('@/components/ui/MeetupGraph.vue', () => ({ default: { render: () => null } }))
 vi.setConfig({ testTimeout: 30000 })
 
 beforeEach(() => {
@@ -77,12 +81,15 @@ describe('Add friends on Home', () => {
     await view.click(press(view, 'Add Kai as a friend'))
     // Sent, not yet accepted.
     expect(view.has('[data-testid=friend-requested]')).toBe(true)
-    expect(view.text('[data-testid=friend-requested]')).toBe('Requested')
+    // The round button has no words: its name says the state.
+    expect(view.one('[data-testid=friend-requested]').attrs['aria-label']).toBe('Friend request sent to Kai')
+    expect(view.all('h3').some((h) => view.text(h) === 'Suggested friends')).toBe(true)
     expect(view.text('[data-testid=add-friends-status]')).toBe('Friend request sent to Kai')
     expect(press(view, 'Add Kai as a friend')).toBeUndefined()
     expect((await api.listPeople()).find((p) => p.id === 'kai').isFriend).toBe(false)
     // Accepted.
     await until(() => view.has('[data-testid=friend-added]'))
+    expect(view.one('[data-testid=friend-added]').attrs['aria-label']).toBe('Kai is your friend')
     expect(view.has('[data-testid=friend-requested]')).toBe(false)
     expect(view.text('[data-testid=add-friends-status]')).toBe('Kai accepted your friend request')
     expect(view.text('[data-testid=add-friends-list]')).toContain('Kai')
@@ -142,5 +149,41 @@ describe("the profile's Suggested", () => {
     await done
     expect(failed).toHaveBeenCalledWith('Saving failed.')
     expect(useFriendRequests().requested.value.has('siti')).toBe(false)
+  })
+})
+
+describe('suggested friends on your profile', () => {
+  // Your own profile for a new local account that is friends with Faith.
+  async function drawProfile() {
+    const api = await loadApi()
+    await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2000-01-31', homeAreaId: 'tampines' })
+    await api.setFriend('faith', true)
+    const { createPinia, setActivePinia } = await import('pinia')
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { useAuthStore } = await import('@/stores/auth.js')
+    await useAuthStore().init()
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:any(.*)*', component: { render: () => null } }] })
+    await router.push('/profile')
+    const { default: ProfileView } = await import('@/views/ProfileView.vue')
+    const view = await mountScreen(ProfileView, { plugins: [pinia, router] })
+    await until(() => view.has('[data-testid=friends-count]'))
+    return view
+  }
+
+  it('are not a section of the page any more, but in the Friends sheet, under your friends, with round red buttons', async () => {
+    const view = await drawProfile()
+    expect(view.has('[data-testid=suggested-people]')).toBe(false)
+    expect(view.all('h2').some((h) => view.text(h) === 'Suggested')).toBe(false)
+    await view.click('[data-testid=friends-count]')
+    await until(() => view.has('[data-testid=friends-sheet-suggested]'))
+    expect(view.text('[data-testid=friends-list]')).toContain('Faith')
+    const suggested = view.one('[data-testid=friends-sheet-suggested]')
+    expect(view.text(suggested)).toContain('Suggested friends')
+    expect(view.text(suggested)).not.toContain('Faith')
+    const add = view.all('button').find((b) => b.attrs['aria-label'] === 'Add Kai as a friend')
+    expect(add).toBeTruthy()
+    expect(view.text(add)).toBe('')
+    expect(view.errors).toEqual([])
   })
 })

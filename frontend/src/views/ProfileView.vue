@@ -13,9 +13,8 @@
 //   narrows them by title or meeting area. Clicking a day on the graph shows only that day's sessions (or, on someone else's
 //   profile, that day's activity) and picks All, so the day is never hidden by a chip; the day shows as a chip with a × above the
 //   list, and the × (or clicking the same day again) brings the whole list back (walkthrough, 30 October 2026). The signed-in
-//   person's own also lists their Friends (for a real account, the people they have shared a session with; the first six, and
-//   "Show N more" for the rest), then
-//   Suggested people (anyone they are not friends with yet), each opening their profile, with "Add friend" in the sample world. These used to be on the invite page, which now shows friends only (ticket #121).
+//   person's own has no Suggested section on the page any more (walkthrough, 30 October 2026): people to add are in the Friends sheet,
+//   under your friends, and in Home's "Add friends", with a round red button that sends a friend request.
 //   The signed-in person's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
 //   the demo" note, because other people's profiles are hand-written.
 //   Signing out of a local account (one that lives only in this browser) erases everything saved here, so its dialog
@@ -41,12 +40,12 @@ import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import MeetupGraph from '@/components/ui/MeetupGraph.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import SessionCard from '@/components/event/SessionCard.vue'
+import SuggestedFriends from '@/components/group/SuggestedFriends.vue'
 import NotFoundView from './NotFoundView.vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 import { personColour } from '@/lib/people.js'
-import { sendFriendRequest, useFriendRequests } from '@/lib/friendRequests.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { EMPTY_TEXT, SESSION_FILTERS, narrowSessions, narrowedEmptyText, profileSessions } from '@/lib/profileSessions.js'
 import { useNow } from '@/lib/useNow.js'
@@ -103,7 +102,7 @@ const dayText = (d) => format(parseISO(d), 'EEE d MMM yyyy')
 const emptyText = computed(() => (narrowing.value ? narrowedEmptyText({ query: query.value, day: day.value }, dayText) : EMPTY_TEXT[sessionFilter.value]))
 // A day picked on the graph, or null when the same day was picked again. Picking a day shows All, so a past day is not hidden
 // by Upcoming. How to call: pickDay('2026-09-11')
-// The list sits under Friends and Suggested on your own profile, so a picked day brings its heading into view (at once under reduced motion).
+// The list sits below the graph on your own profile, so a picked day brings its heading into view (at once under reduced motion).
 async function pickDay(picked) {
   day.value = picked || ''
   if (!picked) return
@@ -129,21 +128,19 @@ const ordinal = (n) => {
 const friends = computed(() => person.value?.friends || [])
 const friendsTitle = computed(() => (person.value?.friendsInCommon ? 'Friends in common' : 'Friends'))
 const friendsOpen = ref(false)
+// Under your own friends, the sheet suggests people to add (SuggestedFriends, the same section as Home's "Add friends"; demo and local
+// accounts only, as adding friends is). Fixed when the sheet opens, so a person just added stays, marked, until it closes.
+const sheetSuggested = ref([])
+const sheetError = ref('')
+watch(friendsOpen, (isOpen) => {
+  if (!isOpen) return
+  sheetError.value = ''
+  sheetSuggested.value = isMe.value && auth.sampleWorld ? [...groups.suggested] : []
+})
 // A friend's profile opens from the sheet: close it first. How to call: openFriend('faith')
 function openFriend(id) {
   friendsOpen.value = false
   router.push(id === auth.myId ? '/profile' : `/people/${id}`)
-}
-// People the signed-in person could add, at most six. "Add friend" sends a friend request, accepted after two seconds, as on Home's "Add
-// friends" (lib/friendRequests.js, one set of requests for both): the row reads "Requested", then "Friends" with a tick, and stays on the
-// list while the page is open (`befriended`) instead of vanishing the moment the person becomes a friend.
-const befriended = ref(new Set())
-const suggested = computed(() => (isMe.value ? groups.people.filter((p) => !p.isFriend || befriended.value.has(p.id)).slice(0, 6) : []))
-const { requested, announcement: requestNote } = useFriendRequests()
-// How to call: addFriend({ id: 'faith', name: 'Faith' })
-function addFriend(person) {
-  befriended.value = new Set([...befriended.value, person.id])
-  sendFriendRequest(person, groups.setFriend)
 }
 
 const friendBusy = ref(false)
@@ -232,32 +229,6 @@ async function signOut() {
           <MeetupGraph :history="person.history" :planned="person.planned" :selected="day" @select="pickDay" />
         </section>
 
-        <!-- The signed-in person: people they could add, opening each one's profile. -->
-        <section v-if="suggested.length" class="section" aria-labelledby="suggested-head" data-testid="suggested-people">
-          <div class="section__head">
-            <h2 id="suggested-head" class="display-sm">Suggested</h2>
-          </div>
-          <ul class="suggested">
-            <li v-for="p in suggested" :key="p.id" class="suggested__row">
-              <RouterLink :to="`/people/${p.id}`" class="suggested__who">
-                <UserAvatar :name="p.name" :src="p.photo" :person="p.id" :size="44" />
-                <span class="stack suggested__text">
-                  <span class="title-sm truncate">{{ p.name }}</span>
-                  <span class="caption-sm text-muted truncate">@{{ p.username }}<template v-if="p.homeArea"> · {{ p.homeArea }}</template></span>
-                </span>
-              </RouterLink>
-              <template v-if="auth.sampleWorld">
-                <span v-if="p.isFriend" class="request request--done caption" data-testid="suggested-added"><AppIcon name="check" :size="14" />Friends</span>
-                <span v-else-if="requested.has(p.id)" class="request caption" data-testid="suggested-requested"><AppIcon name="clock" :size="14" />Requested</span>
-                <AppButton v-else small variant="secondary" :aria-label="`Add ${p.name} as a friend`" @click="addFriend(p)">
-                  <AppIcon name="plus" :size="16" />Add friend
-                </AppButton>
-              </template>
-            </li>
-          </ul>
-          <p class="sr-only" role="status" data-testid="suggested-status">{{ requestNote }}</p>
-        </section>
-
         <!-- The signed-in person: their sessions, once they have some. -->
         <section v-if="isMe && (!events.loaded || sessions.length)" class="section" aria-labelledby="my-sessions">
           <div class="section__head">
@@ -328,6 +299,8 @@ async function signOut() {
         </li>
       </ul>
       <SampleNote v-if="!isMe && person?.sample && friends.length" />
+      <SuggestedFriends v-if="sheetSuggested.length" class="sheet-suggested" :people="sheetSuggested" data-testid="friends-sheet-suggested" @open="openFriend" @error="sheetError = $event" />
+      <p v-if="sheetError" class="body-sm text-error" role="alert">{{ sheetError }}</p>
     </BottomSheet>
 
     <ModalDialog v-model:open="signOutOpen" :title="signOutKind === 'real' ? 'Sign out?' : 'Erase everything and sign out?'">
@@ -398,6 +371,7 @@ async function signOut() {
 @media (hover: hover) { .stats__button:hover { text-decoration: underline; } }
 .stats__button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* The friends sheet: one row per friend, opening their profile. */
+.sheet-suggested { margin-top: var(--spacing-lg); }
 .friend-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 .friend-list__row { display: flex; align-items: center; gap: var(--spacing-md); width: 100%; min-height: 64px; padding: var(--spacing-sm) 0; border: 0; border-bottom: 1px solid var(--hairline-soft); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 @media (hover: hover) { .friend-list__row:hover { background: var(--surface-soft); } }
@@ -411,12 +385,4 @@ async function signOut() {
 .activity__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
 .activity__link { color: var(--ink); }
 .profile__loading { padding-top: var(--spacing-xl); }
-.suggested { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-xs) var(--spacing-lg); margin: 0; padding: 0; list-style: none; }
-@media (min-width: 744px) { .suggested { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-/* A friend request on a Suggested row: a dashed pill while it waits, ink with a tick once accepted (Home's "Add friends" looks the same). */
-.request { display: inline-flex; flex-shrink: 0; align-items: center; gap: var(--spacing-xs); min-height: 36px; padding: 0 var(--spacing-md); border: 1px dashed var(--border-strong); border-radius: var(--rounded-full); color: var(--muted); }
-.request--done { border: 0; color: var(--ink); font-weight: 600; }
-.suggested__row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 68px; border-bottom: 1px solid var(--hairline-soft); }
-.suggested__who { display: flex; flex: 1; align-items: center; gap: var(--spacing-md); min-width: 0; color: var(--ink); text-decoration: none; }
-.suggested__text { min-width: 0; gap: 0; }
 </style>

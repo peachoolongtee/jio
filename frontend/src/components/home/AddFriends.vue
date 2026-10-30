@@ -3,19 +3,19 @@
 // the avatar; top right from 744px, where the avatar is in the top bar) that opens a sheet for finding people on Jio and adding them,
 // the same people as the profile's Suggested.
 //   <AddFriends />   or, in a test, <AddFriends :accept-after="50" />
-// The demo and local accounts: a search box (name or @username) over everyone they are not friends with yet, each row opening that
-// person's profile, with "Add friend". Pressing it sends a friend request (lib/friendRequests.js, shared with the profile's Suggested):
-// the button reads "Requested" with a clock, and after `acceptAfter` (2 s) the person accepts, the row reads "Friends" with a tick, and
-// they are a friend. A polite status line says "Friend request sent to Kai", then "Kai accepted your friend request". The acceptance
-// still happens if the sheet is closed meanwhile. The row stays until the sheet closes, so the list does not jump under the finger. A real account's friends are the people it has been out with (CLAUDE.md, ticket #125), and a
+// The demo and local accounts: a search box (name or @username) over "Suggested friends", everyone they are not friends with yet
+// (SuggestedFriends: each row opens that person's profile, and a round red button sends a friend request, accepted after
+// `acceptAfter`, 2 s; the profile's Friends sheet has the same section). The acceptance still happens if the sheet is closed meanwhile.
+// The rows are fixed when the sheet opens, so the list does not jump under the finger. A real account's friends are the people it has
+// been out with (CLAUDE.md, ticket #125), and a
 // list of its own would need a table on the server, so its sheet says how people become friends and offers to start a session.
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import BottomSheet from '../ui/BottomSheet.vue'
-import UserAvatar from '../ui/UserAvatar.vue'
-import { FRIEND_ACCEPT_MS, sendFriendRequest, useFriendRequests } from '@/lib/friendRequests.js'
+import SuggestedFriends from '../group/SuggestedFriends.vue'
+import { FRIEND_ACCEPT_MS } from '@/lib/friendRequests.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useGroupsStore } from '@/stores/groups.js'
 
@@ -31,10 +31,6 @@ const open = ref(false)
 const query = ref('')
 // The people shown while the sheet is open: fixed when it opens, so a person just added stays on the list, marked.
 const shown = ref([])
-// Requests waiting (from here or the profile) and the status line's words.
-const { requested, announcement } = useFriendRequests()
-// Friends now, from the store, so a request answered anywhere shows here.
-const isFriend = (id) => !!groups.people.find((p) => p.id === id)?.isFriend
 const error = ref('')
 
 watch(open, (isOpen) => {
@@ -50,12 +46,6 @@ const matches = (p) => {
   return !q || p.name.toLowerCase().includes(q) || (p.username || '').toLowerCase().includes(q)
 }
 const results = computed(() => shown.value.filter(matches))
-
-// Sends a friend request, which the person accepts after `acceptAfter`; then they are a friend. How to call: add({ id: 'kai', name: 'Kai' })
-function add(person) {
-  error.value = ''
-  sendFriendRequest(person, groups.setFriend, { after: props.acceptAfter, onFailed: (message) => (error.value = message) })
-}
 
 // A name opens that person's profile; the sheet closes first. How to call: openProfile('meiling')
 function openProfile(id) {
@@ -83,21 +73,7 @@ function startSession() {
       </label>
       <p v-if="!shown.length" class="body-md text-muted" data-testid="add-friends-none">You are friends with everyone on Jio here.</p>
       <p v-else-if="!results.length" class="body-md text-muted">Nobody matches “{{ query.trim() }}”.</p>
-      <ul v-else class="people" data-testid="add-friends-list">
-        <li v-for="p in results" :key="p.id" class="people__row">
-          <button type="button" class="people__who" @click="openProfile(p.id)">
-            <UserAvatar :name="p.name" :src="p.photo" :person="p.id" :size="44" />
-            <span class="stack people__text">
-              <span class="title-sm truncate">{{ p.name }}</span>
-              <span class="caption-sm text-muted truncate">@{{ p.username }}<template v-if="p.homeArea"> · {{ p.homeArea }}</template></span>
-            </span>
-          </button>
-          <span v-if="isFriend(p.id)" class="people__done caption" data-testid="friend-added"><AppIcon name="check" :size="14" />Friends</span>
-          <span v-else-if="requested.has(p.id)" class="people__pending caption" data-testid="friend-requested"><AppIcon name="clock" :size="14" />Requested</span>
-          <AppButton v-else small variant="secondary" :aria-label="`Add ${p.name} as a friend`" @click="add(p)"><AppIcon name="plus" :size="16" />Add friend</AppButton>
-        </li>
-      </ul>
-      <p class="sr-only" role="status" data-testid="add-friends-status">{{ announcement }}</p>
+      <SuggestedFriends v-else :people="results" :accept-after="acceptAfter" data-testid="add-friends-list" @open="openProfile" @error="error = $event" />
       <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
     </template>
     <div v-else class="stack gap-md" data-testid="add-friends-real">
@@ -118,13 +94,5 @@ function startSession() {
 .find:focus-within { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 .find input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: var(--text-body-md); outline: none; }
 .find input::placeholder { color: var(--muted); }
-/* One row per person, as the profile's Suggested: who they are (opening their profile), then Add friend. */
-.people { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
-.people__row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 68px; border-bottom: 1px solid var(--hairline-soft); }
-.people__who { display: flex; flex: 1; align-items: center; gap: var(--spacing-md); min-width: 0; min-height: var(--tap-min); padding: 0; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
-.people__who:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: var(--rounded-sm); }
-.people__text { min-width: 0; gap: 0; }
-.people__pending { display: inline-flex; align-items: center; gap: var(--spacing-xs); min-height: 36px; padding: 0 var(--spacing-md); border: 1px dashed var(--border-strong); border-radius: var(--rounded-full); color: var(--muted); }
-.people__done { display: inline-flex; align-items: center; gap: var(--spacing-xs); padding: 0 var(--spacing-sm); color: var(--ink); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .add-friends { transition: none; } }
 </style>
