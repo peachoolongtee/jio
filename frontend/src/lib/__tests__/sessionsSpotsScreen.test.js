@@ -1,5 +1,5 @@
 // The screens of stage 3 for a real account, drawn for real on an in-memory page (domless.js) on the stand-in database and the stand-in
-// Jio server: starting the session, the Locate step (the spots, "Works for me", the host's confirm, leaving, removing, rejoining, a
+// Jio server: starting the session, the Locate step (the spots, "Vote", the host's confirm, leaving, removing, rejoining, a
 // failed save and its retry), and the Vote page. No network.
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -111,7 +111,7 @@ describe('starting the session', () => {
 })
 
 describe('the Locate step, for the host', () => {
-  it('lists the spots with Works for me and the host\'s one main action; with two people Remove is not offered, and nor is Leave', async () => {
+  it('lists the spots with Vote and the host\'s one main action; with two people Remove is not offered, and nor is Leave', async () => {
     const { w, sam, kim, id } = await locating()
     const { view } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
     await until(() => view.text().includes('Where to meet') && view.text().includes('Kim'))
@@ -131,11 +131,11 @@ describe('the Locate step, for the host', () => {
     expect(w.database.tables.session_member_places).toHaveLength(2)
   })
 
-  it('saves Works for me as the person\'s own row, and follows the guest\'s mark made on the other device', async () => {
+  it('saves Vote as the person\'s own row, and follows the guest\'s mark made on the other device', async () => {
     const { w, sam, kim, id } = await locating()
     const { view, events } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
     await until(() => view.text().includes('Where to meet'))
-    const works = view.all('button').filter((b) => view.text(b).includes('Works for me'))
+    const works = view.all('button').filter((b) => view.text(b).includes('Vote'))
     expect(works.length).toBeGreaterThan(0)
     await view.click(works[0])
     await until(() => w.database.tables.spot_approvals.length === 1)
@@ -145,7 +145,7 @@ describe('the Locate step, for the host', () => {
     const spot = (await kim.api.getSession(id)).spots.list[1].areaId
     await kim.api.approveSpot(id, kim.id, spot, true)
     await until(() => events.byId[id].spots.list[1].approvalCount === 1)
-    await until(() => view.text().includes('Works for 1 person'))
+    await until(() => view.text().includes('1 vote'))
   })
 
   it('confirms the spot and stays on the page, which then offers Choose places', async () => {
@@ -179,7 +179,7 @@ describe('the Locate step, for the host', () => {
     expect(busy.disabled).toBe(false)
     expect(view.all('p[role=status]').some((p) => view.text(p) === 'Confirming the meeting spot…')).toBe(true)
     // The list's own controls are held too, so nothing changes under the confirm.
-    expect(view.all('button').filter((b) => view.text(b).includes('Works for me')).every((b) => b.attrs['aria-busy'] === 'true')).toBe(true)
+    expect(view.all('button').filter((b) => view.text(b).includes('Vote')).every((b) => b.attrs['aria-busy'] === 'true')).toBe(true)
     release()
     await until(() => w.database.tables.sessions[0].status === 'voting')
     await until(() => view.text().includes(`${first.area.name} is confirmed. Press Choose places to carry on.`))

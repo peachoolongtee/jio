@@ -1,5 +1,5 @@
 <script setup>
-// "Where to meet": the meeting spots of a session that is choosing where to meet, with "Works for me" on each, "Suggest a
+// "Where to meet": the meeting spots of a session that is choosing where to meet, with "Vote" on each, "Suggest a
 // spot" (the area picker, in a popover) and, for the host, "We already have a place".
 //   <SpotList :session="session" my-id="ian" :names="nameOf" :selected-id="shown" :is-host="true" host-name="Ian"
 //             @select="picked = $event" @error="error = $event" />
@@ -9,7 +9,7 @@
 // Emits select (an area id) and error (a message, or '' to clear). Confirming a spot or setting a known place moves the
 // session on to Voting, and this list stays where it is.
 // States: the group is choosing (the list, with every control); the group has moved on (the same spots with the confirmed
-// one first and marked "Confirmed", and no control on any of them: no "Works for me", "Suggest a spot", "We already have a
+// one first and marked "Confirmed", and no control on any of them: no "Vote", "Suggest a spot", "We already have a
 // place" or Withdraw); the planner working it out (placeholder rows); the list while its times are updated; and your own
 // suggestion with no row (a reload caught it before it was priced): "Try again" prices it, "Withdraw" takes it back.
 // With fewer than two starts there is no list and nothing to say about it (the "Waiting for N people" card on the screen
@@ -87,7 +87,7 @@ async function run(fn) {
   if (message) emit('error', message)
 }
 
-// "Works for me" on a spot, or taking it back, the same way the map's card does. How to call: approve(spot, true)
+// "Vote" on a spot, or taking it back, the same way the map's card does. How to call: approve(spot, true)
 const approve = (spot, on) => run(() => approveSpot(props.session.id, spot.areaId, on))
 // Suggest a spot (from the area picker), replacing your own. How to call: suggest({ areaId: 'bugis' })
 const suggest = (place) => run(() => change(() => events.suggestMySpot(props.session.id, place.areaId, { here: false })))

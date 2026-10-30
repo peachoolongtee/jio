@@ -99,7 +99,7 @@ describe('the choices and the question', () => {
     const text = view.text('[data-testid=change-lost]')
     expect(text).toContain('everyone\'s votes')
     expect(text).toContain('the places to vote on')
-    expect(text).toContain('the "Works for me" marks and the suggested spots')
+    expect(text).toContain('the votes for meeting spots and the suggested spots')
     expect(text).not.toContain('stops')
     expect(text).toContain('Everyone\'s starting places are kept.')
     // The safer choice comes first, and keeping the place changes nothing.

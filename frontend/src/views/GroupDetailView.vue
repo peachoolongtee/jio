@@ -5,7 +5,7 @@
 //             views/StartView.vue) and starts the session from there. In a shared session (one kept on the server) only the host
 //             starts it; a guest sees who it is waiting for and Leave session, and a refusal is said under the list
 //   Locating  Ian's start and end (a guest first reads what the host chose: "Ian chose to find the fairest spot"), then "Where to meet": the meeting spots (the app's three and each member's own
-//             suggestion) with everyone's travel time, "Works for me" on each, and a map with a pin for every spot.
+//             suggestion) with everyone's travel time, "Vote" on each, and a map with a pin for every spot.
 //             From two starts on the list opens; the host confirms a spot at any time ("Confirm <area>", the one
 //             main action; others see who they are waiting for) or sets a known place ("We already have a place").
 //             While the planner works the spots out, the list and the map say so.

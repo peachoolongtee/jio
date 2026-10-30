@@ -55,7 +55,7 @@ export const CHANGE_PLAN = {
   lost: (confirmed) => [
     'everyone\'s votes',
     'the places to vote on',
-    'the "Works for me" marks and the suggested spots',
+    'the votes for meeting spots and the suggested spots',
     ...(confirmed ? ['the itinerary\'s stops and any proposed places'] : []),
   ],
   keeps: 'Everyone\'s starting places are kept.',

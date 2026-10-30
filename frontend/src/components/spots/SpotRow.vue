@@ -1,6 +1,6 @@
 <script setup>
 // One meeting spot in the list: its name and who put it forward, the longest trip, the average and each person's
-// minutes, a "Works for me" toggle with the people who chose it, and, on your own suggestion, "We are here already" and
+// minutes, a "Vote" toggle with the people who chose it, and, on your own suggestion, "We are here already" and
 // Withdraw. The name is a real button that selects the spot (and its pin on the map).
 //   <SpotRow :spot="spot" :number="1" :selected="true" :mine="false" :names="nameOf" my-id="ian" can-approve fairest
 //            @select="pick" @approve="(on) => ..." />
@@ -8,7 +8,7 @@
 // for you. own: your suggestion of this area ({ here }), or null. fairest / leading: tags. canApprove: false once the group
 // has moved on. busy: a change is being saved; the controls say so (aria-busy) but stay enabled, so a key press never drops
 // the focus, and the list ignores a second press until the first is saved.
-// readonly: the group has moved on from choosing, so the row has no controls (no "Works for me", "We are here already" or
+// readonly: the group has moved on from choosing, so the row has no controls (no "Vote", "We are here already" or
 // Withdraw); who said it works for them stays, as words. confirmed: this is the spot the host confirmed; it says
 // "Confirmed" in place of the Leading or Fairest tag.
 // Emits select, approve (true or false: the new state), here (true or false), withdraw.
@@ -18,7 +18,7 @@ import AppIcon from '../ui/AppIcon.vue'
 import AvatarStack from '../ui/AvatarStack.vue'
 import ChipButton from '../ui/ChipButton.vue'
 import InfoTag from '../ui/InfoTag.vue'
-import { ABOUT_NOTE, byLine, peopleTrips, tripsLine, worksForText } from './spotText.js'
+import { ABOUT_NOTE, byLine, peopleTrips, tripsLine, votesText } from './spotText.js'
 
 const props = defineProps({
   spot: { type: Object, required: true },
@@ -65,17 +65,17 @@ const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
     <p v-else class="body-sm text-muted">No trips to compare yet. They appear as people share where they start.</p>
 
     <div v-if="!readonly" class="spot__choose">
-      <ChipButton check :selected="mine" :disabled="!canApprove" :aria-busy="busy ? 'true' : undefined" :aria-label="`Works for me: ${spot.area.name}`" @click="emit('approve', !mine)">Works for me</ChipButton>
+      <ChipButton check :selected="mine" :disabled="!canApprove" :aria-busy="busy ? 'true' : undefined" :aria-label="`Vote for ${spot.area.name}`" @click="emit('approve', !mine)">Vote</ChipButton>
       <span class="spot__count">
         <AvatarStack v-if="spot.approvedBy.length" :people="spot.approvedBy" :size="24" :max="4" />
-        <span class="body-sm" :class="{ 'text-muted': !spot.approvalCount }">{{ worksForText(spot) }}</span>
+        <span class="body-sm" :class="{ 'text-muted': !spot.approvalCount }">{{ votesText(spot) }}</span>
       </span>
     </div>
 
     <div v-else-if="spot.approvalCount" class="spot__choose">
       <span class="spot__count">
         <AvatarStack :people="spot.approvedBy" :size="24" :max="4" />
-        <span class="body-sm">{{ worksForText(spot) }}</span>
+        <span class="body-sm">{{ votesText(spot) }}</span>
       </span>
     </div>
 

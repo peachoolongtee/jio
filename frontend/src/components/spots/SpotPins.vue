@@ -7,7 +7,7 @@
 // Give it the same box as the map (it fills its parent, which must be positioned). Call refresh() whenever the map moves
 // (PlannerMap's `view` event): a pin is placed from the map's own projection, so it stays on its area.
 // spots: the session's spots as the screen lists them (spotsToShow). session: the session summary; with it the card has
-// "Works for me" while the group is choosing (SpotCard), without it the card only reads. project: (lat, lng) => { x, y } in px from the map's top-left, or null before the map exists.
+// "Vote" while the group is choosing (SpotCard), without it the card only reads. project: (lat, lng) => { x, y } in px from the map's top-left, or null before the map exists.
 // Each pin is a button with the spot's number in its head (the number on its row) and a name a screen reader can say.
 // The selected pin is larger, filled red with a white head, and bobs; a click or Enter selects it (so does a row).
 // The card (one at a time, never changes the selection):
@@ -15,7 +15,7 @@
 //   a keyboard   focus on the pin (a mouse click does not count); Escape closes it and keeps focus on the pin
 //   a touch      a tap selects the pin and opens its card; a tap elsewhere or on another pin closes or moves it
 // It sits above the pin (below or beside when there is no room), slides to stay in the map's box and, on a phone, may use
-// the viewport (lib/homeMeetups.js placeCard), and is placed again when its own size changes (lib/sizeWatch.js). It is not a dialog: no backdrop, no focus trap. Its "Works for me" sits
+// the viewport (lib/homeMeetups.js placeCard), and is placed again when its own size changes (lib/sizeWatch.js). It is not a dialog: no backdrop, no focus trap. Its "Vote" sits
 // inside the pin's wrapper, so pressing it neither closes a card a tap opened nor lets a hovered or focused one fade.
 // Only areas are shown, never a member's exact place.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
@@ -27,7 +27,7 @@ import { pinName } from './spotText.js'
 
 const props = defineProps({
   spots: { type: Array, default: () => [] },
-  // The session summary (lib/api.js), for the card's "Works for me"; null leaves the card with no control.
+  // The session summary (lib/api.js), for the card's "Vote"; null leaves the card with no control.
   session: { type: Object, default: null },
   selectedId: { type: String, default: '' },
   project: { type: Function, required: true },

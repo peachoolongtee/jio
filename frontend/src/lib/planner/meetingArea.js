@@ -20,7 +20,7 @@ export function meetingResultLine(result, areaName) {
   if (!result) return ''
   const people = `${result.count} ${result.count === 1 ? 'person' : 'people'}`
   if (result.method === 'voted' || result.method === 'chosen') {
-    const lead = result.method === 'voted' ? `Confirmed by the host: ${areaName}, which members said works for them.` : `Chosen by the host: ${areaName}.`
+    const lead = result.method === 'voted' ? `Confirmed by the host: ${areaName}, which members voted for.` : `Chosen by the host: ${areaName}.`
     return result.count > 0 ? `${lead} The longest trip is about ${result.maxMinutes} minutes.` : lead
   }
   if (result.method === 'same') return `Fairest for ${people}: everyone starts from ${areaName}.`

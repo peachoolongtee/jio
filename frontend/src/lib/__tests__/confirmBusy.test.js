@@ -118,19 +118,19 @@ describe('one busy flag for both ways to confirm', () => {
     const write = pending(held.confirmSpot)
     const first = bar.button('Confirm Bugis').listeners.click({})
     await nextTick()
-    const controls = list.all('button').filter((b) => /Works for me|Suggest a spot|We already have a place/.test(list.textOf(b)))
+    const controls = list.all('button').filter((b) => /Vote|Suggest a spot|We already have a place/.test(list.textOf(b)))
     expect(controls.length).toBeGreaterThan(2)
     for (const control of controls) {
       expect(list.attr(control, 'aria-busy')).toBe('true')
       expect(control.props.disabled).toBeFalsy()
     }
-    await list.button('Works for me').click()
+    await list.button('Vote').click()
     await list.button('We already have a place').click()
     expect(held.approveSpot).not.toHaveBeenCalled()
     expect(list.button('Picker: Where is the place?')).toBeNull()
     await write.done()
     await first
-    expect(list.attr(list.button('Works for me'), 'aria-busy')).toBeUndefined()
+    expect(list.attr(list.button('Vote'), 'aria-busy')).toBeUndefined()
   })
 
   it('goes back to "Confirm Bugis" when the confirm fails, and says why through the error event', async () => {
