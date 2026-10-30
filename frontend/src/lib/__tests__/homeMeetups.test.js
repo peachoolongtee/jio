@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FAN_PX, HOME_MEETUPS_SHOWN, MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, inRange, meetupsIn, rangeCounts, nextStepFor, pinName, pinsFor, placeCard, routesFor, selectMeetup, whenLine, whereStands } from '../homeMeetups.js'
+import { FAN_PX, HOME_MEETUPS_SHOWN, MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, inRange, layoutPins, meetupsIn, rangeCounts, nextStepFor, pinName, pinsFor, placeCard, routesFor, selectMeetup, whenLine, whereStands } from '../homeMeetups.js'
 
 const NOW = new Date('2026-10-10T09:00:00+08:00')
 const BUGIS = { id: 'bugis', name: 'Bugis', lat: 1.30065, lng: 103.85585 }
@@ -379,5 +379,53 @@ describe('the week chips on Home', () => {
     expect(defaultRange(list, NOW)).toBe('week')
     expect(defaultRange([on('mon', '2026-11-02')], NOW)).toBe('all')
     expect(defaultRange([], NOW)).toBe('all')
+  })
+})
+
+// Walkthrough, 30 October 2026: nearby pins covered each other on Home's small map. They now stand in a row, the selected one on its spot.
+describe('laying out the pins on Home', () => {
+  const ROW = { fan: 58, width: 60, height: 76 }
+  const at = (moves, points) => Object.fromEntries(points.map((p) => [p.id, { x: p.x + moves.get(p.id).x, y: p.y + moves.get(p.id).y }]))
+  const overlaps = (spots) => {
+    const list = Object.values(spots)
+    // Drawn, a pin is 50px wide and the selected one 60px, so two tips closer than 55px across (and a pin's height down) touch.
+    return list.some((a, i) => list.slice(i + 1).some((b) => Math.abs(a.x - b.x) < 55 && Math.abs(a.y - b.y) < ROW.height))
+  }
+
+  it('leaves pins that are far apart where they are', () => {
+    const points = [{ id: 'a', x: -200, y: 0 }, { id: 'b', x: 200, y: 50 }]
+    const moves = layoutPins(points, 'a', ROW)
+    expect([...moves.values()]).toEqual([{ x: 0, y: 0 }, { x: 0, y: 0 }])
+  })
+
+  it('puts nearby pins in a row with the selected one on its own spot and the others either side of it', () => {
+    const points = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 10, y: 8 }, { id: 'c', x: -6, y: 4 }]
+    const spots = at(layoutPins(points, 'b', ROW), points)
+    expect(spots.b).toEqual({ x: 10, y: 8 })
+    expect(spots.a).toEqual({ x: 10 + 58, y: 8 })
+    expect(spots.c).toEqual({ x: 10 - 58, y: 8 })
+    expect(overlaps(spots)).toBe(false)
+  })
+
+  it('centres a row with nothing selected on its pins, in list order', () => {
+    const points = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 20, y: 0 }]
+    const spots = at(layoutPins(points, '', ROW), points)
+    expect(spots.a.x).toBeCloseTo(10 - 29)
+    expect(spots.b.x).toBeCloseTo(10 + 29)
+  })
+
+  it('joins a row to another group it would run into, until nothing overlaps', () => {
+    const points = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 5, y: 5 }, { id: 'c', x: 70, y: 10 }, { id: 'd', x: 300, y: 0 }]
+    const spots = at(layoutPins(points, 'a', ROW), points)
+    expect(overlaps(spots)).toBe(false)
+    expect(spots.a).toEqual({ x: 0, y: 0 })
+    expect(spots.d).toEqual({ x: 300, y: 0 })
+  })
+
+  it('slides a row back inside the box when it would run past an edge', () => {
+    const points = [{ id: 'a', x: 140, y: 0 }, { id: 'b', x: 145, y: 0 }, { id: 'c', x: 150, y: 0 }]
+    const spots = at(layoutPins(points, 'a', { ...ROW, maxX: 150 }), points)
+    expect(Math.max(...Object.values(spots).map((p) => p.x))).toBeLessThanOrEqual(150)
+    expect(overlaps(spots)).toBe(false)
   })
 })

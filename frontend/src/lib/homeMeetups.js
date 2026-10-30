@@ -174,6 +174,56 @@ export function pinsFor(meetups) {
   })
 }
 
+// Where the pins go on Home's map, in px, so none covers another at the size the map is drawn (walkthrough, 30 October 2026: Bishan,
+// Toa Payoh, Caldecott and Potong Pasir are a few km apart, less than a pin on a phone, so they covered each other). `points` are the
+// pins' real positions in px from the map's middle, in list order. Pins that would overlap (closer than `width` across and `height`
+// down) are put in one group, drawn as a row `fan` apart. The selected pin keeps its own spot, so the map's routes meet at its tip, and
+// the others take turns right and left of it in list order, so the row stays centred on it; a group without it is a row in list order
+// centred on its pins. A row that would run past `maxX` either side of the middle slides back inside (the selected pin then moves too,
+// which only happens near the map's edge). A row that overlaps another group's pin joins that group, until nothing overlaps. Returns each
+// pin's move from its real spot, in px; a pin with no neighbours stays where it is.
+// How to call: layoutPins([{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 10, y: 5 }], 'a') -> Map { 'a' => { x: 0, y: 0 }, 'b' => { x: 46, y: -5 } }
+export function layoutPins(points, selectedId = '', { width = 52, height = 66, fan = FAN_PX, maxX = Infinity } = {}) {
+  let groups = points.map((p) => [p])
+  const place = (group) => {
+    if (group.length === 1) return [{ id: group[0].id, x: group[0].x, y: group[0].y }]
+    const chosen = group.find((p) => p.id === selectedId)
+    let spots
+    if (chosen) {
+      const others = group.filter((p) => p !== chosen)
+      spots = [{ id: chosen.id, x: chosen.x, y: chosen.y }, ...others.map((p, k) => ({ id: p.id, x: chosen.x + (k % 2 === 0 ? 1 : -1) * (Math.floor(k / 2) + 1) * fan, y: chosen.y }))]
+    } else {
+      const x = group.reduce((t, p) => t + p.x, 0) / group.length
+      const y = group.reduce((t, p) => t + p.y, 0) / group.length
+      spots = group.map((p, i) => ({ id: p.id, x: x + (i - (group.length - 1) / 2) * fan, y }))
+    }
+    const low = Math.min(...spots.map((p) => p.x))
+    const high = Math.max(...spots.map((p) => p.x))
+    const shift = high > maxX ? maxX - high : low < -maxX ? -maxX - low : 0
+    return spots.map((p) => ({ ...p, x: p.x + shift }))
+  }
+  const clash = (a, b) => place(a).some((p) => place(b).some((q) => Math.abs(p.x - q.x) < width && Math.abs(p.y - q.y) < height))
+  for (let merged = true; merged && groups.length > 1;) {
+    merged = false
+    outer: for (let i = 0; i < groups.length; i++) {
+      for (let j = i + 1; j < groups.length; j++) {
+        if (!clash(groups[i], groups[j])) continue
+        const order = new Map(points.map((p, n) => [p.id, n]))
+        groups[i] = [...groups[i], ...groups[j]].sort((a, b) => order.get(a.id) - order.get(b.id))
+        groups.splice(j, 1)
+        merged = true
+        break outer
+      }
+    }
+  }
+  const moves = new Map()
+  for (const group of groups) for (const spot of place(group)) {
+    const real = points.find((p) => p.id === spot.id)
+    moves.set(spot.id, { x: spot.x - real.x, y: spot.y - real.y })
+  }
+  return moves
+}
+
 // The words a screen reader says for a pin: the title, the area and when.
 // How to call: pinName(meetup) -> 'Saturday lunch, Bugis, Sat 10 Oct · 15:00'
 export function pinName(session, now = new Date()) {

@@ -21,7 +21,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import MeetupSummary from './MeetupSummary.vue'
 import { barHeights } from '@/lib/bars.js'
-import { placeCard } from '@/lib/homeMeetups.js'
+import { layoutPins, placeCard } from '@/lib/homeMeetups.js'
 import { project } from '@/lib/singaporeDots.js'
 
 const props = defineProps({
@@ -47,15 +47,41 @@ const layer = ref(null)
 const cardId = (id) => `${uid}-card-${id}`
 const byId = computed(() => Object.fromEntries(props.meetups.map((m) => [m.id, m])))
 
-// Where each pin is, in map units from the center (the map scale is worked out in CSS from the box's size).
+// How pins stand in a row: 58px apart, so the selected pin, drawn 1.2 times larger (60px), still clears its neighbours, and a pin's
+// width and height for telling when two would overlap.
+const ROW = { fan: 58, width: 60, height: 76 }
+// How far a pin's tip stays from the box's sides, in px (the clamp in .mwrap's CSS).
+const EDGE_PX = 34
+
+// The box's size in px, read as it changes, for the map's scale: px per map unit, the smaller of width / view width and height /
+// view height, as the CSS works it out (--k). 0 until the box has been measured.
+const box = ref({ width: 0, height: 0 })
+const scale = computed(() => (box.value.width && box.value.height ? Math.min(box.value.width / props.span[0], box.value.height / props.span[1]) : 0))
+let watchSize = null
+onMounted(() => {
+  if (typeof ResizeObserver === 'undefined' || !layer.value) return
+  watchSize = new ResizeObserver(([entry]) => {
+    box.value = { width: entry.contentRect.width, height: entry.contentRect.height }
+  })
+  watchSize.observe(layer.value)
+})
+onBeforeUnmount(() => watchSize?.disconnect())
+
+// Where each pin is, in map units from the center (the map scale is worked out in CSS from the box's size), and how far it is moved,
+// in px, so no pin covers another at this size (lib/homeMeetups.js layoutPins; walkthrough, 30 October 2026): nearby pins stand in a
+// row, the selected one on its own spot. Before the box is measured, pins that share an area are spread as pinsFor says.
 const placed = computed(() => {
   const c = project(props.center.lat, props.center.lng)
-  return props.pins
-    .filter((pin) => byId.value[pin.id])
-    .map((pin) => {
-      const p = project(pin.lat, pin.lng)
-      return { ...pin, style: { '--dx': p.x - c.x, '--dy': p.y - c.y, '--ox': pin.offset?.x || 0, '--oy': pin.offset?.y || 0 } }
-    })
+  const shown = props.pins.filter((pin) => byId.value[pin.id]).map((pin) => {
+    const p = project(pin.lat, pin.lng)
+    return { pin, dx: p.x - c.x, dy: p.y - c.y }
+  })
+  const k = scale.value
+  const moves = k ? layoutPins(shown.map((s) => ({ id: s.pin.id, x: s.dx * k, y: s.dy * k })), props.selectedId, { ...ROW, maxX: box.value.width / 2 - EDGE_PX }) : null
+  return shown.map(({ pin, dx, dy }) => {
+    const move = moves ? moves.get(pin.id) : { x: pin.offset?.x || 0, y: pin.offset?.y || 0 }
+    return { ...pin, style: { '--dx': dx, '--dy': dy, '--ox': move.x, '--oy': move.y } }
+  })
 })
 const frame = computed(() => ({ '--w': props.span[0], '--h': props.span[1] }))
 
