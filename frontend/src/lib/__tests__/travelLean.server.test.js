@@ -1,7 +1,7 @@
 // "Jio remembers" for a real account, drawn for real on an in-memory page (domless.js) on the stand-in database and the stand-in Jio server
 // (whose GET .../travel-lean answers the caller's own flag; the server's own rules for it are tested in backend/tests/sessions-travel-lean.test.js):
-// the Locate step shows one quiet line to the person it applies to, with the words of the rule in use, and nothing to the other member of the
-// same session, nor when the read fails or the answer is not one it knows. No network.
+// the Locate step shows one quiet line on the first spot to the person it applies to, when the spot is closer to them than to the group on
+// average, and nothing to the other member of the same session, nor when the read fails or the answer is not one it knows. No network.
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
@@ -42,16 +42,17 @@ async function draw(id) {
 const leanCalls = (w) => w.server.calls.filter((c) => c.route === 'travelLean')
 const LINE = '[data-testid="spots-lean"]'
 
+// In these sessions the first spot is 22 minutes from Kim and 32 from Sam, so it is closer to Kim.
 describe('the line on the Locate step of a session on the server', () => {
-  it('shows the person it applies to the line for the rule in use, and nothing else about anyone', async () => {
-    const { w, sam, id } = await locating({ places: true, hostLast: true })
-    w.server.owed = new Set([sam.id])
+  it('shows the person it applies to the line on the first spot when it is closer to them, and nothing else about anyone', async () => {
+    const { w, kim, id } = await locating({ places: true })
+    w.server.owed = new Set([kim.id])
     const { view } = await draw(id)
     await until(() => view.has(LINE))
     expect(view.text(view.one(LINE))).toBe(leanLine('longest'))
-    expect(view.text(view.one(LINE))).toBe('You have travelled more than your share lately. Jio uses that to settle a tie between two spots.')
-    expect(leanCalls(w).every((c) => c.as === sam.id)).toBe(true)
-    expect(view.text()).not.toMatch(/Kim.{0,40}travelled/)
+    expect(view.text(view.one(LINE))).toBe('This spot is closer to you.')
+    expect(leanCalls(w).every((c) => c.as === kim.id)).toBe(true)
+    expect(view.text()).not.toMatch(/Sam.{0,40}closer to you/)
     expect(view.errors).toEqual([])
   })
 
@@ -63,22 +64,31 @@ describe('the line on the Locate step of a session on the server', () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(leanCalls(w).every((c) => c.as === kim.id)).toBe(true)
     expect(view.has(LINE)).toBe(false)
-    expect(view.text()).not.toContain('travelled more than your share')
+    expect(view.text()).not.toContain('closer to you')
   })
 
-  it('says what is true of the balanced rule when the server names it', async () => {
+  it('shows nothing to a person who is owed but whose trip to the first spot is the longer one', async () => {
     const { w, sam, id } = await locating({ places: true, hostLast: true })
     w.server.owed = new Set([sam.id])
+    const { view } = await draw(id)
+    await until(() => leanCalls(w).length > 0)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(leanCalls(w).every((c) => c.as === sam.id)).toBe(true)
+    expect(view.has(LINE)).toBe(false)
+  })
+
+  it('says the same thing under the balanced rule when the server names it', async () => {
+    const { w, kim, id } = await locating({ places: true })
+    w.server.owed = new Set([kim.id])
     w.server.leanRule = 'balanced'
     const { view } = await draw(id)
     await until(() => view.has(LINE))
-    expect(view.text(view.one(LINE))).toBe('You have travelled more than your share lately, so Jio counts your trip for more when it picks a spot.')
-    expect(view.text(view.one(LINE))).not.toMatch(/tie/)
+    expect(view.text(view.one(LINE))).toBe('This spot is closer to you.')
   })
 
   it('shows nothing when the read fails, or the answer names a rule the screen does not know', async () => {
-    const failed = await locating({ places: true, hostLast: true })
-    failed.w.server.owed = new Set([failed.sam.id])
+    const failed = await locating({ places: true })
+    failed.w.server.owed = new Set([failed.kim.id])
     failed.w.server.after.travelLean = async () => {
       throw new Error('boom')
     }
@@ -89,8 +99,8 @@ describe('the line on the Locate step of a session on the server', () => {
     expect(first.view.has('[role=alert]')).toBe(false)
     expect(first.view.text()).toContain('Where to meet')
 
-    const strange = await locating({ places: true, hostLast: true })
-    strange.w.server.owed = new Set([strange.sam.id])
+    const strange = await locating({ places: true })
+    strange.w.server.owed = new Set([strange.kim.id])
     strange.w.server.leanRule = 'shortest'
     const second = await draw(strange.id)
     await until(() => leanCalls(strange.w).length > 0)
@@ -99,7 +109,7 @@ describe('the line on the Locate step of a session on the server', () => {
   })
 
   it('shows nothing when the answer is no', async () => {
-    const { w, id } = await locating({ places: true, hostLast: true })
+    const { w, id } = await locating({ places: true })
     const { view } = await draw(id)
     await until(() => leanCalls(w).length > 0)
     await new Promise((resolve) => setTimeout(resolve, 20))

@@ -2,13 +2,14 @@ import { lower, MIN_STARTS, SPOT_RULE } from './session-plan.js'
 
 // Whether the caller's own past travel counts in the pick of a session's meeting spots, as a pure function: rows in, one answer out. No database,
 // no clock. The planner leans towards whoever travelled more than their share in other outings of the last 90 days (session_travel_debt() in the
-// database, services/session-ledger.js writes the ledger), and the Locate step may tell that person so. It tells only the person it is true of:
-// the answer is the caller's own flag and the rule in use, never a number, never another person's debt, never a comparison.
+// database, services/session-ledger.js writes the ledger), and the Locate step may use that to tell that person, on the first spot, "This spot is closer to you." when the browser can check it from the minutes every
+// member sees (frontend/src/lib/travelLean.js closerToYou). It tells only the person it is true of: the answer is the caller's own flag and the rule in
+// use, never a number, never another person's debt, never a comparison.
 //
 // What the debt does depends on the rule (planner/engine.js, planner/balance.js). Under "longest", the rule the spots use (SPOT_RULE), the spot
 // with the shortest longest trip wins and a debt only breaks an exact tie between spots (their weighted average trip is lower). Under
-// "balanced" a person's trip counts up to three times as much while the spot is chosen. So the answer carries the rule, and the screen words
-// what is true of that rule (frontend/src/lib/travelLean.js). Nothing here says the pick moved.
+// "balanced" a person's trip counts up to three times as much while the spot is chosen. So the answer carries the rule, and the screen claims
+// nothing about it beyond what it can check (frontend/src/lib/travelLean.js). Nothing here says the pick moved.
 //
 // How to call:
 //   leanFor({ status: 'locating', meetBy: 'fairest', members, areasById, userId, debts }) // { owed: true, rule: 'longest' }

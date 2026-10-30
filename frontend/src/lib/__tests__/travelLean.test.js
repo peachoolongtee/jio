@@ -1,44 +1,52 @@
 // "Jio remembers" (lib/travelLean.js): the words for each rule, the debt worked out from the outings this browser has finished, and the rules that
 // decide whether the line is for the signed-in person. Pure functions, no network.
 import { describe, expect, it } from 'vitest'
-import { DEBT_DAYS, LEAN_LINES, LOCAL_RULE, MIN_DEBT_MINUTES, leanLine, localDebts, localLean } from '../travelLean.js'
+import { DEBT_DAYS, LEAN_LINES, LOCAL_RULE, MIN_DEBT_MINUTES, closerToYou, leanLine, localDebts, localLean } from '../travelLean.js'
 
 const DAY = 24 * 3600 * 1000
 const NOW = Date.parse('2026-10-30T06:00:00Z')
 const done = (id, times, over = {}) => ({ id, status: 'completed', completedAt: NOW - 3 * DAY, meeting: { times }, ...over })
 
-describe('the words follow the rule', () => {
-  it('says, under the longest-trip rule, only that a tie is broken by the person\'s trip, and not that the pick moved', () => {
-    const line = leanLine('longest')
-    expect(line).toBe('You have travelled more than your share lately. Jio uses that to settle a tie between two spots.')
-    expect(line).toMatch(/tie/)
-    expect(line).not.toMatch(/longest|counts your trip/i)
-    expect(line).not.toMatch(/closer to you|nearer|moved|most|last time/i)
-  })
-
-  it('says, under the balanced rule, that the trip is counted for more when the spot is picked', () => {
-    const line = leanLine('balanced')
-    expect(line).toBe('You have travelled more than your share lately, so Jio counts your trip for more when it picks a spot.')
-    expect(line).not.toMatch(/tie|closer to you|nearer|moved|most|last time/i)
-  })
-
-  it('has two different lines, and none for a rule it does not know', () => {
-    expect(leanLine('longest')).not.toBe(leanLine('balanced'))
-    expect(leanLine('shortest')).toBe('')
-    expect(leanLine(undefined)).toBe('')
+describe('the words', () => {
+  it('say one thing for every rule, about the spot and the person alone', () => {
+    expect(leanLine('longest')).toBe('This spot is closer to you.')
+    expect(leanLine('balanced')).toBe('This spot is closer to you.')
     expect(Object.keys(LEAN_LINES).sort()).toEqual(['balanced', 'longest'])
   })
 
-  it('names no one, no number and no one else, in any line', () => {
+  it('claim nothing about past travel, ties, shares, other people or the pick moving', () => {
     for (const line of Object.values(LEAN_LINES)) {
-      expect(line).not.toMatch(/\d/)
+      expect(line).not.toMatch(/\d|travelled|lately|tie|share|longest|counts|moved|most|last time|[!]/i)
       expect(line).not.toMatch(/\b(other|others|everyone|someone|anyone|they|them|he|she|than the)\b/i)
-      expect(line).not.toMatch(/[!]/)
     }
+  })
+
+  it('give no line for a rule it does not know', () => {
+    expect(leanLine('shortest')).toBe('')
+    expect(leanLine(undefined)).toBe('')
   })
 
   it('is the rule the browser\'s planner uses for the spots', () => {
     expect(LOCAL_RULE).toBe('longest')
+  })
+})
+
+describe('closerToYou', () => {
+  it('is true only when the person\'s minutes are below the average of everyone\'s', () => {
+    expect(closerToYou({ ian: 10, darius: 40 }, 'ian')).toBe(true)
+    expect(closerToYou({ ian: 10, darius: 40 }, 'darius')).toBe(false)
+    expect(closerToYou({ ian: 20, darius: 20 }, 'ian')).toBe(false)
+    expect(closerToYou({ ian: 10, darius: 20, faith: 60 }, 'darius')).toBe(true)
+    expect(closerToYou({ ian: 10, darius: 20, faith: 60 }, 'faith')).toBe(false)
+  })
+
+  it('is false when the minutes are missing, the person is not in them, or they are not numbers', () => {
+    expect(closerToYou(undefined, 'ian')).toBe(false)
+    expect(closerToYou({}, 'ian')).toBe(false)
+    expect(closerToYou({ darius: 40 }, 'ian')).toBe(false)
+    expect(closerToYou({ ian: null, darius: 40 }, 'ian')).toBe(false)
+    expect(closerToYou({ ian: Number.NaN, darius: 40 }, 'ian')).toBe(false)
+    expect(closerToYou({ ian: 10, darius: null, faith: 40 }, 'ian')).toBe(true)
   })
 })
 

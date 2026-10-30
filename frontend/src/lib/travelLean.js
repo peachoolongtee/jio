@@ -1,18 +1,17 @@
-// "Jio remembers": the one quiet line on the Locate step that tells a person their past travel is counted when the meeting spot is picked.
-// Pure functions: no store, no clock, no request. The data layer (lib/api.js travelLean) decides whether the line is for the signed-in person,
-// from the server for a real account (GET /api/sessions/:id/travel-lean) or from this browser's finished outings for a demo or local account
-// (localDebts), and the spot list shows what leanLine says.
+// "Jio remembers": the one quiet line on the first meeting spot of the Locate step, "This spot is closer to you.", for the person the planner
+// leans towards. Pure functions: no store, no clock, no request. The data layer (lib/api.js travelLean) decides whether the planner counted the
+// signed-in person's past travel in this pick, from the server for a real account (GET /api/sessions/:id/travel-lean) or from this browser's
+// finished outings for a demo or local account (localDebts), and the spot list shows what leanLine says, on the first spot only.
 //
-// What is true, and so what may be said, depends on the rule the spots are picked by (backend planner/engine.js and balance.js):
-//   longest   the spot where the longest trip is shortest wins; a person's past travel only settles a tie between spots. The line says only
-//             that, and does not say the pick moved for them.
-//   balanced  a person's trip counts up to three times as much while the spot is chosen, among spots about as good for the group. The line
-//             says their trip is counted for more.
-// Either line is about the person it is shown to alone: no name, no other person, no number of minutes, no "the most". It shows only for
-// a debt of MIN_DEBT_MINUTES or more.
+// What may be said is only what is certain. Whatever the rule (backend planner/engine.js and balance.js), a past debt does not decide the first
+// spot alone, and the answer does not say the pick moved. So the line makes one claim that can be checked on the screen: this spot is closer to
+// the person than the group's average, from the minutes the row already shows to everyone (closerToYou). It is the same for every rule, says
+// nothing about past travel, ties or shares, and names no one else, so it reveals nothing new. It shows only for a debt of MIN_DEBT_MINUTES or
+// more, and shows nothing when the person's minutes are missing or are not below the average.
 //
 // How to call:
-//   leanLine('longest') // 'You have travelled more than your share lately. Jio uses that to settle a tie between two spots.'
+//   leanLine('longest') // 'This spot is closer to you.'
+//   closerToYou({ ian: 20, darius: 40 }, 'ian') // true
 
 // The rule the browser's own planner requests use for the meeting spots: the default, "longest" (lib/plannerApi.js meetingArea sends neither a
 // rule nor 'balanced'). Routing off asks for the geographic centre instead: the first spot is then the centre, which counts nobody's
@@ -26,17 +25,31 @@ export const MIN_DEBT_MINUTES = 5
 // How far back finished outings count, in days: the server's session_travel_debt() reads the same 90.
 export const DEBT_DAYS = 90
 
-// The line for each rule. A rule not listed has no line: nothing is claimed that the rule does not do.
+// The line for each rule: one sentence for all of them. A rule not listed has no line: nothing is claimed for a rule this code does not know.
 export const LEAN_LINES = Object.freeze({
-  longest: 'You have travelled more than your share lately. Jio uses that to settle a tie between two spots.',
-  balanced: 'You have travelled more than your share lately, so Jio counts your trip for more when it picks a spot.',
+  longest: 'This spot is closer to you.',
+  balanced: 'This spot is closer to you.',
 })
 
 // The line to show for a rule, or '' for a rule it does not know.
 //
 // How to call:
-//   leanLine('balanced') // 'You have travelled more than your share lately, so Jio counts your trip for more when it picks a spot.'
+//   leanLine('balanced') // 'This spot is closer to you.'
 export const leanLine = (rule) => LEAN_LINES[rule] ?? ''
+
+// Is this spot closer to the person than to the group on average? True only when their own minutes are there and are below the average of the
+// minutes everyone has to the spot (the same figures its row shows). Missing minutes, a person who is not in them, or minutes that are not
+// numbers give false, as does a trip at or above the average.
+//   times  { <person id>: minutes } of a spot      myId  the signed-in person
+//
+// How to call:
+//   closerToYou({ ian: 20, darius: 40 }, 'ian') // true
+export function closerToYou(times, myId) {
+  const mine = times?.[myId]
+  if (!Number.isFinite(mine)) return false
+  const all = Object.values(times).filter((minutes) => Number.isFinite(minutes))
+  return mine < all.reduce((sum, minutes) => sum + minutes, 0) / all.length
+}
 
 // Each person's travel debt in minutes from finished outings in this browser: for every outing that was completed in the last `DEBT_DAYS` days
 // (other than `exceptId`), a person's trip to the meeting area minus the average of the people who had a trip. Positive means they travelled

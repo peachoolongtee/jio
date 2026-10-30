@@ -11,6 +11,7 @@
 // readonly: the group has moved on from choosing, so the row has no controls (no "Works for me", "We are here already" or
 // Withdraw); who said it works for them stays, as words. confirmed: this is the spot the host confirmed; it says
 // "Confirmed" in place of the Leading or Fairest tag.
+// note: one quiet line for this row alone (the data layer's "Jio remembers", on the first spot), or ''.
 // Emits select, approve (true or false: the new state), here (true or false), withdraw.
 // Only areas are shown, never a member's exact place. Times say "about" when they are estimates.
 import AppButton from '../ui/AppButton.vue'
@@ -34,6 +35,7 @@ const props = defineProps({
   busy: { type: Boolean, default: false },
   names: { type: Function, default: (id) => id },
   myId: { type: String, default: '' },
+  note: { type: String, default: '' },
 })
 const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
 </script>
@@ -63,6 +65,7 @@ const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
       </ul>
     </div>
     <p v-else class="body-sm text-muted">No trips to compare yet. They appear as people share where they start.</p>
+    <p v-if="note" class="spot__note caption-sm text-muted" data-testid="spots-lean">{{ note }}</p>
 
     <div v-if="!readonly" class="spot__choose">
       <ChipButton check :selected="mine" :disabled="!canApprove" :aria-busy="busy ? 'true' : undefined" :aria-label="`Works for me: ${spot.area.name}`" @click="emit('approve', !mine)">Works for me</ChipButton>
@@ -99,6 +102,7 @@ const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
 .spot__name { overflow-wrap: anywhere; }
 .spot__by { overflow-wrap: anywhere; }
 .spot__tag { align-self: flex-start; margin-top: var(--spacing-xs); }
+.spot__note { margin: 0; }
 .spot__here { display: flex; align-items: center; gap: var(--spacing-xs); margin: 0; color: var(--ink); }
 .spot__trips { display: flex; flex-direction: column; gap: var(--spacing-xs); }
 .spot__line { margin: 0; }

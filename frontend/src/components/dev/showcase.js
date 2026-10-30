@@ -193,8 +193,8 @@ const SPECS = [
       at('start')
       await api.startSession(id)
       at('locations')
-      // Ian starts far east, so he travelled more than his share: the Locate steps of the two spot votes below show "Jio remembers" to him
-      // (lib/travelLean.js: his debt from this outing is over the 5 minutes the line needs).
+      // Ian starts far east, so he travelled more than his share: the Locate steps of the two spot votes below count it for him, and the first spot says "This spot is closer to you." to him where it is closer to him than the group's
+      // average (the long session's, not the guest's). His debt from this outing is over the 5 minutes the line needs (lib/travelLean.js).
       await share(id, { ian: 'tampines', darius: 'tiong-bahru', nicole: 'novena', faith: 'buona-vista' })
       at('meeting area')
       await api.useMeetingArea(id)

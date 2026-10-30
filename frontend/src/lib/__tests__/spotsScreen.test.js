@@ -641,78 +641,126 @@ describe('your own trip on the meeting spot card', () => {
   })
 })
 
-// "Jio remembers": the one muted line under the list for the person whose past travel the planner counts. The data layer's answer is kept in
-// the events store (`leans`); here it is set directly, and the reads are counted. The data layer's own rules are in travelLean.local.test.js and
-// travelLean.server.test.js.
+// "Jio remembers": the one muted line, "This spot is closer to you.", on the first spot's own row for the person whose past travel the planner
+// counts, when their own minutes to it are below the group's average. The data layer's answer is kept in the events store (`leans`); here it is
+// set directly, and the reads are counted. The data layer's own rules are in travelLean.local.test.js and travelLean.server.test.js.
 describe('the line about past travel', () => {
-  const LINE = 'You have travelled more than your share lately. Jio uses that to settle a tie between two spots.'
-  const BALANCED = 'You have travelled more than your share lately, so Jio counts your trip for more when it picks a spot.'
+  const LINE = 'This spot is closer to you.'
   const asked = () => vi.spyOn(events, 'loadLean').mockResolvedValue(undefined)
   const answer = (rule = 'longest', owed = true) => { events.leans = { s1: { owed, rule } } }
+  // A session in which Ian's trip to the first spot (Bugis) is `ian` minutes and Jonathan's `jonathan`; the other spots are as they were.
+  const trips = (ian, jonathan, over = {}) => {
+    const s = session(over)
+    s.spots.list[0].times = { ian, jonathan }
+    return s
+  }
+  const notes = (page) => page.all('p').filter((el) => el.props['data-testid'] === 'spots-lean')
 
-  it('shows the line for the rule in use under the list, and says it once', () => {
+  it('shows the line on the first spot when it is owed and the person\'s trip is below the average, and says it once', () => {
     asked()
     answer()
-    const page = list(session())
+    const page = list(trips(10, 40))
     expect(page.text()).toContain(LINE)
     expect(page.text().split(LINE)).toHaveLength(2)
-    answer('balanced')
-    expect(list(session()).text()).toContain(BALANCED)
-    expect(list(session()).text()).not.toContain('tie on the longest trip')
+    expect(notes(page)).toHaveLength(1)
   })
 
-  it('puts the line right under the heading, above the intro and the spot rows, so a long list does not bury it', () => {
+  it('says the same sentence for each rule the line is shown for, and nothing for a rule it does not know', () => {
+    asked()
+    answer('balanced')
+    expect(list(trips(10, 40)).text()).toContain(LINE)
+    answer('shortest')
+    expect(list(trips(10, 40)).text()).not.toContain(LINE)
+  })
+
+  it('puts the line in the first spot\'s own row, and in no other', () => {
     asked()
     answer()
-    const els = list(session()).all()
-    const at = (pick) => els.findIndex(pick)
-    const lean = at((el) => el.props['data-testid'] === 'spots-lean')
-    expect(lean).toBeGreaterThan(at((el) => el.props.id === 'spots-head'))
-    expect(lean).toBeLessThan(at((el) => el.props['aria-label'] === 'Meeting spots'))
-    expect(lean).toBeLessThan(at((el) => el.tag === 'p' && el.props.class === 'body-sm text-muted'))
+    const second = trips(10, 40)
+    second.spots.list[1].times = { ian: 5, jonathan: 50 }
+    const page = list(second)
+    const rows = page.all('li').filter((el) => el.props['data-area'])
+    const withNote = rows.filter((el) => page.textOf(el).includes(LINE))
+    expect(withNote.map((el) => el.props['data-area'])).toEqual(['bugis'])
+  })
+
+  it('shows nothing when owed but the person\'s trip is at or above the average', () => {
+    asked()
+    answer()
+    expect(list(trips(25, 25)).text()).not.toContain(LINE)
+    expect(list(trips(30, 20)).text()).not.toContain(LINE)
+    expect(list(trips(40, 10)).text()).not.toContain(LINE)
+  })
+
+  it('shows nothing when the person\'s minutes are missing, or they are not among them', () => {
+    asked()
+    answer()
+    const none = trips(10, 40)
+    none.spots.list[0].times = {}
+    expect(list(none).text()).not.toContain(LINE)
+    const other = trips(10, 40)
+    other.spots.list[0].times = { jonathan: 10, faith: 40 }
+    expect(list(other).text()).not.toContain(LINE)
+    expect(list(trips(10, 40), { myId: 'faith' }).text()).not.toContain(LINE)
+    const missing = trips(undefined, 40)
+    expect(list(missing).text()).not.toContain(LINE)
+  })
+
+  it('follows the check again when the first spot changes', () => {
+    asked()
+    answer()
+    const s = trips(10, 40)
+    expect(list(s).text()).toContain(LINE)
+    // A different first spot, farther from the person than the group's average.
+    s.spots.list = [spot('bishan', 'Bishan', { times: { ian: 45, jonathan: 15 } }), ...s.spots.list.filter((x) => x.areaId !== 'bishan')]
+    expect(list(s).text()).not.toContain(LINE)
   })
 
   it('shows it for the person it applies to and not for another member of the same session', () => {
     // The store holds the signed-in person's own answer. Another member's app holds its own, here no.
     asked()
     answer()
-    expect(list(session(), { myId: 'ian' }).text()).toContain(LINE)
+    const s = trips(10, 40)
+    expect(list(s, { myId: 'ian' }).text()).toContain(LINE)
     events.leans = { s1: { owed: false, rule: 'longest' } }
-    expect(list(session(), { myId: 'jonathan' }).text()).not.toContain('travelled more than your share')
+    expect(list(s, { myId: 'jonathan' }).text()).not.toContain(LINE)
     events.leans = {}
-    expect(list(session(), { myId: 'jonathan' }).text()).not.toContain('travelled more than your share')
+    expect(list(s, { myId: 'jonathan' }).text()).not.toContain(LINE)
+    // Even when the answer were true and their trip is the longer one, the line shows nothing for them.
+    answer()
+    expect(list(s, { myId: 'jonathan' }).text()).not.toContain(LINE)
   })
 
   it('names no one and gives no number, in the page that shows it', () => {
     asked()
     answer()
-    const text = list(session()).text()
-    const line = text.slice(text.indexOf('You have travelled'), text.indexOf('You have travelled') + LINE.length)
-    expect(line).toBe(LINE)
-    expect(line).not.toMatch(/Ian|Jonathan|Faith|\d/)
+    const page = list(trips(10, 40))
+    const [note] = notes(page)
+    expect(page.textOf(note)).toBe(LINE)
+    expect(page.textOf(note)).not.toMatch(/Ian|Jonathan|Faith|\d|travelled|tie|share/)
   })
 
   it('shows nothing when the answer is no, is missing, or names a rule it does not know', () => {
     asked()
     answer('longest', false)
-    expect(list(session()).text()).not.toContain('travelled more than your share')
+    expect(list(trips(10, 40)).text()).not.toContain(LINE)
     events.leans = {}
-    expect(list(session()).text()).not.toContain('travelled more than your share')
+    expect(list(trips(10, 40)).text()).not.toContain(LINE)
     answer('shortest')
-    expect(list(session()).text()).not.toContain('travelled more than your share')
+    expect(list(trips(10, 40)).text()).not.toContain(LINE)
   })
 
   it('shows nothing once the group has moved on, when the host named the place, or when the planner did not pick by fairness', () => {
     asked()
     answer()
-    expect(list(session({ status: 'voting' })).text()).not.toContain('travelled more than your share')
-    expect(list(session({ meetBy: 'known' })).text()).not.toContain('travelled more than your share')
-    const same = session()
+    expect(list(trips(10, 40, { status: 'voting' })).text()).not.toContain(LINE)
+    expect(list(trips(10, 40, { meetBy: 'known' })).text()).not.toContain(LINE)
+    const same = trips(10, 40)
     same.spots.appMethod = 'same'
-    expect(list(same).text()).not.toContain('travelled more than your share')
-    const empty = session()
+    expect(list(same).text()).not.toContain(LINE)
+    const empty = trips(10, 40)
     empty.spots.list = []
-    expect(list(empty).text()).not.toContain('travelled more than your share')
+    expect(list(empty).text()).not.toContain(LINE)
   })
 
   it('asks once the group is choosing with two starts in, and not before', () => {
