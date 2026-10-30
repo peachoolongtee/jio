@@ -80,7 +80,7 @@ const press = (view, label) => view.all('button').find((b) => view.text(b) === l
 const kimsInvite = (database, kim) => database.tables.invites.find((i) => i.invitee_id === kim.user.id)
 
 describe('taking back an invite by username, for the host', () => {
-  for (const [file, path] of [['views/InviteView', (id) => `/sessions/${id}/invite`], ['views/GroupDetailView', (id) => `/sessions/${id}`]]) {
+  for (const [file, path, heading] of [['views/InviteView', (id) => `/sessions/${id}/invite`, 'invite-in'], ['views/GroupDetailView', (id) => `/sessions/${id}`, 'lobby-members']]) {
     it(`on ${file.slice(6)}: shows the × only on Kim's Invited row, asks, turns the invitation off, and Kim leaves the list`, async () => {
       const { database, id, kim } = await invited()
       const { view } = await draw(file, path(id), { id })
@@ -93,15 +93,18 @@ describe('taking back an invite by username, for the host', () => {
       await view.click(crosses(view)[0])
       const dialog = view.one('[role=dialog]')
       expect(view.text(dialog)).toContain('Take back the invite?')
-      expect(view.text(dialog)).toContain("Kim won't be able to join from this invite. They can still join with the session's link.")
+      expect(view.text(dialog)).toContain("Kim won't be able to join from this invite, and you can't invite them by name to this session again. You can send them the session's link.")
       await view.click(press(view, 'Keep invite'))
       expect(kimsInvite(database, kim).revoked).toBe(false)
       await view.click(crosses(view)[0])
       await view.click(press(view, 'Take back'))
       await until(() => kimsInvite(database, kim).revoked === true)
-      await until(() => !view.text().includes('Kim'))
+      await until(() => !view.all('li').some((li) => view.text(li).includes('Kim')))
       expect(crosses(view)).toHaveLength(0)
       expect(view.text()).toContain('Lee')
+      // The × is gone, so focus went to the list's heading, and the page said what happened.
+      await until(() => view.focused()?.attrs.id === heading)
+      expect(view.all('[role=status]').map((n) => view.text(n))).toContain("Kim's invite taken back")
       // Kim's own list of invitations no longer has it.
       const again = await boot(kim.fake, {}, { shared: true })
       expect(await again.api.listInvitations()).toEqual([])
@@ -119,6 +122,33 @@ describe('taking back an invite by username, for the host', () => {
     await until(() => view.has('p[role=alert]'))
     expect(view.text(view.one('p[role=alert]'))).toBe('That invite has already been answered. Reload to see who is in.')
     expect(kimsInvite(database, kim).revoked).toBe(false)
+  })
+})
+
+describe('what taking back an invite does to the person, in the database', () => {
+  it("refuses Kim's join with her personal invitation, and still lets her in with the session's link", async () => {
+    const { database, id, sam, kim } = await invited()
+    const personal = kimsInvite(database, kim).token
+    // Before: her personal invitation is on her list.
+    expect((await kim.api.listInvitations()).length).toBe(1)
+    await sam.api.revokeInvite(id, kim.user.id)
+    expect(kimsInvite(database, kim).revoked).toBe(true)
+    // The invitation no longer joins her (join_session: "This invite link is no longer valid."), and she has no row in the session.
+    expect(await kim.api.listInvitations()).toEqual([])
+    await expect(kim.api.joinWithLink(personal)).rejects.toThrow(/no longer valid|invalid|link/i)
+    expect(database.tables.session_members.some((m) => m.session_id === id && m.user_id === kim.user.id)).toBe(false)
+    expect(kimsInvite(database, kim).uses).toBe(0)
+    // The session's link, which is not tied to a name, still brings her in.
+    const { token } = await sam.api.makeInviteLink(id)
+    const joined = await kim.api.joinWithLink(token)
+    expect(joined.sessionId).toBe(id)
+    expect(database.tables.session_members.find((m) => m.session_id === id && m.user_id === kim.user.id)).toMatchObject({ state: 'joined', role: 'guest' })
+  })
+
+  it('cannot invite her by name again, and the refusal points to the link', async () => {
+    const { id, sam, kim } = await invited()
+    await sam.api.revokeInvite(id, kim.user.id)
+    await expect(sam.api.inviteByUsername(id, kim.user.id)).rejects.toThrow("Send them the link")
   })
 })
 

@@ -49,6 +49,7 @@ import { watchSessions } from '@/lib/api.js'
 import { voters as votersOf } from '@/lib/planner/confirm.js'
 import { directionsUrl } from '@/lib/maps.js'
 import { locateNext } from '@/lib/session.js'
+import { takeBackNotice } from '@/lib/takeBackNotice.js'
 import { useReturnFocus } from '@/lib/useReturnFocus.js'
 import { guestLine, hostPendingLine } from '@/lib/startChoice.js'
 import { TRAVEL_TONES } from '@/lib/planner/travel.js'
@@ -354,6 +355,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 
     <div class="screen__body">
       <p class="sr-only" role="status">{{ announcement }}</p>
+      <p class="sr-only" role="status">{{ takeBackNotice }}</p>
       <SessionNotices :session="session" />
       <BannerNote v-if="approvalsBanner" icon="info" dismissible @dismiss="dismissBanner">{{ approvalsBanner.text }}</BannerNote>
       <!-- The host's choice of how to pick the meeting point, for a guest while the group is choosing where to meet. -->
@@ -373,7 +375,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
         </header>
 
         <div class="lobby__group">
-          <h3 class="caption text-muted">In this session <span class="tnum">· {{ lobby.length }}</span></h3>
+          <h3 id="lobby-members" class="caption text-muted" tabindex="-1">In this session <span class="tnum">· {{ lobby.length }}</span></h3>
           <ul class="lobby__list">
             <li v-for="(person, i) in lobby" :key="person.id" class="lobby__row rise" :class="{ 'is-pending': !person.joined }" :style="{ '--i': i }">
               <UserAvatar :name="person.name" :person="person.id" :size="44" />
@@ -385,7 +387,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
               <span v-else-if="person.joined" class="lobby__tag"><AppIcon name="check" :size="14" />Joined</span>
               <span v-else class="lobby__tag lobby__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
               <RemoveMember v-if="session.remote && status === 'inviting' && isHost && person.joined && !person.host" :session-id="session.id" :person="person" />
-              <TakeBackInvite v-if="status === 'inviting' && isHost && !person.joined && !person.host" :session-id="session.id" :person="person" :remote="!!session.remote" />
+              <TakeBackInvite v-if="status === 'inviting' && isHost && !person.joined && !person.host" :session-id="session.id" :person="person" :remote="!!session.remote" focus-id="lobby-members" />
             </li>
           </ul>
         </div>

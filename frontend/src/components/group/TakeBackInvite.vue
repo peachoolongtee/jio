@@ -1,21 +1,25 @@
 <script setup>
 // The host takes back an invite nobody has answered yet: a small × beside an "Invited" name, then a question.
-//   <TakeBackInvite :session-id="session.id" :person="{ id, name }" :remote="session.remote" />
+//   <TakeBackInvite :session-id="session.id" :person="{ id, name }" :remote="session.remote" focus-id="invite-in" />
 // Only the host sees it, and only on a row that is still Invited. After "Take back" the person leaves the list. A real account's
-// invitation cannot be sent to the same person again (the database keeps one per person per session), so the words say the link
-// still works for them; the demo and local accounts can invite them again. A failure is said in the dialog, which stays open.
-// It looks like RemoveMember, its neighbour on joined rows.
+// invitation cannot be sent to the same person again (the database keeps one per person per session), so the words say that plainly
+// and that the link still works for them; the demo and local accounts can invite them again. A failure is said in the dialog, which stays open.
+// It looks like RemoveMember, its neighbour on joined rows. The × is gone once the invite is taken back, so focus moves to the element
+// named by `focus-id` (the list's heading, with tabindex="-1") and "Kim's invite taken back" is said in the screen's status line
+// (lib/takeBackNotice.js).
 import { computed, ref } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import IconButton from '../ui/IconButton.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
+import { announceTakeBack } from '@/lib/takeBackNotice.js'
 import { useEventsStore } from '@/stores/events.js'
 
 const props = defineProps({
   sessionId: { type: String, required: true },
   person: { type: Object, required: true },
   remote: { type: Boolean, default: false },
+  focusId: { type: String, default: '' },
 })
 
 const events = useEventsStore()
@@ -26,7 +30,7 @@ const error = ref('')
 const name = computed(() => props.person.name || 'This person')
 const text = computed(() =>
   props.remote
-    ? `${name.value} won't be able to join from this invite. They can still join with the session's link.`
+    ? `${name.value} won't be able to join from this invite, and you can't invite them by name to this session again. You can send them the session's link.`
     : `${name.value} won't be able to join from this invite. You can invite them again.`,
 )
 
@@ -38,6 +42,7 @@ async function takeBack() {
   try {
     await events.revokeInvite(props.sessionId, props.person.id)
     open.value = false
+    announceTakeBack(props.person.name, props.focusId)
   } catch (e) {
     error.value = e?.message || 'The invite could not be taken back. Try again.'
   }

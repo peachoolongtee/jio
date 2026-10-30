@@ -79,7 +79,7 @@ describe('revokeInvite, for a local account', () => {
 })
 
 describe('the × on an Invited row, for a local host', () => {
-  for (const [screen, path] of [['invite', (id) => `/sessions/${id}/invite`], ['detail', (id) => `/sessions/${id}`]]) {
+  for (const [screen, path, heading] of [['invite', (id) => `/sessions/${id}/invite`, 'invite-in'], ['detail', (id) => `/sessions/${id}`, 'lobby-members']]) {
     it(`shows only on the Invited row of the ${screen === 'invite' ? 'Invite page' : 'session page'}, asks, and takes Faith off the list`, async () => {
       const { api, id } = await hosting()
       const view = await draw(screen, path(id), id)
@@ -97,7 +97,10 @@ describe('the × on an Invited row, for a local host', () => {
       await view.click(view.all('button').find((b) => view.text(b) === 'Take back'))
       await until(() => crosses(view).length === 0)
       expect(stateOf(await api.getSession(id), 'faith')).toBeUndefined()
-      expect(view.text()).not.toContain('Faith')
+      expect(view.all('li').some((li) => view.text(li).includes('Faith'))).toBe(false)
+      // The page says so, and focus went to the list's heading (the × is gone).
+      expect(view.all('[role=status]').map((n) => view.text(n))).toContain("Faith's invite taken back")
+      await until(() => view.focused()?.attrs.id === heading)
     })
   }
 })

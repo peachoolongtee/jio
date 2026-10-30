@@ -38,6 +38,7 @@ import ShareLink from '@/components/group/ShareLink.vue'
 import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
 import { watchSessions } from '@/lib/api.js'
 import { canInviteByName, inviteAccess } from '@/lib/session.js'
+import { takeBackNotice } from '@/lib/takeBackNotice.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { inviteGroups, outingsTogether } from '@/lib/hangouts.js'
 import { exitFor, goBackIfBehind, isBehind } from '@/lib/stepNav.js'
@@ -161,6 +162,7 @@ function done() {
 
 <template>
   <main class="screen screen--invite">
+    <p class="sr-only" role="status">{{ takeBackNotice }}</p>
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton :label="back.label" :to="back.to" @click.capture="goBackIfBehind($event, router, back.to)"><AppIcon name="back" /></IconButton>
@@ -206,7 +208,7 @@ function done() {
         </template>
         <hr class="invite__rule" />
         <section class="invite__group" aria-labelledby="invite-in">
-          <h2 id="invite-in" class="caption text-muted">In this session</h2>
+          <h2 id="invite-in" class="caption text-muted" tabindex="-1">In this session</h2>
           <ul class="invite__list">
             <li v-for="person in members" :key="person.id" class="invite__row">
               <UserAvatar :name="person.name" :person="person.id" :size="44" />
@@ -218,7 +220,7 @@ function done() {
               <span v-else-if="isInvited(person.id)" class="invite__tag invite__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
               <span v-else class="invite__tag"><AppIcon name="check" :size="14" />Joined</span>
               <RemoveMember v-if="mine && !person.host && !isInvited(person.id)" :session-id="session.id" :person="person" />
-              <TakeBackInvite v-if="mine && !person.host && isInvited(person.id)" :session-id="session.id" :person="person" remote />
+              <TakeBackInvite v-if="mine && !person.host && isInvited(person.id)" :session-id="session.id" :person="person" remote focus-id="invite-in" />
             </li>
           </ul>
         </section>
@@ -251,7 +253,7 @@ function done() {
         </header>
         <hr class="invite__rule" />
         <section class="invite__group">
-          <h2 id="invite-in" class="caption text-muted">In this session</h2>
+          <h2 id="invite-in" class="caption text-muted" tabindex="-1">In this session</h2>
           <ul class="invite__list">
             <li v-for="person in members" :key="person.id" class="invite__row">
               <UserAvatar :name="person.name" :person="person.id" :size="44" />
@@ -293,7 +295,7 @@ function done() {
         <hr class="invite__rule" />
 
         <section class="invite__group" aria-labelledby="invite-in">
-          <h3 id="invite-in" class="caption text-muted">In this session</h3>
+          <h3 id="invite-in" class="caption text-muted" tabindex="-1">In this session</h3>
           <ul class="invite__list">
             <li v-for="person in members" :key="person.id" class="invite__row">
               <UserAvatar :name="person.name" :person="person.id" :size="44" />
@@ -304,7 +306,7 @@ function done() {
               <span v-if="person.host" class="invite__tag invite__tag--host"><AppIcon name="crown" :size="14" />Host</span>
               <span v-else-if="isInvited(person.id)" class="invite__tag invite__tag--pending"><AppIcon name="clock" :size="14" />Invited</span>
               <span v-else class="invite__tag"><AppIcon name="check" :size="14" />Joined</span>
-              <TakeBackInvite v-if="mine && !person.host && isInvited(person.id)" :session-id="session.id" :person="person" />
+              <TakeBackInvite v-if="mine && !person.host && isInvited(person.id)" :session-id="session.id" :person="person" focus-id="invite-in" />
             </li>
           </ul>
         </section>
