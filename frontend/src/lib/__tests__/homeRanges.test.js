@@ -70,6 +70,10 @@ describe('the week chips on Home', () => {
     expect(chip(view, 'After next week').attrs['aria-disabled']).toBe('true')
     expect(view.text('[data-testid=pins]')).toBe('1')
     expect(view.one('[data-testid=pins]').attrs['data-areas']).toBe('Bugis')
+    // Each row says its stage and whose turn it is; Ian has not voted, so it is his.
+    expect(view.text('[data-testid=meetup-status]')).toContain('Voting')
+    expect(view.text('[data-testid=your-turn]')).toBe('Your turn · Vote')
+    expect(view.one('[data-testid=your-turn-filter]').attrs['aria-label']).toBe('Your turn, 1 meetup')
     expect(view.errors).toEqual([])
   })
 

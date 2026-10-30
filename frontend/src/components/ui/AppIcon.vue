@@ -50,6 +50,10 @@ const ICONS = {
   collapse: { body: '<path d="M13.5 2.5 9.5 6.5M9.5 3v3.5H13M2.5 13.5l4-4M6.5 13V9.5H3"/>' },
   layers: { body: '<path d="M8 2.5 14 5.5 8 8.5 2 5.5Z"/><path d="M2 9l6 3 6-3"/>' },
   route: { body: '<circle cx="4" cy="12" r="1.5"/><circle cx="12" cy="4" r="1.5"/><path d="M5.5 12h4a2.25 2.25 0 0 0 0-4.5h-3a2.25 2.25 0 0 1 0-4.5h4"/>' },
+  'circle-check': { body: '<circle cx="8" cy="8" r="6"/><path d="m5.75 8.25 1.5 1.5 3-3.25"/>' },
+  'circle-x': { body: '<circle cx="8" cy="8" r="6"/><path d="m6 6 4 4M10 6l-4 4"/>' },
+  'circle-dashed': { body: '<path d="M6.9 2.1a6 6 0 0 1 2.2 0M11.8 3.6a6 6 0 0 1 1.6 1.6M13.9 6.9a6 6 0 0 1 0 2.2M12.4 11.8a6 6 0 0 1-1.6 1.6M9.1 13.9a6 6 0 0 1-2.2 0M4.2 12.4a6 6 0 0 1-1.6-1.6M2.1 9.1a6 6 0 0 1 0-2.2M3.6 4.2a6 6 0 0 1 1.6-1.6"/>' },
+  'scan-search': { body: '<path d="M2.5 5V3.5a1 1 0 0 1 1-1H5M11 2.5h1.5a1 1 0 0 1 1 1V5M13.5 11v1.5a1 1 0 0 1-1 1H11M5 13.5H3.5a1 1 0 0 1-1-1V11"/><circle cx="7.5" cy="7.5" r="2.25"/><path d="m9.25 9.25 1.75 1.75"/>' },
   info: { body: '<circle cx="8" cy="8" r="6"/><path d="M8 7.25V11M8 5v.01"/>' },
   logout: { body: '<path d="M6.5 2.5h-3v11h3M10 5l3 3-3 3M13 8H6"/>' },
   // Stop categories

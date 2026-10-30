@@ -14,8 +14,8 @@ import AppIcon from '../ui/AppIcon.vue'
 import AvatarStack from '../ui/AvatarStack.vue'
 import CountdownChip from '../ui/CountdownChip.vue'
 import StatusPill from '../ui/StatusPill.vue'
-import NextStepChip from './NextStepChip.vue'
-import { nextStepFor, whereStands } from '@/lib/homeMeetups.js'
+import MeetupStatus from './MeetupStatus.vue'
+import { homeStatus, nextStepFor, whereStands } from '@/lib/homeMeetups.js'
 import { dateLine } from '@/lib/session.js'
 
 const props = defineProps({
@@ -29,6 +29,8 @@ const props = defineProps({
 
 const where = computed(() => whereStands(props.meetup, props.myId))
 const step = computed(() => nextStepFor(props.meetup, props.myId))
+// The stage and, when it is on the person, "Your turn · …" (MeetupStatus), as on Home's rows.
+const status = computed(() => homeStatus(props.meetup, props.myId))
 const friends = computed(() => (props.meetup.activeIds || []).filter((id) => id !== props.myId).map((id) => ({ id, name: props.names(id) })))
 const invited = computed(() => (props.meetup.members || []).filter((m) => m.state === 'invited').length)
 // "3 friends", "1 friend · 2 invited", "No friends yet"
@@ -65,8 +67,7 @@ const peopleText = computed(() => {
     </p>
 
     <div class="sum__next">
-      <span v-if="!compact" class="caption-sm text-muted">Next</span>
-      <NextStepChip :step="step" />
+      <MeetupStatus :status="status" />
     </div>
     <AppButton variant="secondary" block :small="compact" :to="step.to">Open meetup<span class="sr-only"> {{ meetup.title }}</span></AppButton>
   </div>
