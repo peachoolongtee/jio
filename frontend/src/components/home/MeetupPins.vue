@@ -34,7 +34,7 @@ const props = defineProps({
   center: { type: Object, required: true },
   span: { type: Array, required: true },
 })
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'drawn'])
 
 const OPEN_DELAY = 120 // ms of hovering before the card opens, so crossing the map does not flicker
 const CLOSE_DELAY = 150 // ms after leaving the pin and the card before it closes
@@ -50,6 +50,8 @@ const byId = computed(() => Object.fromEntries(props.meetups.map((m) => [m.id, m
 // How pins stand in a row: 58px apart, so the selected pin, drawn 1.2 times larger (60px), still clears its neighbours, and a pin's
 // width and height for telling when two would overlap.
 const ROW = { fan: 58, width: 60, height: 76 }
+// Map units per degree (lib/singaporeDots.js project: x grows with longitude, y falls with latitude).
+const UNITS_PER_DEGREE = 1000
 // How far a pin's tip stays from the box's sides, in px (the clamp in .mwrap's CSS).
 const EDGE_PX = 34
 
@@ -57,19 +59,30 @@ const EDGE_PX = 34
 // view height, as the CSS works it out (--k). 0 until the box has been measured.
 const box = ref({ width: 0, height: 0 })
 const scale = computed(() => (box.value.width && box.value.height ? Math.min(box.value.width / props.span[0], box.value.height / props.span[1]) : 0))
+// Read at once when the pins mount and on every window resize, as well as by a ResizeObserver: an observer only reports when the page
+// draws a frame, which a page in a background tab does not, and the pins would then sit unmeasured.
 let watchSize = null
+// How to call: measure()
+function measure() {
+  const rect = layer.value?.getBoundingClientRect?.()
+  if (rect && (rect.width !== box.value.width || rect.height !== box.value.height)) box.value = { width: rect.width, height: rect.height }
+}
 onMounted(() => {
+  measure()
+  if (typeof window !== 'undefined') window.addEventListener('resize', measure)
   if (typeof ResizeObserver === 'undefined' || !layer.value) return
-  watchSize = new ResizeObserver(([entry]) => {
-    box.value = { width: entry.contentRect.width, height: entry.contentRect.height }
-  })
+  watchSize = new ResizeObserver(measure)
   watchSize.observe(layer.value)
 })
-onBeforeUnmount(() => watchSize?.disconnect())
+onBeforeUnmount(() => {
+  watchSize?.disconnect()
+  if (typeof window !== 'undefined') window.removeEventListener('resize', measure)
+})
 
 // Where each pin is, in map units from the center (the map scale is worked out in CSS from the box's size), and how far it is moved,
 // in px, so no pin covers another at this size (lib/homeMeetups.js layoutPins; walkthrough, 30 October 2026): nearby pins stand in a
-// row, the selected one on its own spot. Before the box is measured, pins that share an area are spread as pinsFor says.
+// row that does not move when another pin is selected. Before the box is measured, pins that share an area are spread as pinsFor says.
+// Where each pin is drawn, as a place on the map, goes up as `drawn` ({ id: { lat, lng } }), so the routes can meet at the pin's tip.
 const placed = computed(() => {
   const c = project(props.center.lat, props.center.lng)
   const shown = props.pins.filter((pin) => byId.value[pin.id]).map((pin) => {
@@ -77,13 +90,21 @@ const placed = computed(() => {
     return { pin, dx: p.x - c.x, dy: p.y - c.y }
   })
   const k = scale.value
-  const moves = k ? layoutPins(shown.map((s) => ({ id: s.pin.id, x: s.dx * k, y: s.dy * k })), props.selectedId, { ...ROW, maxX: box.value.width / 2 - EDGE_PX }) : null
+  const moves = k ? layoutPins(shown.map((s) => ({ id: s.pin.id, x: s.dx * k, y: s.dy * k })), { ...ROW, maxX: box.value.width / 2 - EDGE_PX }) : null
   return shown.map(({ pin, dx, dy }) => {
     const move = moves ? moves.get(pin.id) : { x: pin.offset?.x || 0, y: pin.offset?.y || 0 }
     return { ...pin, style: { '--dx': dx, '--dy': dy, '--ox': move.x, '--oy': move.y } }
   })
 })
 const frame = computed(() => ({ '--w': props.span[0], '--h': props.span[1] }))
+// Each pin's drawn spot as a place: its area moved by the row's px, turned back into degrees at this map's scale.
+watch(placed, (list) => {
+  const k = scale.value
+  emit('drawn', Object.fromEntries(list.map((pin) => [pin.id, {
+    lat: pin.lat - (k ? pin.style['--oy'] / k / UNITS_PER_DEGREE : 0),
+    lng: pin.lng + (k ? pin.style['--ox'] / k / UNITS_PER_DEGREE : 0),
+  }])))
+}, { immediate: true })
 
 // ── The popover ──
 const openId = ref('')

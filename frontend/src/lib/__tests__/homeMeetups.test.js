@@ -335,10 +335,8 @@ describe('the meetups Home lists', () => {
     expect(homeList(six.slice(0, 2)).map((x) => x.id)).toEqual(['a', 'b'])
   })
 
-  it('always keeps the selected one, in the last place when it is further down', () => {
-    expect(homeList(six, 'b').map((x) => x.id)).toEqual(['a', 'b', 'c', 'd'])
-    expect(homeList(six, 'f').map((x) => x.id)).toEqual(['a', 'b', 'c', 'f'])
-    expect(homeList(six, 'gone').map((x) => x.id)).toEqual(['a', 'b', 'c', 'd'])
+  it('does not change with the selected one, so picking a pin moves nothing', () => {
+    expect(homeList(six).map((x) => x.id)).toEqual(['a', 'b', 'c', 'd'])
   })
 
   it('says how many there are in all', () => {
@@ -382,7 +380,8 @@ describe('the week chips on Home', () => {
   })
 })
 
-// Walkthrough, 30 October 2026: nearby pins covered each other on Home's small map. They now stand in a row, the selected one on its spot.
+// Walkthrough, 30 October 2026: nearby pins covered each other on Home's small map. They now stand in a row, which does not move when
+// another pin is selected (an earlier version kept the selected pin on its spot, and pins swapped places at each pick).
 describe('laying out the pins on Home', () => {
   const ROW = { fan: 58, width: 60, height: 76 }
   const at = (moves, points) => Object.fromEntries(points.map((p) => [p.id, { x: p.x + moves.get(p.id).x, y: p.y + moves.get(p.id).y }]))
@@ -394,37 +393,35 @@ describe('laying out the pins on Home', () => {
 
   it('leaves pins that are far apart where they are', () => {
     const points = [{ id: 'a', x: -200, y: 0 }, { id: 'b', x: 200, y: 50 }]
-    const moves = layoutPins(points, 'a', ROW)
+    const moves = layoutPins(points, ROW)
     expect([...moves.values()]).toEqual([{ x: 0, y: 0 }, { x: 0, y: 0 }])
   })
 
-  it('puts nearby pins in a row with the selected one on its own spot and the others either side of it', () => {
-    const points = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 10, y: 8 }, { id: 'c', x: -6, y: 4 }]
-    const spots = at(layoutPins(points, 'b', ROW), points)
-    expect(spots.b).toEqual({ x: 10, y: 8 })
-    expect(spots.a).toEqual({ x: 10 + 58, y: 8 })
-    expect(spots.c).toEqual({ x: 10 - 58, y: 8 })
+  it('puts nearby pins in a row in list order, centred on them, none covering another', () => {
+    const points = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 10, y: 8 }, { id: 'c', x: -4, y: 4 }]
+    const spots = at(layoutPins(points, ROW), points)
+    expect(spots.a.x).toBeCloseTo(2 - 58)
+    expect(spots.b.x).toBeCloseTo(2)
+    expect(spots.c.x).toBeCloseTo(2 + 58)
+    expect(new Set(Object.values(spots).map((p) => p.y)).size).toBe(1)
     expect(overlaps(spots)).toBe(false)
   })
 
-  it('centres a row with nothing selected on its pins, in list order', () => {
+  it('does not depend on which pin is selected: it takes no selection at all', () => {
     const points = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 20, y: 0 }]
-    const spots = at(layoutPins(points, '', ROW), points)
-    expect(spots.a.x).toBeCloseTo(10 - 29)
-    expect(spots.b.x).toBeCloseTo(10 + 29)
+    expect([...layoutPins(points, ROW).entries()]).toEqual([...layoutPins([...points], ROW).entries()])
   })
 
   it('joins a row to another group it would run into, until nothing overlaps', () => {
     const points = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 5, y: 5 }, { id: 'c', x: 70, y: 10 }, { id: 'd', x: 300, y: 0 }]
-    const spots = at(layoutPins(points, 'a', ROW), points)
+    const spots = at(layoutPins(points, ROW), points)
     expect(overlaps(spots)).toBe(false)
-    expect(spots.a).toEqual({ x: 0, y: 0 })
     expect(spots.d).toEqual({ x: 300, y: 0 })
   })
 
   it('slides a row back inside the box when it would run past an edge', () => {
     const points = [{ id: 'a', x: 140, y: 0 }, { id: 'b', x: 145, y: 0 }, { id: 'c', x: 150, y: 0 }]
-    const spots = at(layoutPins(points, 'a', { ...ROW, maxX: 150 }), points)
+    const spots = at(layoutPins(points, { ...ROW, maxX: 150 }), points)
     expect(Math.max(...Object.values(spots).map((p) => p.x))).toBeLessThanOrEqual(150)
     expect(overlaps(spots)).toBe(false)
   })

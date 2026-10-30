@@ -140,11 +140,12 @@ const inRangeMeetups = computed(() => meetupsIn(meetups.value, range.value, now.
 function pickRange(id) {
   if (counts.value[id]) rangePicked.value = id
 }
-const selected = computed(() => selectMeetup(inRangeMeetups.value.length ? inRangeMeetups.value : meetups.value, route.query.meetup))
+// "Your meetups" lists a few (lib/homeMeetups.js homeList), and the selected one is one of them, so the card, the rows and the pins
+// agree and picking a pin changes nothing else on the map. "See all N meetups" opens Sessions when there are more, or finished ones.
+const shownMeetups = computed(() => homeList(inRangeMeetups.value.length ? inRangeMeetups.value : meetups.value))
+const selected = computed(() => selectMeetup(shownMeetups.value, route.query.meetup))
 const past = computed(() => sessions.value.filter((s) => !meetups.value.includes(s)).slice(0, 3))
 const hasFinished = computed(() => sessions.value.length > meetups.value.length)
-// "Your meetups" lists a few (lib/homeMeetups.js homeList); "See all N meetups" opens Sessions when there are more, or finished ones.
-const shownMeetups = computed(() => homeList(inRangeMeetups.value, selected.value?.id))
 const moreMeetups = computed(() => meetups.value.length > shownMeetups.value.length || hasFinished.value)
 const area = computed(() => selected.value?.area || null)
 
@@ -202,13 +203,17 @@ const MEET = at('toa-payoh')
 // 2026: they used to be the members' own starts, a different number for each meetup). They converge on the selected meetup's pin, its
 // meeting area; with no meetup selected, or one with no meeting point yet, on the middle (Toa Payoh), where no pin is.
 const ROUTE_STARTS = ['boon-lay', 'jurong-east', 'woodlands', 'punggol', 'tampines', 'harbourfront'].map(at)
+// Where each pin is drawn (MeetupPins `drawn`): a pin in a row of nearby ones stands a little off its own area, and the routes meet at
+// its tip, not under the pin beside it.
+const drawnAt = ref({})
 const routeEnd = computed(() => {
   const area = selected.value?.area
-  return area && Number.isFinite(area.lat) && Number.isFinite(area.lng) ? { lat: area.lat, lng: area.lng } : MEET
+  if (!area || !Number.isFinite(area.lat) || !Number.isFinite(area.lng)) return MEET
+  return drawnAt.value[selected.value.id] || { lat: area.lat, lng: area.lng }
 })
 const mapRoutes = computed(() => ROUTE_STARTS.map((from) => ({ from, to: routeEnd.value })))
-// A new key redraws the routes when they converge somewhere else.
-const mapKey = computed(() => `${routeEnd.value.lat},${routeEnd.value.lng}`)
+// A new key redraws the routes when they converge somewhere else (rounded, so a sub-pixel change in the measured box does not redraw).
+const mapKey = computed(() => `${routeEnd.value.lat.toFixed(4)},${routeEnd.value.lng.toFixed(4)}`)
 // The first draw is the full, slow one; a redraw after the person changes the selection is quicker.
 const quickMap = ref(false)
 watch(() => selected.value?.id, (id, before) => { if (id && before && id !== before) quickMap.value = true })
@@ -456,7 +461,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <SingaporeMap :key="mapKey" class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" :quick="quickMap" :rain="rain.view.value?.places || []" :fade-rain="fadeRain" hide-meet />
         <div v-if="rainChip && rainChipFrame" class="hero__rain" :style="rainChipFrame" aria-hidden="true"><RainChip :text="rainChip" class="hero__rain-chip" /></div>
         <template v-if="hasMeetups">
-          <MeetupPins class="hero__pins" :pins="pins" :meetups="meetups" :my-id="auth.myId" :names="nameOf" :selected-id="selected.id" :center="MEET" :span="mapSpan" @select="select" />
+          <MeetupPins class="hero__pins" :pins="pins" :meetups="meetups" :my-id="auth.myId" :names="nameOf" :selected-id="selected.id" :center="MEET" :span="mapSpan" @select="select" @drawn="drawnAt = $event" />
         </template>
         <div v-else class="hero__action" :class="{ 'is-pin': events.loaded }">
           <SkeletonRow v-if="!events.loaded && !loadError" :lines="1" />
