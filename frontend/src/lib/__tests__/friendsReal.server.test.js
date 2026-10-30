@@ -79,7 +79,7 @@ async function world() {
 }
 
 const press = (view, label) => view.all('button').find((b) => view.text(b) === label)
-const pick = (view, name) => view.all('button').find((b) => b.attrs['aria-label'] === `Invite ${name}`)
+const pick = (view, name) => view.all('button').find((b) => b.attrs['aria-label'] === `Select ${name}` || b.attrs['aria-label'] === `Selected ${name}`)
 const inviteTo = (database, sessionId, person) => database.tables.invites.find((i) => i.session_id === sessionId && i.invitee_id === person.user.id)
 
 describe("a real account's friends", () => {
@@ -101,7 +101,12 @@ describe("a real account's friends", () => {
     await until(() => !!pick(view, 'Lee'))
     expect(view.text()).toContain('Invite friends')
     expect(pick(view, 'Kim')).toBeUndefined()
+    // The chip's accessible name starts with the words on it (WCAG 2.5.3), before and after it is pressed.
+    expect(pick(view, 'Lee').attrs['aria-label']).toBe('Select Lee')
+    expect(view.text(pick(view, 'Lee'))).toBe('Select')
     await view.click(pick(view, 'Lee'))
+    expect(pick(view, 'Lee').attrs['aria-label']).toBe('Selected Lee')
+    expect(view.text(pick(view, 'Lee'))).toBe('Selected')
     await view.click(press(view, 'Send 1 invite'))
     await until(() => !!inviteTo(database, next, lee))
     await until(() => view.text().includes('Invited'))

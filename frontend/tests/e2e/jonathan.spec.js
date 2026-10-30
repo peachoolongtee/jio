@@ -108,7 +108,7 @@ test.describe('Keyboard only', () => {
   // the keyboard (no click, no fill).
   // Steps: Tab to the link "Jio your friends" and press Enter; Tab to the Title and type a title; Tab to the calendar, whose days are
   // one tab stop, move with the arrow keys to Saturday 7 November and press Space; Tab to Next, Shift+Tab back one control and Tab
-  // forward again; press Enter on Next; on Invite, Tab to "Invite Darius" and press Space.
+  // forward again; press Enter on Next; on Invite, Tab to "Select Darius" and press Space.
   // Checked at the end: after each step the focused element is the expected one (toBeFocused) and is visible; the title holds what
   // was typed; Saturday is pressed; the Invite screen opens for the session; Darius is selected and Send enables.
   // Good to know: the times already have defaults (the next round hour and three hours after), so no time is typed. The "Tab"
@@ -161,7 +161,7 @@ test.describe('Keyboard only', () => {
     // 5. Invite: reach a friend and pick them with Space.
     await expect(page.getByRole('heading', { level: 1, name: 'Invite friends' })).toBeVisible()
     await expect(page.getByText('Keyboard only trip', { exact: true })).toBeVisible()
-    const darius = page.getByRole('button', { name: 'Invite Darius' })
+    const darius = page.getByRole('button', { name: /^Select(ed)? Darius$/ })
     await pressUntilFocused(page, darius)
     await expect(darius).toBeFocused()
     await page.keyboard.press('Space')

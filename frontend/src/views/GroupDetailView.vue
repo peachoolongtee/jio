@@ -592,9 +592,11 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 @media (min-width: 744px) { .lobby__held { margin-right: auto; max-width: 56ch; } }
 .lobby__tag { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--hairline); border-radius: var(--rounded-full); color: var(--body); font: var(--text-caption); }
 .lobby__tag--host { border-color: color-mix(in srgb, var(--primary) 35%, var(--canvas)); color: var(--primary-active); }
-/* Invited, not joined yet: a dashed tag and a faded row, until they accept. */
+/* Invited, not joined yet: a dashed tag, a faded picture and a softer name, until they accept. The text is never faded with opacity:
+   --body on white is 10.5:1 and the --muted line under it 5.4:1. */
 .lobby__tag--pending { border-style: dashed; color: var(--muted); }
-.lobby__row.is-pending .lobby__who, .lobby__row.is-pending :deep(.avatar) { opacity: 0.55; }
+.lobby__row.is-pending :deep(.avatar) { opacity: 0.55; }
+.lobby__row.is-pending .lobby__who .title-sm { color: var(--body); }
 /* Your route: a plain white card with two rows, start over end, like a ride's pickup and drop-off. A filled Rausch
    dot marks the start, an ink ring the end, and a dotted line joins them down the left. */
 .route { position: relative; display: flex; flex-direction: column; max-width: 560px; padding: var(--spacing-xs); border: 1px solid var(--hairline); border-radius: var(--rounded-lg); background: var(--canvas); }
