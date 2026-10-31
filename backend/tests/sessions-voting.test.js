@@ -450,6 +450,50 @@ describe('places: add (E7), more (E8), swap (E9) and search (E17)', () => {
     expect(again.body).toEqual({ planVersion: res.body.planVersion, added: false })
   })
 
+  it('suggests the nearest places that fit with browse=1 and nothing typed, CDC only with cdc=1, and writes nothing', async () => {
+    await start({ known: 'bugis' })
+    const written = writes().length
+    const slot = slotOf('eat').id
+    const res = await t.call('GET', path(`/slots/${slot}/venue-search?browse=1`), undefined, GUEST)
+    expect(res.status).toBe(200)
+    expect(res.body.results.length).toBeGreaterThan(0)
+    expect(res.body.results.length).toBeLessThanOrEqual(8)
+    expect(res.body.results.every((r) => r.fits && r.category === 'eat')).toBe(true)
+    const walks = res.body.results.map((r) => r.walkMinutes)
+    expect(walks).toEqual([...walks].sort((a, b) => a - b))
+    const cdc = await t.call('GET', path(`/slots/${slot}/venue-search?browse=1&cdc=1`), undefined, GUEST)
+    expect(cdc.body.results.length).toBeGreaterThan(0)
+    expect(cdc.body.results.every((r) => r.cdcAccepted === true)).toBe(true)
+    expect(writes().length).toBe(written)
+  })
+
+  it('takes back a place its adder added while nobody else voted for it; refuses anyone else, and a place with another\'s vote', async () => {
+    await start({ known: 'bugis' })
+    const venue = await fitting('eat')
+    const slot = slotOf('eat').id
+    expect((await t.call('POST', path(`/slots/${slot}/options`), { venueId: venue }, GUEST)).status).toBe(201)
+    const take = (who, id = venue) => t.call('DELETE', path(`/slots/${slot}/options/${encodeURIComponent(id)}`), undefined, who)
+    // Not theirs to take back: the host did not add it, and nobody added the planner's own places.
+    const hostTry = await take(HOST)
+    expect([hostTry.status, hostTry.body]).toEqual([403, expect.objectContaining({ error: 'not_yours' })])
+    const own = optionsOf('eat').find((o) => o.venue_id !== venue)
+    expect((await take(GUEST, own.venue_id)).body.error).toBe('not_yours')
+    // Someone else's vote keeps it.
+    expect((await vote(HOST, 'eat', venue)).error).toBeNull()
+    const kept = await take(GUEST)
+    expect(kept.status).toBe(409)
+    expect(kept.body.error).toBe('has_votes')
+    await userClient(world, HOST).from('votes').delete().eq('user_id', HOST)
+    // Their own vote goes with it.
+    expect((await vote(GUEST, 'eat', venue)).error).toBeNull()
+    const gone = await take(GUEST)
+    expect(gone.status).toBe(200)
+    expect(gone.body.removed).toBe(true)
+    expect(optionsOf('eat').some((o) => o.venue_id === venue)).toBe(false)
+    expect(world.votes.some((v) => v.venue_id === venue)).toBe(false)
+    expect((await take(GUEST)).body).toMatchObject({ removed: false })
+  })
+
   it('refuses a place that is unknown (404), does not fit (422), or a seventh (409), and a deleted slot', async () => {
     await start({ known: 'bugis' })
     const slot = slotOf('eat').id

@@ -65,8 +65,12 @@ export const sessionSchemas = {
   moreOptions: z.object({ have: z.number().int().min(0).max(OPTIONS_MAX) }).strict(),
   // POST /api/sessions/:id/slots/:slotId/options/:venueId/swap
   swapOption: z.object({ toVenueId: venueId }).strict(),
-  // GET /api/sessions/:id/slots/:slotId/venue-search?q=
-  venueSearch: z.object({ q: z.string().trim().min(1).max(MAX.searchQuery) }).strict(),
+  // GET /api/sessions/:id/slots/:slotId/venue-search?q=&cdc=1&browse=1 (cdc=1: only places that take CDC vouchers; browse=1 with no q:
+  // the nearest places that fit, as suggestions)
+  venueSearch: z
+    .object({ q: z.string().trim().max(MAX.searchQuery).default(''), cdc: z.enum(['0', '1']).optional(), browse: z.enum(['0', '1']).optional() })
+    .strict()
+    .refine((query) => query.q.length > 0 || query.browse === '1', { message: 'Type something to search for', path: ['q'] }),
   // POST /api/sessions/:id/confirm. `order: 'suggested'` takes the stored suggested order and needs the `basis` the caller was shown.
   confirmPlan: z
     .object({ order: z.enum(['voted', 'suggested']).optional(), basis: z.string().regex(/^[0-9a-f]{64}$/, 'a 64-character hash, as the suggestion gave it').optional() })

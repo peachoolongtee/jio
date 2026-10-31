@@ -28,7 +28,8 @@ import { sessionSchemas } from './session-schemas.js'
 //   POST   /api/sessions/:id/slots/:slotId/options            { venueId }      a member adds a place
 //   POST   /api/sessions/:id/slots/:slotId/options/more       { have }         more suggestions
 //   POST   /api/sessions/:id/slots/:slotId/options/:venueId/swap { toVenueId } swap one place for another
-//   GET    /api/sessions/:id/slots/:slotId/venue-search?q=                     search the saved places for a slot
+//   DELETE /api/sessions/:id/slots/:slotId/options/:venueId          take back a place you added (no one else's vote on it)
+//   GET    /api/sessions/:id/slots/:slotId/venue-search?q=&cdc=1&browse=1      search the saved places for a slot (cdc=1: CDC vouchers only; browse=1: suggestions)
 //   POST   /api/sessions/:id/order/suggest                            the host asks for a suggested order of the stops the votes make
 //   POST   /api/sessions/:id/confirm          { order?, basis? }      the host confirms the plan: stops from the stored winners
 //   POST   /api/sessions/:id/replan           { accept? }             the host opens the plan for voting again (accept: false only turns the prompt down)
@@ -59,7 +60,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   slots/:id DELETE { planVersion }                          slots/restore { planVersion, restored: [slotId] }
 //   options POST   201 { planVersion, added: true }, or 200 { planVersion, added: false } when the place is already there
 //   options/more   { planVersion, added: [venueId] }          swap { planVersion, swapped }
-//   venue-search   { results: [{ venueId, name, area, category, source, matchedStall, walkMinutes, distanceKm, fits, unfit, added }] }
+//   venue-search   { results: [{ venueId, name, area, category, source, matchedStall, walkMinutes, distanceKm, fits, unfit, cdcAccepted, added }] }
 //   order/suggest  { status: 'ok', basis, order: [slotId], stops: [{ slotId, venueId, start }], voted: [{ slotId, category, venueId, start, duration }], reason, source: 'ai' | 'rules' }
 //                  or { status: 'none', why: 'no_stops' | 'one_movable' | 'no_order_fits' | 'unknown_place', basis?, voted }
 //                  `stops` and `voted` are the stops of the suggested and of the voted order as a confirm would store them, each with its stored start
@@ -264,6 +265,11 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
     return sessions.addOption({ ...who, slotId: sessionSchemas.slotId.parse(req.params.slotId), venueId })
   }, (body) => (body.added ? 201 : 200)))
 
+  router.delete('/sessions/:id/slots/:slotId/options/:venueId', ...guard, handle((who, req) => {
+    sessionSchemas.nothing.parse(req.body ?? {})
+    return sessions.removeOption({ ...who, slotId: sessionSchemas.slotId.parse(req.params.slotId), venueId: sessionSchemas.venueId.parse(req.params.venueId) })
+  }))
+
   router.post('/sessions/:id/slots/:slotId/options/more', ...guard, handle((who, req) => {
     const { have } = sessionSchemas.moreOptions.parse(req.body ?? {})
     return sessions.addMoreOptions({ ...who, slotId: sessionSchemas.slotId.parse(req.params.slotId), have })
@@ -280,8 +286,8 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
   }))
 
   router.get('/sessions/:id/slots/:slotId/venue-search', ...searchGuard, handle((who, req) => {
-    const { q } = sessionSchemas.venueSearch.parse(req.query ?? {})
-    return sessions.searchSlot({ ...who, slotId: sessionSchemas.slotId.parse(req.params.slotId), query: q })
+    const { q, cdc, browse } = sessionSchemas.venueSearch.parse(req.query ?? {})
+    return sessions.searchSlot({ ...who, slotId: sessionSchemas.slotId.parse(req.params.slotId), query: q, cdcOnly: cdc === '1', browse: browse === '1' })
   }))
 
   // The plan. "stops/order" is declared before the routes with a :stopId, so it is never read as one.

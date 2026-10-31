@@ -639,13 +639,15 @@ const MIN_ADDRESS_QUERY = 3;
  * maxKm (default 3, the engine's cap) from the meeting point, and 'not_an_outing' (first in the list) for a searched
  * Google place that is not something to do (a bank, a clinic: venue.notAnOuting). Fitting places first; among those of
  * the same fit, a place whose name (or a stall's name) holds the words before one matched by area, address or `alsoMatch`;
- * then by walking time. An address is matched only by a query of 3 or more characters.
+ * then by walking time. An address is matched only by a query of 3 or more characters. With `cdcOnly`, only places that take
+ * CDC vouchers are kept, before the limit is applied; every row says whether it does (`cdcAccepted`). With `browse` and nothing typed,
+ * it suggests instead: the places of the asked categories within maxKm that fit, nearest first.
  * @param input { query, centre, dateTime, members?, durationMinutes?, categories?, lastStop?, groupConstraints?,
- *                unknownPolicy?, dietPolicy?, maxKm?, limit? (default 12), alsoMatch? (venue ids) }
+ *                unknownPolicy?, dietPolicy?, maxKm?, limit? (default 12), alsoMatch? (venue ids), cdcOnly?, browse? }
  */
 function searchVenues(input, data) {
-  const q = input.query.trim().toLowerCase();
-  if (!q) return [];
+  const q = (input.query ?? '').trim().toLowerCase();
+  if (!q) return input.browse ? suggestVenues(input, data) : [];
   // A place matches by its name, area, address (so a postal code finds it) or a stall's name, or because the caller
   // already knows it is a match (`alsoMatch`: ids found by Google or at a postal code's building).
   const alsoMatch = new Set(input.alsoMatch ?? []);
@@ -653,7 +655,8 @@ function searchVenues(input, data) {
   const matches = data.venues
     .map(v => ({ v, stall: v.stalls?.find(st => st.name.toLowerCase().includes(q))?.name ?? null }))
     .map(m => ({ ...m, byName: m.v.name.toLowerCase().includes(q) || m.stall !== null }))
-    .filter(({ v, byName }) => byName || alsoMatch.has(v.id) || (v.area ?? '').toLowerCase().includes(q) || (addressToo && typeof v.address === 'string' && v.address.toLowerCase().includes(q)));
+    .filter(({ v, byName }) => byName || alsoMatch.has(v.id) || (v.area ?? '').toLowerCase().includes(q) || (addressToo && typeof v.address === 'string' && v.address.toLowerCase().includes(q)))
+    .filter(({ v }) => !input.cdcOnly || !!v.cdcAccepted);
 
   const ctx = {
     members: input.members ?? [], groupConstraints: lastStopRules(input, {}).constraints, dateTime: input.dateTime,
@@ -670,7 +673,7 @@ function searchVenues(input, data) {
       return {
         row: {
           venueId: v.id, name: v.name, area: v.area, category: v.category, source: v.source, matchedStall: stall,
-          walkMinutes: walkMinutes(input.centre, v), distanceKm, fits: unfit.length === 0, unfit,
+          walkMinutes: walkMinutes(input.centre, v), distanceKm, fits: unfit.length === 0, unfit, cdcAccepted: !!v.cdcAccepted,
           // The same caveats as a ranked result: needs only 'likely' met, and needs with no data (lenient only).
           verify: needsVerification(v, ctx.members), dietUnknown: unknownDietNeeds(v, ctx.members),
         },
@@ -680,6 +683,34 @@ function searchVenues(input, data) {
     .sort((a, b) => Number(!a.row.fits) - Number(!b.row.fits) || Number(!a.byName) - Number(!b.byName) || a.row.walkMinutes - b.row.walkMinutes)
     .slice(0, input.limit ?? 12)
     .map(({ row }) => row);
+}
+
+/**
+ * The search box's suggestions before anything is typed: the places of the asked categories within maxKm (default 3) of the centre
+ * that fit the slot, nearest first, in the same row shape as searchVenues. With `cdcOnly`, only places that take CDC vouchers.
+ * @param input the searchVenues input, with an empty query
+ */
+function suggestVenues(input, data) {
+  const categories = input.categories ?? ['eat', 'drink', 'shop', 'activity'];
+  const maxKm = input.maxKm ?? 3;
+  const near = data.venues
+    .filter(v => categories.includes(v.category) && !v.notAnOuting && (!input.cdcOnly || !!v.cdcAccepted))
+    .map(v => ({ v, distanceKm: haversineKm(input.centre, v) }))
+    .filter(n => n.distanceKm <= maxKm);
+  const ctx = {
+    members: input.members ?? [], groupConstraints: lastStopRules(input, {}).constraints, dateTime: input.dateTime,
+    categories, unknownPolicy: input.unknownPolicy ?? 'strict', dietPolicy: input.dietPolicy, durationMinutes: input.durationMinutes ?? 0,
+  };
+  const fitting = new Set(filterByConstraints(near.map(n => n.v), ctx).passed.map(v => v.id));
+  return near
+    .filter(n => fitting.has(n.v.id))
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .slice(0, input.limit ?? 12)
+    .map(({ v, distanceKm }) => ({
+      venueId: v.id, name: v.name, area: v.area, category: v.category, source: v.source, matchedStall: null,
+      walkMinutes: walkMinutes(input.centre, v), distanceKm, fits: true, unfit: [], cdcAccepted: !!v.cdcAccepted,
+      verify: needsVerification(v, ctx.members), dietUnknown: unknownDietNeeds(v, ctx.members),
+    }));
 }
 
 export { converge, roam, hardFilterContext, meetingArea, meetingAreaPlan, searchVenues, resolveMembers, occasionWeights };

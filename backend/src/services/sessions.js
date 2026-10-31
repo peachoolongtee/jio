@@ -1511,6 +1511,40 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     )
   }
 
+  // DELETE /api/sessions/:id/slots/:slotId/options/:venueId: a joined member takes back a place they added themselves, while voting and
+  // while nobody else has voted for it (Faith, 31 October 2026: the search's "Added" can be pressed again). Their own vote for it goes with
+  // it. A place that is not an option any more is a no-op (`removed: false`).
+  //
+  // How to call:
+  //   await sessions.removeOption({ client: req.supabase, id, userId: req.user.id, slotId, venueId: 'ya-kun-kaya-toast' }) // { planVersion, removed: true }
+  function removeOption({ client, id, userId, slotId, venueId }) {
+    userId = lower(userId)
+    const check = (state) => {
+      requireJoined(state, userId)
+      requireStatus(state, ['voting'], { what: 'take back a place' })
+    }
+    return submit(
+      { client, id, userId },
+      {
+        check,
+        prepare: (draft) => {
+          check(draft)
+          const slot = liveSlot(draft, slotId)
+          const option = optionsOf(draft, slot.category).find((o) => o.venue_id === venueId)
+          if (!option) return { ops: [], needs: 'none', answer: ({ version }) => ({ planVersion: version, removed: false }) }
+          if (option.source !== 'member' || lower(option.added_by || '') !== userId) throw refuse(403, 'not_yours', 'Only the person who added a place can take it back.')
+          if (draft.votes.some((v) => v.category === slot.category && v.venue_id === venueId && lower(v.user_id) !== userId)) {
+            throw refuse(409, 'has_votes', 'Someone has voted for this place, so it stays.')
+          }
+          draft.options = draft.options.filter((o) => !(o.category === slot.category && o.venue_id === venueId))
+          draft.votes = draft.votes.filter((v) => !(v.category === slot.category && v.venue_id === venueId))
+          draft.dirty.add(slot.category)
+          return { ops: [], needs: 'none', plan: {}, answer: ({ version }) => ({ planVersion: version, removed: true }) }
+        },
+      },
+    )
+  }
+
   // POST /api/sessions/:id/slots/:slotId/options/more: "more suggestions" (E8). The slot gets the next best places, three more than the
   // `have` the caller saw, up to six; if it already holds that many, nothing is added, so a retry never adds again.
   //
@@ -1602,8 +1636,9 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   // session's line; the service key is used only after admission has passed.
   //
   // How to call:
-  //   await sessions.searchSlot({ client: req.supabase, id, userId: req.user.id, slotId, query: 'ya kun' }) // { results: [...] }
-  async function searchSlot({ client, id, userId, slotId, query }) {
+  //   await sessions.searchSlot({ client: req.supabase, id, userId: req.user.id, slotId, query: 'ya kun', cdcOnly: true }) // { results: [...] }
+  //   await sessions.searchSlot({ client: req.supabase, id, userId: req.user.id, slotId, query: '', browse: true }) // the nearest that fit
+  async function searchSlot({ client, id, userId, slotId, query, cdcOnly = false, browse = false }) {
     userId = lower(userId)
     id = lower(id)
     const state = await admit(client, id, userId)
@@ -1615,7 +1650,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     const slot = liveSlot(draft, slotId)
     requireMeetingArea(draft)
     const ctx = { needs: needsReader(id).needs }
-    return { results: await voting.searchSlot(draft, slot, query, ctx) }
+    return { results: await voting.searchSlot(draft, slot, query, ctx, { cdcOnly, browse }) }
   }
 
 
@@ -2344,6 +2379,7 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
     deleteSlot,
     restoreSlots,
     addOption,
+    removeOption,
     addMoreOptions,
     swapOption,
     searchSlot,
