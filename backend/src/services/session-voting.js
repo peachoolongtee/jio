@@ -249,11 +249,13 @@ export function createVoting({ data, areasById, runs }) {
 
   // Ranks the slots a run asked for and puts the reconciled options in the draft: the places people already vote on stay while they still
   // fit, the list tops up to three, and never more than six. A slot the day no longer has room for is removed. A kind that has no row yet
-  // is always ranked. Returns the categories the run changed.
+  // is always ranked. With `votedOnly` (a change of the group's dietary needs) only the voted places that still fit are kept and the rest are
+  // the planner's best for the new needs, so taking a need away brings back places the old filter left out. Returns the categories changed.
   //
   // How to call:
   //   const dirty = await syncSlots(draft, 'all', ctx) // Set { 'eat', 'drink', ... }
-  async function syncSlots(draft, rank, ctx) {
+  //   const dirty = await syncSlots(draft, 'all', ctx, { votedOnly: true })
+  async function syncSlots(draft, rank, ctx, { votedOnly = false } = {}) {
     const dirty = new Set()
     if (!draft.session.meeting_area_id) {
       // Voting is paused (nobody has shared where they start): there is no area to offer places around, so no options.
@@ -283,8 +285,11 @@ export function createVoting({ data, areasById, runs }) {
       const stored = optionsOf(draft, category)
       const currentIds = stored.map((o) => o.venue_id)
       const slot = { category, start_minute: spec.start, duration_minutes: spec.duration }
-      const ranking = await rankSlot(draft, slot, currentIds, ctx)
-      const ids = reconcileOptions(currentIds, ranking.rankedIds)
+      // On a change of needs the engine is told only of the voted places, so the rest are its best for the new needs, not the ones listed.
+      const voted = new Set(draft.votes.filter((v) => v.category === category).map((v) => v.venue_id))
+      const keep = votedOnly ? currentIds.filter((id) => voted.has(id)) : currentIds
+      const ranking = await rankSlot(draft, slot, keep, ctx)
+      const ids = reconcileOptions(keep, ranking.rankedIds)
       const had = new Map(stored.map((o) => [o.venue_id, o]))
       const next = ids.map((id) => optionRow(category, ranking.rows.get(id), { source: had.get(id)?.source ?? 'planner', addedBy: had.get(id)?.added_by ?? null }))
       draft.options = [...draft.options.filter((o) => o.category !== category), ...next]
@@ -351,7 +356,7 @@ export function createVoting({ data, areasById, runs }) {
     const votesBefore = draft.votes.length
     const rank = wants.some((w) => w.rank === 'all') ? 'all' : [...new Set(wants.flatMap((w) => (Array.isArray(w.rank) ? w.rank : [])))]
     if (rank === 'all' || rank.length > 0 || draft.session.meeting_area_id === null || draft.slots.length === 0) {
-      for (const category of await syncSlots(draft, rank, ctx)) dirty.add(category)
+      for (const category of await syncSlots(draft, rank, ctx, { votedOnly: diet })) dirty.add(category)
     }
     const survivors = survivingVotes(draft)
     const lost = votesBefore - survivors.length
