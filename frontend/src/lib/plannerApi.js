@@ -479,6 +479,13 @@ export async function addSessionOption(sessionId, slotId, venueId) {
   return data
 }
 
+// A member takes back a place they added (no one else has voted for it). Answers { planVersion, removed }.
+// How to call: await removeSessionOption('3b1f...', '9a2c...', 'v25')
+export async function removeSessionOption(sessionId, slotId, venueId) {
+  const { data } = await api.delete(sessionPath(sessionId, `/slots/${encodeURIComponent(slotId)}/options/${encodeURIComponent(venueId)}`), { timeout: SESSION_TIMEOUT_MS })
+  return data
+}
+
 // A member asks for more places in a slot (E8). `have` is how many the person is looking at, so asking again after a lost answer
 // adds nothing twice. Answers { planVersion, added: [venueId] }.
 // How to call: await moreSessionOptions('3b1f...', '9a2c...', 3)
@@ -500,11 +507,13 @@ export async function swapSessionOption(sessionId, slotId, fromVenueId, toVenueI
 }
 
 // Places to add to a slot, found by name (E17), each saying whether it fits and why not: the same results as POST /api/search, and
-// `added` when the place is already an option. Resolves [{ id, name, area, category, walk, unfit, added }]. Rejects in the
+// `added` when the place is already an option. With `cdcOnly`, only places that take CDC vouchers; with `browse` and no words, the
+// nearest places that fit (the box's suggestions). Resolves [{ id, name, area, category, walk, unfit, cdc, added }]. Rejects in the
 // client's usual way.
-// How to call: await searchSessionSlot('3b1f...', '9a2c...', 'chicken rice')
-export async function searchSessionSlot(sessionId, slotId, q) {
-  const { data } = await api.get(sessionPath(sessionId, `/slots/${encodeURIComponent(slotId)}/venue-search`), { params: { q }, timeout: 8000 })
+// How to call: await searchSessionSlot('3b1f...', '9a2c...', 'chicken rice', { cdcOnly: true })
+export async function searchSessionSlot(sessionId, slotId, q, { cdcOnly = false, browse = false } = {}) {
+  const params = { q, ...(cdcOnly ? { cdc: '1' } : {}), ...(browse ? { browse: '1' } : {}) }
+  const { data } = await api.get(sessionPath(sessionId, `/slots/${encodeURIComponent(slotId)}/venue-search`), { params, timeout: 8000 })
   if (!Array.isArray(data?.results)) throw new Error(notJsonMessage())
   return data.results.map((r) => ({ ...toSearchResult(r), added: r.added === true }))
 }
@@ -882,8 +891,10 @@ export async function arrangeItinerary({ stops, startAt, endAt, shown = [], rain
 // Find places by name for a slot. Each says whether it fits, and the first reason it does not. A place that fails a dietary
 // need says 'diet', with the need in `need`; one that fits says which needs it only likely meets (`verify`) or has no data on
 // (`dietUnknown`), as a ranked option does.
-// How to call: await searchSlot({ query: 'market', members, centre, date: '2026-10-17', slot, lastStop: false, dietPolicy: 'strict' })
-export async function searchSlot({ query, members, centre, date, slot, lastStop, maxKm, unknownPolicy = UNKNOWN_POLICY, dietPolicy }) {
+// With `cdcOnly`, only places that take CDC vouchers; with `browse` and an empty query, the nearest places that fit, at most `limit`.
+// The list carries `google`: where Google stood for this search ('unavailable' when it did not answer).
+// How to call: await searchSlot({ query: 'market', members, centre, date: '2026-10-17', slot, lastStop: false, dietPolicy: 'strict', cdcOnly: true })
+export async function searchSlot({ query, members, centre, date, slot, lastStop, maxKm, unknownPolicy = UNKNOWN_POLICY, dietPolicy, cdcOnly = false, browse = false, limit }) {
   const { data } = await postShared('/api/search', {
     query,
     centre: point(centre),
@@ -895,14 +906,18 @@ export async function searchSlot({ query, members, centre, date, slot, lastStop,
     unknownPolicy,
     ...dietField(dietPolicy),
     maxKm,
+    ...(cdcOnly ? { cdcOnly: true } : {}),
+    ...(browse ? { browse: true } : {}),
+    ...(limit ? { limit } : {}),
   })
-  return data.results.map(toSearchResult)
+  // Where Google stood ('google', 'off', 'not_needed', 'unavailable'), kept on the list so the screen can say when only saved places were searched.
+  return Object.assign(data.results.map(toSearchResult), { google: data.google?.source ?? null })
 }
 
 // One search result as the screen reads it: the first reason it does not fit, in the words the search sheet knows (a dietary reason
 // is 'diet' with the need in `need`; a session's own search says only 'group_needs', which names no need), and which dietary needs it
 // only likely meets (`verify`) or has no data on (`dietUnknown`), which a session's own search never sends (it would name the needs of
-// the other members). The stateless search and a session's own search (E17) answer in this shape.
+// the other members), and whether it takes CDC vouchers (`cdc`). The stateless search and a session's own search (E17) answer in this shape.
 // How to call: toSearchResult({ venueId: 'v25', name: 'Gem Cafe', area: 'Bishan', category: 'eat', walkMinutes: 4, unfit: ['meal_period'] })
 export function toSearchResult(r) {
   const reason = (r.unfit || [])[0] || ''
@@ -917,6 +932,7 @@ export function toSearchResult(r) {
     ...(diet ? { need: reason.slice(5) } : {}),
     verify: r.verify || [],
     dietUnknown: r.dietUnknown || [],
+    cdc: r.cdcAccepted === true,
   }
 }
 

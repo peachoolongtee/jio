@@ -1091,9 +1091,12 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     const answered = await ask(() => backend.swapOption(sessionId, slotId, fromId, toId), { wrong_status: WORDS.placesClosed })
     return answered?.swapped !== false
   }
-  // Places to add to a category, found by name. Resolves [{ id, name, area, category, walk, unfit, added }]. A failure is worded.
-  // How to call: const results = await searchSlot('3b1f...', '9a2c...', 'chicken rice')
-  const searchSlot = (sessionId, slotId, q) => ask(() => backend.searchSlot(sessionId, slotId, q), { wrong_status: WORDS.placesClosed })
+  // Take back a place this person added. How to call: await removeOption('3b1f...', '9a2c...', 'v25')
+  const removeOption = (sessionId, slotId, venueId) => ask(() => backend.removeOption(sessionId, slotId, venueId), { wrong_status: WORDS.placesClosed })
+  // Places to add to a category, found by name (with `cdcOnly`, only places that take CDC vouchers). Resolves
+  // [{ id, name, area, category, walk, unfit, cdc, added }]. A failure is worded.
+  // How to call: const results = await searchSlot('3b1f...', '9a2c...', 'chicken rice', { cdcOnly: true })
+  const searchSlot = (sessionId, slotId, q, opts) => ask(() => backend.searchSlot(sessionId, slotId, q, opts), { wrong_status: WORDS.placesClosed })
   // The server works the slots and places out again from people's picks. How to call: await syncPlan('3b1f...')
   const syncPlan = (sessionId) => ask(() => backend.syncPlan(sessionId), { wrong_status: WORDS.placesClosed })
   // Places by id for the cards (the server's E18), a failure worded. How to call: const venues = await venues(['v25'])
@@ -1326,5 +1329,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, readPlan, readSlotVotes, suggestOrder, tripsHome, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, changeMeetingPlace, optOut, rejoin, castVote, setRadius, dietary, setDietary, removeSlot, restoreSlots, addOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, revokeInvitation, preview, join, invitations, decline, removeMember, watch }
+  return { list, get, readPlan, readSlotVotes, suggestOrder, tripsHome, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, changeMeetingPlace, optOut, rejoin, castVote, setRadius, dietary, setDietary, removeSlot, restoreSlots, addOption, removeOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, revokeInvitation, preview, join, invitations, decline, removeMember, watch }
 }

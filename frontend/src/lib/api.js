@@ -436,9 +436,10 @@ const remote = createSessionsRemote({
     deleteSlot: (sessionId, slotId) => planner.deleteSessionSlot(sessionId, slotId),
     restoreSlots: (sessionId) => planner.restoreSessionSlots(sessionId),
     addOption: (sessionId, slotId, venueId) => planner.addSessionOption(sessionId, slotId, venueId),
+    removeOption: (sessionId, slotId, venueId) => planner.removeSessionOption(sessionId, slotId, venueId),
     moreOptions: (sessionId, slotId, have) => planner.moreSessionOptions(sessionId, slotId, have),
     swapOption: (sessionId, slotId, fromId, toId) => planner.swapSessionOption(sessionId, slotId, fromId, toId),
-    searchSlot: (sessionId, slotId, q) => planner.searchSessionSlot(sessionId, slotId, q),
+    searchSlot: (sessionId, slotId, q, opts) => planner.searchSessionSlot(sessionId, slotId, q, opts),
     venues: (ids) => planner.venuesByIds(ids),
     suggestOrder: (sessionId) => planner.suggestSessionOrder(sessionId),
     tripsHome: (sessionId) => planner.getSessionTripsHome(sessionId),
@@ -3508,12 +3509,14 @@ export async function addMoreOptions(id, slotId) {
   return touch(session, 'options')
 }
 
-// Search places to add to a slot. Each result says whether it fits, and why not.
-export async function searchVenuesForSlot(id, slotId, query) {
+// Search places to add to a slot. Each result says whether it fits, and why not. With `cdcOnly`, only places that take CDC vouchers.
+// With `browse` and nothing typed, the nearest few places that fit, as the search box's suggestions.
+// How to call: await searchVenuesForSlot('s1', 'eat-1', 'laksa', { cdcOnly: true }); await searchVenuesForSlot('s1', 'eat-1', '', { browse: true })
+export async function searchVenuesForSlot(id, slotId, query, { cdcOnly = false, browse = false } = {}) {
   if (onServer()) {
     const q = query.trim()
-    if (!q) return []
-    const results = await remote.searchSlot(id, slotId, q)
+    if (!q && !browse) return []
+    const results = await remote.searchSlot(id, slotId, q, { cdcOnly, browse })
     for (const r of results) searchedNames.set(r.id, r.name)
     return results
   }
@@ -3521,7 +3524,7 @@ export async function searchVenuesForSlot(id, slotId, query) {
   const slots = slotsOf(session)
   const slot = slots.find((s) => s.id === slotId)
   const q = query.trim()
-  if (!q || !slot) return []
+  if ((!q && !browse) || !slot) return []
   const results = await planner.searchSlot({
     query: q,
     members: rankingMembers(session),
@@ -3531,8 +3534,11 @@ export async function searchVenuesForSlot(id, slotId, query) {
     lastStop: false,
     maxKm: session.radius ? session.radius / 1000 : undefined,
     dietPolicy: dietPolicy(session, slot.category),
+    cdcOnly,
+    browse,
+    ...(browse && !q ? { limit: 8 } : {}),
   })
-  return results.map((r) => ({ ...r, added: (session.options[slotId] || []).includes(r.id) }))
+  return Object.assign(results.map((r) => ({ ...r, added: (session.options[slotId] || []).includes(r.id) })), { google: results.google ?? null })
 }
 
 export async function addOption(id, slotId, venueId) {
@@ -3562,6 +3568,30 @@ export async function addOption(id, slotId, venueId) {
   if (now.includes(venueId)) return touch(session, 'options')
   if (now.length >= P.OPTIONS_MAX) throw new Error('A slot holds up to 6 options.')
   session.options[slotId] = [...now, venueId]
+  session.addedBy = { ...(session.addedBy || {}), [slotId]: { ...(session.addedBy?.[slotId] || {}), [venueId]: me() } }
+  return touch(session, 'options')
+}
+
+// Take back a place the signed-in person added, while voting and while nobody else has voted for it; their own vote for it goes too.
+// Refused for a place someone else added or the planner put there. A place that is not an option any more is left alone.
+// How to call: await removeOption('s1', 'eat-1', 'v25')
+export async function removeOption(id, slotId, venueId) {
+  if (onServer()) {
+    await remote.removeOption(id, slotId, venueId)
+    return afterServerWrite(id, 'options')
+  }
+  await wait(DELAY.write)
+  requireMe()
+  const session = sessionById(id)
+  if (session.status !== 'voting') throw new Error('Places can only be taken back while the group is voting.')
+  const options = session.options[slotId] || []
+  if (!options.includes(venueId)) return touch(session, 'options')
+  if (session.addedBy?.[slotId]?.[venueId] !== me()) throw new Error('Only the person who added a place can take it back.')
+  const votes = session.votes[slotId] || {}
+  if (Object.entries(votes).some(([person, v]) => v === venueId && person !== me())) throw new Error('Someone has voted for this place, so it stays.')
+  session.options[slotId] = options.filter((v) => v !== venueId)
+  if (votes[me()] === venueId) delete votes[me()]
+  delete session.addedBy[slotId][venueId]
   return touch(session, 'options')
 }
 
@@ -3789,6 +3819,8 @@ function planView(read, named = { needs: [], complete: false }, diet = null, die
         venue: clone(venue),
         score: row.score ?? 0,
         rank: row.rank,
+        // Who added the place by hand (they may take it back); null for the planner's own.
+        addedBy: row.source === 'member' ? row.addedBy ?? null : null,
         walk: d.walkMinutes ?? P.walkMinutes(area, venue),
         // As the crow flies from the meeting area, for the card ("180 m").
         distanceM: Math.round(P.distanceKm(area, venue) * 1000),
@@ -3877,6 +3909,8 @@ export async function getPlan(id, { votesOnly = false } = {}) {
           venue: clone(o.venue),
           score: o.score,
           walk: o.walk,
+          // Who added the place by hand (they may take it back); null for the planner's own.
+          addedBy: session.addedBy?.[slot.id]?.[venueId] ?? null,
           // As the crow flies from the meeting area, for the card ("180 m").
           distanceM: Math.round(P.distanceKm(area, o.venue) * 1000),
           reasons: o.reasons,

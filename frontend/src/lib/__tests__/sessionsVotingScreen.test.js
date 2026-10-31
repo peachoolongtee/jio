@@ -267,18 +267,21 @@ describe('voting', () => {
 })
 
 describe('the radius', () => {
-  // The slider runs over Auto, 100 m, 250 m, 500 m, 1 km, 2 km and 3 km; a step is saved once the slider rests.
+  // "Auto distance" is on until the host turns it off (1 km to start); then the slider runs over 100 m, 250 m, 500 m, 1 km, 2 km and
+  // 3 km, and a step is saved once the slider rests.
   const slide = (view, step) => view.type('input[type=range]', String(step))
+  const autoSwitch = (view) => view.one('[role=switch]')
 
-  it('lets the host choose one with the slider, and shows it', async () => {
+  it('lets the host turn Auto off and choose one with the slider, and shows it', async () => {
     const { w, id } = await voting()
     const { view } = await draw(id)
     await until(() => view.has('[data-testid=radius]'))
-    slide(view, 4)
-    await until(() => w.server.calls.some((c) => c.route === 'radius'))
-    expect(w.server.calls.find((c) => c.route === 'radius').body).toEqual({ radiusMeters: 1000 })
+    await view.click(autoSwitch(view))
     await until(() => w.database.tables.sessions[0].radius_meters === 1000)
-    expect(view.one('input[type=range]').attrs['aria-valuetext']).toBe('Within 1 km')
+    expect(w.server.calls.find((c) => c.route === 'radius').body).toEqual({ radiusMeters: 1000 })
+    slide(view, 4)
+    await until(() => w.database.tables.sessions[0].radius_meters === 2000)
+    expect(view.one('input[type=range]').attrs['aria-valuetext']).toBe('Within 2 km')
   })
 
   it('shows a guest the host\'s radius as a line, not as choices', async () => {
@@ -296,11 +299,13 @@ describe('the radius', () => {
     const { view } = await draw(id)
     await until(() => view.has('[data-testid=radius]'))
     w.server.down = true
-    slide(view, 3)
+    await view.click(autoSwitch(view))
     await until(() => view.has('p[role=alert]'))
     expect(view.text(view.one('p[role=alert]'))).toMatch(/Cannot reach|could not be reached/)
     w.server.down = false
-    slide(view, 3)
+    await view.click(autoSwitch(view))
+    await until(() => w.database.tables.sessions[0].radius_meters === 1000)
+    slide(view, 2)
     await until(() => w.database.tables.sessions[0].radius_meters === 500)
   })
 })

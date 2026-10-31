@@ -93,17 +93,21 @@ describe('the calls', () => {
     // and the dietary caveats a ranked option carries.
     const sent = answer({
       results: [
-        { venueId: 'v1', name: 'Gem Cafe', area: 'Bishan', category: 'eat', source: 'curated', matchedStall: null, walkMinutes: 4, distanceKm: 0.3, fits: true, unfit: [], verify: ['halal'], dietUnknown: [], added: true },
+        { venueId: 'v1', name: 'Gem Cafe', area: 'Bishan', category: 'eat', source: 'curated', matchedStall: null, walkMinutes: 4, distanceKm: 0.3, fits: true, unfit: [], verify: ['halal'], dietUnknown: [], cdcAccepted: true, added: true },
         { venueId: 'v2', name: 'Late Bar', area: 'Bishan', category: 'drink', source: 'onemap', matchedStall: 'Nasi Lemak', walkMinutes: 9, distanceKm: 0.8, fits: false, unfit: ['meal_period', 'closed'], added: false },
         { venueId: 'v3', name: 'Pork Rice', area: 'Bishan', category: 'eat', source: 'curated', matchedStall: null, walkMinutes: 5, distanceKm: 0.4, fits: false, unfit: ['diet:halal'], added: false },
       ],
     })
     expect(await searchSessionSlot(ID, SLOT, 'cafe')).toEqual([
-      { id: 'v1', name: 'Gem Cafe', area: 'Bishan', category: 'eat', walk: 4, unfit: '', verify: ['halal'], dietUnknown: [], added: true },
-      { id: 'v2', name: 'Late Bar', area: 'Bishan', category: 'drink', walk: 9, unfit: 'meal', verify: [], dietUnknown: [], added: false },
-      { id: 'v3', name: 'Pork Rice', area: 'Bishan', category: 'eat', walk: 5, unfit: 'diet', need: 'halal', verify: [], dietUnknown: [], added: false },
+      { id: 'v1', name: 'Gem Cafe', area: 'Bishan', category: 'eat', walk: 4, unfit: '', verify: ['halal'], dietUnknown: [], cdc: true, added: true },
+      { id: 'v2', name: 'Late Bar', area: 'Bishan', category: 'drink', walk: 9, unfit: 'meal', verify: [], dietUnknown: [], cdc: false, added: false },
+      { id: 'v3', name: 'Pork Rice', area: 'Bishan', category: 'eat', walk: 5, unfit: 'diet', need: 'halal', verify: [], dietUnknown: [], cdc: false, added: false },
     ])
     expect([sent[0].method, sent[0].url, sent[0].params, sent[0].timeout]).toEqual(['get', `/api/sessions/${ID}/slots/${SLOT}/venue-search`, { q: 'cafe' }, 8000])
+    // "CDC vouchers only" asks the server for those places alone.
+    const cdcSent = answer({ results: [] })
+    await searchSessionSlot(ID, SLOT, 'cafe', { cdcOnly: true })
+    expect(cdcSent[0].params).toEqual({ q: 'cafe', cdc: '1' })
     expect(toSearchResult({ venueId: 'x', name: 'X', area: 'A', category: 'eat', walkMinutes: 1 }).unfit).toBe('')
     // A session's own search names no need: one reason, and no list of the needs a place only likely meets.
     expect(toSearchResult({ venueId: 'x', name: 'X', area: 'A', category: 'eat', walkMinutes: 1, unfit: ['group_needs', 'far'] })).toMatchObject({ unfit: 'group_needs', verify: [], dietUnknown: [] })
