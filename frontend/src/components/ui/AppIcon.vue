@@ -44,6 +44,7 @@ const ICONS = {
   locate: { body: '<circle cx="8" cy="8" r="4"/><circle cx="8" cy="8" r="1"/><path d="M8 1.5V4M8 12v2.5M1.5 8H4M12 8h2.5"/>' },
   people: { body: '<circle cx="6" cy="5.5" r="2.25"/><path d="M2 13a4 4 0 0 1 8 0M10.5 3.5a2.25 2.25 0 0 1 0 4.25M12 9.5a4 4 0 0 1 2 3.5"/>' },
   'user-plus': { body: '<circle cx="6.5" cy="5.5" r="2.5"/><path d="M2 13.5a4.5 4.5 0 0 1 9 0M12.5 5v4M10.5 7h4"/>' },
+  copy: { body: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5A1.5 1.5 0 0 0 9 1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5"/>' },
   gift: { body: '<rect x="2.5" y="6" width="11" height="3" rx=".5"/><path d="M3.5 9v4.5h9V9M8 6v7.5M8 6S6.75 2.75 5 3.25 5.5 6 8 6Zm0 0s1.25-3.25 3-2.75S10.5 6 8 6Z"/>' },
   trophy: { body: '<path d="M5 2.5h6V6a3 3 0 0 1-6 0Z"/><path d="M5 3.5H3a2 2 0 0 0 2 2.5M11 3.5h2a2 2 0 0 1-2 2.5M8 9v3M5.5 13.5h5"/>' },
   expand: { body: '<path d="M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9"/>' },

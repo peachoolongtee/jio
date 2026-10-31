@@ -160,7 +160,7 @@ describe('the Rewards screen', () => {
     await router.push('/rewards')
     const { default: RewardsView } = await import('@/views/RewardsView.vue')
     const view = await mountScreen(RewardsView, { plugins: [pinia, router] })
-    await until(() => view.has('[data-testid=rewards-view]') && view.text().includes('Your vouchers'))
+    await until(() => view.has('[data-testid=rewards-view]') && view.has('[data-testid=voucher-card]'))
     return { view, api }
   }
   const buttonLabelled = (view, text) => view.all('button').find((b) => view.text(b) === text)
@@ -172,10 +172,45 @@ describe('the Rewards screen', () => {
     ]
   }
 
-  it('shows each code with its last day, and an old expired claim under Expired with no button', async () => {
+  it('shows a used voucher as used, with no code to show, and offers it again', async () => {
+    const { view } = await drawRewards((save) => {
+      save.redemptions = [{ id: 'v90', rewardId: 'r-nylon', code: 'JIO-USED-0001', at: new Date('2026-10-28T12:00:00+08:00').getTime(), validUntil: '2026-11-27', usedAt: new Date('2026-10-30T12:00:00+08:00').getTime() }]
+    })
+    const card = view.all('[data-testid=voucher-card]').find((c) => view.text(c).includes('SGD 3 off any coffee'))
+    expect(view.text(card)).toContain('Used on 30 Oct 2026')
+    expect(view.text(card)).not.toContain('Show code')
+    expect(card.querySelector('[data-testid=code-reveal]')).toBeFalsy()
+    expect(view.text(card)).toContain('Claim again')
+  })
+
+  it('"Claim all" asks first, then claims every voucher with no code to use that the balance covers, cheapest first', async () => {
+    const { view, api } = await drawRewards(claims)
+    // Ian has 1,000 JioCoins and has claimed two before; the costliest prizes are out of reach, so "Can claim" has something to hide.
+    const cards = () => view.all('[data-testid=voucher-card]').length
+    const all = cards()
+    await view.click(view.all('button').find((b) => view.text(b).startsWith('Can claim')))
+    expect(cards()).toBeLessThan(all)
+    await view.click(view.all('button').find((b) => view.text(b).startsWith('Can claim')))
+    await view.click(view.one('[data-testid=claim-all]'))
+    await until(() => view.has('[data-testid=claim-all-confirm]'))
+    // With no code to use, cheapest first, as far as 1,000 goes: 80, 100 (its code expired), 120, 150, 180, 220. r-nylon holds a code.
+    expect(view.text(view.one('[data-testid=claim-all-confirm]'))).toBe('Claim 6 vouchers')
+    await view.click(view.one('[data-testid=claim-all-confirm]'))
+    await until(() => view.has('[data-testid=claim-all-note]'))
+    expect(view.text(view.one('[data-testid=claim-all-note]'))).toBe('6 vouchers claimed. Press Show code on each to see its code.')
+    const save = JSON.parse(api.storage.store['jio-demo-v1'])
+    expect(save.redemptions.map((r) => r.rewardId).sort()).toEqual(['r-chye-seng-huat', 'r-creamier', 'r-forty-hands', 'r-merci-marcel', 'r-nylon', 'r-plain-vanilla', 'r-tbb', 'r-tbb'].sort())
+    expect(save.stats.ian.points).toBe(1000 - 850)
+  })
+
+  it('keeps a code to use on its card alone, and an old expired claim under Past vouchers, Expired, with no button', async () => {
     const { view } = await drawRewards(claims)
-    expect(view.text('[data-testid=usable-vouchers]')).toContain('JIO-AAAA-BBBB')
-    expect(view.text('[data-testid=usable-vouchers]')).toContain('Valid until 27 Nov 2026')
+    // The code to use is on its card (under the sticker), not listed again below (Faith, 31 October 2026).
+    expect(view.has('[data-testid=usable-vouchers]')).toBe(false)
+    const card = view.all('[data-testid=voucher-card]').find((c) => view.text(c).includes('SGD 3 off any coffee'))
+    expect(view.text(card)).toContain('Use by 27 Nov 2026')
+    expect(card.querySelector('[data-testid=mark-used]')).toBeTruthy()
+    expect(view.text()).toContain('Past vouchers')
     expect(view.text('[data-testid=expired-vouchers]')).toContain('JIO-CCCC-DDDD')
     expect(view.text('[data-testid=expired-vouchers]')).toContain('Was valid until 2 Oct 2026')
     expect(view.text('[data-testid=expired-vouchers]')).not.toContain('Mark as used')
@@ -200,7 +235,10 @@ describe('the Rewards screen', () => {
     await until(() => view.has('[data-testid=used-vouchers]'))
     expect(view.text('[data-testid=used-vouchers]')).toContain('JIO-AAAA-BBBB')
     expect(view.text('[data-testid=used-vouchers]')).toContain('Used on 30 Oct 2026')
-    expect(view.has('[data-testid=no-usable-vouchers]')).toBe(true)
+    // Its card now says so, and offers it again.
+    const card = view.all('[data-testid=voucher-card]').find((c) => view.text(c).includes('SGD 3 off any coffee'))
+    expect(view.text(card)).toContain('Used on 30 Oct 2026')
+    expect(view.text(card)).toContain('Claim again')
     expect(stored(api.storage).redemptions[0].usedAt).toBe(new Date('2026-10-30T10:00:00+08:00').getTime())
     expect(view.errors).toEqual([])
   })
@@ -244,17 +282,27 @@ describe('the Rewards screen', () => {
   it('says on each voucher card whether it was claimed, and updates the card after a claim', async () => {
     const { view } = await drawRewards(claims)
     const card = (offer) => view.all('[data-testid=voucher-card]').find((c) => view.text(c).includes(offer))
-    // Kopi Corner was claimed (an expired claim still counts); the cupcake never was.
-    expect(view.text(card('SGD 3 off any coffee'))).toContain('Claimed')
-    expect(view.text(card('SGD 5 off'))).toContain('Claimed')
-    expect(view.text(card('One free cupcake'))).toContain('Not claimed')
     const inside = (node, box) => !!node && (node === box || inside(node.parent, box))
+    // Kopi Corner was claimed; the bakery's claim has expired, and says so; the cupcake never was. A claimed one shows its code under a
+    // sticker in place of Claim.
+    expect(view.text(card('SGD 3 off any coffee'))).toContain('Use by 27 Nov 2026')
+    expect(view.text(card('SGD 5 off'))).toContain('Expired on')
+    // An expired code shows no code, and the voucher can be claimed again.
+    expect(card('SGD 5 off').querySelector('[data-testid=code-reveal]')).toBeFalsy()
+    expect(view.all('button').some((b) => view.text(b) === 'Claim again' && inside(b, card('SGD 5 off')))).toBe(true)
+    expect(view.text(card('One free cupcake'))).toContain('Not claimed')
+    const reveal = card('SGD 3 off any coffee').querySelector('[data-testid=code-reveal]')
+    expect(reveal).toBeTruthy()
+    expect(view.text(reveal)).not.toContain('JIO-AAAA-BBBB')
+    await view.click(reveal)
+    expect(view.text(reveal)).toContain('JIO-AAAA-BBBB')
+    expect(view.all('button').some((b) => view.text(b) === 'Claim' && inside(b, card('SGD 3 off any coffee')))).toBe(false)
     const claim = view.all('button').find((b) => view.text(b) === 'Claim' && inside(b, card('One free cupcake')))
     await view.click(claim)
     await until(() => view.has('[role=dialog]'))
     await view.click(buttonLabelled(view, 'Claim voucher'))
     await until(() => !view.text(card('One free cupcake')).includes('Not claimed'))
-    expect(view.text(card('One free cupcake'))).toContain('Claimed')
+    expect(view.text(card('One free cupcake'))).toContain('Use by')
     expect(view.errors).toEqual([])
   })
 })
