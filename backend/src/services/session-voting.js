@@ -386,8 +386,8 @@ export function createVoting({ data, areasById, runs }) {
   // Google and no OneMap lookup, so the postal-code step of the stateless search is not here. Reads only.
   //
   // How to call:
-  //   const results = await searchSlot(draft, slot, 'ya kun', ctx) // [{ venueId, name, area, category, source, fits, unfit, ... }]
-  async function searchSlot(draft, slot, query, ctx) {
+  //   const results = await searchSlot(draft, slot, 'ya kun', ctx, { cdcOnly: true }) // [{ venueId, name, area, category, source, fits, unfit, cdcAccepted, ... }]
+  async function searchSlot(draft, slot, query, ctx, { cdcOnly = false, browse = false } = {}) {
     const centre = areasById.get(draft.session.meeting_area_id)
     const needs = await ctx.needs(draft)
     const members = engineMembers(draft, areasById, needs, centre)
@@ -405,7 +405,9 @@ export function createVoting({ data, areasById, runs }) {
         unknownPolicy: 'lenient',
         dietPolicy: 'strict',
         ...(draft.session.radius_meters ? { maxKm: draft.session.radius_meters / 1000 } : {}),
-        limit: 12,
+        limit: browse && !text ? 8 : 12,
+        cdcOnly,
+        browse,
       },
       { ...data, venues: [...venues.values()] },
     )
