@@ -137,3 +137,23 @@ describe('"Start over" in the auth store', () => {
     expect(auth.startOverError).toMatch(/storage is full/)
   })
 })
+
+describe('the profile graph and what is listed under it (Faith, 31 October 2026)', () => {
+  it('gives the demo account a card for every meetup of its sample history, the same each time, opening nothing', async () => {
+    const api = await loadApi()
+    const user = await api.signUp(DEMO_ACCOUNT)
+    const me = await api.getPerson(user.id)
+    const drawn = me.history.reduce((sum, d) => sum + d.count, 0)
+    expect(me.pastSamples.length).toBe(drawn)
+    for (const { date, count } of me.history) expect(me.pastSamples.filter((s) => s.date === date).length).toBe(count)
+    expect(me.pastSamples.every((s) => s.sample && s.status === 'completed' && s.areaName && s.activeIds.includes(user.id))).toBe(true)
+    expect((await api.getPerson(user.id)).pastSamples).toEqual(me.pastSamples)
+  })
+
+  it('gives a new account none, and lists none on someone else\'s profile', async () => {
+    const api = await loadApi()
+    const user = await api.signUp(FORM)
+    expect((await api.getPerson(user.id)).pastSamples).toEqual([])
+    expect((await api.getPerson('darius')).pastSamples).toEqual([])
+  })
+})

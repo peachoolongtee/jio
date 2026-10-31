@@ -5,6 +5,8 @@
 //   <SessionCard :session="session" :names="nameOf" hero />   the large card at the top of Home,
 //                                                             photo-first when the day has photos
 // Both are flat white cards with a hairline, like Airbnb's reservation card; they lift on hover.
+// A sample past outing (`session.sample`, the demo's history on its own profile) is the same card, marked "Sample history", and opens
+// nothing: there is no session behind it.
 import { computed, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import AppIcon from '../ui/AppIcon.vue'
@@ -45,7 +47,7 @@ const photos = computed(() => (props.session.photoCount ? events.photos[props.se
 </script>
 
 <template>
-  <RouterLink :to="sessionPath(session)" class="session-card" :class="{ 'session-card--hero': hero }">
+  <component :is="session.sample ? 'div' : RouterLink" :to="session.sample ? undefined : sessionPath(session)" class="session-card" :class="{ 'session-card--hero': hero, 'is-sample': session.sample }" :data-testid="session.sample ? 'sample-session' : undefined">
     <!-- Photo-first, like a listing card: the latest photos from the day. -->
     <div v-if="hero && photos.length" class="session-card__photos" :class="`has-${photos.length}`">
       <img v-for="p in photos" :key="p.id" :src="p.src" alt="" />
@@ -54,6 +56,7 @@ const photos = computed(() => (props.session.photoCount ? events.photos[props.se
     <div class="session-card__body">
       <div class="session-card__top">
         <StatusPill :status="session.status" />
+        <span v-if="session.sample" class="caption-sm text-muted">Sample history</span>
         <CountdownChip :session="session" />
       </div>
       <h3 class="session-card__title clamp-2" :class="hero ? 'display-lg' : 'title-md'">{{ session.title }}</h3>
@@ -75,19 +78,20 @@ const photos = computed(() => (props.session.photoCount ? events.photos[props.se
         </span>
       </div>
     </div>
-  </RouterLink>
+  </component>
 </template>
 
 <style scoped>
 .session-card { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); text-decoration: none; transition: box-shadow var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
 .session-card__body { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-base); }
+.session-card.is-sample { cursor: default; }
 .session-card__top { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-sm); }
 .session-card__title { margin-top: var(--spacing-xs); }
 .session-card__slots { display: flex; flex-direction: column; gap: var(--spacing-xs); }
 .session-card__slot { display: grid; grid-template-columns: 24px auto minmax(0, 1fr); align-items: center; gap: var(--spacing-sm); }
 .session-card__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); margin-top: var(--spacing-sm); }
 .session-card__where { display: inline-flex; align-items: center; gap: var(--spacing-xs); min-width: 0; color: var(--ink); }
-@media (hover: hover) { .session-card:hover { box-shadow: var(--shadow-float); transform: translateY(-2px); } }
+@media (hover: hover) { .session-card:not(.is-sample):hover { box-shadow: var(--shadow-float); transform: translateY(-2px); } }
 
 /* Hero: more room, a larger title (display-lg, 22px / 500), and the photo band on top. */
 .session-card--hero .session-card__body { gap: var(--spacing-sm); padding: var(--spacing-lg); }

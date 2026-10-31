@@ -5,13 +5,14 @@
 //   also has "Add friend" / "Friends" under the numbers (in the sample world only); the signed-in person's own has
 //   "Edit profile" there (/profile/edit), and nobody else's does. The signed-in person's own
 //   has no create button: the navbar has one.
-//   Then the meetup graph, and the signed-in person's sessions or the other person's recent activity. The sessions have
+//   Then the meetup graph, and the signed-in person's sessions (in the demo, with sample past outings behind the graph's made-up bars).
+//   Someone else's profile lists none of their outings: their graph shows how often they go out, a day cannot be picked on it, and
+//   nothing is listed under it (Faith, 31 October 2026). The sessions have
 //   The strip of numbers also has Friends (walkthrough, 30 October 2026, as Instagram's followers): pressing it opens a sheet listing
 //   them, each opening their profile. On someone else's profile in a real account it is the friends in common, since another person's
 //   friends cannot be read (lib/api.js friendsOf). The signed-in person's friends used to be a section of the page; the sheet replaced it.
 //   time chips, All, Upcoming and Completed (lib/profileSessions.js), styled like the ones on Rewards, and a search box that
-//   narrows them by title or meeting area. Clicking a day on the graph shows only that day's sessions (or, on someone else's
-//   profile, that day's activity) and picks All, so the day is never hidden by a chip; the day shows as a chip with a × above the
+//   narrows them by title or meeting area. Clicking a day on the graph shows only that day's sessions and picks All, so the day is never hidden by a chip; the day shows as a chip with a × above the
 //   list, and the × (or clicking the same day again) brings the whole list back (walkthrough, 30 October 2026). The signed-in
 //   person's own has no Suggested section on the page any more (walkthrough, 30 October 2026): people to add are in the Friends sheet,
 //   under your friends, and in Home's "Add friends", with a round red button that sends a friend request.
@@ -88,7 +89,8 @@ watch(() => props.id, (id) => id === auth.myId && router.replace('/profile'), { 
 
 const person = computed(() => groups.profiles[personId.value])
 // The sessions listed on your own profile: all of them, unless the demo tour is on (lib/sessionFilter.js).
-const sessions = computed(() => visibleSessions(events.sessions))
+// Your sessions, and in the demo the sample past outings behind the graph's made-up bars (cards that open nothing).
+const sessions = computed(() => [...visibleSessions(events.sessions), ...(isMe.value ? person.value?.pastSamples || [] : [])])
 // The time chip chosen, and the sessions it shows in its order. The clock moves a session to the top while it is live.
 const sessionFilter = ref('all')
 const now = useNow()
@@ -97,7 +99,6 @@ const query = ref('')
 const day = ref('')
 const narrowing = computed(() => !!query.value.trim() || !!day.value)
 const shownSessions = computed(() => narrowSessions(profileSessions(sessions.value, sessionFilter.value, now.value), { query: query.value, day: day.value }, now.value))
-const shownActivity = computed(() => narrowSessions(person.value?.activity || [], { day: day.value }, now.value))
 const dayText = (d) => format(parseISO(d), 'EEE d MMM yyyy')
 const emptyText = computed(() => (narrowing.value ? narrowedEmptyText({ query: query.value, day: day.value }, dayText) : EMPTY_TEXT[sessionFilter.value]))
 // A day picked on the graph, or null when the same day was picked again. Picking a day shows All, so a past day is not hidden
@@ -108,14 +109,13 @@ async function pickDay(picked) {
   if (!picked) return
   sessionFilter.value = 'all'
   await nextTick()
-  const head = typeof document !== 'undefined' ? document.getElementById(isMe.value ? 'my-sessions' : 'activity-head') : null
+  const head = typeof document !== 'undefined' ? document.getElementById('my-sessions') : null
   const still = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
   head?.scrollIntoView?.({ behavior: still ? 'auto' : 'smooth', block: 'start' })
 }
 // The day goes when another person's profile opens.
 watch(personId, () => { day.value = ''; query.value = '' })
 const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
-const dateText = (d) => format(parseISO(d), 'd MMM yyyy')
 const colour = computed(() => personColour(personId.value))
 const rank = computed(() => groups.leaderboard.find((r) => r.id === personId.value)?.rank ?? null)
 const ordinal = (n) => {
@@ -196,8 +196,8 @@ async function signOut() {
                   <dd class="stats__value tnum"><AppIcon name="people" :size="18" />{{ person.meetups }}</dd>
                 </div>
                 <div class="stats__item">
-                  <dt class="caption-sm">Season rank</dt>
-                  <dd class="stats__value tnum" :class="{ 'stats__value--none': rank == null }"><AppIcon name="trophy" :size="18" />{{ rank == null ? 'No rank yet' : ordinal(rank) }}</dd>
+                  <dt class="caption-sm">{{ rank == null ? 'No rank yet' : 'Season rank' }}</dt>
+                  <dd class="stats__value tnum"><AppIcon name="trophy" :size="18" />{{ rank == null ? '–' : ordinal(rank) }}</dd>
                 </div>
                 <div class="stats__item">
                   <dt class="caption-sm">Balance</dt>
@@ -226,7 +226,7 @@ async function signOut() {
       <div class="screen__body">
         <section class="card graph-card rise" style="--i: 1" aria-labelledby="graph-head">
           <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
-          <MeetupGraph :history="person.history" :planned="person.planned" :selected="day" @select="pickDay" />
+          <MeetupGraph :history="person.history" :planned="person.planned" :selected="day" :pickable="isMe" @select="pickDay" />
         </section>
 
         <!-- The signed-in person: their sessions, once they have some. -->
@@ -259,27 +259,7 @@ async function signOut() {
           </template>
         </section>
 
-        <!-- Someone else: recent activity -->
-        <section v-else class="section" aria-labelledby="activity-head">
-          <h2 id="activity-head" class="display-sm">Recent activity</h2>
-          <p v-if="day" class="day-filter">
-            <button type="button" class="day-chip caption" data-testid="day-filter" :aria-label="`Show every day, not only ${dayText(day)}`" @click="day = ''">
-              <AppIcon name="calendar" :size="14" />{{ dayText(day) }}<AppIcon name="close" :size="14" />
-            </button>
-          </p>
-          <EmptyState v-if="!person.activity.length" title="No activity yet" />
-          <p v-else-if="!shownActivity.length" class="body-md text-muted" data-testid="activity-empty">No activity on {{ dayText(day) }}</p>
-          <ul v-else class="activity">
-            <li v-for="(item, i) in shownActivity" :key="i" class="activity__row">
-              <span class="activity__icon"><AppIcon :name="item.text.startsWith('Redeemed') ? 'gift' : 'trophy'" :size="16" /></span>
-              <span class="stack">
-                <RouterLink v-if="item.sessionId" :to="`/sessions/${item.sessionId}/itinerary`" class="title-sm activity__link">{{ item.text }}</RouterLink>
-                <span v-else class="title-sm">{{ item.text }}</span>
-                <span class="caption-sm text-muted">{{ dateText(item.date) }}</span>
-              </span>
-            </li>
-          </ul>
-        </section>
+        <!-- Someone else's outings are not listed: their graph shows how often they go out, and no more (Faith, 31 October 2026). -->
       </div>
     </template>
     <div v-else class="screen__body profile__loading"><SkeletonRow v-for="n in 3" :key="n" avatar /></div>
@@ -326,7 +306,7 @@ async function signOut() {
 .session-search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: var(--text-body-md); outline: none; }
 .session-search input::placeholder { color: var(--muted); }
 /* The headings a picked day scrolls to, clear of the top bar. */
-#my-sessions, #activity-head { scroll-margin-top: calc(var(--topbar-real-height) + var(--spacing-base)); }
+#my-sessions { scroll-margin-top: calc(var(--topbar-real-height) + var(--spacing-base)); }
 /* The day picked on the graph: an ink chip, like a selected one, whose × lets it go. 44px tall to tap. */
 .day-filter { margin: 0 0 var(--spacing-base); }
 .day-chip { display: inline-flex; align-items: center; gap: var(--spacing-xs); min-height: var(--tap-min); padding: 0 var(--spacing-md); border: 0; border-radius: var(--rounded-full); background: var(--selected); color: var(--on-selected); cursor: pointer; }
@@ -361,12 +341,14 @@ async function signOut() {
 .stats__item + .stats__item { border-left: 1px solid var(--hairline); }
 .stats__value { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--ink); font: var(--text-display-sm); }
 .stats__value :deep(svg) { color: var(--pc); }
-.stats__value--none { font: var(--text-title-md); }
 /* The label comes first in the markup (for screen readers) and shows under its number. */
 .stats__item dt { order: 2; color: var(--muted); }
 .stats__item dd { order: 1; }
 /* Friends opens the list: the number is a button that looks like the others, underlined on hover. 44px to tap. */
-.stats__button { display: inline-flex; align-items: center; gap: 6px; min-height: var(--tap-min); margin: calc((var(--tap-min) - 28px) / -2) 0; padding: 0 var(--spacing-sm); border: 0; border-radius: var(--rounded-sm); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+/* The Friends number is a button, but sits exactly like the other three numbers: no padding or margin of its own, and its 44px tap
+   area drawn around it (::after), so the four line up (Faith, 31 October 2026). */
+.stats__button { position: relative; display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: inherit; font: inherit; line-height: inherit; cursor: pointer; }
+.stats__button::after { content: ""; position: absolute; inset: -10px -12px; }
 .stats__button :deep(svg) { color: var(--pc); }
 @media (hover: hover) { .stats__button:hover { text-decoration: underline; } }
 .stats__button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
@@ -380,9 +362,5 @@ async function signOut() {
 .friend-list__go { flex-shrink: 0; color: var(--muted); }
 
 .graph-card { overflow: hidden; padding: var(--spacing-base); }
-.activity { display: flex; flex-direction: column; }
-.activity__row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 60px; border-bottom: 1px solid var(--hairline-soft); }
-.activity__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
-.activity__link { color: var(--ink); }
 .profile__loading { padding-top: var(--spacing-xl); }
 </style>
