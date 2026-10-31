@@ -3371,13 +3371,18 @@ export async function confirmDiet(id, dietary, dropped, { confirmed = true } = {
     const planVersion = newestRead.get(id)?.version ?? newestPlanRead.get(id)?.version
     const body = { mine: cleanDietary(dietary), ...(confirmed ? { checked: true } : {}), ...(Number.isInteger(planVersion) ? { planVersion } : {}) }
     if (dropped !== undefined) {
-      // Compared with the list the screen shows (the dropped needs that someone else has), not the server's raw one: a guest whose own need is
-      // dropped sees none dropped, and sends the same. Only the host ever sends `dropped`; a guest who asks for a different list is refused.
+      // Compared with the list the screen shows (the dropped needs that someone else has, or that are the person's own), not the server's raw
+      // one: a guest sends back the list they were shown, their own dropped need included. A guest may lift a drop of their own need (they
+      // selected it again); any other change to the list is the host's, and a guest who asks for one is refused.
       const wanted = cleanDietary(dropped)
       const seen = newestPlanRead.get(id)?.diet ?? (await dietaryStateOf(id))
-      if (wanted.join() !== shownDropped(seen).join()) {
-        const hostId = newestRead.get(id)?.session?.hostId ?? (await getSession(id)).hostId
-        if (hostId !== me()) throw new Error(DROP_HOST_ONLY)
+      const shown = shownDropped(seen)
+      if (wanted.join() !== shown.join()) {
+        const ownLift = wanted.every((need) => shown.includes(need)) && shown.filter((need) => !wanted.includes(need)).every((need) => body.mine.includes(need))
+        if (!ownLift) {
+          const hostId = newestRead.get(id)?.session?.hostId ?? (await getSession(id)).hostId
+          if (hostId !== me()) throw new Error(DROP_HOST_ONLY)
+        }
         body.dropped = wanted
       }
     }
@@ -3396,8 +3401,14 @@ export async function confirmDiet(id, dietary, dropped, { confirmed = true } = {
   if (!activeIds(session).includes(me())) throw new Error('Only people in this session can do that.')
   const next = cleanDietary(dietary)
   const mineChanged = next.join() !== dietaryOf(me(), session).join()
-  const wantDropped = dropped === undefined ? droppedNeeds(session) : cleanDietary(dropped).filter((need) => othersNeeds(session).includes(need))
-  if (wantDropped.join() !== droppedNeeds(session).join() && session.hostId !== me()) throw new Error(DROP_HOST_ONLY)
+  // A need already dropped stays in the list it was sent in, the person's own too, so confirming as shown never lifts it by accident.
+  const wantDropped = dropped === undefined
+    ? droppedNeeds(session)
+    : cleanDietary(dropped).filter((need) => othersNeeds(session).includes(need) || droppedNeeds(session).includes(need))
+  // Anyone lifts a drop of a need that is their own (they selected it again); adding a drop, or lifting someone else's, is the host's.
+  const adding = wantDropped.filter((need) => !droppedNeeds(session).includes(need))
+  const lifting = droppedNeeds(session).filter((need) => !wantDropped.includes(need))
+  if ((adding.length > 0 || lifting.some((need) => !next.includes(need))) && session.hostId !== me()) throw new Error(DROP_HOST_ONLY)
   return !mineChanged && wantDropped.join() === droppedNeeds(session).join()
     ? (() => {
         session.dietChecked = { ...(session.dietChecked || {}), [me()]: true }
@@ -3663,11 +3674,12 @@ async function dietaryStateOf(sessionId) {
   return (await readDiet(sessionId)).diet
 }
 
-// The dropped needs a screen shows: those the server lists that someone else has (a guest whose own need is dropped sees none).
-// How to call: shownDropped({ others: ['halal'], dropped: ['halal', 'vegan'] }) -> ['halal']
+// The dropped needs a screen shows: those the server lists that someone else has, or that are the person's own, so a guest whose own need
+// the host dropped sees it as not filtered for (DietaryChips), not as a need the places still fit.
+// How to call: shownDropped({ others: ['halal'], mine: ['vegan'], dropped: ['halal', 'vegan', 'vegetarian'] }) -> ['halal', 'vegan']
 const shownDropped = (state) => {
-  const others = cleanDietary(state?.others)
-  return cleanDietary(state?.dropped).filter((need) => others.includes(need))
+  const known = cleanDietary([...(state?.others ?? []), ...(state?.mine ?? [])])
+  return cleanDietary(state?.dropped).filter((need) => known.includes(need))
 }
 
 // The dietary needs the signed-in person may name on the cards of a shared session: their own for this outing, and the others' only
@@ -3678,7 +3690,9 @@ const shownDropped = (state) => {
 function namedNeedsOf(joined, state) {
   const mine = cleanDietary(state?.mine ?? db.user?.dietary)
   if (!state || joined.length < MIN_MEMBERS_FOR_OTHERS) return { needs: mine, complete: false }
-  return { needs: cleanDietary([...mine, ...state.others]), complete: true }
+  // A need the host dropped is not filtered for, so no card speaks of it ("Vegetarian likely"), the person's own included.
+  const dropped = cleanDietary(state.dropped)
+  return { needs: cleanDietary([...mine, ...state.others]).filter((need) => !dropped.includes(need)), complete: true }
 }
 
 // The dietary part of a shared session's plan, for the chips and "Confirm dietary needs" on the Vote page: the group's needs in effect,
@@ -3695,7 +3709,7 @@ function dietaryView(state, joinedCount) {
     unconfirmed: false,
     myDietary: cleanDietary(state.mine),
     othersDietary: others,
-    dietDropped: shownDropped({ others, dropped: state.dropped }),
+    dietDropped: shownDropped({ others, mine: state.mine, dropped: state.dropped }),
     dietChecked: state.checked !== false,
   }
 }
