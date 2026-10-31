@@ -1,17 +1,19 @@
 <script>
 // The chips for an outing's dietary needs: every need, selected when someone in the outing has it and the group has not
 // dropped it, or when it is the viewer's own. `shared` marks a need someone else has, which needs a "Sure?" before the host drops it,
-// and which a guest cannot change at all (`locked`): only the host drops someone else's need.
+// and which a guest cannot change at all (`locked`): only the host drops someone else's need. The viewer's own need that the host
+// dropped (`droppedMine`) is still theirs but not filtered for, so it shows unselected and locked: only the host brings it back.
 // How to call: dietChips({ mine: ['vegan'], others: ['halal'], dropped: [], canDrop: false })
-//   -> [{ value: 'halal', label: 'Halal', selected: true, shared: true, locked: true }, { value: 'vegetarian', ..., selected: false, shared: false, locked: false }, { value: 'vegan', ..., selected: true, shared: false, locked: false }]
+//   -> [{ value: 'halal', label: 'Halal', selected: true, shared: true, locked: true, droppedMine: false }, { value: 'vegetarian', ..., selected: false, shared: false, locked: false, droppedMine: false }, { value: 'vegan', ..., selected: true, shared: false, locked: false, droppedMine: false }]
 import { DIETARY_OPTIONS } from '@/lib/signupRules.js'
 
 export function dietChips({ mine = [], others = [], dropped = [], canDrop = false }) {
   return DIETARY_OPTIONS.map((o) => {
     const shared = others.includes(o.value)
-    const selected = (shared && !dropped.includes(o.value)) || (!shared && mine.includes(o.value))
-    // A guest cannot take a need off that someone else has, nor bring back one the host dropped.
-    return { ...o, selected, shared, locked: shared && !canDrop }
+    const droppedMine = !shared && mine.includes(o.value) && dropped.includes(o.value)
+    const selected = (shared && !dropped.includes(o.value)) || (!shared && mine.includes(o.value) && !droppedMine)
+    // A guest cannot take a need off that someone else has, nor bring back one the host dropped, their own included.
+    return { ...o, selected, shared, locked: (shared || droppedMine) && !canDrop, droppedMine }
   })
 }
 </script>
@@ -51,7 +53,11 @@ const chips = computed(() => dietChips({ mine: props.mine, others: props.others,
 // The line under the chips for a guest, while a need someone else has is locked (also when it is the guest's own need too); it names no
 // one. Each locked chip points to it.
 const noteId = useId()
-const locked = computed(() => chips.value.some((c) => c.locked))
+const locked = computed(() => chips.value.some((c) => c.locked && !c.droppedMine))
+// The viewer's own needs the host dropped, and the line that says the places may not fit them. Each such chip points to it.
+const droppedNoteId = useId()
+const droppedMine = computed(() => chips.value.filter((c) => c.droppedMine).map((c) => c.value))
+const droppedMineWord = computed(() => needsText(droppedMine.value))
 
 // The need waiting for "Unselect halal?", or ''.
 const asking = ref('')
@@ -86,13 +92,14 @@ function dropAsked() {
 <template>
   <div class="diet-chips-block">
     <div class="diet-chips" :class="{ 'is-busy': busy }" role="group" :aria-busy="busy ? 'true' : undefined" :aria-label="label" data-testid="diet-chips">
-      <ChipButton v-for="chip in chips" :key="chip.value" check :selected="chip.selected" :disabled="busy || chip.locked" :aria-describedby="chip.locked ? noteId : undefined" @click="toggle(chip)">
+      <ChipButton v-for="chip in chips" :key="chip.value" check :selected="chip.selected" :disabled="busy || chip.locked" :aria-describedby="chip.droppedMine ? droppedNoteId : chip.locked ? noteId : undefined" @click="toggle(chip)">
         {{ chip.label }}
         <!-- A chip that is on and cannot be turned off carries a small lock, so it does not look like a choice. -->
         <AppIcon v-if="chip.locked && chip.selected" name="lock" :size="12" aria-hidden="true" data-testid="diet-lock" />
       </ChipButton>
     </div>
     <p v-if="locked" :id="noteId" class="caption-sm text-muted" data-testid="diet-locked-reason">Someone in the outing needs this, so it stays on. Only the host can change that.</p>
+    <p v-if="droppedMine.length" :id="droppedNoteId" class="caption-sm text-muted" data-testid="diet-dropped-mine">The host stopped filtering places for {{ droppedMineWord }}, so they may not be {{ droppedMineWord }}.</p>
 
     <!-- Taking off a need someone else in the outing has (the host only): the safer choice first. -->
     <ModalDialog

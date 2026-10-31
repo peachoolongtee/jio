@@ -14,12 +14,12 @@ const LOCKED_NOTE = 'Someone in the outing needs this, so it stays on. Only the 
 
 // The dialog, open, with `mine` and `others`; `sent` collects what Confirm sends. `canDrop` is true for the host.
 // How to call: const { view, sent } = await dialog({ mine: [], others: ['halal'], canDrop: false })
-async function dialog({ mine = [], others = [], title, canDrop = true } = {}) {
+async function dialog({ mine = [], others = [], dropped = [], title, canDrop = true } = {}) {
   await liven(DietaryConfirm)
   const open = ref(true)
   const sent = []
   const Host = defineComponent({
-    setup: () => () => h(DietaryConfirm, { ...(title ? { title } : {}), open: open.value, 'onUpdate:open': (v) => (open.value = v), mine, others, canDrop, onConfirm: (needs) => sent.push(needs) }),
+    setup: () => () => h(DietaryConfirm, { ...(title ? { title } : {}), open: open.value, 'onUpdate:open': (v) => (open.value = v), mine, others, dropped, canDrop, onConfirm: (needs) => sent.push(needs) }),
   })
   return { view: await mountScreen(Host), sent }
 }
@@ -169,5 +169,38 @@ describe('the dietary chips on the Vote page', () => {
     expect(sent).toEqual([{ mine: ['vegetarian'], dropped: [] }])
     await view.click(chip(view, 'Vegetarian'))
     expect(sent.at(-1)).toEqual({ mine: [], dropped: [] })
+  })
+})
+
+describe('a guest whose own need the host dropped', () => {
+  it('sees it not filtered for and locked, with a line that says the places may not fit it, and keeps it as their own', async () => {
+    // Vegetarian is the guest's own; the host dropped it. Halal is someone else's and still on.
+    const { view, sent } = await dialog({ mine: ['vegetarian'], others: ['halal'], dropped: ['vegetarian'], canDrop: false })
+    expect(chips(view)).toEqual([['Halal', true], ['Vegetarian', false], ['Vegan', false]])
+    expect(chip(view, 'Vegetarian').attrs['aria-disabled']).toBe('true')
+    expect(view.text('[data-testid="diet-dropped-mine"]')).toBe('The host stopped filtering places for vegetarian, so they may not be vegetarian.')
+    // Both lines, each for its own chip: the locked halal and the dropped vegetarian.
+    expect(view.text('[data-testid="diet-locked-reason"]')).toBe(LOCKED_NOTE)
+    expect(chip(view, 'Vegetarian').attrs['aria-describedby']).toBe(view.one('[data-testid="diet-dropped-mine"]').attrs.id)
+    // A tap changes nothing, and confirming keeps the need as theirs and the host's drop as it was.
+    await view.click(chip(view, 'Vegetarian'))
+    expect(chips(view)[1]).toEqual(['Vegetarian', false])
+    await view.click('[data-testid="diet-confirm-button"]')
+    expect(sent.at(-1)).toEqual({ mine: ['vegetarian'], dropped: ['vegetarian'] })
+  })
+
+  it('says nothing of it while the need is still filtered for', async () => {
+    const { view } = await dialog({ mine: ['vegetarian'], others: ['halal'], dropped: [], canDrop: false })
+    expect(chips(view)[1]).toEqual(['Vegetarian', true])
+    expect(view.all('[data-testid="diet-dropped-mine"]').length).toBe(0)
+  })
+})
+
+describe('dietChips', () => {
+  it("marks the viewer's own dropped need unselected and, for a guest, locked", () => {
+    const guest = dietChips({ mine: ['vegetarian'], others: [], dropped: ['vegetarian'], canDrop: false })
+    expect(guest.find((c) => c.value === 'vegetarian')).toMatchObject({ selected: false, locked: true, droppedMine: true })
+    const host = dietChips({ mine: ['vegetarian'], others: [], dropped: ['vegetarian'], canDrop: true })
+    expect(host.find((c) => c.value === 'vegetarian')).toMatchObject({ selected: false, locked: false, droppedMine: true })
   })
 })

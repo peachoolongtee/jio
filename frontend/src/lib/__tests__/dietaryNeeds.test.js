@@ -263,9 +263,9 @@ describe('"Confirm dietary needs" on an outing', () => {
     expect(plan.othersDietary).toEqual(['halal', 'vegetarian'])
     // The host (the person here) may take a shared need off; a guest could not (the default of canDrop is false).
     expect(dietChips({ mine: plan.myDietary, others: plan.othersDietary, dropped: plan.dietDropped, canDrop: true })).toEqual([
-      { value: 'halal', label: 'Halal', selected: true, shared: true, locked: false },
-      { value: 'vegetarian', label: 'Vegetarian', selected: true, shared: true, locked: false },
-      { value: 'vegan', label: 'Vegan', selected: true, shared: false, locked: false },
+      { value: 'halal', label: 'Halal', selected: true, shared: true, locked: false, droppedMine: false },
+      { value: 'vegetarian', label: 'Vegetarian', selected: true, shared: true, locked: false, droppedMine: false },
+      { value: 'vegan', label: 'Vegan', selected: true, shared: false, locked: false, droppedMine: false },
     ])
     await api.confirmDiet(id, ['vegan'])
     plan = await api.getPlan(id)
