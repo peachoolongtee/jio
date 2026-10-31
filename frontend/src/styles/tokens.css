@@ -63,14 +63,23 @@
   --diet-halal-bg: color-mix(in srgb, var(--diet-halal-fg) 12%, var(--canvas));
   --diet-veg-fg: #166534;
   --diet-veg-bg: color-mix(in srgb, var(--diet-veg-fg) 12%, var(--canvas));
-  /* Status badges (StatusBadge.vue): a tint of each hue behind the same hue, darkened so the words are over 4.5:1 on their tint. */
-  --status-turn-fg: #9a4a07;
-  --status-planning-fg: #0b5cab;
-  --status-voting-fg: #7a5200;
-  --status-ready-fg: #166534;
-  --status-done-fg: #5b21b6;
-  --status-cancelled-fg: #b42318;
-  --status-waiting-fg: #52525b;
+  /* Status badges (StatusBadge.vue), in the app's own colours, each pair over 4.5:1 (Faith, 31 October 2026; they were seven separate hues):
+     your turn is a solid deep Rausch, the one that asks for you; voting a Rausch tint; ready solid ink, like anything done; the quiet
+     states greys. */
+  --status-turn-bg: #d70f3f; /* White on it: 5.2:1. */
+  --status-turn-fg: var(--on-dark);
+  --status-voting-bg: #ffe7eb; /* Rausch at 12% on white. */
+  --status-voting-fg: #b3002d; /* 6.1:1 on its tint. */
+  --status-ready-bg: var(--ink);
+  --status-ready-fg: var(--on-dark); /* 15.9:1. */
+  --status-planning-bg: #f2f2f2;
+  --status-planning-fg: var(--ink); /* 14.2:1. */
+  --status-done-bg: #f7f7f7;
+  --status-done-fg: #6a6a6a; /* 5.1:1. */
+  --status-waiting-bg: #f7f7f7;
+  --status-waiting-fg: #6a6a6a;
+  --status-cancelled-bg: #f7f7f7;
+  --status-cancelled-fg: #c13515; /* 5.2:1. */
   /* Rain (DESIGN.md, "Weather"): a blue-slate cooler than --ink, so rain reads as weather and not as a shadow. Information only: it never marks an action. There is no dark theme. */
   --rain-wash: #4f7aa6; /* The tint over the rainy area, drawn at 40% opacity in the middle, down to 10% near the edge and nothing at it (10 to 40%), feathered. */
   --rain-streak: #6f9bc8; /* The drops, 0.38, 0.6 and 0.85 opacity for the far, middle and near layer. */

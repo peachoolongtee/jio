@@ -137,14 +137,22 @@ const rangePicked = ref(null)
 const range = computed(() => rangePicked.value ?? defaultRange(meetups.value, now.value))
 const counts = computed(() => rangeCounts(meetups.value, now.value))
 const inWeek = computed(() => meetupsIn(meetups.value, range.value, now.value))
-// "Your turn", a check chip after the week chips (as Rewards' "Can claim"): only the meetups waiting on the person, within the chosen
-// week. It shows only while at least one is, and the list falls back to the week's when none is left.
+// "Your turn", a check chip after the week chips (as Rewards' "Can claim"): every meetup waiting on the person, whatever its week, so one
+// that needs a vote next week is not missed on This week (Faith, 31 October 2026). It counts them all and shows while at least one is.
+// Turning it on moves the chips to All and lists only those; turning it off leaves All with every meetup; picking a week turns it off.
 const onlyMine = ref(false)
-const mineInWeek = computed(() => inWeek.value.filter((m) => needsMe(m, auth.myId)))
-const inRangeMeetups = computed(() => (onlyMine.value && mineInWeek.value.length ? mineInWeek.value : inWeek.value))
+const allMine = computed(() => meetups.value.filter((m) => needsMe(m, auth.myId)))
+const inRangeMeetups = computed(() => (onlyMine.value && allMine.value.length ? allMine.value : inWeek.value))
 // How to call: pickRange('next')
 function pickRange(id) {
-  if (counts.value[id]) rangePicked.value = id
+  if (!counts.value[id]) return
+  rangePicked.value = id
+  onlyMine.value = false
+}
+// How to call: toggleMine()
+function toggleMine() {
+  onlyMine.value = !onlyMine.value
+  if (onlyMine.value) rangePicked.value = 'all'
 }
 // "Your meetups" lists a few (lib/homeMeetups.js homeList), and the selected one is one of them, so the card, the rows and the pins
 // agree and picking a pin changes nothing else on the map. "See all N meetups" opens Sessions when there are more, or finished ones.
@@ -518,7 +526,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
             <div class="scroll-x home__ranges" role="radiogroup" v-radio-group aria-label="Show meetups for" data-testid="meetup-ranges">
               <ChipButton v-for="r in MEETUP_RANGES" :key="r.id" radio :selected="range === r.id" :disabled="!counts[r.id]" :aria-label="`${r.label}, ${counts[r.id]} ${counts[r.id] === 1 ? 'meetup' : 'meetups'}`" @click="pickRange(r.id)">{{ r.label }}<span class="home__range-count tnum" aria-hidden="true">{{ counts[r.id] }}</span></ChipButton>
             </div>
-            <ChipButton v-if="mineInWeek.length" check :selected="onlyMine" :aria-label="`Your turn, ${mineInWeek.length} ${mineInWeek.length === 1 ? 'meetup' : 'meetups'}`" data-testid="your-turn-filter" @click="onlyMine = !onlyMine">Your turn<span class="home__range-count tnum" aria-hidden="true">{{ mineInWeek.length }}</span></ChipButton>
+            <ChipButton v-if="allMine.length" check :selected="onlyMine" :aria-label="`Your turn, ${allMine.length} ${allMine.length === 1 ? 'meetup' : 'meetups'}`" data-testid="your-turn-filter" @click="toggleMine">Your turn<span class="home__range-count tnum" aria-hidden="true">{{ allMine.length }}</span></ChipButton>
           </div>
           <MeetupList :meetups="shownMeetups" :selected-id="selected.id" :my-id="auth.myId" @select="select" />
           <AppButton v-if="moreMeetups" variant="secondary" class="home__see-all" to="/sessions" data-testid="see-all-meetups">{{ allMeetupsLabel(sessions.length) }}<AppIcon name="arrow-right" :size="16" /></AppButton>
@@ -545,15 +553,17 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <EmptyState v-if="placesError" title="Could not load places" text="Check your connection and try again." role="alert">
           <AppButton variant="secondary" @click="loadPlaces(area.id)">Retry</AppButton>
         </EmptyState>
-        <div v-else-if="loadingPlaces" class="grid-3">
+        <!-- Skeletons only the first time; after that the last places stay, faded, until the new ones come, so the page does not
+             shrink and grow under the person when another meetup is picked (Faith, 31 October 2026). -->
+        <div v-else-if="loadingPlaces && !places.length" class="grid-3">
           <SkeletonRow v-for="n in 6" :key="n" avatar />
         </div>
-        <EmptyState v-else-if="!filtered.length" title="No places match">
+        <EmptyState v-else-if="!filtered.length && !loadingPlaces" title="No places match">
           <AppButton variant="secondary" @click="clearApplied">Clear all</AppButton>
         </EmptyState>
         <!-- One row that scrolls sideways (walkthrough, 30 October 2026: the grid showed every place at once). "Show more" is the row's
              last card and adds the next twelve. -->
-        <PlaceCarousel v-else :items="filtered.slice(0, shown)" :label="`Places near ${area.name}`" data-testid="home-places">
+        <PlaceCarousel v-else :items="filtered.slice(0, shown)" :label="`Places near ${area.name}`" :class="{ 'is-refreshing': loadingPlaces }" :aria-busy="loadingPlaces ? 'true' : undefined" data-testid="home-places">
           <template #item="{ item: place }">
             <RouterLink :to="{ query: { ...route.query, place: place.id } }" class="place-link place-link--tile" :data-place="place.id">
               <PlaceTile :place="place" :morph="morphId === place.id" />
@@ -588,6 +598,8 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 </template>
 
 <style scoped>
+/* The places while the next meetup's are loading: still there, faded. */
+.is-refreshing { opacity: 0.5; transition: opacity var(--motion-fast) var(--ease-out); pointer-events: none; }
 /* The band: full width, a soft grey that fades to white at the bottom. The greeting sits at the top, centred; under
    it the stage holds the map, whose centre (where the routes meet) is the stage's centre, and the button sits
    exactly there. The map fades out towards the stage's edges, and also around the button, so the button sits in a
