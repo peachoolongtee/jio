@@ -138,10 +138,69 @@ describe('the choices and the question', () => {
   })
 })
 
+describe('choosing the spot again after a changed start (Faith, 31 October 2026)', () => {
+  it('"Vote on new spots" lists new spots with the old one on them, and the session is choosing again', async () => {
+    const { id, w } = await voted({ hostLast: true })
+    const { events } = await draw('GroupDetailView', `/sessions/${id}`, { id })
+    await until(() => events.byId[id]?.status === 'voting')
+    const had = row(w, id).meeting_area_id
+    await events.chooseSpotAgain(id, 'vote')
+    expect(row(w, id)).toMatchObject({ status: 'locating', meet_by: 'fairest', meeting_area_id: null })
+    const listed = events.byId[id].spots.list.map((s) => s.areaId)
+    expect(listed).toContain(had)
+    expect(listed.length).toBeGreaterThan(1)
+  })
+
+  it('"Use the fairest spot" confirms the planner\'s new first spot at once, with no vote', async () => {
+    const { id, w } = await voted({ hostLast: true })
+    const { events } = await draw('GroupDetailView', `/sessions/${id}`, { id })
+    await until(() => events.byId[id]?.status === 'voting')
+    await events.chooseSpotAgain(id, 'fairest')
+    expect(row(w, id).status).toBe('voting')
+    expect(row(w, id).meeting_area_id).toBeTruthy()
+    expect(w.server.calls.map((c) => c.route)).toEqual(expect.arrayContaining(['changeMeetingPlace', 'confirm']))
+  })
+
+  it('"Change meeting spot" asks on the page, "Keep" changes nothing, and picking the place yourself comes back to Locate', async () => {
+    const { id, w } = await voted({ hostLast: true })
+    const { view } = await draw('GroupDetailView', `/sessions/${id}`, { id })
+    await until(() => view.has('[data-testid=change-spot]'))
+    const had = row(w, id).meeting_area_id
+    await view.click(view.one('[data-testid=change-spot]'))
+    await until(() => view.has('[data-testid=choose-again-pick]'))
+    expect(view.has('[data-testid=choose-again-vote]')).toBe(true)
+    expect(view.has('[data-testid=choose-again-fairest]')).toBe(true)
+    // "Pick the place yourself" opens the area step, marked as coming from here.
+    expect(view.one('[data-testid=choose-again-pick]').attrs.href).toBe(`/sessions/${id}/change-place?where=1&from=locate`)
+    await view.click(view.one('[data-testid=choose-again-keep]'))
+    await until(() => !view.has('[data-testid=choose-again-pick]'))
+    expect(row(w, id)).toMatchObject({ status: 'voting', meeting_area_id: had })
+    expect(w.server.calls.map((c) => c.route)).not.toContain('changeMeetingPlace')
+    // The area step's back arrow goes back to Locate, not to Vote.
+    const start = await draw('StartView', `/sessions/${id}/change-place?where=1&from=locate`, { id, change: true })
+    await until(() => start.view.text().includes('Pick the meeting area'))
+    const back = start.view.all('a').find((a) => a.attrs['aria-label'] === 'Back' || a.attrs.href === `/sessions/${id}`)
+    expect(back?.attrs.href).toBe(`/sessions/${id}`)
+  })
+
+  it('"Use the fairest spot" lets nothing go while fewer than two people have shared a start', async () => {
+    const { id, w } = await voted({ hostLast: true })
+    const { events } = await draw('GroupDetailView', `/sessions/${id}`, { id })
+    await until(() => events.byId[id]?.status === 'voting')
+    // The session as this page holds it, with one start shared.
+    const [first] = events.byId[id].activeIds.filter((p) => events.byId[id].locations?.[p]?.start)
+    events.byId[id] = { ...events.byId[id], locations: { [first]: events.byId[id].locations[first] } }
+    const had = row(w, id).meeting_area_id
+    await expect(events.chooseSpotAgain(id, 'fairest')).rejects.toThrow('At least two people')
+    expect(row(w, id)).toMatchObject({ status: 'voting', meeting_area_id: had })
+    expect(w.server.calls.map((c) => c.route)).not.toContain('changeMeetingPlace')
+  })
+})
+
 describe('the cards in change mode', () => {
   it('shows the same two cards with words for what the button does, and "fairest" changes the session and goes to Locate', async () => {
     const { id, w } = await voted({ hostLast: true })
-    const { view, router } = await draw('StartView', `/sessions/${id}/change-place`, { id, change: true })
+    const { view, router, events } = await draw('StartView', `/sessions/${id}/change-place`, { id, change: true })
     await until(() => view.has('[data-testid=start-view]'))
     expect(view.errors).toEqual([])
     expect(view.text()).toContain('How do you want to pick the new meeting point?')
@@ -153,10 +212,13 @@ describe('the cards in change mode', () => {
     await view.click(known)
     await view.click(fair)
     expect(row(w, id).status).toBe('voting')
+    const had = row(w, id).meeting_area_id
     await view.click(press(view, 'Work out the spots again'))
     await until(() => router.currentRoute.value.path === `/sessions/${id}`)
     expect(w.server.calls.filter((c) => c.route === 'changeMeetingPlace')).toEqual([expect.objectContaining({ body: { meetBy: 'fairest', planVersion: expect.any(Number) } })])
     expect(row(w, id)).toMatchObject({ status: 'locating', meet_by: 'fairest', meeting_area_id: null })
+    // The spot the group had stays on the list to vote on, as the host's own suggestion (Faith, 31 October 2026).
+    expect(events.byId[id].spots.list.map((s) => s.areaId)).toContain(had)
   })
 
   it('"We already know where" asks for the area, and "Meet at <area>" changes the session and goes to the Vote screen', async () => {

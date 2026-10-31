@@ -17,7 +17,9 @@
 //             footer's button is named for where it goes: "Choose places", then "Today's plan" or "See the plan".
 //             Confirming a spot, or naming a known place, leaves the person here; it does not jump to Vote. The host can change
 //             the meeting spot from its card ("Change meeting spot", the Start choice again), and is asked whether to after
-//             changing their own start or end, since the fairest spot may have moved (Faith's walkthrough, 30 October 2026).
+//             changing their own start or end, since the fairest spot may have moved (Faith's walkthrough, 30 October 2026). That
+//             question offers "Keep", "Vote on new spots" (the new spots with the old one still listed) and "Use the fairest spot"
+//             (confirmed at once, no vote; Faith, 31 October 2026).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -53,7 +55,7 @@ import { takeBackNotice } from '@/lib/takeBackNotice.js'
 import { useReturnFocus } from '@/lib/useReturnFocus.js'
 import { guestLine, hostPendingLine } from '@/lib/startChoice.js'
 import { useAuthStore } from '@/stores/auth.js'
-import { useEventsStore, waitingFor } from '@/stores/events.js'
+import { startsShared, useEventsStore, waitingFor } from '@/stores/events.js'
 import { useGroupsStore } from '@/stores/groups.js'
 
 const props = defineProps({ id: { type: String, required: true } })
@@ -235,19 +237,34 @@ async function saveLocation(place) {
   const settledBefore = canChangeSpot.value
   try {
     await events.setMyLocation(props.id, sheet.value.which, place)
-    // The spot was already confirmed: it stays where it is, and the host is asked whether to choose it again from new suggestions.
-    if (settledBefore) againOpen.value = true
+    // The spot was already confirmed: it stays where it is, and the host is asked whether to choose it again from new suggestions. Not
+    // with fewer than two starts, when no spot can be worked out.
+    if (settledBefore && startsShared(session.value) >= 2) openAgain('trip')
   } catch (e) {
     if (e.code === 'saved_not_priced') note.value = e.message
     else error.value = e.message
   }
 }
 
-// The host may choose the meeting spot again once it is confirmed (voting, or a confirmed plan): the Start choice in its "change" form,
-// which lists new suggested spots from everyone's starts and clears the votes (ChangePlan's "Change meeting place", reached from here too).
+// The host may choose the meeting spot again once it is confirmed (voting, or a confirmed plan), from one dialog on this page: after their
+// own trip changed (`trip`), or from the card's "Change meeting spot" (`change`, which also offers to pick the place yourself: the Start
+// choice's area step, whose back arrow comes back here). Nothing is let go until a choice is pressed, so "Keep" leaves the page as it was
+// (Faith, 31 October 2026: the link used to leave this page, and the way back went to Vote).
 const canChangeSpot = computed(() => isHost.value && !session.value?.light && ['voting', 'confirmed'].includes(status.value))
-const changeSpotPath = computed(() => `/sessions/${props.id}/change-place`)
+const pickYourselfPath = computed(() => ({ path: `/sessions/${props.id}/change-place`, query: { where: '1', from: 'locate' } }))
 const againOpen = ref(false)
+const againWhy = ref('trip')
+// New spots can be worked out only from two starts.
+const canWorkOut = computed(() => !!session.value && startsShared(session.value) >= 2)
+// How to call: openAgain('change')
+function openAgain(why) {
+  error.value = ''
+  againWhy.value = why
+  againOpen.value = true
+}
+// The host's answer in that dialog: 'vote' works out new spots for the group to vote on, the spot they had kept on the list; 'fairest' confirms the
+// new fairest spot straight away (events.chooseSpotAgain). Either way the votes for places are cleared. How to call: chooseAgain('vote')
+const chooseAgain = (mode) => run(() => events.chooseSpotAgain(props.id, mode), () => { againOpen.value = false })
 
 // Run one change with the busy flag on; the flag is cleared whatever happens, and a failure is the screen's error line.
 // How to call: run(() => events.start(props.id), () => { dialogOpen.value = false })
@@ -459,7 +476,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
                 <AppButton variant="secondary" small class="area__go" :href="spotDirections" target="_blank" :aria-label="`Directions to ${settled.area.name}, opens Google Maps in a new tab`">
                   <AppIcon name="route" :size="16" />Directions
                 </AppButton>
-                <AppButton v-if="canChangeSpot" variant="tertiary" underline small :to="changeSpotPath" data-testid="change-spot">Change meeting spot</AppButton>
+                <AppButton v-if="canChangeSpot" variant="tertiary" underline small data-testid="change-spot" @click="openAgain('change')">Change meeting spot</AppButton>
               </div>
             </section>
 
@@ -534,14 +551,25 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 
     <InviteDialog v-model:open="inviteOpen" :session="session" />
     <ClashDialog v-model:open="showRejoinClash" :clash="rejoinClash" mode="join" />
-    <!-- The host changed their own start or end after the spot was confirmed: keep it, or choose it again from new suggestions. -->
+    <!-- Choosing the meeting spot again: after the host's own trip changed, or from "Change meeting spot". Keep it, have the group vote on
+         new spots (the one they had stays on the list), take the new fairest spot at once, or (from the card) pick the place yourself. -->
     <ModalDialog
       v-model:open="againOpen"
-      title="Choose the meeting spot again?"
-      :text="`Your trip changed, so a fairer spot than ${settled?.area.name || 'this one'} may now be suggested. Choosing again lists new spots for everyone and clears the votes for places.`"
+      :title="againWhy === 'trip' ? 'Choose the meeting spot again?' : 'Change the meeting spot?'"
+      :text="againWhy === 'trip' ? `Your trip changed, so a fairer spot than ${settled?.area.name || 'this one'} may now be suggested. Choosing again clears the votes for places.` : `Changing it clears the votes for places. Everyone keeps where they start.`"
     >
-      <AppButton block variant="secondary" @click="againOpen = false">Keep {{ settled?.area.name || 'this spot' }}</AppButton>
-      <AppButton block :to="changeSpotPath" data-testid="choose-again" @click="againOpen = false">Choose again</AppButton>
+      <AppButton block variant="secondary" :disabled="busy" data-testid="choose-again-keep" @click="againOpen = false">Keep {{ settled?.area.name || 'this spot' }}</AppButton>
+      <template v-if="canWorkOut">
+        <AppButton block variant="secondary" :disabled="busy" :aria-busy="busy ? 'true' : undefined" data-testid="choose-again-vote" @click="chooseAgain('vote')">Vote on new spots</AppButton>
+        <p class="caption-sm text-muted again__note">The 3 fairest spots and {{ settled?.area.name || 'this one' }}, for everyone to vote on.</p>
+        <AppButton block :variant="againWhy === 'trip' ? 'primary' : 'secondary'" :disabled="busy" :aria-busy="busy ? 'true' : undefined" data-testid="choose-again-fairest" @click="chooseAgain('fairest')">Use the fairest spot</AppButton>
+        <p class="caption-sm text-muted again__note">Picks the new fairest spot now, with no vote.</p>
+      </template>
+      <template v-if="againWhy === 'change'">
+        <AppButton block :disabled="busy" :to="pickYourselfPath" data-testid="choose-again-pick" @click="againOpen = false">Pick the place yourself</AppButton>
+        <p class="caption-sm text-muted again__note">{{ canWorkOut ? 'Choose an area by name.' : 'Choose an area by name. New spots need at least two people to share where they start.' }}</p>
+      </template>
+      <p v-if="error" class="body-sm text-error again__note" role="alert">{{ error }}</p>
     </ModalDialog>
     <LocationSheet v-model:open="sheet.open" :which="sheet.which" :home="homeArea" @select="saveLocation" />
   </main>
@@ -634,4 +662,5 @@ button.route__row:focus-visible { outline: 2px solid var(--ink); outline-offset:
 .area__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-base); }
 .map-wait { position: absolute; left: 50%; top: 50%; z-index: 500; transform: translate(-50%, -50%); padding: var(--spacing-md) var(--spacing-base); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); text-align: center; }
 .map-wait--finding { top: var(--spacing-md); transform: translateX(-50%); }
+.again__note { margin: calc(var(--spacing-xs) * -1) 0 var(--spacing-xs); text-align: center; }
 </style>
