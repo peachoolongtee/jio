@@ -17,7 +17,7 @@ import { vi } from 'vitest';
 import { filterByConstraints } from '../src/planner/filters.js';
 import { createOneMap } from '../src/services/onemap.js';
 import { dropKnownPlaces, loadPlanData } from '../src/db/venues.js';
-import { roam } from '../src/planner/engine.js';
+import { converge, roam } from '../src/planner/engine.js';
 import * as A from '../src/planner/cdc-adapter.js';
 import { fromGooglePlace } from '../src/planner/google-adapter.js';
 
@@ -502,6 +502,39 @@ test('every CDC venue the planner loads has its price labelled typical, so none 
   assert.deepStrictEqual(cdc.filter(v => v.dataQuality?.priceAssumed !== true).map(v => v.id), []);
   const tags = (venue) => reasonTags({ venue, walkMinutes: 20, crowd: 'busy', rainy: false, time: '12:00' });
   assert.deepStrictEqual(cdc.filter(v => tags(v).includes('Budget friendly')).map(v => v.id), []);
+});
+test('the 92 malls, cafés and bars added on 31 October 2026 carry a guessed price: ranked and filtered on it, but they claim nothing', () => {
+  const data = loadPlanData();
+  const curated = data.venues.filter(v => v.source === 'curated');
+  const added = curated.filter(v => v.dataQuality?.priceAssumed === true);
+  // The 63 places entered by hand keep their state: no flag, so a low price there may still say "Budget friendly".
+  assert.strictEqual(curated.length, 155);
+  assert.strictEqual(added.length, 92);
+  assert.strictEqual(curated.filter(v => 'priceAssumed' in v.dataQuality).length, 92);
+  assert.ok(curated.some(v => v.dataQuality.priceAssumed === undefined && v.avgPricePerPerson <= 10 && reasonTags({ venue: v, walkMinutes: 20, crowd: 'busy', rainy: false, time: '12:00' }).includes('Budget friendly')));
+  const tags = (venue) => reasonTags({ venue, walkMinutes: 20, crowd: 'busy', rainy: false, time: '12:00' });
+  const row = venue => ({ venue: { exposure: 1, ...venue }, factors: { price: 0, occasion: 90, preference: 90, weather: 20, antiRepeat: 20, rating: 90 }, weights: { price: 8 }, hasHistory: false });
+  // No new place claims to be cheap or within budget, whatever its price.
+  assert.deepStrictEqual(added.filter(v => tags(v).includes('Budget friendly')).map(v => v.id), []);
+  assert.deepStrictEqual(added.filter(v => /within budget/i.test(explain(row(v)))).map(v => v.id), []);
+  // A chain outlet at $6 ...
+  const outlet = added.find(v => v.id === 'ya-kun-kaya-toast-jurong-point');
+  assert.strictEqual(outlet.avgPricePerPerson, 6);
+  assert.deepStrictEqual(tags(outlet), tags({ ...outlet, avgPricePerPerson: 40 }).filter(t => t !== 'Budget friendly'));
+  // ... is still filtered on that price (it passes a $10 limit and fails a $5 one) ...
+  const ctx = (limit) => ({ members: [{ id: 'a' }], groupConstraints: [`max_price_pp:${limit}`], dateTime: '2026-11-07T15:00', categories: ['drink'], unknownPolicy: 'lenient' });
+  assert.strictEqual(filterByConstraints([outlet], ctx(10)).passed.length, 1);
+  assert.strictEqual(filterByConstraints([outlet], ctx(5)).passed.length, 0);
+  // ... and still ranked: it is among the drink places offered around Jurong Point.
+  const start = { lat: outlet.lat, lng: outlet.lng };
+  const answer = converge({
+    members: [{ id: 'a', name: 'A', start, end: start }, { id: 'b', name: 'B', start, end: start }],
+    occasion: 'catch_up', dateTime: '2026-11-07T15:00', durationMinutes: 60, categories: ['drink'], unknownPolicy: 'lenient', centre: start, topN: 20,
+  }, data);
+  assert.strictEqual(answer.status, 'ok');
+  const found = answer.results.find(r => r.venueId === outlet.id);
+  assert.ok(found, 'the outlet is ranked');
+  assert.ok(!found.reasons.some(r => /budget/i.test(r)) && !/within budget/i.test(found.explanation ?? ''));
 });
 test('the price filter is untouched: a venue with a guessed price passes or fails max_price_pp exactly as before', () => {
   const ctx = (limit) => ({ members: [{ id: 'a' }], groupConstraints: [`max_price_pp:${limit}`], dateTime: '2026-10-13T13:00', categories: ['activity'], unknownPolicy: 'lenient' });

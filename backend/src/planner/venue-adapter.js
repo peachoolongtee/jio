@@ -1,8 +1,8 @@
 // venue-adapter.js: turns the frontend's curated venues (frontend/src/lib/mock/venues.js) into engine venues.
 //
-// The frontend team listed 63 real Singapore places with a lighter format:
+// The frontend team listed 155 real Singapore places (63 by hand, then 92 malls, cafés and bars) with a lighter format:
 //   { id, name, category, kind, area, lat, lng, hours: ['07:30-20:00'], serves, price, indoor,
-//     mrt, mrtWalk, popularity (0-1), tags: ['cdc', 'hidden', 'touristy'] }
+//     mrt, mrtWalk, popularity (0-1), tags: ['cdc', 'hidden', 'touristy'], priceAssumed (true when the price has no source) }
 // The engine needs more fields (diet, attributes, exposure, group size...). Anything the frontend list
 // does not say is either UNKNOWN (null / 'unknown', so strict mode treats it honestly) or a DEFAULT for
 // that kind of place, and dataQuality says which. Defaults are guesses, not measurements.
@@ -103,6 +103,8 @@ function fromFrontendVenue(v) {
     dataQuality: {
       attributesAreDefaults: true, dietUnknown: food && !muis, accessUnknown: true, ratingRescaledFrom10: true, forecastAreaApprox: true,
       ...(muis ? { halalSource: 'muis', halalScope: stallsOnly ? 'stalls' : 'venue', muisStalls: muis.muisStalls, halalCheckedAt: muis.checked } : {}),
+      // A price with no source (the 92 places added on 31 October 2026): it still ranks and filters, but makes no claim (scoring.js priceIsKnown).
+      ...(v.priceAssumed === true ? { priceAssumed: true } : {}),
     },
   };
 }
