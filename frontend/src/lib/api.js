@@ -756,9 +756,10 @@ function sessionById(id) {
 // Pending invites. In the demo a friend accepts on their own a moment after being invited (their phone would ask
 // them): each invite stores when it will be accepted, a timer accepts it then, and reading a session accepts any
 // whose time has passed (after a reload, the timers are gone). Returns true when someone joined.
-// Long enough for the host to see the invite and take it back with its × (Faith's walkthrough, 30 October 2026: at 1.4 s nobody could).
-const ACCEPT_AFTER = 8000
-const ACCEPT_GAP = 3000
+// Long enough for the host to see the invite and take it back with its × (Faith's walkthrough, 30 October 2026: at 1.4 s nobody could),
+// and since the same day half the 8 s it was, so a demo does not stall waiting (each further friend 1.5 s after the one before).
+const ACCEPT_AFTER = 4000
+const ACCEPT_GAP = 1500
 // An invite held longer than this gets no timer (a page that stays open for days should not hold one); a read accepts it.
 const TIMER_MAX = 60 * 1000
 function settleInvites(session, now = Date.now()) {
