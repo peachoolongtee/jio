@@ -284,6 +284,39 @@ describe('the radius', () => {
     expect(view.one('input[type=range]').attrs['aria-valuetext']).toBe('Within 2 km')
   })
 
+  // Review of 1 November 2026: a value the slider reached while a save was running was dropped, and the draft was cleared, so the
+  // slider snapped back with no error. The newest value now waits and is saved next.
+  it('saves the last value the slider reached while an earlier save was still running', async () => {
+    const { w, id } = await voting()
+    const { view } = await draw(id)
+    await until(() => view.has('[data-testid=radius]'))
+    await view.click(autoSwitch(view))
+    await until(() => w.database.tables.sessions[0].radius_meters === 1000)
+    let release
+    const held = new Promise((resolve) => { release = resolve })
+    let reached = false
+    w.server.after.radius = async () => { reached = true; await held }
+    slide(view, 1)
+    await until(() => reached)
+    slide(view, 4)
+    // The slider's rest time passes while the first save is still running; the thumb stays where the host put it.
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    expect(view.one('input[type=range]').attrs['aria-valuetext']).toBe('Within 2 km')
+    w.server.after.radius = async () => {}
+    release()
+    await until(() => w.database.tables.sessions[0].radius_meters === 2000)
+    await until(() => view.one('input[type=range]').attrs['aria-valuetext'] === 'Within 2 km')
+  })
+
+  it('puts the disabled slider\'s thumb at the far end, 3 km, the most Auto looks, instead of at 1 km', async () => {
+    const { id } = await voting()
+    const { view } = await draw(id)
+    await until(() => view.has('[data-testid=radius]'))
+    const slider = view.one('input[type=range]')
+    expect(slider.attrs['aria-valuetext']).toBe('Auto')
+    expect(String(slider.value)).toBe('5')
+  })
+
   it('shows a guest the host\'s radius as a line, not as choices', async () => {
     const { sam, id } = await voting({ guest: true })
     await sam.api.setRadius(id, 2000)

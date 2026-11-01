@@ -14,7 +14,9 @@
 // readonly: the group has moved on from choosing, so the row has no controls (no "Vote", "We are here already" or
 // Withdraw); who said it works for them stays, as words, and "More details" stays. confirmed: this is the spot the host
 // confirmed; it says "Confirmed" in place of the Leading or Fairest tag.
-// note: one quiet line for this row alone (the data layer's "Jio remembers", on the first spot), or ''.
+// note: one quiet line for this row alone (the data layer's "Jio remembers", on the first spot), or ''. It is said with the person's own
+// time to the spot before it ("You: about 9 min. This spot is closer to you."), so the claim stands with its evidence now that the times
+// are behind "More details"; nothing is said about anyone else's.
 // Emits select, approve (true or false: the new state), here (true or false), withdraw.
 // Only areas are shown, never a member's exact place. Times say "about" when they are estimates.
 import { computed, ref } from 'vue'
@@ -51,6 +53,13 @@ const trips = computed(() => peopleTrips(props.spot, props.names, props.myId))
 // The dialog's line under the title: who put it forward, and "We are here already" when they are.
 const detailsText = computed(() => [byLine(props.spot, props.myId), props.spot.here && 'We are here already'].filter(Boolean).join(' · '))
 
+// The signed-in person's own trip, as the start of the note: 'You: about 9 min.', or '' with no time for them. Only theirs.
+// How to call: ownTrip.value -> 'You: about 9 min.'
+const ownTrip = computed(() => {
+  const mine = trips.value.find((trip) => trip.id === props.myId)
+  return mine?.text ? `You: ${mine.text}.` : ''
+})
+
 // A press on the card selects it, unless it was on a control of its own (Vote, Withdraw, More details, the name's button handles itself).
 // How to call: <li @click="pick">
 function pick(event) {
@@ -75,7 +84,7 @@ function pick(event) {
     </div>
 
     <p v-if="!tripsLine(spot)" class="body-sm text-muted">No trips to compare yet. They appear as people share where they start.</p>
-    <p v-if="note" class="spot__note caption-sm text-muted" data-testid="spots-lean">{{ note }}</p>
+    <p v-if="note" class="spot__note caption-sm text-muted" data-testid="spots-lean">{{ ownTrip ? `${ownTrip} ${note}` : note }}</p>
 
     <div class="spot__choose">
       <ChipButton v-if="!readonly" check :selected="mine" :disabled="!canApprove" :aria-busy="busy ? 'true' : undefined" :aria-label="`Vote for ${spot.area.name}`" @click="emit('approve', !mine)">Vote</ChipButton>

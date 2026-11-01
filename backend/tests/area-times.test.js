@@ -8,7 +8,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { loadAreaTimes } from '../src/db/area-times.js'
 import { loadPlanData } from '../src/db/venues.js'
-import { ACCESS_FIXED_MINUTES, ACCESS_MINUTES_PER_KM, ACCESS_RAMP_KM, accessMinutes, areaTimesCoverage, createAreaEstimator, isAreaTimes, MAX_PLAUSIBLE_MINUTES, pairKey } from '../src/planner/area-times.js'
+import { ACCESS_FIXED_MINUTES, ACCESS_MINUTES_PER_KM, ACCESS_RAMP_KM, accessMinutes, areaTimesCoverage, createAreaEstimator, isAreaTimes, MAX_PLAUSIBLE_MINUTES, NEAREST_MEMO_MAX, pairKey } from '../src/planner/area-times.js'
 import { meetingArea } from '../src/planner/engine.js'
 import { haversineKm, mockTravelMinutes } from '../src/planner/geo.js'
 import { buildAreaTimes, creditFor, DEFAULT_PER_MINUTE, HELP, isNoRoute, MAX_PER_MINUTE, nextTuesdayNoon, readFlags, singaporeDay } from '../scripts/build-area-times.js'
@@ -297,6 +297,18 @@ describe('createAreaEstimator', () => {
     expect(withSaved(far, near2)).toBeGreaterThan(5) // two places in the same area are not 2.5 minutes apart
   })
 
+  it('answers the same for a point asked again, and after its memory of points has been emptied (the nearest areas are remembered per coordinate)', () => {
+    const fresh = () => createAreaEstimator({ areas: AREAS, table })
+    const points = [near(AREAS[0], 0.004, 0.002), near(AREAS[1], -0.01, 0.003), near(AREAS[2]), near(AREAS[3], 0.02, -0.02), { lat: 1.35, lng: 103.9 }]
+    const wanted = points.map((p) => points.map((q) => fresh()(p, q)))
+    const reused = fresh()
+    for (let round = 0; round < 2; round += 1) expect(points.map((p) => points.map((q) => reused(p, q)))).toEqual(wanted)
+    // Past NEAREST_MEMO_MAX distinct points the memory starts again; the answers do not change.
+    for (let i = 0; i < NEAREST_MEMO_MAX + 50; i += 1) reused(points[0], { lat: 1.2 + i * 0.00001, lng: 103.6 + (i % 97) * 0.001 })
+    expect(points.map((p) => points.map((q) => reused(p, q)))).toEqual(wanted)
+    expect(points.map((p) => points.map((q) => reused.tableMinutes(p, q)))).toEqual(points.map((p) => points.map((q) => fresh().tableMinutes(p, q))))
+  })
+
   it('refuses to be made without areas or a table', () => {
     expect(() => createAreaEstimator({ areas: [], table })).toThrow()
     expect(() => createAreaEstimator({ areas: AREAS, table: null })).toThrow()
@@ -392,7 +404,10 @@ describe('the saved table in the repository', () => {
     expect(values.length).toBeLessThanOrEqual((planData.areas.length * (planData.areas.length - 1)) / 2)
     expect(saved._meta.credit).toBe(creditFor(saved._meta.startedAt ?? saved._meta.builtAt, saved._meta.builtAt))
     expect(saved._meta.credit).toMatch(/OneMap/)
-    expect(saved._meta.credit).toContain(`accessed ${singaporeDay(saved._meta.builtAt)}`) // the access date goes with the data
+    // The access date goes with the data: the day the first pairs were taken, and the day of the last when the build took several (the 666 pairs
+    // of the first 37 areas are from 21 October 2026, the rest from 30 October).
+    expect(saved._meta.credit).toContain(`accessed ${singaporeDay(saved._meta.startedAt ?? saved._meta.builtAt)}`)
+    expect(saved._meta.credit).toContain(singaporeDay(saved._meta.builtAt))
     expect(saved._meta.dateTime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
   })
 

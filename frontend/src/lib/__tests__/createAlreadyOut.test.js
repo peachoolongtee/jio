@@ -3,6 +3,7 @@
 // has no day or times, asks "Where are you?", then starts a light meetup for today and opens its itinerary. For the demo and local
 // accounts only. The screen is drawn on the in-memory page (domless.js), with the
 // location sheet stood in for by one button that picks Bugis.
+import { readFileSync } from 'node:fs'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { h } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -77,6 +78,21 @@ describe('Create session, already out', () => {
     expect(view.text('h1')).toBe('Create session')
     expect(view.has('[data-testid=where-row]')).toBe(false)
     expect(press(view, 'Next')).toBeTruthy()
+  })
+
+  // Review of 1 November 2026: the link was a glowing red pill about 350 px wide beside the red "Next". It is a quiet outline button now, with
+  // short words on the screen and the same name as before for a screen reader and for Darius's end-to-end test (found by its test id).
+  it('is a short outline button, not a red pill, and keeps its full name for a screen reader', async () => {
+    const { view } = await form()
+    const link = view.one('[data-testid=create-already-out]')
+    expect(link.attrs.class).toContain('btn--secondary')
+    expect(link.attrs.class).not.toContain('btn--pill')
+    expect(view.text(link)).toBe('Already out? Find places near you now')
+    const visible = link.children.filter((c) => c.kind === 'text' || c.attrs?.class !== 'sr-only').map((c) => (c.kind === 'text' ? c.text : view.text(c))).join('').trim()
+    expect(visible).toBe('Already out?')
+    expect(link.attrs.href || link.attrs.to).toBeTruthy()
+    const source = readFileSync(new URL('../../views/CreateEventView.vue', import.meta.url), 'utf8')
+    expect(source.match(/\.create__out[^{]*\{[^}]*\}/g).join('\n')).not.toMatch(/nowrap|box-shadow|--primary/)
   })
 
   it('hides the day and times, asks where you are, and starts a light meetup for today that opens its itinerary', async () => {

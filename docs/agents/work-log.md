@@ -1919,3 +1919,52 @@ No database change.
     - e2e 17 of 17;
     - the line seen in a browser at 320 px.
 - **Also added:** the unit and component test allocation, in `frontend/tests/e2e/README.md`.
+
+## Round 47: review of what was merged after #206 (2026-11-01)
+
+**The lead's word:** "review all the PRs in the same way". None was open: #207, #209, #210, #211, #212, #213, #214 and #215 were merged into `dev` on 1 November by Darius, and #208 was closed into #211. This reviews `dev` at `3132427` against `1d2e8f2`, and any fixes go in on `review/after-206`. Teammates' branches are left as they are.
+
+| Piece | Agent | Brief, in short |
+|---|---|---|
+| The server and dietary changes (#207, #211's server half) | code reviewer | Access rules, whether anything needs a change to the live database, and the lead's rule on drops |
+| Every MRT station and the new place data (#209) | code reviewer | Where the data came from, the OneMap budget, ranking and latency |
+| The walkthrough and places from a post (#210) | code reviewer | Persistence for real accounts, terms, the finish rule, earlier decisions |
+| The screens (#210, #211, #212) | design reviewer | `DESIGN.md`, phone widths, contrast, the new shader dependency |
+- **Checked by the session on `dev` at `3132427`, clean install:**
+  - backend 2095 passed, 2 skipped, also with outbound calls blocked;
+  - build succeeded;
+  - frontend 3084 passed, 2 failed (`outingScreens` "lets the title change alone" and `sessionHostAndHold` "starts no timer", both also fail alone);
+  - e2e 9 passed, 8 failed: create-session, Faith's two, Ian's two, Jonathan's keyboard test and Nichole's two. All stop at `createSession` or the Invite heading, because #210 moved the start choice before inviting. The tests were not moved with it.
+- **Measured by the session:** of the 145 areas, in the whole pool of 1,875 places, 45 have fewer than 3 drink places within 3 km, 17 fewer than 3 shops, 5 fewer than 3 activities and 1 fewer than 3 food places. `sharedVoting.backend.test.js` moved its start with the comment "From Tampines the fairest MRT station is Ubi, with no shop or bar near".
+- **Four reviews.** The live trace is sound: no new action needs a database change. The findings are fixed in two pieces, off `review/after-206`:
+  - A (implementer, `review/after-206-a`): the stale tests, the over-wide lift of a drop, the dedupe on the Google path, the nearest-area cost, unflagged guessed prices, the OneMap credit, stale docs;
+  - B (frontend engineer, `review/after-206-b`): the map pin's confirm, the radius slider, overdue outings on Home, the steps bar, the voucher code, white-on-red additions, contrast on the grey cards, the claim-all wording, `DESIGN.md`.
+- **Left for the lead:**
+  - stations with few places;
+  - saving OneMap's station and building points in files;
+  - placeholder ratings on screen;
+  - the removed "Confirm dietary needs" popup;
+  - no known place from Locate;
+  - the dark pill.
+- **Results of the two pieces, joined at `5568ad1`:**
+  - **A (tests and server):**
+    - the end-to-end tests moved to the new flow, through `fixtures.js`, with two lines changed in `ian.spec.js` (a long day, because a three-hour session holds three of four kinds of stop, and no "Save plan" link);
+    - a lift of a drop narrowed to the sole holder;
+    - the Google path's dedupe restored;
+    - `nearest` memoised (meeting-area request 15.0 ms to 2.3 ms);
+    - 92 prices flagged;
+    - credits added to `areas.json` and `curated-venues.json`.
+  - **B (screens):**
+    - one confirm for the pin and the footer;
+    - the radius queues its newest value;
+    - overdue outings last;
+    - steps in flow order;
+    - the voucher code stays readable;
+    - "Already out?" and "Added" no longer red;
+    - contrast on grey cards (three `--scale-*` tokens changed);
+    - the person's own minutes beside "This spot is closer to you.";
+    - the search as a combobox;
+    - a caption on the post button, and its shader on idle (213 kB, 64 kB gzip, lazy);
+    - `DESIGN.md` brought up to what ships.
+  - **Measured:** Tampines + Bishan picks Paya Lebar on the area table. In 500 random pairs, 134 had fewer than 3 drink or shop places within 3 km, 12 of them an empty list. In 500 random triples, 125 and 4.
+  - **Not seen in a browser:** the pin's warning and Home's overdue banner (tested only).

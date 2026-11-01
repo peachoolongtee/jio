@@ -133,9 +133,10 @@ export async function useScenario(page, scenario) {
   })
 }
 
-// Make a session the way a person does, from Home: Jio your friends, fill in the form, Next. Ends on the Invite screen of the
-// new session and answers its id. Shared by the files that need a session of their own to start from. Options: title, day (a
-// yyyy-MM-dd, default three days ahead), and optionally start and end times (otherwise the form's own defaults stay).
+// Make a session the way a person does, from Home: Jio your friends, fill in the form, Next. Ends on the Start choice of the new
+// session ("How do you want to pick the meeting point?", which comes before inviting) and answers its id. Shared by the files that
+// need a session of their own to start from. Options: title, day (a yyyy-MM-dd, default three days ahead), and optionally start and
+// end times (otherwise the form's own defaults stay).
 // How to call: const id = await createSession(page, { title: 'Team lunch' })
 export async function createSession(page, { title, day = daysAhead(3), start, end } = {}) {
   await page.getByRole('link', { name: 'Jio your friends' }).click()
@@ -145,21 +146,22 @@ export async function createSession(page, { title, day = daysAhead(3), start, en
   if (start) await setTime(page, 'Start time', start)
   if (end) await setTime(page, 'End time', end)
   await page.getByRole('button', { name: 'Next', exact: true }).click()
-  await expect(page.getByRole('heading', { level: 1, name: 'Invite friends' })).toBeVisible()
-  return page.url().match(/\/sessions\/([^/]+)\/invite$/)[1]
+  await expect(page.getByRole('heading', { level: 2, name: 'How do you want to pick the meeting point?' })).toBeVisible()
+  return page.url().match(/\/sessions\/([^/]+)\/start$/)[1]
 }
 
-// From the Invite screen: invite some of the demo account's friends, wait until they have joined, press Next, choose "Find the
-// fairest spot" and press Next. Ends on the Locate step. Friends are named as in the list ("Darius").
+// From the Start choice: keep "Find the fairest spot" (the default) and press Next, which opens the Invite step carrying that choice;
+// invite some of the demo account's friends, wait until they have joined, and press Start session. Ends on the Locate step. Friends
+// are named as in the list ("Darius").
 // How to call: await inviteAndStart(page, ['Darius', 'Nicole'])
 export async function inviteAndStart(page, friends) {
+  await page.getByTestId('start-next').click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Invite friends' })).toBeVisible()
   for (const name of friends) await page.getByRole('button', { name: `Select ${name}`, exact: true }).click()
   await page.getByRole('button', { name: `Send ${friends.length} ${friends.length === 1 ? 'invite' : 'invites'}` }).click()
   // The page stays, with each friend under "In this session". In the demo they accept one after another, some seconds apart (time to
   // take an invite back). A friend who has not accepted when the session starts is left out of it, so wait until all have joined.
   await expect(page.locator('.invite__tag', { hasText: 'Joined' })).toHaveCount(friends.length, { timeout: 30_000 })
   await page.getByTestId('invite-onward').click()
-  await expect(page.getByRole('heading', { level: 2, name: 'How do you want to pick the meeting point?' })).toBeVisible()
-  await page.getByTestId('start-next').click()
   await expect(page.getByRole('group', { name: 'Your locations' })).toBeVisible()
 }

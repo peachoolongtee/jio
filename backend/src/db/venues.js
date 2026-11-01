@@ -123,17 +123,22 @@ function namesOf(venue) {
  * Centre)", 140 m away. Distance alone is not enough for two hawker centres: neighbouring blocks are different centres.
  * `sameKindMeters: 0` turns the same-kind rule off, so only a similar name within `meters` counts. The search for a
  * place by name uses that: a café someone typed the name of is not hidden by an unrelated saved café 44 m away.
+ * `keepOtherCategories: true` is the category rule above, used for the saved OneMap pool, whose categories are guesses from a theme
+ * name: a similar name in another category is then a different place. It is off by default, so Google's places (whose categories are
+ * Google's own, and whose chain outlets repeat a curated name) are still dropped by name alone, as before: "Toast Box JEM" is not
+ * offered beside the curated Toast Box JEM because one of them is filed as a café and the other as food.
  *
  * How to call:
- *   const fresh = dropKnownPlaces(oneMapVenues, [...mockVenues, ...curatedVenues])
+ *   const fresh = dropKnownPlaces(googleVenues, [...mockVenues, ...curatedVenues])
+ *   const fresh = dropKnownPlaces(oneMapVenues, known, { keepOtherCategories: true })
  *   const fresh = dropKnownPlaces(searchedVenues, saved, { sameKindMeters: 0 }) // names only
  */
-export function dropKnownPlaces(candidates, known, { meters = 300, minSimilarity = 0.5, sameKindMeters = 50 } = {}) {
+export function dropKnownPlaces(candidates, known, { meters = 300, minSimilarity = 0.5, sameKindMeters = 50, keepOtherCategories = false } = {}) {
   return candidates.filter((c) => !known.some((k) => {
     const m = haversineKm(c, k) * 1000
-    const sameCategory = !c.category || !k.category || c.category === k.category
+    const sameCategory = !keepOtherCategories || !c.category || !k.category || c.category === k.category
     const similar = sameCategory && namesOf(c).some((a) => namesOf(k).some((b) => nameSimilarity(a, b) >= minSimilarity))
-    return (m <= meters && similar) ||(sameKindMeters > 0 && m <= sameKindMeters && c.kind && c.kind === (k.kind ?? k.cuisine))
+    return (m <= meters && similar) || (sameKindMeters > 0 && m <= sameKindMeters && c.kind && c.kind === (k.kind ?? k.cuisine))
   }))
 }
 
@@ -187,7 +192,7 @@ export function loadPlanData({ fresh = false, today = singaporeToday(), includeF
   const savedOnemap = onemapFile?.venues ?? []
   const { pool, excluded } = preparePool(savedOnemap)
   const knownList = [...mockVenues, ...curatedMerged]
-  const stillNew = new Set(dropKnownPlaces(pool, knownList).map((v) => v.id))
+  const stillNew = new Set(dropKnownPlaces(pool, knownList, { keepOtherCategories: true }).map((v) => v.id))
   const { venues: unique, clusters } = dedupeOneMapVenues(pool)
   const knownGroups = new Set(clusters.filter((ids) => ids.some((id) => !stillNew.has(id))).map((ids) => ids[0]))
   const onemapNew = unique.filter((v) => stillNew.has(v.id) && !knownGroups.has(v.id))

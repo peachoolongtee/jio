@@ -2,6 +2,7 @@
  "_meta": {
   "source": "frontend/src/lib/mock/venues.js",
   "convertedBy": "backend/scripts/build-venues.js",
+  "credit": "Addresses and points of the 92 places added on 31 October 2026 come from the OneMap search service, Singapore Land Authority (https://www.onemap.gov.sg), accessed 2026-10-31; the 63 places before them had their addresses checked on OneMap too, the date not recorded. A derived summary, for non-commercial use; see backend/docs/external-apis.md.",
   "note": "Do not edit by hand: edit the frontend file and re-run pnpm build:venues."
  },
  "venues": [
@@ -4068,7 +4069,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4125,7 +4127,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4192,7 +4195,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4249,7 +4253,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4316,7 +4321,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4373,7 +4379,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4430,7 +4437,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4497,7 +4505,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4564,7 +4573,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4621,7 +4631,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4688,7 +4699,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4745,7 +4757,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4812,7 +4825,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4869,7 +4883,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4936,7 +4951,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -4993,7 +5009,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5050,7 +5067,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5107,7 +5125,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5164,7 +5183,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5221,7 +5241,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5278,7 +5299,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5345,7 +5367,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5412,7 +5435,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5479,7 +5503,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5536,7 +5561,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5603,7 +5629,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5660,7 +5687,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5717,7 +5745,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5774,7 +5803,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5841,7 +5871,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5898,7 +5929,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -5955,7 +5987,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6022,7 +6055,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6079,7 +6113,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6146,7 +6181,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6203,7 +6239,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6270,7 +6307,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6327,7 +6365,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6384,7 +6423,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6441,7 +6481,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6498,7 +6539,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6555,7 +6597,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6622,7 +6665,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6679,7 +6723,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6736,7 +6781,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6793,7 +6839,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6860,7 +6907,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6917,7 +6965,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -6974,7 +7023,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7041,7 +7091,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7108,7 +7159,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7165,7 +7217,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7222,7 +7275,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7289,7 +7343,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7346,7 +7401,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7413,7 +7469,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7470,7 +7527,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7537,7 +7595,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7604,7 +7663,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7661,7 +7721,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7718,7 +7779,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7785,7 +7847,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7852,7 +7915,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7919,7 +7983,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -7976,7 +8041,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8033,7 +8099,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8090,7 +8157,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8147,7 +8215,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8214,7 +8283,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8281,7 +8351,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8349,7 +8420,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8416,7 +8488,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8473,7 +8546,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8530,7 +8604,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8587,7 +8662,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8644,7 +8720,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8711,7 +8788,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8778,7 +8856,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8835,7 +8914,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8892,7 +8972,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -8949,7 +9030,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -9006,7 +9088,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -9073,7 +9156,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -9140,7 +9224,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -9197,7 +9282,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -9254,7 +9340,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -9311,7 +9398,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -9368,7 +9456,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -9425,7 +9514,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -9482,7 +9572,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -9549,7 +9640,8 @@
     "dietUnknown": true,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   },
   {
@@ -9606,7 +9698,8 @@
     "dietUnknown": false,
     "accessUnknown": true,
     "ratingRescaledFrom10": true,
-    "forecastAreaApprox": true
+    "forecastAreaApprox": true,
+    "priceAssumed": true
    }
   }
  ]

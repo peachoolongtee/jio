@@ -41,7 +41,7 @@ function countingStubHttp() {
   }
 }
 
-// The 37 areas, for a group that is spread out.
+// Every area (145 now), for a group that is spread out.
 const AREAS = loadPlanData().areas.map((a) => a.id)
 const idOf = (i) => `00000000-0000-4000-8000-${i.toString(16).padStart(12, '0')}`
 

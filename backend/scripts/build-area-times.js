@@ -4,8 +4,8 @@
 //
 // Run it by hand, with the OneMap account in backend/.env, and STOP THE RUNNING SERVER FIRST: the account allows 300 calls a
 // minute for everyone, and a running server may use up to 240 of them (ONEMAP_CALLS_PER_MINUTE), so the two together can pass
-// the limit. The script makes about 666 calls for 37 areas (one for each pair: a trip and its way back take about the same
-// time), so it paces itself: at most `--per-minute` calls a minute (default 50, at most 120). When OneMap answers "too many
+// the limit. The script makes one call for each pair of areas (a trip and its way back take about the same
+// time): 10,440 for 145 areas, 666 for the first 37. So it paces itself: at most `--per-minute` calls a minute (default 50, at most 120). When OneMap answers "too many
 // requests" or fails it waits a minute and tries again; when it says that one trip has no route (400, 404 or 422) the pair is
 // written under `_meta.missing` and not asked for again. It saves after every 20 trips and starts again where it stopped, so
 // stopping it (Ctrl+C) loses nothing. If the areas changed since the saved file, the pairs of areas that are gone are dropped.

@@ -150,10 +150,10 @@
    "yishun"
   ],
   "builtAt": "2026-10-30T15:31:11.985Z",
-  "credit": "Travel times from the OneMap routing service, Singapore Land Authority (https://www.onemap.gov.sg), accessed 2026-10-30. A derived summary in minutes, for non-commercial use; see backend/docs/external-apis.md.",
+  "credit": "Travel times from the OneMap routing service, Singapore Land Authority (https://www.onemap.gov.sg), accessed 2026-10-21 to 2026-10-30. A derived summary in minutes, for non-commercial use; see backend/docs/external-apis.md.",
   "missing": [],
   "pairs": 10440,
-  "startedAt": "2026-10-30T14:11:39.344Z"
+  "startedAt": "2026-10-21T03:22:58.111Z"
  },
  "minutes": {
   "admiralty|aljunied": 55.5,

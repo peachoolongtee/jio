@@ -21,9 +21,9 @@
 // cannot be loaded, PlaceDetail says so (or, for a link to a place that is not there, a note appears on Home).
 // A failed load of the meetups or of the nearby places shows a message with a Retry button, never a skeleton for ever.
 // An outing past its end time with no confirmed plan gets a banner that says when it closes by itself (lib/session.js
-// overdueOuting). A confirmed one finishes by itself: when its end time passes while Home is open, the list is read again,
-// which completes it (lib/api.js settleOutings). A shared outing is finished by its host, from its day on, so past its end time it gets a
-// banner of its own that says so (nothing closes it by a clock).
+// overdueOuting). A confirmed one is finished by its host, never by the clock ("Finish outing"), and a shared outing likewise, so past
+// its end time it gets a banner that says so. Outings past their end time are listed after the ones still to come, take no pin while
+// another meetup can have it, and with several there is one banner for them all (review of 1 November 2026).
 // "Already out?" is not on Home any more: it is the "Already out" choice on Create session (walkthrough, 30 October 2026), reached
 // from the navigation's Create, so there is one way to start a light meetup.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -54,7 +54,7 @@ import MeetupPins from '@/components/home/MeetupPins.vue'
 import AddFriends from '@/components/home/AddFriends.vue'
 import LiquidMetalButton from '@/components/ui/LiquidMetalButton.vue'
 import * as api from '@/lib/api.js'
-import { MEETUP_RANGES, activeMeetups, needsMe, allMeetupsLabel, dayLabel, defaultRange, homeList, meetupsIn, pinName, pinsFor, rangeCounts, selectMeetup } from '@/lib/homeMeetups.js'
+import { MEETUP_RANGES, activeMeetups, needsMe, allMeetupsLabel, dayLabel, defaultRange, homeList, meetupsIn, pinName, pinnedMeetups, pinsFor, rangeCounts, selectMeetup } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useHomeRain } from '@/lib/useHomeRain.js'
@@ -135,12 +135,15 @@ const hasMeetups = computed(() => meetups.value.length > 0)
 // week (or All when nothing is on this week). A chip with nothing in it is faded and cannot be chosen. The selected meetup comes from the
 // chip's meetups, so the card, the rows and the pins always agree.
 const rangePicked = ref(null)
+// What a screen reader hears when a filter or the selected meetup changes (the status under the list).
+const announce = ref('')
 const range = computed(() => rangePicked.value ?? defaultRange(meetups.value, now.value))
 const counts = computed(() => rangeCounts(meetups.value, now.value))
 const inWeek = computed(() => meetupsIn(meetups.value, range.value, now.value))
 // "Your turn", a check chip after the week chips (as Rewards' "Can claim"): every meetup waiting on the person, whatever its week, so one
 // that needs a vote next week is not missed on This week (Faith, 31 October 2026). It counts them all and shows while at least one is.
-// Turning it on moves the chips to All and lists only those; turning it off leaves All with every meetup; picking a week turns it off.
+// Turning it on lists only those and leaves no week chip chosen (the list is not any one week's, and All would count more than it shows);
+// turning it off goes back to the week that was chosen; picking a week turns it off. Each change is announced.
 const onlyMine = ref(false)
 const allMine = computed(() => meetups.value.filter((m) => needsMe(m, auth.myId)))
 const inRangeMeetups = computed(() => (onlyMine.value && allMine.value.length ? allMine.value : inWeek.value))
@@ -149,11 +152,14 @@ function pickRange(id) {
   if (!counts.value[id]) return
   rangePicked.value = id
   onlyMine.value = false
+  const n = counts.value[id]
+  announce.value = `Showing ${MEETUP_RANGES.find((r) => r.id === id).label.toLowerCase()}, ${n} ${n === 1 ? 'meetup' : 'meetups'}`
 }
 // How to call: toggleMine()
 function toggleMine() {
   onlyMine.value = !onlyMine.value
-  if (onlyMine.value) rangePicked.value = 'all'
+  const n = allMine.value.length
+  announce.value = onlyMine.value ? `Showing only the ${n} ${n === 1 ? 'meetup' : 'meetups'} waiting for you` : `Showing ${MEETUP_RANGES.find((r) => r.id === range.value).label.toLowerCase()} again`
 }
 // "Your meetups" lists a few (lib/homeMeetups.js homeList), and the selected one is one of them, so the card, the rows and the pins
 // agree and picking a pin changes nothing else on the map. "See all N meetups" opens Sessions when there are more, or finished ones.
@@ -164,15 +170,20 @@ const hasFinished = computed(() => sessions.value.length > meetups.value.length)
 const moreMeetups = computed(() => meetups.value.length > shownMeetups.value.length || hasFinished.value)
 const area = computed(() => selected.value?.area || null)
 
-// Outings past their end time that have not been completed, each with when it closes by itself. A confirmed one is left
-// out: it is finishing (below).
+// Outings past their end time that have not been completed, each with when it closes by itself (none for a confirmed or a shared one,
+// which its host finishes). One that is due to close this very read is left out: it is closing (below).
 const overdue = computed(() =>
   meetups.value.flatMap((s) => {
     const late = overdueOuting(s, now.value)
     return late && !dueEnding(s, now.value) ? [{ session: s, closes: late.closesAt ? singaporeDayTime(late.closesAt) : null }] : []
   }),
 )
-// A confirmed outing whose end time has passed: reading the list again finishes it and pays its coins (lib/api.js settleOutings).
+// The names of the outings the single note lists, a few and a count of the rest. How to call: overdueTitles.value -> 'Dinner, Hike and 2 more'
+const overdueTitles = computed(() => {
+  const titles = overdue.value.map((o) => o.session.title || 'Untitled')
+  return titles.length <= 2 ? titles.join(' and ') : `${titles.slice(0, 2).join(', ')} and ${titles.length - 2} more`
+})
+// An outing with no plan, two days past its end time: reading the list again closes it with no coins (lib/api.js settleOutings).
 // Run when Home opens, since the store may already be loaded with an outing that ended while the person was on another page
 // (nothing then changes for the watcher below to notice), and again whenever the clock crosses an end time while Home is open.
 // How to call: settleDue() (the clock is read again, as the shared one may be older than the page)
@@ -190,7 +201,6 @@ watch(
 // Selecting by pin or by row is the same thing: put the id in the address (replacing the entry, so Back does not
 // step through selections) and keep any other part of the address, such as an open place.
 // How to call: select('s3')
-const announce = ref('')
 function select(id) {
   if (id === selected.value?.id) return
   announce.value = `${meetups.value.find((m) => m.id === id)?.title || 'Meetup'} selected`
@@ -246,7 +256,8 @@ watch(() => selected.value?.id, (id, before) => { if (id && before && id !== bef
 // list, and that one is pinned.
 const pins = computed(() => {
   const byId = Object.fromEntries(meetups.value.map((m) => [m.id, m]))
-  const pinned = meetups.value.length > 1 ? shownMeetups.value : meetups.value
+  // Outings past their end time are listed after the others but take no pin while another meetup can have it.
+  const pinned = meetups.value.length > 1 ? pinnedMeetups(shownMeetups.value, now.value) : meetups.value
   return pinsFor(pinned).map((pin) => ({ ...pin, label: dayLabel(byId[pin.id], now.value), name: pinName(byId[pin.id], now.value) }))
 })
 
@@ -466,7 +477,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
            on phones, top right from 744px. -->
       <div class="home__tools">
         <AddFriends />
-        <LiquidMetalButton label="Find places from a post" to="/places/from-post" icon="sparkles" data-testid="home-post-places" />
+        <LiquidMetalButton label="Find places from a post" caption="From a post" to="/places/from-post" icon="sparkles" data-testid="home-post-places" />
       </div>
       <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
         <UserAvatar :name="auth.user?.name ?? ''" :src="auth.user?.photo" :person="auth.myId" :size="44" />
@@ -504,10 +515,15 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 
     <div class="screen__body home__body">
       <InvitationList />
-      <BannerNote v-for="o in overdue" :key="o.session.id" tone="warning" icon="clock" data-testid="home-overdue">
+      <BannerNote v-for="o in overdue.length > 1 ? [] : overdue" :key="o.session.id" tone="warning" icon="clock" data-testid="home-overdue">
         <template v-if="o.closes">{{ o.session.title }} has passed its end time without a confirmed plan. It closes by itself on {{ o.closes }}.</template>
         <template v-else>{{ o.session.title }} has passed its end time. It stays open until its host finishes it.</template>
         <template #actions><AppButton variant="secondary" small :to="sessionPath(o.session)">Open outing</AppButton></template>
+      </BannerNote>
+      <!-- Several past their end time: one note, not one each, with the way to the list. -->
+      <BannerNote v-if="overdue.length > 1" tone="warning" icon="clock" data-testid="home-overdue">
+        {{ overdue.length }} outings have passed their end time and are not finished: {{ overdueTitles }}.
+        <template #actions><AppButton variant="secondary" small to="/sessions">See all meetups</AppButton></template>
       </BannerNote>
       <BannerNote v-if="missingPlace" tone="warning" icon="warning" dismissible @dismiss="missingPlace = false">That place could not be found.</BannerNote>
       <!-- No meetup going: the ones before. Nothing at all until there is one. -->
@@ -530,7 +546,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
           </div>
           <div class="home__filters">
             <div class="scroll-x home__ranges" role="radiogroup" v-radio-group aria-label="Show meetups for" data-testid="meetup-ranges">
-              <ChipButton v-for="r in MEETUP_RANGES" :key="r.id" radio :selected="range === r.id" :disabled="!counts[r.id]" :aria-label="`${r.label}, ${counts[r.id]} ${counts[r.id] === 1 ? 'meetup' : 'meetups'}`" @click="pickRange(r.id)">{{ r.label }}<span class="home__range-count tnum" aria-hidden="true">{{ counts[r.id] }}</span></ChipButton>
+              <ChipButton v-for="r in MEETUP_RANGES" :key="r.id" radio :selected="!onlyMine && range === r.id" :disabled="!counts[r.id]" :aria-label="`${r.label}, ${counts[r.id]} ${counts[r.id] === 1 ? 'meetup' : 'meetups'}`" @click="pickRange(r.id)">{{ r.label }}<span class="home__range-count tnum" aria-hidden="true">{{ counts[r.id] }}</span></ChipButton>
             </div>
             <ChipButton v-if="allMine.length" check :selected="onlyMine" :aria-label="`Your turn, ${allMine.length} ${allMine.length === 1 ? 'meetup' : 'meetups'}`" data-testid="your-turn-filter" @click="toggleMine">Your turn<span class="home__range-count tnum" aria-hidden="true">{{ allMine.length }}</span></ChipButton>
           </div>

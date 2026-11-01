@@ -13,8 +13,8 @@
 // Invite are one stop in the browser's history (each replaces the other), so Back in the browser never returns to an
 // empty create form.
 // How the meeting point is picked is not asked here: it is the Start choice (StartView), when the host starts the session.
-// How a new session starts is chosen before this page, in the navigation's Create menu (TabBar, walkthrough, 30 October 2026):
-// "New session" opens the form above (/sessions/new); "Already out" opens it in its own mode (/sessions/new?start=out), which was
+// How a new session starts: the navigation's Create opens this form (/sessions/new; it has no menu, walkthrough, 31 October 2026). A
+// link beside the title, "Already out?" (the demo and local accounts only), opens it in its own mode (/sessions/new?start=out), which was
 // Home's "Already out? Find something nearby" (RoamFromHome) before it moved here. It is titled "Already out", hides the day and
 // times (it is today, from now), asks "Where are you?" (LocationSheet: an area, the home area or the current location), and its button,
 // "Find places nearby", starts a light meetup there (events.startRoam) and opens its itinerary, the list of places nearby. The title is
@@ -198,7 +198,7 @@ async function next() {
       <!-- The title, and beside it for a new session the way to start out already (a secondary button, outside the form's card). -->
       <div class="screen__titles create__titles">
         <h1 class="display-xl">{{ editing ? 'Edit session' : out ? START_MODES.out.label : 'Create session' }}</h1>
-        <AppButton v-if="!out && canGoOut" variant="pill" class="create__out" :to="START_MODES.out.to" data-testid="create-already-out"><span class="create__out-icon" aria-hidden="true"><AppIcon name="locate" :size="16" /></span>Already out? {{ START_MODES.out.hint }}<AppIcon name="chevron-right" :size="16" /></AppButton>
+        <AppButton v-if="!out && canGoOut" variant="secondary" class="create__out" :to="START_MODES.out.to" data-testid="create-already-out"><AppIcon name="locate" :size="16" />Already out? <span class="sr-only">{{ START_MODES.out.hint }}</span></AppButton>
       </div>
     </header>
 
@@ -263,12 +263,9 @@ async function next() {
 /* The title, and "Already out?" at the other end of its row; it wraps under the title on a narrow phone. */
 .create__titles { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm) var(--spacing-md); }
 .create__titles h1 { margin: 0; }
-/* "Already out?": the red pill (AppButton's pill), with the icon in a light circle and a soft red glow that lifts on hover. */
-.create__out.btn--pill { gap: var(--spacing-sm); padding: 0 var(--spacing-base) 0 6px; box-shadow: 0 4px 14px color-mix(in srgb, var(--primary) 30%, transparent); font-weight: 600; transition: background-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
-.create__out-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--rounded-full); background: color-mix(in srgb, var(--on-primary) 22%, transparent); }
-@media (hover: hover) { .create__out.btn--pill:hover { box-shadow: 0 6px 18px color-mix(in srgb, var(--primary) 40%, transparent); transform: translateY(-1px); } }
-.create__out.btn--pill:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
-@media (prefers-reduced-motion: reduce) { .create__out.btn--pill { transition: none; } .create__out.btn--pill:hover { transform: none; } }
+/* "Already out?": a quiet outline button beside the title, so the red "Next" stays the one loud control. Short, so it fits at 320 px; its
+   full name, "Already out? Find places near you now", is read out (the hidden part). */
+.create__out { gap: var(--spacing-sm); flex: none; }
 /* Next at the foot of the card: full width on a phone, right-aligned at a normal width from tablet up. */
 .create__actions { display: flex; justify-content: flex-end; padding-top: var(--spacing-md); border-top: 1px solid var(--hairline); }
 @media (min-width: 744px) { .create__actions > .btn.btn--block { width: auto; min-width: 200px; } }

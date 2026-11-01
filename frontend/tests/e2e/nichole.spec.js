@@ -10,8 +10,8 @@ import { test, expect, signInDemo, createSession, inviteAndStart, setTime, dayNa
 // Starting state: the demo account on Home with no meetups. The browser's clock is Wed 4 Nov 2026, 10:00 in Singapore, so
 // "yesterday" is Tue 3 Nov and "a start that has passed today" is anything up to 10:00 on Wed 4 Nov.
 // Steps: open Create and type a title; yesterday is a disabled day, so Next stays blocked; pick today and set a start of 09:00,
-// which shows its message; pick a day ahead, which clears it, and Next goes on to Invite.
-// Checked at the end: the Invite screen is open for the new session.
+// which shows its message; pick a day ahead, which clears it, and Next goes on to the Start choice.
+// Checked at the end: the Start choice is open for the new session.
 // Good to know: the app refuses a past DAY by greying the day out, not by a message, so that is what the test checks. The message
 // "That start time has already passed today." is for a start time earlier today.
 test.describe('Session rules', () => {
@@ -39,15 +39,15 @@ test.describe('Session rules', () => {
     await expect(page.getByText('That start time has already passed today.')).toBeHidden()
     await expect(next).toBeEnabled()
     await next.click()
-    await expect(page).toHaveURL(/\/sessions\/[^/]+\/invite$/)
-    await expect(page.getByRole('heading', { level: 1, name: 'Invite friends' })).toBeVisible()
+    await expect(page).toHaveURL(/\/sessions\/[^/]+\/start$/)
+    await expect(page.getByRole('heading', { level: 2, name: 'How do you want to pick the meeting point?' })).toBeVisible()
   })
 
   // What it proves: the host can rename a session and move its date while it is inviting, and once Start session has been
   // pressed the date and times can no longer be changed.
   // Starting state: the demo account on Home with no meetups; a session made through the form for Sat 7 Nov.
-  // Steps: on Invite, go back to the form, rename the session and move it to Sun 8 Nov, Next; see the new title and date on the
-  // session page; invite Darius, press Start session, choose the fairest spot; then open the Create step from the steps bar.
+  // Steps: on the Start choice, go back to the form, rename the session and move it to Sun 8 Nov, Next; see the new title and date on the
+  // session page; keep the fairest spot, invite Darius, press Start session; then open the Create step from the steps bar.
   // Checked at the end: the form is replaced by "The date and times are locked once a session has started." and has no title field,
   // calendar or time fields.
   // Good to know: the brief expected the title to stay editable after the start. In this build it does not: the whole edit form,
@@ -58,13 +58,13 @@ test.describe('Session rules', () => {
     await createSession(page, { title: 'Before the rename', day: daysAhead(3) })
 
     // 1. While inviting: back to the form, change the title and the day.
-    await page.getByRole('link', { name: 'Back to date and times' }).click()
+    await page.getByRole('link', { name: 'Back', exact: true }).click()
     await expect(page.getByRole('heading', { level: 1, name: 'Edit session' })).toBeVisible()
     await expect(page.getByLabel('Title', { exact: true })).toHaveValue('Before the rename')
     await page.getByLabel('Title', { exact: true }).fill('After the rename')
     await page.getByRole('button', { name: dayName(daysAhead(4)) }).click()
     await page.getByRole('button', { name: 'Next', exact: true }).click()
-    await expect(page.getByRole('heading', { level: 1, name: 'Invite friends' })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 2, name: 'How do you want to pick the meeting point?' })).toBeVisible()
     await expect(page.getByText('After the rename', { exact: true })).toBeVisible()
 
     // 2. Invite one friend and start. The session page shows the new title and Sunday 8 Nov.

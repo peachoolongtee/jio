@@ -370,6 +370,76 @@ describe('PUT /api/sessions/:id/dietary (the host’s dropped needs)', () => {
     expect((await get(HOST)).body).toMatchObject({ dropped: [], dietary: ['halal', 'vegan'] })
   })
 
+  describe('lifting a drop is a member’s only for a need that is theirs alone', () => {
+    const rowOf = (who) => dietaryRows().find((d) => d.user_id === who)
+
+    it('refuses a member who claims the need and lifts the drop in one request, and writes nothing', async () => {
+      await start()
+      await put(HOST, { dropped: ['halal'] })
+      const before = writes().length
+      const res = await put(OTHER, { mine: ['halal'], dropped: [] })
+      expect(res.status).toBe(403)
+      expect(res.body.error).toBe('host_only')
+      expect(droppedRows()).toEqual(['halal'])
+      expect(rowOf(OTHER)).toBeUndefined()
+      expect(writes().length).toBe(before)
+    })
+
+    it('refuses the same member in two requests: the claim is allowed, the lift is not, while someone else has the need', async () => {
+      await start()
+      await put(HOST, { dropped: ['halal'] })
+      const claim = await put(OTHER, { mine: ['halal'] })
+      expect(claim.status).toBe(200)
+      expect(claim.body).toMatchObject({ mine: ['halal'], dropped: ['halal'] })
+      const lift = await put(OTHER, { mine: ['halal'], dropped: [] })
+      expect(lift.status).toBe(403)
+      expect(lift.body.error).toBe('host_only')
+      // Taking the need off again after the refused lift leaves it dropped, as it was.
+      expect((await put(OTHER, { mine: [], dropped: [] })).body.error).toBe('host_only')
+      expect(droppedRows()).toEqual(['halal'])
+      expect((await get(HOST)).body).toMatchObject({ dropped: ['halal'], dietary: ['vegan'] })
+    })
+
+    it('refuses a member who shares the need with another member, the host included', async () => {
+      await start({ profiles: { [HOST]: ['vegan'], [GUEST]: ['halal'], [OTHER]: ['halal'] } })
+      await put(HOST, { dropped: ['halal'] })
+      const res = await put(GUEST, { mine: ['halal'], dropped: [] })
+      expect(res.status).toBe(403)
+      expect(res.body.error).toBe('host_only')
+      expect(droppedRows()).toEqual(['halal'])
+      // The host holding it too is another holder: the guest cannot lift a drop that also covers the host's need.
+      await start({ profiles: { [HOST]: ['halal'], [GUEST]: ['halal'], [OTHER]: [] } })
+      await put(HOST, { dropped: ['halal'] })
+      expect((await put(GUEST, { mine: ['halal'], dropped: [] })).body.error).toBe('host_only')
+      expect(droppedRows()).toEqual(['halal'])
+      // The host can take it back.
+      expect((await put(HOST, { dropped: [] })).body).toMatchObject({ dropped: [] })
+    })
+
+    it('lets the sole holder lift it, with the need in their row before the request', async () => {
+      await start()
+      await put(HOST, { dropped: ['halal'] })
+      // A saved row of their own, from an earlier request, counts as well as the profile's.
+      await put(GUEST, { mine: ['halal', 'vegetarian'] })
+      const res = await put(GUEST, { mine: ['halal', 'vegetarian'], dropped: [] })
+      expect(res.status).toBe(200)
+      expect(res.body).toMatchObject({ dropped: [], dietary: expect.arrayContaining(['halal']) })
+      expect(droppedRows()).toEqual([])
+    })
+
+    it('leaves a drop of another need alone when a sole holder lifts theirs', async () => {
+      await start({ profiles: { [HOST]: ['vegan'], [GUEST]: ['halal'], [OTHER]: ['vegetarian'] } })
+      await put(HOST, { dropped: ['halal', 'vegetarian'] })
+      // GUEST lifts halal (theirs alone) but asks to lift vegetarian too (OTHER's): refused whole.
+      expect((await put(GUEST, { mine: ['halal'], dropped: [] })).body.error).toBe('host_only')
+      expect(droppedRows().sort()).toEqual(['halal', 'vegetarian'])
+      const ok = await put(GUEST, { mine: ['halal'], dropped: ['vegetarian'] })
+      expect(ok.status).toBe(200)
+      expect(ok.body).toMatchObject({ dropped: ['vegetarian'] })
+      expect(droppedRows()).toEqual(['vegetarian'])
+    })
+  })
+
   it('takes a drop off the rankings: the needs a ranking reads are the outing’s, without the dropped ones', async () => {
     await start()
     const service = fakeSupabase(world, null).service

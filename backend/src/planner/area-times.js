@@ -22,6 +22,8 @@ import { haversineKm, mockTravelMinutes } from './geo.js';
 export const NEAREST_AREAS = 3;
 // A point this close to an area's centre is that area (a session's member starts at the centre): only it is used at that end.
 export const AT_CENTRE_KM = 0.05;
+// How many points an estimator remembers the nearest areas of before it starts again (each is a small array; a pool of venues is under 2,000).
+export const NEAREST_MEMO_MAX = 20000;
 // The hop from a point to an area's station, in minutes: a fixed part for reaching and waiting at a station (growing from 0 to
 // ACCESS_FIXED_MINUTES over the first ACCESS_RAMP_KM) and ACCESS_MINUTES_PER_KM for each km (walking, or a feeder bus with its wait). The step
 // where the hop starts (AT_CENTRE_KM, a point on an area's centre has none) is under a minute, not zero. PROVISIONAL: fitted to 73 live OneMap
@@ -130,7 +132,14 @@ export function createAreaEstimator({ areas, table }) {
     for (const id of [x, y]) shortestLeaving.set(id, Math.min(shortestLeaving.get(id) ?? Infinity, minutes));
   }
   // The NEAREST_AREAS areas nearest a point, nearest first: [{ area, km }]. Only the nearest, for a point on an area's centre.
+  // Worked out once per coordinate: a ranking asks about the same few thousand points (every venue, every member) many times, and each
+  // answer would otherwise scan every area. The answers are never changed by a caller. The memory is emptied when it passes
+  // NEAREST_MEMO_MAX points, so a stream of arbitrary coordinates cannot grow it without end.
+  const memo = new Map();
   const nearest = point => {
+    const key = `${point.lat},${point.lng}`;
+    const known = memo.get(key);
+    if (known !== undefined) return known;
     const few = [];
     for (const area of areas) {
       const km = haversineKm(point, area);
@@ -139,7 +148,10 @@ export function createAreaEstimator({ areas, table }) {
       few.sort((x, y) => x.km - y.km);
       if (few.length > NEAREST_AREAS) few.pop();
     }
-    return few[0].km < AT_CENTRE_KM ? [few[0]] : few;
+    const found = few[0].km < AT_CENTRE_KM ? [few[0]] : few;
+    if (memo.size >= NEAREST_MEMO_MAX) memo.clear();
+    memo.set(key, found);
+    return found;
   };
   function tableMinutes(a, b) {
     const from = nearest(a), to = nearest(b);

@@ -7,7 +7,8 @@ import { test, expect, signInDemo, createSession, inviteAndStart, openDemoTools 
 async function reachVote(page) {
 
   await signInDemo(page)
-  await createSession(page, { title: 'Plan an outing' })
+  // A long day (the form's own three hours hold only three of the four kinds of stop, and the plan drops the one that does not fit)
+  await createSession(page, { title: 'Plan an outing', end: '20:00' })
   await inviteAndStart(page, ['Darius', 'Nicole'])
   await page.getByRole('button', { name: 'Starting from Add where you are starting' }).click()
   await page.getByRole('textbox', { name: 'Place or postal code' }).fill('Bishan')
@@ -57,7 +58,7 @@ test.describe('Planning an outing', () => {
     await plan.getByRole('button', { name: 'Confirm', exact: true }).click();
     await expect(plan).toBeHidden()
     await expect(page.getByRole('region', { name: 'Plan confirmed' })).toBeVisible()
-    await page.getByRole('link', { name: 'Save plan' }).click();
+    // Confirming opens the itinerary straight away: there is no "Save plan" link any more
 
     await expect(page).toHaveURL(/\/sessions\/[^/]+\/itinerary$/)
     await expect(page.getByRole('list', { name: 'Stops' }).getByRole('article')).toHaveCount(count)

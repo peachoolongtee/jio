@@ -44,7 +44,7 @@
 // itinerary and goes back there; "Keep this stop" goes back without a change. Nobody votes again and the plan stays confirmed.
 // Only the host may replace a stop (anyone else sees a sentence saying so and the way back). The header lights Itinerary
 // and goes back to it, as on the photos and the map. Only a list of the category the tabs show is ever on the page.
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -126,7 +126,34 @@ const cdcOnly = ref(false)
 // something is typed. A press anywhere else closes it.
 const findEl = ref(null)
 const findFocused = ref(false)
-const findOpen = computed(() => findFocused.value || !!finding.value.query.trim())
+// Escape shuts the panel while the box keeps focus; typing or moving focus into the box again opens it.
+const findShut = ref(false)
+const findOpen = computed(() => !findShut.value && (findFocused.value || !!finding.value.query.trim()))
+const findPanelId = `find-panel-${useId()}`
+// Escape in the box or the panel: close the panel and, from inside the panel, hand focus back to the box.
+// How to call: <div @keydown.esc="onFindEscape">
+function onFindEscape(event) {
+  if (!findOpen.value) return
+  findShut.value = true
+  event.stopPropagation()
+  if (!isInput(event.target)) findEl.value?.querySelector('input')?.focus()
+}
+const isInput = (el) => String(el?.tagName || el?.tag || '').toLowerCase() === 'input'
+// Focus coming into the box from outside opens the panel again. How to call: <div @focusin="onFindFocusIn">
+function onFindFocusIn(event) {
+  if (!findFocused.value && isInput(event.target)) findShut.value = false
+  findFocused.value = true
+}
+// What a screen reader hears as the search works: that it is looking, then how many places came back.
+// How to call: findStatus.value -> '3 places found'
+const findStatus = computed(() => {
+  if (!findOpen.value) return ''
+  const f = finding.value
+  if (f.busy) return 'Searching…'
+  const n = f.results.length
+  if (f.query.trim()) return n ? `${n} ${n === 1 ? 'place' : 'places'} found` : 'No places found'
+  return n ? `${n} suggested ${n === 1 ? 'place' : 'places'}` : ''
+})
 // How to call: <div @focusout="onFindFocusOut">
 function onFindFocusOut(event) {
   if (event.relatedTarget && !findEl.value?.contains(event.relatedTarget)) findFocused.value = false
@@ -298,6 +325,8 @@ async function findPlaces(q) {
     error.value = e.message
   }
 }
+// Typing opens a panel Escape shut.
+watch(() => finding.value.query, () => { findShut.value = false })
 watch([() => finding.value.query, filter, cdcOnly, findOpen], ([q]) => {
   clearTimeout(searchTimer)
   // A short pause after typing, so each word typed costs one search (and at most one Google call), not one a letter.
@@ -376,18 +405,32 @@ const radius = computed(() => plan.value?.radius ?? null)
 // natively disabled button would lose keyboard focus and throw the person out to the page). The row is one Tab stop and the
 // arrow keys choose, as the Show chips do (v-radio-group).
 const settingRadius = ref(false)
+// The newest value asked for while a save was running, as { metres }, or null. The slider keeps moving while a save runs, so its last
+// value waits here and is saved next, never dropped (null metres is Auto, hence the wrapper).
+let queuedRadius = null
+// Save a radius. A value asked for while one is being saved waits and is saved after it (only the newest of them); the draft the
+// slider and switch show is let go only when the value saved is the one it shows, so it never snaps back past a newer one.
 // How to call: await setRadius(1000)
 async function setRadius(metres) {
-  if (metres === radius.value || settingRadius.value) return
-  settingRadius.value = true
-  error.value = ''
-  try {
-    await planner.setRadius(props.id, metres)
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    settingRadius.value = false
+  if (settingRadius.value) {
+    queuedRadius = { metres }
+    return
   }
+  if (metres !== radius.value) {
+    settingRadius.value = true
+    error.value = ''
+    try {
+      await planner.setRadius(props.id, metres)
+    } catch (e) {
+      error.value = e.message
+    } finally {
+      settingRadius.value = false
+    }
+  }
+  if (draftRadius.value === metres) draftRadius.value = undefined
+  const next = queuedRadius
+  queuedRadius = null
+  if (next) await setRadius(next.metres)
 }
 // The smallest choice that reaches `km`, for "Widen to ...". How to call: radiusFor(1.4) -> 2000
 const radiusFor = (km) => RADII.find((m) => m != null && m >= km * 1000) ?? null
@@ -405,18 +448,16 @@ const autoRadius = computed({
     clearTimeout(radiusTimer)
     draftRadius.value = on ? null : MANUAL_START
     await setRadius(draftRadius.value)
-    draftRadius.value = undefined
   },
 })
 const radiusStep = computed({
-  get: () => Math.max(0, MANUAL_RADII.indexOf(shownRadius.value ?? MANUAL_START)),
+  // Under Auto the thumb rests at the far end, 3 km, the most Auto will look (the switch says "up to 3 km"); it used to sit at 1 km while
+  // the words said Auto.
+  get: () => (shownRadius.value == null ? MANUAL_RADII.length - 1 : Math.max(0, MANUAL_RADII.indexOf(shownRadius.value))),
   set: (i) => {
     draftRadius.value = MANUAL_RADII[i]
     clearTimeout(radiusTimer)
-    radiusTimer = setTimeout(async () => {
-      await setRadius(MANUAL_RADII[i])
-      draftRadius.value = undefined
-    }, RADIUS_SETTLE_MS)
+    radiusTimer = setTimeout(() => setRadius(MANUAL_RADII[i]), RADIUS_SETTLE_MS)
   },
 })
 let radiusTimer = 0
@@ -453,10 +494,6 @@ async function refilter(work) {
     refiltering.value = false
   }
 }
-// How to call: sameNeeds(['halal'], ['halal']) -> true
-const sameNeeds = (a = [], b = []) => a.length === b.length && a.every((n) => b.includes(n))
-// True when { mine, dropped } differs from what the outing already has. How to call: dietChanges({ mine: ['halal'], dropped: [] })
-const dietChanges = ({ mine, dropped }) => !sameNeeds(mine, plan.value?.myDietary) || !sameNeeds(dropped, plan.value?.dietDropped)
 // True while the group's choice of places runs (the same rule as the radius chips: clicks are ignored meanwhile).
 const settingDiet = ref(false)
 // Show the food places we could not confirm, or only the ones that fit.
@@ -474,20 +511,8 @@ async function showUnconfirmed(on) {
   }
 }
 
-// "Confirm dietary needs": opens by itself while voting until the signed-in person has confirmed for this outing. (Replacing a
-// stop is for a confirmed plan, never while voting, so it never opens there.) Each value is compared on its own, so the session
-// being read again does not count as a change; a dialog answered on this page is never opened again for the outing, even
-// while the plan that says so is still loading; and it closes once the plan says it is confirmed (in another tab, say).
-const dietOpen = ref(false)
-const dietBusy = ref(false)
-const dietError = ref('')
-const dietChecked = computed(() => plan.value?.dietChecked)
-const hasMeeting = computed(() => !!session.value?.meeting)
-const dietAnswered = new Set()
-// The dialog no longer opens by itself (the needs start from the profile, and the chips below change them); it stays for a later way in.
-watch(dietChecked, (checked) => {
-  if (checked === true) dietOpen.value = false
-})
+// The "Confirm dietary needs" dialog is not on this page any more (the needs start from the profile, and the chips below change them);
+// DietaryConfirm.vue is kept for a later way in, and the page's code for it was removed on 1 November 2026.
 // A need's name for its tag. How to call: needLabel('halal') -> 'Halal'
 const needLabel = (need) => DIETARY_OPTIONS.find((o) => o.value === need)?.label ?? need
 // The change being saved, { mine, dropped }, or null. The tags and chips show it at once, while the places load behind them.
@@ -518,34 +543,6 @@ async function saveDiet({ mine, dropped }) {
     if (answer?.syncError) error.value = answer.syncError
   } catch (e) {
     error.value = e.message
-  } finally {
-    pendingDiet.value = null
-    dietBusy.value = false
-  }
-}
-
-// answer: { mine, dropped } from the dialog: the person's own needs, and the others' needs the group should not filter for.
-// How to call: await confirmDiet({ mine: ['halal'], dropped: [] })
-async function confirmDiet({ mine, dropped }) {
-  if (dietBusy.value) return
-  dietBusy.value = true
-  dietError.value = ''
-  // A change closes the dialog at once and shows the list loading behind it; confirming the needs as they are just saves.
-  const changes = dietChanges({ mine, dropped })
-  if (changes) {
-    dietAnswered.add(props.id)
-    dietOpen.value = false
-    pendingDiet.value = { mine, dropped }
-  }
-  try {
-    const answer = await (changes ? refilter(() => planner.confirmDiet(props.id, mine, dropped)) : planner.confirmDiet(props.id, mine, dropped))
-    dietAnswered.add(props.id)
-    dietOpen.value = false
-    // Saved here but not to the account: said under the votes, as the page says other failures.
-    if (answer?.syncError) error.value = answer.syncError
-  } catch (e) {
-    dietError.value = e.message
-    dietOpen.value = true
   } finally {
     pendingDiet.value = null
     dietBusy.value = false
@@ -923,18 +920,19 @@ async function keepDialog(e) {
             </ChipButton>
           </div>
           <span class="filter__rule" aria-hidden="true"></span>
-          <ChipButton check :selected="cdcView" title="Eat and Drink show only places that take CDC vouchers" data-testid="list-cdc" @click="cdcView = !cdcView">CDC vouchers</ChipButton>
+          <ChipButton check :selected="cdcView" title="Eat and Drink show only places that take CDC vouchers" data-testid="list-cdc" @click="cdcView = !cdcView">CDC vouchers in Eat and Drink</ChipButton>
         </div>
 
         <!-- Search for a place to add, in the category the filter shows (or every category). -->
-        <div v-if="voting && slots.length && !optedOut" ref="findEl" class="find" data-testid="place-search" @focusin="findFocused = true" @focusout="onFindFocusOut">
-          <TextField v-model="finding.query" :label="filter ? `Search ${CATEGORY_LABELS[filter]} places` : 'Search places'" hide-label :placeholder="filter ? `Search ${CATEGORY_LABELS[filter]} places to add` : 'Search places to add'" type="search" inputmode="search" autocomplete="off">
+        <div v-if="voting && slots.length && !optedOut" ref="findEl" class="find" data-testid="place-search" @focusin="onFindFocusIn" @focusout="onFindFocusOut" @keydown.esc="onFindEscape">
+          <TextField v-model="finding.query" :label="filter ? `Search ${CATEGORY_LABELS[filter]} places` : 'Search places'" hide-label :placeholder="filter ? `Search ${CATEGORY_LABELS[filter]} places to add` : 'Search places to add'" type="search" inputmode="search" autocomplete="off" role="combobox" aria-autocomplete="list" :aria-expanded="findOpen ? 'true' : 'false'" :aria-controls="findPanelId">
             <template #leading><AppIcon name="search" :size="18" /></template>
           </TextField>
           <!-- Open while the box is in use: the CDC toggle on top, then suggestions (nothing typed) or what was found. -->
-          <div v-if="findOpen" class="find__panel" data-testid="search-panel">
+          <p class="sr-only" role="status" data-testid="search-status">{{ findStatus }}</p>
+          <div v-if="findOpen" :id="findPanelId" class="find__panel" data-testid="search-panel">
             <div class="find__filters">
-              <ChipButton check :selected="cdcOnly" data-testid="search-cdc" @click="cdcOnly = !cdcOnly">CDC vouchers only</ChipButton>
+              <ChipButton check :selected="cdcOnly" data-testid="search-cdc" @click="cdcOnly = !cdcOnly">Search CDC vouchers only</ChipButton>
             </div>
             <p v-if="!finding.query.trim() && finding.results.length" class="caption text-muted find__caption">Suggested near {{ session.area.name }}</p>
           <ul v-if="finding.results.length" class="add-results" :aria-label="finding.query.trim() ? 'Places found' : 'Suggested places'">
@@ -943,19 +941,23 @@ async function keepDialog(e) {
               <span class="add-row__text">
                 <span class="title-sm truncate">{{ r.name }}</span>
                 <span v-if="r.unfit" class="caption-sm text-error">{{ unfitText(r, r.slot) }}</span>
+                <span v-else-if="!r.added && slotFull(r.slot)" class="caption-sm text-muted">{{ CATEGORY_LABELS[r.category] }} already has 6 places</span>
                 <span v-else class="caption-sm text-muted">{{ CATEGORY_LABELS[r.category] }} · about {{ r.walk }} min walk<template v-if="r.cdc"> · CDC vouchers</template></span>
                 <span v-if="rowNote[rowKey(r)]" class="add-row__note body-sm text-error" role="alert"><AppIcon name="warning" :size="16" />{{ rowNote[rowKey(r)] }}</span>
               </span>
+              <!-- "Add", or "Added" with a tick once it is an option: an ink outline, not red (a toggled state is ink). "Added" can be pressed to
+                   take the place back when this person added it and nobody else voted for it; its one name says what a press does, and the
+                   reason it cannot be taken back is read out beside it, not in a tooltip. -->
               <AppButton
                 v-if="r.added"
-                class="add-btn"
-                :variant="canTakeBack(r) ? 'primary' : 'secondary'"
+                class="add-btn is-added"
+                variant="secondary"
                 small
                 :disabled="!canTakeBack(r)"
-                :aria-pressed="'true'"
                 :aria-busy="rowBusy === rowKey(r) ? 'true' : undefined"
                 :aria-label="canTakeBack(r) ? `Take back ${r.name}` : `${r.name} is already a choice`"
-                :title="canTakeBack(r) ? 'Press to take it back' : 'Already one of the places to vote on'"
+                :aria-describedby="canTakeBack(r) ? undefined : `${findPanelId}-${rowKey(r)}`"
+                :title="canTakeBack(r) ? 'Press to take it back' : undefined"
                 @click="takeBack(r)"
               ><AppIcon name="check" :size="16" />Added</AppButton>
               <AppButton
@@ -965,10 +967,11 @@ async function keepDialog(e) {
                 small
                 :disabled="!!r.unfit || slotFull(r.slot)"
                 :aria-busy="rowBusy === rowKey(r) ? 'true' : undefined"
-                :title="slotFull(r.slot) ? `${CATEGORY_LABELS[r.category]} already has 6 places` : undefined"
+                :aria-describedby="slotFull(r.slot) ? `${findPanelId}-${rowKey(r)}` : undefined"
                 :aria-label="`Add ${r.name}`"
                 @click="add(r)"
               >Add</AppButton>
+              <span v-if="r.added ? !canTakeBack(r) : slotFull(r.slot)" :id="`${findPanelId}-${rowKey(r)}`" class="sr-only">{{ r.added ? 'Already one of the places to vote on' : `${CATEGORY_LABELS[r.category]} already has 6 places` }}</span>
             </li>
           </ul>
           <p v-else-if="finding.query.trim() && !finding.busy" class="body-sm text-muted">No places{{ cdcOnly ? ' that take CDC vouchers' : '' }} match "{{ finding.query.trim() }}".</p>
@@ -1231,6 +1234,12 @@ async function keepDialog(e) {
 .add-row__note :deep(svg) { flex-shrink: 0; margin-top: 2px; }
 /* One size for every row's button, whatever it says. */
 .add-btn.btn { flex-shrink: 0; min-width: 92px; justify-content: center; gap: var(--spacing-xs); }
+/* "Added": an ink outline with a tick, quieter than "Add" (a dark pill) and never red. Its disabled state (already a choice, or someone
+   else voted for it) keeps the muted words at 5.4:1 on white, not the grey of a switched-off button. */
+.add-btn.btn.is-added { background: var(--canvas); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); }
+.add-btn.btn.is-added:not(:disabled):active { background: var(--surface-strong); }
+.add-btn.btn.is-added:disabled { background: var(--canvas); color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--border-control); }
+@media (hover: hover) { .add-btn.btn.is-added:not(:disabled):hover { background: var(--surface-soft); } }
 .add-row__text { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .order-pick { display: flex; align-items: center; min-height: var(--tap-min); }
 .order-pick p { margin: 0; }

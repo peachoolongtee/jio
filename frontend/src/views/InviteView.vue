@@ -95,7 +95,6 @@ const access = computed(() => (session.value ? inviteAccess(session.value, mine.
 // declined either (the database keeps one per person; they can use the link).
 const offered = (personId) => !!session.value && canInviteByName(session.value, personId)
 const isInvited = (personId) => session.value?.members.some((m) => m.id === personId && m.state === 'invited')
-const isMember = (personId) => session.value?.members.some((m) => m.id === personId && m.state === 'joined')
 // Search by name or @username. Empty: everyone.
 const query = ref('')
 const matches = (p) => {
@@ -167,9 +166,13 @@ const onward = computed(() => {
   if (s?.status === 'inviting' && mine.value) return { label: 'Next', to: `/sessions/${props.id}/start` }
   return { label: 'Next', to: `/sessions/${props.id}` }
 })
-// A carried choice waits for a second person. With invites out, a line says so; with nobody invited the button simply waits.
+// A carried choice waits for a second person, and a line under the button says why it is off: the session starts once an invited friend
+// accepts, or, with nobody invited yet, a friend has to be invited first (review of 1 November 2026: the button was off with no reason).
 const tooFew = computed(() => !!carried.value && (session.value.activeIds || []).length < 2)
-const waitingFor = computed(() => (tooFew.value && session.value.members.some((m) => m.state === 'invited') ? 'The session starts once a friend accepts.' : ''))
+const waitingFor = computed(() => {
+  if (!tooFew.value) return ''
+  return session.value.members.some((m) => m.state === 'invited') ? 'The session starts once a friend accepts.' : 'A session needs two people. Invite a friend to start it.'
+})
 
 // Why the start failed, under the button (the page's own error line is for sending invites).
 const startError = ref('')
