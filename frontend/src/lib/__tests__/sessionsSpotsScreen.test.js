@@ -119,7 +119,9 @@ describe('the Locate step, for the host', () => {
     const spots = (await sam.api.getSession(id)).spots.list
     expect(spots).toHaveLength(3)
     for (const spot of spots) expect(view.text()).toContain(spot.area.name)
-    expect(view.text()).toContain('Suggested by Jio')
+    // Who suggested a spot is in its "More details" dialog (walkthrough, 1 November 2026).
+    await view.click(view.all('[data-testid=spot-details]')[0])
+    await until(() => view.has('[role=dialog]') && view.text('[role=dialog]').includes('Suggested by Jio'))
     expect(view.text()).not.toContain('Pick the place yourself')
     expect(view.text()).toContain('Add a spot')
     // The one main action, named for the spot shown first. Removing Kim would leave Sam alone, so it is not offered; a host cannot leave.

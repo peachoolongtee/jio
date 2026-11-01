@@ -50,7 +50,7 @@ test.describe('Meeting area and place search', () => {
   // demo tools then submit the friends' starts from their home areas, Darius in Bugis and Nicole in Tampines, which is far east.
   // Steps: set the start, open Demo tools, "Simulate friends submitting locations" (it spreads them over about 3 seconds), close.
   // Checked at the end: three spots in the list "Meeting spots"; "Fairest" on the first only; the "Longest trip" minutes never
-  // go down the list; each spot lists You, Darius and Nicole with minutes; the footer says "Confirm <first spot>".
+  // go down the list; each spot's "More details" dialog lists You, Darius and Nicole with minutes; the footer says "Confirm <first spot>".
   // Good to know: it does not assert which areas come out or the minutes, only their order, since those come from the planner's
   // stub routes. A spot's "Leading" tag (most approvals) would replace "Fairest", but nobody approves anything here.
   test('The fairest spot is first, with each person\'s minutes', async ({ page }) => {
@@ -69,31 +69,35 @@ test.describe('Meeting area and place search', () => {
     // Spots open at two starts and are worked out again as each start arrives, so wait for all three before reading them.
     await expect(page.getByRole('region', { name: 'Locations: 3 of 3' })).toBeVisible({ timeout: 15_000 })
 
-    // A row of the list is the one that holds a spot's name button ("... Suggested by Jio"); the people lists inside do not.
-    const rows = page.getByRole('list', { name: 'Meeting spots' }).getByRole('listitem').filter({ has: page.getByRole('button', { name: /Suggested by/ }) })
+    // A row of the list is a spot's card (the people lists are in each card's "More details" dialog, not inside the card).
+    const rows = page.getByRole('list', { name: 'Meeting spots' }).locator(':scope > li[data-area]')
     await expect(rows).toHaveCount(3)
 
     const longest = []
+    const names = []
     for (let i = 0; i < 3; i += 1) {
       const row = rows.nth(i)
       // "Fairest" is on the first spot only.
       if (i === 0) await expect(row.getByText('Fairest', { exact: true })).toBeVisible()
       else await expect(row.getByText('Fairest', { exact: true })).toHaveCount(0)
-      // Each person's trip: You, Darius and Nicole, with minutes (or "already there").
-      const trips = row.getByRole('list', { name: "Each person's trip" })
+      // Each person's trip, in the spot's "More details" dialog: You, Darius and Nicole, with minutes (or "already there").
+      await row.getByRole('button', { name: /^More details/ }).click()
+      const dialog = page.getByRole('dialog')
+      const trips = dialog.getByRole('list', { name: "Each person's trip" })
       for (const who of ['You', 'Darius', 'Nicole']) {
         await expect(trips.getByRole('listitem').filter({ hasText: who })).toContainText(/\d+ min|already there/)
       }
-      const line = await row.getByText(/^Longest trip/).innerText()
+      const line = await dialog.getByText(/^Longest trip/).innerText()
       longest.push(Number(line.match(/Longest trip (?:about )?(\d+) min/)[1]))
+      names.push(await dialog.getByRole('heading').innerText())
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(dialog).toBeHidden()
     }
     // Rank order: the longest trip never gets shorter going down the list.
     expect(longest, 'Longest trip of each spot, top to bottom').toEqual([...longest].sort((a, b) => a - b))
 
-    // The footer button confirms the first spot, the fairest.
-    // The button's text is its rank number, the area's name, who suggested it, then its tag: the name is the line before "Suggested by".
-    const lines = (await rows.first().getByRole('button', { name: /Suggested by/ }).innerText()).split('\n').map((l) => l.trim()).filter(Boolean)
-    const firstName = lines[lines.findIndex((l) => l.startsWith('Suggested by')) - 1]
+    // The footer button confirms the first spot, the fairest: the dialog's title is the spot's name.
+    const firstName = names[0]
     await expect(page.getByRole('button', { name: `Confirm ${firstName}` })).toBeVisible()
   })
 })
