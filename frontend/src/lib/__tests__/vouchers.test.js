@@ -294,7 +294,7 @@ describe('the Rewards screen', () => {
     const reveal = card('SGD 3 off any coffee').querySelector('[data-testid=code-reveal]')
     expect(reveal).toBeTruthy()
     expect(view.text(reveal)).not.toContain('JIO-AAAA-BBBB')
-    await view.click(reveal)
+    await view.click(reveal.querySelector('[data-testid=code-peel]'))
     expect(view.text(reveal)).toContain('JIO-AAAA-BBBB')
     expect(view.all('button').some((b) => view.text(b) === 'Claim' && inside(b, card('SGD 3 off any coffee')))).toBe(false)
     const claim = view.all('button').find((b) => view.text(b) === 'Claim' && inside(b, card('One free cupcake')))
