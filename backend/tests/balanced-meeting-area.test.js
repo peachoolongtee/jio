@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { loadPlanData } from '../src/db/venues.js'
+import { recordedPlanData } from './helpers/recorded-areas.js'
 import { BALANCE, balanceWeights, choicesOf, measure, pickBalanced, rankBalanced } from '../src/planner/balance.js'
 import { measure as measureRule, pickChanges, randomGroups, SETTINGS } from '../scripts/measure-balanced-rule.js'
 import { converge, meetingArea } from '../src/planner/engine.js'
@@ -382,7 +383,7 @@ describe('a request with no `rule` is answered as it was before the rule existed
   // tests/fixtures/meeting-area-baseline.json is the frozen record of the route's answers (see meeting-area-baseline.test.js). Here the
   // same requests are sent again with no `rule`, and with `rule: 'longest'` named outright, and the body text must be the record's.
   const fixture = JSON.parse(readFileSync(new URL('./fixtures/meeting-area-baseline.json', import.meta.url), 'utf8'))
-  const planData = loadPlanData()
+  const planData = recordedPlanData() // the 37 areas the fixture was recorded on
   const appFor = (mode) => (mode === 'stub'
     ? createApp({ frontendOrigin: 'http://localhost:5173', roundPlannerMinutes: false, planData, stub: true })
     : createApp({ frontendOrigin: 'http://localhost:5173', roundPlannerMinutes: false, planData, http: createHttp({ stub: true }) }))

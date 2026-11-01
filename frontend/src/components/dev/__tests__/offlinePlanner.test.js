@@ -26,7 +26,8 @@ describe('the meeting area', () => {
   it('is an area from the app\'s own list that keeps the longest trip short', () => {
     const answer = standInMeetingArea({ members: [person('ian', 'bugis'), person('darius', 'lavender')], method: 'station' })
     expect(AREAS.map((a) => a.id)).toContain(answer.area.id)
-    expect(['bugis', 'lavender']).toContain(answer.area.id)
+    // One of the two, or a station between them (every MRT station is an area since 30 October 2026: Nicoll Highway, Rochor...).
+    expect(['bugis', 'lavender', 'nicoll-highway', 'rochor', 'jalan-besar', 'bencoolen']).toContain(answer.area.id)
     expect(answer.method).toBe('station')
     expect(answer.approximate).toBe(true)
     expect(Object.keys(answer.travelByMember)).toEqual(['ian', 'darius'])

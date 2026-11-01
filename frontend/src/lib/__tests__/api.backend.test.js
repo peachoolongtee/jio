@@ -49,7 +49,8 @@ describe('a session planned by the backend', () => {
     await saving
     expect((await api.getSession(id)).findingMeeting).toBe(false)
     const session = await api.getSession(id)
-    expect(session.area.id).toBe('bishan')
+    // Marymount, one Circle Line stop from Bishan: fairest for Tampines, Jurong East and Woodlands among every MRT station (Bishan among the first 37).
+    expect(session.area.id).toBe('marymount')
     expect(session.meeting.maxMinutes).toBeGreaterThan(0)
     expect(session.resultLine).toMatch(/^Fairest for 3 people: nobody travels more than about \d+ minutes\.$/)
   })

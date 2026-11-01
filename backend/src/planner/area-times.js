@@ -73,7 +73,7 @@ const plausible = minutes => typeof minutes === 'number' && Number.isFinite(minu
  * renamed covers fewer pairs than it should, and the planner quietly uses the straight line for the rest, so start-up says so.
  *
  * How to call:
- *   const { found, expected } = areaTimesCoverage(data.areas, table) // { found: 666, expected: 666 }
+ *   const { found, expected } = areaTimesCoverage(data.areas, table) // { found: 10440, expected: 10440 }
  */
 export function areaTimesCoverage(areas, table) {
   let found = 0, expected = 0;

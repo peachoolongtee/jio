@@ -26,7 +26,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
-import { loadPlanData } from '../src/db/venues.js'
+import { recordedPlanData } from './helpers/recorded-areas.js'
 import { OneMapUnavailableError } from '../src/services/budget.js'
 import { createHttp, ExternalApiError } from '../src/services/http.js'
 import { createOneMap } from '../src/services/onemap.js'
@@ -34,7 +34,7 @@ import { SCENARIO_HEADER } from '../src/services/scenario.js'
 
 const FRONTEND = 'http://localhost:5173'
 const FIXTURE = fileURLToPath(new URL('./fixtures/meeting-area-baseline.json', import.meta.url))
-const planData = loadPlanData()
+const planData = recordedPlanData() // the 37 areas the fixture was recorded on
 
 // ---------------------------------------------------------------- how each case's app is built
 // off        no OneMap service: the engine's own estimate, routing off

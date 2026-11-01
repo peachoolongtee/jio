@@ -105,6 +105,8 @@ describe('the planner\'s pool of OneMap places', () => {
     ['onemap_tourism_kreta-ayer-square', 'onemap_theatre_kreta-ayer-people-s-theatre'],
     ['onemap_tourism_cable-car-singapore-mount-faber', 'onemap_nationalparks_mount-faber-park'],
     ['onemap_tourism_sam-at-8q-singapore-art-museum', 'onemap_tourism_singapore-art-museum'],
+    // The Chinatown district and the food street on Smith Street inside it.
+    ['onemap_tourism_chinatown-singapore-history-culture', 'onemap_tourism_chinatown-food-street'],
   ].map((pair) => pair.sort().join('|'));
 
   test('no two OneMap places within 100 m have alike names, apart from the listed neighbours', () => {

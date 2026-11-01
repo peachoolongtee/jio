@@ -1,7 +1,7 @@
 // Converts the frontend's mock places into data files the backend engine reads.
 // Usage (from any working directory): pnpm --dir backend build:venues [venues.js] [places.js]
 //   defaults: ../frontend/src/lib/mock/venues.js and ../frontend/src/lib/mock/places.js
-// Writes src/db/mock/curated-venues.json (63 places in engine format) and src/db/mock/areas.json
+// Writes src/db/mock/curated-venues.json (155 places in engine format) and src/db/mock/areas.json
 // (the MRT stations and neighbourhoods the frontend uses as meeting-area candidates).
 // Re-run whenever the frontend team edits their venue or area list, then commit both JSON files.
 import fs from 'node:fs';

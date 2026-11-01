@@ -41,7 +41,7 @@ describe('searchPlaces', () => {
   it('still finds a built-in area with the backend off', async () => {
     planner.searchAddresses.mockRejectedValue(new Error('Cannot reach the Jio planner right now.'))
     const out = await api.searchPlaces('bishan')
-    expect(out.places[0]).toMatchObject({ label: 'Bishan', areaId: 'bishan', sub: 'MRT station and area' })
+    expect(out.places[0]).toMatchObject({ label: 'Bishan', areaId: 'bishan', sub: 'MRT station · NS17 · CC15' })
     expect(out.unavailable).toBe(true)
   })
 
@@ -83,8 +83,9 @@ describe('searchPlaces', () => {
     planner.searchAddresses.mockResolvedValue(many)
     const out = await api.searchPlaces('tampines')
     expect(out.places).toHaveLength(8)
-    expect(out.places[0].label).toBe('Tampines')
-    expect(out.places[1].label).toBe('Tampines Place 0')
+    // Every station whose name matches comes first: Tampines, Tampines East and Tampines West.
+    expect(out.places.slice(0, 3).map((p) => p.label)).toEqual(['Tampines', 'Tampines East', 'Tampines West'])
+    expect(out.places[3].label).toBe('Tampines Place 0')
     expect(new Set(out.places.map((p) => p.id)).size).toBe(8)
   })
 
@@ -99,6 +100,12 @@ describe('searchPlaces', () => {
     expect(planner.searchAddresses).not.toHaveBeenCalled()
   })
 
+  it('finds a station by its code, and says its codes', async () => {
+    planner.searchAddresses.mockResolvedValue([])
+    const out = await api.searchPlaces('ns17')
+    expect(out.places[0]).toMatchObject({ label: 'Bishan', areaId: 'bishan', sub: 'MRT station · NS17 · CC15' })
+  })
+
   it('sends a 6 digit postal code, trimmed', async () => {
     planner.searchAddresses.mockResolvedValue([TAMPINES_MALL])
     expect(labels(await api.searchPlaces(' 529510 '))).toEqual(['Tampines Mall'])
@@ -107,7 +114,7 @@ describe('searchPlaces', () => {
 
   it('lists the sample addresses only when the backend gave nothing', async () => {
     planner.searchAddresses.mockResolvedValue([TAMPINES_HUB])
-    expect(labels(await api.searchPlaces('tampines'))).toEqual(['Tampines', 'Our Tampines Hub'])
+    expect(labels(await api.searchPlaces('tampines'))).toEqual(['Tampines', 'Tampines East', 'Tampines West', 'Our Tampines Hub'])
     planner.searchAddresses.mockResolvedValue([])
     const none = await api.searchPlaces('tampines mall')
     expect(none.unavailable).toBe(false)
@@ -169,7 +176,9 @@ describe('one row per area, for "Suggest a spot"', () => {
     planner.searchAddresses.mockResolvedValue([TAMPINES_MALL, TAMPINES_HUB, TAMPINES_AVE])
     const rows = toSpotRows((await api.searchPlaces('tampines')).places)
     expect(rows).toEqual([
-      { id: 'spot-tampines', label: 'Tampines', sub: 'MRT station and area', areaId: 'tampines' },
+      { id: 'spot-tampines', label: 'Tampines', sub: 'MRT station · DT32 · EW2', areaId: 'tampines' },
+      { id: 'spot-tampines-east', label: 'Tampines East', sub: 'MRT station · DT33', areaId: 'tampines-east' },
+      { id: 'spot-tampines-west', label: 'Tampines West', sub: 'MRT station · DT31', areaId: 'tampines-west' },
       { id: 'spot-pasir-ris', label: 'Pasir Ris', sub: 'Near Tampines Avenue 5', areaId: 'pasir-ris' },
     ])
   })
