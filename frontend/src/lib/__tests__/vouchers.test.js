@@ -203,6 +203,35 @@ describe('the Rewards screen', () => {
     expect(save.stats.ian.points).toBe(1000 - 850)
   })
 
+  // Review of 1 November 2026: the dialog said vouchers claimed before are left out, but the code leaves out only those holding a code still to
+  // use (an expired or used one is claimed again, as the test above shows). The note after it described a page that had moved on, and the
+  // button that opened the dialog could be gone with focus on nothing.
+  it('"Claim all" says only vouchers holding an unused code are left out, then puts focus on its note, and the note goes when a code is peeled', async () => {
+    const { view } = await drawRewards(claims)
+    await view.click(view.one('[data-testid=claim-all]'))
+    await until(() => view.has('[data-testid=claim-all-confirm]'))
+    const dialog = view.text(view.one('[role=dialog]'))
+    expect(dialog).toContain('Vouchers you hold an unused code for, and any you cannot cover, are left out.')
+    expect(dialog).not.toContain('claimed before')
+    await view.click(view.one('[data-testid=claim-all-confirm]'))
+    await until(() => view.has('[data-testid=claim-all-note]'))
+    await until(() => view.focused()?.attrs?.['data-testid'] === 'claim-all-note')
+    expect(view.one('[data-testid=claim-all-note]').attrs.tabindex).toBe('-1')
+    // Peeling one of the new codes: the note's advice has been taken.
+    await view.click(view.all('[data-testid=code-peel]')[0])
+    expect(view.has('[data-testid=claim-all-note]')).toBe(false)
+  })
+
+  it('"Claim all" note goes when the filter changes', async () => {
+    const { view } = await drawRewards(claims)
+    await view.click(view.one('[data-testid=claim-all]'))
+    await until(() => view.has('[data-testid=claim-all-confirm]'))
+    await view.click(view.one('[data-testid=claim-all-confirm]'))
+    await until(() => view.has('[data-testid=claim-all-note]'))
+    await view.click(view.all('button').find((b) => view.text(b).startsWith('Can claim')))
+    await until(() => !view.has('[data-testid=claim-all-note]'))
+  })
+
   it('keeps a code to use on its card alone, and an old expired claim under Past vouchers, Expired, with no button', async () => {
     const { view } = await drawRewards(claims)
     // The code to use is on its card (under the sticker), not listed again below (Faith, 31 October 2026).

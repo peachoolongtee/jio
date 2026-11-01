@@ -2,11 +2,16 @@
 // Rewards: spend JioCoins on sample café vouchers.
 //   - The balance sits at the top right; the + beside it opens a small popover on how JioCoins are earned.
 //   - "Claim all" claims, after asking, every voucher with no code to use that the balance covers, cheapest first until the coins run
-//     out, and says how many it claimed; each code is then on its voucher (Faith, 31 October 2026).
+//     out, and says how many it claimed; each code is then on its voucher (Faith, 31 October 2026). A voucher whose last code was used or
+//     ran out is claimed again; only one holding a code still to use is left out, and the dialog says exactly that. The note it leaves
+//     (focus moves to it, since the button that opened the dialog may be gone) goes when the person peels a code, marks one as used,
+//     claims another or changes the filter, so it never describes a page that has moved on.
 //   - Each card is in one of three states (Faith, 31 October 2026):
 //       Ready to use  you hold a code you have not used: "Use by 30 Nov 2026" and the code under a red sticker ("Show code",
-//                     components/ui/CodeReveal.vue): press to peel it and see the code, press again to copy it.
-//       Used, Expired your last code was used or ran out: "Used on 31 Oct" or "Expired on 30 Nov", greyed, with "Claim again".
+//                     components/ui/CodeReveal.vue): press to peel it; the code then stays on the card, to select or to copy with its button.
+//       Used, Expired your last code was used or ran out: "Used on 31 Oct" or "Expired on 30 Nov" in the card's muted line, with "Claim
+//                     again". The card itself is not greyed (it can be claimed again); the greyed, struck-through codes are the rows under
+//                     "Past vouchers" below.
 //       Not claimed   "Claim".
 //     A Claim that the balance does not cover is greyed, with the JioCoins that are missing beside it.
 //   - Café vouchers, filtered by category and, with "Can claim", to the ones the balance covers that hold no code to use. Redeeming one
@@ -18,7 +23,7 @@
 //     group. Each group's heading says the state once, so a row does not repeat it. After a code is marked, focus goes to the "Used"
 //     heading (the button that opened the dialog is gone) and a polite live region says "Marked as used".
 import { coins } from '@/lib/currency.js'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
@@ -122,6 +127,7 @@ async function markUsed() {
   try {
     await groups.markUsed(using.value.id)
     using.value = null
+    clearClaimAllNote()
     announcement.value = ''
     await nextTick()
     usedHead.value?.focus()
@@ -146,6 +152,13 @@ const claimAllList = computed(() => {
 const claimAllCost = computed(() => claimAllList.value.reduce((sum, r) => sum + r.cost, 0))
 const claimingAll = ref(false)
 const claimAllNote = ref('')
+const claimAllNoteEl = ref(null)
+// The note describes the page as the claim left it: it goes when the filter changes, a code is peeled or marked as used, or another
+// voucher is claimed. How to call: watch([category, claimable], clearClaimAllNote) and @reveal="clearClaimAllNote"
+function clearClaimAllNote() {
+  claimAllNote.value = ''
+}
+watch([category, claimable], clearClaimAllNote)
 // Claim every voucher on the list, one after another; a refusal stops it and says how many went through.
 // How to call: await claimAll()
 async function claimAll() {
@@ -159,6 +172,9 @@ async function claimAll() {
     }
     claimingAll.value = false
     claimAllNote.value = `${done} ${done === 1 ? 'voucher' : 'vouchers'} claimed. Press Show code on each to see its code.`
+    // "Claim all" may be gone now (nothing left to claim), and with it the place focus returns to: put it on the note.
+    await nextTick()
+    claimAllNoteEl.value?.focus?.()
   } catch (e) {
     error.value = done ? `${done} claimed, then: ${e.message}` : e.message
   }
@@ -171,6 +187,7 @@ async function redeem() {
   try {
     redeemed.value = await groups.redeem(confirming.value.id)
     confirming.value = null
+    clearClaimAllNote()
   } catch (e) {
     error.value = e.message
   }
@@ -222,7 +239,7 @@ async function redeem() {
             <AppButton v-if="claimAllList.length > 1" small data-testid="claim-all" @click="(error = ''), (claimingAll = true)">Claim all</AppButton>
           </div>
         </div>
-        <p v-if="claimAllNote" class="body-sm claim-all__note" role="status" data-testid="claim-all-note"><AppIcon name="check" :size="16" />{{ claimAllNote }}</p>
+        <p v-if="claimAllNote" ref="claimAllNoteEl" tabindex="-1" class="body-sm claim-all__note" role="status" data-testid="claim-all-note"><AppIcon name="check" :size="16" />{{ claimAllNote }}</p>
         <div v-if="groups.loading.rewards && !groups.rewards.length" class="grid-3">
           <SkeletonRow v-for="n in 3" :key="n" />
         </div>
@@ -241,7 +258,7 @@ async function redeem() {
             </span>
             <div class="voucher__action">
               <template v-if="stateOf(reward) === 'ready'">
-                <CodeReveal :code="readyCode(reward).code" front="Show code" back="Peel to see your code" :label="reward.offer" />
+                <CodeReveal :code="readyCode(reward).code" front="Show code" back="Peel to see your code" :label="reward.offer" @reveal="clearClaimAllNote" />
                 <AppButton variant="tertiary" underline small data-testid="mark-used" @click="askUse({ ...readyCode(reward), reward })">Mark as used</AppButton>
               </template>
               <AppButton v-else-if="reward.cost <= points" small @click="confirming = reward">{{ stateOf(reward) === 'new' ? 'Claim' : 'Claim again' }}</AppButton>
@@ -308,7 +325,7 @@ async function redeem() {
         <ul class="claim-all__list">
           <li v-for="r in claimAllList" :key="r.id" class="body-sm"><span>{{ r.offer }} · {{ r.cafe }}</span><CoinBadge class="caption" :amount="r.cost" /></li>
         </ul>
-        <p class="caption text-muted">You will have <CoinBadge :amount="points - claimAllCost" /> left. The ones you have claimed before, and any you cannot cover, are left out.</p>
+        <p class="caption text-muted">You will have <CoinBadge :amount="points - claimAllCost" /> left. Vouchers you hold an unused code for, and any you cannot cover, are left out.</p>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
       <AppButton block :disabled="busy" :aria-busy="busy ? 'true' : undefined" data-testid="claim-all-confirm" @click="claimAll">Claim {{ claimAllList.length }} vouchers</AppButton>
@@ -360,6 +377,7 @@ async function redeem() {
 .filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-xs) var(--spacing-md); margin-bottom: var(--spacing-base); }
 .filters .scroll-x { min-width: 0; flex: 1 1 auto; }
 .filters__end { display: flex; align-items: center; gap: var(--spacing-sm); }
+.claim-all__note:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: var(--rounded-xs); }
 .claim-all__note { display: flex; align-items: center; gap: var(--spacing-xs); margin: 0 0 var(--spacing-base); }
 .claim-all__list { display: flex; flex-direction: column; gap: var(--spacing-xs); margin: 0; padding: 0; list-style: none; }
 .claim-all__list li { display: flex; justify-content: space-between; gap: var(--spacing-md); }
