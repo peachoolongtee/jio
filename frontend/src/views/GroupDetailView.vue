@@ -491,7 +491,7 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
               <template #actions><AppButton small variant="secondary" :disabled="busy" @click="rememberRejoin($event); rejoin()">Rejoin</AppButton></template>
             </BannerNote>
 
-            <section class="section card" aria-label="People">
+            <section class="section card people-card" aria-label="People">
               <!-- Once the spot is confirmed this card is about the trips: no votes ring, no status icons. -->
               <ProgressDonut v-if="progress && !settled" compact :title="progress.title" :people="progress.people" :done-label="progress.label" />
               <MemberList :session="peopleSession" :names="nameOf" :my-id="myId" :voters="voterIds" :statuses="!settled">
@@ -586,6 +586,8 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
 </template>
 
 <style scoped>
+/* The people under the spots: the same light grey card as the spots, so the two read as one set (walkthrough, 1 November 2026). */
+.people-card { background: var(--surface-strong); }
 /* Inviting: a card like the invite page's. A header with a ring of who has joined out of everyone invited, and
    Invite; then who is in, each with a Host, Joined or Invited tag. */
 .lobby { gap: var(--spacing-lg); }

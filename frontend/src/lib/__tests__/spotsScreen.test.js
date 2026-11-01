@@ -61,12 +61,18 @@ beforeEach(() => {
 // The list has links (its cards' places), so the page has a router.
 const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:any(.*)*', component: { render: () => null } }] })
 const list = (s, extra = {}) => mount(SpotList, { session: s, myId: 'ian', names, selectedId: 'bugis', isHost: true, hostName: 'Ian', ...extra }, [pinia, router])
+// Opens every spot's "More details" dialog, where who suggested it and each person's time are (walkthrough, 1 November 2026).
+const details = async (page) => {
+  for (const b of page.all('button').filter((el) => el.props['data-testid'] === 'spot-details')) await b.listeners.click({})
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  return page
+}
 // A link to name the place, which the list no longer has (Faith's walkthrough, 30 October 2026), or undefined.
 const pickLink = (page) => page.all('a', 'Pick the place yourself')[0]
 
 describe('the list of spots', () => {
-  it('shows the app\'s spots and a member\'s suggestion with its label and "We are here already"', () => {
-    const text = list(session()).text()
+  it('shows the app\'s spots and a member\'s suggestion with its label and "We are here already"', async () => {
+    const text = (await details(list(session()))).text()
     expect(text).toContain('Where to meet')
     expect(text).toContain('Bugis')
     expect(text).toContain('Bishan')
@@ -85,7 +91,7 @@ describe('the list of spots', () => {
       s.spots.list = [spot('bugis', 'Bugis', { approximate })]
       return list(s)
     }
-    const titled = (p) => p.all('div', 'Longest trip').filter((el) => p.attr(el, 'title') !== undefined)
+    const titled = (p) => p.all('span', 'Longest trip').filter((el) => p.attr(el, 'title') !== undefined)
     const about = page(true)
     expect(titled(about).map((el) => about.attr(el, 'title'))).toEqual([ABOUT_NOTE])
     expect(ABOUT_NOTE).toMatch(/typical/)
@@ -93,11 +99,11 @@ describe('the list of spots', () => {
     expect(titled(page(false))).toHaveLength(0)
   })
 
-  it('says "about" when the times are estimates, and not otherwise', () => {
+  it('says "about" when the times are estimates, and not otherwise', async () => {
     const estimated = session()
     estimated.spots.list = [spot('bugis', 'Bugis', { approximate: true })]
     expect(list(estimated).text()).toContain('Longest trip about 30 min · Average about 25 min')
-    expect(list(estimated).text()).toContain('Jonathan about 20 min')
+    expect((await details(list(estimated))).text()).toContain('Jonathan about 20 min')
     expect(list(session()).text()).not.toContain('about')
   })
 
@@ -525,12 +531,12 @@ describe('the list once a spot is confirmed', () => {
   // The spots' rows (a row also holds one item per person's trip).
   const rows = (page) => page.all('li').filter((li) => page.attr(li, 'data-area'))
 
-  it('puts the confirmed spot first and marks it "Confirmed" in words, with every other spot still listed', () => {
+  it('puts the confirmed spot first and marks it "Confirmed" in words, with every other spot still listed', async () => {
     const s = settled()
     expect(confirmedAreaId(s)).toBe('bishan')
     expect(spotsToShow(s).map((x) => x.areaId)).toEqual(['bishan', 'bugis', 'novena'])
     const page = list(s, { selectedId: shownFor(s) })
-    const text = page.text()
+    const text = (await details(page)).text()
     expect(text).toContain('Bishan is confirmed as the meeting spot.')
     expect(text).toContain('Confirmed')
     expect(text).toContain('Bugis')
@@ -551,8 +557,9 @@ describe('the list once a spot is confirmed', () => {
     expect(pickLink(page)).toBeUndefined()
     expect(page.text()).not.toContain('Confirm Bishan')
     expect(page.text()).not.toContain('You have one suggestion')
-    // What is left to press is the row's own button, which only selects the spot.
-    expect(page.all('button').length).toBe(3)
+    // What is left to press is each row's own button, which only selects the spot, and its "More details".
+    expect(page.all('button').length).toBe(6)
+    expect(page.all('button').filter((b) => b.props['data-testid'] === 'spot-details')).toHaveLength(3)
   })
 
   it('is the same at every status after confirming, for the host and for a member', () => {

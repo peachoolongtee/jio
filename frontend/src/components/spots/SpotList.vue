@@ -1,6 +1,6 @@
 <script setup>
-// "Where to meet": the meeting spots of a session that is choosing where to meet, with "Vote" on each and "Add a spot" (the
-// area picker, in a popover; it was "Suggest a spot"). How the meeting point is picked was settled on the Start choice before this
+// "Where to meet": the meeting spots of a session that is choosing where to meet, with "Vote" on each and "Add a spot" at the right
+// of the heading (the area picker, in a popover; it was "Suggest a spot"). How the meeting point is picked was settled on the Start choice before this
 // screen, so the list has no way to name a place of its own (Faith's walkthrough, 30 October 2026: "Pick the place yourself" is gone).
 //   <SpotList :session="session" my-id="ian" :names="nameOf" :selected-id="shown" :is-host="true" host-name="Ian"
 //             @select="picked = $event" @error="error = $event" />
@@ -115,15 +115,13 @@ const withdraw = () => run(() => change(() => events.withdrawMySpot(props.sessio
 
 <template>
   <section v-if="visible" class="spots" aria-labelledby="spots-head" data-testid="spots">
-    <div class="section__head">
+    <!-- The heading, with "Add a spot" at the right end of its row. -->
+    <div class="section__head spots__head">
       <h2 id="spots-head" class="display-sm">Where to meet</h2>
+      <AppButton v-if="offerSuggest" variant="secondary" small :aria-busy="busy ? 'true' : undefined" @click="busy || (suggestOpen = true)">Add a spot</AppButton>
     </div>
     <p v-if="intro" class="body-sm text-muted">{{ intro }}</p>
     <p v-if="own && choosing" class="caption-sm text-muted">You have one suggestion. A new one replaces it.</p>
-
-    <div v-if="offerSuggest" class="spots__actions">
-      <AppButton variant="secondary" small :aria-busy="busy ? 'true' : undefined" @click="busy || (suggestOpen = true)">Add a spot</AppButton>
-    </div>
 
     <ul v-if="list.length" class="spots__list" :class="{ 'is-busy': session.findingSpots }" :aria-busy="session.findingSpots ? 'true' : undefined" aria-label="Meeting spots">
       <SpotRow
@@ -170,6 +168,7 @@ const withdraw = () => run(() => change(() => events.withdrawMySpot(props.sessio
 <style scoped>
 .spots { display: flex; flex-direction: column; gap: var(--spacing-md); min-width: 0; }
 .spots .section__head { min-height: 0; }
+.spots__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm) var(--spacing-md); }
 .spots h2, .spots p { margin: 0; }
 .spots__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-base); }
 .spots__list { display: flex; flex-direction: column; gap: var(--spacing-sm); margin: 0; padding: 0; list-style: none; transition: opacity var(--motion-fast) var(--ease-out); }

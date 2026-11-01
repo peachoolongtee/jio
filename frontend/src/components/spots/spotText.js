@@ -30,6 +30,15 @@ export function tripsLine(spot) {
   return [longest && `Longest trip ${longest}`, average && `Average ${average}`].filter(Boolean).join(' · ')
 }
 
+// The same, short enough to sit beside the spot's name on its card (walkthrough, 1 November 2026). Estimates still say "about".
+// How to call: shortTripsLine({ worstMinutes: 34, meanMinutes: 23 }) -> 'Longest 34 min · Avg 23 min'
+export function shortTripsLine(spot) {
+  if (spot.worstMinutes === 0) return 'Nobody has to travel'
+  const longest = timeText(spot.worstMinutes, spot.approximate)
+  const average = timeText(spot.meanMinutes, spot.approximate)
+  return [longest && `Longest ${longest}`, average && `Avg ${average}`].filter(Boolean).join(' · ')
+}
+
 // Each person's trip to a spot, in the order the planner gave them: who, the words, and the travel colour's name.
 // Anyone without a start has no trip and is left out. `names` is (id) => name; the signed-in person reads "You".
 // How to call: peopleTrips(spot, nameOf, 'ian') -> [{ id: 'ian', name: 'You', text: 'about 25 min', tone: 'short' }]

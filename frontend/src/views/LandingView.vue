@@ -52,6 +52,7 @@ import MeetupDetail from '@/components/home/MeetupDetail.vue'
 import MeetupList from '@/components/home/MeetupList.vue'
 import MeetupPins from '@/components/home/MeetupPins.vue'
 import AddFriends from '@/components/home/AddFriends.vue'
+import LiquidMetalButton from '@/components/ui/LiquidMetalButton.vue'
 import * as api from '@/lib/api.js'
 import { MEETUP_RANGES, activeMeetups, needsMe, allMeetupsLabel, dayLabel, defaultRange, homeList, meetupsIn, pinName, pinsFor, rangeCounts, selectMeetup } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
@@ -460,8 +461,13 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
   <main class="screen home" data-testid="landing-view">
     <!-- The band: a muted map of Singapore; the routes meet at the selected meetup (or under the main action, in the middle). -->
     <section class="hero" :class="{ 'has-meetup': hasMeetups, 'hero--full': fullMap }" aria-labelledby="home-hello">
-      <!-- Finding people and adding them as friends (walkthrough, 30 October 2026): the corner opposite the avatar on phones, top right from 744px. -->
-      <AddFriends class="home__friends" />
+      <!-- Finding people and adding them as friends (walkthrough, 30 October 2026), and under it finding places from a post, a liquid
+           metal button (walkthrough, 1 November 2026, in place of the "Find places from a post" link): the corner opposite the avatar
+           on phones, top right from 744px. -->
+      <div class="home__tools">
+        <AddFriends />
+        <LiquidMetalButton label="Find places from a post" to="/places/from-post" icon="sparkles" data-testid="home-post-places" />
+      </div>
       <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
         <UserAvatar :name="auth.user?.name ?? ''" :src="auth.user?.photo" :person="auth.myId" :size="44" />
       </RouterLink>
@@ -535,7 +541,6 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <div v-else-if="hasFinished" class="home__all"><AppButton variant="secondary" class="home__see-all" to="/sessions" data-testid="see-all-meetups">{{ allMeetupsLabel(sessions.length) }}<AppIcon name="arrow-right" :size="16" /></AppButton></div>
       </div>
       <p class="sr-only" role="status">{{ announce }}</p>
-      <div v-if="events.loaded" class="home__all"><AppButton variant="tertiary" underline to="/places/from-post">Find places from a post</AppButton></div>
 
       <!-- A midpoint: places around it, nearest first. -->
       <section v-if="area" class="section rise" aria-labelledby="home-places">
@@ -661,9 +666,10 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
    other layers, so a pin's card is never under them; the bars are fixed and above all of this. */
 .hero__pins { position: absolute; z-index: 5; inset: 0 auto 0 50%; width: min(100vw, 1440px); transform: translateX(-50%); }
 .home__me { position: absolute; z-index: 2; top: var(--spacing-md); right: var(--gutter); flex-shrink: 0; border-radius: var(--rounded-full); }
-/* Add friends: top left on phones (opposite the avatar), top right from 744px (where the avatar is in the top bar). */
-.home__friends { position: absolute; z-index: 2; top: var(--spacing-md); left: var(--gutter); }
-@media (min-width: 744px) { .home__friends { right: var(--gutter); left: auto; } }
+/* Add friends, and the post button under it: top left on phones (opposite the avatar), top right from 744px (where the avatar is in
+   the top bar). A column, so the greeting keeps the same clearing either side. */
+.home__tools { position: absolute; z-index: 2; top: var(--spacing-md); left: var(--gutter); display: flex; flex-direction: column; align-items: center; gap: var(--spacing-sm); }
+@media (min-width: 744px) { .home__tools { right: var(--gutter); left: auto; } }
 @media (max-width: 743px) {
   /* Phones: the avatar sits top right, so the greeting keeps clear of it on both sides (to stay centred). */
   .hero__hello { align-self: stretch; padding-right: calc(var(--gutter) + 52px); padding-left: calc(var(--gutter) + 52px); }
