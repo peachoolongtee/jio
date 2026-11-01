@@ -101,7 +101,7 @@ The course asks each person for 1 unit test and 2 component tests as well. These
 | Faith | `clash.test.js`: `findClash` names the meetup in the way | `clashScreens.test.js`: the clash dialog says what is wrong, with the way to the other meetup<br>`sessionsSpotsScreen.test.js`: Locate lists the spots with Works for me and the host's main action |
 | Nichole | `backend/tests/cdc.test.js`: CDC matching by name or site, never by distance alone | `outingScreens.test.js`: the create form holds Next when the start has passed in Singapore<br>`outingScreens.test.js`: the create form holds Next for a session with no length (23:59) |
 | darryl | `profileSessions.test.js`: Upcoming lists sessions still going, soonest first | `dietaryConfirm.test.js`: asks before taking off a need someone else has<br>`editProfile.test.js`: starts from the signed-in person and saves to Supabase |
-| Darius | `outingLifecycle.test.js`: a plan finishes from its end time, never before | `homeSettle.test.js`: Home finishes an outing whose end time passed, and pays once<br>`outingFlowFixes.test.js`: Finish outing goes on to the review page |
+| Darius | `outingLifecycle.test.js`: never finishes a confirmed plan by the clock; the person finishes it | `homeSettle.test.js`: Home leaves a confirmed outing past its end time open and unpaid until someone finishes it<br>`outingFlowFixes.test.js`: Finish outing goes on to the review page |
 | Jonathan | `radioGroup.test.js`: arrow keys skip disabled radios | `outingScreens.test.js`: finishing alone goes on to "How was it?", which says it earned nothing<br>`outingFlowFixes.test.js`: "What next?" in place of the empty timeline |
 
 ## Tests never use real services
