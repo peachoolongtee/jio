@@ -340,7 +340,7 @@ describe('the meetups Home lists', () => {
   })
 
   it('says how many there are in all', () => {
-    expect(allMeetupsLabel(9)).toBe('See all 9 meetups')
+    expect(allMeetupsLabel(9)).toBe('See all meetups')
     expect(allMeetupsLabel(1)).toBe('See all meetups')
   })
 })

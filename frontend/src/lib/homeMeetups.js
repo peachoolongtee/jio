@@ -291,9 +291,9 @@ export function homeList(meetups = [], max = HOME_MEETUPS_SHOWN) {
   return meetups.slice(0, max)
 }
 
-// The words on Home's button to the Sessions list. How to call: allMeetupsLabel(9) -> 'See all 9 meetups'
-export function allMeetupsLabel(count) {
-  return count > 1 ? `See all ${count} meetups` : 'See all meetups'
+// The words on Home's button to the Sessions list, the same whatever the count. How to call: allMeetupsLabel(9) -> 'See all meetups'
+export function allMeetupsLabel() {
+  return 'See all meetups'
 }
 
 // The chips over Home's "Your meetups" (walkthrough, 30 October 2026): which meetups the list and the map's pins show. Weeks run Monday to
