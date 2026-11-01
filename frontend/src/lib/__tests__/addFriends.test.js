@@ -110,7 +110,10 @@ describe('Add friends on Home', () => {
     const { view, router } = await draw({ real: true })
     await view.click('[data-testid=add-friends]')
     await until(() => view.has('[data-testid=add-friends-real]'))
-    expect(view.text('[data-testid=add-friends-real]')).toContain('Your friends on Jio are the people you go out with.')
+    // The rule is "anyone in one of your sessions, in whatever state" (coMemberIds), so the words do not say friends are made when people join.
+    expect(view.text('[data-testid=add-friends-real]')).toContain('Your friends on Jio are the people in your sessions.')
+    expect(view.text('[data-testid=add-friends-real]')).toContain('as soon as they are invited, whether or not they have joined')
+    expect(view.text('[data-testid=add-friends-real]')).not.toContain('once they join')
     expect(view.has('[data-testid=add-friends-list]')).toBe(false)
     await view.click(press(view, 'Start a session'))
     await until(() => router.currentRoute.value.path === '/sessions/new')

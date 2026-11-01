@@ -135,12 +135,15 @@ const hasMeetups = computed(() => meetups.value.length > 0)
 // week (or All when nothing is on this week). A chip with nothing in it is faded and cannot be chosen. The selected meetup comes from the
 // chip's meetups, so the card, the rows and the pins always agree.
 const rangePicked = ref(null)
+// What a screen reader hears when a filter or the selected meetup changes (the status under the list).
+const announce = ref('')
 const range = computed(() => rangePicked.value ?? defaultRange(meetups.value, now.value))
 const counts = computed(() => rangeCounts(meetups.value, now.value))
 const inWeek = computed(() => meetupsIn(meetups.value, range.value, now.value))
 // "Your turn", a check chip after the week chips (as Rewards' "Can claim"): every meetup waiting on the person, whatever its week, so one
 // that needs a vote next week is not missed on This week (Faith, 31 October 2026). It counts them all and shows while at least one is.
-// Turning it on moves the chips to All and lists only those; turning it off leaves All with every meetup; picking a week turns it off.
+// Turning it on lists only those and leaves no week chip chosen (the list is not any one week's, and All would count more than it shows);
+// turning it off goes back to the week that was chosen; picking a week turns it off. Each change is announced.
 const onlyMine = ref(false)
 const allMine = computed(() => meetups.value.filter((m) => needsMe(m, auth.myId)))
 const inRangeMeetups = computed(() => (onlyMine.value && allMine.value.length ? allMine.value : inWeek.value))
@@ -149,11 +152,14 @@ function pickRange(id) {
   if (!counts.value[id]) return
   rangePicked.value = id
   onlyMine.value = false
+  const n = counts.value[id]
+  announce.value = `Showing ${MEETUP_RANGES.find((r) => r.id === id).label.toLowerCase()}, ${n} ${n === 1 ? 'meetup' : 'meetups'}`
 }
 // How to call: toggleMine()
 function toggleMine() {
   onlyMine.value = !onlyMine.value
-  if (onlyMine.value) rangePicked.value = 'all'
+  const n = allMine.value.length
+  announce.value = onlyMine.value ? `Showing only the ${n} ${n === 1 ? 'meetup' : 'meetups'} waiting for you` : `Showing ${MEETUP_RANGES.find((r) => r.id === range.value).label.toLowerCase()} again`
 }
 // "Your meetups" lists a few (lib/homeMeetups.js homeList), and the selected one is one of them, so the card, the rows and the pins
 // agree and picking a pin changes nothing else on the map. "See all N meetups" opens Sessions when there are more, or finished ones.
@@ -195,7 +201,6 @@ watch(
 // Selecting by pin or by row is the same thing: put the id in the address (replacing the entry, so Back does not
 // step through selections) and keep any other part of the address, such as an open place.
 // How to call: select('s3')
-const announce = ref('')
 function select(id) {
   if (id === selected.value?.id) return
   announce.value = `${meetups.value.find((m) => m.id === id)?.title || 'Meetup'} selected`
@@ -541,7 +546,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
           </div>
           <div class="home__filters">
             <div class="scroll-x home__ranges" role="radiogroup" v-radio-group aria-label="Show meetups for" data-testid="meetup-ranges">
-              <ChipButton v-for="r in MEETUP_RANGES" :key="r.id" radio :selected="range === r.id" :disabled="!counts[r.id]" :aria-label="`${r.label}, ${counts[r.id]} ${counts[r.id] === 1 ? 'meetup' : 'meetups'}`" @click="pickRange(r.id)">{{ r.label }}<span class="home__range-count tnum" aria-hidden="true">{{ counts[r.id] }}</span></ChipButton>
+              <ChipButton v-for="r in MEETUP_RANGES" :key="r.id" radio :selected="!onlyMine && range === r.id" :disabled="!counts[r.id]" :aria-label="`${r.label}, ${counts[r.id]} ${counts[r.id] === 1 ? 'meetup' : 'meetups'}`" @click="pickRange(r.id)">{{ r.label }}<span class="home__range-count tnum" aria-hidden="true">{{ counts[r.id] }}</span></ChipButton>
             </div>
             <ChipButton v-if="allMine.length" check :selected="onlyMine" :aria-label="`Your turn, ${allMine.length} ${allMine.length === 1 ? 'meetup' : 'meetups'}`" data-testid="your-turn-filter" @click="toggleMine">Your turn<span class="home__range-count tnum" aria-hidden="true">{{ allMine.length }}</span></ChipButton>
           </div>

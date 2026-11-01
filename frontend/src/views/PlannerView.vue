@@ -494,10 +494,6 @@ async function refilter(work) {
     refiltering.value = false
   }
 }
-// How to call: sameNeeds(['halal'], ['halal']) -> true
-const sameNeeds = (a = [], b = []) => a.length === b.length && a.every((n) => b.includes(n))
-// True when { mine, dropped } differs from what the outing already has. How to call: dietChanges({ mine: ['halal'], dropped: [] })
-const dietChanges = ({ mine, dropped }) => !sameNeeds(mine, plan.value?.myDietary) || !sameNeeds(dropped, plan.value?.dietDropped)
 // True while the group's choice of places runs (the same rule as the radius chips: clicks are ignored meanwhile).
 const settingDiet = ref(false)
 // Show the food places we could not confirm, or only the ones that fit.
@@ -515,20 +511,8 @@ async function showUnconfirmed(on) {
   }
 }
 
-// "Confirm dietary needs": opens by itself while voting until the signed-in person has confirmed for this outing. (Replacing a
-// stop is for a confirmed plan, never while voting, so it never opens there.) Each value is compared on its own, so the session
-// being read again does not count as a change; a dialog answered on this page is never opened again for the outing, even
-// while the plan that says so is still loading; and it closes once the plan says it is confirmed (in another tab, say).
-const dietOpen = ref(false)
-const dietBusy = ref(false)
-const dietError = ref('')
-const dietChecked = computed(() => plan.value?.dietChecked)
-const hasMeeting = computed(() => !!session.value?.meeting)
-const dietAnswered = new Set()
-// The dialog no longer opens by itself (the needs start from the profile, and the chips below change them); it stays for a later way in.
-watch(dietChecked, (checked) => {
-  if (checked === true) dietOpen.value = false
-})
+// The "Confirm dietary needs" dialog is not on this page any more (the needs start from the profile, and the chips below change them);
+// DietaryConfirm.vue is kept for a later way in, and the page's code for it was removed on 1 November 2026.
 // A need's name for its tag. How to call: needLabel('halal') -> 'Halal'
 const needLabel = (need) => DIETARY_OPTIONS.find((o) => o.value === need)?.label ?? need
 // The change being saved, { mine, dropped }, or null. The tags and chips show it at once, while the places load behind them.
@@ -559,34 +543,6 @@ async function saveDiet({ mine, dropped }) {
     if (answer?.syncError) error.value = answer.syncError
   } catch (e) {
     error.value = e.message
-  } finally {
-    pendingDiet.value = null
-    dietBusy.value = false
-  }
-}
-
-// answer: { mine, dropped } from the dialog: the person's own needs, and the others' needs the group should not filter for.
-// How to call: await confirmDiet({ mine: ['halal'], dropped: [] })
-async function confirmDiet({ mine, dropped }) {
-  if (dietBusy.value) return
-  dietBusy.value = true
-  dietError.value = ''
-  // A change closes the dialog at once and shows the list loading behind it; confirming the needs as they are just saves.
-  const changes = dietChanges({ mine, dropped })
-  if (changes) {
-    dietAnswered.add(props.id)
-    dietOpen.value = false
-    pendingDiet.value = { mine, dropped }
-  }
-  try {
-    const answer = await (changes ? refilter(() => planner.confirmDiet(props.id, mine, dropped)) : planner.confirmDiet(props.id, mine, dropped))
-    dietAnswered.add(props.id)
-    dietOpen.value = false
-    // Saved here but not to the account: said under the votes, as the page says other failures.
-    if (answer?.syncError) error.value = answer.syncError
-  } catch (e) {
-    dietError.value = e.message
-    dietOpen.value = true
   } finally {
     pendingDiet.value = null
     dietBusy.value = false

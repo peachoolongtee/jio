@@ -77,7 +77,7 @@ function startSession() {
       <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
     </template>
     <div v-else class="stack gap-md" data-testid="add-friends-real">
-      <p class="body-md">Your friends on Jio are the people you go out with. Start a session and invite someone by their username, and once they join you are friends.</p>
+      <p class="body-md">Your friends on Jio are the people in your sessions. Start a session and invite someone by their username, and they show up as a friend as soon as they are invited, whether or not they have joined.</p>
       <AppButton block @click="startSession">Start a session</AppButton>
     </div>
   </BottomSheet>
