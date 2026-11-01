@@ -11,7 +11,10 @@
 // The footer has one button (Faith's walkthrough, 30 October 2026: inviting must never be forced). With friends selected it is "Send N
 // invites", and the page stays: each one moves up to "In this session" as Invited, with its × to take it back. With nobody selected it is
 // "Next", which is always there, invites or not: to the Start choice for the host of a session still inviting, otherwise to the session
-// page. A session still needs two people in to start; the Start choice says so when it has fewer.
+// page. A session still needs two people in to start.
+// Reached from the Start choice with nobody else in yet (?then=fairest, or ?then=known&area=<id>; walkthrough, 30 October 2026), the page
+// carries that choice: back goes to it, and the button is "Start session" (or "Meet at <area>"), which starts the session with the choice
+// and goes to Locate (or, for a known area, names it and goes to Vote). It waits, with a line saying why, until a friend has joined.
 // Each friend shows as Invited until they accept (in the demo, on their own some seconds later, long enough to take it back).
 // The host can take back an invite that is still waiting, with the × on its row (TakeBackInvite), and the person leaves the list.
 // Once the session has started the page still opens. The host can invite while the group is locating or voting (the data
@@ -27,6 +30,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
+import FocusFrame from '@/components/ui/FocusFrame.vue'
 import FriendPickList from '@/components/group/FriendPickList.vue'
 import InviteByUsername from '@/components/group/InviteByUsername.vue'
 import RemoveMember from '@/components/group/RemoveMember.vue'
@@ -35,6 +39,7 @@ import ShareLink from '@/components/group/ShareLink.vue'
 import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
 import { watchSessions } from '@/lib/api.js'
 import { canInviteByName, inviteAccess } from '@/lib/session.js'
+import { AREAS } from '@/lib/mock/places.js'
 import { takeBackNotice } from '@/lib/takeBackNotice.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { inviteGroups, outingsTogether } from '@/lib/hangouts.js'
@@ -71,7 +76,18 @@ const session = computed(() => events.byId[props.id])
 // in; it takes this screen's place in the browser's history (replace), so Back in the browser still goes to where the
 // person came from and can never land on an empty create form. A guest goes Home.
 const mine = computed(() => session.value?.hostId === auth.myId)
-const back = computed(() => (session.value ? backFor(session.value, route.path, mine.value, exitFor()) : exitFor()))
+// The Start choice this page carries, if it was reached from there: 'fairest', or 'known' with its area.
+const carried = computed(() => {
+  if (session.value?.status !== 'inviting' || !mine.value) return null
+  const then = route.query.then
+  if (then === 'fairest') return { meetBy: 'fairest' }
+  const area = AREAS.find((a) => a.id === route.query.area)
+  return then === 'known' && area ? { meetBy: 'known', area } : null
+})
+const back = computed(() => {
+  if (carried.value) return { label: 'Back', to: { path: `/sessions/${props.id}/start`, query: carried.value.area ? { where: '1' } : {} } }
+  return session.value ? backFor(session.value, route.path, mine.value, exitFor()) : exitFor()
+})
 const hostName = computed(() => (session.value?.hostId === auth.myId ? auth.user?.name : groups.people.find((p) => p.id === session.value?.hostId)?.name) || 'the host')
 // Whether this person can add people now, and if not, why not.
 const access = computed(() => (session.value ? inviteAccess(session.value, mine.value, hostName.value) : { open: false, text: '' }))
@@ -143,17 +159,41 @@ async function send() {
   busy.value = false
 }
 
-// Where Next goes: the Start choice for the host of a session still inviting (however many are in: it says when more are needed), else
-// the session page.
+// Where Next goes: the Start choice for the host of a session still inviting, else the session page. With a carried choice it starts
+// the session instead (start below).
 const onward = computed(() => {
   const s = session.value
+  if (carried.value) return { label: carried.value.area ? `Meet at ${carried.value.area.name}` : 'Start session', start: true }
   if (s?.status === 'inviting' && mine.value) return { label: 'Next', to: `/sessions/${props.id}/start` }
   return { label: 'Next', to: `/sessions/${props.id}` }
 })
+// A carried choice waits for a second person. With invites out, a line says so; with nobody invited the button simply waits.
+const tooFew = computed(() => !!carried.value && (session.value.activeIds || []).length < 2)
+const waitingFor = computed(() => (tooFew.value && session.value.members.some((m) => m.state === 'invited') ? 'The session starts once a friend accepts.' : ''))
+
+// Why the start failed, under the button (the page's own error line is for sending invites).
+const startError = ref('')
+// Starts the session with the carried choice: Locate for the fairest spot; for a known area, the area is named and the group votes.
+// How to call: await start()
+async function start() {
+  if (busy.value || tooFew.value) return
+  busy.value = true
+  startError.value = ''
+  try {
+    const { meetBy, area } = carried.value
+    await events.start(props.id, { meetBy })
+    if (area) await events.setKnownPlace(props.id, area.id)
+    router.replace(`/sessions/${props.id}${area ? '/plan' : ''}`)
+  } catch (e) {
+    startError.value = e.message
+  }
+  busy.value = false
+}
 
 // On to the next page. If it is the page just behind this one it goes Back, so the history has no repeat.
 // How to call: done()
 function done() {
+  if (onward.value.start) return start()
   const { to } = onward.value
   if (isBehind(to)) router.back()
   else router.replace(to)
@@ -183,7 +223,7 @@ function done() {
          shows who is in, and the host can remove a guest or take back an invite. -->
     <div v-else-if="session.remote" class="screen__body">
       <BannerNote v-if="!access.open" icon="info">{{ access.text }}</BannerNote>
-      <section class="invite card" aria-labelledby="invite-in">
+      <FocusFrame><section class="invite" aria-labelledby="invite-in">
         <header class="invite__session">
           <span class="invite__badge" aria-hidden="true">{{ initial }}</span>
           <div class="stack">
@@ -225,13 +265,13 @@ function done() {
             </li>
           </ul>
         </section>
-      </section>
+      </section></FocusFrame>
     </div>
 
     <!-- Invites are closed (or this is a guest): who is in, and why nobody can be added. No picker, no Send button. -->
     <div v-else-if="!access.open" class="screen__body">
       <BannerNote icon="info">{{ access.text }}</BannerNote>
-      <section class="invite card" aria-labelledby="invite-in">
+      <FocusFrame><section class="invite" aria-labelledby="invite-in">
         <header class="invite__session">
           <span class="invite__badge" aria-hidden="true">{{ initial }}</span>
           <div class="stack">
@@ -256,11 +296,11 @@ function done() {
             </li>
           </ul>
         </section>
-      </section>
+      </section></FocusFrame>
     </div>
 
     <div v-else class="screen__body">
-      <section class="invite card" aria-labelledby="invite-head">
+      <FocusFrame><section class="invite" aria-labelledby="invite-head">
         <header class="invite__session">
           <span class="invite__badge" aria-hidden="true">{{ initial }}</span>
           <div class="stack">
@@ -304,11 +344,15 @@ function done() {
         <p v-else-if="noMatches" class="body-sm text-muted">Nobody matches “{{ query.trim() }}”.</p>
         <FriendPickList :lists="lists" :picked="picked" @toggle="toggle" />
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
-      </section>
+      </section></FocusFrame>
     </div>
 
     <footer v-if="session" class="screen__footer">
-      <AppButton v-if="!picked.length || !access.open" next block data-testid="invite-onward" @click="done">{{ onward.label }}</AppButton>
+      <template v-if="!picked.length || !access.open">
+        <span v-if="startError" class="body-sm text-error invite__waiting" role="alert">{{ startError }}</span>
+        <span v-else-if="waitingFor" class="caption text-muted invite__waiting" role="status" data-testid="invite-waiting">{{ waitingFor }}</span>
+        <AppButton next block :disabled="tooFew || busy" data-testid="invite-onward" @click="done">{{ busy ? 'Starting…' : onward.label }}</AppButton>
+      </template>
       <template v-else>
         <span class="caption text-muted invite__picked" aria-live="polite">{{ picked.length }} selected</span>
         <AppButton block :disabled="!picked.length || busy" @click="send">
@@ -320,9 +364,9 @@ function done() {
 </template>
 
 <style scoped>
-/* The card keeps a comfortable reading width; the screen and its steps bar are as wide as every session screen (.screen--step-form). */
-.screen--invite { --step-form-width: 640px; }
-.invite { gap: var(--spacing-lg); }
+/* The card is as wide as the steps bar and the footer, so its right edge lines up with the Next button (walkthrough, 30 October 2026). */
+.screen--invite { --step-form-width: none; }
+.invite { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 .invite__session { display: flex; align-items: center; gap: var(--spacing-base); }
 .invite__badge { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: var(--rounded-md); background: var(--primary); color: var(--on-primary); font: var(--text-display-sm); }
 .invite__count { display: inline-flex; align-items: center; gap: var(--spacing-xs); }
@@ -342,6 +386,7 @@ function done() {
 .invite__tag--pending { border-style: dashed; color: var(--muted); }
 .invite__tag--host { border-color: color-mix(in srgb, var(--primary) 35%, var(--canvas)); color: var(--primary-active); }
 .invite__picked { display: none; }
+.invite__waiting { text-align: center; }
 
 /* Phones: the tag (Host, Joined, Invited) goes under the name, so the name keeps the room. Beside the 44px picture and the 44px ×
    the tag, 92px wide, left the name nothing at 320px. */
@@ -359,5 +404,6 @@ function done() {
   .screen__body { flex: 0 0 auto; }
   .screen__footer { position: static; flex-direction: row; justify-content: flex-end; align-items: center; padding-top: 0; border-top: 0; }
   .invite__picked { display: inline; margin-right: auto; }
+  .invite__waiting { margin-right: auto; text-align: left; }
 }
 </style>
