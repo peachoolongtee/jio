@@ -35,6 +35,8 @@ const ICONS = {
   crown: { body: '<path d="M2.75 12.5h10.5M3.25 10.5 2.25 4.75 5.5 7.5 8 3.25l2.5 4.25 3.25-2.75-1 5.75Z"/>' },
   coin: { body: '<circle cx="8" cy="8" r="6"/><path d="M9.25 5.25v3.5a1.75 1.75 0 0 1-3.5 0"/>' },
   sparkle: { body: '<path d="M8 2.5 9.2 6.8 13.5 8 9.2 9.2 8 13.5 6.8 9.2 2.5 8 6.8 6.8Z"/>' },
+  // A four-point star with a small plus and a dot: "make something from this" (the post button on Home).
+  sparkles: { body: '<path d="M7 3.5 8 7l3.5 1L8 9l-1 3.5L6 9 2.5 8 6 7Z"/><path d="M12.5 1.5v3M11 3h3"/><circle cx="3" cy="13" r=".9"/>' },
   map: { body: '<path d="M2 4 6 2.5l4 1.5 4-1.5v9.5L10 13.5 6 12l-4 1.5Z"/><path d="M6 2.5V12M10 4v9.5"/>' },
   pin: { body: '<path d="M8 14s4.5-4.2 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.8 8 14 8 14Z"/><circle cx="8" cy="6.5" r="1.5"/>' },
   flag: { body: '<path d="M4 14V2.5M4 3h8l-1.75 2.75L12 8.5H4"/>' },
