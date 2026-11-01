@@ -472,7 +472,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
            on phones, top right from 744px. -->
       <div class="home__tools">
         <AddFriends />
-        <LiquidMetalButton label="Find places from a post" to="/places/from-post" icon="sparkles" data-testid="home-post-places" />
+        <LiquidMetalButton label="Find places from a post" caption="From a post" to="/places/from-post" icon="sparkles" data-testid="home-post-places" />
       </div>
       <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
         <UserAvatar :name="auth.user?.name ?? ''" :src="auth.user?.photo" :person="auth.myId" :size="44" />
