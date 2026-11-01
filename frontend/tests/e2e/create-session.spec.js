@@ -1,12 +1,12 @@
 // Example test, to copy: the demo account starts a new meetup on Home, fills in the title, the day and the times, presses Next,
-// and lands on the Invite screen, which shows the session it just made.
+// and lands on the Start choice (how to pick the meeting point), which comes before inviting and shows the session it just made.
 //
 // Copy this file, rename it for your feature (my-feature.spec.js), and change the steps. Find things the way a person does, by
 // role and name (getByRole, getByLabel, getByText), never by CSS class or position.
 import { test, expect, signInDemo, setTime, dayName, daysAhead } from './fixtures.js'
 
 test.describe('Create a session', () => {
-  test('the demo account creates a session and lands on the Invite screen', async ({ page }) => {
+  test('the demo account creates a session and lands on the Start choice', async ({ page }) => {
     const title = 'Saturday makan trip'
     // The fixed clock makes today Wednesday 4 November 2026, so this is Saturday 7 November.
     const day = daysAhead(3)
@@ -32,9 +32,12 @@ test.describe('Create a session', () => {
     await expect(next).toBeEnabled()
     await next.click()
 
-    // 5. The Invite screen opens at the new session's address, and shows the session's title.
-    await expect(page).toHaveURL(/\/sessions\/[^/]+\/invite$/)
-    await expect(page.getByRole('heading', { level: 1, name: 'Invite friends' })).toBeVisible()
+    // 5. The Start choice opens at the new session's address, and shows the session's title. Next there goes on to Invite.
+    await expect(page).toHaveURL(/\/sessions\/[^/]+\/start$/)
+    await expect(page.getByRole('heading', { level: 2, name: 'How do you want to pick the meeting point?' })).toBeVisible()
     await expect(page.getByText(title, { exact: true })).toBeVisible()
+    await page.getByTestId('start-next').click()
+    await expect(page).toHaveURL(/\/sessions\/[^/]+\/invite\?then=fairest$/)
+    await expect(page.getByRole('heading', { level: 1, name: 'Invite friends' })).toBeVisible()
   })
 })

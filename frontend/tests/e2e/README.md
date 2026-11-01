@@ -53,8 +53,8 @@ What `fixtures.js` gives you:
 | `dayName('2026-11-07')`, `daysAhead(3)` | The accessible name of a day in the date picker; a day counted from the fixed "today". |
 | `useScenario(page, 'rain')` | Picks a stub backend scenario for the test (see below). |
 | `FIXED_NOW` | The fixed time, as a `Date`. |
-| `createSession(page, { title, day, start, end })` | From Home, makes a session through the form and ends on its Invite screen. Answers the session's id. |
-| `inviteAndStart(page, ['Darius', 'Nicole'])` | From Invite: invites the friends, waits until they have joined, presses Start session, picks "Find the fairest spot" and ends on the Locate step. |
+| `createSession(page, { title, day, start, end })` | From Home, makes a session through the form and ends on its Start choice ("How do you want to pick the meeting point?", which comes before inviting). Answers the session's id. The form's own times are three hours long, which holds only three of the four kinds of stop: pass `end` for a longer day if a test needs all four. |
+| `inviteAndStart(page, ['Darius', 'Nicole'])` | From the Start choice: keeps "Find the fairest spot" and presses Next, which opens Invite; invites the friends, waits until they have joined, presses Start session and ends on the Locate step. |
 
 ### The clock
 
@@ -87,7 +87,7 @@ Each teammate owns one file with two tests. `create-session.spec.js` is the exam
 | darryl | A halal need reaches Vote and only fitting places are offered<br>The host replaces a confirmed stop and the times follow | `darryl.spec.js` |
 | Darius | "Already out" on Create session starts a light meetup that shows on Home<br>Finishing an outing moves it from Home to Past | `darius.spec.js` |
 | Jonathan | No sideways scroll on any page (one test for each of 320, 375, 744, 1280 and 812 by 375 px)<br>Create a session using only the keyboard | `jonathan.spec.js` |
-| (example) | The demo account creates a session and lands on the Invite screen | `create-session.spec.js` |
+| (example) | The demo account creates a session and lands on the Start choice | `create-session.spec.js` |
 
 Jonathan's first test is one test for each width, so his file holds six tests in all.
 
