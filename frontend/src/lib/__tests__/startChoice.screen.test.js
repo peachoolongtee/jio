@@ -179,8 +179,9 @@ describe('the follow-up for "We already know where"', () => {
     expect(press(view, 'Meet at Jurong East')).toBeTruthy()
     expect(view.one('input[type=text]').value).toBe('Jurong East')
     expect(view.text()).toContain('All areas')
-    // A search lists only what matches: an area that does not is neither shown nor kept (it was Bishan for "gardens").
-    view.type('input[type=text]', 'gardens')
+    // A search lists only what matches: an area that does not is neither shown nor kept (it was Bishan for "gardens"). Since every MRT
+    // station is an area (#209), "gardens" also finds Gardens by the Bay, so the search is "botanic".
+    view.type('input[type=text]', 'botanic')
     await view.tick()
     expect(view.all('button').filter((b) => b.attrs.role === 'radio').map((b) => view.text(b))).toEqual(['Botanic Gardens'])
     expect(view.text()).toContain('Areas that match')
