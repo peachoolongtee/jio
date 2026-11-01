@@ -3,7 +3,7 @@
 // All of it takes plain session summaries (lib/api.js), so it is tested without a browser.
 import { addDays, differenceInCalendarDays, format, isValid, parseISO, startOfWeek } from 'date-fns'
 import { proposalsOf } from './roam.js'
-import { isPaused, sessionPath, singaporeDate } from './session.js'
+import { isPaused, overdueOuting, sessionPath, singaporeDate } from './session.js'
 
 // How far apart, in px, pins that share a meeting area are drawn, so each one can still be tapped (a pin is 48px
 // wide). They fan out sideways around the area, centred on it.
@@ -20,19 +20,23 @@ export function dayOf(session, now) {
 // A missing date or time sorts after one that is there.
 const byText = (a, b) => (a === b ? 0 : !a ? 1 : !b ? -1 : a < b ? -1 : 1)
 
-// The meetups still going (not completed or cancelled), soonest first: by day, then start time, then the one made
-// earlier, then by id, so the order never shuffles between loads.
-// How to call: activeMeetups(events.sessions) -> [soonest, ..., latest]
+// Is a meetup past its end time without being finished? Home reminds the group about these (lib/session.js overdueOuting); they are not
+// "next". How to call: isOverdue({ status: 'voting', date: '2026-10-10', end: '21:00' }, now) -> true
+export const isOverdue = (session, now = new Date()) => !!overdueOuting(session, now)
+
+// The meetups still going (not completed or cancelled), the ones still to come first and soonest first: by day, then start time, then the
+// one made earlier, then by id, so the order never shuffles between loads. Those past their end time and not finished come after them
+// (the latest first), so four forgotten outings never push the next real one off Home's list, its pins or its default selection.
+// How to call: activeMeetups(events.sessions) -> [soonest, ..., latest, ...overdue]
 export function activeMeetups(sessions, now = new Date()) {
-  return (sessions || [])
-    .filter((s) => !FINISHED.includes(s.status))
-    .sort(
-      (a, b) =>
-        byText(dayOf(a, now), dayOf(b, now)) ||
-        byText(a.start, b.start) ||
-        (a.createdAt ?? 0) - (b.createdAt ?? 0) ||
-        String(a.id).localeCompare(String(b.id), undefined, { numeric: true }),
-    )
+  const soonest = (a, b) =>
+    byText(dayOf(a, now), dayOf(b, now)) ||
+    byText(a.start, b.start) ||
+    (a.createdAt ?? 0) - (b.createdAt ?? 0) ||
+    String(a.id).localeCompare(String(b.id), undefined, { numeric: true })
+  const going = (sessions || []).filter((s) => !FINISHED.includes(s.status))
+  const late = going.filter((s) => isOverdue(s, now))
+  return [...going.filter((s) => !late.includes(s)).sort(soonest), ...late.sort((a, b) => soonest(b, a))]
 }
 
 // The meetup Home shows: the one named by the URL, otherwise the soonest. An id that is not there (or two ids, as a
@@ -283,7 +287,7 @@ export function placeCard({ tip, pin, size, bounds, fallback = null, gap = 8, ca
 // behind "See all N meetups".
 export const HOME_MEETUPS_SHOWN = 4
 
-// The meetups Home lists and pins: the first HOME_MEETUPS_SHOWN of the chip's, soonest first. They do not depend on which one is selected
+// The meetups Home lists and pins: the first HOME_MEETUPS_SHOWN of the chip's, soonest first, those past their end last. They do not depend on which one is selected
 // (Home selects from them), so picking a pin never changes what is listed or where the pins stand; an earlier version kept the selected
 // one in the list and swapped a row (and a pin) at each pick.
 // How to call: homeList(meetups) -> [s1, s2, s3, s4]
@@ -332,10 +336,13 @@ export function rangeCounts(meetups = [], now = new Date()) {
   return Object.fromEntries(MEETUP_RANGES.map((r) => [r.id, meetupsIn(meetups, r.id, now).length]))
 }
 
-// The chip Home starts on: this week, or all of them when nothing is on this week, so the list is never empty while there are meetups.
+// The chip Home starts on: this week, or all of them when nothing is still to come this week, so the list is never empty while there are
+// meetups and an outing past its end time (which counts as this week) never hides the next one in a later week. When every meetup is
+// past its end, This week holds them.
 // How to call: defaultRange(meetups, now) -> 'week'
 export function defaultRange(meetups = [], now = new Date()) {
-  return meetupsIn(meetups, 'week', now).length ? 'week' : 'all'
+  const coming = meetups.filter((m) => !isOverdue(m, now))
+  return meetupsIn(coming.length ? coming : meetups, 'week', now).length ? 'week' : 'all'
 }
 
 // A meetup's stage on Home, one of four words the whole group shares (host or guest), in the order of the steps bar: inviting and
@@ -368,4 +375,12 @@ export function homeStatus(session, myId) {
 // Whether a meetup is waiting on the person, for Home's "Your turn" chip. How to call: needsMe(session, 'ian') -> true
 export function needsMe(session, myId) {
   return nextStepFor(session, myId).tone === 'action'
+}
+
+// The meetups that get a pin on Home's map: the listed ones that are still to come; the ones past their end time are in the list (and in
+// the banner) but do not take a pin while anything else can have it. When every listed meetup is past its end, they are pinned.
+// How to call: pinnedMeetups(homeList(meetups), now) -> [s1, s2]
+export function pinnedMeetups(listed = [], now = new Date()) {
+  const coming = listed.filter((m) => !isOverdue(m, now))
+  return coming.length ? coming : listed
 }
