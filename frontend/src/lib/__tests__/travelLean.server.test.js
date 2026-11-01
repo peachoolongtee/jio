@@ -42,10 +42,12 @@ async function draw(id) {
 const leanCalls = (w) => w.server.calls.filter((c) => c.route === 'travelLean')
 const LINE = '[data-testid="spots-lean"]'
 
-// In these sessions the first spot is 22 minutes from Kim and 32 from Sam, so it is closer to Kim.
+// In these sessions Sam starts at Pasir Ris and Kim at Bishan, and the first spot is clearly closer to Kim. From Tampines (the helper's own start)
+// the fairest MRT station is Ubi, about 21 minutes from each of them, which is closer to nobody.
+const SAM_FAR = { areaId: 'pasir-ris', label: 'Pasir Ris Mall' }
 describe('the line on the Locate step of a session on the server', () => {
   it('shows the person it applies to the line on the first spot when it is closer to them, and nothing else about anyone', async () => {
-    const { w, kim, id } = await locating({ places: true })
+    const { w, kim, id } = await locating({ places: true, samPlace: SAM_FAR })
     w.server.owed = new Set([kim.id])
     const { view } = await draw(id)
     await until(() => view.has(LINE))
@@ -57,7 +59,7 @@ describe('the line on the Locate step of a session on the server', () => {
   })
 
   it('shows nothing to the other member of the same session', async () => {
-    const { w, sam, kim, id } = await locating({ places: true })
+    const { w, sam, kim, id } = await locating({ places: true, samPlace: SAM_FAR })
     w.server.owed = new Set([sam.id])
     const { view } = await draw(id)
     await until(() => leanCalls(w).length > 0)
@@ -68,7 +70,7 @@ describe('the line on the Locate step of a session on the server', () => {
   })
 
   it('shows nothing to a person who is owed but whose trip to the first spot is the longer one', async () => {
-    const { w, sam, id } = await locating({ places: true, hostLast: true })
+    const { w, sam, id } = await locating({ places: true, samPlace: SAM_FAR, hostLast: true })
     w.server.owed = new Set([sam.id])
     const { view } = await draw(id)
     await until(() => leanCalls(w).length > 0)
@@ -78,7 +80,7 @@ describe('the line on the Locate step of a session on the server', () => {
   })
 
   it('says the same thing under the balanced rule when the server names it', async () => {
-    const { w, kim, id } = await locating({ places: true })
+    const { w, kim, id } = await locating({ places: true, samPlace: SAM_FAR })
     w.server.owed = new Set([kim.id])
     w.server.leanRule = 'balanced'
     const { view } = await draw(id)
@@ -87,7 +89,7 @@ describe('the line on the Locate step of a session on the server', () => {
   })
 
   it('shows nothing when the read fails, or the answer names a rule the screen does not know', async () => {
-    const failed = await locating({ places: true })
+    const failed = await locating({ places: true, samPlace: SAM_FAR })
     failed.w.server.owed = new Set([failed.kim.id])
     failed.w.server.after.travelLean = async () => {
       throw new Error('boom')
@@ -99,7 +101,7 @@ describe('the line on the Locate step of a session on the server', () => {
     expect(first.view.has('[role=alert]')).toBe(false)
     expect(first.view.text()).toContain('Where to meet')
 
-    const strange = await locating({ places: true })
+    const strange = await locating({ places: true, samPlace: SAM_FAR })
     strange.w.server.owed = new Set([strange.kim.id])
     strange.w.server.leanRule = 'shortest'
     const second = await draw(strange.id)
@@ -109,7 +111,7 @@ describe('the line on the Locate step of a session on the server', () => {
   })
 
   it('shows nothing when the answer is no', async () => {
-    const { w, id } = await locating({ places: true })
+    const { w, id } = await locating({ places: true, samPlace: SAM_FAR })
     const { view } = await draw(id)
     await until(() => leanCalls(w).length > 0)
     await new Promise((resolve) => setTimeout(resolve, 20))

@@ -17,9 +17,9 @@ import { estimateTravel, ROUTING_DEADLINE_MS, runOnTableTimes, runWithRealTravel
 //   nowInSingapore() // '2026-10-10T19:00'
 export const nowInSingapore = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16)
 
-// With routing on, the "best MRT station" check tries only 16 areas, not all 37. Without the table of times between areas they are
-// the 16 nearest the fairest point: those never missed the best area in 2,000 random groups (see docs/engine-integration.md), a
-// measurement made without the table. With it they are the 16 with the shortest guessed longest trip, which has not been measured
+// With routing on, the "best MRT station" check tries only 16 areas, not all of them (145). Without the table of times between areas they are
+// the 16 nearest the fairest point: those never missed the best area in 2,000 random groups on the first 37 areas (see docs/engine-integration.md), and
+// missed it in 5 of 2,000 by at most half a minute on all 145, measurements made without the table. With it they are the 16 with the shortest guessed longest trip, which has not been measured
 // the same way. It cuts the calls.
 export const MEETING_CANDIDATES_WITH_ROUTING = 16
 

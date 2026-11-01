@@ -340,7 +340,7 @@ describe('PUT /api/sessions/:id/dietary (the host’s dropped needs)', () => {
     expect(res.body).toMatchObject({ dietary: ['halal'], dropped: [] })
   })
 
-  it('is the host’s alone to lift: a member adding a dropped need to their own list, or removing and adding it, does not undo the drop', async () => {
+  it('stays when a member only keeps or adds a dropped need to their own list, or removes and adds it, without asking to lift it', async () => {
     await start()
     await put(HOST, { dropped: ['halal'] })
     const added = await put(OTHER, { mine: ['halal'] })
@@ -351,8 +351,23 @@ describe('PUT /api/sessions/:id/dietary (the host’s dropped needs)', () => {
     const again = await put(GUEST, { mine: ['halal'] })
     expect(again.body).toMatchObject({ dropped: ['halal'], dietary: ['vegan'], mine: ['halal'] })
     expect(droppedRows()).toEqual(['halal'])
-    // Only the host's list takes it back.
+    // The host's list takes it back.
     expect((await put(HOST, { dropped: [] })).body).toMatchObject({ dropped: [], dietary: ['halal', 'vegan'] })
+  })
+
+  it('is lifted by a member for a need of their own they select again, and by nobody else but the host', async () => {
+    await start()
+    await put(HOST, { dropped: ['halal'] })
+    // OTHER has no halal: they cannot lift it, nor drop anything.
+    expect((await put(OTHER, { mine: [], dropped: [] })).body.error).toBe('host_only')
+    expect((await put(OTHER, { mine: [], dropped: ['halal', 'vegan'] })).body.error).toBe('host_only')
+    expect(droppedRows()).toEqual(['halal'])
+    // GUEST has halal and selects it again: the places are filtered for it again, for everyone.
+    const lifted = await put(GUEST, { mine: ['halal'], dropped: [] })
+    expect(lifted.status).toBe(200)
+    expect(lifted.body).toMatchObject({ dropped: [], dietary: ['halal', 'vegan'], mine: ['halal'] })
+    expect(droppedRows()).toEqual([])
+    expect((await get(HOST)).body).toMatchObject({ dropped: [], dietary: ['halal', 'vegan'] })
   })
 
   it('takes a drop off the rankings: the needs a ranking reads are the outing’s, without the dropped ones', async () => {
@@ -481,6 +496,24 @@ describe('a change of the group’s needs while voting picks the places again', 
     expect(back.body).toMatchObject({ dietary: ['vegan'], repicked: true })
     for (const id of optionIds('eat')) expect(fits(id, 'vegan')).toBe(true)
     expect(withVegan.length).toBeGreaterThan(0)
+  })
+
+  it('for a need taken away keeps only the voted places and brings back the best places the filter had left out', async () => {
+    // The places with no need at all, as a group with no need gets them first.
+    await voting()
+    const open = optionIds('eat')
+    // Now the group starts with a vegan need, and only the host votes, for one of its places.
+    await voting({ [HOST]: [], [GUEST]: ['vegan'], [OTHER]: [] })
+    const withVegan = optionIds('eat')
+    const kept = world.votes.find((v) => v.user_id === HOST)
+    world.votes = world.votes.filter((v) => v === kept)
+    const res = await put(GUEST, { mine: [] })
+    expect(res.body).toMatchObject({ dietary: [], repicked: true })
+    const after = optionIds('eat')
+    // The voted place stays; the others are the best places with no need, not the vegan ones that happened to be listed.
+    expect(after).toContain(kept.venue_id)
+    for (const id of after.filter((x) => x !== kept.venue_id)) expect(open, id).toContain(id)
+    expect(after).not.toEqual(withVegan)
   })
 
   it('does not rank anything again when the group’s needs are the same (one member changing which of two people has a need)', async () => {

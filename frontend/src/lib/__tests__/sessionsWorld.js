@@ -56,9 +56,10 @@ export function world() {
   }
 }
 
-// Sam hosts a session with Kim in it, started (locating). With `places`, each has shared where they start.
+// Sam hosts a session with Kim in it, started (locating). With `places`, each has shared where they start: SAM_PLACE, or `samPlace`.
 // How to call: const { w, sam, kim, id } = await locating({ places: true })
-export async function locating({ places = false, third = false, hostLast = false } = {}) {
+//              const { w, sam, kim, id } = await locating({ places: true, samPlace: { areaId: 'pasir-ris', label: 'Pasir Ris' } })
+export async function locating({ places = false, third = false, hostLast = false, samPlace = SAM_PLACE } = {}) {
   const w = world()
   // The app opened last is the one the stores and screens of a test belong to: Kim's by default (Lee's when there is a third person), or Sam's (the host's) with `hostLast`.
   let sam
@@ -79,7 +80,7 @@ export async function locating({ places = false, third = false, hostLast = false
   if (lee) await lee.api.joinWithLink(token)
   await sam.api.startSession(id)
   if (places) {
-    await sam.api.setLocation(id, sam.id, 'start', SAM_PLACE)
+    await sam.api.setLocation(id, sam.id, 'start', samPlace)
     await kim.api.setLocation(id, kim.id, 'start', KIM_PLACE)
   }
   return { w, sam, kim, lee, id }

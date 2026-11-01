@@ -671,10 +671,11 @@ describe('places in table mode', () => {
 
     it('leaves a table time of 0 at 0, as the dry run has it', async () => {
       // Two people on the centres of Bugis and Orchard. Only Orchard is routed, 8 minutes slower than the table; Bugis is read on the table moved by the shift,
-      // and the trip from the person at Bugis to Bugis is nothing, as it was before anything was routed.
+      // and the trip from the person at Bugis to Bugis is nothing, as it was before anything was routed. Bugis is named (include) so it
+      // has an entry: among every MRT station it is not one of the best four for this pair.
       const bugis = data.areas.find((a) => a.id === 'bugis'), orchard = data.areas.find((a) => a.id === 'orchard')
       const group = [bugis, orchard].map((a, i) => ({ id: `c${i}`, name: `C${i}`, start: { lat: a.lat, lng: a.lng }, end: { lat: a.lat, lng: a.lng } }))
-      const run = (deps) => meetingArea({ members: group, method: 'station', alternatives: 3, dateTime: DATE_TIME }, data, deps)
+      const run = (deps) => meetingArea({ members: group, method: 'station', alternatives: 3, include: ['bugis'], dateTime: DATE_TIME }, data, deps)
       const dry = runOnTableTimes({ run, table: estimator.tableMinutes, estimate: estimator }).result
       expect(dry.candidates.find((c) => c.area.id === 'bugis').travelByMember.c0).toBe(0)
       const { result } = await runWithRealTravel({
@@ -886,10 +887,13 @@ describe('a guard on the design: table mode against an all-live ranking, where "
     }
     // Seen when this test was written (seeded, so it repeats; 40 groups): the pick was the simulated all-live one in 33 groups against 15 for the table
     // alone, and 0.3 minute worse on the longest trip on average against 3.6, with about 10 routed trips a request; the first place was the
-    // simulated all-live one in 36 groups against 30, and 93 of the first three places were its places against 81 (of 120). The bounds sit under those.
-    expect(stats.same / stats.n).toBeGreaterThan(0.7)
+    // simulated all-live one in 36 groups against 30, and 93 of the first three places were its places against 81 (of 120). That was on the first 37
+    // areas. On all 145 MRT stations (30 October 2026) more stations sit a minute or two apart, so the noise picks among near ties more often: the
+    // pick was the all-live one in 25 groups against 11, 1.1 minutes worse on average against 4.5, with about 12 routed trips; the first place in
+    // 33 against 19, and 96 of the first three against 87. The bounds sit under those.
+    expect(stats.same / stats.n).toBeGreaterThan(0.55)
     expect(stats.same).toBeGreaterThan(stats.tableSame * 1.5)
-    expect(stats.regret / stats.n).toBeLessThan(1)
+    expect(stats.regret / stats.n).toBeLessThan(1.5)
     expect(stats.regret).toBeLessThan(stats.tableRegret)
     expect(stats.calls / stats.n).toBeLessThan(14)
     expect(stats.placeSame / stats.placeN).toBeGreaterThan(0.8)

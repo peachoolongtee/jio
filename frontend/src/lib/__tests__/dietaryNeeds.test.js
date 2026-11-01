@@ -195,6 +195,30 @@ describe('only the host drops a need someone else has', () => {
     expect(plan.dietChecked).toBe(true)
   })
 
+  it("lets a guest bring back their own need the host dropped, by selecting it again; confirming without it keeps the drop", async () => {
+    // Ian has vegan for the outing and the host (Faith) dropped it; Faith and Nicole make the outing three.
+    const { api: hosted, id } = await voting(['faith', 'nicole'])
+    const saved = JSON.parse(hosted.storage.store[STORAGE_KEY])
+    const row = saved.sessions.find((s) => s.id === id)
+    row.hostId = 'faith'
+    row.dietMine = { ...(row.dietMine || {}), ian: ['vegan'] }
+    row.dietDropped = ['vegan']
+    const api = await loadApi({ data: { [STORAGE_KEY]: JSON.stringify(saved) } })
+    let plan = await api.getPlan(id)
+    expect(plan.dietDropped).toEqual(['vegan'])
+    expect(plan.dietary).not.toContain('vegan')
+    // Confirming as shown keeps it dropped.
+    await api.confirmDiet(id, ['vegan'], ['vegan'])
+    expect((await api.getPlan(id)).dietDropped).toEqual(['vegan'])
+    // Someone else's need is still not theirs to lift or drop.
+    await expect(api.confirmDiet(id, ['vegan'], ['vegan', 'halal'])).rejects.toThrow("Only the host can change someone else's need.")
+    // Selecting it again: the group is filtered for it again.
+    await api.confirmDiet(id, ['vegan'], [])
+    plan = await api.getPlan(id)
+    expect(plan.dietDropped).toEqual([])
+    expect(plan.dietary).toContain('vegan')
+  })
+
   it('lets the host drop it and bring it back', async () => {
     const { api, id } = await voting(['faith', 'nicole'])
     expect((await api.getSession(id)).hostId).toBe('ian')
@@ -263,9 +287,9 @@ describe('"Confirm dietary needs" on an outing', () => {
     expect(plan.othersDietary).toEqual(['halal', 'vegetarian'])
     // The host (the person here) may take a shared need off; a guest could not (the default of canDrop is false).
     expect(dietChips({ mine: plan.myDietary, others: plan.othersDietary, dropped: plan.dietDropped, canDrop: true })).toEqual([
-      { value: 'halal', label: 'Halal', selected: true, shared: true, locked: false },
-      { value: 'vegetarian', label: 'Vegetarian', selected: true, shared: true, locked: false },
-      { value: 'vegan', label: 'Vegan', selected: true, shared: false, locked: false },
+      { value: 'halal', label: 'Halal', selected: true, shared: true, locked: false, droppedMine: false },
+      { value: 'vegetarian', label: 'Vegetarian', selected: true, shared: true, locked: false, droppedMine: false },
+      { value: 'vegan', label: 'Vegan', selected: true, shared: false, locked: false, droppedMine: false },
     ])
     await api.confirmDiet(id, ['vegan'])
     plan = await api.getPlan(id)

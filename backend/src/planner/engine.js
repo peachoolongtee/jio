@@ -477,9 +477,11 @@ function meetingAreaPlan(input, data, estimate = null) {
  * method:
  *   'station' (default, the frontend team's rule): try candidate areas and pick the one where the LONGEST
  *     journey is shortest; a tie goes to the lower fairness-weighted average, so travel debt only breaks ties.
- *     By default EVERY area is tried (exact). That is members x areas routing calls (37 areas today), so with real
+ *     By default EVERY area is tried (exact). That is members x areas routing calls (145 areas today, every open MRT station), so with real
  *     OneMap routing pass maxCandidates to try only the areas nearest the minimax centre. Measured on 2,000 random
- *     groups: 8 candidates missed the fairest area 3.4% of the time (up to 7.5 min worse); 16 never did.
+ *     groups: on the first 37 areas 8 candidates missed the fairest area 3.4% of the time (up to 7.5 min worse) and 16 never did;
+ *     on all 145 (straight-line times, 30 October 2026) 16 missed it in 5 groups of 2,000 (0.25%, at most 0.5 min worse) and 24 never did.
+ *     With the table of area times the 16 are the nearest in time, not on the map (areasToTry), which the real server uses.
  *   'weighted_centroid' | 'centroid' | 'minimax': the engine's own seed points (debt pulls the weighted centroid
  *     toward people who travelled more), then named after the nearest area. The meeting point is the exact centre.
  *

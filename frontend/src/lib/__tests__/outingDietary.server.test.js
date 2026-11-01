@@ -48,7 +48,9 @@ function standIn(w, apps, profiles, hostId, { joined = 3, refuse = null } = {}) 
       if (refuse && method === 'PUT') return respond(refuse.status, { error: refuse.error, message: 'No.' })
       if (control.fail && method === 'GET') return respond(control.fail.status, { error: control.fail.error, message: 'No.' })
       if (method === 'PUT') {
-        if (body.dropped && user !== hostId) return respond(403, { error: 'host_only', message: 'Only the host can drop a need.' })
+        // As the server: a member may lift a drop of a need of their own (kept in `mine`); any other change to the list is the host's.
+        const ownLift = body.dropped && body.dropped.every((n) => outing.dropped.includes(n)) && outing.dropped.filter((n) => !body.dropped.includes(n)).every((n) => (body.mine ?? []).includes(n))
+        if (body.dropped && user !== hostId && !ownLift) return respond(403, { error: 'host_only', message: 'Only the host can drop a need.' })
         if (body.mine) outing.mine[user] = body.mine
         if (body.checked) outing.checked[user] = true
         if (body.dropped) outing.dropped = body.dropped
@@ -209,9 +211,9 @@ describe('a guest whose own need the host dropped', () => {
     await lee.api.getPlan(id)
     await lee.api.confirmDiet(id, [], undefined, { confirmed: false })
     const plan = await kim.api.getPlan(id)
-    // Kim sees no one else with halal, so nothing dropped on the screen, though the server lists it.
+    // Kim sees no one else with halal, and her own halal as dropped (her chip shows it as not filtered for).
     expect(plan.othersDietary).toEqual([])
-    expect(plan.dietDropped).toEqual([])
+    expect(plan.dietDropped).toEqual(['halal'])
     expect(plan.myDietary).toEqual(['halal'])
     diet.calls.length = 0
     // A chip tap and Confirm as the screen sends them: the person's own list and the dropped list the screen shows.
@@ -221,6 +223,47 @@ describe('a guest whose own need the host dropped', () => {
     expect(puts).toHaveLength(2)
     for (const put of puts) expect(put.body.dropped).toBeUndefined()
     expect(puts[1].body).toMatchObject({ mine: [], checked: true })
+  })
+
+  it('lifts the drop when she selects her own need again, and the group is filtered for it again', async () => {
+    const { w, sam, kim, lee, id } = await voting({ third: true })
+    const diet = standIn(w, [sam, kim, lee], { [sam.id]: [], [kim.id]: ['halal'], [lee.id]: [] }, sam.id)
+    await sam.api.confirmDiet(id, [], ['halal'])
+    await kim.api.getSession(id)
+    let plan = await kim.api.getPlan(id)
+    expect(plan.dietDropped).toEqual(['halal'])
+    diet.calls.length = 0
+    // Her chip's tap: her own list as it is, and the dropped list without halal.
+    await kim.api.confirmDiet(id, ['halal'], [], { confirmed: false })
+    const puts = diet.calls.filter((c) => c.method === 'PUT')
+    expect(puts.map((c) => c.body.dropped)).toEqual([[]])
+    plan = await kim.api.getPlan(id)
+    expect(plan.dietDropped).toEqual([])
+    expect(plan.dietary).toEqual(['halal'])
+  })
+
+  it('leaves a dropped need off the cards: no place says it is likely or not confirmed for it', async () => {
+    const { w, sam, kim, lee, id } = await voting({ third: true })
+    standIn(w, [sam, kim, lee], { [sam.id]: [], [kim.id]: ['vegetarian'], [lee.id]: ['halal'] }, sam.id)
+    // The places as Lee's app receives them, with food places only likely to fit either need (the stand-in's own have no diet levels).
+    const adapter = lee.api.api.defaults.adapter
+    lee.api.api.defaults.adapter = async (config) => {
+      const res = await adapter(config)
+      if (String(config.url).includes('/api/venues')) {
+        for (const v of res.data.venues) if (v.category === 'eat') v.diet = { halal: 'likely', vegetarian: 'likely', vegan: 'unknown' }
+      }
+      return res
+    }
+    const named = (plan, need) => plan.slots.flatMap((s) => s.options).filter((o) => [...(o.verify ?? []), ...(o.dietUnknown ?? [])].includes(need))
+    await lee.api.getSession(id)
+    const before = await lee.api.getPlan(id)
+    expect(named(before, 'vegetarian').length).toBeGreaterThan(0)
+    await sam.api.confirmDiet(id, [], ['vegetarian'])
+    const after = await lee.api.getPlan(id)
+    expect(after.dietDropped).toEqual(['vegetarian'])
+    expect(named(after, 'vegetarian')).toEqual([])
+    // Lee's own halal is still named.
+    expect(named(after, 'halal').length).toBeGreaterThan(0)
   })
 
   it('still cannot change a drop the screen shows', async () => {

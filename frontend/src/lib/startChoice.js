@@ -90,7 +90,7 @@ export const HERE_NOTE = 'This sets the meeting area to where you are now. Then 
 export function findAreas(query, limit = 8) {
   const q = String(query ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
   if (!q) return POPULAR_AREAS.map((id) => AREAS.find((a) => a.id === id)).filter(Boolean)
-  return AREAS.filter((a) => a.name.toLowerCase().includes(q)).slice(0, limit)
+  return AREAS.filter((a) => a.name.toLowerCase().includes(q) || (a.codes || []).some((c) => c.toLowerCase() === q.replace(/\s+/g, ''))).slice(0, limit)
 }
 
 // What a guest is told on the Locate step about the host's choice, or null when there is nothing to say: the session has no
