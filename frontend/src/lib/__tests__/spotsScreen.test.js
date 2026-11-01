@@ -247,6 +247,7 @@ describe('Vote', () => {
 // The card at a pin on the Locate map (UAT item 4): the same "Vote" as the list, under the count, and nothing else
 // to press. SpotPins draws it inside its card; it is rendered alone here, because the stand-in page has no transitions.
 describe('Vote on the map card', () => {
+  const allShared = () => { const s = session(); return { ...s, locations: { ...s.locations, faith: { start: { areaId: 'bugis' } } } } }
   const card = (s, extra = {}) => mount(SpotCard, { spot: s.spots.list[0], session: s, myId: 'ian', ...extra }, [pinia])
 
   it('shows "Vote" under the count while the group is choosing, naming the spot', () => {
@@ -275,7 +276,8 @@ describe('Vote on the map card', () => {
 
   // Walkthrough, 30 October 2026: on a phone the host confirms the meeting spot on the map, from the pin's card.
   it('offers the host "Confirm <area>" while the group is choosing, which confirms that spot', async () => {
-    const page = card(session(), { isHost: true })
+    // Everyone has shared where they start, so the card asks nothing first (spotCardConfirmWarns.test.js has the question).
+    const page = card(allShared(), { isHost: true })
     const button = page.button('Confirm Bugis')
     expect(button).not.toBeNull()
     await button.click()
@@ -289,7 +291,7 @@ describe('Vote on the map card', () => {
 
   it('says a refused confirm in the card', async () => {
     events.confirmSpot.mockRejectedValue(new Error('Someone changed the spots. Look again.'))
-    const page = card(session(), { isHost: true })
+    const page = card(allShared(), { isHost: true })
     await page.button('Confirm Bugis').click()
     await nextTick()
     expect(page.text()).toContain('Someone changed the spots. Look again.')

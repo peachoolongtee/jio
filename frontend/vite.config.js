@@ -17,7 +17,7 @@ export default defineConfig({
   // The tests run in Node, which compiles components for the server. A test that renders a component with its own tiny
   // stand-in for the page (src/lib/__tests__/miniDom.js) needs them compiled for the browser, so it is listed here.
   // tests/e2e holds the Playwright tests (pnpm test:e2e), which vitest must not collect.
-  test: { exclude: [...configDefaults.exclude, 'tests/e2e/**'], testTransformMode: { web: ['**/spotsScreen.test.js', '**/confirmBusy.test.js', '**/roamScreen.test.js', '**/roamLocationSheet.test.js', '**/suggestionReview.test.js', '**/suggestionCard.test.js', '**/weatherScreen.test.js', '**/weatherDayScreen.test.js', '**/homeRain.test.js', '**/rainMaps.test.js', '**/bannerAndFieldRoles.test.js', '**/toastMessage.test.js'] } },
+  test: { exclude: [...configDefaults.exclude, 'tests/e2e/**'], testTransformMode: { web: ['**/spotsScreen.test.js', '**/confirmBusy.test.js', '**/spotCardConfirmWarns.test.js', '**/roamScreen.test.js', '**/roamLocationSheet.test.js', '**/suggestionReview.test.js', '**/suggestionCard.test.js', '**/weatherScreen.test.js', '**/weatherDayScreen.test.js', '**/homeRain.test.js', '**/rainMaps.test.js', '**/bannerAndFieldRoles.test.js', '**/toastMessage.test.js'] } },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

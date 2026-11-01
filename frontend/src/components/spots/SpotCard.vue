@@ -8,14 +8,16 @@
 // it), marks only their own choice, and goes through spotChange.js, the list's way, so the count changes in place when the
 // session does. A refusal is said in the card. The host also has "Confirm <area>" here while the group is choosing (walkthrough,
 // 30 October 2026: on a phone the map is where the host looks, and the footer's button is far from the pin). It is the same confirm as
-// the footer's (events.confirmSpot, with the store's `confirming` flag shared, so a second press while either runs is ignored); the
-// screen sees the session move to Voting, as after the footer's.
+// the footer's (confirmSpot.js, with the store's `confirming` flag shared, so a second press while either runs is ignored), including the
+// question "Confirm <area> without everyone?" when some people have not shared where they start, which the footer's SpotConfirm shows
+// (the card may close while it is open). The screen sees the session move to Voting, as after the footer's.
 // Only areas are shown, never a member's exact place.
 import { computed, ref } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import ChipButton from '../ui/ChipButton.vue'
 import { useEventsStore } from '@/stores/events.js'
 import { useSpotChange } from './spotChange.js'
+import { useSpotConfirm } from './confirmSpot.js'
 import { ABOUT_NOTE, byLine, canApprove, isChoosing, tripsLine, votesText } from './spotText.js'
 
 const props = defineProps({
@@ -24,20 +26,21 @@ const props = defineProps({
   myId: { type: String, default: '' },
   confirmed: { type: Boolean, default: false },
   isHost: { type: Boolean, default: false },
+  // (id) => name, for the people the warning names.
+  names: { type: Function, default: (id) => id },
 })
 const events = useEventsStore()
+const { press: pressConfirm } = useSpotConfirm()
 // The host, while the group is choosing: the card can confirm this spot.
 const canConfirm = computed(() => props.isHost && !!props.session && isChoosing(props.session) && !props.confirmed)
 
-// Settle on this spot, as the footer's "Confirm <area>" does. How to call: await confirm()
+// Settle on this spot, as the footer's "Confirm <area>" does: asks first when some people have not shared where they start.
+// How to call: await confirm()
 async function confirm() {
   if (events.confirming) return
   error.value = ''
-  try {
-    await events.confirmSpot(props.session.id, props.spot.areaId)
-  } catch (e) {
-    error.value = e?.message || 'Could not confirm. Try again.'
-  }
+  const message = await pressConfirm(props.session, props.spot.areaId, props.names)
+  if (message) error.value = message
 }
 
 const { busy, approve: approveSpot } = useSpotChange()

@@ -11,12 +11,14 @@
 // where the map, and its spinner, are out of view.
 // The host never waits for anyone (Faith's walkthrough, 30 October 2026: "Continue without …" for each person is gone). When some people
 // have not shared where they start, pressing Confirm first asks once, naming them: the spot is fair on the trips that are known, and the
-// others stay in the session.
-import { computed, ref } from 'vue'
+// others stay in the session. The host's button on a pin's card (SpotCard) asks the same question here (confirmSpot.js), so a phone,
+// where the map's button is the near one, warns too.
+import { computed } from 'vue'
 import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import ModalDialog from '../ui/ModalDialog.vue'
 import { useEventsStore, waitingFor } from '@/stores/events.js'
+import { useSpotConfirm } from './confirmSpot.js'
 
 const props = defineProps({
   session: { type: Object, required: true },
@@ -31,50 +33,45 @@ const props = defineProps({
 const emit = defineEmits(['error'])
 
 const events = useEventsStore()
-const working = ref(false)
-const spot = computed(() => (props.session.spots?.list || []).find((s) => s.areaId === props.selectedId) || null)
-// A confirm is running, started here or by the list's "Meet at …".
-const saving = computed(() => working.value || events.confirming)
+const { saving, press: pressSpot, confirm: confirmSpot } = useSpotConfirm()
+const spotOf = (areaId) => (props.session.spots?.list || []).find((s) => s.areaId === areaId) || null
+const spot = computed(() => spotOf(props.selectedId))
 const label = computed(() => (props.disabled ? 'Finding the meeting point…' : saving.value ? 'Confirming…' : spot.value ? `Confirm ${spot.value.area.name}` : 'Confirm a spot'))
 
-// Who has not shared a start yet, by name, and the sentence that names them. How to call: missingText.value -> 'Faith and Nicole have'
-const missing = computed(() => waitingFor(props.session).map((id) => props.names(id)))
-const missingText = computed(() => {
-  const list = missing.value
-  if (list.length <= 2) return `${list.join(' and ')} ${list.length === 1 ? 'has' : 'have'}`
-  return `${list.slice(0, 2).join(', ')} and ${list.length - 2} ${list.length - 2 === 1 ? 'other' : 'others'} have`
-})
-const warnOpen = ref(false)
+// The question "Confirm <area> without everyone?", asked by this button or by the host's button on a pin's card (one question, held
+// in the events store, because a card closes when the pointer leaves it and this footer does not).
+const ask = computed(() => (events.confirmAsk && events.confirmAsk.sessionId === props.session.id ? events.confirmAsk : null))
+const askedSpot = computed(() => (ask.value ? spotOf(ask.value.areaId) : null))
+const warnOpen = computed({ get: () => !!ask.value, set: (open) => { if (!open) events.confirmAsk = null } })
 
-// The button: ask first when anyone has not shared a start, otherwise settle at once. How to call: press()
-function press() {
-  if (!spot.value || saving.value) return
-  if (missing.value.length) warnOpen.value = true
-  else confirm()
+// Tell the screen what the data layer said. How to call: say(await confirmSpot('s1', 'bugis'))
+function say(message) {
+  if (message !== undefined) emit('error', message)
 }
 
-// Settle on the selected spot. The host may do this before anyone has said which spots work for them.
+// The button: ask first when anyone has not shared a start, otherwise settle at once. How to call: press()
+async function press() {
+  if (!spot.value || saving.value) return
+  emit('error', '')
+  say(await pressSpot(props.session, spot.value.areaId, props.names))
+}
+
+// The dialog's "Confirm <area>": settle on the spot that was asked about. The host may do this before anyone has said which spots work for them.
 // How to call: confirm()
 async function confirm() {
-  warnOpen.value = false
-  if (!spot.value || saving.value) return
-  working.value = true
+  if (!ask.value) return
+  const { sessionId, areaId } = ask.value
   emit('error', '')
-  try {
-    await events.confirmSpot(props.session.id, spot.value.areaId)
-  } catch (e) {
-    emit('error', e.message)
-  }
-  working.value = false
+  say(await confirmSpot(sessionId, areaId))
 }
 </script>
 
 <template>
   <AppButton v-if="isHost" next block :disabled="!spot || disabled" :aria-busy="saving ? 'true' : undefined" @click="press"><span class="confirm__label">{{ label }}</span></AppButton>
   <p v-else class="confirm__wait body-md"><AppIcon name="clock" :size="18" />Waiting for {{ hostName }} to confirm</p>
-  <ModalDialog v-if="isHost" v-model:open="warnOpen" :title="`Confirm ${spot?.area.name || 'this spot'} without everyone?`" :text="`${missingText} not shared where they start, so their trips are not counted. They stay in the session.`">
+  <ModalDialog v-if="isHost" v-model:open="warnOpen" :title="`Confirm ${askedSpot?.area.name || 'this spot'} without everyone?`" :text="`${ask?.text || ''} not shared where they start, so their trips are not counted. They stay in the session.`">
     <AppButton block variant="secondary" @click="warnOpen = false">Keep waiting</AppButton>
-    <AppButton block data-testid="confirm-anyway" @click="confirm">Confirm {{ spot?.area.name || 'spot' }}</AppButton>
+    <AppButton block data-testid="confirm-anyway" @click="confirm">Confirm {{ askedSpot?.area.name || 'spot' }}</AppButton>
   </ModalDialog>
 </template>
 
