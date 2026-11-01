@@ -1,5 +1,5 @@
 // The screens of stage 3 for a real account, drawn for real on an in-memory page (domless.js) on the stand-in database and the stand-in
-// Jio server: starting the session, the Locate step (the spots, "Works for me", the host's confirm, leaving, removing, rejoining, a
+// Jio server: starting the session, the Locate step (the spots, "Vote", the host's confirm, leaving, removing, rejoining, a
 // failed save and its retry), and the Vote page. No network.
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -75,18 +75,18 @@ async function locating(options) {
 }
 
 describe('starting the session', () => {
-  it('offers the host Start session as a link to the Start choice, and the choice starts it: the page becomes the Locate step', async () => {
+  it('offers the host Next as a link to the Start choice, and the choice starts it: the page becomes the Locate step', async () => {
     const { w, id } = await started()
     const { view } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
     await until(() => view.text().includes('Kim'))
     expect(view.has('#start-held')).toBe(false)
-    // Pressing Start session saves nothing: it opens the choice.
-    const start = view.all('a').find((a) => view.text(a).includes('Start session'))
+    // Pressing Next saves nothing: it opens the choice.
+    const start = view.one('[data-testid=lobby-next]')
     expect(start.attrs.href).toBe(`/sessions/${id}/start`)
     expect(w.database.tables.sessions[0].status).toBe('inviting')
     const choice = await draw('views/StartView', `/sessions/${id}/start`, { id })
     await until(() => choice.view.text().includes('How do you want to pick the meeting point?'))
-    await choice.view.click(press(choice.view, 'Ask everyone to share where they start'))
+    await choice.view.click(choice.view.one('[data-testid=start-next]'))
     await until(() => w.database.tables.sessions[0].status === 'locating')
     // The choice is saved in the same update as the start.
     expect(w.database.tables.sessions[0].meet_by).toBe('fairest')
@@ -102,16 +102,16 @@ describe('starting the session', () => {
     await until(() => view.text().includes('How do you want to pick the meeting point?'))
     // Kim goes without the page hearing of it, so the button is still there when the host presses it.
     w.database.tables.session_members.splice(1, 1)
-    await view.click(press(view, 'Ask everyone to share where they start'))
+    await view.click(view.one('[data-testid=start-next]'))
     await until(() => view.has('p[role=alert]'))
     expect(view.text(view.one('p[role=alert]'))).toBe('A session needs at least two people before it can start.')
     expect(w.database.tables.sessions[0].status).toBe('inviting')
-    expect(press(view, 'Ask everyone to share where they start').disabled).toBe(false)
+    expect(view.one('[data-testid=start-next]').disabled).toBe(false)
   })
 })
 
 describe('the Locate step, for the host', () => {
-  it('lists the spots with Works for me and the host\'s one main action; with two people Remove is not offered, and nor is Leave', async () => {
+  it('lists the spots with Vote and the host\'s one main action; with two people Remove is not offered, and nor is Leave', async () => {
     const { w, sam, kim, id } = await locating()
     const { view } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
     await until(() => view.text().includes('Where to meet') && view.text().includes('Kim'))
@@ -120,8 +120,8 @@ describe('the Locate step, for the host', () => {
     expect(spots).toHaveLength(3)
     for (const spot of spots) expect(view.text()).toContain(spot.area.name)
     expect(view.text()).toContain('Suggested by Jio')
-    expect(view.text()).toContain('We already have a place')
-    expect(view.text()).toContain('Suggest a spot')
+    expect(view.text()).not.toContain('Pick the place yourself')
+    expect(view.text()).toContain('Add a spot')
     // The one main action, named for the spot shown first. Removing Kim would leave Sam alone, so it is not offered; a host cannot leave.
     expect(press(view, `Confirm ${spots[0].area.name}`)).toBeTruthy()
     expect(view.all('button[aria-label="Remove Kim"]')).toHaveLength(0)
@@ -131,11 +131,11 @@ describe('the Locate step, for the host', () => {
     expect(w.database.tables.session_member_places).toHaveLength(2)
   })
 
-  it('saves Works for me as the person\'s own row, and follows the guest\'s mark made on the other device', async () => {
+  it('saves Vote as the person\'s own row, and follows the guest\'s mark made on the other device', async () => {
     const { w, sam, kim, id } = await locating()
     const { view, events } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
     await until(() => view.text().includes('Where to meet'))
-    const works = view.all('button').filter((b) => view.text(b).includes('Works for me'))
+    const works = view.all('button').filter((b) => view.text(b).includes('Vote'))
     expect(works.length).toBeGreaterThan(0)
     await view.click(works[0])
     await until(() => w.database.tables.spot_approvals.length === 1)
@@ -145,7 +145,7 @@ describe('the Locate step, for the host', () => {
     const spot = (await kim.api.getSession(id)).spots.list[1].areaId
     await kim.api.approveSpot(id, kim.id, spot, true)
     await until(() => events.byId[id].spots.list[1].approvalCount === 1)
-    await until(() => view.text().includes('Works for 1 person'))
+    await until(() => view.text().includes('1 vote'))
   })
 
   it('confirms the spot and stays on the page, which then offers Choose places', async () => {
@@ -179,7 +179,7 @@ describe('the Locate step, for the host', () => {
     expect(busy.disabled).toBe(false)
     expect(view.all('p[role=status]').some((p) => view.text(p) === 'Confirming the meeting spot…')).toBe(true)
     // The list's own controls are held too, so nothing changes under the confirm.
-    expect(view.all('button').filter((b) => view.text(b).includes('Works for me')).every((b) => b.attrs['aria-busy'] === 'true')).toBe(true)
+    expect(view.all('button').filter((b) => view.text(b).includes('Vote')).every((b) => b.attrs['aria-busy'] === 'true')).toBe(true)
     release()
     await until(() => w.database.tables.sessions[0].status === 'voting')
     await until(() => view.text().includes(`${first.area.name} is confirmed. Press Choose places to carry on.`))
@@ -231,14 +231,14 @@ describe('the Locate step, for the host', () => {
     return { w, sam, kim, lee, id }
   }
 
-  it('lets the host remove a person who has not shared where they start, after a question that says what removing means', async () => {
+  it('lets the host remove a person who has not shared where they start from the people list, after a question that says what removing means', async () => {
     const { w, kim, id } = await threeWaiting()
     const { view } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
-    await until(() => view.text().includes('Waiting for 2 people') && press(view, 'Remove Kim'))
-    expect(view.text()).toContain('If someone is not going to, you can remove them.')
+    // No line says who has not shared a start: the people list shows it (walkthrough, 30 October 2026).
+    await until(() => view.has('button[aria-label="Remove Kim"]'))
+    expect(view.has('[data-testid=waiting-line]')).toBe(false)
     expect(press(view, 'Continue without')).toBeUndefined()
-    await view.click(press(view, 'Remove Kim'))
-    // The dialog says the same as the one beside a name: they are removed, and how they can come back.
+    await view.click(view.one('button[aria-label="Remove Kim"]'))
     const said = removeText('Kim')
     expect(said).toBe('Kim is removed from this session and it disappears from their list. If they joined with an invite link that still works, they can rejoin with it. Someone invited by username cannot.')
     await until(() => view.has('[role=dialog]'))
@@ -252,23 +252,6 @@ describe('the Locate step, for the host', () => {
     expect(w.server.calls.at(-1)).toMatchObject({ route: 'removeMember', path: `/api/sessions/${id}/members/${kim.id}` })
   })
 
-  it('says the same thing beside a name as under "Waiting for"', async () => {
-    const { id } = await threeWaiting({ kimStarts: true })
-    const { view } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
-    await until(() => view.text().includes('Waiting for 1 person') && press(view, 'Remove Lee') && view.has('button[aria-label="Remove Lee"]'))
-    const said = (node) => view.text(node)
-    await view.click(view.one('button[aria-label="Remove Lee"]'))
-    await until(() => view.has('[role=dialog]'))
-    const beside = said(view.one('[role=dialog]'))
-    await view.click(view.all('button').find((b) => view.text(b) === 'Keep Lee'))
-    await until(() => !view.has('[role=dialog]'))
-    await view.click(press(view, 'Remove Lee'))
-    await until(() => view.has('[role=dialog]'))
-    expect(said(view.one('[role=dialog]'))).toBe(beside)
-    expect(beside).toContain(removeText('Lee'))
-    expect(beside).toContain('Remove Lee?')
-  })
-
   it('offers no way to carry on without the only other person, since removing them would leave one', async () => {
     const w = world()
     const kim = await w.open(OTHER)
@@ -278,7 +261,7 @@ describe('the Locate step, for the host', () => {
     await host.api.startSession(session.id)
     await host.api.setLocation(session.id, host.id, 'start', SAM_PLACE)
     const { view } = await draw('views/GroupDetailView', `/sessions/${session.id}`, { id: session.id })
-    await until(() => view.text().includes('Waiting for 1 person'))
+    await until(() => view.text().includes('Kim'))
     expect(press(view, 'Remove Kim')).toBeUndefined()
     expect(press(view, 'Continue without')).toBeUndefined()
     expect(view.text()).not.toContain('you can remove them')

@@ -16,7 +16,7 @@ describe('startsIn', () => {
     expect(startsIn(session, at('2026-10-05T10:00:00+08:00')).text).toBe('In 5 days')
   })
   it('is live during the window and ended after it', () => {
-    expect(startsIn(session, at('2026-10-10T16:00:00+08:00')).text).toBe('Live now')
+    expect(startsIn(session, at('2026-10-10T16:00:00+08:00')).text).toBe('Happening now')
     expect(startsIn(session, at('2026-10-10T21:30:00+08:00')).text).toBe('Ended')
   })
   it('shows nothing for completed or cancelled sessions', () => {

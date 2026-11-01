@@ -29,12 +29,13 @@ describe('a shared outing past its end time', () => {
   it('is never finished or closed by a clock (nothing sweeps it): dueEnding says nothing', () => {
     expect(dueEnding(shared({ pastDay: true }), after)).toBeNull()
     expect(dueEnding(shared({ status: 'voting', pastDay: true }), new Date('2026-10-20T09:00:00+08:00'))).toBeNull()
-    // A local outing still finishes by itself.
-    expect(dueEnding(shared({ remote: false }), after)).toBe('finish')
+    // Nor is a local one: a confirmed plan is finished by the person (Faith's walkthrough, 30 October 2026).
+    expect(dueEnding(shared({ remote: false }), after)).toBeNull()
   })
 
   it('is reminded of on Home, with no time it closes by itself', () => {
     expect(overdueOuting(shared(), after)).toEqual({ closesAt: null })
-    expect(overdueOuting(shared({ remote: false }), after)).toEqual({ closesAt: expect.any(Date) })
+    expect(overdueOuting(shared({ remote: false }), after)).toEqual({ closesAt: null })
+    expect(overdueOuting(shared({ remote: false, status: 'voting' }), after)).toEqual({ closesAt: expect.any(Date) })
   })
 })

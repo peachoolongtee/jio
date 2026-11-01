@@ -29,10 +29,8 @@ async function reachVote(page) {
 
   await expect(page).toHaveURL(/\/sessions\/[^/]+\/plan$/)
 
-  const diet = page.getByRole('dialog', { name: 'Confirm dietary needs' })
-  await expect(diet).toBeVisible()
-  await diet.getByRole('button', {name: 'Confirm', exact: true}).click()
-  await expect(diet).toBeHidden()
+  // No dietary question first: the needs start from each person's profile (Faith's walkthrough, 30 October 2026).
+  await expect(page.getByRole('dialog', { name: 'Confirm dietary needs' })).toHaveCount(0)
 }
 
 test.describe('Planning an outing', () => {
@@ -92,7 +90,7 @@ test.describe('Planning an outing', () => {
     await expect(page).toHaveURL(/\/sessions\/[^/]+\/change-place$/)
     await page.getByRole('radio', { name: /^We already know where/ }).click()
     await page.getByRole('button', { name: 'Choose the area' }).click()
-    await expect(page.getByRole('heading', { name: 'Where is the place?' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Pick the meeting area' })).toBeVisible()
     await page.getByRole('textbox', { name: 'Search for an area' }).fill('Bugis')
     await page.getByRole('radio', { name: 'Bugis', exact: true }).click()
     await page.getByRole('button', { name: 'Meet at Bugis' }).click()

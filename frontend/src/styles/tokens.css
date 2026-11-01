@@ -17,7 +17,7 @@
 
 :root {
   /* Brand */
-  --primary: #ff385c; /* Rausch. Primary CTAs, the create orb, the meeting-area pin, "Live now". White text on it is 3.5:1; this brighter red was chosen over the darker #d10027 on 2026-10-09. */
+  --primary: #ff385c; /* Rausch. Primary CTAs, the create orb, the meeting-area pin, "Happening now". White text on it is 3.5:1; this brighter red was chosen over the darker #d10027 on 2026-10-09. */
   --primary-bright: #ff385c; /* The same Rausch, for decoration: glows, washes, rings. Kept as its own name in case --primary changes again. */
   --brand-logo: #f93d64; /* The official logo pink (components/ui/JioLogo.vue, the favicon). For the logo only, never for text. */
   --primary-active: #e00b41; /* Rausch pressed. */
@@ -63,6 +63,14 @@
   --diet-halal-bg: color-mix(in srgb, var(--diet-halal-fg) 12%, var(--canvas));
   --diet-veg-fg: #166534;
   --diet-veg-bg: color-mix(in srgb, var(--diet-veg-fg) 12%, var(--canvas));
+  /* Status badges (StatusBadge.vue): a tint of each hue behind the same hue, darkened so the words are over 4.5:1 on their tint. */
+  --status-turn-fg: #9a4a07;
+  --status-planning-fg: #0b5cab;
+  --status-voting-fg: #7a5200;
+  --status-ready-fg: #166534;
+  --status-done-fg: #5b21b6;
+  --status-cancelled-fg: #b42318;
+  --status-waiting-fg: #52525b;
   /* Rain (DESIGN.md, "Weather"): a blue-slate cooler than --ink, so rain reads as weather and not as a shadow. Information only: it never marks an action. There is no dark theme. */
   --rain-wash: #4f7aa6; /* The tint over the rainy area, drawn at 40% opacity in the middle, down to 10% near the edge and nothing at it (10 to 40%), feathered. */
   --rain-streak: #6f9bc8; /* The drops, 0.38, 0.6 and 0.85 opacity for the far, middle and near layer. */

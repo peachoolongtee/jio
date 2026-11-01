@@ -88,7 +88,6 @@ async function send() {
 <template>
   <PopoverPanel v-model:open="open" title="Invite friends" :width="380">
     <template v-if="!session.remote">
-      <p class="body-sm text-muted">They join {{ session.title }} once they accept.</p>
       <label class="invite__field">
         <AppIcon name="search" :size="16" />
         <input ref="search" v-model="query" type="search" placeholder="Search name or @username" aria-label="Search people" autocomplete="off" />

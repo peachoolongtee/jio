@@ -19,9 +19,6 @@ afterEach(() => vi.unstubAllGlobals())
 
 const PROFILE = { email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2000-01-31', homeAreaId: 'tampines' }
 const area = (id) => AREAS.find((a) => a.id === id)
-// The planner says the fairest area is now `id`.
-const moveMeetingAreaTo = (id) =>
-  planner.meetingArea.mockImplementation(async ({ members }) => ({ area: area(id), method: 'station', travelByMember: Object.fromEntries(members.map((m) => [m.id, 20])), approximate: false }))
 
 // A session in Locating with Ian, Jonathan and Faith; Ian and Jonathan have set a start, Faith has not.
 async function waitingSession() {
@@ -84,57 +81,44 @@ describe('a session waiting for someone to set a start', () => {
   })
 })
 
-describe('the meeting area moving during voting', () => {
-  it('says so, and says the votes were cleared', async () => {
+describe('a start that changes during voting', () => {
+  // A confirmed meeting area never moves by itself (Faith's walkthrough, 30 October 2026, as on the server): the host chooses it again,
+  // which clears the votes and says so.
+  it('keeps the meeting area, the votes and the silence', async () => {
     const { api, id } = await votingSession()
-    moveMeetingAreaTo('orchard')
+    const before = await api.getSession(id)
     const session = await api.setLocation(id, 'jonathan', 'start', { areaId: 'woodlands' })
-    expect(session.areaName).toBe('Orchard')
-    expect(session.banner.votesCleared).toBe(true)
-    expect(session.banner.text).toMatch(/Meeting area moved from .* to Orchard/)
-    expect(session.banner.text).toMatch(/Votes for places were cleared\./)
-    expect(votesClearedBanner(session)).toEqual(session.banner)
-    // The data layer did clear them.
-    const plan = await api.getPlan(id)
-    expect(plan.slots.every((slot) => slot.totalVotes === 0)).toBe(true)
-  })
-
-  it('can be dismissed', async () => {
-    const { api, id } = await votingSession()
-    moveMeetingAreaTo('orchard')
-    await api.setLocation(id, 'jonathan', 'start', { areaId: 'woodlands' })
-    const session = await api.dismissBanner(id)
-    expect(session.banner).toBeNull()
-  })
-
-  it('keeps the votes, and the old silence, when the area stays', async () => {
-    const { api, id } = await votingSession()
-    const session = await api.setLocation(id, 'jonathan', 'start', { areaId: 'woodlands' })
+    expect(session.areaName).toBe(before.areaName)
     expect(session.banner?.votesCleared).toBeUndefined()
     expect(votesClearedBanner(session)).toBeNull()
     expect((await api.getPlan(id)).slots.some((slot) => slot.totalVotes > 0)).toBe(true)
+  })
+
+  it('is followed, when the host chooses the meeting place again, by a notice that the votes were cleared, which can be dismissed', async () => {
+    const { api, id } = await votingSession()
+    await api.setLocation(id, 'jonathan', 'start', { areaId: 'woodlands' })
+    const session = await api.changeMeetingPlace(id, { meetBy: 'fairest' })
+    expect(session.status).toBe('locating')
+    expect(session.banner.text).toMatch(/changed the meeting place, so the votes were cleared\./)
+    expect((await api.dismissBanner(id)).banner).toBeNull()
   })
 
   it('does not claim votes were cleared when nobody had voted', async () => {
     const { api, id } = await waitingSession()
     await api.optOut(id, 'faith')
     await api.useMeetingArea(id)
-    moveMeetingAreaTo('orchard')
-    const session = await api.setLocation(id, 'jonathan', 'start', { areaId: 'woodlands' })
-    expect(session.banner.text).toMatch(/moved/)
-    expect(session.banner.votesCleared).toBeUndefined()
-    expect(session.banner.text).not.toMatch(/cleared/)
+    const session = await api.changeMeetingPlace(id, { meetBy: 'fairest' })
+    expect(session.banner.text).toMatch(/changed the meeting place/)
+    expect(session.banner.text).not.toMatch(/votes were cleared/)
   })
 
-  it('also says so when a re-plan asked for by hand moves the area', async () => {
+  it('keeps the area and the votes when a re-plan is asked for by hand', async () => {
     const { api, id } = await votingSession()
-    const { slots } = await api.getPlan(id)
-    for (const slot of slots.filter((s) => s.category === 'eat')) expect(slot.totalVotes).toBeGreaterThan(0)
+    const before = await api.getSession(id)
     await api.confirmPlan(id)
-    moveMeetingAreaTo('orchard')
     const session = await api.replan(id)
     expect(session.status).toBe('voting')
-    expect(session.banner.votesCleared).toBe(true)
-    expect(session.banner.text).toMatch(/Votes for places were cleared\./)
+    expect(session.areaName).toBe(before.areaName)
+    expect(session.banner?.votesCleared).toBeUndefined()
   })
 })

@@ -1,19 +1,19 @@
 <script setup>
-// "Where to meet": the meeting spots of a session that is choosing where to meet, with "Works for me" on each, "Suggest a
-// spot" (the area picker, in a popover) and, for the host, "We already have a place".
+// "Where to meet": the meeting spots of a session that is choosing where to meet, with "Vote" on each and "Add a spot" (the
+// area picker, in a popover; it was "Suggest a spot"). How the meeting point is picked was settled on the Start choice before this
+// screen, so the list has no way to name a place of its own (Faith's walkthrough, 30 October 2026: "Pick the place yourself" is gone).
 //   <SpotList :session="session" my-id="ian" :names="nameOf" :selected-id="shown" :is-host="true" host-name="Ian"
 //             @select="picked = $event" @error="error = $event" />
 // session: a session summary (lib/api.js). selectedId: the area shown as chosen (SpotRow outlines it; the map's pin matches).
 // Changes go through the events store as the signed-in person: approveMySpot (through spotChange.js, as the map's card
-// does), suggestMySpot, withdrawMySpot, and the host's setKnownPlace. A refusal or a planner failure is sentence-sized and goes up as `error` (the write has rolled back).
+// does), suggestMySpot and withdrawMySpot. A refusal or a planner failure is sentence-sized and goes up as `error` (the write has rolled back).
 // Emits select (an area id) and error (a message, or '' to clear). Confirming a spot or setting a known place moves the
 // session on to Voting, and this list stays where it is.
 // States: the group is choosing (the list, with every control); the group has moved on (the same spots with the confirmed
-// one first and marked "Confirmed", and no control on any of them: no "Works for me", "Suggest a spot", "We already have a
-// place" or Withdraw); the planner working it out (placeholder rows); the list while its times are updated; and your own
+// one first and marked "Confirmed", and no control on any of them: no "Vote", "Add a spot" or Withdraw); the planner working it out (placeholder rows); the list while its times are updated; and your own
 // suggestion with no row (a reload caught it before it was priced): "Try again" prices it, "Withdraw" takes it back.
 // With fewer than two starts there is no list and nothing to say about it (the "Waiting for N people" card on the screen
-// says who is missing): the section shows only for the host, who can still name a known place.
+// says who is missing), and the section does not show.
 // "Jio remembers": on the first spot's own row only, one quiet line, "This spot is closer to you.", for the person whose past travel the planner
 // counts when it picks that spot, and only when their own minutes to it are below the group's average (lib/travelLean.js). The answer is the
 // signed-in person's own flag (api.travelLean), asked once the group is choosing with two starts in. It shows nothing when the answer is no, when
@@ -25,14 +25,11 @@
 // "Confirming…" while it runs.
 import { computed, ref, watch } from 'vue'
 import AppButton from '../ui/AppButton.vue'
-import ModalDialog from '../ui/ModalDialog.vue'
 import SkeletonRow from '../ui/SkeletonRow.vue'
 import LocationSheet from '../group/LocationSheet.vue'
 import SpotRow from './SpotRow.vue'
 import { useSpotChange } from './spotChange.js'
-import { AREAS } from '@/lib/mock/places.js'
 import { closerToYou, leanLine } from '@/lib/travelLean.js'
-import { TRAVEL_TONES } from '@/lib/planner/travel.js'
 import { useEventsStore } from '@/stores/events.js'
 import { canApprove, canSuggest, confirmedAreaId, confirmedLine, isChoosing, spotsToShow, startsShared, unpricedSuggestion } from './spotText.js'
 
@@ -49,12 +46,8 @@ const emit = defineEmits(['select', 'error'])
 
 const events = useEventsStore()
 // A change of this list or the map's card, or a confirm from anywhere, is being saved (one flag, spotChange.js).
-const { busy, changing, run: change, approve: approveSpot } = useSpotChange()
+const { busy, run: change, approve: approveSpot } = useSpotChange()
 const suggestOpen = ref(false)
-const placeOpen = ref(false)
-const confirmOpen = ref(false)
-const placeArea = ref(null)
-const dialogError = ref('')
 
 const spots = computed(() => props.session.spots || { list: [], approvals: {}, suggestions: {}, preselectedAreaId: null, appMethod: null })
 const choosing = computed(() => isChoosing(props.session))
@@ -65,7 +58,6 @@ const mine = computed(() => new Set(spots.value.approvals?.[props.myId] || []))
 const own = computed(() => spots.value.suggestions?.[props.myId] || null)
 const unpriced = computed(() => unpricedSuggestion(props.session, props.myId))
 const offerSuggest = computed(() => canSuggest(props.session, props.myId))
-const offerKnown = computed(() => props.isHost && isChoosing(props.session))
 const approving = computed(() => canApprove(props.session, props.myId))
 // "Fairest" belongs to the app's first spot, and only when the planner really chose it by fairness.
 const fairestId = computed(() => (choosing.value && spots.value.appMethod === 'fairest' ? list.value.find((s) => s.by === 'app')?.areaId : ''))
@@ -73,14 +65,14 @@ const leadingId = computed(() => {
   const spot = choosing.value ? list.value.find((s) => s.areaId === spots.value.preselectedAreaId) : null
   return spot && spot.approvalCount > 0 ? spot.areaId : ''
 })
-// Is there anything to show? Not with fewer than two starts for anyone who cannot name a known place.
-const visible = computed(() => list.value.length > 0 || !!props.session.findingSpots || offerKnown.value || !!unpriced.value)
-const hasTrips = computed(() => list.value.some((s) => Object.keys(s.times || {}).length > 0))
+// Is there anything to show? Not with fewer than two starts.
+const visible = computed(() => list.value.length > 0 || !!props.session.findingSpots || !!unpriced.value)
+// The host's own buttons say what to do, so only a guest is told how the spots are settled.
 const intro = computed(() => {
   if (!list.value.length) return ''
   if (confirmedId.value) return confirmedLine(list.value[0].area.name)
-  if (!choosing.value) return ''
-  return props.isHost ? 'Pick a spot and confirm it when you are ready. You do not need to wait for anyone.' : `Say which spots work for you. ${props.hostName} confirms the final spot.`
+  if (!choosing.value || props.isHost) return ''
+  return `Vote for the spots that work for you. ${props.hostName} confirms the final spot.`
 })
 
 // The line for the first spot, "This spot is closer to you.", or '' (nothing to say). The signed-in person's own answer must be yes (the planner
@@ -108,9 +100,9 @@ async function run(fn) {
   if (message) emit('error', message)
 }
 
-// "Works for me" on a spot, or taking it back, the same way the map's card does. How to call: approve(spot, true)
+// "Vote" on a spot, or taking it back, the same way the map's card does. How to call: approve(spot, true)
 const approve = (spot, on) => run(() => approveSpot(props.session.id, spot.areaId, on))
-// Suggest a spot (from the area picker), replacing your own. How to call: suggest({ areaId: 'bugis' })
+// Add a spot (from the area picker), replacing your own. How to call: suggest({ areaId: 'bugis' })
 const suggest = (place) => run(() => change(() => events.suggestMySpot(props.session.id, place.areaId, { here: false })))
 // Mark your own suggestion "we are here already", or unmark it. How to call: setHere(spot, true)
 const setHere = (spot, on) => run(() => change(() => events.suggestMySpot(props.session.id, spot.areaId, { here: on })))
@@ -119,27 +111,6 @@ const retry = () => run(() => change(() => events.suggestMySpot(props.session.id
 // Take your suggestion back. How to call: withdraw()
 const withdraw = () => run(() => change(() => events.withdrawMySpot(props.session.id)))
 
-// The host picked the known place's area: ask once before the list is replaced.
-// How to call: pickKnown({ areaId: 'bugis' })
-function pickKnown(place) {
-  placeArea.value = AREAS.find((a) => a.id === place.areaId) || null
-  dialogError.value = ''
-  confirmOpen.value = !!placeArea.value
-}
-// The host confirmed the known place: replace the list with it. A press while this is saving does nothing.
-// How to call: settleKnown()
-async function settleKnown() {
-  if (busy.value) return
-  changing.value = true
-  dialogError.value = ''
-  try {
-    await events.setKnownPlace(props.session.id, placeArea.value.id)
-    confirmOpen.value = false
-  } catch (e) {
-    dialogError.value = e.message
-  }
-  changing.value = false
-}
 </script>
 
 <template>
@@ -150,9 +121,8 @@ async function settleKnown() {
     <p v-if="intro" class="body-sm text-muted">{{ intro }}</p>
     <p v-if="own && choosing" class="caption-sm text-muted">You have one suggestion. A new one replaces it.</p>
 
-    <div v-if="offerSuggest || offerKnown" class="spots__actions">
-      <AppButton v-if="offerSuggest" variant="secondary" small :aria-busy="busy ? 'true' : undefined" @click="busy || (suggestOpen = true)">Suggest a spot</AppButton>
-      <AppButton v-if="offerKnown" variant="tertiary" :aria-busy="busy ? 'true' : undefined" @click="busy || (placeOpen = true)">We already have a place</AppButton>
+    <div v-if="offerSuggest" class="spots__actions">
+      <AppButton variant="secondary" small :aria-busy="busy ? 'true' : undefined" @click="busy || (suggestOpen = true)">Add a spot</AppButton>
     </div>
 
     <ul v-if="list.length" class="spots__list" :class="{ 'is-busy': session.findingSpots }" :aria-busy="session.findingSpots ? 'true' : undefined" aria-label="Meeting spots">
@@ -193,17 +163,7 @@ async function settleKnown() {
       </div>
     </div>
 
-    <p v-if="hasTrips" class="spots__key" aria-label="Travel time colours">
-      <span v-for="t in TRAVEL_TONES" :key="t.id" class="spots__key-item"><span class="spots__dot" :class="`is-${t.id}`" />{{ t.label }}</span>
-    </p>
-
-    <LocationSheet v-model:open="suggestOpen" which="spot" title="Suggest a spot" @select="suggest" />
-    <LocationSheet v-model:open="placeOpen" which="spot" title="Where is the place?" @select="pickKnown" />
-    <ModalDialog v-model:open="confirmOpen" :title="`Meet at ${placeArea?.name || 'this place'}?`" text="This replaces the list of spots and takes the group on to choosing places. Everyone can still add where they start.">
-      <template #content><p v-if="dialogError" class="body-sm text-error" role="alert">{{ dialogError }}</p></template>
-      <AppButton block variant="secondary" @click="confirmOpen = false">Not yet</AppButton>
-      <AppButton block :aria-busy="busy ? 'true' : undefined" @click="settleKnown">{{ events.confirming ? 'Confirming…' : `Meet at ${placeArea?.name}` }}</AppButton>
-    </ModalDialog>
+    <LocationSheet v-model:open="suggestOpen" which="spot" title="Add a spot" @select="suggest" />
   </section>
 </template>
 
@@ -216,11 +176,5 @@ async function settleKnown() {
 .spots__list.is-busy { opacity: 0.6; }
 .spots__empty { display: flex; flex-direction: column; gap: var(--spacing-xs); padding: var(--spacing-base); border: 1px dashed var(--border-strong); border-radius: var(--rounded-md); }
 .spots__empty h3 { margin: 0; }
-.spots__key { display: flex; flex-wrap: wrap; gap: var(--spacing-xs) var(--spacing-base); font: var(--text-caption-sm); color: var(--muted); }
-.spots__key-item { display: inline-flex; align-items: center; gap: var(--spacing-xs); }
-.spots__dot { width: 10px; height: 10px; border-radius: var(--rounded-full); }
-.spots__dot.is-short { background: var(--travel-short); }
-.spots__dot.is-medium { background: var(--travel-medium); }
-.spots__dot.is-long { background: var(--travel-long); }
 @media (prefers-reduced-motion: reduce) { .spots__list { transition: none; } }
 </style>

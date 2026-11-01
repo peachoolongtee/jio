@@ -1,7 +1,7 @@
 // Everything Home decides about the meetups going now that needs no screen: which are current and in what order,
 // what each one needs from the signed-in person, where it stands, where its pin goes, and which one is selected.
 // All of it takes plain session summaries (lib/api.js), so it is tested without a browser.
-import { differenceInCalendarDays, format, isValid, parseISO } from 'date-fns'
+import { addDays, differenceInCalendarDays, format, isValid, parseISO, startOfWeek } from 'date-fns'
 import { proposalsOf } from './roam.js'
 import { isPaused, sessionPath, singaporeDate } from './session.js'
 
@@ -174,6 +174,49 @@ export function pinsFor(meetups) {
   })
 }
 
+// Where the pins go on Home's map, in px, so none covers another at the size the map is drawn (walkthrough, 30 October 2026: Bishan,
+// Toa Payoh, Caldecott and Potong Pasir are a few km apart, less than a pin on a phone, so they covered each other). `points` are the
+// pins' real positions in px from the map's middle, in list order. Pins that would overlap (closer than `width` across and `height`
+// down) are put in one group, drawn as a row `fan` apart, in list order, centred on its pins. The row does not depend on which pin is
+// selected, so picking one moves nothing (an earlier version kept the selected pin on its own spot, and pins swapped places at each
+// click); the map's routes meet at the selected pin where it is drawn. A row that would run past `maxX` either side of the middle slides
+// back inside. A row that overlaps another group's pin joins that group, until nothing overlaps. Returns each pin's move from its real
+// spot, in px; a pin with no neighbours stays where it is.
+// How to call: layoutPins([{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 10, y: 0 }]) -> Map { 'a' => { x: -24, y: 0 }, 'b' => { x: 24, y: 0 } }
+export function layoutPins(points, { width = 52, height = 66, fan = FAN_PX, maxX = Infinity } = {}) {
+  let groups = points.map((p) => [p])
+  const place = (group) => {
+    if (group.length === 1) return [{ id: group[0].id, x: group[0].x, y: group[0].y }]
+    const x = group.reduce((t, p) => t + p.x, 0) / group.length
+    const y = group.reduce((t, p) => t + p.y, 0) / group.length
+    const spots = group.map((p, i) => ({ id: p.id, x: x + (i - (group.length - 1) / 2) * fan, y }))
+    const low = Math.min(...spots.map((p) => p.x))
+    const high = Math.max(...spots.map((p) => p.x))
+    const shift = high > maxX ? maxX - high : low < -maxX ? -maxX - low : 0
+    return spots.map((p) => ({ ...p, x: p.x + shift }))
+  }
+  const clash = (a, b) => place(a).some((p) => place(b).some((q) => Math.abs(p.x - q.x) < width && Math.abs(p.y - q.y) < height))
+  const order = new Map(points.map((p, n) => [p.id, n]))
+  for (let merged = true; merged && groups.length > 1;) {
+    merged = false
+    outer: for (let i = 0; i < groups.length; i++) {
+      for (let j = i + 1; j < groups.length; j++) {
+        if (!clash(groups[i], groups[j])) continue
+        groups[i] = [...groups[i], ...groups[j]].sort((a, b) => order.get(a.id) - order.get(b.id))
+        groups.splice(j, 1)
+        merged = true
+        break outer
+      }
+    }
+  }
+  const moves = new Map()
+  for (const group of groups) for (const spot of place(group)) {
+    const real = points.find((p) => p.id === spot.id)
+    moves.set(spot.id, { x: spot.x - real.x, y: spot.y - real.y })
+  }
+  return moves
+}
+
 // The words a screen reader says for a pin: the title, the area and when.
 // How to call: pinName(meetup) -> 'Saturday lunch, Bugis, Sat 10 Oct · 15:00'
 export function pinName(session, now = new Date()) {
@@ -234,4 +277,95 @@ export function placeCard({ tip, pin, size, bounds, fallback = null, gap = 8, ca
   const side = room.above >= room.below ? 'above' : 'below'
   const c = at(side, b)
   return { ...c, top: clamp(c.top, b.top, b.bottom - size.h), inside: false }
+}
+
+// How many meetups Home's "Your meetups" lists (walkthrough, 30 October 2026: the whole list was too long). The rest are on Sessions,
+// behind "See all N meetups".
+export const HOME_MEETUPS_SHOWN = 4
+
+// The meetups Home lists and pins: the first HOME_MEETUPS_SHOWN of the chip's, soonest first. They do not depend on which one is selected
+// (Home selects from them), so picking a pin never changes what is listed or where the pins stand; an earlier version kept the selected
+// one in the list and swapped a row (and a pin) at each pick.
+// How to call: homeList(meetups) -> [s1, s2, s3, s4]
+export function homeList(meetups = [], max = HOME_MEETUPS_SHOWN) {
+  return meetups.slice(0, max)
+}
+
+// The words on Home's button to the Sessions list, the same whatever the count. How to call: allMeetupsLabel(9) -> 'See all meetups'
+export function allMeetupsLabel() {
+  return 'See all meetups'
+}
+
+// The chips over Home's "Your meetups" (walkthrough, 30 October 2026): which meetups the list and the map's pins show. Weeks run Monday to
+// Sunday on Singapore's calendar. The first three do not overlap, so each meetup is in exactly one and their counts add up to All's:
+// "This month" was tried and dropped, because at a month's end it held fewer than "Next week", which read as wrong. A meetup from an
+// earlier day that is still waiting to finish counts as this week.
+export const MEETUP_RANGES = [
+  { id: 'week', label: 'This week' },
+  { id: 'next', label: 'Next week' },
+  { id: 'later', label: 'After next week' },
+  { id: 'all', label: 'All' },
+]
+
+// Whether a meetup falls in a range. How to call: inRange({ date: '2026-11-03' }, 'next', new Date('2026-10-30T10:00:00+08:00')) -> true
+export function inRange(session, range, now = new Date()) {
+  if (range === 'all') return true
+  const day = dayOf(session, now)
+  if (!day) return false
+  const today = parseISO(singaporeDate(now))
+  const monday = startOfWeek(today, { weekStartsOn: 1 })
+  const key = (d) => format(d, 'yyyy-MM-dd')
+  const endOfThisWeek = key(addDays(monday, 6))
+  if (range === 'week') return day <= endOfThisWeek
+  if (range === 'next') return day > endOfThisWeek && day <= key(addDays(monday, 13))
+  if (range === 'later') return day > key(addDays(monday, 13))
+  return false
+}
+
+// The meetups in a range, in the order given. How to call: meetupsIn(meetups, 'week', now) -> [...]
+export function meetupsIn(meetups = [], range = 'all', now = new Date()) {
+  return meetups.filter((m) => inRange(m, range, now))
+}
+
+// How many meetups each chip holds. How to call: rangeCounts(meetups, now) -> { week: 2, next: 1, later: 2, all: 5 }
+export function rangeCounts(meetups = [], now = new Date()) {
+  return Object.fromEntries(MEETUP_RANGES.map((r) => [r.id, meetupsIn(meetups, r.id, now).length]))
+}
+
+// The chip Home starts on: this week, or all of them when nothing is on this week, so the list is never empty while there are meetups.
+// How to call: defaultRange(meetups, now) -> 'week'
+export function defaultRange(meetups = [], now = new Date()) {
+  return meetupsIn(meetups, 'week', now).length ? 'week' : 'all'
+}
+
+// A meetup's stage on Home, one of four words the whole group shares (host or guest), in the order of the steps bar: inviting and
+// choosing where to meet are "Planning", then "Voting", "Ready" once the plan is confirmed, and "Done". Cancelled says so.
+// How to call: stageOf({ status: 'locating' }) -> 'Planning'
+export function stageOf(session) {
+  const status = session?.status
+  if (status === 'voting') return 'Voting'
+  if (status === 'confirmed') return 'Ready'
+  if (status === 'completed') return 'Done'
+  if (status === 'cancelled') return 'Cancelled'
+  return 'Planning'
+}
+
+// What a row on Home says about a meetup (walkthrough, 30 October 2026: one pill used to mix where the meetup stands, what the person must
+// do and where a link goes, in about 18 different words). `stage` is stageOf. `turn` is the step when it is on the person ("Vote", "Share
+// your start"), shown as "Your turn · Vote"; `waiting` is the words when it is on someone else ("Waiting for the host"); a meetup with
+// nothing to do has neither (tapping the row opens it). Built on nextStepFor, so what counts as the person's turn does not change.
+// How to call: homeStatus(session, 'ian') -> { stage: 'Voting', turn: 'Vote', waiting: '', to: '/sessions/s3/plan' }
+export function homeStatus(session, myId) {
+  const step = nextStepFor(session, myId)
+  return {
+    stage: stageOf(session),
+    turn: step.tone === 'action' ? step.label : '',
+    waiting: step.tone === 'wait' ? step.label : '',
+    to: step.to,
+  }
+}
+
+// Whether a meetup is waiting on the person, for Home's "Your turn" chip. How to call: needsMe(session, 'ian') -> true
+export function needsMe(session, myId) {
+  return nextStepFor(session, myId).tone === 'action'
 }

@@ -56,14 +56,15 @@ describe('an outing of one person earns no coins', () => {
     expect(stored(api.storage).stats.ian).toEqual(before)
   })
 
-  it('pays nothing when it finishes by itself once its window ends', async () => {
+  it('stays open once its window ends, until it is finished, and pays nothing then', async () => {
     at('2026-10-17T14:20:00+08:00')
     const api = await signedIn()
     const { id } = await api.startRoam({ areaId: 'bugis' })
     const before = { ...stored(api.storage).stats.ian }
     at('2026-10-17T17:21:00+08:00')
     const [s] = await api.listSessions()
-    expect(s).toMatchObject({ id, status: 'completed', endedBy: 'auto', paid: false })
+    expect(s).toMatchObject({ id, status: 'confirmed' })
+    expect(await api.endPlan(id)).toMatchObject({ status: 'completed', endedBy: 'hand', paid: false })
     expect(stored(api.storage).stats.ian).toEqual(before)
   })
 
@@ -105,30 +106,36 @@ describe('a read never saves an old state over another tab\'s newer save', () =>
   const richIan = (save) => {
     save.stats.ian.points = 500
   }
+  // A plan that was never confirmed, which a read closes two days after its end: the write a read makes (a confirmed plan is finished by
+  // the person, never by a read).
+  const unconfirmed = (save) => {
+    richIan(save)
+    save.sessions[0].status = 'voting'
+  }
 
-  it('keeps a voucher redeemed in tab A when tab B, opened before it, reads after the end time', async () => {
-    const { a, b, storage } = await twoTabs(richIan)
+  it('keeps a voucher redeemed in tab A when tab B, opened before it, reads after the outing closes', async () => {
+    const { a, b, storage } = await twoTabs(unconfirmed)
     at('2026-10-10T19:00:00+08:00')
     await a.redeemReward('r-nylon')
     expect(stored(storage).redemptions).toHaveLength(1)
     expect(pointsOf(storage, 'ian')).toBe(440)
-    at('2026-10-10T20:30:00+08:00')
-    // Tab B still holds ian at 500 points, no voucher, a confirmed outing past its end.
+    at('2026-10-12T20:30:00+08:00')
+    // Tab B still holds ian at 500 points, no voucher, an unconfirmed outing two days past its end.
     const [s] = await b.listSessions()
-    expect(s).toMatchObject({ status: 'completed', endedBy: 'auto' })
+    expect(s).toMatchObject({ status: 'completed', endedBy: 'closed' })
     const after = stored(storage)
     expect(after.redemptions).toHaveLength(1)
-    // 500 less the voucher, plus the outing: settled on top of A's save, not over it.
-    expect(after.stats.ian.points).toBe(440 + POINTS_PER_MEETUP)
+    // 500 less the voucher, and nothing for a closed outing: settled on top of A's save, not over it.
+    expect(after.stats.ian.points).toBe(440)
   })
 
-  it('does not pay twice when tab A already finished the outing and redeemed after it', async () => {
-    const { a, b, storage } = await twoTabs(richIan)
-    at('2026-10-10T20:30:00+08:00')
+  it('writes nothing more when tab A already closed the outing and redeemed after it', async () => {
+    const { a, b, storage } = await twoTabs(unconfirmed)
+    at('2026-10-12T20:30:00+08:00')
     await a.listSessions()
     await a.redeemReward('r-nylon')
     const afterA = stored(storage)
-    expect(afterA.stats.ian.points).toBe(500 + POINTS_PER_MEETUP - 60)
+    expect(afterA.stats.ian.points).toBe(500 - 60)
     const [s] = await b.listSessions()
     expect(s.status).toBe('completed')
     expect(stored(storage)).toEqual(afterA)
@@ -146,13 +153,14 @@ describe('a read never saves an old state over another tab\'s newer save', () =>
   })
 })
 
-describe('an outing opened by its address after its end time is finished', () => {
-  it('shows it completed, paid once, and refuses a second "Finish outing" in plain words', async () => {
+describe('an outing opened by its address after its end time', () => {
+  it('shows it still open until it is finished, then paid once, and refuses a second "Finish outing" in plain words', async () => {
     const { api, id } = await loadConfirmed()
     const before = pointsOf(api.storage, 'ian')
     at('2026-10-10T20:05:00+08:00')
-    const session = await api.getSession(id)
-    expect(session).toMatchObject({ status: 'completed', endedBy: 'auto', paid: true })
+    expect(await api.getSession(id)).toMatchObject({ status: 'confirmed' })
+    expect(pointsOf(api.storage, 'ian')).toBe(before)
+    expect(await api.endPlan(id)).toMatchObject({ status: 'completed', endedBy: 'hand', paid: true })
     expect(pointsOf(api.storage, 'ian')).toBe(before + POINTS_PER_MEETUP)
     await expect(api.endPlan(id)).rejects.toThrow('This outing has already finished.')
     expect(pointsOf(api.storage, 'ian')).toBe(before + POINTS_PER_MEETUP)
@@ -192,7 +200,7 @@ describe('demo sessions are never finished by the clock', () => {
     expect(dueEnding(keepOpenSession, late)).toBeNull()
     expect(dueEnding({ ...keepOpenSession, status: 'voting' }, late)).toBeNull()
     expect(overdueOuting({ ...keepOpenSession, status: 'voting' }, late)).toBeNull()
-    expect(dueEnding({ ...keepOpenSession, keepOpen: false }, late)).toBe('finish')
+    expect(dueEnding({ ...keepOpenSession, status: 'voting', keepOpen: false }, late)).toBe('close')
   })
 
   it('keeps a session made with keepOpen as it is, days past its end', async () => {

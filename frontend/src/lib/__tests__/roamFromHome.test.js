@@ -94,14 +94,14 @@ describe('a light meetup from Home', () => {
     expect(inviteAccess({ ...s, light: false, activeIds: ['ian', 'faith'] }, true).open).toBe(false)
   })
 
-  it('ends by 23:59 late at night, and finishes by itself once that end has passed', async () => {
+  it('ends by 23:59 late at night, and stays open past that end until it is finished', async () => {
     vi.setSystemTime(new Date('2026-10-17T22:30:00+08:00'))
     const api = await signedIn()
     const s = await api.startRoam({ areaId: 'bugis' })
     expect([s.start, s.end]).toEqual(['22:30', '23:59'])
     vi.setSystemTime(new Date('2026-10-18T00:01:00+08:00'))
     const [after] = await api.listSessions()
-    expect(after).toMatchObject({ id: s.id, status: 'completed', endedBy: 'auto' })
+    expect(after).toMatchObject({ id: s.id, status: 'confirmed' })
   })
 
   it('needs a known area', async () => {

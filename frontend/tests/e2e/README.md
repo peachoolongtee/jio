@@ -85,7 +85,7 @@ Each teammate owns one file with two tests. `create-session.spec.js` is the exam
 | Faith | Set a start by searching: the group sees the area, not the place<br>The fairest spot is first, with each person's minutes | `faith.spec.js` |
 | Nichole | Create refuses the past: a past day and a start that has already passed<br>Dates lock once a session starts | `nichole.spec.js` |
 | darryl | A halal need reaches Vote and only fitting places are offered<br>The host replaces a confirmed stop and the times follow | `darryl.spec.js` |
-| Darius | "Already out?" starts a light meetup that shows on Home<br>Finishing an outing moves it from Home to Past | `darius.spec.js` |
+| Darius | "Already out" on Create session starts a light meetup that shows on Home<br>Finishing an outing moves it from Home to Past | `darius.spec.js` |
 | Jonathan | No sideways scroll on any page (one test for each of 320, 375, 744, 1280 and 812 by 375 px)<br>Create a session using only the keyboard | `jonathan.spec.js` |
 | (example) | The demo account creates a session and lands on the Invite screen | `create-session.spec.js` |
 

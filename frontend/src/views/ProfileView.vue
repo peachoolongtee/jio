@@ -8,25 +8,31 @@
 //   Someone else's also has one line under the name, "3 outings together · last on 12 Oct 2026", when the two of them have been out
 //   together (lib/hangouts.js outingsWith: finished outings with both in them, as the invite page counts them); with none, no line.
 //   Then the meetup graph, and the signed-in person's sessions or the other person's recent activity. The sessions have
-//   time chips, All, Upcoming and Completed (lib/profileSessions.js), styled like the ones on Rewards. The signed-in
-//   person's own also lists their Friends (for a real account, the people they have shared a session with; the first six, and
-//   "Show N more" for the rest; a friend they have been out with has the count of outings together beside the name), then
-//   Suggested people (anyone they are not friends with yet), each opening their profile, with "Add friend" in the sample world. These used to be on the invite page, which now shows friends only (ticket #121).
+//   The strip of numbers also has Friends (walkthrough, 30 October 2026, as Instagram's followers): pressing it opens a sheet listing
+//   them, each opening their profile. On someone else's profile in a real account it is the friends in common, since another person's
+//   friends cannot be read (lib/api.js friendsOf). The signed-in person's friends used to be a section of the page; the sheet replaced it,
+//   and a friend they have been out with has the count of outings together beside the name there.
+//   time chips, All, Upcoming and Completed (lib/profileSessions.js), styled like the ones on Rewards, and a search box that
+//   narrows them by title or meeting area. Clicking a day on the graph shows only that day's sessions (or, on someone else's
+//   profile, that day's activity) and picks All, so the day is never hidden by a chip; the day shows as a chip with a × above the
+//   list, and the × (or clicking the same day again) brings the whole list back (walkthrough, 30 October 2026). The signed-in
+//   person's own has no Suggested section on the page any more (walkthrough, 30 October 2026): people to add are in the Friends sheet,
+//   under your friends, and in Home's "Add friends", with a round red button that sends a friend request.
 //   The signed-in person's own (/profile) has Sign out on the banner; someone else's (/people/:id) has Back and a "Sample data for
 //   the demo" note, because other people's profiles are hand-written.
 //   Signing out of a local account (one that lives only in this browser) erases everything saved here, so its dialog
-//   says so. Signing out of a real account keeps its meetups on this device and the dialog says that instead. A local
-//   account in a build with real accounts also gets a note saying it lives only in this browser. A person with no
+//   says so. Signing out of a real account keeps its meetups on this device and the dialog says that instead. The profile
+//   itself carries no note about a local account (removed at the lead's walkthrough, 30 October 2026). A person with no
 //   season points has no rank: it reads "No rank yet".
 //   Signing out empties the signed-in person while this screen is still drawn, so every read of the signed-in person
 //   is guarded.
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import BottomSheet from '@/components/ui/BottomSheet.vue'
 import OutingsTogether from '@/components/group/OutingsTogether.vue'
-import BannerNote from '@/components/ui/BannerNote.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
 import CoinBadge from '@/components/ui/CoinBadge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -38,6 +44,7 @@ import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import MeetupGraph from '@/components/ui/MeetupGraph.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
 import SessionCard from '@/components/event/SessionCard.vue'
+import SuggestedFriends from '@/components/group/SuggestedFriends.vue'
 import NotFoundView from './NotFoundView.vue'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
@@ -45,7 +52,7 @@ import { useGroupsStore } from '@/stores/groups.js'
 import { outingsTogether, outingsWith, togetherLine } from '@/lib/hangouts.js'
 import { personColour } from '@/lib/people.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
-import { EMPTY_TEXT, SESSION_FILTERS, profileSessions } from '@/lib/profileSessions.js'
+import { EMPTY_TEXT, SESSION_FILTERS, narrowSessions, narrowedEmptyText, profileSessions } from '@/lib/profileSessions.js'
 import { useNow } from '@/lib/useNow.js'
 import { vRadioGroup } from '@/lib/radioGroup.js'
 
@@ -60,8 +67,6 @@ const signOutOpen = ref(false)
 // Which dialog was opened: 'real' (the account is kept, the meetups stay here) or 'local' (everything is erased). It is
 // fixed when the dialog opens, because signing out empties the signed-in person while the dialog is still on screen.
 const signOutKind = ref('local')
-// A local account in a build where real accounts are on: it works, but only in this browser.
-const localOnly = computed(() => auth.realAccounts && !!auth.user?.local)
 
 // How to call: openSignOut()
 function openSignOut() {
@@ -95,10 +100,35 @@ const sessions = computed(() => visibleSessions(events.sessions))
 // The time chip chosen, and the sessions it shows in its order. The clock moves a session to the top while it is live.
 const sessionFilter = ref('all')
 const now = useNow()
-const shownSessions = computed(() => profileSessions(sessions.value, sessionFilter.value, now.value))
+// What was typed in the search box, and the day picked on the graph ('yyyy-MM-dd' or '').
+const query = ref('')
+const day = ref('')
+const narrowing = computed(() => !!query.value.trim() || !!day.value)
+const shownSessions = computed(() => narrowSessions(profileSessions(sessions.value, sessionFilter.value, now.value), { query: query.value, day: day.value }, now.value))
+const shownActivity = computed(() => narrowSessions(person.value?.activity || [], { day: day.value }, now.value))
+const dayText = (d) => format(parseISO(d), 'EEE d MMM yyyy')
+// The sample meetups on the picked day: the graph counts them, but they have no session, so they are listed as past meetups of
+// their own under the sessions or the activity. How to call: pastOnDay.value -> [{ date: '2026-09-11', count: 1 }]
+const pastOnDay = computed(() => (day.value ? (person.value?.pastMeetups || []).filter((m) => m.date === day.value) : []))
+const pastText = (m) => (m.count > 1 ? `${m.count} meetups with friends` : 'Meetup with friends')
+const emptyText = computed(() => (narrowing.value ? narrowedEmptyText({ query: query.value, day: day.value }, dayText) : EMPTY_TEXT[sessionFilter.value]))
+// A day picked on the graph, or null when the same day was picked again. Picking a day shows All, so a past day is not hidden
+// by Upcoming. How to call: pickDay('2026-09-11')
+// The list sits below the graph on your own profile, so a picked day brings its heading into view (at once under reduced motion).
+async function pickDay(picked) {
+  day.value = picked || ''
+  if (!picked) return
+  sessionFilter.value = 'all'
+  await nextTick()
+  const head = typeof document !== 'undefined' ? document.getElementById(isMe.value ? 'my-sessions' : 'activity-head') : null
+  const still = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  head?.scrollIntoView?.({ behavior: still ? 'auto' : 'smooth', block: 'start' })
+}
+// The day goes when another person's profile opens.
+watch(personId, () => { day.value = ''; query.value = '' })
 const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf(id))
 const dateText = (d) => format(parseISO(d), 'd MMM yyyy')
-// Outings together: with each friend (beside their name in Friends), and with the person whose profile this is (the line under the name).
+// Outings together: with each friend (beside their name in the Friends sheet), and with the person whose profile this is (the line under the name).
 const togetherCounts = computed(() => (isMe.value ? outingsTogether(sessions.value, auth.myId) : {}))
 const togetherWithThem = computed(() => (!isMe.value && auth.myId ? outingsWith(sessions.value, auth.myId, personId.value) : { count: 0, last: null }))
 const togetherSentence = computed(() => togetherLine(togetherWithThem.value.count, togetherWithThem.value.last ? dateText(togetherWithThem.value.last) : ''))
@@ -109,24 +139,24 @@ const ordinal = (n) => {
   const v = n % 100
   return n + (s[(v - 20) % 10] || s[v] || s[0])
 }
-// The signed-in person's friends: the ones they added (the demo and local accounts), or the people they have shared a session
-// with (a real account, ticket #125).
-// Six show, as with Suggested below; "Show N more" opens the rest, and "Show fewer" closes them again.
-const FRIENDS_SHOWN = 6
-const allFriends = computed(() => (isMe.value ? groups.friends : []))
-const showAllFriends = ref(false)
-const friends = computed(() => (showAllFriends.value ? allFriends.value : allFriends.value.slice(0, FRIENDS_SHOWN)))
-// People the signed-in person could add, at most six.
-const suggested = computed(() => (isMe.value ? groups.suggested.slice(0, 6) : []))
-const adding = ref('')
-// How to call: addFriend('faith')
-async function addFriend(id) {
-  adding.value = id
-  try {
-    await groups.setFriend(id, true)
-  } finally {
-    adding.value = ''
-  }
+// The person's friends, in the sheet the Friends number opens: the ones the signed-in person added (or, for a real account, the
+// people they have shared a session with), or, on someone else's profile, theirs or the friends in common (lib/api.js friendsOf).
+const friends = computed(() => person.value?.friends || [])
+const friendsTitle = computed(() => (person.value?.friendsInCommon ? 'Friends in common' : 'Friends'))
+const friendsOpen = ref(false)
+// Under your own friends, the sheet suggests people to add (SuggestedFriends, the same section as Home's "Add friends"; demo and local
+// accounts only, as adding friends is). Fixed when the sheet opens, so a person just added stays, marked, until it closes.
+const sheetSuggested = ref([])
+const sheetError = ref('')
+watch(friendsOpen, (isOpen) => {
+  if (!isOpen) return
+  sheetError.value = ''
+  sheetSuggested.value = isMe.value && auth.sampleWorld ? [...groups.suggested] : []
+})
+// A friend's profile opens from the sheet: close it first. How to call: openFriend('faith')
+function openFriend(id) {
+  friendsOpen.value = false
+  router.push(id === auth.myId ? '/profile' : `/people/${id}`)
 }
 
 const friendBusy = ref(false)
@@ -190,6 +220,12 @@ async function signOut() {
                   <dt class="caption-sm">Balance</dt>
                   <dd class="stats__value tnum"><CoinBadge :size="18" />{{ person.points }}</dd>
                 </div>
+                <div class="stats__item">
+                  <dt class="caption-sm">{{ person.friendsInCommon ? 'In common' : 'Friends' }}</dt>
+                  <dd class="stats__value tnum">
+                    <button type="button" class="stats__button" :aria-label="`${friends.length} ${person.friendsInCommon ? 'friends in common' : friends.length === 1 ? 'friend' : 'friends'}, show the list`" aria-haspopup="dialog" data-testid="friends-count" @click="friendsOpen = true"><AppIcon name="heart" :size="18" />{{ friends.length }}</button>
+                  </dd>
+                </div>
               </dl>
               <AppButton v-if="!isMe && auth.sampleWorld" block :variant="person.isFriend ? 'secondary' : 'primary'" :disabled="friendBusy" :aria-pressed="String(person.isFriend)" @click="toggleFriend">
                 <AppIcon :name="person.isFriend ? 'check' : 'plus'" />
@@ -205,55 +241,9 @@ async function signOut() {
       </section>
 
       <div class="screen__body">
-        <BannerNote v-if="isMe && localOnly" data-testid="local-account-note">This account lives only in this browser. Signing out erases it, and you cannot log in to it from another device.</BannerNote>
         <section class="card graph-card rise" style="--i: 1" aria-labelledby="graph-head">
           <h2 id="graph-head" class="sr-only">Meetup frequency</h2>
-          <MeetupGraph :history="person.history" :planned="person.planned" />
-        </section>
-
-        <!-- The signed-in person: their friends, opening each one's profile. -->
-        <section v-if="allFriends.length" class="section" aria-labelledby="friends-head" data-testid="profile-friends">
-          <div class="section__head">
-            <h2 id="friends-head" class="display-sm">Friends</h2>
-          </div>
-          <ul class="suggested">
-            <li v-for="p in friends" :key="p.id" class="suggested__row">
-              <RouterLink :to="`/people/${p.id}`" class="suggested__who">
-                <UserAvatar :name="p.name" :src="p.photo" :person="p.id" :size="44" />
-                <span class="stack suggested__text">
-                  <span class="suggested__name">
-                    <span class="title-sm truncate">{{ p.name }}</span>
-                    <OutingsTogether :count="togetherCounts[p.id]" />
-                  </span>
-                  <span class="caption-sm text-muted truncate">@{{ p.username }}<template v-if="p.homeArea"> · {{ p.homeArea }}</template></span>
-                </span>
-              </RouterLink>
-            </li>
-          </ul>
-          <AppButton v-if="allFriends.length > FRIENDS_SHOWN" variant="tertiary" underline :aria-expanded="String(showAllFriends)" data-testid="profile-friends-more" @click="showAllFriends = !showAllFriends">
-            {{ showAllFriends ? 'Show fewer friends' : `Show ${allFriends.length - FRIENDS_SHOWN} more` }}
-          </AppButton>
-        </section>
-
-        <!-- The signed-in person: people they could add, opening each one's profile. -->
-        <section v-if="suggested.length" class="section" aria-labelledby="suggested-head" data-testid="suggested-people">
-          <div class="section__head">
-            <h2 id="suggested-head" class="display-sm">Suggested</h2>
-          </div>
-          <ul class="suggested">
-            <li v-for="p in suggested" :key="p.id" class="suggested__row">
-              <RouterLink :to="`/people/${p.id}`" class="suggested__who">
-                <UserAvatar :name="p.name" :src="p.photo" :person="p.id" :size="44" />
-                <span class="stack suggested__text">
-                  <span class="title-sm truncate">{{ p.name }}</span>
-                  <span class="caption-sm text-muted truncate">@{{ p.username }}<template v-if="p.homeArea"> · {{ p.homeArea }}</template></span>
-                </span>
-              </RouterLink>
-              <AppButton v-if="auth.sampleWorld" small variant="secondary" :disabled="adding === p.id" :aria-label="`Add ${p.name} as a friend`" @click="addFriend(p.id)">
-                <AppIcon name="plus" :size="16" />Add friend
-              </AppButton>
-            </li>
-          </ul>
+          <MeetupGraph :history="person.history" :planned="person.planned" :selected="day" @select="pickDay" />
         </section>
 
         <!-- The signed-in person: their sessions, once they have some. -->
@@ -263,12 +253,31 @@ async function signOut() {
           </div>
           <div v-if="!events.loaded" class="stack"><SkeletonRow v-for="n in 2" :key="n" :lines="3" /></div>
           <template v-else>
-            <div class="scroll-x session-filters" role="radiogroup" v-radio-group aria-label="Show sessions">
-              <ChipButton v-for="f in SESSION_FILTERS" :key="f.id" radio :selected="sessionFilter === f.id" @click="sessionFilter = f.id">{{ f.label }}</ChipButton>
+            <div class="session-filters">
+              <div class="scroll-x" role="radiogroup" v-radio-group aria-label="Show sessions">
+                <ChipButton v-for="f in SESSION_FILTERS" :key="f.id" radio :selected="sessionFilter === f.id" @click="sessionFilter = f.id">{{ f.label }}</ChipButton>
+              </div>
+              <label class="session-search">
+                <AppIcon name="search" :size="18" />
+                <span class="sr-only">Search sessions</span>
+                <input v-model="query" type="search" placeholder="Search by title or area" autocomplete="off" data-testid="session-search" />
+              </label>
             </div>
-            <p v-if="!shownSessions.length" class="body-md text-muted">{{ EMPTY_TEXT[sessionFilter] }}</p>
-            <ul v-else class="grid-3">
+            <p v-if="day" class="day-filter">
+              <button type="button" class="day-chip caption" data-testid="day-filter" :aria-label="`Show every day, not only ${dayText(day)}`" @click="day = ''">
+                <AppIcon name="calendar" :size="14" />{{ dayText(day) }}<AppIcon name="close" :size="14" />
+              </button>
+            </p>
+            <p class="sr-only" role="status">{{ day ? `Showing ${dayText(day)} only` : '' }}</p>
+            <p v-if="!shownSessions.length && !pastOnDay.length" class="body-md text-muted" data-testid="sessions-empty">{{ emptyText }}</p>
+            <ul v-if="shownSessions.length" class="grid-3">
               <li v-for="s in shownSessions" :key="s.id"><SessionCard :session="s" :names="nameOf" /></li>
+            </ul>
+            <ul v-if="pastOnDay.length && !query.trim()" class="activity" data-testid="past-meetups">
+              <li v-for="m in pastOnDay" :key="m.date" class="activity__row">
+                <span class="activity__icon"><AppIcon name="people" :size="16" /></span>
+                <span class="stack"><span class="title-sm">{{ pastText(m) }}</span><span class="caption-sm text-muted">Past meetup · {{ dateText(m.date) }}</span></span>
+              </li>
             </ul>
           </template>
         </section>
@@ -276,9 +285,15 @@ async function signOut() {
         <!-- Someone else: recent activity -->
         <section v-else class="section" aria-labelledby="activity-head">
           <h2 id="activity-head" class="display-sm">Recent activity</h2>
-          <EmptyState v-if="!person.activity.length" title="No activity yet" />
-          <ul v-else class="activity">
-            <li v-for="(item, i) in person.activity" :key="i" class="activity__row">
+          <p v-if="day" class="day-filter">
+            <button type="button" class="day-chip caption" data-testid="day-filter" :aria-label="`Show every day, not only ${dayText(day)}`" @click="day = ''">
+              <AppIcon name="calendar" :size="14" />{{ dayText(day) }}<AppIcon name="close" :size="14" />
+            </button>
+          </p>
+          <EmptyState v-if="!person.activity.length && !pastOnDay.length" title="No activity yet" />
+          <p v-else-if="!shownActivity.length && !pastOnDay.length" class="body-md text-muted" data-testid="activity-empty">No activity on {{ dayText(day) }}</p>
+          <ul v-if="shownActivity.length" class="activity">
+            <li v-for="(item, i) in shownActivity" :key="i" class="activity__row">
               <span class="activity__icon"><AppIcon :name="item.text.startsWith('Redeemed') ? 'gift' : 'trophy'" :size="16" /></span>
               <span class="stack">
                 <RouterLink v-if="item.sessionId" :to="`/sessions/${item.sessionId}/itinerary`" class="title-sm activity__link">{{ item.text }}</RouterLink>
@@ -287,10 +302,38 @@ async function signOut() {
               </span>
             </li>
           </ul>
+          <ul v-if="pastOnDay.length" class="activity" data-testid="past-meetups">
+            <li v-for="m in pastOnDay" :key="m.date" class="activity__row">
+              <span class="activity__icon"><AppIcon name="people" :size="16" /></span>
+              <span class="stack"><span class="title-sm">{{ pastText(m) }}</span><span class="caption-sm text-muted">Past meetup · {{ dateText(m.date) }}</span></span>
+            </li>
+          </ul>
         </section>
       </div>
     </template>
     <div v-else class="screen__body profile__loading"><SkeletonRow v-for="n in 3" :key="n" avatar /></div>
+
+    <BottomSheet v-model:open="friendsOpen" :title="friendsTitle">
+      <p v-if="!friends.length" class="body-md text-muted" data-testid="friends-empty">{{ person?.friendsInCommon ? 'No friends in common yet.' : isMe ? 'No friends yet. People you go out with show up here.' : 'No friends to show yet.' }}</p>
+      <ul v-else class="friend-list" data-testid="friends-list">
+        <li v-for="p in friends" :key="p.id">
+          <button type="button" class="friend-list__row" @click="openFriend(p.id)">
+            <UserAvatar :name="p.name" :src="p.photo" :person="p.id" :size="44" />
+            <span class="stack friend-list__text">
+              <span class="friend-list__name">
+                <span class="title-sm truncate">{{ p.name }}<template v-if="p.id === auth.myId"> (you)</template></span>
+                <OutingsTogether :count="togetherCounts[p.id]" />
+              </span>
+              <span class="caption-sm text-muted truncate"><template v-if="p.username">@{{ p.username }}</template><template v-if="p.username && p.homeArea"> · </template>{{ p.homeArea }}</span>
+            </span>
+            <AppIcon class="friend-list__go" name="chevron-right" :size="18" />
+          </button>
+        </li>
+      </ul>
+      <SampleNote v-if="!isMe && person?.sample && friends.length" />
+      <SuggestedFriends v-if="sheetSuggested.length" class="sheet-suggested" :people="sheetSuggested" data-testid="friends-sheet-suggested" @open="openFriend" @error="sheetError = $event" />
+      <p v-if="sheetError" class="body-sm text-error" role="alert">{{ sheetError }}</p>
+    </BottomSheet>
 
     <ModalDialog v-model:open="signOutOpen" :title="signOutKind === 'real' ? 'Sign out?' : 'Erase everything and sign out?'">
       <template #content>
@@ -305,8 +348,22 @@ async function signOut() {
 </template>
 
 <style scoped>
-/* The time chips above the Sessions grid, spaced as the filters on Rewards. */
-.session-filters { margin-bottom: var(--spacing-base); }
+/* The time chips and the search box above the Sessions grid, spaced as the filters on Rewards: one row from tablet up, the
+   search under the chips on phones. */
+.session-filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm) var(--spacing-md); margin-bottom: var(--spacing-base); }
+.session-filters .scroll-x { min-width: 0; flex: 1 1 auto; }
+.session-search { display: flex; flex: 1 1 260px; align-items: center; gap: var(--spacing-sm); max-width: 360px; min-height: var(--tap-min); padding: 0 var(--spacing-base); border: 1px solid var(--border-control); border-radius: var(--rounded-full); background: var(--canvas); color: var(--muted); }
+@media (max-width: 743.98px) { .session-search { max-width: none; } }
+.session-search:focus-within { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.session-search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: var(--text-body-md); outline: none; }
+.session-search input::placeholder { color: var(--muted); }
+/* The headings a picked day scrolls to, clear of the top bar. */
+#my-sessions, #activity-head { scroll-margin-top: calc(var(--topbar-real-height) + var(--spacing-base)); }
+/* The day picked on the graph: an ink chip, like a selected one, whose × lets it go. 44px tall to tap. */
+.day-filter { margin: 0 0 var(--spacing-base); }
+.day-chip { display: inline-flex; align-items: center; gap: var(--spacing-xs); min-height: var(--tap-min); padding: 0 var(--spacing-md); border: 0; border-radius: var(--rounded-full); background: var(--selected); color: var(--on-selected); cursor: pointer; }
+.day-chip:hover { background: var(--body); }
+.day-chip:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* ── The top ── */
 .hero { margin-bottom: var(--spacing-lg); }
 /* The banner: the person's colour, deep at one corner and light at the other, with two soft shapes for depth. */
@@ -331,7 +388,7 @@ async function signOut() {
 .hero__side { display: flex; flex-direction: column; gap: var(--spacing-md); }
 
 /* Three numbers in a bordered strip, split by thin lines. */
-.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: var(--spacing-md) 0; border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: var(--spacing-md) 0; border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
 .stats__item { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-xxs); padding: 0 var(--spacing-sm); text-align: center; }
 .stats__item + .stats__item { border-left: 1px solid var(--hairline); }
 .stats__value { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--ink); font: var(--text-display-sm); }
@@ -340,6 +397,20 @@ async function signOut() {
 /* The label comes first in the markup (for screen readers) and shows under its number. */
 .stats__item dt { order: 2; color: var(--muted); }
 .stats__item dd { order: 1; }
+/* Friends opens the list: the number is a button that looks like the others, underlined on hover. 44px to tap. */
+.stats__button { display: inline-flex; align-items: center; gap: 6px; min-height: var(--tap-min); margin: calc((var(--tap-min) - 28px) / -2) 0; padding: 0 var(--spacing-sm); border: 0; border-radius: var(--rounded-sm); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.stats__button :deep(svg) { color: var(--pc); }
+@media (hover: hover) { .stats__button:hover { text-decoration: underline; } }
+.stats__button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* The friends sheet: one row per friend, opening their profile. */
+.sheet-suggested { margin-top: var(--spacing-lg); }
+.friend-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.friend-list__row { display: flex; align-items: center; gap: var(--spacing-md); width: 100%; min-height: 64px; padding: var(--spacing-sm) 0; border: 0; border-bottom: 1px solid var(--hairline-soft); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+@media (hover: hover) { .friend-list__row:hover { background: var(--surface-soft); } }
+.friend-list__row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.friend-list__text { flex: 1; min-width: 0; gap: 0; }
+.friend-list__name { display: flex; align-items: center; gap: var(--spacing-xs); min-width: 0; }
+.friend-list__go { flex-shrink: 0; color: var(--muted); }
 
 .graph-card { overflow: hidden; padding: var(--spacing-base); }
 .activity { display: flex; flex-direction: column; }
@@ -347,10 +418,4 @@ async function signOut() {
 .activity__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
 .activity__link { color: var(--ink); }
 .profile__loading { padding-top: var(--spacing-xl); }
-.suggested { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-xs) var(--spacing-lg); margin: 0; padding: 0; list-style: none; }
-@media (min-width: 744px) { .suggested { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.suggested__row { display: flex; align-items: center; gap: var(--spacing-md); min-height: 68px; border-bottom: 1px solid var(--hairline-soft); }
-.suggested__who { display: flex; flex: 1; align-items: center; gap: var(--spacing-md); min-width: 0; color: var(--ink); text-decoration: none; }
-.suggested__text { min-width: 0; gap: 0; }
-.suggested__name { display: flex; align-items: center; gap: var(--spacing-xs); min-width: 0; }
 </style>

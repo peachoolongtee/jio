@@ -1,6 +1,6 @@
 <script setup>
 // "Change plan": the host's way back after the meeting place or the plan is set. A small button on the Vote and Itinerary screens, for the host
-// only, never a light meetup, and only while the session is voting or confirmed (locating already has "We already have a place"; a finished or cancelled session never
+// only, never a light meetup, and only while the session is voting or confirmed (locating has "Pick the place yourself"; a finished or cancelled session never
 // changes). It opens a question with up to two choices:
 //   Choose places again    only from a confirmed plan: back to voting at the same meeting area. The stops go, the votes stay (the same route as
 //                          the Itinerary's Re-plan).

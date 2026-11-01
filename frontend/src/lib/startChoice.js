@@ -20,7 +20,7 @@ export const CHOICES = [
     title: 'We already know where',
     tag: '',
     text: 'You pick the area. The group goes straight to choosing places.',
-    meta: 'Or set it to where you are right now',
+    meta: 'Best when the group has already agreed on an area',
     icon: 'pin',
   },
 ]
@@ -55,7 +55,7 @@ export const CHANGE_PLAN = {
   lost: (confirmed) => [
     'everyone\'s votes',
     'the places to vote on',
-    'the "Works for me" marks and the suggested spots',
+    'the votes for meeting spots and the suggested spots',
     ...(confirmed ? ['the itinerary\'s stops and any proposed places'] : []),
   ],
   keeps: 'Everyone\'s starting places are kept.',
@@ -63,10 +63,11 @@ export const CHANGE_PLAN = {
   go: 'Choose a new meeting place',
 }
 
-// The words on the host's main button on the choice screen, and the note under it.
-// How to call: startLabel('known') -> 'Choose the area'
-export const startLabel = (choice) => (choice === 'known' ? 'Choose the area' : 'Ask everyone to share where they start')
-export const START_NOTE = 'Guests see that you chose this.'
+// The words on the host's main button on the choice screen, and the note under it: "Next" for both, like every step's way on (Faith's
+// walkthrough, 30 October 2026), with no note.
+// How to call: startLabel('known') -> 'Next'
+export const startLabel = () => 'Next'
+export const START_NOTE = ''
 // The same, when the host is changing the meeting place after it was set (views/StartView.vue with `change`). The starts are kept, so the first
 // choice does not ask anyone to share them again; the note says what the button will clear.
 // How to call: changeLabel('fairest') -> 'Work out the spots again'
@@ -80,7 +81,7 @@ export function whereLabel(area, here = false) {
   if (here) return 'Use my location'
   return area ? `Meet at ${area.name}` : 'Choose an area'
 }
-export const WHERE_NOTE = 'Then you choose places together.'
+export const WHERE_NOTE = ''
 // Under the button once "We're here now" is chosen: it is the outing's meeting area that is set, not a look at what is nearby.
 export const HERE_NOTE = 'This sets the meeting area to where you are now. Then you choose places together.'
 
@@ -113,7 +114,7 @@ export function guestLine(session, hostName, myId) {
 // How to call: hostPendingLine({ meetBy: 'known', status: 'locating', hostId: 'ian' }, 'ian')
 export function hostPendingLine(session, myId) {
   if (session?.meetBy !== 'known' || session.status !== 'locating' || session.hostId !== myId) return null
-  return 'You chose a place you already know, but have not named the area. Use "We already have a place" below to carry on.'
+  return 'You chose a place you already know, but have not named the area yet.'
 }
 
 // Why the browser could not give a place, in a sentence. `error` is a GeolocationPositionError ({ code }) or an Error with `message`.
@@ -138,4 +139,25 @@ export async function areaHere(geolocation, placeFromCoords, timeout = 10000) {
   const place = await placeFromCoords(position.coords.latitude, position.coords.longitude)
   if (!place) throw new Error('Your location is outside Singapore. Pick an area instead.')
   return place
+}
+
+// How a new session starts, chosen in the menu that the navigation's Create opens (walkthrough, 30 October 2026), before the create
+// page. 'scratch' is the usual form (a day, times, invites, then the Start choice above); 'out' is for someone already out, who starts a
+// light meetup where they are, today, and goes straight to the places nearby. `to` is where each one opens, `hint` the line under its
+// name in the menu, and `note` the line on the create page in that mode.
+export const START_MODES = {
+  scratch: { value: 'scratch', label: 'New session', hint: 'Pick a day and invite friends', icon: 'calendar', to: '/sessions/new' },
+  out: { value: 'out', label: 'Already out', hint: 'Find places near you now', icon: 'locate', to: '/sessions/new?start=out', note: 'For today, from now. Pick where you are and Jio lists places nearby. You can invite friends from there.' },
+}
+
+// The choices Create offers an account. A light meetup is kept in this browser only, so a real account (whose sessions are shared)
+// gets "New session" alone, and Create goes straight to it with no menu.
+// How to call: startModesFor(auth.sampleWorld) -> [START_MODES.scratch, START_MODES.out]
+export function startModesFor(sampleWorld) {
+  return sampleWorld ? [START_MODES.scratch, START_MODES.out] : [START_MODES.scratch]
+}
+
+// An area's name by its id, or ''. How to call: areaName('bugis') -> 'Bugis'
+export function areaName(id) {
+  return AREAS.find((a) => a.id === id)?.name || ''
 }

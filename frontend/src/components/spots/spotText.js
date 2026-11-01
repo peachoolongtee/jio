@@ -46,11 +46,13 @@ export function byLine(spot, myId = '') {
   return `Suggested by ${spot.by === myId ? 'you' : spot.byName || 'a member'}`
 }
 
-// How many people said a spot works for them, in words (the avatars beside it are only a picture of the same).
-// How to call: worksForText({ approvalCount: 2 }) -> 'Works for 2 people'
-export function worksForText(spot) {
+// How many votes a spot has, in words (the avatars beside it are only a picture of the same). A vote here is the "Vote" on a
+// meeting spot (an approval in the data: anyone may vote for as many spots as suit them); it was "Works for me" until the lead's
+// walkthrough of 30 October 2026.
+// How to call: votesText({ approvalCount: 2 }) -> '2 votes'
+export function votesText(spot) {
   const n = spot.approvalCount || 0
-  return n === 0 ? 'No one yet' : `Works for ${n} ${n === 1 ? 'person' : 'people'}`
+  return n === 0 ? 'No votes yet' : `${n} ${n === 1 ? 'vote' : 'votes'}`
 }
 
 // How many active people have shared where they start.
@@ -180,7 +182,7 @@ export function unpricedSuggestion(session, myId) {
 
 // What a screen reader says for a spot's pin on the map.
 // A confirmed spot says so, after its name.
-// How to call: pinName(spot, 1, 'ian') -> 'Spot 1, Bishan. Suggested by Jio. Longest trip about 30 min. Works for 2 people.'
+// How to call: pinName(spot, 1, 'ian') -> 'Spot 1, Bishan. Suggested by Jio. Longest trip about 30 min. 2 votes.'
 export function pinName(spot, number, myId = '', confirmed = false) {
-  return [`Spot ${number}, ${spot.area.name}`, confirmed && 'Confirmed', byLine(spot, myId), tripsLine(spot).split(' · ')[0], worksForText(spot)].filter(Boolean).join('. ') + '.'
+  return [`Spot ${number}, ${spot.area.name}`, confirmed && 'Confirmed', byLine(spot, myId), tripsLine(spot).split(' · ')[0], votesText(spot)].filter(Boolean).join('. ') + '.'
 }

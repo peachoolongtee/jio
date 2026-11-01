@@ -3,7 +3,7 @@
 // in-memory page (domless.js). A real account's path is in takeBackInvite.server.test.js. No network.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { loadApi, stubPlanner } from './planFixture.js'
+import { STORAGE_KEY, loadApi, stubPlanner } from './planFixture.js'
 import { mountScreen, until } from './domless.js'
 
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn(), roamNearby: vi.fn(), forecast: vi.fn() }))
@@ -97,10 +97,66 @@ describe('the × on an Invited row, for a local host', () => {
       await view.click(view.all('button').find((b) => view.text(b) === 'Take back'))
       await until(() => crosses(view).length === 0)
       expect(stateOf(await api.getSession(id), 'faith')).toBeUndefined()
-      expect(view.all('li').some((li) => view.text(li).includes('Faith'))).toBe(false)
+      // Off the list of who is in. On the Invite page she is offered again among the friends, since inviting made her one.
+      const inList = view.all('li').filter((li) => /invite__row|lobby__row/.test(li.attrs.class || '') && !li.attrs.class.includes('is-picked') && !view.text(li).includes('Select'))
+      expect(inList.some((li) => view.text(li).includes('Faith'))).toBe(false)
       // The page says so, and focus went to the list's heading (the × is gone).
       expect(view.all('[role=status]').map((n) => view.text(n))).toContain("Faith's invite taken back")
       await until(() => view.focused()?.attrs.id === heading)
     })
   }
+})
+
+describe('taking back an invite everywhere it shows (walkthrough, 30 October 2026)', () => {
+  it('puts a new invite under "In this session" with its × right after sending, and taking it back takes the row away', async () => {
+    const { api, id } = await hosting()
+    await api.revokeInvite(id, 'faith')
+    const view = await draw('invite', `/sessions/${id}/invite`, id)
+    const chip = () => view.all('button').find((b) => b.attrs['aria-label'] === 'Select Faith')
+    await until(() => !!chip())
+    await view.click(chip())
+    await view.click(view.all('button').find((b) => view.text(b) === 'Send 1 invite'))
+    // The page stays (no separate "Invites sent" screen), and says so.
+    await until(() => crosses(view).length === 1 && view.text().includes('Invites sent to 1 person'))
+    await view.click(crosses(view)[0])
+    await view.click(view.all('button').find((b) => view.text(b) === 'Take back'))
+    await until(() => crosses(view).length === 0)
+    expect(stateOf(await api.getSession(id), 'faith')).toBeUndefined()
+    await until(() => view.focused()?.attrs.id === 'invite-in')
+  })
+
+  it('offers the × when invites are closed by a confirmed plan, but not on a cancelled outing', async () => {
+    const { api, id } = await hosting()
+    const confirmed = JSON.parse(api.storage.store[STORAGE_KEY])
+    confirmed.sessions.find((x) => x.id === id).status = 'confirmed'
+    await loadApi({ data: { [STORAGE_KEY]: JSON.stringify(confirmed) } })
+    const view = await draw('invite', `/sessions/${id}/invite`, id)
+    await until(() => view.text().includes('The plan is confirmed, so invites are closed.'))
+    expect(crosses(view).map((b) => b.attrs['aria-label'])).toEqual(['Take back the invite to Faith'])
+    view.unmount()
+    mounted.pop()
+
+    confirmed.sessions.find((x) => x.id === id).status = 'cancelled'
+    await loadApi({ data: { [STORAGE_KEY]: JSON.stringify(confirmed) } })
+    const again = await draw('invite', `/sessions/${id}/invite`, id)
+    await until(() => again.text().includes('The outing was cancelled, so invites are closed.'))
+    expect(again.text()).toContain('Faith')
+    expect(crosses(again)).toHaveLength(0)
+  })
+})
+
+describe('inviting someone makes them a friend, for a local account (walkthrough, 30 October 2026)', () => {
+  it('adds each invitee to the account\'s own friends, once', async () => {
+    const api = await loadApi()
+    await api.signUp({ email: 'ian@example.com', name: 'Ian', username: 'ian', dob: '2000-01-31', homeAreaId: 'tampines' })
+    const friendIds = async () => (await api.listPeople()).filter((p) => p.isFriend).map((p) => p.id)
+    const before = await friendIds()
+    const stranger = (await api.listPeople()).find((p) => !p.isFriend && p.id !== 'ian')
+    expect(stranger).toBeTruthy()
+    const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-18', start: '12:00', end: '20:00' })
+    await api.inviteFriends(id, [stranger.id], { pending: true, acceptAfter: WEEK })
+    expect(await friendIds()).toEqual([...before, stranger.id])
+    await api.inviteFriends(id, [stranger.id], { pending: true, acceptAfter: WEEK })
+    expect((await friendIds()).filter((x) => x === stranger.id)).toHaveLength(1)
+  })
 })

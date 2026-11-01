@@ -43,3 +43,25 @@ export function profileSessions(sessions, filter = 'all', now = new Date()) {
   const cancelled = list.filter((s) => s.status === 'cancelled').sort(latestFirst(now))
   return [...upcoming, ...completed, ...cancelled]
 }
+
+// The list narrowed further by what was typed in the search box (a session's title or meeting area, any case) and by a day picked
+// on the meetup graph ('yyyy-MM-dd'), both optional. Works on whatever the time chip already gave, in its order. Someone else's
+// recent activity is narrowed by day the same way (it has `date` and `text`).
+// How to call: narrowSessions(shown, { query: 'dinner', day: '2026-09-11' }, now) -> [the matching sessions]
+export function narrowSessions(list, { query = '', day = '' } = {}, now = new Date()) {
+  const words = String(query).trim().toLowerCase()
+  return (list || []).filter((s) => {
+    if (day && dayOf(s, now) !== day) return false
+    if (!words) return true
+    return [s.title, s.areaName, s.text].some((field) => typeof field === 'string' && field.toLowerCase().includes(words))
+  })
+}
+
+// The words under the chips when the search or the picked day leaves nothing.
+// How to call: narrowedEmptyText({ query: 'zoo', day: '' }) -> 'Nothing matches “zoo”'
+export function narrowedEmptyText({ query = '', day = '' } = {}, dayText = (d) => d) {
+  const words = String(query).trim()
+  if (words && day) return `Nothing matches “${words}” on ${dayText(day)}`
+  if (words) return `Nothing matches “${words}”`
+  return `No sessions on ${dayText(day)}`
+}

@@ -24,13 +24,15 @@
 // overdueOuting). A confirmed one finishes by itself: when its end time passes while Home is open, the list is read again,
 // which completes it (lib/api.js settleOutings). A shared outing is finished by its host, from its day on, so past its end time it gets a
 // banner of its own that says so (nothing closes it by a clock).
-// "Already out? Find something nearby" (RoamFromHome) sits under the meetups, or alone under the band when there are none,
-// for a local account: it starts a light meetup around one area and opens its itinerary, which lists places nearby (ticket #98).
+// "Already out?" is not on Home any more: it is the "Already out" choice on Create session (walkthrough, 30 October 2026), reached
+// from the navigation's Create, so there is one way to start a light meetup.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { format, parseISO } from 'date-fns'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
+import ChipButton from '@/components/ui/ChipButton.vue'
+import { vRadioGroup } from '@/lib/radioGroup.js'
 import BannerNote from '@/components/ui/BannerNote.vue'
 import BottomSheet from '@/components/ui/BottomSheet.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -40,7 +42,8 @@ import RangeSlider from '@/components/ui/RangeSlider.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import UserAvatar from '@/components/ui/UserAvatar.vue'
-import PlaceCard from '@/components/event/PlaceCard.vue'
+import PlaceTile from '@/components/event/PlaceTile.vue'
+import PlaceCarousel from '@/components/ui/PlaceCarousel.vue'
 import PlaceDetail from '@/components/event/PlaceDetail.vue'
 import WeatherSource from '@/components/weather/WeatherSource.vue'
 import InvitationList from '@/components/event/InvitationList.vue'
@@ -48,9 +51,9 @@ import SessionCard from '@/components/event/SessionCard.vue'
 import MeetupDetail from '@/components/home/MeetupDetail.vue'
 import MeetupList from '@/components/home/MeetupList.vue'
 import MeetupPins from '@/components/home/MeetupPins.vue'
-import RoamFromHome from '@/components/home/RoamFromHome.vue'
+import AddFriends from '@/components/home/AddFriends.vue'
 import * as api from '@/lib/api.js'
-import { activeMeetups, dayLabel, pinName, pinsFor, routesFor, selectMeetup } from '@/lib/homeMeetups.js'
+import { MEETUP_RANGES, activeMeetups, needsMe, allMeetupsLabel, dayLabel, defaultRange, homeList, meetupsIn, pinName, pinsFor, rangeCounts, selectMeetup } from '@/lib/homeMeetups.js'
 import { visibleSessions } from '@/lib/sessionFilter.js'
 import { AREAS } from '@/lib/mock/places.js'
 import { useHomeRain } from '@/lib/useHomeRain.js'
@@ -127,12 +130,30 @@ const nameOf = (id) => (id === auth.myId ? auth.user?.name ?? '' : groups.nameOf
 const sessions = computed(() => visibleSessions(events.sessions))
 const meetups = computed(() => activeMeetups(sessions.value, now.value))
 const hasMeetups = computed(() => meetups.value.length > 0)
-const selected = computed(() => selectMeetup(meetups.value, route.query.meetup))
+// Which meetups "Your meetups" and the map show (walkthrough, 30 October 2026): This week, Next week, Later or All, starting on This
+// week (or All when nothing is on this week). A chip with nothing in it is faded and cannot be chosen. The selected meetup comes from the
+// chip's meetups, so the card, the rows and the pins always agree.
+const rangePicked = ref(null)
+const range = computed(() => rangePicked.value ?? defaultRange(meetups.value, now.value))
+const counts = computed(() => rangeCounts(meetups.value, now.value))
+const inWeek = computed(() => meetupsIn(meetups.value, range.value, now.value))
+// "Your turn", a check chip after the week chips (as Rewards' "Can claim"): only the meetups waiting on the person, within the chosen
+// week. It shows only while at least one is, and the list falls back to the week's when none is left.
+const onlyMine = ref(false)
+const mineInWeek = computed(() => inWeek.value.filter((m) => needsMe(m, auth.myId)))
+const inRangeMeetups = computed(() => (onlyMine.value && mineInWeek.value.length ? mineInWeek.value : inWeek.value))
+// How to call: pickRange('next')
+function pickRange(id) {
+  if (counts.value[id]) rangePicked.value = id
+}
+// "Your meetups" lists a few (lib/homeMeetups.js homeList), and the selected one is one of them, so the card, the rows and the pins
+// agree and picking a pin changes nothing else on the map. "See all N meetups" opens Sessions when there are more, or finished ones.
+const shownMeetups = computed(() => homeList(inRangeMeetups.value.length ? inRangeMeetups.value : meetups.value))
+const selected = computed(() => selectMeetup(shownMeetups.value, route.query.meetup))
 const past = computed(() => sessions.value.filter((s) => !meetups.value.includes(s)).slice(0, 3))
 const hasFinished = computed(() => sessions.value.length > meetups.value.length)
+const moreMeetups = computed(() => meetups.value.length > shownMeetups.value.length || hasFinished.value)
 const area = computed(() => selected.value?.area || null)
-// The person's home area, a quick choice for "Already out?".
-const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAreaId, name: auth.user.homeAreaName } : null))
 
 // Outings past their end time that have not been completed, each with when it closes by itself. A confirmed one is left
 // out: it is finishing (below).
@@ -167,9 +188,7 @@ function select(id) {
   router.replace({ query: { ...route.query, meetup: id } })
 }
 
-// The routes on the map. With no meetups, or one with no meeting point yet: friends from all round the island meeting
-// in the middle (Toa Payoh), always these, spread out, rather than one meetup's starts (often a few stops apart).
-// With a selected meetup that has a meeting point: from each member's start area to that meeting area.
+// The routes on the map: friends from all round the island converging on the selected meetup's pin (ROUTE_STARTS, below).
 const at = (id) => AREAS.find((a) => a.id === id)
 // Until there is a meetup Home has nothing below the band, so the band fills the screen and Singapore is drawn large.
 const fullMap = computed(() => events.loaded && !hasMeetups.value)
@@ -186,19 +205,40 @@ onMounted(() => {
 onBeforeUnmount(() => narrowQuery?.removeEventListener('change', syncNarrow))
 const mapSpan = computed(() => (!fullMap.value ? [340, 260] : narrow.value ? [340, 300] : [400, 320]))
 const MEET = at('toa-payoh')
-const defaultRoutes = ['boon-lay', 'jurong-east', 'woodlands', 'punggol', 'tampines', 'harbourfront'].map((id) => ({ from: at(id), to: MEET }))
-const ownRoutes = computed(() => (selected.value ? routesFor(selected.value) : []))
-const mapRoutes = computed(() => (ownRoutes.value.length ? ownRoutes.value : defaultRoutes))
-// A new key redraws the routes: when the selection changes, or the selected meetup's starts or meeting area do.
-const mapKey = computed(() => (ownRoutes.value.length ? `${selected.value.id}:${ownRoutes.value.map((r) => `${r.from.lat},${r.from.lng}`).join('|')}` : 'default'))
+// The routes always start from the same six places round the island, so every pin gets the same number of lines (walkthrough, 30 October
+// 2026: they used to be the members' own starts, a different number for each meetup). They converge on the selected meetup's pin, its
+// meeting area; with no meetup selected, or one with no meeting point yet, on the middle (Toa Payoh), where no pin is.
+const ROUTE_STARTS = ['boon-lay', 'jurong-east', 'woodlands', 'punggol', 'tampines', 'harbourfront'].map(at)
+// Where each pin is drawn (MeetupPins `drawn`): a pin in a row of nearby ones stands a little off its own area, and the routes meet at
+// its tip, not under the pin beside it.
+const drawnAt = ref({})
+// The routes converge only on something on screen: the selected meetup's pin, or the "Jio your friends" pin when there is no meetup. When
+// the selected meetup has no pin (no meeting point yet, as with a chip whose meetups have none), nothing is drawn where they would meet, so
+// they do not converge on an empty spot: they run round the island one after another instead (IDLE_LOOP), people out and about.
+const selectedPinned = computed(() => !!selected.value && pins.value.some((pin) => pin.id === selected.value.id))
+const converging = computed(() => !hasMeetups.value || selectedPinned.value)
+const IDLE_LOOP = ['boon-lay', 'woodlands', 'punggol', 'tampines', 'harbourfront', 'jurong-east'].map(at)
+const IDLE_ROUTES = IDLE_LOOP.map((from, i) => ({ from, to: IDLE_LOOP[(i + 1) % IDLE_LOOP.length] }))
+const routeEnd = computed(() => {
+  const area = selected.value?.area
+  if (!selectedPinned.value || !Number.isFinite(area?.lat) || !Number.isFinite(area?.lng)) return MEET
+  return drawnAt.value[selected.value.id] || { lat: area.lat, lng: area.lng }
+})
+const mapRoutes = computed(() => (converging.value ? ROUTE_STARTS.map((from) => ({ from, to: routeEnd.value })) : IDLE_ROUTES))
+// A new key redraws the routes when they converge somewhere else (rounded, so a sub-pixel change in the measured box does not redraw), or
+// when they stop converging.
+const mapKey = computed(() => (converging.value ? `${routeEnd.value.lat.toFixed(4)},${routeEnd.value.lng.toFixed(4)}` : 'idle'))
 // The first draw is the full, slow one; a redraw after the person changes the selection is quicker.
 const quickMap = ref(false)
 watch(() => selected.value?.id, (id, before) => { if (id && before && id !== before) quickMap.value = true })
 
-// The pins: one per meetup with a meeting point, each with its day and the words a screen reader says.
+// The pins: one per meetup listed under "Your meetups" that has a meeting point (so a pin always has its row, and the map is not
+// crowded with meetups the list leaves out), each with its day and the words a screen reader says. With one meetup going there is no
+// list, and that one is pinned.
 const pins = computed(() => {
   const byId = Object.fromEntries(meetups.value.map((m) => [m.id, m]))
-  return pinsFor(meetups.value).map((pin) => ({ ...pin, label: dayLabel(byId[pin.id], now.value), name: pinName(byId[pin.id], now.value) }))
+  const pinned = meetups.value.length > 1 ? shownMeetups.value : meetups.value
+  return pinsFor(pinned).map((pin) => ({ ...pin, label: dayLabel(byId[pin.id], now.value), name: pinName(byId[pin.id], now.value) }))
 })
 
 // Rain on the map: only when an outing is within two hours. With none, nothing is asked and nothing is drawn. The layer is on
@@ -234,7 +274,8 @@ const fadeRain = computed(() => !rainPlacesKey.value || rainFaded.value !== rain
 // One line under the greeting, about where things stand.
 const blurb = computed(() => {
   if (!selected.value) return 'Pick a day, invite your friends, and Jio finds the fairest place for everyone to meet.'
-  if (meetups.value.length > 1) return `You have ${meetups.value.length} meetups going. Pick one to see where it stands.`
+  // Several going: the pins and the list say it, so there is no line (Faith's walkthrough, 30 October 2026).
+  if (meetups.value.length > 1) return ''
   if (area.value) return `Your group meets at ${area.value.name}. Here is what is nearby.`
   return 'Once everyone shares where they are starting, Jio works out the midpoint.'
 })
@@ -309,7 +350,7 @@ function clearApplied() {
 
 // ── Place detail ──
 // The open place lives in the URL, so Back closes it and a link opens it straight away. The card and the detail
-// view share view-transition names (PlaceCard `morph`, PlaceDetail), so the card grows into the view and back.
+// view share view-transition names (PlaceTile `morph`, PlaceDetail), so the card grows into the view and back.
 // Without the View Transitions API, or when the card is out of sight, the view simply opens and closes.
 const openPlace = ref(null)
 const reviews = ref(null)
@@ -411,6 +452,8 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
   <main class="screen home" data-testid="landing-view">
     <!-- The band: a muted map of Singapore; the routes meet at the selected meetup (or under the main action, in the middle). -->
     <section class="hero" :class="{ 'has-meetup': hasMeetups, 'hero--full': fullMap }" aria-labelledby="home-hello">
+      <!-- Finding people and adding them as friends (walkthrough, 30 October 2026): the corner opposite the avatar on phones, top right from 744px. -->
+      <AddFriends class="home__friends" />
       <RouterLink to="/profile" class="home__me" aria-label="Profile" title="Profile">
         <UserAvatar :name="auth.user?.name ?? ''" :src="auth.user?.photo" :person="auth.myId" :size="44" />
       </RouterLink>
@@ -418,7 +461,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
       <div class="hero__hello">
         <p class="caption text-muted">{{ today }}</p>
         <h1 id="home-hello" class="hello"><span class="hello__hi">Hi,</span> <span class="hello__name">{{ auth.user?.name }}</span></h1>
-        <p class="body-md home__blurb">{{ blurb }}</p>
+        <p v-if="blurb" class="body-md home__blurb">{{ blurb }}</p>
         <!-- An invitation waiting for an answer: the list is lower down the page, so the band says so and links to it. -->
         <RouterLink v-if="events.invitations.length" :to="{ query: route.query, hash: '#invitations' }" class="home__invites" data-testid="home-invites">
           <AppIcon name="user-plus" :size="16" />{{ events.invitations.length === 1 ? 'You have an invitation' : `You have ${events.invitations.length} invitations` }}
@@ -435,7 +478,7 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <SingaporeMap :key="mapKey" class="hero__map" :routes="mapRoutes" :center="MEET" :span="mapSpan" :quick="quickMap" :rain="rain.view.value?.places || []" :fade-rain="fadeRain" hide-meet />
         <div v-if="rainChip && rainChipFrame" class="hero__rain" :style="rainChipFrame" aria-hidden="true"><RainChip :text="rainChip" class="hero__rain-chip" /></div>
         <template v-if="hasMeetups">
-          <MeetupPins class="hero__pins" :pins="pins" :meetups="meetups" :my-id="auth.myId" :names="nameOf" :selected-id="selected.id" :center="MEET" :span="mapSpan" @select="select" />
+          <MeetupPins class="hero__pins" :pins="pins" :meetups="meetups" :my-id="auth.myId" :names="nameOf" :selected-id="selected.id" :center="MEET" :span="mapSpan" @select="select" @drawn="drawnAt = $event" />
         </template>
         <div v-else class="hero__action" :class="{ 'is-pin': events.loaded }">
           <SkeletonRow v-if="!events.loaded && !loadError" :lines="1" />
@@ -470,15 +513,21 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <section v-if="meetups.length > 1" class="section rise" style="--i: 1" aria-labelledby="home-meetups">
           <div class="section__head">
             <h2 id="home-meetups" class="display-sm">Your meetups</h2>
-            <AppButton v-if="hasFinished" variant="tertiary" underline to="/sessions">All meetups</AppButton>
           </div>
-          <MeetupList :meetups="meetups" :selected-id="selected.id" :my-id="auth.myId" @select="select" />
+          <div class="home__filters">
+            <div class="scroll-x home__ranges" role="radiogroup" v-radio-group aria-label="Show meetups for" data-testid="meetup-ranges">
+              <ChipButton v-for="r in MEETUP_RANGES" :key="r.id" radio :selected="range === r.id" :disabled="!counts[r.id]" :aria-label="`${r.label}, ${counts[r.id]} ${counts[r.id] === 1 ? 'meetup' : 'meetups'}`" @click="pickRange(r.id)">{{ r.label }}<span class="home__range-count tnum" aria-hidden="true">{{ counts[r.id] }}</span></ChipButton>
+            </div>
+            <ChipButton v-if="mineInWeek.length" check :selected="onlyMine" :aria-label="`Your turn, ${mineInWeek.length} ${mineInWeek.length === 1 ? 'meetup' : 'meetups'}`" data-testid="your-turn-filter" @click="onlyMine = !onlyMine">Your turn<span class="home__range-count tnum" aria-hidden="true">{{ mineInWeek.length }}</span></ChipButton>
+          </div>
+          <MeetupList :meetups="shownMeetups" :selected-id="selected.id" :my-id="auth.myId" @select="select" />
+          <AppButton v-if="moreMeetups" variant="secondary" class="home__see-all" to="/sessions" data-testid="see-all-meetups">{{ allMeetupsLabel(sessions.length) }}<AppIcon name="arrow-right" :size="16" /></AppButton>
         </section>
         <!-- One meetup: its card is above, and no list. -->
-        <div v-else-if="hasFinished" class="home__all"><AppButton variant="tertiary" underline to="/sessions">All meetups</AppButton></div>
+        <div v-else-if="hasFinished" class="home__all"><AppButton variant="secondary" class="home__see-all" to="/sessions" data-testid="see-all-meetups">{{ allMeetupsLabel(sessions.length) }}<AppIcon name="arrow-right" :size="16" /></AppButton></div>
       </div>
       <p class="sr-only" role="status">{{ announce }}</p>
-      <RoamFromHome v-if="events.loaded && auth.sampleWorld" class="rise home__roam" :home="homeArea" />
+      <div v-if="events.loaded" class="home__all"><AppButton variant="tertiary" underline to="/places/from-post">Find places from a post</AppButton></div>
 
       <!-- A midpoint: places around it, nearest first. -->
       <section v-if="area" class="section rise" aria-labelledby="home-places">
@@ -502,16 +551,22 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
         <EmptyState v-else-if="!filtered.length" title="No places match">
           <AppButton variant="secondary" @click="clearApplied">Clear all</AppButton>
         </EmptyState>
-        <template v-else>
-          <ul class="grid-3">
-            <li v-for="(place, i) in filtered.slice(0, shown)" :key="place.id" class="rise" :style="{ '--i': i % PAGE }">
-              <RouterLink :to="{ query: { ...route.query, place: place.id } }" class="place-link" :data-place="place.id">
-                <PlaceCard :place="place" :morph="morphId === place.id" />
-              </RouterLink>
-            </li>
-          </ul>
-          <AppButton v-if="filtered.length > shown" variant="secondary" class="home__more" @click="shown += PAGE">Show more</AppButton>
-        </template>
+        <!-- One row that scrolls sideways (walkthrough, 30 October 2026: the grid showed every place at once). "Show more" is the row's
+             last card and adds the next twelve. -->
+        <PlaceCarousel v-else :items="filtered.slice(0, shown)" :label="`Places near ${area.name}`" data-testid="home-places">
+          <template #item="{ item: place }">
+            <RouterLink :to="{ query: { ...route.query, place: place.id } }" class="place-link place-link--tile" :data-place="place.id">
+              <PlaceTile :place="place" :morph="morphId === place.id" />
+            </RouterLink>
+          </template>
+          <template v-if="filtered.length > shown" #end>
+            <button type="button" class="home__more-card" data-testid="home-places-more" @click="shown += PAGE">
+              <span class="home__more-icon" aria-hidden="true"><AppIcon name="plus" :size="20" /></span>
+              <span class="title-sm">Show more</span>
+              <span class="caption-sm text-muted">{{ filtered.length - shown }} more nearby</span>
+            </button>
+          </template>
+        </PlaceCarousel>
       </section>
     </div>
 
@@ -594,6 +649,9 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
    other layers, so a pin's card is never under them; the bars are fixed and above all of this. */
 .hero__pins { position: absolute; z-index: 5; inset: 0 auto 0 50%; width: min(100vw, 1440px); transform: translateX(-50%); }
 .home__me { position: absolute; z-index: 2; top: var(--spacing-md); right: var(--gutter); flex-shrink: 0; border-radius: var(--rounded-full); }
+/* Add friends: top left on phones (opposite the avatar), top right from 744px (where the avatar is in the top bar). */
+.home__friends { position: absolute; z-index: 2; top: var(--spacing-md); left: var(--gutter); }
+@media (min-width: 744px) { .home__friends { right: var(--gutter); left: auto; } }
 @media (max-width: 743px) {
   /* Phones: the avatar sits top right, so the greeting keeps clear of it on both sides (to stay centred). */
   .hero__hello { align-self: stretch; padding-right: calc(var(--gutter) + 52px); padding-left: calc(var(--gutter) + 52px); }
@@ -623,6 +681,13 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
    card stays in view as a long list scrolls. */
 .home__meetups { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 .home__all { display: flex; }
+/* The week chips over "Your meetups", each with its count after the label. */
+.home__filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-xs) var(--spacing-md); margin-top: calc(var(--spacing-xs) * -1); }
+.home__filters .scroll-x { min-width: 0; flex: 1 1 auto; }
+.home__range-count { margin-left: var(--spacing-xs); opacity: 0.7; }
+/* The way to every meetup: a secondary button under the list, full width on phones and its own width from 744px. */
+.home__see-all { align-self: stretch; }
+@media (min-width: 744px) { .home__see-all { align-self: flex-start; } }
 @media (min-width: 744px) {
   .home__meetups:not(.is-split) > * { max-width: var(--form-max-width); }
   .home__meetups.is-split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
@@ -632,6 +697,12 @@ const distanceText = (v) => (v >= DISTANCE.max ? 'Any distance' : `Within ${v} k
 
 /* A place card is a link to its detail view. */
 .place-link { display: block; border-radius: var(--rounded-md); color: inherit; text-decoration: none; }
+.place-link--tile { height: 100%; }
+/* The carousel's last card: more places, as a dashed empty card with a + in a circle. */
+.home__more-card { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-sm); min-height: 100%; padding: var(--spacing-base); border: 1px dashed var(--border-strong); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); font: inherit; text-align: center; cursor: pointer; }
+@media (hover: hover) { .home__more-card:hover { border-color: var(--ink); background: var(--surface-soft); } }
+.home__more-card:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.home__more-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--rounded-full); background: var(--surface-strong); }
 .place-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .home__more { align-self: center; }
 .filter-btn {

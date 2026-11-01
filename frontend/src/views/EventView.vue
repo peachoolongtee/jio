@@ -12,12 +12,14 @@
 //     with the other places that fit it; choosing one puts it in and comes back here.
 //     Outside edit mode the stops carry no controls.
 //   - The end point, and each person's trip home (folded away; anyone over 60 minutes is flagged above).
-//   - In edit mode, drag a stop by its handle (or focus the handle and use the arrow keys) to rearrange the day. Times follow;
-//     a stop that would be closed at its new time, or an end far from the MRT, is flagged.
+//   - Drag a stop by its handle (or focus the handle and use the arrow keys) to rearrange the day, with no edit mode first (Faith's
+//     walkthrough, 30 October 2026: the confirm dialog promised it and it was hidden). Times follow; a stop that would be closed at its
+//     new time, or an end far from the MRT, is flagged.
 //   - Edit mode also shows "Re-plan".
-//   - The footer's one button follows the session (itineraryAction in lib/session.js): before the day it is "Save plan",
-//     which only goes Home (the plan was saved when it was confirmed); on the day it is "Finish outing", which asks
-//     first, completes the outing and pays out the coins. A completed or cancelled session has neither.
+//   - The footer has "Back to Home" (the plan was saved when it was confirmed), and from the outing's day on "Finish and review" too
+//     (itineraryAction in lib/session.js), which asks first, completes the outing, pays out the coins and goes on to "How was it?" (stars
+//     and photos). An outing is never completed by the clock (Faith's walkthrough, 30 October 2026): this button finishes it. A completed
+//     or cancelled session has neither.
 //   - When the host confirmed a suggested order (see PlannerView), one line says where it came from (an AI suggestion,
 //     or chosen by travel and waiting time) and why, above the stops until a stop is moved or deleted by hand.
 //   - The photo strip shows the latest pictures (loaded with the events store) and links to Photos. (A session on the server has no photos
@@ -223,7 +225,7 @@ const lastStop = computed(() => itinerary.value?.stops[itinerary.value.stops.len
 // "Ends after the session's end, 21:30" when the plan runs past the end time the host set (stops added from Roam, or a long
 // outing with many categories, can), else ''. Said under the plan's end; nothing is refused.
 const lateText = computed(() => (lastStop.value ? lateLine(lastStop.value.end, session.value?.end) : ''))
-// A confirmed plan with two or more stops can be rearranged, and a stop deleted, while editing.
+// A confirmed plan with two or more stops can be rearranged at any time by dragging; a stop is deleted while editing.
 const canMove = computed(() => confirmed.value && mayEdit.value && (itinerary.value?.stops.length || 0) > 1)
 const canEdit = computed(() => canMove.value && editing.value)
 // Any stop of a confirmed plan can be replaced by the host while editing, even when it is the only one. Anyone else proposes a stop instead.
@@ -512,7 +514,7 @@ async function endPlan() {
                   :items="itinerary.stops"
                   :item-key="(s) => s.slotId"
                   :item-label="(s) => s.venue.name"
-                  :disabled="!canEdit"
+                  :disabled="!canMove"
                   label="Stops"
                   @move="moveStop"
                 >
@@ -545,8 +547,8 @@ async function endPlan() {
                         <IconButton v-if="canReplace" outline :label="`Replace stop: ${stop.venue.name}`" :data-testid="`replace-${stop.slotId}`" @click="replaceStop(stop)"><AppIcon name="search" /></IconButton>
                         <IconButton v-if="canEdit" outline :label="`Delete stop: ${stop.venue.name}`" @click="askRemove(stop)"><AppIcon name="trash" /></IconButton>
                       </template>
-                      <template v-if="canEdit" #handle>
-                        <button v-bind="handle" class="drag-handle"><AppIcon name="grip" /></button>
+                      <template v-if="canMove" #handle>
+                        <button v-bind="handle" class="drag-handle" :title="`Drag to move ${stop.venue.name}`"><AppIcon name="grip" /></button>
                       </template>
                     </StopCard>
                   </template>
@@ -604,23 +606,27 @@ async function endPlan() {
 
     <footer v-if="footer" class="screen__footer">
       <!-- Secondary while "What next?" is the page, so "Finish outing" does not compete with the places' ticks; it is still here. -->
-      <AppButton v-if="footer === 'finish' && mayEdit" block :variant="nearbyHere ? 'secondary' : 'primary'" :disabled="busy" @click="endOpen = true">Finish outing</AppButton>
+      <!-- Two ways on: leave the plan as it is, or (from the outing's day) say it is done and review it. -->
+      <template v-if="footer === 'finish' && mayEdit">
+        <AppButton block variant="secondary" to="/" data-testid="itinerary-home">Back to Home</AppButton>
+        <AppButton block :variant="nearbyHere ? 'secondary' : 'primary'" :disabled="busy" data-testid="finish-outing" @click="endOpen = true">Finish and review</AppButton>
+      </template>
       <!-- Only the host finishes an outing on the server. -->
       <template v-else-if="footer === 'finish'">
         <p class="caption text-muted footer-note" data-testid="host-finishes">{{ session.hostName || 'The host' }} finishes the outing.</p>
         <AppButton block variant="secondary" to="/">Back to Home</AppButton>
       </template>
-      <AppButton v-else block to="/">Save plan</AppButton>
+      <AppButton v-else block variant="secondary" to="/" data-testid="itinerary-home">Back to Home</AppButton>
     </footer>
 
-    <ModalDialog v-model:open="endOpen" title="Finish outing?">
+    <ModalDialog v-model:open="endOpen" title="Is the outing done?">
       <template #content>
         <p v-if="remote" class="body-md" data-testid="remote-finish">The outing ends for everyone. Jio keeps how far each of you travelled.</p>
         <p v-else-if="earns" class="body-md" data-testid="earns-coins">+<CoinBadge :amount="POINTS_PER_MEETUP" /> each for {{ session.activeIds.length }} people, to spend on sample café vouchers</p>
         <p v-else class="body-md" data-testid="no-coins">{{ NO_COINS.before }}</p>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
       </template>
-      <AppButton block :disabled="busy" @click="endPlan">Finish outing</AppButton>
+      <AppButton block :disabled="busy" @click="endPlan">Yes, finish and review</AppButton>
       <AppButton block variant="secondary" @click="endOpen = false">Not yet</AppButton>
     </ModalDialog>
 

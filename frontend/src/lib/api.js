@@ -758,8 +758,10 @@ function sessionById(id) {
 // Pending invites. In the demo a friend accepts on their own a moment after being invited (their phone would ask
 // them): each invite stores when it will be accepted, a timer accepts it then, and reading a session accepts any
 // whose time has passed (after a reload, the timers are gone). Returns true when someone joined.
-const ACCEPT_AFTER = 1400
-const ACCEPT_GAP = 900
+// Long enough for the host to see the invite and take it back with its × (Faith's walkthrough, 30 October 2026: at 1.4 s nobody could),
+// and since the same day half the 8 s it was, so a demo does not stall waiting (each further friend 1.5 s after the one before).
+const ACCEPT_AFTER = 4000
+const ACCEPT_GAP = 1500
 // An invite held longer than this gets no timer (a page that stays open for days should not hold one); a read accepts it.
 const TIMER_MAX = 60 * 1000
 function settleInvites(session, now = Date.now()) {
@@ -1129,9 +1131,12 @@ function preselectedSpot(session) {
   return list.filter((s) => approvalCount(session, s.areaId) === most).reduce((best, s) => (longestTrip(s) < longestTrip(best) ? s : best))
 }
 
-// A meeting that was chosen, not found: its area stays when a start changes, and only the travel times move.
+// A meeting that was chosen, not found: its area stays when a start changes, and only the travel times move. Once the group has moved on
+// from choosing where to meet (voting or later), every meeting area is chosen, also the app's first spot confirmed with no votes on it: a
+// changed start never moves it on its own (Faith's walkthrough, 30 October 2026, as on the server). The host chooses it again from new
+// suggestions instead (changeMeetingPlace), which the session page offers.
 // How to call: pinnedAreaOf(session) -> 'bugis', or null
-const pinnedAreaOf = (session) => (['voted', 'chosen'].includes(session.meeting?.method) ? session.meeting.areaId : null)
+const pinnedAreaOf = (session) => (session.meeting && (['voted', 'chosen'].includes(session.meeting.method) || !['inviting', 'locating'].includes(session.status)) ? session.meeting.areaId : null)
 
 // A chosen meeting area, with its travel times from the starts there are. Asks the planner once, to price that area.
 // With no start shared there is nothing to ask. Returns { meeting, pinnedSpot } (pinnedSpot: the area's new numbers).
@@ -2037,13 +2042,44 @@ export async function getPerson(id) {
       .filter((x) => x.winners.some((w) => w.id === id))
       .map((x) => ({ date: format(new Date(x.endsAt), 'yyyy-MM-dd'), text: `Won season ${x.number} · +${coins(x.prize)}` })),
   ].sort((a, b) => b.date.localeCompare(a.date))
-  // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned).
+  // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned). The sample meetups (historyOf)
+  // have no session behind them, so they also come back on their own (`pastMeetups`, one per day with how many), for the list
+  // under the graph to show when one of their days is picked (walkthrough, 30 October 2026).
   const counts = {}
-  for (const date of historyOf(id, !!db.user?.demo)) counts[date] = (counts[date] || 0) + 1
+  const past = {}
+  for (const date of historyOf(id, !!db.user?.demo)) {
+    counts[date] = (counts[date] || 0) + 1
+    past[date] = (past[date] || 0) + 1
+  }
+  const pastMeetups = Object.entries(past).map(([date, count]) => ({ date, count }))
   for (const s of sessions.filter((x) => x.status === 'completed')) counts[s.date] = (counts[s.date] || 0) + 1
   const planned = sessions.filter((x) => !['completed', 'cancelled'].includes(x.status)).map((x) => x.date)
   const history = Object.entries(counts).map(([date, count]) => ({ date, count }))
-  return { ...publicPerson(id), sessions, activity, history, planned }
+  const { ids: friendIds, common } = friendsOf(id)
+  await people.load(friendIds.filter((x) => !people.get(x)))
+  const friends = friendIds.map(publicPerson).sort((a, b) => a.name.localeCompare(b.name))
+  return { ...publicPerson(id), sessions, activity, history, planned, pastMeetups, friends, friendsInCommon: common }
+}
+
+// Whose friends a profile lists (walkthrough, 30 October 2026: a "Friends" count on every profile opens the list, as on Instagram).
+// The signed-in person: their own friends (the ones they added, or for a real account the people they have shared a session with).
+// Someone else, for the demo and local accounts: sample data, the rest of the sample circle (Darius, Jonathan, Nicole, Faith, Darryl
+// are friends with each other), plus the signed-in person if they are friends. Someone else, for a real account: another person's
+// friends cannot be read, so it is the friends in common (`common: true`), the people who have been in a session with both.
+// How to call: friendsOf('darius') -> { ids: ['faith', 'nicole', ...], common: false }
+function friendsOf(id) {
+  const meId = me()
+  if (id === meId) return { ids: isReal() ? coMemberIds() : [...db.friends], common: false }
+  if (isReal()) {
+    const mine = new Set(coMemberIds())
+    const shared = new Set()
+    const memberLists = [...serverMembers.values(), ...db.sessions.map((x) => x.members.map((m) => m.id))]
+    for (const members of memberLists) if (members.includes(id)) for (const other of members) if (other !== id && other !== meId && mine.has(other)) shared.add(other)
+    return { ids: [...shared], common: true }
+  }
+  const sample = isCommunity(id) ? [] : PEOPLE.filter((p) => !isCommunity(p.id) && p.id !== id && p.id !== HOST_ID).map((p) => p.id)
+  const withMe = db.friends.includes(id) && meId ? [meId] : []
+  return { ids: [...new Set([...withMe, ...sample])].filter((x) => x !== id), common: false }
 }
 
 // Add or remove a friend. Only the demo and local accounts keep a list of their own; a real account's friends are the people
@@ -2191,6 +2227,19 @@ function addressRows(results) {
     })
   }
   return rows
+}
+
+// Can this server read places out of a pasted post? `{ enabled: false }` when it cannot (the route is off, or no AI key).
+// How to call: const { enabled } = await postReaderStatus()
+export function postReaderStatus() {
+  return planner.postReaderCapabilities()
+}
+
+// The places named in a pasted post, with their addresses where Google has them (plannerApi.js readPost says what comes back).
+// Nothing is saved: the screen shows the answer and lets the person open a place in Google Maps.
+// How to call: const answer = await placesFromPost('https://vt.tiktok.com/ZS123/', { signal })
+export function placesFromPost(url, { signal } = {}) {
+  return planner.readPost(url, { signal })
 }
 
 // Search for a start or end location by place name, address or postal code.
@@ -2541,6 +2590,9 @@ export async function updateSession(id, fields) {
 // does, each one is Invited until they accept, which in the demo they do on their own, one after another.
 // acceptAfter (with pending): how long the first invite stays pending, in ms, instead of ACCEPT_AFTER. A long wait gets
 // no timer; the invite is accepted by the first read after it passes. The demo's showcase uses it to leave invites pending.
+// Inviting someone makes them a friend (walkthrough, 30 October 2026): for the demo and local accounts each invitee is added to the
+// account's own list, so the demo tools' invites of people not yet on it count too. A real account's friends are the people in its
+// sessions, invitees included, so nothing is stored for it.
 // How to call: await inviteFriends('s1', ['faith'], { pending: true, acceptAfter: 7 * 24 * 60 * 60 * 1000 })
 export async function inviteFriends(id, personIds, { pending = false, acceptAfter = ACCEPT_AFTER } = {}) {
   // A real account's friends are the people it shares a session with (coMemberIds); each one picked gets the same invitation
@@ -2565,6 +2617,11 @@ export async function inviteFriends(id, personIds, { pending = false, acceptAfte
       member.state = 'joined'
       delete member.acceptAt
     }
+  }
+  const added = isReal() ? [] : personIds.filter((personId) => personId !== me() && !db.friends.includes(personId))
+  if (added.length) {
+    db.friends = [...db.friends, ...added]
+    emit({ type: 'friends' })
   }
   return touch(session, 'session')
 }

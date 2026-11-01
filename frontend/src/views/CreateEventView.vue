@@ -12,7 +12,15 @@
 // edit, and only while the session is still inviting; after that the screen says the day and times are locked. Create and
 // Invite are one stop in the browser's history (each replaces the other), so Back in the browser never returns to an
 // empty create form.
-// "We already have a place" is not asked here: it is on the Locate step, where the spots are (SpotList).
+// How the meeting point is picked is not asked here: it is the Start choice (StartView), when the host starts the session.
+// How a new session starts is chosen before this page, in the navigation's Create menu (TabBar, walkthrough, 30 October 2026):
+// "New session" opens the form above (/sessions/new); "Already out" opens it in its own mode (/sessions/new?start=out), which was
+// Home's "Already out? Find something nearby" (RoamFromHome) before it moved here. It is titled "Already out", hides the day and
+// times (it is today, from now), asks "Where are you?" (LocationSheet: an area, the home area or the current location), and its button,
+// "Find places nearby", starts a light meetup there (events.startRoam) and opens its itinerary, the list of places nearby. The title is
+// optional ("Out in <area>"). It is the quick form of the Start choice's "We already know where" (StartView), for when the person is
+// there already and has nobody to wait for. It is for the demo and local accounts only: a shared session cannot be a light meetup yet,
+// so a real account's menu has no "Already out", and `?start=out` gives it the usual form.
 //   <CreateEventView />                  /sessions/new
 //   <CreateEventView id="s1" />          /sessions/s1/edit
 import { computed, onMounted, ref, watch } from 'vue'
@@ -24,7 +32,9 @@ import BannerNote from '@/components/ui/BannerNote.vue'
 import ClashDialog from '@/components/group/ClashDialog.vue'
 import CalendarPicker from '@/components/ui/CalendarPicker.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
+import FocusFrame from '@/components/ui/FocusFrame.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import LocationSheet from '@/components/group/LocationSheet.vue'
 import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
 import RadialTimePicker from '@/components/ui/RadialTimePicker.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
@@ -34,6 +44,7 @@ import { toMinutes } from '@/lib/planner/format.js'
 import { exitFor, goBackIfBehind } from '@/lib/stepNav.js'
 import { useReturnFocus } from '@/lib/useReturnFocus.js'
 import { defaultDate, defaultSessionEnd, defaultTimes, endHasPassed, singaporeDate, startHasPassed } from '@/lib/session.js'
+import { START_MODES, areaName, startModesFor } from '@/lib/startChoice.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { useEventsStore } from '@/stores/events.js'
 
@@ -47,6 +58,14 @@ const events = useEventsStore()
 const auth = useAuthStore()
 
 const title = ref('')
+// Already out (the link on the create page): a new session only, and only for an account that may start a light meetup.
+const out = computed(() => !props.id && route.query.start === 'out' && startModesFor(auth.sampleWorld).some((m) => m.value === 'out'))
+// A new session's form offers "Already out?" as a link (Create has no menu first), for an account that may start a light meetup.
+const canGoOut = computed(() => !props.id && startModesFor(auth.sampleWorld).some((m) => m.value === 'out'))
+// Already out: the area picked in "Where are you?", and whether that sheet is open.
+const place = ref(null)
+const placeOpen = ref(false)
+const homeArea = computed(() => (auth.user?.homeAreaId ? { id: auth.user.homeAreaId, name: auth.user.homeAreaName } : null))
 // A new session starts with real times (and, late at night, with tomorrow as the day: the default start is after midnight); an
 // edited one takes the session's own (fill, below).
 const date = ref(props.id ? '' : defaultDate()) // yyyy-MM-dd
@@ -118,9 +137,33 @@ const ready = computed(() => title.value.trim().length > 0 && date.value !== '' 
 const endShown = computed(() => endError.value || taken.value)
 watch([date, start, end], () => { taken.value = '' })
 
-// Creates the session, or saves the changes to it, and goes on to the invite step in place of this screen.
+// Already out: starts the light meetup where the person is and opens its itinerary (the places nearby) in place of this screen.
+// How to call: await goOut()
+async function goOut() {
+  if (!place.value?.areaId || busy.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    const session = await events.startRoam({ areaId: place.value.areaId, title: title.value })
+    await router.replace(`/sessions/${session.id}/itinerary`)
+  } catch (e) {
+    error.value = e?.message || 'Could not start. Try again.'
+    busy.value = false
+  }
+}
+
+// The area picked in "Where are you?": only the area is kept, with its name for the screen.
+// How to call: pickPlace({ areaId: 'bugis', label: 'Bugis Junction' })
+function pickPlace(picked) {
+  if (!picked?.areaId) return
+  place.value = { areaId: picked.areaId, areaName: areaName(picked.areaId) || picked.label || '' }
+}
+
+// Creates the session, or saves the changes to it, and goes on in place of this screen: to the start choice while the session is still
+// inviting (how to pick the meeting point comes before inviting, walkthrough, 30 October 2026), else to the invite step.
 // How to call: next()
 async function next() {
+  if (out.value) return goOut()
   if (!ready.value || busy.value) return
   busy.value = true
   error.value = ''
@@ -128,7 +171,7 @@ async function next() {
   const values = { title: title.value, date: date.value, start: start.value, end: endValue.value }
   try {
     const saved = editing.value ? await events.update(props.id, values) : await events.create(values)
-    router.replace(`/sessions/${saved.id}/invite`)
+    router.replace(`/sessions/${saved.id}/${saved.status === 'inviting' ? 'start' : 'invite'}`)
   } catch (e) {
     if (e?.code === 'schedule_clash') {
       clash.value = e.clash || null
@@ -145,15 +188,17 @@ async function next() {
 
 <template>
   <NotFoundView v-if="missing" />
-  <main v-else class="screen screen--wide-form" data-testid="create-event-view">
+  <main v-else class="screen screen--step-form screen--create" data-testid="create-event-view">
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton :label="back.label" :to="back.to" @click.capture="goBackIfBehind($event, router, back.to)"><AppIcon name="back" /></IconButton>
       </div>
       <!-- Before the title, as on every session screen, so the bar does not move between them. -->
       <SessionSteps :session="session" />
-      <div class="screen__titles">
-        <h1 class="display-xl">{{ editing ? 'Edit session' : 'Create session' }}</h1>
+      <!-- The title, and beside it for a new session the way to start out already (a secondary button, outside the form's card). -->
+      <div class="screen__titles create__titles">
+        <h1 class="display-xl">{{ editing ? 'Edit session' : out ? START_MODES.out.label : 'Create session' }}</h1>
+        <AppButton v-if="!out && canGoOut" variant="pill" class="create__out" :to="START_MODES.out.to" data-testid="create-already-out"><span class="create__out-icon" aria-hidden="true"><AppIcon name="locate" :size="16" /></span>Already out? {{ START_MODES.out.hint }}<AppIcon name="chevron-right" :size="16" /></AppButton>
       </div>
     </header>
 
@@ -170,14 +215,26 @@ async function next() {
 
     <template v-else>
       <form class="screen__body" novalidate @submit.prevent="next">
+        <FocusFrame>
+        <p v-if="out" class="body-sm text-muted">{{ START_MODES.out.note }}</p>
         <div class="stack gap-xs">
-          <TextField v-model="title" label="Title" placeholder="Name your session" maxlength="60" />
-          <div class="scroll-x" role="group" aria-label="Title ideas">
+          <TextField v-model="title" :label="out ? 'Title (optional)' : 'Title'" :placeholder="out ? `Out in ${place?.areaName || 'your area'}` : 'Name your session'" maxlength="60" />
+          <div v-if="!out" class="scroll-x" role="group" aria-label="Title ideas">
             <ChipButton v-for="idea in TITLE_IDEAS" :key="idea" :selected="title === idea" @click="title = idea">{{ idea }}</ChipButton>
           </div>
         </div>
 
-        <section class="when" aria-labelledby="when-label">
+        <!-- Already out: where the person is, in place of the day and times. -->
+        <div v-if="out" class="where">
+          <span class="caption text-muted" aria-hidden="true">Where are you?</span>
+          <button type="button" class="where__row" :class="{ 'is-empty': !place }" :aria-label="`Where are you? ${place ? place.areaName : 'Pick where you are'}`" data-testid="where-row" @click="placeOpen = true">
+            <span class="where__icon" aria-hidden="true"><AppIcon name="locate" :size="20" /></span>
+            <span class="where__value truncate">{{ place ? place.areaName : 'Pick where you are' }}</span>
+            <AppIcon class="where__go" :name="place ? 'chevron-right' : 'plus'" :size="18" />
+          </button>
+        </div>
+
+        <section v-else class="when" aria-labelledby="when-label">
           <span id="when-label" class="sr-only">Date and time</span>
           <CalendarPicker v-model="date" class="when__calendar" label="Date" :max="lastDay" />
           <div class="when__times">
@@ -186,17 +243,44 @@ async function next() {
           </div>
         </section>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
+        <!-- The way on, at the foot of the card. -->
+        <div class="create__actions">
+          <AppButton v-if="out" next block :disabled="!place || busy" @click="goOut">{{ busy ? 'Starting' : 'Find places nearby' }}</AppButton>
+          <AppButton v-else next block :disabled="!ready || busy" @click="remember($event); next()">Next</AppButton>
+        </div>
+        </FocusFrame>
       </form>
-
-      <footer class="screen__footer">
-        <AppButton next block :disabled="!ready || busy" @click="remember($event); next()">Next</AppButton>
-      </footer>
+      <LocationSheet v-model:open="placeOpen" which="spot" title="Where are you?" :home="homeArea" @select="pickPlace" />
     </template>
     <ClashDialog v-model:open="showClash" :clash="clash" />
   </main>
 </template>
 
 <style scoped>
+/* The framed form is as wide as the steps bar, so its right edge lines up with Next. */
+.screen--create { --step-form-width: none; }
+
+/* The title, and "Already out?" at the other end of its row; it wraps under the title on a narrow phone. */
+.create__titles { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm) var(--spacing-md); }
+.create__titles h1 { margin: 0; }
+/* "Already out?": the red pill (AppButton's pill), with the icon in a light circle and a soft red glow that lifts on hover. */
+.create__out.btn--pill { gap: var(--spacing-sm); padding: 0 var(--spacing-base) 0 6px; box-shadow: 0 4px 14px color-mix(in srgb, var(--primary) 30%, transparent); font-weight: 600; transition: background-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
+.create__out-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--rounded-full); background: color-mix(in srgb, var(--on-primary) 22%, transparent); }
+@media (hover: hover) { .create__out.btn--pill:hover { box-shadow: 0 6px 18px color-mix(in srgb, var(--primary) 40%, transparent); transform: translateY(-1px); } }
+.create__out.btn--pill:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { .create__out.btn--pill { transition: none; } .create__out.btn--pill:hover { transform: none; } }
+/* Next at the foot of the card: full width on a phone, right-aligned at a normal width from tablet up. */
+.create__actions { display: flex; justify-content: flex-end; padding-top: var(--spacing-md); border-top: 1px solid var(--hairline); }
+@media (min-width: 744px) { .create__actions > .btn.btn--block { width: auto; min-width: 200px; } }
+/* Already out: one row like Locate's "Starting from", opening the location sheet. */
+.where { display: flex; flex-direction: column; gap: var(--spacing-xs); }
+.where__row { display: flex; align-items: center; gap: var(--spacing-md); width: 100%; min-height: 64px; padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--border-control); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); font: var(--text-title-sm); text-align: left; cursor: pointer; }
+.where__row.is-empty { color: var(--muted); }
+@media (hover: hover) { .where__row:hover { border-color: var(--ink); background: var(--surface-soft); } }
+.where__row:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.where__icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--rounded-full); background: var(--surface-strong); color: var(--ink); }
+.where__value { flex: 1; min-width: 0; }
+.where__go { flex-shrink: 0; color: var(--muted); }
 
 /* Date and time: the calendar, then the times. Phones stack them; from tablet up the times sit to the right,
    start at the top and end at the bottom, each centred so its buttons have room to fly out. */
@@ -209,10 +293,5 @@ async function next() {
   .when__calendar { grid-area: calendar; }
   .when__times { grid-area: times; justify-content: space-between; padding: var(--spacing-lg) 0 var(--ring-room); }
 }
-/* Tablet and up: the action follows the form, right-aligned at a normal width, instead of a full-width bar
-   pinned to the bottom of the window. Phones keep the pinned bar, where the thumb is. */
-@media (min-width: 744px) {
-  .screen__body { flex: 0 0 auto; }
-  .screen__footer { position: static; flex-direction: row; justify-content: flex-end; padding-top: 0; border-top: 0; }
-}
+@media (min-width: 744px) { .screen__body { flex: 0 0 auto; } }
 </style>

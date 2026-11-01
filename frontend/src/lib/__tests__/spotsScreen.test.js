@@ -1,9 +1,10 @@
 // The Locate screen's meeting spots, rendered with a tiny stand-in for the page (miniDom.js) and a real events store whose
-// actions are watched: the list of spots, "Works for me" (in the list and on the map's card), "Suggest a spot", the host's confirm and the demo tools. The
+// actions are watched: the list of spots, "Vote" (in the list and on the map's card), "Suggest a spot", the host's confirm and the demo tools. The
 // area picker and the dialog are stood in for, because they open over the page.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick, reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { fakeStorage } from './planFixture.js'
 import { mount } from './miniDom.js'
 
@@ -20,7 +21,7 @@ vi.mock('../../components/group/LocationSheet.vue', async () => {
 })
 vi.mock('../../components/ui/ModalDialog.vue', async () => {
   const { defineComponent, h } = await import('vue')
-  return { default: defineComponent({ props: ['open', 'title', 'text'], emits: ['update:open'], setup: (p, { slots }) => () => (p.open ? h('div', [h('h2', p.title), slots.content?.(), slots.default?.()]) : null) }) }
+  return { default: defineComponent({ props: ['open', 'title', 'text'], emits: ['update:open'], setup: (p, { slots }) => () => (p.open ? h('div', [h('h2', p.title), p.text ? h('p', p.text) : null, slots.content?.(), slots.default?.()]) : null) }) }
 })
 
 vi.stubGlobal('localStorage', fakeStorage())
@@ -57,7 +58,11 @@ beforeEach(() => {
   events = useEventsStore()
   for (const name of ['approveMySpot', 'suggestMySpot', 'withdrawMySpot', 'confirmSpot', 'setKnownPlace']) vi.spyOn(events, name).mockResolvedValue({})
 })
-const list = (s, extra = {}) => mount(SpotList, { session: s, myId: 'ian', names, selectedId: 'bugis', isHost: true, hostName: 'Ian', ...extra }, [pinia])
+// The list has links (its cards' places), so the page has a router.
+const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:any(.*)*', component: { render: () => null } }] })
+const list = (s, extra = {}) => mount(SpotList, { session: s, myId: 'ian', names, selectedId: 'bugis', isHost: true, hostName: 'Ian', ...extra }, [pinia, router])
+// A link to name the place, which the list no longer has (Faith's walkthrough, 30 October 2026), or undefined.
+const pickLink = (page) => page.all('a', 'Pick the place yourself')[0]
 
 describe('the list of spots', () => {
   it('shows the app\'s spots and a member\'s suggestion with its label and "We are here already"', () => {
@@ -108,8 +113,8 @@ describe('the list of spots', () => {
     expect(text).not.toContain('0 min')
   })
 
-  // The "No spots yet" block is gone: with fewer than two starts the screen shows the people, the "Waiting for N people"
-  // card and the map, and nothing that reads as an error. The host can still name a known place.
+  // The "No spots yet" block is gone: with fewer than two starts the screen shows the people, the line that says who it is
+  // waiting for, and the map, and nothing that reads as an error.
   it('says nothing about the list when fewer than two starts are in, and offers no suggestion', () => {
     const early = session({ locations: { ian: { start: { areaId: 'tampines' } } } })
     early.spots = { list: [], approvals: {}, suggestions: {}, preselectedAreaId: null, appMethod: null }
@@ -117,8 +122,8 @@ describe('the list of spots', () => {
     expect(page.text()).not.toContain('No spots yet')
     expect(page.text()).not.toContain('So far')
     expect(page.text()).not.toMatch(/error|could not|cannot/i)
-    expect(page.button('Suggest a spot')).toBeNull()
-    expect(page.button('We already have a place')).not.toBeNull()
+    expect(page.button('Add a spot')).toBeNull()
+    expect(page.text()).toBe('')
   })
 
   it('shows nothing at all to a member when there is no list yet', () => {
@@ -126,7 +131,7 @@ describe('the list of spots', () => {
     early.spots = { list: [], approvals: {}, suggestions: {}, preselectedAreaId: null, appMethod: null }
     const page = list(early, { isHost: false })
     expect(page.text()).toBe('')
-    expect(page.button('We already have a place')).toBeNull()
+    expect(pickLink(page)).toBeUndefined()
   })
 
   it('still shows the placeholder rows while the planner works the first list out', () => {
@@ -136,18 +141,18 @@ describe('the list of spots', () => {
   })
 })
 
-describe('Works for me', () => {
+describe('Vote', () => {
   it('approves the spot, naming it, and takes the approval back when it is pressed', async () => {
     const s = session()
     s.spots.approvals = { ian: ['bishan'] }
     s.spots.list[1] = spot('bishan', 'Bishan', { approvedBy: [{ id: 'ian', name: 'Ian' }], approvalCount: 1 })
     const page = list(s)
-    const bugis = page.button('Works for me')
-    expect(page.attr(bugis, 'aria-label')).toBe('Works for me: Bugis')
+    const bugis = page.button('Vote')
+    expect(page.attr(bugis, 'aria-label')).toBe('Vote for Bugis')
     expect(page.attr(bugis, 'aria-pressed')).toBe('false')
     await bugis.click()
     expect(events.approveMySpot).toHaveBeenCalledWith('s1', 'bugis', true)
-    const pressed = page.all('button').find((b) => page.attr(b, 'aria-label') === 'Works for me: Bishan')
+    const pressed = page.all('button').find((b) => page.attr(b, 'aria-label') === 'Vote for Bishan')
     expect(page.attr(pressed, 'aria-pressed')).toBe('true')
     await pressed.listeners.click({})
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -158,13 +163,13 @@ describe('Works for me', () => {
     const s = session()
     s.spots.list[0] = spot('bugis', 'Bugis', { approvedBy: [{ id: 'ian', name: 'Ian' }, { id: 'faith', name: 'Faith' }], approvalCount: 2 })
     const text = list(s).text()
-    expect(text).toContain('Works for 2 people')
-    expect(text).toContain('No one yet')
+    expect(text).toContain('2 votes')
+    expect(text).toContain('No votes yet')
   })
 
   it('is off once the group has moved on: the control is gone, not disabled', () => {
     const page = list(session({ status: 'voting', meeting: { areaId: 'bugis', times: {} } }))
-    expect(page.button('Works for me')).toBeNull()
+    expect(page.button('Vote')).toBeNull()
     expect(canApprove(session({ status: 'voting' }), 'ian')).toBe(false)
   })
 
@@ -182,7 +187,7 @@ describe('Works for me', () => {
   // A control that is operated is not disabled while it saves: a disabled button drops the keyboard focus, and the next key
   // does nothing. It says it is busy instead, and a second press is ignored until the first is saved.
   for (const [control, press, call] of [
-    ['Works for me', (page) => page.button('Works for me'), () => events.approveMySpot],
+    ['Vote', (page) => page.button('Vote'), () => events.approveMySpot],
     ['We are here already', (page) => page.button('We are here already'), () => events.suggestMySpot],
     ['Withdraw', (page) => page.button('Withdraw'), () => events.withdrawMySpot],
   ]) {
@@ -198,7 +203,7 @@ describe('Works for me', () => {
       await nextTick()
       button.listeners.click({})
       // The others stay enabled too, and every one says the list is busy.
-      const controls = page.all('button').filter((b) => /Works for me|We are here already|Withdraw|Suggest a spot/.test(page.textOf(b)))
+      const controls = page.all('button').filter((b) => /Vote|We are here already|Withdraw|Add a spot/.test(page.textOf(b)))
       expect(controls.length).toBeGreaterThan(3)
       for (const other of controls) {
         expect(other.props.disabled).toBeFalsy()
@@ -217,48 +222,71 @@ describe('Works for me', () => {
     let finish
     events.approveMySpot.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
     const page = list(session())
-    const first = page.button('Works for me').listeners.click({})
+    const first = page.button('Vote').listeners.click({})
     await nextTick()
-    await page.button('Suggest a spot').click()
-    expect(page.button('Picker: Suggest a spot')).toBeNull()
+    await page.button('Add a spot').click()
+    expect(page.button('Picker: Add a spot')).toBeNull()
     finish({})
     await first
   })
 
   it('shows the message the data layer gave when a change is refused', async () => {
     events.approveMySpot.mockRejectedValue(new Error('Cannot reach the Jio planner right now.'))
-    const page = mount(SpotList, { session: session(), myId: 'ian', names, selectedId: 'bugis', isHost: true, onError: (m) => (page.message = m) }, [pinia])
-    await page.button('Works for me').click()
+    const page = mount(SpotList, { session: session(), myId: 'ian', names, selectedId: 'bugis', isHost: true, onError: (m) => (page.message = m) }, [pinia, router])
+    await page.button('Vote').click()
     expect(page.message).toBe('Cannot reach the Jio planner right now.')
   })
 })
 
-// The card at a pin on the Locate map (UAT item 4): the same "Works for me" as the list, under the count, and nothing else
+// The card at a pin on the Locate map (UAT item 4): the same "Vote" as the list, under the count, and nothing else
 // to press. SpotPins draws it inside its card; it is rendered alone here, because the stand-in page has no transitions.
-describe('Works for me on the map card', () => {
+describe('Vote on the map card', () => {
   const card = (s, extra = {}) => mount(SpotCard, { spot: s.spots.list[0], session: s, myId: 'ian', ...extra }, [pinia])
 
-  it('shows "Works for me" under the count while the group is choosing, naming the spot', () => {
+  it('shows "Vote" under the count while the group is choosing, naming the spot', () => {
     const page = card(session())
-    const button = page.button('Works for me')
-    expect(page.attr(button, 'aria-label')).toBe('Works for me: Bugis')
+    const button = page.button('Vote')
+    expect(page.attr(button, 'aria-label')).toBe('Vote for Bugis')
     expect(page.attr(button, 'aria-pressed')).toBe('false')
-    expect(page.text()).toMatch(/No one yet Works for me$/)
-    expect(page.text()).not.toMatch(/Vote/)
+    expect(page.text()).toMatch(/No votes yet Vote$/)
+    // The meeting spot's own Vote, not the later step's voting on places.
+    expect(page.text()).not.toMatch(/Vote on places|Choose places/)
   })
 
-  it('has no "Works for me" once the group has moved on, for someone not in the group, or with no session', () => {
-    expect(card(session({ status: 'voting', meeting: { areaId: 'bugis', times: {} } })).button('Works for me')).toBeNull()
-    expect(card(session({ activeIds: ['jonathan', 'faith'] })).button('Works for me')).toBeNull()
+  it('has no "Vote" once the group has moved on, for someone not in the group, or with no session', () => {
+    expect(card(session({ status: 'voting', meeting: { areaId: 'bugis', times: {} } })).button('Vote')).toBeNull()
+    expect(card(session({ activeIds: ['jonathan', 'faith'] })).button('Vote')).toBeNull()
     const s = session()
     const page = mount(SpotCard, { spot: s.spots.list[0], myId: 'ian' }, [pinia])
-    expect(page.button('Works for me')).toBeNull()
+    expect(page.button('Vote')).toBeNull()
     expect(page.text()).toContain('Bugis')
   })
 
-  it('never offers the host the confirm: that stays in the list', () => {
+  it('offers no confirm to someone who is not the host', () => {
     const text = card(session(), { confirmed: false }).text()
     expect(text).not.toMatch(/Confirm/)
+  })
+
+  // Walkthrough, 30 October 2026: on a phone the host confirms the meeting spot on the map, from the pin's card.
+  it('offers the host "Confirm <area>" while the group is choosing, which confirms that spot', async () => {
+    const page = card(session(), { isHost: true })
+    const button = page.button('Confirm Bugis')
+    expect(button).not.toBeNull()
+    await button.click()
+    expect(events.confirmSpot).toHaveBeenLastCalledWith('s1', 'bugis')
+  })
+
+  it('offers the host no confirm once the group has moved on, or on the spot already confirmed', () => {
+    expect(card(session({ status: 'voting', meeting: { areaId: 'bugis', times: {} } }), { isHost: true }).text()).not.toMatch(/Confirm /)
+    expect(card(session(), { isHost: true, confirmed: true }).text()).not.toMatch(/Confirm /)
+  })
+
+  it('says a refused confirm in the card', async () => {
+    events.confirmSpot.mockRejectedValue(new Error('Someone changed the spots. Look again.'))
+    const page = card(session(), { isHost: true })
+    await page.button('Confirm Bugis').click()
+    await nextTick()
+    expect(page.text()).toContain('Someone changed the spots. Look again.')
   })
 
   it('goes the list\'s way, updates the count in place, and takes your mark back when pressed again', async () => {
@@ -269,14 +297,14 @@ describe('Works for me on the map card', () => {
       Object.assign(s.spots.list[0], on ? { approvedBy: [{ id: 'ian', name: 'Ian' }], approvalCount: 1 } : { approvedBy: [], approvalCount: 0 })
     })
     const page = mount(SpotCard, { spot: s.spots.list[0], session: s, myId: 'ian' }, [pinia])
-    await page.button('Works for me').click()
+    await page.button('Vote').click()
     expect(events.approveMySpot).toHaveBeenLastCalledWith('s1', 'bugis', true)
-    expect(page.text()).toContain('Works for 1 person')
-    expect(page.attr(page.button('Works for me'), 'aria-pressed')).toBe('true')
-    await page.button('Works for me').click()
+    expect(page.text()).toContain('1 vote')
+    expect(page.attr(page.button('Vote'), 'aria-pressed')).toBe('true')
+    await page.button('Vote').click()
     expect(events.approveMySpot).toHaveBeenLastCalledWith('s1', 'bugis', false)
-    expect(page.text()).toContain('No one yet')
-    expect(page.attr(page.button('Works for me'), 'aria-pressed')).toBe('false')
+    expect(page.text()).toContain('No votes yet')
+    expect(page.attr(page.button('Vote'), 'aria-pressed')).toBe('false')
   })
 
   it('shares the list\'s saving flag: a press on the map while the list saves is ignored, and says busy', async () => {
@@ -285,21 +313,21 @@ describe('Works for me on the map card', () => {
     const s = session()
     const listPage = list(s)
     const mapPage = card(s)
-    const first = listPage.button('Works for me').listeners.click({})
+    const first = listPage.button('Vote').listeners.click({})
     await nextTick()
-    expect(mapPage.attr(mapPage.button('Works for me'), 'aria-busy')).toBe('true')
-    await mapPage.button('Works for me').click()
+    expect(mapPage.attr(mapPage.button('Vote'), 'aria-busy')).toBe('true')
+    await mapPage.button('Vote').click()
     expect(events.approveMySpot).toHaveBeenCalledTimes(1)
     finish({})
     await first
     await nextTick()
-    expect(mapPage.attr(mapPage.button('Works for me'), 'aria-busy')).toBeUndefined()
+    expect(mapPage.attr(mapPage.button('Vote'), 'aria-busy')).toBeUndefined()
   })
 
   it('says a refusal in the card', async () => {
     events.approveMySpot.mockRejectedValue(new Error('Cannot reach the Jio planner right now.'))
     const page = card(session())
-    await page.button('Works for me').click()
+    await page.button('Vote').click()
     expect(page.text()).toContain('Cannot reach the Jio planner right now.')
     expect(page.all('p').some((p) => page.attr(p, 'role') === 'alert')).toBe(true)
   })
@@ -331,11 +359,11 @@ describe('a suggestion with no row', () => {
   })
 })
 
-describe('Suggest a spot', () => {
+describe('Add a spot', () => {
   it('opens the area picker and suggests the area picked, never the place', async () => {
     const page = list(session())
-    await page.button('Suggest a spot').click()
-    await page.button('Picker: Suggest a spot').click()
+    await page.button('Add a spot').click()
+    await page.button('Picker: Add a spot').click()
     expect(events.suggestMySpot).toHaveBeenCalledWith('s1', 'kovan', { here: false })
   })
 
@@ -347,30 +375,40 @@ describe('Suggest a spot', () => {
     const full = session()
     full.spots.suggestions = Object.fromEntries(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((id) => [`p${id}`, { areaId: id, here: false }]))
     expect(canSuggest(full, 'ian')).toBe(false)
-    expect(list(session({ status: 'voting' })).button('Suggest a spot')).toBeNull()
+    expect(list(session({ status: 'voting' })).button('Add a spot')).toBeNull()
   })
 
-  it('offers "We already have a place" to the host only', () => {
-    expect(list(session()).button('We already have a place')).not.toBeNull()
-    expect(list(session(), { isHost: false }).button('We already have a place')).toBeNull()
-  })
-
-  it('asks before setting a known place, then sets it', async () => {
+  // Faith's walkthrough, 30 October 2026: how to pick the meeting point is settled on the Start choice before Locate, so the list
+  // offers no way to name a place, and no line telling the host how to confirm.
+  it('offers no "Pick the place yourself" or "We already have a place", and tells only a guest how the spot is settled', () => {
     const page = list(session())
-    await page.button('We already have a place').click()
-    await page.button('Picker: Where is the place?').click()
-    expect(page.text()).toContain('Meet at Kovan?')
-    expect(events.setKnownPlace).not.toHaveBeenCalled()
-    await page.button('Meet at Kovan').click()
-    expect(events.setKnownPlace).toHaveBeenCalledWith('s1', 'kovan')
+    expect(pickLink(page)).toBeUndefined()
+    expect(page.text()).not.toContain('We already have a place')
+    expect(page.text()).not.toContain('You do not need to wait for anyone')
+    expect(list(session(), { isHost: false }).text()).toContain('Ian confirms the final spot.')
   })
 })
 
 describe('confirming', () => {
-  const confirmBar = (s, props = {}) => mount(SpotConfirm, { session: s, isHost: true, hostName: 'Ian', selectedId: shownSpotId(s.spots), ...props }, [pinia])
+  const confirmBar = (s, props = {}) => mount(SpotConfirm, { session: s, isHost: true, hostName: 'Ian', selectedId: shownSpotId(s.spots), names, ...props }, [pinia])
+  // Everyone has shared where they start, so the host's confirm asks nothing first.
+  const everyone = (s = session()) => ({ ...s, locations: { ...s.locations, faith: { start: { areaId: 'bugis' } } } })
+
+  it('asks first, naming who has not shared a start, and confirms only when the host says so', async () => {
+    const page = confirmBar(session())
+    await page.button('Confirm Bugis').click()
+    expect(events.confirmSpot).not.toHaveBeenCalled()
+    expect(page.text()).toContain('Confirm Bugis without everyone?')
+    expect(page.text()).toContain('Faith has not shared where they start, so their trips are not counted. They stay in the session.')
+    // The dialog's own Confirm, the last button of that name.
+    const inDialog = page.all('button', 'Confirm Bugis').at(-1)
+    for (const fn of [].concat(inDialog.listeners.click || [])) await fn({ target: inDialog })
+    await nextTick()
+    expect(events.confirmSpot).toHaveBeenCalledWith('s1', 'bugis')
+  })
 
   it('offers the host "Confirm <area>" for the spot most people chose, and confirms that area', async () => {
-    const s = session()
+    const s = everyone()
     s.spots.preselectedAreaId = 'bishan'
     expect(shownSpotId(s.spots)).toBe('bishan')
     const page = confirmBar(s)
@@ -380,7 +418,7 @@ describe('confirming', () => {
   })
 
   it('confirms another spot once the host has selected it, with nobody having approved anything', async () => {
-    const s = session()
+    const s = everyone()
     expect(shownSpotId(s.spots, 'novena')).toBe('novena')
     const page = confirmBar(s, { selectedId: shownSpotId(s.spots, 'novena') })
     await page.button('Confirm Novena').click()
@@ -400,7 +438,7 @@ describe('confirming', () => {
   it('tells the host when the planner failed, and the spot stays unsettled', async () => {
     events.confirmSpot.mockRejectedValue(new Error('Cannot reach the Jio planner right now.'))
     const messages = []
-    const page = confirmBar(session(), { onError: (m) => messages.push(m) })
+    const page = confirmBar(everyone(), { onError: (m) => messages.push(m) })
     await page.button('Confirm Bugis').click()
     expect(events.confirmSpot).toHaveBeenCalledTimes(1)
     // The error went up (after the empty message that clears an old one), nothing says the spot was settled, and the same
@@ -419,7 +457,7 @@ describe('confirming', () => {
   it('stays enabled while the confirm is saving, so the focus stays, and ignores a second press', async () => {
     let finish
     events.confirmSpot.mockImplementation(() => new Promise((resolve) => (finish = resolve)))
-    const page = confirmBar(session())
+    const page = confirmBar(everyone())
     const button = page.button('Confirm Bugis')
     const first = button.listeners.click({})
     button.listeners.click({})
@@ -504,12 +542,13 @@ describe('the list once a spot is confirmed', () => {
     expect(rows(page).map((li) => page.attr(li, 'data-area'))).toEqual(['bishan', 'bugis', 'novena'])
   })
 
-  it('has no control on any spot: no "Works for me", "Suggest a spot", "We already have a place", Withdraw or Confirm', () => {
+  it('has no control on any spot: no "Vote", "Add a spot", "Pick the place yourself", Withdraw or Confirm', () => {
     const s = settled()
     s.spots.suggestions = { ian: { areaId: 'novena', here: false } }
     s.spots.list[2] = spot('novena', 'Novena', { by: 'ian', byName: 'Ian' })
     const page = list(s, { selectedId: shownFor(s) })
-    for (const name of ['Works for me', 'Suggest a spot', 'We already have a place', 'Withdraw', 'We are here already', 'Try again']) expect(page.button(name)).toBeNull()
+    for (const name of ['Vote', 'Add a spot', 'Withdraw', 'We are here already', 'Try again']) expect(page.button(name)).toBeNull()
+    expect(pickLink(page)).toBeUndefined()
     expect(page.text()).not.toContain('Confirm Bishan')
     expect(page.text()).not.toContain('You have one suggestion')
     // What is left to press is the row's own button, which only selects the spot.
@@ -523,8 +562,8 @@ describe('the list once a spot is confirmed', () => {
         const page = list(s, { selectedId: shownFor(s), isHost })
         expect(page.text()).toContain('Bishan is confirmed as the meeting spot.')
         expect(rows(page)).toHaveLength(3)
-        expect(page.button('Works for me')).toBeNull()
-        expect(page.button('We already have a place')).toBeNull()
+        expect(page.button('Vote')).toBeNull()
+        expect(pickLink(page)).toBeUndefined()
       }
     }
   })
@@ -533,8 +572,8 @@ describe('the list once a spot is confirmed', () => {
     const s = settled()
     s.spots.list[1] = spot('bugis', 'Bugis', { approvedBy: [{ id: 'faith', name: 'Faith' }, { id: 'jonathan', name: 'Jonathan' }], approvalCount: 2 })
     const text = list(s, { selectedId: 'bishan' }).text()
-    expect(text).toContain('Works for 2 people')
-    expect(text).not.toContain('No one yet')
+    expect(text).toContain('2 votes')
+    expect(text).not.toContain('No votes yet')
   })
 
   it('shows a known place as the single confirmed row', () => {
@@ -573,12 +612,12 @@ describe('the list once a spot is confirmed', () => {
     expect(spotsToShow(called).map((x) => x.areaId)).toEqual(['bugis', 'bishan', 'novena'])
     const page = list(called)
     expect(page.text()).not.toContain('Confirmed')
-    expect(page.button('Works for me')).toBeNull()
+    expect(page.button('Vote')).toBeNull()
   })
 
   it('says "Confirmed" in a pin\'s name only for the confirmed spot', () => {
     const s = settled()
-    expect(pinName(spotsToShow(s)[0], 1, 'ian', true)).toBe('Spot 1, Bishan. Confirmed. Suggested by Jio. Longest trip 30 min. No one yet.')
+    expect(pinName(spotsToShow(s)[0], 1, 'ian', true)).toBe('Spot 1, Bishan. Confirmed. Suggested by Jio. Longest trip 30 min. No votes yet.')
     expect(pinName(spotsToShow(s)[1], 2, 'ian')).not.toContain('Confirmed')
   })
 })

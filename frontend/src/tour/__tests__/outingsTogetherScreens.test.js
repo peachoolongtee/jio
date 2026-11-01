@@ -87,11 +87,14 @@ describe('outings together on the profile screens', () => {
     expect(view.has('[data-testid=outings-together-line]')).toBe(false)
   })
 
-  it('puts the count beside the names in the signed-in person\'s own Friends, and no line under their own name', async () => {
+  it('puts the count beside the names in the signed-in person\'s own Friends sheet, and no line under their own name', async () => {
     t.tour.select(9)
     const view = await profile(t, '/profile')
     expect(view.errors).toEqual([])
     expect(view.has('[data-testid=outings-together-line]')).toBe(false)
+    // The friends are in the sheet the Friends count opens.
+    await view.click(view.one('[data-testid=friends-count]'))
+    await until(() => view.has('[data-testid=friends-list]'))
     const badges = view.all('[data-testid=outings-together]')
     expect(badges.length).toBeGreaterThanOrEqual(1)
     expect(view.text(badges[0])).toMatch(/outings? together/)

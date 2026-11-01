@@ -17,6 +17,33 @@ const ORDER = ['inviting', 'locating', 'voting', 'confirmed']
 // replace one stop of a confirmed plan (tailOf), which belongs to the Itinerary and not to Vote.
 const ITINERARY_PAGES = ['/photos', '/map', '/roam', '/replace', '/review']
 
+// The screens inside each step (Faith's walkthrough, 30 October 2026: a step can hold several screens, so each step's bar is split into one
+// segment per screen and fills up to the screen on show). Invite: who to invite (the invite page, or the session page while inviting), then
+// how to pick the meeting point (the Start choice, with its area step). Locate: where to meet while the group chooses, then the confirmed
+// meeting spot. Itinerary: the plan, then "How was it?".
+const SCREENS = { create: 1, invite: 2, locate: 2, vote: 1, itinerary: 2 }
+
+// Which screen of its step the page on screen is, from 0. How to call: screenOf({ status: 'voting' }, '', 2) -> 1
+export function screenOf(session, tail, viewing) {
+  if (!session) return 0
+  const key = STEPS[viewing]?.key
+  if (key === 'invite') return tail === '/start' ? 1 : 0
+  if (key === 'locate') return tail === '' && !['inviting', 'locating'].includes(session.status) ? 1 : 0
+  if (key === 'itinerary') return tail === '/review' ? 1 : 0
+  return 0
+}
+
+// How each segment of each step's bar is drawn: 'done' (a screen before this one, or this one), 'ahead' (a screen the session has reached
+// that is past the page on screen, so the bar never claims the page is further on than it is) or 'todo' (not reached yet).
+// How to call: segmentsFor(1, 2, 0, 3) -> ['done', 'ahead']
+export function segmentsFor(step, viewing, screen, reached) {
+  const count = SCREENS[STEPS[step].key]
+  return Array.from({ length: count }, (_, n) => {
+    if (step < viewing || (step === viewing && n <= screen)) return 'done'
+    return step <= reached ? 'ahead' : 'todo'
+  })
+}
+
 // The last step the session reached: 0 is Create, so a session that exists has always passed it. A cancelled one
 // stops where it was called off.
 // How to call: reachedStep({ status: 'voting' }) -> 3
@@ -51,8 +78,10 @@ export function stepsFor(session, path, mine = true) {
   const tail = tailOf(session, path)
   const reached = reachedStep(session)
   const viewing = viewingStep(session, tail)
+  const screen = screenOf(session, tail, viewing)
   return STEPS.map((step, i) => ({
     ...step,
+    segments: segmentsFor(i, viewing, screen, session ? reached : -1),
     to: session ? `/sessions/${session.id}${step.page}` : '',
     done: i <= reached,
     open: !!session && (i === 0 ? mine : i <= reached),
@@ -104,8 +133,9 @@ let carried = null
 // Where a session is, as a progress bar of its five steps, which doubles as its navigation:
 //   Create · Invite · Locate · Vote · Itinerary
 // It starts on the create page, before the session exists (no `session`), and runs until the itinerary is
-// confirmed. Steps the session has reached are filled in Rausch and open their page (Invite the invite page, Locate
-// the session page, Vote the plan, Itinerary the itinerary); later steps are greyed out. Create opens the form again
+// confirmed. Each step's bar has a segment per screen in it (SCREENS), filled in Rausch up to the page on screen, never further: a
+// step the session has reached past the page on screen is pale Rausch, and one it has not reached is grey. Steps the session has reached
+// open their page (Invite the invite page, Locate the session page, Vote the plan, Itinerary the itinerary). Create opens the form again
 // with the session's values, for the host; once the session has started the form says they are locked. The page you
 // are on has its label in bold ink. A step that is the page just behind this one in the browser's history goes Back
 // instead of adding another entry (lib/stepNav.js), and Create and Invite replace each other.
@@ -177,11 +207,11 @@ onMounted(() => {
           @click.capture="goBackIfBehind($event, router, step.to)"
           @click="remember(step.key)"
         >
-          <span class="steps__bar" aria-hidden="true" />
+          <span class="steps__bar" aria-hidden="true"><span v-for="(seg, n) in step.segments" :key="n" class="steps__seg" :class="`is-${seg}`" /></span>
           <span class="steps__label">{{ step.label }}</span>
         </RouterLink>
         <span v-else class="steps__step" :data-step="step.key" :tabindex="step.here ? -1 : undefined" :aria-current="step.here ? 'page' : undefined" :aria-disabled="step.here ? undefined : 'true'">
-          <span class="steps__bar" aria-hidden="true" />
+          <span class="steps__bar" aria-hidden="true"><span v-for="(seg, n) in step.segments" :key="n" class="steps__seg" :class="`is-${seg}`" /></span>
           <span class="steps__label">
             {{ step.label }}
             <span class="sr-only">{{ step.here ? ', this page' : step.done ? ', done' : ', not reached yet' }}</span>
@@ -196,23 +226,26 @@ onMounted(() => {
 .steps { margin: 0; }
 .steps__list { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
 .steps__step { display: flex; flex-direction: column; gap: var(--spacing-xs); min-height: var(--tap-min); padding-top: var(--spacing-xs); color: var(--muted-soft); text-decoration: none; -webkit-tap-highlight-color: transparent; }
-/* The bar: grey until the session reaches the step, then Rausch. */
-.steps__bar { height: 6px; border-radius: var(--rounded-full); background: var(--surface-strong); transition: background-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
-.is-done .steps__bar { background: var(--primary); }
+/* The bar: one segment per screen of the step. Rausch up to the page on screen, a pale Rausch for screens the session has reached past
+   it, grey for the rest. */
+.steps__bar { display: flex; gap: 3px; height: 6px; transition: transform var(--motion-fast) var(--ease-out); }
+.steps__seg { flex: 1 1 0; border-radius: var(--rounded-full); background: var(--surface-strong); transition: background-color var(--motion-fast) var(--ease-out); }
+.steps__seg.is-done { background: var(--primary); }
+.steps__seg.is-ahead { background: color-mix(in srgb, var(--primary) 28%, var(--canvas)); }
 .steps__label { font: var(--text-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .is-done .steps__step, a.steps__step { color: var(--body); }
-/* The page on screen: bold ink, with its bar a touch taller. */
-.is-here .steps__step { color: var(--ink); }
-.is-here .steps__label { font-weight: 600; }
+/* The page on screen: its label bold in Rausch-dark, with its bar a touch taller, so it is plain which step this is. */
+.is-here .steps__step { color: var(--primary-active); }
+.is-here .steps__label { font-weight: 700; }
 .is-here .steps__bar { transform: scaleY(1.35); }
 @media (hover: hover) {
   a.steps__step:hover { color: var(--ink); }
   a.steps__step:hover .steps__label { text-decoration: underline; text-underline-offset: 3px; }
-  .steps__item:not(.is-done) a.steps__step:hover .steps__bar { background: var(--border-strong); }
+  a.steps__step:hover .steps__seg.is-todo { background: var(--border-strong); }
 }
 /* Focus on a link, or on the page's own step after one was pressed. */
 .steps__step:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: var(--rounded-xs, 4px); }
 /* Called off: the filled steps turn grey. */
-.is-cancelled .is-done .steps__bar { background: var(--muted-soft); }
-@media (prefers-reduced-motion: reduce) { .steps__bar { transition: none; } }
+.is-cancelled .steps__seg.is-done, .is-cancelled .steps__seg.is-ahead { background: var(--muted-soft); }
+@media (prefers-reduced-motion: reduce) { .steps__bar, .steps__seg { transition: none; } }
 </style>

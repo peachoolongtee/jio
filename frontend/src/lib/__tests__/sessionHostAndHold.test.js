@@ -69,7 +69,7 @@ describe('an invite held for a long time', () => {
     expect(timers.mock.calls.slice(before).filter(([, ms]) => ms > 60_000)).toEqual([])
     const usual = timers.mock.calls.length
     await api.inviteFriends(id, ['jonathan'], { pending: true })
-    expect(timers.mock.calls.slice(usual).some(([, ms]) => ms > 1000 && ms < 5000)).toBe(true)
+    expect(timers.mock.calls.slice(usual).some(([, ms]) => ms > 5000 && ms < 60_000)).toBe(true)
     timers.mockRestore()
   })
 })

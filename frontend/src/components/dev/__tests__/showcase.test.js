@@ -97,14 +97,12 @@ async function expectEveryState(api) {
   expect(voters(s.known)).toEqual(['darius', 'nicole'])
   expect(Object.keys(s.known.prefs).sort()).toEqual(['darius', 'ian', 'nicole'])
 
-  // 5. voting, Ian has voted and others have not; Jonathan opted out; the banner says the votes were cleared
+  // 5. voting again: Faith's start moved after the votes, the host chose the meeting area again (which cleared the votes), and only Ian
+  // has voted since; Jonathan opted out
   expect(s.revoted.status).toBe('voting')
   expect(stateOf(s.revoted, 'jonathan')).toBe('opted_out')
-  expect(s.revoted.banner).toMatchObject({ votesCleared: true })
-  expect(s.revoted.banner.text).toMatch(/Faith's start location changed\. Votes for places were cleared\.$/)
+  expect(s.revoted.locations.faith.start.areaId).toBe('boon-lay')
   expect(voters(s.revoted)).toEqual(['ian'])
-  // The host took the app's first spot with nobody's approval, so the area was found, not chosen, and could move with a start.
-  expect(s.revoted.meeting.method).toBe('fairest')
 
   // 6. confirmed for today, with an itinerary; the host took the app's first spot
   expect(s.today).toMatchObject({ status: 'confirmed', date: dateAt(0), isToday: true })

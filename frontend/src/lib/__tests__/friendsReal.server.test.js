@@ -115,15 +115,35 @@ describe("a real account's friends", () => {
     expect(pick(view, 'Lee')).toBeUndefined()
   })
 
-  it("are listed on the account's own profile, each opening their profile", async () => {
+  // Walkthrough, 30 October 2026: a Friends number on the profile opens the list, as Instagram's followers do; the page's own
+  // Friends section went.
+  it("are counted on the account's own profile, and the count opens them, each opening their profile", async () => {
     const { lee } = await world()
-    const { view } = await draw('views/ProfileView', '/profile')
-    await until(() => view.has('[data-testid="profile-friends"]'))
-    const section = view.one('[data-testid="profile-friends"]')
-    expect(view.text(section)).toContain('Friends')
-    expect(view.text(section)).toContain('Lee')
-    expect(view.text(section)).not.toContain('Kim')
-    expect(view.all('a').some((a) => a.attrs.href === `/people/${lee.user.id}`)).toBe(true)
+    const { view, router } = await draw('views/ProfileView', '/profile')
+    await until(() => view.has('[data-testid="friends-count"]'))
+    expect(view.has('[data-testid="profile-friends"]')).toBe(false)
+    expect(view.text(view.one('[data-testid="friends-count"]'))).toBe('1')
+    expect(view.one('[data-testid="friends-count"]').attrs['aria-label']).toBe('1 friend, show the list')
+    await view.click(view.one('[data-testid="friends-count"]'))
+    await until(() => view.has('[data-testid="friends-list"]'))
+    const list = view.text(view.one('[data-testid="friends-list"]'))
+    expect(list).toContain('Lee')
+    expect(list).not.toContain('Kim')
+    await view.click(view.all('button').find((b) => view.text(b).includes('Lee')))
+    await until(() => router.currentRoute.value.path === `/people/${lee.user.id}`)
+  })
+})
+
+describe('inviting someone makes them a friend (walkthrough, 30 October 2026)', () => {
+  it("counts a person the host invited by username as a friend while the invite waits, and not once it is taken back", async () => {
+    const { next, sam, kim } = await world()
+    await sam.api.listSessions()
+    expect((await sam.api.listPeople()).filter((p) => p.isFriend).map((p) => p.id)).not.toContain(kim.user.id)
+    await sam.api.inviteByUsername(next, kim.user.id)
+    await sam.api.getSession(next)
+    expect((await sam.api.listPeople()).find((p) => p.id === kim.user.id)?.isFriend).toBe(true)
+    await sam.api.revokeInvite(next, kim.user.id)
+    expect((await sam.api.listPeople()).find((p) => p.id === kim.user.id)?.isFriend).not.toBe(true)
   })
 })
 
@@ -231,11 +251,13 @@ describe("a real account's outings together", () => {
   // The first outing, which Sam hosted and Lee joined, finishes (the stand-in lets a test set what the server alone writes).
   const finish = (database, id) => Object.assign(database.tables.sessions.find((s) => s.id === id), { status: 'completed', completed_at: '2026-10-09T09:00:00Z' })
 
-  it("show beside Lee in Sam's Friends once an outing has finished, and as a line on Lee's profile", async () => {
+  it("show beside Lee in Sam's Friends sheet once an outing has finished, and as a line on Lee's profile", async () => {
     const { database, first, lee } = await world()
     finish(database, first)
     const { view: own } = await draw('views/ProfileView', '/profile')
-    await until(() => own.has('[data-testid="profile-friends"]') && own.has('[data-testid="outings-together"]'))
+    await until(() => own.has('[data-testid="friends-count"]'))
+    await own.click(own.one('[data-testid="friends-count"]'))
+    await until(() => own.has('[data-testid="friends-list"]') && own.has('[data-testid="outings-together"]'))
     expect(own.text(own.one('[data-testid="outings-together"]'))).toContain('1 outing together')
     expect(own.has('[data-testid="outings-together-line"]')).toBe(false)
     const { view: theirs } = await draw('views/ProfileView', `/people/${lee.user.id}`, { id: lee.user.id })
@@ -272,7 +294,9 @@ describe("a real account's outings together", () => {
   it('show nothing while the outing has not finished', async () => {
     const { lee } = await world()
     const { view: own } = await draw('views/ProfileView', '/profile')
-    await until(() => own.has('[data-testid="profile-friends"]'))
+    await until(() => own.has('[data-testid="friends-count"]'))
+    await own.click(own.one('[data-testid="friends-count"]'))
+    await until(() => own.has('[data-testid="friends-list"]'))
     expect(own.has('[data-testid="outings-together"]')).toBe(false)
     const { view: theirs } = await draw('views/ProfileView', `/people/${lee.user.id}`, { id: lee.user.id })
     await until(() => theirs.has('[data-testid="profile-view"]'))
@@ -280,8 +304,8 @@ describe("a real account's outings together", () => {
   })
 })
 
-describe("the profile's Friends list", () => {
-  it('shows six, says how many more, and opens the rest', async () => {
+describe("a profile's Friends count", () => {
+  it('counts every friend, and the list holds them all', async () => {
     const database = createDatabase({ profiles: {} })
     const guests = []
     for (let n = 1; n <= 9; n++) guests.push(await open(database, { ...OTHER, email: `g${n}@example.com`, name: `Guest ${n}`, username: `guest_${n}` }))
@@ -291,24 +315,20 @@ describe("the profile's Friends list", () => {
     for (const guest of guests) await guest.api.joinWithLink(token)
     await boot(sam.fake, {}, { shared: true })
     const { view } = await draw('views/ProfileView', '/profile')
-    const rows = () => view.all('a').filter((a) => a.attrs.href?.startsWith('/people/') && view.text(a).includes('@guest_'))
-    await until(() => view.has('[data-testid="profile-friends-more"]'))
-    expect(rows()).toHaveLength(6)
-    const more = view.one('[data-testid="profile-friends-more"]')
-    expect(view.text(more)).toBe('Show 3 more')
-    expect(more.attrs['aria-expanded']).toBe('false')
-    await view.click(more)
-    expect(rows()).toHaveLength(9)
-    expect(view.text(view.one('[data-testid="profile-friends-more"]'))).toBe('Show fewer friends')
-    await view.click(view.one('[data-testid="profile-friends-more"]'))
-    expect(rows()).toHaveLength(6)
+    await until(() => view.has('[data-testid="friends-count"]') && view.text(view.one('[data-testid="friends-count"]')) === '9')
+    await view.click(view.one('[data-testid="friends-count"]'))
+    await until(() => view.has('[data-testid="friends-list"]'))
+    expect(view.text(view.one('[data-testid="friends-list"]')).match(/@guest_/g)).toHaveLength(9)
   })
 
-  it('has no button when there are six or fewer', async () => {
-    const { lee } = await world()
-    const { view } = await draw('views/ProfileView', '/profile')
-    await until(() => view.has('[data-testid="profile-friends"]'))
-    expect(view.has('[data-testid="profile-friends-more"]')).toBe(false)
-    expect(lee).toBeDefined()
+  it("lists the friends in common on someone else's profile, since their own friends cannot be read", async () => {
+    const { lee, kim, mia, sam } = await crowd()
+    await sam.api.listSessions()
+    const profile = await sam.api.getPerson(lee.user.id)
+    expect(profile.friendsInCommon).toBe(true)
+    expect(profile.friends.map((p) => p.id).sort()).toEqual([kim.user.id, mia.user.id].sort())
+    const mine = await sam.api.getPerson(sam.user.id)
+    expect(mine.friendsInCommon).toBe(false)
+    expect(mine.friends).toHaveLength(3)
   })
 })

@@ -43,15 +43,13 @@ test.describe('Dietary needs and replacing a stop', () => {
     await page.getByRole('button', { name: 'Save details' }).click()
     await expect(page.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible()
 
-    // 2. The outing in voting. Its question opens first, with the profile's need already selected.
+    // 2. The outing in voting. No question opens first: the profile's need is already selected on the page (Faith's walkthrough,
+    // 30 October 2026).
     await page.getByRole('link', { name: 'Back', exact: true }).click()
     await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Home', exact: true }).click()
     await openMeetup(page, 'Saturday movie and makan')
-    const question = page.getByRole('dialog', { name: 'Confirm dietary needs' })
-    await expect(question).toBeVisible()
-    await expect(question.getByRole('button', { name: 'Halal' })).toHaveAttribute('aria-pressed', 'true')
-    await question.getByRole('button', { name: 'Confirm' }).click()
-    await expect(question).toBeHidden()
+    await expect(page.getByRole('region', { name: 'Eat', exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('dialog', { name: 'Confirm dietary needs' })).toHaveCount(0)
 
     // 3. Vote: the need is a chip, and Eat offers only places that fit it.
     await expect(page.getByRole('group', { name: 'Dietary needs' }).getByRole('button', { name: 'Halal' })).toHaveAttribute('aria-pressed', 'true')

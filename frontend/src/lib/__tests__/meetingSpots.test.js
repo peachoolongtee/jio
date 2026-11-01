@@ -626,7 +626,7 @@ describe('a saved state', () => {
 
 describe('the words and the next step', () => {
   it('says something true about a spot the group voted for, one the host chose, and one chosen with no start shared', () => {
-    expect(meetingResultLine({ method: 'voted', maxMinutes: 31, count: 3 }, 'Orchard')).toBe('Confirmed by the host: Orchard, which members said works for them. The longest trip is about 31 minutes.')
+    expect(meetingResultLine({ method: 'voted', maxMinutes: 31, count: 3 }, 'Orchard')).toBe('Confirmed by the host: Orchard, which members voted for. The longest trip is about 31 minutes.')
     expect(meetingResultLine({ method: 'chosen', maxMinutes: 27, count: 2 }, 'Novena')).toBe('Chosen by the host: Novena. The longest trip is about 27 minutes.')
     expect(meetingResultLine({ method: 'chosen', maxMinutes: 0, count: 0 }, 'Novena')).toBe('Chosen by the host: Novena.')
     expect(meetingResultLine({ method: 'fairest', maxMinutes: 20, count: 2 }, 'Bishan')).toBe('Fairest for 2 people: nobody travels more than about 20 minutes.')

@@ -63,13 +63,13 @@ describe('finishing an outing of one person', () => {
     const t = await setUp()
     const { id } = await t.api.startRoam({ areaId: 'bugis' })
     const view = await draw(t, `/sessions/${id}/itinerary`, 'EventView', { id })
-    await until(() => !!press(view, 'Finish outing'))
+    await until(() => !!press(view, 'Finish and review'))
     return { ...t, id, view }
   }
 
   it('says in the dialog, before it is pressed, that it earns nothing, and does not promise coins', async () => {
     const { view } = await soloItinerary()
-    await view.click(press(view, 'Finish outing'))
+    await view.click(press(view, 'Finish and review'))
     await until(() => view.has('[data-testid="no-coins"]'))
     expect(view.text('[data-testid="no-coins"]')).toBe(NO_COINS.before)
     expect(view.text()).not.toContain('each for')
@@ -79,9 +79,9 @@ describe('finishing an outing of one person', () => {
     const t = await soloItinerary()
     const { view, api, id, router } = t
     const before = JSON.parse(api.storage.store['jio-demo-v1']).stats.ian.points
-    await view.click(press(view, 'Finish outing'))
+    await view.click(press(view, 'Finish and review'))
     await until(() => view.has('[data-testid="no-coins"]'))
-    await view.click(view.all('button').filter((b) => view.text(b) === 'Finish outing').at(-1))
+    await view.click(view.all('button').filter((b) => view.text(b) === 'Yes, finish and review').at(-1))
     await until(() => router.currentRoute.value.path === `/sessions/${id}/review`)
     // One screen at a time: the stand-in page has one body, which the next screen's mount empties.
     const leave = (screen) => {
@@ -111,17 +111,17 @@ describe('finishing an outing of one person', () => {
     await t.api.inviteFriends(id, ['faith'])
     at('2026-10-17T14:30:00+08:00')
     const view = await draw(t, `/sessions/${id}/itinerary`, 'EventView', { id })
-    await until(() => !!press(view, 'Finish outing'))
-    await view.click(press(view, 'Finish outing'))
+    await until(() => !!press(view, 'Finish and review'))
+    await view.click(press(view, 'Finish and review'))
     await until(() => view.has('[data-testid="earns-coins"]'))
     expect(view.text('[data-testid="earns-coins"]')).toContain('each for 2 people')
     expect(view.has('[data-testid="no-coins"]')).toBe(false)
   })
 })
 
-describe('the radius chips', () => {
-  // Voting, with a planner that answers the radius only when told to.
-  async function votingPage(release) {
+describe('the radius slider', () => {
+  // Voting, on a page with the slider (Faith's walkthrough, 30 October 2026: it replaced a row of chips).
+  async function votingPage() {
     const t = await setUp()
     const { id } = await t.api.createSession({ title: 'Saturday', date: '2026-10-17', start: '16:00', end: '20:00' })
     await t.api.inviteFriends(id, ['jonathan'])
@@ -129,42 +129,31 @@ describe('the radius chips', () => {
     await t.api.setLocation(id, 'ian', 'start', { areaId: 'tampines' })
     await t.api.setLocation(id, 'jonathan', 'start', { areaId: 'jurong-east' })
     await t.api.useMeetingArea(id)
-    const answer = planner.rankSlot.getMockImplementation()
-    planner.rankSlot.mockImplementation(async (args) => {
-      if (args.radiusMeters) await release.promise
-      return answer(args)
-    })
     const view = await draw(t, `/sessions/${id}/plan`, 'PlannerView', { id })
-    await until(() => view.has('[data-testid="radius"]') && chips(view).length === 7)
+    await until(() => view.has('input[type=range]'))
     return { ...t, id, view }
   }
-  // Only the radius chips: the category filter above them is a set of radio chips too.
-  const LABELS = ['Auto', '100 m', '250 m', '500 m', '1 km', '2 km', '3 km']
-  const chips = (view) => view.all('[role="radio"]').filter((chip) => LABELS.includes(view.text(chip)))
+  const slider = (view) => view.one('input[type=range]')
 
-  it('stay enabled and focusable while a change runs, say they are busy, and ignore presses meanwhile', async () => {
-    let open
-    const release = { promise: new Promise((resolve) => (open = resolve)) }
-    const { view, api, id } = await votingPage(release)
-    const calls = () => planner.rankSlot.mock.calls.filter(([args]) => args.radiusMeters).length
-    // The row is a named radio group (one Tab stop and the arrow keys come from v-radio-group, tested with the directive).
-    expect(view.all('[role="radiogroup"]').some((group) => group.attrs['aria-labelledby'] === 'radius-label')).toBe(true)
-    expect(view.text('#radius-label')).toBe('Search within')
-    const second = chips(view).find((chip) => view.text(chip) === '250 m')
-    await view.click(second)
-    await until(() => second.attrs['aria-disabled'] === 'true')
-    // Not disabled: a disabled button drops the keyboard focus the person is on.
-    for (const chip of chips(view)) {
-      expect(chip.disabled, view.text(chip)).toBe(false)
-      expect(chip.attrs['aria-disabled'], view.text(chip)).toBe('true')
-    }
-    // A press while the change runs does nothing more.
-    const asked = calls()
-    await view.click(chips(view).find((chip) => view.text(chip) === '1 km'))
-    expect(calls()).toBe(asked)
-    open()
-    await until(() => chips(view).every((chip) => chip.attrs['aria-disabled'] === undefined))
-    expect((await api.getSession(id)).radius).toBe(250)
+  it('runs from Auto to 3 km, says where it is, and saves only where it comes to rest', async () => {
+    const { view, api, id } = await votingPage()
+    expect(slider(view).attrs.min).toBe('0')
+    expect(slider(view).attrs.max).toBe('6')
+    expect(slider(view).attrs['aria-valuetext']).toBe('Auto')
+    const calls = () => planner.rankSlot.mock.calls.filter(([args]) => args.radiusMeters).map(([args]) => args.radiusMeters)
+    const before = calls().length
+    // Dragged through 250 m to 1 km: the words follow at once, and only 1 km is asked for.
+    view.type('input[type=range]', '2')
+    await view.tick()
+    expect(slider(view).attrs['aria-valuetext']).toBe('Within 250 m')
+    view.type('input[type=range]', '4')
+    await view.tick()
+    expect(slider(view).attrs['aria-valuetext']).toBe('Within 1 km')
+    await until(() => calls().length > before)
+    expect(calls().slice(before).every((m) => m === 1000)).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect((await api.getSession(id)).radius).toBe(1000)
+    expect(view.text()).not.toContain('Auto starts at 500 m')
   })
 })
 
@@ -188,9 +177,9 @@ describe('a radius change that clears votes', () => {
       return { ...ranked, options: ranked.options.slice(0, 1), current: ranked.current.filter((o) => o.venue.id === ranked.options[0].venue.id) }
     })
     const view = await draw(t, `/sessions/${id}/plan`, 'PlannerView', { id })
-    await until(() => view.has('[data-testid="radius"]') && view.all('[role="radio"]').some((chip) => view.text(chip) === '250 m'))
+    await until(() => view.has('input[type=range]'))
     expect(view.text()).not.toContain('were cleared')
-    await view.click(view.all('[role="radio"]').find((chip) => view.text(chip) === '250 m'))
+    view.type('input[type=range]', '2')
     await until(() => view.text().includes('Votes for places outside the new ring were cleared.'))
     expect(view.errors).toEqual([])
     await view.click(view.one('button[aria-label="Dismiss"]'))

@@ -71,6 +71,9 @@ svg { display: block; flex-shrink: 0; }
 .screen--form { max-width: calc(var(--form-max-width) + var(--gutter) * 2); }
 /* Create session and invite: wider, so a calendar and its times (or two columns of friends) fit side by side. */
 .screen--wide-form { max-width: calc(var(--wide-form-max-width) + var(--gutter) * 2); }
+/* A session step whose content is a form (Create, Invite): the screen, its header and the steps bar are as wide as every other session
+   screen, so the bar keeps its size from step to step; only the form under it keeps a narrower column (--step-form-width). */
+.screen--step-form .screen__body > * { max-width: var(--step-form-width, var(--wide-form-max-width)); }
 .screen__header { flex-shrink: 0; display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md) var(--gutter) var(--spacing-base); }
 .screen__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); min-height: var(--tap-min); }
 .screen__titles { display: flex; flex-direction: column; gap: var(--spacing-xs); min-width: 0; }

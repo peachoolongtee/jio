@@ -21,11 +21,12 @@ describe('pending invites', () => {
     expect([stateOf(session, 'jonathan'), stateOf(session, 'faith')]).toEqual(['invited', 'invited'])
     expect(session.activeIds).toEqual(['ian'])
 
-    vi.setSystemTime(new Date('2026-10-09T10:00:01.500'))
+    // The first accepts 4 s after being invited and the next 1.5 s after that: time enough to take an invite back.
+    vi.setSystemTime(new Date('2026-10-09T10:00:04.500'))
     session = await api.getSession(id)
     expect([stateOf(session, 'jonathan'), stateOf(session, 'faith')]).toEqual(['joined', 'invited'])
 
-    vi.setSystemTime(new Date('2026-10-09T10:00:05'))
+    vi.setSystemTime(new Date('2026-10-09T10:00:06'))
     session = await api.getSession(id)
     expect(session.activeIds).toEqual(['ian', 'jonathan', 'faith'])
   })

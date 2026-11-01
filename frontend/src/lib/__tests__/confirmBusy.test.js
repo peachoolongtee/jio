@@ -1,11 +1,13 @@
 // The two ways to confirm on the Locate screen share one busy flag (the events store's `confirming`): the footer's "Confirm <area>"
-// (SpotConfirm) and the list's dialog "Meet at <area>" (SpotList). While either runs, both read "Confirming…" and say they are busy
+// (SpotConfirm) and the host's "Confirm <area>" on a pin's card on the map (SpotCard). The list's own dialog, "Meet at <area>", went with
+// "We already have a place" (walkthrough, 30 October 2026). While either runs, both read "Confirming…" and say they are busy
 // (aria-busy) without being disabled, so the keyboard focus stays; a press on the other, or on another control of the list, does
 // nothing. Rendered with a tiny stand-in for the page (miniDom.js) and the real events store; only the data layer's two writes are
 // held by hand, so no timer and no network are involved.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { fakeStorage } from './planFixture.js'
 import { mount } from './miniDom.js'
 
@@ -30,6 +32,9 @@ vi.mock('../../components/ui/ModalDialog.vue', async () => {
 vi.stubGlobal('localStorage', fakeStorage())
 const { default: SpotList } = await import('../../components/spots/SpotList.vue')
 const { default: SpotConfirm } = await import('../../components/spots/SpotConfirm.vue')
+const { default: SpotCard } = await import('../../components/spots/SpotCard.vue')
+// The list's "Pick the place yourself" is a link, so the page has a router.
+const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:any(.*)*', component: { render: () => null } }] })
 const { useEventsStore } = await import('../../stores/events.js')
 
 const spot = (areaId, name) => ({
@@ -46,6 +51,7 @@ let pinia
 let events
 let list
 let bar
+let card
 // A write the test finishes by hand.
 // How to call: const write = pending(held.confirmSpot); ...; await write.done()
 function pending(fn) {
@@ -62,21 +68,13 @@ beforeEach(() => {
   pinia = createPinia()
   setActivePinia(pinia)
   events = useEventsStore()
-  list = mount(SpotList, { session: SESSION, myId: 'ian', names: (id) => id, selectedId: 'bugis', isHost: true, hostName: 'Ian' }, [pinia])
+  list = mount(SpotList, { session: SESSION, myId: 'ian', names: (id) => id, selectedId: 'bugis', isHost: true, hostName: 'Ian' }, [pinia, router])
+  card = mount(SpotCard, { spot: SESSION.spots.list[0], session: SESSION, myId: 'ian', isHost: true }, [pinia])
   bar = mount(SpotConfirm, { session: SESSION, isHost: true, hostName: 'Ian', selectedId: 'bugis' }, [pinia])
 })
 
-// Pick the known place and open the "Meet at Kovan?" dialog.
-// How to call: await openDialog()
-async function openDialog() {
-  await list.button('We already have a place').click()
-  await list.button('Picker: Where is the place?').click()
-  expect(list.text()).toContain('Meet at Kovan?')
-}
-
 describe('one busy flag for both ways to confirm', () => {
-  it('reads "Confirming…" on the footer button, and on the dialog\'s, while the footer confirm runs; the other press does nothing', async () => {
-    await openDialog()
+  it('reads "Confirming…" on the footer button, and on the pin card\'s, while the footer confirm runs; the other press does nothing', async () => {
     const write = pending(held.confirmSpot)
     const first = bar.button('Confirm Bugis').listeners.click({})
     await nextTick()
@@ -85,30 +83,27 @@ describe('one busy flag for both ways to confirm', () => {
     expect(footer).not.toBeNull()
     expect(bar.attr(footer, 'aria-busy')).toBe('true')
     expect(footer.props.disabled).toBeFalsy()
-    const meet = list.button('Confirming…')
-    expect(meet).not.toBeNull()
-    expect(list.attr(meet, 'aria-busy')).toBe('true')
-    await meet.click()
+    const onPin = card.button('Confirming…')
+    expect(onPin).not.toBeNull()
+    expect(card.attr(onPin, 'aria-busy')).toBe('true')
+    await onPin.click()
     await footer.click()
-    expect(held.setKnownPlace).not.toHaveBeenCalled()
     expect(held.confirmSpot).toHaveBeenCalledTimes(1)
     await write.done()
     await first
     expect(events.confirming).toBe(false)
     expect(bar.button('Confirming…')).toBeNull()
-    expect(bar.attr(bar.button('Confirm Bugis'), 'aria-busy')).toBeUndefined()
+    expect(card.button('Confirm Bugis')).not.toBeNull()
   })
 
-  it('does the same the other way: "Meet at Kovan" running keeps "Confirm Bugis" from starting a second confirm', async () => {
-    await openDialog()
-    const write = pending(held.setKnownPlace)
-    const first = list.button('Meet at Kovan').listeners.click({})
+  it('does the same the other way: the pin card\'s confirm running keeps the footer from starting a second confirm', async () => {
+    const write = pending(held.confirmSpot)
+    const first = card.button('Confirm Bugis').listeners.click({})
     await nextTick()
     expect(events.confirming).toBe(true)
     expect(bar.button('Confirming…')).not.toBeNull()
     await bar.button('Confirming…').click()
-    expect(held.confirmSpot).not.toHaveBeenCalled()
-    expect(held.setKnownPlace).toHaveBeenCalledTimes(1)
+    expect(held.confirmSpot).toHaveBeenCalledTimes(1)
     await write.done()
     await first
     expect(events.confirming).toBe(false)
@@ -118,19 +113,19 @@ describe('one busy flag for both ways to confirm', () => {
     const write = pending(held.confirmSpot)
     const first = bar.button('Confirm Bugis').listeners.click({})
     await nextTick()
-    const controls = list.all('button').filter((b) => /Works for me|Suggest a spot|We already have a place/.test(list.textOf(b)))
+    const controls = list.all('button').filter((b) => /Vote|Add a spot/.test(list.textOf(b)))
     expect(controls.length).toBeGreaterThan(2)
     for (const control of controls) {
       expect(list.attr(control, 'aria-busy')).toBe('true')
       expect(control.props.disabled).toBeFalsy()
     }
-    await list.button('Works for me').click()
-    await list.button('We already have a place').click()
+    await list.button('Vote').click()
+    await list.button('Add a spot').click()
     expect(held.approveSpot).not.toHaveBeenCalled()
-    expect(list.button('Picker: Where is the place?')).toBeNull()
+    expect(list.button('Picker: Add a spot')).toBeNull()
     await write.done()
     await first
-    expect(list.attr(list.button('Works for me'), 'aria-busy')).toBeUndefined()
+    expect(list.attr(list.button('Vote'), 'aria-busy')).toBeUndefined()
   })
 
   it('goes back to "Confirm Bugis" when the confirm fails, and says why through the error event', async () => {

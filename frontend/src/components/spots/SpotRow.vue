@@ -1,14 +1,15 @@
 <script setup>
 // One meeting spot in the list: its name and who put it forward, the longest trip, the average and each person's
-// minutes, a "Works for me" toggle with the people who chose it, and, on your own suggestion, "We are here already" and
-// Withdraw. The name is a real button that selects the spot (and its pin on the map).
+// minutes, a "Vote" toggle with the people who chose it, and, on your own suggestion, "We are here already" and
+// Withdraw. The whole card selects the spot (and its pin on the map) when pressed anywhere but on its own controls (Faith's walkthrough,
+// 30 October 2026: the name alone was too small a target); the name stays a real button, for the keyboard and screen readers.
 //   <SpotRow :spot="spot" :number="1" :selected="true" :mine="false" :names="nameOf" my-id="ian" can-approve fairest
 //            @select="pick" @approve="(on) => ..." />
 // spot: one entry of session.spots.list. number: its place in the list, drawn on its pin too. mine: you said it works
 // for you. own: your suggestion of this area ({ here }), or null. fairest / leading: tags. canApprove: false once the group
 // has moved on. busy: a change is being saved; the controls say so (aria-busy) but stay enabled, so a key press never drops
 // the focus, and the list ignores a second press until the first is saved.
-// readonly: the group has moved on from choosing, so the row has no controls (no "Works for me", "We are here already" or
+// readonly: the group has moved on from choosing, so the row has no controls (no "Vote", "We are here already" or
 // Withdraw); who said it works for them stays, as words. confirmed: this is the spot the host confirmed; it says
 // "Confirmed" in place of the Leading or Fairest tag.
 // note: one quiet line for this row alone (the data layer's "Jio remembers", on the first spot), or ''.
@@ -19,7 +20,7 @@ import AppIcon from '../ui/AppIcon.vue'
 import AvatarStack from '../ui/AvatarStack.vue'
 import ChipButton from '../ui/ChipButton.vue'
 import InfoTag from '../ui/InfoTag.vue'
-import { ABOUT_NOTE, byLine, peopleTrips, tripsLine, worksForText } from './spotText.js'
+import { ABOUT_NOTE, byLine, peopleTrips, tripsLine, votesText } from './spotText.js'
 
 const props = defineProps({
   spot: { type: Object, required: true },
@@ -38,10 +39,17 @@ const props = defineProps({
   note: { type: String, default: '' },
 })
 const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
+
+// A press on the card selects it, unless it was on a control of its own (Vote, Withdraw, the name's button handles itself).
+// How to call: <li @click="pick">
+function pick(event) {
+  if (['button', 'a', 'input', 'label'].some((tag) => event.target.closest?.(tag))) return
+  emit('select')
+}
 </script>
 
 <template>
-  <li class="spot" :class="{ 'is-selected': selected }" :data-area="spot.areaId">
+  <li class="spot" :class="{ 'is-selected': selected }" :data-area="spot.areaId" @click="pick">
     <button type="button" class="spot__head" :aria-pressed="selected" @click="emit('select')">
       <span class="spot__num tnum" aria-hidden="true">{{ number }}</span>
       <span class="spot__text">
@@ -68,17 +76,17 @@ const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
     <p v-if="note" class="spot__note caption-sm text-muted" data-testid="spots-lean">{{ note }}</p>
 
     <div v-if="!readonly" class="spot__choose">
-      <ChipButton check :selected="mine" :disabled="!canApprove" :aria-busy="busy ? 'true' : undefined" :aria-label="`Works for me: ${spot.area.name}`" @click="emit('approve', !mine)">Works for me</ChipButton>
+      <ChipButton check :selected="mine" :disabled="!canApprove" :aria-busy="busy ? 'true' : undefined" :aria-label="`Vote for ${spot.area.name}`" @click="emit('approve', !mine)">Vote</ChipButton>
       <span class="spot__count">
         <AvatarStack v-if="spot.approvedBy.length" :people="spot.approvedBy" :size="24" :max="4" />
-        <span class="body-sm" :class="{ 'text-muted': !spot.approvalCount }">{{ worksForText(spot) }}</span>
+        <span class="body-sm" :class="{ 'text-muted': !spot.approvalCount }">{{ votesText(spot) }}</span>
       </span>
     </div>
 
     <div v-else-if="spot.approvalCount" class="spot__choose">
       <span class="spot__count">
         <AvatarStack :people="spot.approvedBy" :size="24" :max="4" />
-        <span class="body-sm">{{ worksForText(spot) }}</span>
+        <span class="body-sm">{{ votesText(spot) }}</span>
       </span>
     </div>
 
@@ -91,7 +99,8 @@ const emit = defineEmits(['select', 'approve', 'here', 'withdraw'])
 
 <style scoped>
 /* A flat card with a hairline. The selected spot has a 2px ink outline (the padding gives back the pixel so nothing moves). */
-.spot { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); }
+.spot { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--hairline); border-radius: var(--rounded-md); background: var(--canvas); cursor: pointer; transition: border-color var(--motion-fast) var(--ease-out), background-color var(--motion-fast) var(--ease-out); }
+@media (hover: hover) { .spot:not(.is-selected):hover { border-color: var(--border-strong); background: var(--surface-soft); } }
 .spot.is-selected { padding: 11px calc(var(--spacing-base) - 1px); border: 2px solid var(--ink); background: var(--surface-soft); }
 .spot__head { display: flex; align-items: center; gap: var(--spacing-md); width: 100%; min-height: var(--tap-min); margin: 0; padding: 0; border: 0; border-radius: var(--rounded-sm); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .spot__head:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }

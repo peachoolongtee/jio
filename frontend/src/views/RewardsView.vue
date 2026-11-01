@@ -2,7 +2,8 @@
 // Rewards: spend JioCoins on sample café vouchers.
 //   - The balance sits at the top right; the + beside it opens a small popover on how JioCoins are earned.
 //   - Café vouchers, filtered by category and, with "Can claim", to the ones the balance covers. Redeeming one asks first, then shows its code and lowers the balance. A voucher that costs
-//     more than the balance has a disabled Claim button, and the JioCoins that are missing are written beside it.
+//     more than the balance has a disabled Claim button, and the JioCoins that are missing are written beside it. Each card says
+//     whether you have claimed it: "Claimed" (with a tick, "Claimed 2 times" after a second claim) or a muted "Not claimed".
 //   - Your vouchers: every code redeemed so far, each valid for a while after it is claimed (lib/vouchers.js). A usable code has
 //     "Mark as used", which asks first; a used code moves to a greyed "Used" group with the day it was used, and a code past its
 //     last day to a greyed "Expired" group, where it can no longer be marked. Both groups sit below the usable codes. Each group's
@@ -24,7 +25,7 @@ import { POINTS_PER_MEETUP } from '@/lib/mock/people.js'
 import { REWARD_CATEGORIES } from '@/lib/mock/rewards.js'
 import { vRadioGroup } from '@/lib/radioGroup.js'
 import { useNow } from '@/lib/useNow.js'
-import { dayLabel, voucherGroups } from '@/lib/vouchers.js'
+import { claimCounts, claimLabel, dayLabel, voucherGroups } from '@/lib/vouchers.js'
 
 const groups = useGroupsStore()
 const confirming = ref(null)
@@ -61,6 +62,8 @@ const categories = computed(() => REWARD_CATEGORIES.filter((c) => groups.rewards
 const shownRewards = computed(() =>
   groups.rewards.filter((r) => (category.value === 'all' || r.category === category.value) && (!claimable.value || r.cost <= points.value)),
 )
+// How many times each voucher was claimed, for the tag on its card.
+const claimed = computed(() => claimCounts(groups.redemptions))
 const iconFor = (reward) => REWARD_CATEGORIES.find((c) => c.id === reward.category)?.icon || 'drink'
 
 // The claimed codes, usable first, then used, then expired, on a clock that moves so a code greys out once its last day passes.
@@ -162,13 +165,16 @@ async function redeem() {
           <AppButton variant="secondary" small @click="(category = 'all'), (claimable = false)">Show all vouchers</AppButton>
         </EmptyState>
         <ul v-else class="grid-3">
-          <li v-for="(reward, i) in shownRewards" :key="reward.id" class="voucher rise" :class="{ 'is-short': reward.cost > points }" :style="{ '--i': i }">
+          <li v-for="(reward, i) in shownRewards" :key="reward.id" class="voucher rise" :class="{ 'is-short': reward.cost > points }" :style="{ '--i': i }" data-testid="voucher-card">
             <div class="voucher__top">
               <span class="voucher__icon"><AppIcon :name="iconFor(reward)" :size="20" /></span>
               <CoinBadge class="voucher__cost caption" :amount="reward.cost" />
             </div>
             <h3 class="title-md">{{ reward.offer }}</h3>
             <p class="caption-sm text-muted">{{ reward.cafe }}</p>
+            <span class="voucher__claimed caption-sm" :class="{ 'is-claimed': claimed[reward.id] }" data-testid="voucher-claimed">
+              <AppIcon v-if="claimed[reward.id]" name="check" :size="14" />{{ claimLabel(claimed[reward.id]) }}
+            </span>
             <div class="voucher__action">
               <AppButton v-if="reward.cost <= points" small @click="confirming = reward">Claim</AppButton>
               <template v-else>
@@ -297,6 +303,9 @@ async function redeem() {
 .voucher__top { display: flex; align-items: center; justify-content: space-between; }
 .voucher__icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--rounded-full); background: var(--cat-drink-bg); color: var(--cat-drink-fg); }
 .voucher__cost { padding: var(--spacing-xxs) var(--spacing-sm); border: 1px solid var(--ink); border-radius: var(--rounded-full); background: var(--canvas); color: var(--ink); font: var(--text-badge); }
+/* Whether you claimed it: a muted line until you have, then ink with a tick. */
+.voucher__claimed { display: inline-flex; align-items: center; gap: var(--spacing-xs); color: var(--muted); }
+.voucher__claimed.is-claimed { color: var(--ink); font-weight: 600; }
 .voucher.is-short .voucher__cost { border-color: var(--hairline); background: var(--surface-strong); color: var(--muted); }
 .code-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm) var(--spacing-md); min-height: 56px; padding: var(--spacing-sm) 0; border-bottom: 1px solid var(--hairline-soft); }
 .code-row__end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-sm); }
