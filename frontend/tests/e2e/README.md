@@ -98,7 +98,7 @@ The course asks each person for 1 unit test and 2 component tests as well. These
 | Person | Unit | Component |
 |---|---|---|
 | Ian | `startChoice.test.js`: the two choices, the fairest spot the default | `startChoice.screen.test.js`: starts the session with the fairest spot saved in the same update<br>`changePlan.screen.test.js`: "fairest" changes the session and goes to Locate |
-| Faith | `clash.test.js`: `findClash` names the meetup in the way | `clashScreens.test.js`: the clash dialog says what is wrong, with the way to the other meetup<br>`sessionsSpotsScreen.test.js`: Locate lists the spots with Works for me and the host's main action |
+| Faith | `clash.test.js`: `findClash` names the meetup in the way | `clashScreens.test.js`: the clash dialog says what is wrong, with the way to the other meetup<br>`sessionsSpotsScreen.test.js`: Locate lists the spots with Vote and the host's one main action |
 | Nichole | `backend/tests/cdc.test.js`: CDC matching by name or site, never by distance alone | `outingScreens.test.js`: the create form holds Next when the start has passed in Singapore<br>`outingScreens.test.js`: the create form holds Next for a session with no length (23:59) |
 | darryl | `profileSessions.test.js`: Upcoming lists sessions still going, soonest first | `dietaryConfirm.test.js`: asks before taking off a need someone else has<br>`editProfile.test.js`: starts from the signed-in person and saves to Supabase |
 | Darius | `outingLifecycle.test.js`: never finishes a confirmed plan by the clock; the person finishes it | `homeSettle.test.js`: Home leaves a confirmed outing past its end time open and unpaid until someone finishes it<br>`outingFlowFixes.test.js`: Finish outing goes on to the review page |
