@@ -308,12 +308,12 @@ describe('the radius', () => {
     await until(() => view.one('input[type=range]').attrs['aria-valuetext'] === 'Within 2 km')
   })
 
-  it('puts the disabled slider at the far end and says what Auto does, instead of reading 1 km', async () => {
+  it('puts the disabled slider\'s thumb at the far end, 3 km, the most Auto looks, instead of at 1 km', async () => {
     const { id } = await voting()
     const { view } = await draw(id)
     await until(() => view.has('[data-testid=radius]'))
     const slider = view.one('input[type=range]')
-    expect(slider.attrs['aria-valuetext']).toBe('Auto, up to 3 km')
+    expect(slider.attrs['aria-valuetext']).toBe('Auto')
     expect(String(slider.value)).toBe('5')
   })
 

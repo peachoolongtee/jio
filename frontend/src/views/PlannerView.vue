@@ -44,7 +44,7 @@
 // itinerary and goes back there; "Keep this stop" goes back without a change. Nobody votes again and the plan stays confirmed.
 // Only the host may replace a stop (anyone else sees a sentence saying so and the way back). The header lights Itinerary
 // and goes back to it, as on the photos and the map. Only a list of the category the tabs show is ever on the page.
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -126,7 +126,34 @@ const cdcOnly = ref(false)
 // something is typed. A press anywhere else closes it.
 const findEl = ref(null)
 const findFocused = ref(false)
-const findOpen = computed(() => findFocused.value || !!finding.value.query.trim())
+// Escape shuts the panel while the box keeps focus; typing or moving focus into the box again opens it.
+const findShut = ref(false)
+const findOpen = computed(() => !findShut.value && (findFocused.value || !!finding.value.query.trim()))
+const findPanelId = `find-panel-${useId()}`
+// Escape in the box or the panel: close the panel and, from inside the panel, hand focus back to the box.
+// How to call: <div @keydown.esc="onFindEscape">
+function onFindEscape(event) {
+  if (!findOpen.value) return
+  findShut.value = true
+  event.stopPropagation()
+  if (!isInput(event.target)) findEl.value?.querySelector('input')?.focus()
+}
+const isInput = (el) => String(el?.tagName || el?.tag || '').toLowerCase() === 'input'
+// Focus coming into the box from outside opens the panel again. How to call: <div @focusin="onFindFocusIn">
+function onFindFocusIn(event) {
+  if (!findFocused.value && isInput(event.target)) findShut.value = false
+  findFocused.value = true
+}
+// What a screen reader hears as the search works: that it is looking, then how many places came back.
+// How to call: findStatus.value -> '3 places found'
+const findStatus = computed(() => {
+  if (!findOpen.value) return ''
+  const f = finding.value
+  if (f.busy) return 'Searching…'
+  const n = f.results.length
+  if (f.query.trim()) return n ? `${n} ${n === 1 ? 'place' : 'places'} found` : 'No places found'
+  return n ? `${n} suggested ${n === 1 ? 'place' : 'places'}` : ''
+})
 // How to call: <div @focusout="onFindFocusOut">
 function onFindFocusOut(event) {
   if (event.relatedTarget && !findEl.value?.contains(event.relatedTarget)) findFocused.value = false
@@ -298,6 +325,8 @@ async function findPlaces(q) {
     error.value = e.message
   }
 }
+// Typing opens a panel Escape shut.
+watch(() => finding.value.query, () => { findShut.value = false })
 watch([() => finding.value.query, filter, cdcOnly, findOpen], ([q]) => {
   clearTimeout(searchTimer)
   // A short pause after typing, so each word typed costs one search (and at most one Google call), not one a letter.
@@ -422,7 +451,8 @@ const autoRadius = computed({
   },
 })
 const radiusStep = computed({
-  // Under Auto the thumb rests at the far end, 3 km, the most Auto will look (the slider is off and says "Auto, up to 3 km").
+  // Under Auto the thumb rests at the far end, 3 km, the most Auto will look (the switch says "up to 3 km"); it used to sit at 1 km while
+  // the words said Auto.
   get: () => (shownRadius.value == null ? MANUAL_RADII.length - 1 : Math.max(0, MANUAL_RADII.indexOf(shownRadius.value))),
   set: (i) => {
     draftRadius.value = MANUAL_RADII[i]
@@ -433,7 +463,7 @@ const radiusStep = computed({
 let radiusTimer = 0
 onBeforeUnmount(() => clearTimeout(radiusTimer))
 // The slider's words: "Auto" while the switch is on, else the distance. How to call: radiusStepText(2) -> 'Within 500 m'
-const radiusStepText = (i) => (autoRadius.value ? `Auto, up to ${radiusLabel(MANUAL_RADII.at(-1))}` : `Within ${radiusLabel(MANUAL_RADII[i])}`)
+const radiusStepText = (i) => (autoRadius.value ? 'Auto' : `Within ${radiusLabel(MANUAL_RADII[i])}`)
 // One line for every category that is short of places within the radius, with one way to widen it: far enough for all of them (it was
 // a "Widen to" under each category). How to call: shortOfPlaces.value -> { labels: ['Drink', 'Shop'], to: 3000 }
 const shortOfPlaces = computed(() => {
@@ -934,18 +964,19 @@ async function keepDialog(e) {
             </ChipButton>
           </div>
           <span class="filter__rule" aria-hidden="true"></span>
-          <ChipButton check :selected="cdcView" title="Eat and Drink show only places that take CDC vouchers" data-testid="list-cdc" @click="cdcView = !cdcView">CDC vouchers</ChipButton>
+          <ChipButton check :selected="cdcView" title="Eat and Drink show only places that take CDC vouchers" data-testid="list-cdc" @click="cdcView = !cdcView">CDC vouchers in Eat and Drink</ChipButton>
         </div>
 
         <!-- Search for a place to add, in the category the filter shows (or every category). -->
-        <div v-if="voting && slots.length && !optedOut" ref="findEl" class="find" data-testid="place-search" @focusin="findFocused = true" @focusout="onFindFocusOut">
-          <TextField v-model="finding.query" :label="filter ? `Search ${CATEGORY_LABELS[filter]} places` : 'Search places'" hide-label :placeholder="filter ? `Search ${CATEGORY_LABELS[filter]} places to add` : 'Search places to add'" type="search" inputmode="search" autocomplete="off">
+        <div v-if="voting && slots.length && !optedOut" ref="findEl" class="find" data-testid="place-search" @focusin="onFindFocusIn" @focusout="onFindFocusOut" @keydown.esc="onFindEscape">
+          <TextField v-model="finding.query" :label="filter ? `Search ${CATEGORY_LABELS[filter]} places` : 'Search places'" hide-label :placeholder="filter ? `Search ${CATEGORY_LABELS[filter]} places to add` : 'Search places to add'" type="search" inputmode="search" autocomplete="off" role="combobox" aria-autocomplete="list" :aria-expanded="findOpen ? 'true' : 'false'" :aria-controls="findPanelId">
             <template #leading><AppIcon name="search" :size="18" /></template>
           </TextField>
           <!-- Open while the box is in use: the CDC toggle on top, then suggestions (nothing typed) or what was found. -->
-          <div v-if="findOpen" class="find__panel" data-testid="search-panel">
+          <p class="sr-only" role="status" data-testid="search-status">{{ findStatus }}</p>
+          <div v-if="findOpen" :id="findPanelId" class="find__panel" data-testid="search-panel">
             <div class="find__filters">
-              <ChipButton check :selected="cdcOnly" data-testid="search-cdc" @click="cdcOnly = !cdcOnly">CDC vouchers only</ChipButton>
+              <ChipButton check :selected="cdcOnly" data-testid="search-cdc" @click="cdcOnly = !cdcOnly">Search CDC vouchers only</ChipButton>
             </div>
             <p v-if="!finding.query.trim() && finding.results.length" class="caption text-muted find__caption">Suggested near {{ session.area.name }}</p>
           <ul v-if="finding.results.length" class="add-results" :aria-label="finding.query.trim() ? 'Places found' : 'Suggested places'">
@@ -954,19 +985,23 @@ async function keepDialog(e) {
               <span class="add-row__text">
                 <span class="title-sm truncate">{{ r.name }}</span>
                 <span v-if="r.unfit" class="caption-sm text-error">{{ unfitText(r, r.slot) }}</span>
+                <span v-else-if="!r.added && slotFull(r.slot)" class="caption-sm text-muted">{{ CATEGORY_LABELS[r.category] }} already has 6 places</span>
                 <span v-else class="caption-sm text-muted">{{ CATEGORY_LABELS[r.category] }} · about {{ r.walk }} min walk<template v-if="r.cdc"> · CDC vouchers</template></span>
                 <span v-if="rowNote[rowKey(r)]" class="add-row__note body-sm text-error" role="alert"><AppIcon name="warning" :size="16" />{{ rowNote[rowKey(r)] }}</span>
               </span>
+              <!-- "Add", or "Added" with a tick once it is an option: an ink outline, not red (a toggled state is ink). "Added" can be pressed to
+                   take the place back when this person added it and nobody else voted for it; its one name says what a press does, and the
+                   reason it cannot be taken back is read out beside it, not in a tooltip. -->
               <AppButton
                 v-if="r.added"
-                class="add-btn"
-                :variant="canTakeBack(r) ? 'primary' : 'secondary'"
+                class="add-btn is-added"
+                variant="secondary"
                 small
                 :disabled="!canTakeBack(r)"
-                :aria-pressed="'true'"
                 :aria-busy="rowBusy === rowKey(r) ? 'true' : undefined"
                 :aria-label="canTakeBack(r) ? `Take back ${r.name}` : `${r.name} is already a choice`"
-                :title="canTakeBack(r) ? 'Press to take it back' : 'Already one of the places to vote on'"
+                :aria-describedby="canTakeBack(r) ? undefined : `${findPanelId}-${rowKey(r)}`"
+                :title="canTakeBack(r) ? 'Press to take it back' : undefined"
                 @click="takeBack(r)"
               ><AppIcon name="check" :size="16" />Added</AppButton>
               <AppButton
@@ -976,10 +1011,11 @@ async function keepDialog(e) {
                 small
                 :disabled="!!r.unfit || slotFull(r.slot)"
                 :aria-busy="rowBusy === rowKey(r) ? 'true' : undefined"
-                :title="slotFull(r.slot) ? `${CATEGORY_LABELS[r.category]} already has 6 places` : undefined"
+                :aria-describedby="slotFull(r.slot) ? `${findPanelId}-${rowKey(r)}` : undefined"
                 :aria-label="`Add ${r.name}`"
                 @click="add(r)"
               >Add</AppButton>
+              <span v-if="r.added ? !canTakeBack(r) : slotFull(r.slot)" :id="`${findPanelId}-${rowKey(r)}`" class="sr-only">{{ r.added ? 'Already one of the places to vote on' : `${CATEGORY_LABELS[r.category]} already has 6 places` }}</span>
             </li>
           </ul>
           <p v-else-if="finding.query.trim() && !finding.busy" class="body-sm text-muted">No places{{ cdcOnly ? ' that take CDC vouchers' : '' }} match "{{ finding.query.trim() }}".</p>
@@ -1242,6 +1278,12 @@ async function keepDialog(e) {
 .add-row__note :deep(svg) { flex-shrink: 0; margin-top: 2px; }
 /* One size for every row's button, whatever it says. */
 .add-btn.btn { flex-shrink: 0; min-width: 92px; justify-content: center; gap: var(--spacing-xs); }
+/* "Added": an ink outline with a tick, quieter than "Add" (a dark pill) and never red. Its disabled state (already a choice, or someone
+   else voted for it) keeps the muted words at 5.4:1 on white, not the grey of a switched-off button. */
+.add-btn.btn.is-added { background: var(--canvas); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); }
+.add-btn.btn.is-added:not(:disabled):active { background: var(--surface-strong); }
+.add-btn.btn.is-added:disabled { background: var(--canvas); color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--border-control); }
+@media (hover: hover) { .add-btn.btn.is-added:not(:disabled):hover { background: var(--surface-soft); } }
 .add-row__text { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .order-pick { display: flex; align-items: center; min-height: var(--tap-min); }
 .order-pick p { margin: 0; }
