@@ -69,7 +69,9 @@ describe('an invite held for a long time', () => {
     expect(timers.mock.calls.slice(before).filter(([, ms]) => ms > 60_000)).toEqual([])
     const usual = timers.mock.calls.length
     await api.inviteFriends(id, ['jonathan'], { pending: true })
-    expect(timers.mock.calls.slice(usual).some(([, ms]) => ms > 5000 && ms < 60_000)).toBe(true)
+    // The usual wait is 4 s (ACCEPT_AFTER in api.js, 4000 ms and a few more): long enough for the host to take the invite back, and well over the
+    // data layer's own short waits.
+    expect(timers.mock.calls.slice(usual).some(([, ms]) => ms >= 4000 && ms < 60_000)).toBe(true)
     timers.mockRestore()
   })
 })

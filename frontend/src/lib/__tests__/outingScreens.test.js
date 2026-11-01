@@ -424,7 +424,8 @@ describe('editing a session whose start has passed', () => {
     view.type('input', 'Saturday tea')
     await view.tick()
     await view.click(next(view))
-    await until(() => router.currentRoute.value.path === `/sessions/${id}/invite`)
+    // Saving the edit of a session that is still inviting goes on to the Start choice (how to pick the meeting point), which comes before inviting.
+    await until(() => router.currentRoute.value.path === `/sessions/${id}/start`)
     expect(await api.getSession(id)).toMatchObject({ title: 'Saturday tea', date: '2026-10-17', start: '15:00', end: '18:00' })
   })
 
