@@ -1919,3 +1919,14 @@ No database change.
     - e2e 17 of 17;
     - the line seen in a browser at 320 px.
 - **Also added:** the unit and component test allocation, in `frontend/tests/e2e/README.md`.
+
+## Round 47: review of what was merged after #206 (2026-11-01)
+
+**The lead's word:** "review all the PRs in the same way". None was open: #207, #209, #210, #211, #212, #213, #214 and #215 were merged into `dev` on 1 November by Darius, and #208 was closed into #211. This reviews `dev` at `3132427` against `1d2e8f2`, and any fixes go in on `review/after-206`. Teammates' branches are left as they are.
+
+| Piece | Agent | Brief, in short |
+|---|---|---|
+| The server and dietary changes (#207, #211's server half) | code reviewer | Access rules, whether anything needs a change to the live database, and the lead's rule on drops |
+| Every MRT station and the new place data (#209) | code reviewer | Where the data came from, the OneMap budget, ranking and latency |
+| The walkthrough and places from a post (#210) | code reviewer | Persistence for real accounts, terms, the finish rule, earlier decisions |
+| The screens (#210, #211, #212) | design reviewer | `DESIGN.md`, phone widths, contrast, the new shader dependency |
