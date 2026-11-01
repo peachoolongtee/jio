@@ -1,5 +1,5 @@
 <script setup>
-// What Home says about one meetup: status, when, title, where it stands, who is in, what it needs next from you,
+// What Home says about one meetup: when, title, where it stands, who is in, what it needs next from you,
 // and the button that opens it at the step it is on. The content of both MeetupDetail (the card under the map) and
 // the popover on a map pin, so it is written once.
 //   <MeetupSummary :meetup="m" my-id="ian" :names="nameOf" title-id="home-detail-title" />
@@ -13,7 +13,6 @@ import AppButton from '../ui/AppButton.vue'
 import AppIcon from '../ui/AppIcon.vue'
 import AvatarStack from '../ui/AvatarStack.vue'
 import CountdownChip from '../ui/CountdownChip.vue'
-import StatusPill from '../ui/StatusPill.vue'
 import MeetupStatus from './MeetupStatus.vue'
 import { homeStatus, nextStepFor, whereStands } from '@/lib/homeMeetups.js'
 import { dateLine } from '@/lib/session.js'
@@ -44,8 +43,8 @@ const peopleText = computed(() => {
 
 <template>
   <div class="sum" :class="{ 'sum--compact': compact }">
+    <!-- How soon it is. Its stage is said once, by MeetupStatus below ("Ready", not also "Confirmed"; walkthrough, 1 November 2026). -->
     <div class="sum__top">
-      <StatusPill :status="meetup.status" />
       <CountdownChip :session="meetup" />
     </div>
     <component :is="compact ? 'p' : 'h2'" :id="titleId || undefined" class="sum__title" :class="compact ? 'title-md truncate' : 'display-sm'" :title="compact ? meetup.title : undefined">{{ meetup.title }}</component>
