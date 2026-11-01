@@ -39,6 +39,9 @@
 //     plan with no stops says "No stops yet".
 //   - Finishing the outing goes on to "How was it?" (/sessions/:id/review: stars and photos). A finished outing the person has
 //     not reviewed shows a row that leads there.
+//   - A finished outing on the server has no "How was it?", so the one quiet line for a milestone with a friend (the 1st, 5th, 10th, then every
+//     10th outing together: OutingMilestone) is here, under the trophy and ledger. The host who just finished it hears it (polite status);
+//     everyone else just reads it, on a reload and when the host finishes it while they are looking.
 //   - Travel and trip-home times are estimates from distance, so they read "about" or "est.".
 //   - Weather (a confirmed plan): a mark on each stop (Dry, Cloudy, Showers, Thundery showers, or "Forecast later" / "No forecast" when it is not known; "Indoor" for an indoor
 //     stop when rain is likely; "Outdoor, showers" for an exposed stop, in the warning tone) and one muted line under the stops
@@ -58,6 +61,7 @@ import CoinBadge from '@/components/ui/CoinBadge.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import LedgerCard from '@/components/event/LedgerCard.vue'
+import OutingMilestone from '@/components/event/OutingMilestone.vue'
 import { RouterLink } from 'vue-router'
 import ModalDialog from '@/components/ui/ModalDialog.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
@@ -194,10 +198,15 @@ async function loadLedger() {
     ledgerLoading.value = false
   }
 }
+// This person just ended the outing here (the host, on a shared one): its milestone line is said aloud, as the result of their own action.
+const justEnded = ref(false)
 watch(
   () => remote.value && status.value === 'completed',
   (finished) => {
-    if (finished) loadLedger()
+    if (!finished) return
+    loadLedger()
+    // The milestone line counts the finished outings, so the list is read.
+    if (!events.loaded) events.loadSessions().catch(() => null)
   },
   { immediate: true },
 )
@@ -385,6 +394,8 @@ async function replan() {
 async function endPlan() {
   busy.value = true
   error.value = ''
+  // Set before the write, so the milestone line is on the page as a polite status from the moment it appears (a role added later is not read).
+  justEnded.value = remote.value
   try {
     await events.endPlan(props.id)
     endOpen.value = false
@@ -393,6 +404,7 @@ async function endPlan() {
     if (remote.value) toast.value = true
     else await router.push({ path: `/sessions/${props.id}/review`, state: { justFinished: true } })
   } catch (e) {
+    justEnded.value = false
     error.value = e.message
   } finally {
     busy.value = false
@@ -451,6 +463,7 @@ async function endPlan() {
         </BannerNote>
 
         <LedgerCard v-if="remote && status === 'completed'" :ledger="ledgerState?.row ?? null" :loading="ledgerLoading" :failed="!!ledgerState?.failed" :loaded="!!ledgerState" @retry="loadLedger" />
+        <OutingMilestone v-if="remote && status === 'completed'" :session="session" :announce="justEnded" />
 
         <RouterLink v-if="reviewDue" :to="`/sessions/${id}/review`" class="photos-cta" data-testid="review-cta">
           <span class="photos-cta__icon" aria-hidden="true"><AppIcon name="star" :size="20" /></span>

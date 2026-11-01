@@ -42,6 +42,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   GET    /api/sessions/:id/stops/:stopId/choices?category=          the places that could take the stop's place (the host; reads)
 //   POST   /api/sessions/:id/roam             { current?, categories? } places near where the group is, for "What next?" (a member; reads)
 //   GET    /api/sessions/:id/trips-home                               the minutes each person needs to get home from the last stop (a member; reads)
+//   GET    /api/sessions/:id/travel-lean                              whether the caller's own past travel counts in the pick of the meeting spots (a member; reads)
 //   POST   /api/sessions/:id/complete                                 the host finishes the outing; the server writes the travel ledger
 //   POST   /api/sessions/:id/proposals        { venueId }             a member puts a place forward as the next stop
 //   POST   /api/sessions/:id/proposals/:proposalId/resolve { accept } the host adds it (accept) or leaves it out; the proposer may take it back
@@ -72,6 +73,7 @@ import { sessionSchemas } from './session-schemas.js'
 //   stops/:id/choices { category, options: [{ venueId, rank, score, votes, details }] }
 //   roam           { status: 'ok', results: [...], notice, weather } or { status: 'empty', reason, hints, results: [] }   (no centre, no needs named)
 //   trips-home     { trips: [{ userId, minutes }], approximate }     (the same minutes the finished outing's ledger keeps as `minutes_home`)
+//   travel-lean    { owed: boolean, rule: 'longest' | 'balanced' }   (the caller's own flag; see backend/docs/planner-api.md)
 //   complete       { planVersion, status: 'completed' }              (a retry after success: the same answer, nothing written)
 //   proposals      201 { planVersion, id, applied: true }, or 200 { planVersion, id, applied: false } when the place is already waiting
 //   proposals/:id/resolve   { planVersion, applied }             (applied: false when it is not waiting any more)
@@ -349,6 +351,14 @@ export function createSessionsRouter({ supabase, sessions, limiter = null, readL
   router.get('/sessions/:id/trips-home', ...rankGuard, handle((who, req) => {
     sessionSchemas.nothing.parse(req.query ?? {})
     return sessions.tripsHome(who)
+  }))
+
+  // Whether the caller's own past travel counts in the pick of the meeting spots: their flag and the rule, nothing about anyone else. Counted with the
+  // other reads (the outing's needs), as it reads nothing that ranks places.
+  router.get('/sessions/:id/travel-lean', requireUser({ supabase }), ...(readLimiter ? [readLimiter] : []), handle((who, req) => {
+    sessionSchemas.nothing.parse(req.query ?? {})
+    req.res.set('Cache-Control', 'no-store')
+    return sessions.travelLean(who)
   }))
 
   router.post('/sessions/:id/complete', ...guard, handle((who, req) => {

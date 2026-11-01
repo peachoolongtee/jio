@@ -1,6 +1,9 @@
 <script setup>
-// What the host sees after pressing Start session: how to pick the meeting point (the Start choice). The session is still inviting
-// until the main button is pressed, so going back loses nothing.
+// What the host sees right after creating a session: how to pick the meeting point (the Start choice). The session is still inviting
+// until it starts, so going back loses nothing. The choice comes before inviting (walkthrough, 30 October 2026): only the fairest spot
+// needs friends first, and "We already know where" goes straight to the area. With fewer than two people in, either way ends on the
+// invite step (/sessions/:id/invite?then=fairest, or ?then=known&area=<id>), whose button starts the session once a friend has joined,
+// because a session needs two people to start (the database's rule).
 //   /sessions/:id/start               two cards, "Find the fairest spot" (the default) and "We already know where", and a main
 //                                     button named for the choice. The fairest spot starts the session (everyone shares where they
 //                                     start); "We already know where" goes on to the follow-up.
@@ -31,10 +34,9 @@ import ChipButton from '@/components/ui/ChipButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import TextField from '@/components/ui/TextField.vue'
-import BannerNote from '@/components/ui/BannerNote.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
-import InviteDialog from '@/components/group/InviteDialog.vue'
 import ChoiceCard from '@/components/start/ChoiceCard.vue'
+import FocusFrame from '@/components/ui/FocusFrame.vue'
 import NotFoundView from './NotFoundView.vue'
 import * as api from '@/lib/api.js'
 import { AREAS } from '@/lib/mock/places.js'
@@ -137,11 +139,10 @@ watch([session, allowed, busy, leaving], () => {
   if (session.value && !busy.value && !leaving.value && !allowed.value) router.replace(sessionPath.value)
 })
 
-// A session starts with two people in. Until then (the host came on without inviting, or the invites are still waiting) the page says so,
-// with the way to invite, and its button waits.
+// A session starts with two people in. Until then, the choice is carried on to the invite step, which starts it once a friend joins.
 const tooFew = computed(() => session.value?.status === 'inviting' && (session.value.activeIds || []).length < 2)
-const waitingInvites = computed(() => (session.value?.members || []).filter((m) => m.state === 'invited').length)
-const inviteOpen = ref(false)
+// The invite step that carries the choice. How to call: inviteStep({ then: 'known', area: 'bishan' })
+const inviteStep = (query) => ({ path: `${sessionPath.value}/invite`, query })
 
 // Move focus to the new screen's heading when the step changes, so a keyboard or screen reader user lands on the question.
 watch(step, async () => {
@@ -149,8 +150,14 @@ watch(step, async () => {
   heading.value?.focus?.({ preventScroll: true })
 })
 
-// The back button at the top left: from the follow-up to the choice, from the choice to the session's page.
-const back = computed(() => (backToLocate.value ? sessionPath.value : step.value === 'where' && !fromLocate.value ? pagePath.value : props.change ? cameFrom.value : sessionPath.value))
+// The back button at the top left: back to Locate when the change was opened from there; from the follow-up to the choice; from the
+// choice to the date and times (the step before it) for a session still inviting, else to the session's page.
+const back = computed(() => {
+  if (backToLocate.value) return sessionPath.value
+  if (step.value === 'where' && !fromLocate.value) return pagePath.value
+  if (props.change) return cameFrom.value
+  return session.value?.status === 'inviting' ? `${sessionPath.value}/edit` : sessionPath.value
+})
 
 // Run a save with the busy flag on; the flag is cleared whatever happens, and a failure is the screen's error line.
 // How to call: await run(() => events.start(props.id, { meetBy: 'fairest' }))
@@ -179,13 +186,17 @@ async function run(fn) {
 // How to call: if (stillHere()) await router.replace(...)
 const stillHere = () => !cancelled && router.currentRoute.value.path === pagePath.value
 
-// The main button of the first screen. The fairest spot starts the session and the host stays on its page, now the Locate step; the
-// other choice goes on to the follow-up without saving anything yet.
+// The main button of the first screen. The fairest spot starts the session and the host stays on its page, now the Locate step, or, with
+// nobody else in yet, goes on to invite friends first; the other choice goes on to the follow-up without saving anything yet.
 // How to call: choose()
 async function choose() {
   if (choice.value === 'known') {
     error.value = ''
     await router.push({ path: pagePath.value, query: { where: '1' } })
+    return
+  }
+  if (!props.change && tooFew.value) {
+    await router.push(inviteStep({ then: 'fairest' }))
     return
   }
   const ok = await run(async () => {
@@ -199,6 +210,7 @@ async function choose() {
 
 // The main button of the follow-up: the area (or the nearest area to where the person is) becomes the known place, and the group goes on
 // to choosing places. The location is asked for first, so a refusal starts nothing. The exact place is never kept: only the area is saved.
+// With nobody else in yet, the area goes on to the invite step, which starts the session with it once a friend joins.
 // How to call: meet()
 async function meet() {
   let done = false
@@ -206,6 +218,10 @@ async function meet() {
     const areaId = hereNow.value ? (await areaHere(typeof navigator === 'undefined' ? null : navigator.geolocation, api.placeFromCoords)).areaId : where.value
     // The host went back while the browser was asking: nothing is started.
     if (cancelled) return
+    if (!props.change && tooFew.value) {
+      await router.push(inviteStep({ then: 'known', area: areaId }))
+      return
+    }
     if (fromLocate.value) {
       await events.setKnownPlace(props.id, areaId)
     } else if (props.change) {
@@ -223,7 +239,7 @@ async function meet() {
 const primary = computed(() => (step.value === 'how' ? (props.change ? changeLabel(choice.value) : startLabel(choice.value)) : whereLabel(chosenArea.value, hereNow.value)))
 const note = computed(() => (props.change ? CHANGE_NOTE : step.value === 'how' ? START_NOTE : WHERE_NOTE))
 const onPrimary = () => (step.value === 'how' ? choose() : meet())
-const primaryOff = computed(() => busy.value || tooFew.value || (step.value === 'where' && !hereNow.value && !chosenArea.value))
+const primaryOff = computed(() => busy.value || (step.value === 'where' && !hereNow.value && !chosenArea.value))
 const primaryText = computed(() => (busy.value ? (step.value === 'where' && hereNow.value ? 'Finding where you are…' : 'Saving…') : primary.value))
 </script>
 
@@ -239,10 +255,7 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
           <h2 ref="heading" tabindex="-1" class="display-sm">{{ change ? CHANGE_HEAD.title : 'How do you want to pick the meeting point?' }}</h2>
           <p v-if="change" class="body-sm text-muted">{{ CHANGE_HEAD.text }}</p>
         </div>
-        <BannerNote v-if="tooFew" icon="people" data-testid="start-too-few">
-          {{ waitingInvites ? 'Waiting for your friends to accept. The session can start once one of them joins.' : 'Only you are in so far. Invite at least one friend to start the session.' }}
-          <template #actions><AppButton variant="secondary" small @click="inviteOpen = true"><AppIcon name="user-plus" :size="16" />Invite</AppButton></template>
-        </BannerNote>
+        <FocusFrame>
         <div class="choices choices--cards" role="radiogroup" v-radio-group aria-label="How to pick the meeting point">
           <ChoiceCard v-for="c in CHOICES" :key="c.key" :selected="choice === c.key" :disabled="busy" :icon="c.icon" @click="choice = c.key">
             <template #title>{{ c.title }}</template>
@@ -251,6 +264,7 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
             <template #meta>{{ c.meta }}</template>
           </ChoiceCard>
         </div>
+        </FocusFrame>
       </template>
 
       <!-- 2. "We already know where": the area, or where the host is now. -->
@@ -259,6 +273,7 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
           <h2 ref="heading" tabindex="-1" class="display-sm">Pick the meeting area</h2>
           <p v-if="change && !fromLocate" class="body-sm text-muted">The group then votes on places around it. Votes and the plan are cleared.</p>
         </div>
+        <FocusFrame>
         <div class="start__search">
           <TextField v-model="query" label="Search for an area" placeholder="Bishan, Tampines, Jurong East" type="text" autocomplete="off" enterkeyhint="search" :maxlength="40">
             <template #leading><AppIcon name="search" :size="18" /></template>
@@ -277,6 +292,7 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
             </div>
           </template>
         </div>
+        </FocusFrame>
       </template>
 
       <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
@@ -286,7 +302,6 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
       <p v-if="note" class="caption-sm text-muted start__note">{{ note }}</p>
       <AppButton class="start__go" next block :disabled="primaryOff" :aria-busy="busy ? 'true' : undefined" data-testid="start-next" @click="onPrimary">{{ primaryText }}</AppButton>
     </footer>
-    <InviteDialog v-model:open="inviteOpen" :session="session" />
   </main>
   <main v-else-if="loadError" class="screen" data-testid="start-load-error">
     <div class="screen__body" style="padding-top: var(--spacing-xl)">
@@ -308,7 +323,7 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
 .head h2:focus { outline: none; }
 .head h2:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; border-radius: var(--rounded-sm); }
 /* The cards, or the chips and the "here now" card, stacked. */
-.choices { display: flex; flex-direction: column; gap: var(--spacing-md); min-width: 0; max-width: 880px; margin: 0; }
+.choices { display: flex; flex-direction: column; gap: var(--spacing-md); min-width: 0; margin: 0; }
 /* The two ways to pick the meeting point: stacked on a phone, side by side from 744px, so a wide screen is not one narrow column. */
 @media (min-width: 744px) { .choices--cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; } .choices--cards > * { height: 100%; } }
 .choices p { margin: 0; }
@@ -316,7 +331,7 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
 .or { display: flex; align-items: center; gap: var(--spacing-md); font: var(--text-caption-sm); color: var(--muted); }
 .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
 .start__note { margin: 0; }
-.start__search { max-width: 880px; }
+
 /* The longest label ("Ask everyone to share where they start") wraps on a 320px phone instead of being cut off. */
 .start__go.btn { height: auto; min-height: 48px; padding-top: var(--spacing-md); padding-bottom: var(--spacing-md); white-space: normal; text-align: center; line-height: 1.25; }
 @media (min-width: 744px) { .start__note { margin-right: auto; } }

@@ -45,6 +45,10 @@ export const useEventsStore = defineStore('events', () => {
   // while there is none. (A local outing keeps none.)
   const ledgers = ref({})
   const ledgerSeq = {}
+  // Whether the signed-in person's own past travel counts in the pick of each session's meeting spots, by session: { owed, rule } for the newest
+  // read that answered. Their own flag only. A failed read leaves nothing (the Locate step shows no line).
+  const leans = ref({})
+  const leanSeq = {}
   // Weather on the day, by session: the latest check of the plan's stops, { checkedAt, stops: { [slotId]: weather }, weather:
   // the answer's block, failed }. A failed check keeps the answer before it and says so in `failed`.
   const weatherChecks = ref({})
@@ -431,6 +435,23 @@ export const useEventsStore = defineStore('events', () => {
     }
   }
 
+  // Whether the person's own past travel counts in the pick of a session's spots, kept in `leans`. A refusal or a failure removes the answer, so
+  // nothing is shown that was not just confirmed; only the newest read of a session is kept. Never rejects.
+  // How to call: await loadLean('3b1f...'); leans.value['3b1f...'] // { owed: true, rule: 'longest' }
+  async function loadLean(id) {
+    const ticket = (leanSeq[id] = (leanSeq[id] || 0) + 1)
+    const keep = (answer) => {
+      if (ticket !== leanSeq[id]) return
+      const { [id]: _old, ...rest } = leans.value
+      leans.value = answer ? { ...rest, [id]: answer } : rest
+    }
+    try {
+      keep(await api.travelLean(id))
+    } catch {
+      keep(null)
+    }
+  }
+
   // The places of `category` (the stop's own when left out) that could take a confirmed stop's place:
   // { stop, category, stopCount, options }. Asks the planner; nothing is saved. Only the host.
   // How to call: const { stop, options } = await events.replaceChoices('s1', 'drink', 'activity')
@@ -454,7 +475,7 @@ export const useEventsStore = defineStore('events', () => {
   // `list` also empties the list and the sessions by id (a different person), where a reset leaves them for the load that follows.
   // How to call: forgetSessions({ list: true }) (when the signed-in person changes)
   function forgetSessions({ list = false } = {}) {
-    for (const tickets of [seq, itinerarySeq, photoSeq, orderSeq, ledgerSeq]) for (const id of Object.keys(tickets)) tickets[id] += 1
+    for (const tickets of [seq, itinerarySeq, photoSeq, orderSeq, ledgerSeq, leanSeq]) for (const id of Object.keys(tickets)) tickets[id] += 1
     // A read of the list or of the invitations still out belongs to the account before.
     listSeq += 1
     inviteSeq += 1
@@ -470,6 +491,7 @@ export const useEventsStore = defineStore('events', () => {
     for (const tickets of [checkSeq, swapSeq]) for (const key of Object.keys(tickets)) tickets[key] += 1
     itineraries.value = {}
     ledgers.value = {}
+    leans.value = {}
     photos.value = {}
     orders.value = {}
     weatherChecks.value = {}
@@ -544,9 +566,9 @@ export const useEventsStore = defineStore('events', () => {
   })
 
   return {
-    sessions, byId, itineraries, ledgers, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
+    sessions, byId, itineraries, ledgers, leans, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
     loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, revokeInvite, dropSession,
-    loadSessions, loadSession, loadItinerary, loadLedger, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
+    loadSessions, loadSession, loadItinerary, loadLedger, loadLean, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
     confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, changeMeetingPlace, chooseSpotAgain, placeFailure, dismissPlaceFailure, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, forgetOrder, addPhoto, deletePhoto, saveReview,
   }
 })

@@ -13,6 +13,7 @@ import {
   MIN_STARTS,
   plannerMethod,
   priceAreaRun,
+  SPOT_RULE,
 } from './session-plan.js'
 import {
   dietBannerText,
@@ -233,7 +234,7 @@ export function createVoting({ data, areasById, runs }) {
 
     if (located.length < MIN_STARTS) return { meeting: null, moved: session.meeting_area_id !== null && session.meeting_area_id !== undefined }
 
-    const { result, travel } = await runs.runWithTravel({ members: located, method: 'station', dateTime }, data, runs.meetingAreaWithRouting, (request) => ({
+    const { result, travel } = await runs.runWithTravel({ members: located, method: 'station', rule: SPOT_RULE, dateTime }, data, runs.meetingAreaWithRouting, (request) => ({
       ...runs.meetingAreaTravelFor(request),
       ...options(),
     }))

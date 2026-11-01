@@ -308,13 +308,6 @@ async function rejoin() {
     busy.value = false
   }
 }
-// The line that says who has not shared a start: "Waiting for Nicole, Faith and 5 others to share where they start."
-const waitingLine = computed(() => {
-  const others = waiting.value.filter((p) => !p.me).map((p) => p.name)
-  if (!others.length) return waiting.value.length ? 'Add where you are starting, above.' : ''
-  const shown = others.length > 3 ? `${others.slice(0, 2).join(', ')} and ${others.length - 2} others` : others.length > 1 ? `${others.slice(0, -1).join(', ')} and ${others.at(-1)}` : others[0]
-  return `Waiting for ${shown} to share where they start.`
-})
 
 
 const hostName = computed(() => nameOf(session.value?.hostId) || 'the host')
@@ -493,9 +486,6 @@ const placeFailure = computed(() => (isHost.value && choosing.value ? events.pla
               @error="error = $event"
             />
 
-            <!-- Locating, and the meeting area is waiting for people who have not set a start. -->
-            <p v-if="waiting.length && !loading" class="body-sm text-muted waiting" data-testid="waiting-line"><AppIcon name="clock" :size="16" />{{ waitingLine }}</p>
-
             <BannerNote v-if="optedOut && ['inviting', 'locating', 'voting'].includes(status)" icon="info">
               You opted out of this session, so your trips are not counted.
               <template #actions><AppButton small variant="secondary" :disabled="busy" @click="rememberRejoin($event); rejoin()">Rejoin</AppButton></template>
@@ -657,8 +647,6 @@ button.route__row:focus-visible { outline: 2px solid var(--ink); outline-offset:
 .area__main--reveal { animation: area-reveal 420ms var(--ease-spring) both; }
 @keyframes area-reveal { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .area__main--reveal { animation: none; } }
-/* Who the meeting area is waiting for: one quiet line. */
-.waiting { display: flex; align-items: center; gap: var(--spacing-xs); margin: 0; }
 .area__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-xs) var(--spacing-base); }
 .map-wait { position: absolute; left: 50%; top: 50%; z-index: 500; transform: translate(-50%, -50%); padding: var(--spacing-md) var(--spacing-base); border-radius: var(--rounded-md); background: var(--canvas); box-shadow: var(--shadow-float); text-align: center; }
 .map-wait--finding { top: var(--spacing-md); transform: translateX(-50%); }

@@ -11,13 +11,18 @@ import { narrowSessions, narrowedEmptyText } from '../profileSessions.js'
 const planner = vi.hoisted(() => ({ api: { defaults: {} }, meetingArea: vi.fn(), rankSlot: vi.fn(), searchSlot: vi.fn() }))
 vi.mock('../plannerApi.js', () => planner)
 vi.mock('@/components/ui/GridPulse.vue', () => ({ default: { render: () => null } }))
-// The graph picks 12 October, or lets it go when that day is picked again, as the canvas does.
+// The graph picks 12 October, or lets it go when that day is picked again, as the canvas does. A second button picks the first day
+// that has only a sample meetup (no session).
 vi.mock('@/components/ui/MeetupGraph.vue', () => ({
   default: {
     props: ['history', 'planned', 'selected'],
     emits: ['select'],
     setup(props, { emit }) {
-      return () => h('button', { type: 'button', 'data-testid': 'graph-day', onClick: () => emit('select', props.selected === '2026-10-12' ? null : '2026-10-12') }, 'Mon 12 Oct')
+      const sampleDay = () => (props.history || []).map((d) => d.date).sort().find((d) => d < '2026-10-01')
+      return () => h('div', [
+        h('button', { type: 'button', 'data-testid': 'graph-day', onClick: () => emit('select', props.selected === '2026-10-12' ? null : '2026-10-12') }, 'Mon 12 Oct'),
+        h('button', { type: 'button', 'data-testid': 'graph-sample-day', onClick: () => emit('select', sampleDay()) }, 'A sample day'),
+      ])
     },
   },
 }))
@@ -97,6 +102,15 @@ describe('the Sessions list on your own profile', () => {
     view.type('[data-testid=session-search]', 'zoo')
     await until(() => view.has('[data-testid=sessions-empty]'))
     expect(view.text('[data-testid=sessions-empty]')).toBe('Nothing matches “zoo”')
+    expect(view.errors).toEqual([])
+  })
+
+  it('shows the sample past outing cards for a day with only sample meetups, not an empty day', async () => {
+    const view = await drawProfile()
+    await view.click('[data-testid=graph-sample-day]')
+    await until(() => view.text().includes('Sample history'))
+    expect(view.has('[data-testid=sessions-empty]')).toBe(false)
+    expect(view.text()).not.toContain('Dinner catch-up')
     expect(view.errors).toEqual([])
   })
 

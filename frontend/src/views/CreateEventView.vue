@@ -32,6 +32,7 @@ import BannerNote from '@/components/ui/BannerNote.vue'
 import ClashDialog from '@/components/group/ClashDialog.vue'
 import CalendarPicker from '@/components/ui/CalendarPicker.vue'
 import ChipButton from '@/components/ui/ChipButton.vue'
+import FocusFrame from '@/components/ui/FocusFrame.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import LocationSheet from '@/components/group/LocationSheet.vue'
 import SessionSteps, { backFor } from '@/components/event/SessionSteps.vue'
@@ -158,7 +159,8 @@ function pickPlace(picked) {
   place.value = { areaId: picked.areaId, areaName: areaName(picked.areaId) || picked.label || '' }
 }
 
-// Creates the session, or saves the changes to it, and goes on to the invite step in place of this screen.
+// Creates the session, or saves the changes to it, and goes on in place of this screen: to the start choice while the session is still
+// inviting (how to pick the meeting point comes before inviting, walkthrough, 30 October 2026), else to the invite step.
 // How to call: next()
 async function next() {
   if (out.value) return goOut()
@@ -169,7 +171,7 @@ async function next() {
   const values = { title: title.value, date: date.value, start: start.value, end: endValue.value }
   try {
     const saved = editing.value ? await events.update(props.id, values) : await events.create(values)
-    router.replace(`/sessions/${saved.id}/invite`)
+    router.replace(`/sessions/${saved.id}/${saved.status === 'inviting' ? 'start' : 'invite'}`)
   } catch (e) {
     if (e?.code === 'schedule_clash') {
       clash.value = e.clash || null
@@ -186,15 +188,17 @@ async function next() {
 
 <template>
   <NotFoundView v-if="missing" />
-  <main v-else class="screen screen--step-form" data-testid="create-event-view">
+  <main v-else class="screen screen--step-form screen--create" data-testid="create-event-view">
     <header class="screen__header">
       <div class="screen__bar">
         <IconButton :label="back.label" :to="back.to" @click.capture="goBackIfBehind($event, router, back.to)"><AppIcon name="back" /></IconButton>
       </div>
       <!-- Before the title, as on every session screen, so the bar does not move between them. -->
       <SessionSteps :session="session" />
-      <div class="screen__titles">
+      <!-- The title, and beside it for a new session the way to start out already (a secondary button, outside the form's card). -->
+      <div class="screen__titles create__titles">
         <h1 class="display-xl">{{ editing ? 'Edit session' : out ? START_MODES.out.label : 'Create session' }}</h1>
+        <AppButton v-if="!out && canGoOut" variant="pill" class="create__out" :to="START_MODES.out.to" data-testid="create-already-out"><span class="create__out-icon" aria-hidden="true"><AppIcon name="locate" :size="16" /></span>Already out? {{ START_MODES.out.hint }}<AppIcon name="chevron-right" :size="16" /></AppButton>
       </div>
     </header>
 
@@ -211,9 +215,8 @@ async function next() {
 
     <template v-else>
       <form class="screen__body" novalidate @submit.prevent="next">
+        <FocusFrame>
         <p v-if="out" class="body-sm text-muted">{{ START_MODES.out.note }}</p>
-        <!-- Create opens the usual form straight away; someone already out takes this link instead of a menu first. -->
-        <div v-else-if="canGoOut" class="create__out"><AppButton variant="tertiary" underline :to="START_MODES.out.to" data-testid="create-already-out">Already out? {{ START_MODES.out.hint }}</AppButton></div>
         <div class="stack gap-xs">
           <TextField v-model="title" :label="out ? 'Title (optional)' : 'Title'" :placeholder="out ? `Out in ${place?.areaName || 'your area'}` : 'Name your session'" maxlength="60" />
           <div v-if="!out" class="scroll-x" role="group" aria-label="Title ideas">
@@ -240,12 +243,13 @@ async function next() {
           </div>
         </section>
         <p v-if="error" class="body-sm text-error" role="alert">{{ error }}</p>
+        <!-- The way on, at the foot of the card. -->
+        <div class="create__actions">
+          <AppButton v-if="out" next block :disabled="!place || busy" @click="goOut">{{ busy ? 'Starting' : 'Find places nearby' }}</AppButton>
+          <AppButton v-else next block :disabled="!ready || busy" @click="remember($event); next()">Next</AppButton>
+        </div>
+        </FocusFrame>
       </form>
-
-      <footer class="screen__footer">
-        <AppButton v-if="out" next block :disabled="!place || busy" @click="goOut">{{ busy ? 'Starting' : 'Find places nearby' }}</AppButton>
-        <AppButton v-else next block :disabled="!ready || busy" @click="remember($event); next()">Next</AppButton>
-      </footer>
       <LocationSheet v-model:open="placeOpen" which="spot" title="Where are you?" :home="homeArea" @select="pickPlace" />
     </template>
     <ClashDialog v-model:open="showClash" :clash="clash" />
@@ -253,8 +257,21 @@ async function next() {
 </template>
 
 <style scoped>
+/* The framed form is as wide as the steps bar, so its right edge lines up with Next. */
+.screen--create { --step-form-width: none; }
 
-.create__out { display: flex; }
+/* The title, and "Already out?" at the other end of its row; it wraps under the title on a narrow phone. */
+.create__titles { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm) var(--spacing-md); }
+.create__titles h1 { margin: 0; }
+/* "Already out?": the red pill (AppButton's pill), with the icon in a light circle and a soft red glow that lifts on hover. */
+.create__out.btn--pill { gap: var(--spacing-sm); padding: 0 var(--spacing-base) 0 6px; box-shadow: 0 4px 14px color-mix(in srgb, var(--primary) 30%, transparent); font-weight: 600; transition: background-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out); }
+.create__out-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--rounded-full); background: color-mix(in srgb, var(--on-primary) 22%, transparent); }
+@media (hover: hover) { .create__out.btn--pill:hover { box-shadow: 0 6px 18px color-mix(in srgb, var(--primary) 40%, transparent); transform: translateY(-1px); } }
+.create__out.btn--pill:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { .create__out.btn--pill { transition: none; } .create__out.btn--pill:hover { transform: none; } }
+/* Next at the foot of the card: full width on a phone, right-aligned at a normal width from tablet up. */
+.create__actions { display: flex; justify-content: flex-end; padding-top: var(--spacing-md); border-top: 1px solid var(--hairline); }
+@media (min-width: 744px) { .create__actions > .btn.btn--block { width: auto; min-width: 200px; } }
 /* Already out: one row like Locate's "Starting from", opening the location sheet. */
 .where { display: flex; flex-direction: column; gap: var(--spacing-xs); }
 .where__row { display: flex; align-items: center; gap: var(--spacing-md); width: 100%; min-height: 64px; padding: var(--spacing-md) var(--spacing-base); border: 1px solid var(--border-control); border-radius: var(--rounded-md); background: var(--canvas); color: var(--ink); font: var(--text-title-sm); text-align: left; cursor: pointer; }
@@ -276,10 +293,5 @@ async function next() {
   .when__calendar { grid-area: calendar; }
   .when__times { grid-area: times; justify-content: space-between; padding: var(--spacing-lg) 0 var(--ring-room); }
 }
-/* Tablet and up: the action follows the form, right-aligned at a normal width, instead of a full-width bar
-   pinned to the bottom of the window. Phones keep the pinned bar, where the thumb is. */
-@media (min-width: 744px) {
-  .screen__body { flex: 0 0 auto; }
-  .screen__footer { position: static; flex-direction: row; justify-content: flex-end; padding-top: 0; border-top: 0; }
-}
+@media (min-width: 744px) { .screen__body { flex: 0 0 auto; } }
 </style>

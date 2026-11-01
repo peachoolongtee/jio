@@ -330,3 +330,36 @@ describe('a database one migration behind', () => {
     expect(press(again.view, 'Retry')).toBeTruthy()
   })
 })
+
+describe('the choice before inviting (walkthrough, 30 October 2026)', () => {
+  // Sam alone in a new session, as it is right after Create.
+  async function alone() {
+    const w = world()
+    const sam = await w.open(PROFILE)
+    const { id } = await sam.api.createSession({ ...SESSION })
+    return { w, id }
+  }
+
+  it('sends the fairest spot on to inviting friends, starting nothing', async () => {
+    const { w, id } = await alone()
+    const { view, router } = await draw('views/StartView', `/sessions/${id}/start`, { id })
+    await until(() => view.has('[data-testid=start-next]'))
+    expect(view.has('[data-testid=start-too-few]')).toBe(false)
+    expect(nextButton(view).attrs.disabled).toBeUndefined()
+    await view.click(nextButton(view))
+    await until(() => router.currentRoute.value.path === `/sessions/${id}/invite`)
+    expect(router.currentRoute.value.query).toEqual({ then: 'fairest' })
+    expect(row(w, id).status).toBe('inviting')
+  })
+
+  it('takes "We already know where" straight to the area, then on to inviting with it', async () => {
+    const { w, id } = await alone()
+    const { view, router } = await draw('views/StartView', `/sessions/${id}/start?where=1`, { id })
+    await until(() => !!chip(view, 'Tampines'))
+    await view.click(chip(view, 'Tampines'))
+    await view.click(nextButton(view))
+    await until(() => router.currentRoute.value.path === `/sessions/${id}/invite`)
+    expect(router.currentRoute.value.query).toEqual({ then: 'known', area: 'tampines' })
+    expect(row(w, id).status).toBe('inviting')
+  })
+})

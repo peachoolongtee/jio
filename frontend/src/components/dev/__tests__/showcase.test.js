@@ -10,6 +10,7 @@ import { createHttp } from '../../../../../backend/src/services/http.js'
 import { STORAGE_KEY, loadApi } from '../../../lib/__tests__/planFixture.js'
 import { activeMeetups, dayLabel, nextStepFor, whereStands } from '../../../lib/homeMeetups.js'
 import { distanceKm } from '../../../lib/planner/index.js'
+import { closerToYou } from '../../../lib/travelLean.js'
 import { waitingFor } from '../../../stores/events.js'
 import { DEMO_ACCOUNT } from '../demoAccount.js'
 
@@ -206,6 +207,18 @@ describe('the showcase with the planner backend not running', () => {
 
   it('shows on Home what it should', async () => {
     expectHome(await sessionsOf(ctx.api))
+  })
+
+  it('has Ian owed for his travel in the finished outing, so the two spot votes are counted for him and no other session is, and the long one shows him "This spot is closer to you."', async () => {
+    const s = await sessionsOf(ctx.api)
+    const owed = Object.fromEntries(await Promise.all(s.all.map(async (x) => [x.id, (await ctx.api.travelLean(x.id)).owed])))
+    expect(Object.keys(owed).filter((id) => owed[id]).sort()).toEqual([s.long.id, s.guest.id].sort())
+    // The line is on the first spot only when it is closer to him than the group's average: in the long session's Locate step it is.
+    const first = (await ctx.api.getSession(s.long.id)).spots.list[0]
+    expect(closerToYou(first.times, 'ian')).toBe(true)
+    // The finished outing is why: Ian's trip there was above the group's average.
+    const times = s.completed.meeting.times
+    expect(times.ian).toBeGreaterThan(Object.values(times).reduce((sum, m) => sum + m, 0) / Object.values(times).length)
   })
 
   it('is stored as the data layer wants it: reloading keeps all ten', async () => {

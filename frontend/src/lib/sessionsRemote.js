@@ -1069,6 +1069,9 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
   // afterwards; the answer says what the server now holds. A refusal rejects with its sentence.
   // How to call: await dietary('3b1f...'); await setDietary('3b1f...', { mine: ['vegan'], checked: true })
   const dietary = (sessionId) => ask(() => backend.getDietary(sessionId))
+  // Whether the person's own past travel counts in the pick of the spots: { owed, rule }. Their own flag only; a failure rejects.
+  // How to call: const { owed, rule } = await travelLean('3b1f...')
+  const travelLean = (sessionId) => ask(() => backend.getTravelLean(sessionId))
   const setDietary = (sessionId, body) => ask(() => backend.putDietary(sessionId, body), { host_only: WORDS.hostDiet, wrong_status: WORDS.dietConfirmed, needs_three_people: WORDS.dietThree, stale_plan: WORDS.dietStale, need_not_found: WORDS.dietUnknown })
   // The host takes a category off the list and brings them back. How to call: await removeSlot('3b1f...', '9a2c...'); await restoreSlots('3b1f...')
   const removeSlot = (sessionId, slotId) => ask(() => backend.deleteSlot(sessionId, slotId), { host_only: WORDS.hostSlots, wrong_status: WORDS.placesClosed })
@@ -1329,5 +1332,5 @@ export function createSessionsRemote({ client, me, backend = {}, now = Date.now 
     }
   }
 
-  return { list, get, readPlan, readSlotVotes, suggestOrder, tripsHome, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, changeMeetingPlace, optOut, rejoin, castVote, setRadius, dietary, setDietary, removeSlot, restoreSlots, addOption, removeOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, revokeInvitation, preview, join, invitations, decline, removeMember, watch }
+  return { list, get, readPlan, readSlotVotes, suggestOrder, tripsHome, confirmPlan, replan, complete, setTravelMode, deleteStop, reorderStops, stopIds, stopSwap, stopChoices, changeStopPlace, keepRain, roam, propose, resolve, myLedger, create, update, cancel, start, setPlace, restorePlace, approve, refreshSpots, suggest, withdraw, confirm, knownPlace, changeMeetingPlace, optOut, rejoin, castVote, setRadius, dietary, setDietary, travelLean, removeSlot, restoreSlots, addOption, removeOption, moreOptions, swapOption, searchSlot, syncPlan, venues, setPrefs, restorePrefs, currentLink, makeLink, revoke, invitePerson, revokeInvitation, preview, join, invitations, decline, removeMember, watch }
 }

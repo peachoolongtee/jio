@@ -1,7 +1,8 @@
 <script setup>
 // "How was it?": where "Finish outing" goes, and where a finished outing's "How was it?" row leads (/sessions/:id/review).
 //   - Arrived straight from finishing: one line says the outing is finished and what it paid (JioCoins, or why none). The flag in
-//     the history entry is cleared once read, so a reload or Back does not say it again.
+//     the history entry is cleared once read, so a reload or Back does not say it again. When it was the 1st, 5th, 10th (then every
+//     10th) outing together with a friend, a second line says so (OutingMilestone), also only on that arrival.
 //   - Stars for the outing (StarRating, required), then, folded under it, stars for each stop (optional), and a short note.
 //   - "Add your photos": the photos so far as thumbnails, Add photos (the same camera as the Photos page, up to PHOTOS_MAX), and
 //     a link to all of them, where they can be shared.
@@ -22,6 +23,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import SkeletonRow from '@/components/ui/SkeletonRow.vue'
 import StarRating from '@/components/ui/StarRating.vue'
 import TextField from '@/components/ui/TextField.vue'
+import OutingMilestone from '@/components/event/OutingMilestone.vue'
 import SessionHeader from '@/components/event/SessionHeader.vue'
 import NotFoundView from './NotFoundView.vue'
 import { PHOTOS_MAX, REVIEW_NOTE_MAX } from '@/lib/api.js'
@@ -83,6 +85,8 @@ async function load() {
     return
   }
   if (closedWhy.value) return
+  // The line about a milestone counts the finished outings, so the list is read when it is to be said.
+  if (justFinished.value && !events.loaded) events.loadSessions().catch(() => null)
   try {
     await Promise.all([events.loadItinerary(props.id), events.loadPhotos(props.id)])
   } catch (e) {
@@ -164,6 +168,7 @@ async function save() {
 
     <div class="screen__body review">
       <BannerNote v-if="justFinished" icon="trophy" data-testid="review-finished">Outing finished. {{ paidLine }}</BannerNote>
+      <OutingMilestone v-if="justFinished && !closedWhy" :session="session" announce />
 
       <EmptyState v-if="closedWhy" :title="closedWhy" data-testid="review-closed">
         <AppButton variant="secondary" :to="`/sessions/${id}/itinerary`">Back to the itinerary</AppButton>
