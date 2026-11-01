@@ -1,7 +1,8 @@
 // The steps bar: which step a session has reached, which one is on screen, and which can be opened. Imported from the
 // single-file component, like the other small pure functions.
 import { beforeEach, describe, expect, it } from 'vitest'
-import { backFor, reachedStep, stepsFor, viewingStep } from '../../components/event/SessionSteps.vue'
+import { readFileSync } from 'node:fs'
+import { backFor, reachedStep, segmentsFor, screenOf, stepsFor, viewingStep } from '../../components/event/SessionSteps.vue'
 import { exitFor, forgetEntry, goBackIfBehind, isBehind, pathOf, rememberEntry } from '../stepNav.js'
 
 const session = (status, more = {}) => ({ id: 's1', status, hostId: 'ian', ...more })
@@ -228,5 +229,37 @@ describe('the screen a session was opened from', () => {
     rememberEntry(page('/sessions/s1'), tabs('/sessions', 'Sessions'))
     forgetEntry()
     expect(exitFor().to).toBe('/')
+  })
+})
+
+// Review of 1 November 2026: the Invite step's segments were [invite page, Start choice], but the host goes Create, Start choice, Invite, so the bar
+// went from full to half on Next. The segments follow the flow, and the two that are not filled can be told apart without colour.
+describe('the segments of the Invite step', () => {
+  const inviteBar = (path) => stepsFor(session('inviting'), path)[1].segments
+
+  it('fill in the order the host goes through the screens: the Start choice, then the invite page', () => {
+    expect(inviteBar('/sessions/s1/start')).toEqual(['done', 'ahead'])
+    expect(inviteBar('/sessions/s1/invite')).toEqual(['done', 'done'])
+    expect(screenOf(session('inviting'), '/start', 1)).toBe(0)
+    expect(screenOf(session('inviting'), '/invite', 1)).toBe(1)
+  })
+
+  it('never goes backwards on Next, from the lobby to the Start choice to the invite page', () => {
+    const filled = (path) => inviteBar(path).filter((s) => s === 'done').length
+    expect([filled('/sessions/s1'), filled('/sessions/s1/start'), filled('/sessions/s1/invite')]).toEqual([1, 1, 2])
+    expect(filled('/sessions/s1/invite')).toBeGreaterThanOrEqual(filled('/sessions/s1/start'))
+  })
+
+  it('keeps Create and Locate as they were', () => {
+    expect(stepsFor(session('inviting'), '/sessions/s1/start')[0].segments).toEqual(['done'])
+    expect(segmentsFor(2, 2, 0, 2)).toEqual(['done', 'ahead'])
+    expect(segmentsFor(2, 2, 1, 2)).toEqual(['done', 'done'])
+  })
+
+  it('draw a segment the session has reached as an outline, not a tint that is 1.1 to 1 against the grey', () => {
+    const style = readFileSync(new URL('../../components/event/SessionSteps.vue', import.meta.url), 'utf8')
+    const rule = style.match(/\.steps__seg\.is-ahead \{[^}]*\}/)[0]
+    expect(rule).toContain('box-shadow: inset')
+    expect(rule).not.toContain('color-mix')
   })
 })
