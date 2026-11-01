@@ -196,6 +196,18 @@ test('dropKnownPlaces: a hawker centre is compared by the name in its bracket to
   const neighbour = { name: 'Smith Street Blk 340 (Another Block Market)', kind: 'hawker', lat: 1.28275 + 0.0008, lng: 103.84425 };
   assert.deepStrictEqual(dropKnownPlaces([chinatown, kovan, neighbour], known).map((v) => v.name), [neighbour.name]);
 });
+test('dropKnownPlaces: a similar name in another category is a different place only on the OneMap pool\'s option; Google\'s places are dropped by name alone', () => {
+  const known = [{ name: 'Toast Box JEM', category: 'food', kind: 'cafe', lat: 1.3331, lng: 103.7435 }];
+  const outlet = { name: 'Toast Box JEM', category: 'drink', kind: 'coffee', lat: 1.3331, lng: 103.7436 }; // 11 m away, filed as a drink place
+  // The Google path (plan.js) asks with no option: the same chain outlet is not offered twice, whatever category each is filed under.
+  assert.deepStrictEqual(dropKnownPlaces([outlet], known), []);
+  // The OneMap pool keeps a place of another category apart from the one that shares its name, as a building from what is inside it.
+  assert.deepStrictEqual(dropKnownPlaces([outlet], known, { keepOtherCategories: true }).map((v) => v.name), ['Toast Box JEM']);
+  // The same category is still one place in both modes.
+  const sameCategory = { ...outlet, category: 'food' };
+  assert.deepStrictEqual(dropKnownPlaces([sameCategory], known), []);
+  assert.deepStrictEqual(dropKnownPlaces([sameCategory], known, { keepOtherCategories: true }), []);
+});
 test('loadPlanData: a OneMap hawker centre and its CDC copy are one venue, whatever the centre is called', () => {
   const data = loadPlanData();
   const centres = data.venues.filter((v) => v.source === 'onemap' && v.kind === 'hawker');
