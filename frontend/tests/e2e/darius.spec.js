@@ -13,7 +13,8 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
   // moved into Create session (walkthrough, 30 October 2026).
   // Steps: press the navigation's Create session, pick "Already out" in its menu, press "Where are you?", search
   // "bugis", pick the Bugis area, press "Find places nearby"; on the itinerary check the list of
-  // places near Bugis and open the first place; close it; propose it with the tick; go back to Home with the back arrow.
+  // places near Bugis and open the first place; close it; propose it with the tick; go back to Home with the itinerary's "Back to
+// Home" button (the page also has a back arrow by the same name, at the top).
   // Checked at the end: Home says "Your group meets at Bugis" and has a meetup "Out in Bugis", confirmed and live now, with no
   // friends yet, and a "Places near Bugis" section.
   // Good to know: the stub backend lists the places (the app reads them from it); the places' reviews are sample data, as the app says. The light meetup is made for today on the fixed clock, 4 November from 10:00.
@@ -54,7 +55,7 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
     await expect(page.getByRole('heading', { level: 2, name: 'Proposed stops' })).toBeVisible()
 
     // 5. Back to Home: the meetup is there, live, with no friends yet.
-    await page.getByRole('link', { name: 'Back to Home' }).click()
+    await page.getByTestId('itinerary-home').click()
     await expect(page.getByRole('heading', { level: 1, name: /Hi,\s*Ian/ })).toBeVisible()
     const meetup = page.getByRole('region', { name: 'Out in Bugis' })
     await expect(meetup).toBeVisible()
@@ -69,14 +70,14 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
   // Steps: open it from Home's meetup card to see "Today's plan"; press the footer's "Finish and review", then "Yes, finish and review" in the
   // question that follows; on "How was it?" give it 5 stars and save; open Sessions and its Past tab.
   // Checked at the end: "How was it?" says the outing is finished; saving goes Home, which no longer lists "Chinatown makan crawl"
-  // (nor counts it among the meetups going, 9 become 8); and the Past tab lists it as Completed.
+  // (nor counts it: the "All" chip goes from 9 meetups to 8, as Home has no "You have 9 meetups going." line any more); and the Past tab lists it as Completed.
   // Good to know: the showcase takes 20 seconds or so to build, so this test has a longer timeout. The finish pays JioCoins in the
   // browser's own storage (it is a demo), which is why "How was it?" says "+100 JioCoins each". The meetup is opened from its card
   // (meetup-detail), not by name alone: the pointer can rest over its pin on the map, whose small card has the same link.
   test('Finishing an outing moves it from Home to Past', async ({ page }) => {
     test.setTimeout(120_000)
     await signInDemo(page, { showcase: true })
-    await expect(page.getByText('You have 9 meetups going.')).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'All, 9 meetups' })).toBeVisible()
     await expect(page.getByRole('button', { name: /^Chinatown makan crawl Wed 4 Nov/ })).toBeVisible()
 
     // 1. Open today's outing and finish it. The pointer can be left resting on a map pin, whose popover carries a second
@@ -100,11 +101,11 @@ test.describe('Home, "Already out?" and finishing an outing', () => {
     await page.getByRole('button', { name: 'Save review' }).click()
 
     // 3. Home: no longer current.
-    await expect(page.getByText('You have 8 meetups going.')).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'All, 8 meetups' })).toBeVisible()
     await expect(page.getByRole('button', { name: /^Chinatown makan crawl/ })).toHaveCount(0)
 
     // 4. Sessions, Past: it is there, finished.
-    await page.getByRole('link', { name: /^See all \d+ meetups/ }).click()
+    await page.getByTestId('see-all-meetups').click()
     await expect(page.getByRole('heading', { level: 1, name: 'Sessions' })).toBeVisible()
     await page.getByRole('button', { name: 'Past', exact: true }).click()
     const finished = page.getByRole('link', { name: /Chinatown makan crawl/ })
