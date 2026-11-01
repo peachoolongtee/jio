@@ -234,9 +234,9 @@ describe('the Locate step, for the host', () => {
   it('lets the host remove a person who has not shared where they start from the people list, after a question that says what removing means', async () => {
     const { w, kim, id } = await threeWaiting()
     const { view } = await draw('views/GroupDetailView', `/sessions/${id}`, { id })
-    // One quiet line says who has not shared a start, with no button of its own (Faith's walkthrough, 30 October 2026).
-    await until(() => view.has('[data-testid=waiting-line]') && view.has('button[aria-label="Remove Kim"]'))
-    expect(view.text('[data-testid=waiting-line]')).toMatch(/^Waiting for .* to share where they start\.$/)
+    // No line says who has not shared a start: the people list shows it (walkthrough, 30 October 2026).
+    await until(() => view.has('button[aria-label="Remove Kim"]'))
+    expect(view.has('[data-testid=waiting-line]')).toBe(false)
     expect(press(view, 'Continue without')).toBeUndefined()
     await view.click(view.one('button[aria-label="Remove Kim"]'))
     const said = removeText('Kim')
@@ -261,8 +261,7 @@ describe('the Locate step, for the host', () => {
     await host.api.startSession(session.id)
     await host.api.setLocation(session.id, host.id, 'start', SAM_PLACE)
     const { view } = await draw('views/GroupDetailView', `/sessions/${session.id}`, { id: session.id })
-    await until(() => view.has('[data-testid=waiting-line]') && view.text('[data-testid=waiting-line]').includes('Kim'))
-    expect(view.text('[data-testid=waiting-line]')).toBe('Waiting for Kim to share where they start.')
+    await until(() => view.text().includes('Kim'))
     expect(press(view, 'Remove Kim')).toBeUndefined()
     expect(press(view, 'Continue without')).toBeUndefined()
     expect(view.text()).not.toContain('you can remove them')
