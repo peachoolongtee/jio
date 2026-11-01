@@ -38,3 +38,9 @@ npm-debug.log*
 
 # Raw CDC merchant snapshot (11.5 MB). Rebuild cdc-venues.json with: pnpm --filter jio-backend build:cdc
 backend/data/CDC.json
+
+# Personal files that stay on this machine: the preview servers' settings, Claude's outputs, and drafting briefs
+.claude/launch.json
+Claude outputs/
+docs/jio_build_brief.md
+docs/jio_screens_for_v0.md
