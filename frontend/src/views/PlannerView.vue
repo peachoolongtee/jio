@@ -376,18 +376,32 @@ const radius = computed(() => plan.value?.radius ?? null)
 // natively disabled button would lose keyboard focus and throw the person out to the page). The row is one Tab stop and the
 // arrow keys choose, as the Show chips do (v-radio-group).
 const settingRadius = ref(false)
+// The newest value asked for while a save was running, as { metres }, or null. The slider keeps moving while a save runs, so its last
+// value waits here and is saved next, never dropped (null metres is Auto, hence the wrapper).
+let queuedRadius = null
+// Save a radius. A value asked for while one is being saved waits and is saved after it (only the newest of them); the draft the
+// slider and switch show is let go only when the value saved is the one it shows, so it never snaps back past a newer one.
 // How to call: await setRadius(1000)
 async function setRadius(metres) {
-  if (metres === radius.value || settingRadius.value) return
-  settingRadius.value = true
-  error.value = ''
-  try {
-    await planner.setRadius(props.id, metres)
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    settingRadius.value = false
+  if (settingRadius.value) {
+    queuedRadius = { metres }
+    return
   }
+  if (metres !== radius.value) {
+    settingRadius.value = true
+    error.value = ''
+    try {
+      await planner.setRadius(props.id, metres)
+    } catch (e) {
+      error.value = e.message
+    } finally {
+      settingRadius.value = false
+    }
+  }
+  if (draftRadius.value === metres) draftRadius.value = undefined
+  const next = queuedRadius
+  queuedRadius = null
+  if (next) await setRadius(next.metres)
 }
 // The smallest choice that reaches `km`, for "Widen to ...". How to call: radiusFor(1.4) -> 2000
 const radiusFor = (km) => RADII.find((m) => m != null && m >= km * 1000) ?? null
@@ -405,24 +419,21 @@ const autoRadius = computed({
     clearTimeout(radiusTimer)
     draftRadius.value = on ? null : MANUAL_START
     await setRadius(draftRadius.value)
-    draftRadius.value = undefined
   },
 })
 const radiusStep = computed({
-  get: () => Math.max(0, MANUAL_RADII.indexOf(shownRadius.value ?? MANUAL_START)),
+  // Under Auto the thumb rests at the far end, 3 km, the most Auto will look (the slider is off and says "Auto, up to 3 km").
+  get: () => (shownRadius.value == null ? MANUAL_RADII.length - 1 : Math.max(0, MANUAL_RADII.indexOf(shownRadius.value))),
   set: (i) => {
     draftRadius.value = MANUAL_RADII[i]
     clearTimeout(radiusTimer)
-    radiusTimer = setTimeout(async () => {
-      await setRadius(MANUAL_RADII[i])
-      draftRadius.value = undefined
-    }, RADIUS_SETTLE_MS)
+    radiusTimer = setTimeout(() => setRadius(MANUAL_RADII[i]), RADIUS_SETTLE_MS)
   },
 })
 let radiusTimer = 0
 onBeforeUnmount(() => clearTimeout(radiusTimer))
 // The slider's words: "Auto" while the switch is on, else the distance. How to call: radiusStepText(2) -> 'Within 500 m'
-const radiusStepText = (i) => (autoRadius.value ? 'Auto' : `Within ${radiusLabel(MANUAL_RADII[i])}`)
+const radiusStepText = (i) => (autoRadius.value ? `Auto, up to ${radiusLabel(MANUAL_RADII.at(-1))}` : `Within ${radiusLabel(MANUAL_RADII[i])}`)
 // One line for every category that is short of places within the radius, with one way to widen it: far enough for all of them (it was
 // a "Widen to" under each category). How to call: shortOfPlaces.value -> { labels: ['Drink', 'Shop'], to: 3000 }
 const shortOfPlaces = computed(() => {
