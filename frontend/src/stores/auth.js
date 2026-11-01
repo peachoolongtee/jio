@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as api from '@/lib/api.js'
 import { MESSAGES } from '@/lib/auth.js'
+import { cancelFriendRequests } from '@/lib/friendRequests.js'
 import { profileProblem } from '@/lib/signupRules.js'
 
 const emptyDraft = () => ({
@@ -188,6 +189,7 @@ export const useAuthStore = defineStore('auth', () => {
     startOverError.value = ''
     await api.signOut()
     user.value = null
+    cancelFriendRequests()
     try {
       return await signUpAs(profile)
     } catch (err) {
@@ -239,6 +241,7 @@ export const useAuthStore = defineStore('auth', () => {
       // Anything else: they asked to be signed out.
     }
     user.value = null
+    cancelFriendRequests()
     recovering.value = false
     pendingConfirmation.value = null
     syncNotice.value = ''
@@ -255,6 +258,7 @@ export const useAuthStore = defineStore('auth', () => {
     // The Supabase session ended on its own (another tab, or it expired): signed out at once.
     if (event.type === 'reset' && event.reason === 'session-ended') {
       user.value = null
+      cancelFriendRequests()
       recovering.value = false
       sessionEnds.value += 1
       draft.value = emptyDraft()

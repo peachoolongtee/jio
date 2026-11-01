@@ -447,16 +447,16 @@
       "scale-good": {
         "role": "secondary",
         "displayName": "Travel short",
-        "canonical": "#15803d",
+        "canonical": "#157a38",
         "tonalRamp": [
           "#001003",
-          "#013011",
-          "#005121",
-          "#017835",
-          "#3b9d58",
-          "#60c079",
-          "#88e79e",
-          "#c8ffd2"
+          "#033011",
+          "#065121",
+          "#0f7735",
+          "#409c58",
+          "#64bf79",
+          "#8ce69e",
+          "#caffd2"
         ]
       },
       "scale-middle": {
@@ -477,31 +477,31 @@
       "scale-middle-text": {
         "role": "secondary",
         "displayName": "Travel medium (text)",
-        "canonical": "#97641a",
+        "canonical": "#8a5a14",
         "tonalRamp": [
-          "#150800",
-          "#382000",
-          "#5c3a04",
-          "#895702",
-          "#af7a35",
-          "#d29c58",
-          "#fac27e",
-          "#feebd6"
+          "#140900",
+          "#372102",
+          "#5b3a0b",
+          "#875810",
+          "#ad7b3b",
+          "#d09c5d",
+          "#f8c383",
+          "#fdebd7"
         ]
       },
       "scale-bad": {
         "role": "secondary",
         "displayName": "Travel long",
-        "canonical": "#dc2626",
+        "canonical": "#c81f1f",
         "tonalRamp": [
-          "#200000",
-          "#500002",
-          "#810008",
-          "#bc0211",
-          "#ec3934",
-          "#fe7a6d",
-          "#febbb2",
-          "#fee9e6"
+          "#1f0101",
+          "#4e0505",
+          "#7e0d0e",
+          "#b7191a",
+          "#e7423a",
+          "#f97e71",
+          "#fbbcb4",
+          "#fde9e6"
         ]
       },
       "cat-eat-fg": {

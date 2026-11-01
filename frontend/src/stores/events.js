@@ -197,6 +197,10 @@ export const useEventsStore = defineStore('events', () => {
   // How to call: confirmingWith(api.confirmSpot)
   const confirmingNow = ref(0)
   const confirming = computed(() => confirmingNow.value > 0)
+  // The host pressed a "Confirm <area>" while some people have not shared where they start, and has not answered "Confirm <area> without
+  // everyone?" yet: { sessionId, areaId, text } or null. One question for both buttons (the footer's and the map card's), shown by the footer's
+  // SpotConfirm (components/spots/confirmSpot.js). How to call: events.confirmAsk = { sessionId: 's1', areaId: 'bugis', text: 'Faith has' }
+  const confirmAsk = ref(null)
   const confirmingWith = (fn) => act(async (...args) => {
     confirmingNow.value += 1
     try {
@@ -569,6 +573,6 @@ export const useEventsStore = defineStore('events', () => {
     sessions, byId, itineraries, ledgers, leans, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
     loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, revokeInvite, dropSession,
     loadSessions, loadSession, loadItinerary, loadLedger, loadLean, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
-    confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, changeMeetingPlace, chooseSpotAgain, placeFailure, dismissPlaceFailure, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, forgetOrder, addPhoto, deletePhoto, saveReview,
+    confirming, confirmAsk, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, changeMeetingPlace, chooseSpotAgain, placeFailure, dismissPlaceFailure, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, forgetOrder, addPhoto, deletePhoto, saveReview,
   }
 })

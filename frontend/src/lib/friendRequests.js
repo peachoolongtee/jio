@@ -11,6 +11,8 @@ export const FRIEND_ACCEPT_MS = 2000
 // The people with a request waiting, by id, and the words a status line says.
 const requested = ref(new Set())
 const announcement = ref('')
+// Each request's timer and the way to finish its promise, by person id, so a sign-out can cancel what is waiting.
+const waiting = new Map()
 
 // Sends a friend request to `person` ({ id, name }). After `after` ms it is accepted: `setFriend(id, true)` makes them a friend (the
 // groups store's), then `onAccepted(id)` runs; if that write fails, `onFailed(message)` does. A second request to someone waiting is
@@ -21,7 +23,8 @@ export function sendFriendRequest(person, setFriend, { after = FRIEND_ACCEPT_MS,
   requested.value = new Set([...requested.value, person.id])
   announcement.value = `Friend request sent to ${person.name}`
   return new Promise((resolve) => {
-    setTimeout(async () => {
+    const timer = setTimeout(async () => {
+      waiting.delete(person.id)
       try {
         await setFriend(person.id, true)
         announcement.value = `${person.name} accepted your friend request`
@@ -35,7 +38,21 @@ export function sendFriendRequest(person, setFriend, { after = FRIEND_ACCEPT_MS,
         resolve()
       }
     }, after)
+    waiting.set(person.id, { timer, resolve })
   })
+}
+
+// Drop every request still waiting for an answer, as when the person signs out: the acceptance would otherwise make a friend of the next
+// account on this browser (it writes as whoever is signed in then) and say so in a line they never asked for.
+// How to call: cancelFriendRequests()
+export function cancelFriendRequests() {
+  for (const { timer, resolve } of waiting.values()) {
+    clearTimeout(timer)
+    resolve()
+  }
+  waiting.clear()
+  requested.value = new Set()
+  announcement.value = ''
 }
 
 // The requests waiting and the status line's words, for a screen to show.

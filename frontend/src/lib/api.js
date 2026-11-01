@@ -5162,7 +5162,7 @@ function settleOutings(now = new Date()) {
     if (!due) continue
     // An invite whose time has passed counts as accepted, so the people paid are the people who joined.
     settleInvites(session)
-    if (completeOuting(session, due === 'finish' ? 'auto' : 'closed')) paid = true
+    if (completeOuting(session, 'closed')) paid = true
     session.updatedAt = Date.now()
     commits[session.id] = commitsOf(session) + 1
     changed = true

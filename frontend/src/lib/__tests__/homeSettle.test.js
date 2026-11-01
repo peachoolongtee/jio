@@ -76,6 +76,19 @@ describe('Home, opened with the list already loaded', () => {
     view.unmount()
   })
 
+  // Review of 1 November 2026: each outing past its end time had a banner of its own.
+  it('says it once when several outings are past their end time, with the way to the list', async () => {
+    const { events, view } = await openHomeAt('2026-10-10T20:30:00+08:00')
+    const base = events.sessions[0]
+    events.sessions = [base, { ...base, id: 's-b', title: 'Second' }, { ...base, id: 's-c', title: 'Third' }]
+    await view.tick()
+    await view.tick()
+    expect(view.all('[data-testid="home-overdue"]')).toHaveLength(1)
+    expect(view.text('[data-testid="home-overdue"]')).toContain('3 outings have passed their end time and are not finished')
+    expect(view.text('[data-testid="home-overdue"]')).toContain('See all meetups')
+    view.unmount()
+  })
+
   it('leaves an outing that is still going as it is', async () => {
     const { events, view } = await openHomeAt('2026-10-10T19:00:00+08:00')
     await view.tick()

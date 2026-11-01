@@ -18,8 +18,9 @@ const ORDER = ['inviting', 'locating', 'voting', 'confirmed']
 const ITINERARY_PAGES = ['/photos', '/map', '/roam', '/replace', '/review']
 
 // The screens inside each step (Faith's walkthrough, 30 October 2026: a step can hold several screens, so each step's bar is split into one
-// segment per screen and fills up to the screen on show). Invite: who to invite (the invite page, or the session page while inviting), then
-// how to pick the meeting point (the Start choice, with its area step). Locate: where to meet while the group chooses, then the confirmed
+// segment per screen and fills up to the screen on show). Invite, in the order the host goes through them (Create, the Start choice, then
+// the invite page, walkthrough of 30 October 2026): how to pick the meeting point (the Start choice, with its area step, or the session
+// page while inviting, which has the Next button to it), then who to invite (the invite page). Locate: where to meet while the group chooses, then the confirmed
 // meeting spot. Itinerary: the plan, then "How was it?".
 const SCREENS = { create: 1, invite: 2, locate: 2, vote: 1, itinerary: 2 }
 
@@ -27,7 +28,7 @@ const SCREENS = { create: 1, invite: 2, locate: 2, vote: 1, itinerary: 2 }
 export function screenOf(session, tail, viewing) {
   if (!session) return 0
   const key = STEPS[viewing]?.key
-  if (key === 'invite') return tail === '/start' ? 1 : 0
+  if (key === 'invite') return tail === '/invite' ? 1 : 0
   if (key === 'locate') return tail === '' && !['inviting', 'locating'].includes(session.status) ? 1 : 0
   if (key === 'itinerary') return tail === '/review' ? 1 : 0
   return 0
@@ -134,7 +135,7 @@ let carried = null
 //   Create · Invite · Locate · Vote · Itinerary
 // It starts on the create page, before the session exists (no `session`), and runs until the itinerary is
 // confirmed. Each step's bar has a segment per screen in it (SCREENS), filled in Rausch up to the page on screen, never further: a
-// step the session has reached past the page on screen is pale Rausch, and one it has not reached is grey. Steps the session has reached
+// screen the session has reached past the page on screen is an outline in Rausch, and one it has not reached is grey. Steps the session has reached
 // open their page (Invite the invite page, Locate the session page, Vote the plan, Itinerary the itinerary). Create opens the form again
 // with the session's values, for the host; once the session has started the form says they are locked. The page you
 // are on has its label in bold ink. A step that is the page just behind this one in the browser's history goes Back
@@ -226,12 +227,12 @@ onMounted(() => {
 .steps { margin: 0; }
 .steps__list { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
 .steps__step { display: flex; flex-direction: column; gap: var(--spacing-xs); min-height: var(--tap-min); padding-top: var(--spacing-xs); color: var(--muted-soft); text-decoration: none; -webkit-tap-highlight-color: transparent; }
-/* The bar: one segment per screen of the step. Rausch up to the page on screen, a pale Rausch for screens the session has reached past
-   it, grey for the rest. */
+/* The bar: one segment per screen of the step. Rausch up to the page on screen; a screen the session has reached past it is an outline in
+   Rausch (a shape, not a paler tint, which was 1.1:1 against the grey and could not be told from it); grey for the rest. */
 .steps__bar { display: flex; gap: 3px; height: 6px; transition: transform var(--motion-fast) var(--ease-out); }
 .steps__seg { flex: 1 1 0; border-radius: var(--rounded-full); background: var(--surface-strong); transition: background-color var(--motion-fast) var(--ease-out); }
 .steps__seg.is-done { background: var(--primary); }
-.steps__seg.is-ahead { background: color-mix(in srgb, var(--primary) 28%, var(--canvas)); }
+.steps__seg.is-ahead { background: var(--canvas); box-shadow: inset 0 0 0 1.5px var(--primary); }
 .steps__label { font: var(--text-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .is-done .steps__step, a.steps__step { color: var(--body); }
 /* The page on screen: its label bold in Rausch-dark, with its bar a touch taller, so it is plain which step this is. */
@@ -246,6 +247,7 @@ onMounted(() => {
 /* Focus on a link, or on the page's own step after one was pressed. */
 .steps__step:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: var(--rounded-xs, 4px); }
 /* Called off: the filled steps turn grey. */
-.is-cancelled .steps__seg.is-done, .is-cancelled .steps__seg.is-ahead { background: var(--muted-soft); }
+.is-cancelled .steps__seg.is-done { background: var(--muted-soft); }
+.is-cancelled .steps__seg.is-ahead { box-shadow: inset 0 0 0 1.5px var(--muted-soft); }
 @media (prefers-reduced-motion: reduce) { .steps__bar, .steps__seg { transition: none; } }
 </style>

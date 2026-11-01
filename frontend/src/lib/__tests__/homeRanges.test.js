@@ -78,19 +78,25 @@ describe('the week chips on Home', () => {
     expect(view.errors).toEqual([])
   })
 
-  it('"Your turn" moves the chips to All with only the meetups waiting on you; off, All lists everything; a week turns it off', async () => {
+  // Review of 1 November 2026: "Your turn" selected All while listing only the meetups waiting on you (2 of All's 3), so the chip was untrue.
+  // It chooses no week now, says what it is showing, and off goes back to the week that was chosen.
+  it('"Your turn" lists only the meetups waiting on you with no week chosen and says so; off, the chosen week is back; a week turns it off', async () => {
     const view = await drawHome()
     const mine = () => view.one('[data-testid=your-turn-filter]')
     await view.click(mine())
     expect(mine().attrs['aria-pressed']).toBe('true')
-    expect(chip(view, 'All').attrs['aria-checked']).toBe('true')
+    for (const label of ['This week', 'Next week', 'After next week', 'All']) expect(chip(view, label).attrs['aria-checked']).toBe('false')
+    expect(view.text('p[role=status]')).toBe('Showing only the 3 meetups waiting for you')
     await until(() => view.text('[data-testid=pins]') === '3')
     await view.click(mine())
     expect(mine().attrs['aria-pressed']).toBe('false')
-    expect(chip(view, 'All').attrs['aria-checked']).toBe('true')
+    expect(chip(view, 'This week').attrs['aria-checked']).toBe('true')
+    expect(chip(view, 'All').attrs['aria-checked']).toBe('false')
+    expect(view.text('p[role=status]')).toBe('Showing this week again')
     await view.click(mine())
     await view.click(chip(view, 'Next week'))
     expect(mine().attrs['aria-pressed']).toBe('false')
+    expect(view.text('p[role=status]')).toBe('Showing next week, 2 meetups')
     await until(() => view.text('[data-testid=pins]') === '2')
   })
 

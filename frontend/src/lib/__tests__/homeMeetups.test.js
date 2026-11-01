@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FAN_PX, HOME_MEETUPS_SHOWN, MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, inRange, layoutPins, meetupsIn, rangeCounts, nextStepFor, homeStatus, needsMe, stageOf, pinName, pinsFor, placeCard, routesFor, selectMeetup, whenLine, whereStands } from '../homeMeetups.js'
+import { FAN_PX, HOME_MEETUPS_SHOWN, MEETUP_RANGES, activeMeetups, allMeetupsLabel, dayLabel, defaultRange, homeList, inRange, isOverdue, pinnedMeetups, layoutPins, meetupsIn, rangeCounts, nextStepFor, homeStatus, needsMe, stageOf, pinName, pinsFor, placeCard, routesFor, selectMeetup, whenLine, whereStands } from '../homeMeetups.js'
 
 const NOW = new Date('2026-10-10T09:00:00+08:00')
 const BUGIS = { id: 'bugis', name: 'Bugis', lat: 1.30065, lng: 103.85585 }
@@ -439,5 +439,44 @@ describe('homeStatus', () => {
     const guest = make({ ...two, hostId: 'darius' })
     expect(homeStatus(guest, 'ian')).toMatchObject({ stage: 'Planning', turn: '', waiting: 'Waiting for the host' })
     expect(needsMe(guest, 'ian')).toBe(false)
+  })
+})
+
+// Review of 1 November 2026: four forgotten outings filled Home's list and pins, the oldest was selected, and each had its own banner.
+describe('outings past their end time', () => {
+  const late = (id, date) => make({ id, date, end: '15:00', status: 'voting' })
+  const coming = (id, date) => make({ id, date, status: 'voting' })
+
+  it('come after the ones still to come, the most recent first, whatever order they were made in', () => {
+    const list = [late('old', '2026-10-01'), late('older', '2026-09-20'), coming('b', '2026-10-17'), coming('a', '2026-10-12'), late('recent', '2026-10-08')]
+    expect(ids(activeMeetups(list, NOW))).toEqual(['a', 'b', 'recent', 'old', 'older'])
+    expect(isOverdue(late('x', '2026-10-01'), NOW)).toBe(true)
+    expect(isOverdue(coming('y', '2026-10-17'), NOW)).toBe(false)
+  })
+
+  it('leave the next real meetup selected, and in Home\'s four, when there are four of them', () => {
+    const list = [late('o1', '2026-10-01'), late('o2', '2026-10-02'), late('o3', '2026-10-03'), late('o4', '2026-10-04'), coming('next', '2026-10-12')]
+    const meetups = activeMeetups(list, NOW)
+    expect(selectMeetup(homeList(meetups), undefined).id).toBe('next')
+    expect(ids(homeList(meetups))).toEqual(['next', 'o4', 'o3', 'o2'])
+  })
+
+  it('keep a meetup that keeps the session open (the demo) in its place', () => {
+    const list = [coming('b', '2026-10-17'), make({ id: 'demo', date: '2026-10-01', status: 'voting', keepOpen: true })]
+    expect(ids(activeMeetups(list, NOW))).toEqual(['demo', 'b'])
+  })
+
+  it('take no pin while a meetup still to come can have it, and are pinned when nothing else is', () => {
+    const o = late('o', '2026-10-01')
+    const n = coming('n', '2026-10-12')
+    expect(ids(pinnedMeetups([n, o], NOW))).toEqual(['n'])
+    expect(ids(pinnedMeetups([o], NOW))).toEqual(['o'])
+  })
+
+  it('do not send Home to This week when the only one this week is past its end and the next real one is later', () => {
+    const list = activeMeetups([late('o', '2026-10-01'), coming('n', '2026-10-30')], NOW)
+    expect(defaultRange(list, NOW)).toBe('all')
+    expect(defaultRange(activeMeetups([late('o', '2026-10-01')], NOW), NOW)).toBe('week')
+    expect(defaultRange(activeMeetups([late('o', '2026-10-01'), coming('n', '2026-10-11')], NOW), NOW)).toBe('week')
   })
 })

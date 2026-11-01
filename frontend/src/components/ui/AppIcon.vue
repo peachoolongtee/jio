@@ -23,6 +23,7 @@ const ICONS = {
   thunder: { body: '<path d="M5 9.5a3 3 0 0 1 .4-5.95 4 4 0 0 1 7.6 1.2A2.4 2.4 0 0 1 12.5 9.5ZM8.75 8.5 7 11.25h2L7.5 14"/>' },
   warning: { body: '<path d="M8 2.5 14 13H2Z"/><path d="M8 6.5v3M8 11.25v.01"/>' },
   link: { body: '<path d="M6.75 9.25a3 3 0 0 0 4.25 0l2-2A3 3 0 0 0 8.75 3l-.75.75M9.25 6.75a3 3 0 0 0-4.25 0l-2 2A3 3 0 0 0 7.25 13l.75-.75"/>' },
+  external: { body: '<path d="M9.5 2.75h3.75v3.75M13.25 2.75 7.5 8.5M11.25 9v3.25a1 1 0 0 1-1 1h-6.5a1 1 0 0 1-1-1v-6.5a1 1 0 0 1 1-1H7"/>' },
   share: { body: '<path d="M8 10V2.5M5 5.25 8 2.25l3 3"/><path d="M5.5 7.5H3.5v6h9v-6h-2"/>' },
   download: { body: '<path d="M8 2.5V10M5 7l3 3 3-3"/><path d="M3 13h10"/>' },
   camera: { body: '<path d="M2 5.5h2.5l1-1.75h5l1 1.75H14v7H2Z"/><circle cx="8" cy="8.75" r="2.25"/>' },

@@ -113,9 +113,10 @@ async function read() {
 
         <p class="sr-only" role="status">{{ announce }}</p>
 
-        <div v-if="reading" class="stack gap-md" aria-hidden="true">
-          <p class="body-sm text-muted">Reading the post. A video can take up to 40 seconds.</p>
-          <SkeletonRow v-for="n in 3" :key="n" avatar />
+        <!-- The words can be read by a screen reader (the status above says only that it is reading); only the grey rows are hidden from it. -->
+        <div v-if="reading" class="stack gap-md">
+          <p class="body-sm text-muted" data-testid="post-reading">Reading the post. A video can take up to 40 seconds.</p>
+          <div class="stack gap-md" aria-hidden="true"><SkeletonRow v-for="n in 3" :key="n" avatar /></div>
         </div>
 
         <EmptyState v-else-if="failure" title="Could not read the post" :text="failure" role="alert">
@@ -154,7 +155,8 @@ async function read() {
               <p v-for="note in placeNotes(place, postWarning)" :key="note" class="row gap-xs body-sm posts__warning"><AppIcon name="warning" :size="16" /><span>{{ note }}</span></p>
 
               <div>
-                <AppButton variant="secondary" small :href="mapsUrl(place)" target="_blank">{{ place.match ? 'Open in Google Maps' : 'Search Google Maps' }}</AppButton>
+                <!-- Opens a new tab: the icon says so, and a screen reader hears which place this one is for (the page has one of these a place). -->
+                <AppButton variant="secondary" small :href="mapsUrl(place)" target="_blank" data-testid="post-maps">{{ place.match ? 'Open in Google Maps' : 'Search Google Maps' }} <span class="sr-only">for {{ place.nameEnglish || place.name }}, opens in a new tab</span><AppIcon name="external" :size="14" /></AppButton>
               </div>
 
               <details v-if="place.match?.ambiguous && place.match.alternatives?.length" class="posts__branches">
@@ -162,7 +164,7 @@ async function read() {
                 <ul class="stack gap-sm">
                   <li v-for="alt in place.match.alternatives" :key="alt.placeId" class="between gap-sm">
                     <span class="body-sm">{{ alt.name }}<template v-if="alt.address"> · {{ alt.address }}</template></span>
-                    <AppButton variant="tertiary" underline :href="mapsUrl({ match: alt })" target="_blank">Open</AppButton>
+                    <AppButton variant="tertiary" underline :href="mapsUrl({ match: alt })" target="_blank">Open <span class="sr-only">{{ alt.name }} in Google Maps, opens in a new tab</span><AppIcon name="external" :size="14" /></AppButton>
                   </li>
                 </ul>
               </details>

@@ -109,7 +109,7 @@ describe('reviewing a finished outing', () => {
 describe('the way on from the Invite page', () => {
   // The app's stores and router, the Invite page drawn for session `id`.
   // How to call: const { view, router } = await invitePage(api, id)
-  async function invitePage(api, id) {
+  async function invitePage(api, id, query = '') {
     const { createPinia, setActivePinia } = await import('pinia')
     const pinia = createPinia()
     setActivePinia(pinia)
@@ -119,7 +119,7 @@ describe('the way on from the Invite page', () => {
     const stub = { render: () => null }
     const router = createRouter({ history: createMemoryHistory(), routes: routes.map((r) => ({ ...r, component: stub })) })
     vi.stubGlobal('window', { history: { state: null, replaceState() {} } })
-    await router.push(`/sessions/${id}/invite`)
+    await router.push(`/sessions/${id}/invite${query}`)
     const { default: InviteView } = await import('@/views/InviteView.vue')
     const view = await mountScreen(InviteView, { plugins: [pinia, router], props: { id } })
     mounted.push(view)
@@ -136,6 +136,24 @@ describe('the way on from the Invite page', () => {
     expect(view.text(onward(view))).toContain('Next')
     await view.click(onward(view))
     await until(() => router.currentRoute.value.path === `/sessions/${id}/start`)
+  })
+
+  // Review of 1 November 2026: with the Start choice carried and nobody invited, the button was off and nothing said why.
+  it('says why Start is off when the choice is carried and nobody is invited, and what it waits for once someone is', async () => {
+    const api = await signedIn()
+    const { id } = await api.createSession({ title: 'Saturday', date: '2026-10-18', start: '12:00', end: '20:00' })
+    const alone = await invitePage(api, id, '?then=fairest')
+    await until(() => !!onward(alone.view))
+    expect(onward(alone.view).disabled).toBe(true)
+    expect(alone.view.text('[data-testid=invite-waiting]')).toBe('A session needs two people. Invite a friend to start it.')
+    expect(alone.view.one('[data-testid=invite-waiting]').attrs.role).toBe('status')
+    alone.view.unmount()
+    mounted.pop()
+    await api.inviteFriends(id, ['faith'], { pending: true })
+    const invited = await invitePage(api, id, '?then=fairest')
+    await until(() => invited.view.has('[data-testid=invite-waiting]'))
+    expect(onward(invited.view).disabled).toBe(true)
+    expect(invited.view.text('[data-testid=invite-waiting]')).toBe('The session starts once a friend accepts.')
   })
 
   it('says Next and goes on to the Start choice while the host is alone too: inviting is never forced', async () => {

@@ -253,7 +253,7 @@ onBeforeUnmount(() => {
       </button>
       <Transition name="scard">
         <div v-if="pin.spot.areaId === openId" :id="cardId(pin.spot.areaId)" class="scard" :data-side="placement?.side" :style="cardStyle">
-          <SpotCard :spot="pin.spot" :session="session" :my-id="myId" :confirmed="pin.spot.areaId === confirmedId" :is-host="isHost" />
+          <SpotCard :spot="pin.spot" :session="session" :my-id="myId" :confirmed="pin.spot.areaId === confirmedId" :is-host="isHost" :names="names" />
         </div>
       </Transition>
     </div>

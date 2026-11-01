@@ -28,13 +28,13 @@ describe('Upcoming', () => {
     expect(ids(profileSessions(sessions, 'upcoming', NOW))).toEqual(['invite', 'soon', 'later'])
   })
 
-  it('pins a live session at the top, even above one from an earlier day still waiting to finish', () => {
+  it('pins a live session at the top, and puts one from an earlier day still waiting to finish after the ones to come', () => {
     const sessions = [
       make('overdue', { status: 'confirmed', date: '2026-10-28' }),
       make('tomorrow', { status: 'confirmed', date: '2026-10-31' }),
       make('live', { status: 'confirmed', date: '2026-10-30', start: '09:00', end: '13:00' }),
     ]
-    expect(ids(upcomingSessions(sessions, NOW))).toEqual(['live', 'overdue', 'tomorrow'])
+    expect(ids(upcomingSessions(sessions, NOW))).toEqual(['live', 'tomorrow', 'overdue'])
   })
 })
 
