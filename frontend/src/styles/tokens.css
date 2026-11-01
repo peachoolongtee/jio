@@ -41,10 +41,10 @@
   --medal-bronze-bg: #dda274;
   --medal-bronze-on: #5a2e10;
   /* Good, middling, bad: travel time to the meeting area. */
-  --scale-good: #15803d;
+  --scale-good: #157a38; /* Text on white, Surface Soft, Surface Strong and the grey cards' hover grey: 4.5:1 or more on each (1 Nov 2026). */
   --scale-middle: #b7791f; /* Fills that carry no text (key dots, stripes). For text use --scale-middle-text. */
-  --scale-middle-text: #97641a; /* Amber that is safe as text: 5.1:1 on white, 4.7:1 on Surface Soft, 4.5:1 on Surface Strong. */
-  --scale-bad: #dc2626;
+  --scale-middle-text: #8a5a14; /* Amber that is safe as text: 5.9:1 on white, 5.3:1 on Surface Strong, 5.0:1 on the grey cards' hover grey. */
+  --scale-bad: #c81f1f; /* Text and rings: 5.7:1 on white, 5.1:1 on Surface Strong. */
   --travel-short: var(--scale-good); /* Up to 30 min. */
   --travel-medium: var(--scale-middle); /* 31 to 45 min, as a fill. */
   --travel-medium-text: var(--scale-middle-text); /* 31 to 45 min, as text. */
