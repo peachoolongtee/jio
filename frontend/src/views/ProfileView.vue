@@ -99,6 +99,10 @@ const narrowing = computed(() => !!query.value.trim() || !!day.value)
 const shownSessions = computed(() => narrowSessions(profileSessions(sessions.value, sessionFilter.value, now.value), { query: query.value, day: day.value }, now.value))
 const shownActivity = computed(() => narrowSessions(person.value?.activity || [], { day: day.value }, now.value))
 const dayText = (d) => format(parseISO(d), 'EEE d MMM yyyy')
+// The sample meetups on the picked day: the graph counts them, but they have no session, so they are listed as past meetups of
+// their own under the sessions or the activity. How to call: pastOnDay.value -> [{ date: '2026-09-11', count: 1 }]
+const pastOnDay = computed(() => (day.value ? (person.value?.pastMeetups || []).filter((m) => m.date === day.value) : []))
+const pastText = (m) => (m.count > 1 ? `${m.count} meetups with friends` : 'Meetup with friends')
 const emptyText = computed(() => (narrowing.value ? narrowedEmptyText({ query: query.value, day: day.value }, dayText) : EMPTY_TEXT[sessionFilter.value]))
 // A day picked on the graph, or null when the same day was picked again. Picking a day shows All, so a past day is not hidden
 // by Upcoming. How to call: pickDay('2026-09-11')
@@ -252,9 +256,15 @@ async function signOut() {
               </button>
             </p>
             <p class="sr-only" role="status">{{ day ? `Showing ${dayText(day)} only` : '' }}</p>
-            <p v-if="!shownSessions.length" class="body-md text-muted" data-testid="sessions-empty">{{ emptyText }}</p>
-            <ul v-else class="grid-3">
+            <p v-if="!shownSessions.length && !pastOnDay.length" class="body-md text-muted" data-testid="sessions-empty">{{ emptyText }}</p>
+            <ul v-if="shownSessions.length" class="grid-3">
               <li v-for="s in shownSessions" :key="s.id"><SessionCard :session="s" :names="nameOf" /></li>
+            </ul>
+            <ul v-if="pastOnDay.length && !query.trim()" class="activity" data-testid="past-meetups">
+              <li v-for="m in pastOnDay" :key="m.date" class="activity__row">
+                <span class="activity__icon"><AppIcon name="people" :size="16" /></span>
+                <span class="stack"><span class="title-sm">{{ pastText(m) }}</span><span class="caption-sm text-muted">Past meetup · {{ dateText(m.date) }}</span></span>
+              </li>
             </ul>
           </template>
         </section>
@@ -267,9 +277,9 @@ async function signOut() {
               <AppIcon name="calendar" :size="14" />{{ dayText(day) }}<AppIcon name="close" :size="14" />
             </button>
           </p>
-          <EmptyState v-if="!person.activity.length" title="No activity yet" />
-          <p v-else-if="!shownActivity.length" class="body-md text-muted" data-testid="activity-empty">No activity on {{ dayText(day) }}</p>
-          <ul v-else class="activity">
+          <EmptyState v-if="!person.activity.length && !pastOnDay.length" title="No activity yet" />
+          <p v-else-if="!shownActivity.length && !pastOnDay.length" class="body-md text-muted" data-testid="activity-empty">No activity on {{ dayText(day) }}</p>
+          <ul v-if="shownActivity.length" class="activity">
             <li v-for="(item, i) in shownActivity" :key="i" class="activity__row">
               <span class="activity__icon"><AppIcon :name="item.text.startsWith('Redeemed') ? 'gift' : 'trophy'" :size="16" /></span>
               <span class="stack">
@@ -277,6 +287,12 @@ async function signOut() {
                 <span v-else class="title-sm">{{ item.text }}</span>
                 <span class="caption-sm text-muted">{{ dateText(item.date) }}</span>
               </span>
+            </li>
+          </ul>
+          <ul v-if="pastOnDay.length" class="activity" data-testid="past-meetups">
+            <li v-for="m in pastOnDay" :key="m.date" class="activity__row">
+              <span class="activity__icon"><AppIcon name="people" :size="16" /></span>
+              <span class="stack"><span class="title-sm">{{ pastText(m) }}</span><span class="caption-sm text-muted">Past meetup · {{ dateText(m.date) }}</span></span>
             </li>
           </ul>
         </section>

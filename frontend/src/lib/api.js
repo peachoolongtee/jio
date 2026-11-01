@@ -2006,16 +2006,23 @@ export async function getPerson(id) {
       .filter((x) => x.winners.some((w) => w.id === id))
       .map((x) => ({ date: format(new Date(x.endsAt), 'yyyy-MM-dd'), text: `Won season ${x.number} · +${coins(x.prize)}` })),
   ].sort((a, b) => b.date.localeCompare(a.date))
-  // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned).
+  // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned). The sample meetups (historyOf)
+  // have no session behind them, so they also come back on their own (`pastMeetups`, one per day with how many), for the list
+  // under the graph to show when one of their days is picked (walkthrough, 30 October 2026).
   const counts = {}
-  for (const date of historyOf(id, !!db.user?.demo)) counts[date] = (counts[date] || 0) + 1
+  const past = {}
+  for (const date of historyOf(id, !!db.user?.demo)) {
+    counts[date] = (counts[date] || 0) + 1
+    past[date] = (past[date] || 0) + 1
+  }
+  const pastMeetups = Object.entries(past).map(([date, count]) => ({ date, count }))
   for (const s of sessions.filter((x) => x.status === 'completed')) counts[s.date] = (counts[s.date] || 0) + 1
   const planned = sessions.filter((x) => !['completed', 'cancelled'].includes(x.status)).map((x) => x.date)
   const history = Object.entries(counts).map(([date, count]) => ({ date, count }))
   const { ids: friendIds, common } = friendsOf(id)
   await people.load(friendIds.filter((x) => !people.get(x)))
   const friends = friendIds.map(publicPerson).sort((a, b) => a.name.localeCompare(b.name))
-  return { ...publicPerson(id), sessions, activity, history, planned, friends, friendsInCommon: common }
+  return { ...publicPerson(id), sessions, activity, history, planned, pastMeetups, friends, friendsInCommon: common }
 }
 
 // Whose friends a profile lists (walkthrough, 30 October 2026: a "Friends" count on every profile opens the list, as on Instagram).
