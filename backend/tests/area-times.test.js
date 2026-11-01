@@ -404,7 +404,10 @@ describe('the saved table in the repository', () => {
     expect(values.length).toBeLessThanOrEqual((planData.areas.length * (planData.areas.length - 1)) / 2)
     expect(saved._meta.credit).toBe(creditFor(saved._meta.startedAt ?? saved._meta.builtAt, saved._meta.builtAt))
     expect(saved._meta.credit).toMatch(/OneMap/)
-    expect(saved._meta.credit).toContain(`accessed ${singaporeDay(saved._meta.builtAt)}`) // the access date goes with the data
+    // The access date goes with the data: the day the first pairs were taken, and the day of the last when the build took several (the 666 pairs
+    // of the first 37 areas are from 21 October 2026, the rest from 30 October).
+    expect(saved._meta.credit).toContain(`accessed ${singaporeDay(saved._meta.startedAt ?? saved._meta.builtAt)}`)
+    expect(saved._meta.credit).toContain(singaporeDay(saved._meta.builtAt))
     expect(saved._meta.dateTime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
   })
 
