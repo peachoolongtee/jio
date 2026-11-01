@@ -160,7 +160,7 @@ describe('a stale device', () => {
 })
 
 describe('the follow-up for "We already know where"', () => {
-  it('lists the popular areas then every other one, finds an area by search, and names the chosen one on the button', async () => {
+  it('lists the popular areas then every other one, puts a tapped area in the box, and finds only areas that match', async () => {
     const { id } = await started()
     const { view } = await draw('views/StartView', `/sessions/${id}/start?where=1`, { id })
     await until(() => view.text().includes('Pick the meeting area'))
@@ -169,23 +169,33 @@ describe('the follow-up for "We already know where"', () => {
     expect(names.length).toBeGreaterThan(30)
     expect(view.text()).toContain('Popular areas')
     expect(view.text()).toContain('All areas')
-    expect(press(view, 'Meet at Bishan')).toBeTruthy()
+    // Nothing is chosen until the host taps an area.
+    expect(press(view, 'Choose an area').disabled).toBe(true)
     // No "We're here now": the host picks an area (Faith's walkthrough, 30 October 2026).
     expect(view.text()).not.toContain("We're here now")
     expect(view.all('[role=radiogroup]').map((g) => g.attrs['aria-label'])).toEqual(['Popular areas'])
-    await view.click(chip(view, 'Orchard'))
-    expect(press(view, 'Meet at Orchard')).toBeTruthy()
-    view.type('input[type=text]', 'jurong')
+    // A tapped area fills the box, and the whole list stays (Faith, 31 October 2026).
+    await view.click(chip(view, 'Jurong East'))
+    expect(press(view, 'Meet at Jurong East')).toBeTruthy()
+    expect(view.one('input[type=text]').value).toBe('Jurong East')
+    expect(view.text()).toContain('All areas')
+    // A search lists only what matches: an area that does not is neither shown nor kept (it was Bishan for "gardens").
+    view.type('input[type=text]', 'gardens')
     await view.tick()
-    expect(view.all('button').filter((b) => b.attrs.role === 'radio').map((b) => view.text(b)).slice(0, 1)).toEqual(['Jurong East'])
+    expect(view.all('button').filter((b) => b.attrs.role === 'radio').map((b) => view.text(b))).toEqual(['Botanic Gardens'])
     expect(view.text()).toContain('Areas that match')
-    // The chosen area stays on screen, so the button never names an area that is hidden.
-    expect(chip(view, 'Orchard')).toBeTruthy()
-    expect(press(view, 'Meet at Orchard')).toBeTruthy()
+    expect(press(view, 'Choose an area')).toBeTruthy()
+    await view.click(chip(view, 'Botanic Gardens'))
+    expect(view.one('input[type=text]').value).toBe('Botanic Gardens')
+    expect(press(view, 'Meet at Botanic Gardens')).toBeTruthy()
+    // Typing that still fits the chosen name keeps it.
+    view.type('input[type=text]', 'botanic')
+    await view.tick()
+    expect(press(view, 'Meet at Botanic Gardens')).toBeTruthy()
     view.type('input[type=text]', 'zzz')
     await view.tick()
     expect(view.text()).toContain('No area matches that.')
-    expect(chip(view, 'Orchard').attrs['aria-checked']).toBe('true')
+    expect(press(view, 'Choose an area')).toBeTruthy()
   })
 
   it('starts the session with the choice saved as known, names the area through the known place, and goes on to choosing places', async () => {
@@ -203,6 +213,7 @@ describe('the follow-up for "We already know where"', () => {
     const { w, id } = await started()
     const { view, router } = await draw('views/StartView', `/sessions/${id}/start?where=1`, { id })
     await until(() => view.text().includes('Pick the meeting area'))
+    await view.click(chip(view, 'Bishan'))
     w.server.down = true
     await view.click(press(view, 'Meet at Bishan'))
     await until(() => view.has('p[role=alert]'))

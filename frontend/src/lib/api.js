@@ -60,6 +60,38 @@ const STORAGE_FULL = "Could not save: this browser's storage is full. Remove som
 // the sample list (a real account's own id). How to call: seeded(STARTING_MEETUPS, HOST_ID, false) -> 0
 const seeded = (table, id, demo) => (id === HOST_ID && !demo ? 0 : table[id] ?? 0)
 
+// The demo account's past outings, one for each meetup of its sample history (historyOf), so every bar on its own profile graph has a
+// card under it (Faith, 31 October 2026: the bars were made up and listed nothing). They are cards only, marked `sample`: there is no
+// session behind them to open, and nothing is stored. Title, area, time and friends are picked from the person and the day, so they are
+// the same each time. A local or real account has no sample history, so it has none.
+// How to call: samplePastSessions('ian') -> [{ id: 'past-2026-09-26-0', title: 'Kopi catch-up', date: '2026-09-26', status: 'completed', sample: true, ... }]
+const PAST_TITLES = ['Kopi catch-up', 'Hawker lunch', 'Movie night', 'Board games and dinner', 'Bubble tea run', 'Weekend brunch', 'Night market walk', 'Dinner catch-up']
+const PAST_AREAS = ['bugis', 'city-hall', 'orchard', 'tampines', 'bishan', 'jurong-east', 'paya-lebar', 'punggol', 'toa-payoh', 'serangoon']
+const PAST_TIMES = [['12:00', '14:30'], ['15:00', '18:00'], ['18:30', '21:30'], ['19:00', '22:00']]
+const PAST_FRIENDS = ['darius', 'nicole', 'faith', 'darryl', 'jonathan']
+function samplePastSessions(id) {
+  const pick = (list, seed) => {
+    let hash = 0
+    for (const ch of seed) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
+    return list[hash % list.length]
+  }
+  const seen = {}
+  return historyOf(id, true).map((date) => {
+    const n = (seen[date] = (seen[date] ?? -1) + 1)
+    const seed = `${id}:${date}:${n}`
+    const area = areaById(pick(PAST_AREAS, `${seed}:area`))
+    const [start, end] = pick(PAST_TIMES, `${seed}:time`)
+    const first = pick(PAST_FRIENDS, `${seed}:a`)
+    const second = pick(PAST_FRIENDS.filter((f) => f !== first), `${seed}:b`)
+    const friends = pick([1, 2], `${seed}:n`) === 1 ? [first] : [first, second]
+    return {
+      id: `past-${date}-${n}`, title: pick(PAST_TITLES, `${seed}:title`), date, start, end, status: 'completed', sample: true,
+      hostId: id, members: [id, ...friends].map((m) => ({ id: m, state: 'joined' })), activeIds: [id, ...friends],
+      area: area ? { ...area } : null, areaName: area?.name || '', photoCount: 0, plan: null,
+    }
+  })
+}
+
 // Past meetup dates for a person, as the profile graph and the season standings both read them.
 // How to call: historyOf('darius', false) -> ['2026-08-02', ...]
 function historyOf(id, demo, now = new Date()) {
@@ -438,9 +470,10 @@ const remote = createSessionsRemote({
     deleteSlot: (sessionId, slotId) => planner.deleteSessionSlot(sessionId, slotId),
     restoreSlots: (sessionId) => planner.restoreSessionSlots(sessionId),
     addOption: (sessionId, slotId, venueId) => planner.addSessionOption(sessionId, slotId, venueId),
+    removeOption: (sessionId, slotId, venueId) => planner.removeSessionOption(sessionId, slotId, venueId),
     moreOptions: (sessionId, slotId, have) => planner.moreSessionOptions(sessionId, slotId, have),
     swapOption: (sessionId, slotId, fromId, toId) => planner.swapSessionOption(sessionId, slotId, fromId, toId),
-    searchSlot: (sessionId, slotId, q) => planner.searchSessionSlot(sessionId, slotId, q),
+    searchSlot: (sessionId, slotId, q, opts) => planner.searchSessionSlot(sessionId, slotId, q, opts),
     venues: (ids) => planner.venuesByIds(ids),
     suggestOrder: (sessionId) => planner.suggestSessionOrder(sessionId),
     tripsHome: (sessionId) => planner.getSessionTripsHome(sessionId),
@@ -2042,23 +2075,18 @@ export async function getPerson(id) {
       .filter((x) => x.winners.some((w) => w.id === id))
       .map((x) => ({ date: format(new Date(x.endsAt), 'yyyy-MM-dd'), text: `Won season ${x.number} · +${coins(x.prize)}` })),
   ].sort((a, b) => b.date.localeCompare(a.date))
-  // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned). The sample meetups (historyOf)
-  // have no session behind them, so they also come back on their own (`pastMeetups`, one per day with how many), for the list
-  // under the graph to show when one of their days is picked (walkthrough, 30 October 2026).
+  // The activity graph: one entry per day with a meetup, plus days with an upcoming session (planned).
   const counts = {}
-  const past = {}
-  for (const date of historyOf(id, !!db.user?.demo)) {
-    counts[date] = (counts[date] || 0) + 1
-    past[date] = (past[date] || 0) + 1
-  }
-  const pastMeetups = Object.entries(past).map(([date, count]) => ({ date, count }))
+  for (const date of historyOf(id, !!db.user?.demo)) counts[date] = (counts[date] || 0) + 1
   for (const s of sessions.filter((x) => x.status === 'completed')) counts[s.date] = (counts[s.date] || 0) + 1
   const planned = sessions.filter((x) => !['completed', 'cancelled'].includes(x.status)).map((x) => x.date)
   const history = Object.entries(counts).map(([date, count]) => ({ date, count }))
   const { ids: friendIds, common } = friendsOf(id)
   await people.load(friendIds.filter((x) => !people.get(x)))
   const friends = friendIds.map(publicPerson).sort((a, b) => a.name.localeCompare(b.name))
-  return { ...publicPerson(id), sessions, activity, history, planned, pastMeetups, friends, friendsInCommon: common }
+  // The demo account's own profile lists its sample past outings as cards.
+  const pastSamples = id === me() && db.user?.demo ? samplePastSessions(id) : []
+  return { ...publicPerson(id), sessions, activity, history, planned, friends, friendsInCommon: common, pastSamples }
 }
 
 // Whose friends a profile lists (walkthrough, 30 October 2026: a "Friends" count on every profile opens the list, as on Instagram).
@@ -3552,12 +3580,14 @@ export async function addMoreOptions(id, slotId) {
   return touch(session, 'options')
 }
 
-// Search places to add to a slot. Each result says whether it fits, and why not.
-export async function searchVenuesForSlot(id, slotId, query) {
+// Search places to add to a slot. Each result says whether it fits, and why not. With `cdcOnly`, only places that take CDC vouchers.
+// With `browse` and nothing typed, the nearest few places that fit, as the search box's suggestions.
+// How to call: await searchVenuesForSlot('s1', 'eat-1', 'laksa', { cdcOnly: true }); await searchVenuesForSlot('s1', 'eat-1', '', { browse: true })
+export async function searchVenuesForSlot(id, slotId, query, { cdcOnly = false, browse = false } = {}) {
   if (onServer()) {
     const q = query.trim()
-    if (!q) return []
-    const results = await remote.searchSlot(id, slotId, q)
+    if (!q && !browse) return []
+    const results = await remote.searchSlot(id, slotId, q, { cdcOnly, browse })
     for (const r of results) searchedNames.set(r.id, r.name)
     return results
   }
@@ -3565,7 +3595,7 @@ export async function searchVenuesForSlot(id, slotId, query) {
   const slots = slotsOf(session)
   const slot = slots.find((s) => s.id === slotId)
   const q = query.trim()
-  if (!q || !slot) return []
+  if ((!q && !browse) || !slot) return []
   const results = await planner.searchSlot({
     query: q,
     members: rankingMembers(session),
@@ -3575,8 +3605,11 @@ export async function searchVenuesForSlot(id, slotId, query) {
     lastStop: false,
     maxKm: session.radius ? session.radius / 1000 : undefined,
     dietPolicy: dietPolicy(session, slot.category),
+    cdcOnly,
+    browse,
+    ...(browse && !q ? { limit: 8 } : {}),
   })
-  return results.map((r) => ({ ...r, added: (session.options[slotId] || []).includes(r.id) }))
+  return Object.assign(results.map((r) => ({ ...r, added: (session.options[slotId] || []).includes(r.id) })), { google: results.google ?? null })
 }
 
 export async function addOption(id, slotId, venueId) {
@@ -3606,6 +3639,30 @@ export async function addOption(id, slotId, venueId) {
   if (now.includes(venueId)) return touch(session, 'options')
   if (now.length >= P.OPTIONS_MAX) throw new Error('A slot holds up to 6 options.')
   session.options[slotId] = [...now, venueId]
+  session.addedBy = { ...(session.addedBy || {}), [slotId]: { ...(session.addedBy?.[slotId] || {}), [venueId]: me() } }
+  return touch(session, 'options')
+}
+
+// Take back a place the signed-in person added, while voting and while nobody else has voted for it; their own vote for it goes too.
+// Refused for a place someone else added or the planner put there. A place that is not an option any more is left alone.
+// How to call: await removeOption('s1', 'eat-1', 'v25')
+export async function removeOption(id, slotId, venueId) {
+  if (onServer()) {
+    await remote.removeOption(id, slotId, venueId)
+    return afterServerWrite(id, 'options')
+  }
+  await wait(DELAY.write)
+  requireMe()
+  const session = sessionById(id)
+  if (session.status !== 'voting') throw new Error('Places can only be taken back while the group is voting.')
+  const options = session.options[slotId] || []
+  if (!options.includes(venueId)) return touch(session, 'options')
+  if (session.addedBy?.[slotId]?.[venueId] !== me()) throw new Error('Only the person who added a place can take it back.')
+  const votes = session.votes[slotId] || {}
+  if (Object.entries(votes).some(([person, v]) => v === venueId && person !== me())) throw new Error('Someone has voted for this place, so it stays.')
+  session.options[slotId] = options.filter((v) => v !== venueId)
+  if (votes[me()] === venueId) delete votes[me()]
+  delete session.addedBy[slotId][venueId]
   return touch(session, 'options')
 }
 
@@ -3833,6 +3890,8 @@ function planView(read, named = { needs: [], complete: false }, diet = null, die
         venue: clone(venue),
         score: row.score ?? 0,
         rank: row.rank,
+        // Who added the place by hand (they may take it back); null for the planner's own.
+        addedBy: row.source === 'member' ? row.addedBy ?? null : null,
         walk: d.walkMinutes ?? P.walkMinutes(area, venue),
         // As the crow flies from the meeting area, for the card ("180 m").
         distanceM: Math.round(P.distanceKm(area, venue) * 1000),
@@ -3921,6 +3980,8 @@ export async function getPlan(id, { votesOnly = false } = {}) {
           venue: clone(o.venue),
           score: o.score,
           walk: o.walk,
+          // Who added the place by hand (they may take it back); null for the planner's own.
+          addedBy: session.addedBy?.[slot.id]?.[venueId] ?? null,
           // As the crow flies from the meeting area, for the card ("180 m").
           distanceM: Math.round(P.distanceKm(area, o.venue) * 1000),
           reasons: o.reasons,

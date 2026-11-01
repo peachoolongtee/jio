@@ -73,8 +73,25 @@ describe('the week chips on Home', () => {
     // Each row says its stage and whose turn it is; Ian has not voted, so it is his.
     expect(view.text('[data-testid=meetup-status]')).toContain('Voting')
     expect(view.text('[data-testid=your-turn]')).toBe('Your turn · Vote')
-    expect(view.one('[data-testid=your-turn-filter]').attrs['aria-label']).toBe('Your turn, 1 meetup')
+    // "Your turn" counts every meetup waiting on Ian, whatever its week: all three wait for his vote.
+    expect(view.one('[data-testid=your-turn-filter]').attrs['aria-label']).toBe('Your turn, 3 meetups')
     expect(view.errors).toEqual([])
+  })
+
+  it('"Your turn" moves the chips to All with only the meetups waiting on you; off, All lists everything; a week turns it off', async () => {
+    const view = await drawHome()
+    const mine = () => view.one('[data-testid=your-turn-filter]')
+    await view.click(mine())
+    expect(mine().attrs['aria-pressed']).toBe('true')
+    expect(chip(view, 'All').attrs['aria-checked']).toBe('true')
+    await until(() => view.text('[data-testid=pins]') === '3')
+    await view.click(mine())
+    expect(mine().attrs['aria-pressed']).toBe('false')
+    expect(chip(view, 'All').attrs['aria-checked']).toBe('true')
+    await view.click(mine())
+    await view.click(chip(view, 'Next week'))
+    expect(mine().attrs['aria-pressed']).toBe('false')
+    await until(() => view.text('[data-testid=pins]') === '2')
   })
 
   it('show next week\'s meetups and pins when Next week is chosen, and all of them for All', async () => {

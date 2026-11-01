@@ -105,12 +105,10 @@ describe('the Sessions list on your own profile', () => {
     expect(view.errors).toEqual([])
   })
 
-  it('lists a day with only sample meetups as past meetups, not as an empty day', async () => {
+  it('shows the sample past outing cards for a day with only sample meetups, not an empty day', async () => {
     const view = await drawProfile()
     await view.click('[data-testid=graph-sample-day]')
-    await until(() => view.has('[data-testid=past-meetups]'))
-    expect(view.text('[data-testid=past-meetups]')).toMatch(/Meetups? with friends/)
-    expect(view.text('[data-testid=past-meetups]')).toContain('Past meetup')
+    await until(() => view.text().includes('Sample history'))
     expect(view.has('[data-testid=sessions-empty]')).toBe(false)
     expect(view.text()).not.toContain('Dinner catch-up')
     expect(view.errors).toEqual([])

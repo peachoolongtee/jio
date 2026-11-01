@@ -95,6 +95,7 @@ async function read() {
             <TextField
               v-model="link"
               label="Link to a post"
+              hide-label
               type="url"
               inputmode="url"
               autocomplete="off"

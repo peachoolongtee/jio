@@ -263,9 +263,10 @@ export function makePlanSchemas(data) {
       path: ['choices'],
     })
 
-  // Search by name to add an option. Members are optional: send them to see diet and group-size reasons.
+  // Search by name to add an option. Members are optional: send them to see diet and group-size reasons. With `browse`, the query may be
+  // empty, and the answer is the nearest places that fit (the search box's suggestions).
   const search = z.object({
-    query: z.string().trim().min(1).max(MAX.searchQuery),
+    query: z.string().trim().max(MAX.searchQuery),
     centre: point,
     dateTime,
     durationMinutes: z.number().int().min(0).max(720).optional(),
@@ -280,7 +281,10 @@ export function makePlanSchemas(data) {
     dietPolicy: z.enum(MAX.policies).optional(),
     maxKm: z.number().positive().max(30).optional(),
     limit: z.number().int().min(1).max(50).optional(),
-  })
+    // Only places that take CDC vouchers.
+    cdcOnly: z.boolean().optional(),
+    browse: z.boolean().optional(),
+  }).refine((body) => body.query.length > 0 || body.browse === true, { message: 'Type something to search for', path: ['query'] })
 
   // Build-spec GET alias for search. `lat`/`lng` are optional together; without them, search around Singapore's centre.
   const venuesSearchQuery = z.object({

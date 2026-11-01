@@ -6,15 +6,14 @@
 //   - Between stops: a visible Walk / MRT / Car switch, each with its own time. It moves every later stop.
 //     Two stops in the same building just say so.
 //   - On desktop the timeline is as tall as the map beside it, with the stops spread out.
-//   - In edit mode (the pencil toggle in the header; confirmed plans only) each stop has a Replace button, a delete
-//     button (two stops or more) and a drag handle, with a confirm dialog for delete. Focus lands on the next stop after
-//     a delete. Replace is the host's, like the rain swap: it opens the plan page for that one stop (/sessions/:id/plan?replace=<slot>),
-//     with the other places that fit it; choosing one puts it in and comes back here.
-//     Outside edit mode the stops carry no controls.
+//   - Each stop of a confirmed plan has a delete button (two stops or more), with a confirm dialog, at any time (Faith, 31 October
+//     2026; it was edit mode's alone). Focus lands on the next stop after a delete. In edit mode (the pencil toggle in the header) each
+//     stop also has a Replace button. Replace is the host's, like the rain swap: it opens the plan page for that one stop
+//     (/sessions/:id/plan?replace=<slot>), with the other places that fit it; choosing one puts it in and comes back here.
 //   - The end point, and each person's trip home (folded away; anyone over 60 minutes is flagged above).
-//   - Drag a stop by its handle (or focus the handle and use the arrow keys) to rearrange the day, with no edit mode first (Faith's
-//     walkthrough, 30 October 2026: the confirm dialog promised it and it was hidden). Times follow; a stop that would be closed at its
-//     new time, or an end far from the MRT, is flagged.
+//   - Drag a stop by the whole card (press and hold on a phone) or its handle, or focus the handle and use the arrow keys, to rearrange
+//     the day, with no edit mode first (Faith's walkthrough, 30 October 2026: the confirm dialog promised it and it was hidden; the whole
+//     card since 31 October). Times follow; a stop that would be closed at its new time, or an end far from the MRT, is flagged.
 //   - Edit mode also shows "Re-plan".
 //   - The footer has "Back to Home" (the plan was saved when it was confirmed), and from the outing's day on "Finish and review" too
 //     (itineraryAction in lib/session.js), which asks first, completes the outing, pays out the coins and goes on to "How was it?" (stars
@@ -227,7 +226,8 @@ const lastStop = computed(() => itinerary.value?.stops[itinerary.value.stops.len
 const lateText = computed(() => (lastStop.value ? lateLine(lastStop.value.end, session.value?.end) : ''))
 // A confirmed plan with two or more stops can be rearranged at any time by dragging; a stop is deleted while editing.
 const canMove = computed(() => confirmed.value && mayEdit.value && (itinerary.value?.stops.length || 0) > 1)
-const canEdit = computed(() => canMove.value && editing.value)
+// A stop can be deleted at any time, by whoever may move it, while two or more are left.
+const canDelete = computed(() => canMove.value)
 // Any stop of a confirmed plan can be replaced by the host while editing, even when it is the only one. Anyone else proposes a stop instead.
 const canReplace = computed(() => confirmed.value && editing.value && session.value?.hostId === auth.myId)
 
@@ -515,6 +515,7 @@ async function endPlan() {
                   :item-key="(s) => s.slotId"
                   :item-label="(s) => s.venue.name"
                   :disabled="!canMove"
+                  whole-item
                   label="Stops"
                   @move="moveStop"
                 >
@@ -543,9 +544,9 @@ async function endPlan() {
                       :mark="markOf(stop)"
                       :lifted="lifted || selected === stop.venue.id"
                     >
-                      <template v-if="canReplace || canEdit" #actions>
+                      <template v-if="canReplace || canDelete" #actions>
                         <IconButton v-if="canReplace" outline :label="`Replace stop: ${stop.venue.name}`" :data-testid="`replace-${stop.slotId}`" @click="replaceStop(stop)"><AppIcon name="search" /></IconButton>
-                        <IconButton v-if="canEdit" outline :label="`Delete stop: ${stop.venue.name}`" @click="askRemove(stop)"><AppIcon name="trash" /></IconButton>
+                        <IconButton v-if="canDelete" outline :label="`Delete stop: ${stop.venue.name}`" @click="askRemove(stop)"><AppIcon name="trash" /></IconButton>
                       </template>
                       <template v-if="canMove" #handle>
                         <button v-bind="handle" class="drag-handle" :title="`Drag to move ${stop.venue.name}`"><AppIcon name="grip" /></button>

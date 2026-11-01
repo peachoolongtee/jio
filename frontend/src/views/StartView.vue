@@ -59,9 +59,10 @@ const busy = ref(false)
 // The save finished and this page is about to hand over to the next one: the guard below leaves it alone.
 const leaving = ref(false)
 const error = ref('')
-// The card chosen on the first screen, and on the follow-up the area chosen ('here' is "We're here now").
+// The card chosen on the first screen, and on the follow-up the area chosen ('here' is "We're here now"; '' is none yet). The search box
+// holds the chosen area's name, so a chosen area is never hidden behind an empty box (Faith, 31 October 2026).
 const choice = ref('fairest')
-const where = ref('bishan')
+const where = ref('')
 const query = ref('')
 const heading = ref(null)
 
@@ -70,15 +71,28 @@ const isHost = computed(() => !!session.value && session.value.hostId === auth.m
 const step = computed(() => (route.query.where ? 'where' : 'how'))
 const hereNow = computed(() => where.value === 'here')
 const chosenArea = computed(() => AREAS.find((a) => a.id === where.value) || null)
-// The areas the follow-up lists: the popular ones, or what the search finds. The chosen area stays listed so it never vanishes under a search.
-const areas = computed(() => {
-  const found = findAreas(query.value)
-  return chosenArea.value && !found.some((a) => a.id === chosenArea.value.id) ? [...found, chosenArea.value] : found
+// Is the box a search? Not when it is empty or holds the chosen area's name as it was picked.
+const searching = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  return !!q && q !== chosenArea.value?.name.toLowerCase()
 })
-// With nothing typed, every other area follows the popular ones, so the whole list is on the page.
-const otherAreas = computed(() => (query.value.trim() ? [] : AREAS.filter((a) => !areas.value.some((x) => x.id === a.id)).sort((a, b) => a.name.localeCompare(b.name))))
-// Nothing matches the search (the chosen area is kept in the list, so it is the matches that are counted).
-const noMatch = computed(() => !!query.value.trim() && findAreas(query.value).length === 0)
+// The areas the follow-up lists: the popular ones, or only what the search finds.
+const areas = computed(() => findAreas(searching.value ? query.value : ''))
+// With no search, every other area follows the popular ones, so the whole list is on the page.
+const otherAreas = computed(() => (searching.value ? [] : AREAS.filter((a) => !areas.value.some((x) => x.id === a.id)).sort((a, b) => a.name.localeCompare(b.name))))
+// Nothing matches the search.
+const noMatch = computed(() => searching.value && areas.value.length === 0)
+// Tap an area: it is chosen, and its name goes into the box. How to call: pick({ id: 'jurong-east', name: 'Jurong East' })
+function pick(area) {
+  where.value = area.id
+  query.value = area.name
+}
+// Typing something the chosen area's name no longer contains (or emptying the box) lets the choice go, so the button never names an
+// area the box does not show.
+watch(query, (q) => {
+  const name = chosenArea.value?.name.toLowerCase()
+  if (name && !(q.trim() && name.includes(q.trim().toLowerCase().replace(/\s+/g, ' ')))) where.value = ''
+})
 
 async function load() {
   missing.value = false
@@ -109,6 +123,8 @@ const pagePath = computed(() => `${sessionPath.value}/${props.change ? 'change-p
 const cameFrom = computed(() => (session.value?.status === 'locating' ? sessionPath.value : `${sessionPath.value}/${session.value?.status === 'confirmed' ? 'itinerary' : 'plan'}`))
 // The host came from Locate's "Pick the place yourself": the session is still choosing where to meet.
 const fromLocate = computed(() => props.change && session.value?.status === 'locating')
+// The host came from the Locate page's "Change meeting spot" dialog (`?from=locate`): back goes there, not to Vote.
+const backToLocate = computed(() => props.change && route.query.from === 'locate')
 // Who may be here: the host of a session that is inviting (however many are in: the page says when a second person is needed), or that
 // started with "We already know where" and has not got its area yet (a retry). Everyone else belongs on the session page. Not while a save
 // is running: it moves the session on itself.
@@ -134,9 +150,10 @@ watch(step, async () => {
   heading.value?.focus?.({ preventScroll: true })
 })
 
-// The back button at the top left: from the follow-up to the choice, from the choice to the date and times (the step before it) for a
-// session still inviting, else to the session's page.
+// The back button at the top left: back to Locate when the change was opened from there; from the follow-up to the choice; from the
+// choice to the date and times (the step before it) for a session still inviting, else to the session's page.
 const back = computed(() => {
+  if (backToLocate.value) return sessionPath.value
   if (step.value === 'where' && !fromLocate.value) return pagePath.value
   if (props.change) return cameFrom.value
   return session.value?.status === 'inviting' ? `${sessionPath.value}/edit` : sessionPath.value
@@ -183,7 +200,8 @@ async function choose() {
     return
   }
   const ok = await run(async () => {
-    if (props.change) await events.changeMeetingPlace(props.id, { meetBy: 'fairest' })
+    // Changing: the new spots are worked out, and the spot the group had stays on the list to vote on.
+    if (props.change) await events.chooseSpotAgain(props.id, 'vote')
     else await events.start(props.id, { meetBy: 'fairest' })
     leaving.value = true
   })
@@ -261,16 +279,16 @@ const primaryText = computed(() => (busy.value ? (step.value === 'where' && here
             <template #leading><AppIcon name="search" :size="18" /></template>
           </TextField>
         </div>
-        <div class="choices" role="radiogroup" v-radio-group :aria-label="query.trim() ? 'Areas that match' : 'Popular areas'">
-          <p class="caption text-muted" aria-hidden="true">{{ query.trim() ? 'Areas that match' : 'Popular areas' }}</p>
+        <div class="choices" role="radiogroup" v-radio-group :aria-label="searching ? 'Areas that match' : 'Popular areas'">
+          <p class="caption text-muted" aria-hidden="true">{{ searching ? 'Areas that match' : 'Popular areas' }}</p>
           <div class="chips">
-            <ChipButton v-for="a in areas" :key="a.id" radio :selected="where === a.id" :disabled="busy" @click="where = a.id">{{ a.name }}</ChipButton>
+            <ChipButton v-for="a in areas" :key="a.id" radio :selected="where === a.id" :disabled="busy" @click="pick(a)">{{ a.name }}</ChipButton>
           </div>
           <p v-if="noMatch" class="body-sm text-muted" role="status">No area matches that. Try the start of its name.</p>
           <template v-if="otherAreas.length">
             <p class="caption text-muted" aria-hidden="true">All areas</p>
             <div class="chips">
-              <ChipButton v-for="a in otherAreas" :key="a.id" radio :selected="where === a.id" :disabled="busy" @click="where = a.id">{{ a.name }}</ChipButton>
+              <ChipButton v-for="a in otherAreas" :key="a.id" radio :selected="where === a.id" :disabled="busy" @click="pick(a)">{{ a.name }}</ChipButton>
             </div>
           </template>
         </div>

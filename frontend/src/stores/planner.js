@@ -65,18 +65,21 @@ export const usePlannerStore = defineStore('planner', () => {
   const restoreSlots = (id) => api.restoreSlots(id)
   const addMore = (id, slotId) => api.addMoreOptions(id, slotId)
   const addOption = (id, slotId, venueId) => api.addOption(id, slotId, venueId)
+  // Take back a place you added. How to call: await removeOption('s1', 'eat-1', 'v25')
+  const removeOption = (id, slotId, venueId) => api.removeOption(id, slotId, venueId)
   const swapOption = (id, slotId, fromId, toId) => api.swapOption(id, slotId, fromId, toId)
   // The answers of the server that prove it changed nothing: a vote refused for these reasons was not saved, so what was shown for it is
   // taken back. Any other failure (no connection, a timeout, a server error) says nothing about whether it was saved.
   const REFUSED = new Set(['wrong_status', 'not_joined', 'slot_not_found', 'option_not_found', 'session_not_found'])
 
-  // One vote. In a shared session the person's own vote shows at once, before the database has answered (the plan is read again when it
-  // has); if the database refuses it the plan goes back to what it was, but only if nothing has replaced it meanwhile. A failure that does
-  // not prove the vote was not saved leaves what is shown and reads the plan again to find out. A local session waits for its own answer.
+  // One vote. The person's own vote shows at once, before it is saved (the plan is read again when it has); if the database refuses it the
+  // plan goes back to what it was, but only if nothing has replaced it meanwhile. A failure that does not prove the vote was not saved leaves
+  // what is shown and reads the plan again to find out. A local session does the same (Faith, 31 October 2026: it used to wait for the whole
+  // plan to be ranked again, a second or more, before "Voted" showed).
   // How to call: await vote('3b1f...', '9a2c...', 'v25')
   async function vote(id, slotId, venueId) {
     const before = toRaw(plans.value[id])
-    if (!before?.remote) return api.vote(id, slotId, currentUserId(), venueId)
+    if (!before) return api.vote(id, slotId, currentUserId(), venueId)
     const shown = withMyVote(before, slotId, venueId, currentUserId(), myName())
     if (shown !== before) {
       plans.value = { ...plans.value, [id]: shown }
@@ -88,14 +91,15 @@ export const usePlannerStore = defineStore('planner', () => {
     try {
       return await api.vote(id, slotId, currentUserId(), venueId)
     } catch (err) {
-      if (REFUSED.has(err?.code) && toRaw(plans.value[id]) === shown) plans.value = { ...plans.value, [id]: before }
+      // A local refusal is always a refusal: nothing was saved.
+      if ((REFUSED.has(err?.code) || !before.remote) && toRaw(plans.value[id]) === shown) plans.value = { ...plans.value, [id]: before }
       reload(id)
       throw err
     }
   }
   // The signed-in person's own name, for their vote on the card until the plan is read again. How to call: myName() -> 'Sam'
   const myName = () => useAuthStore().user?.name ?? ''
-  const searchVenues = (id, slotId, query) => api.searchVenuesForSlot(id, slotId, query)
+  const searchVenues = (id, slotId, query, opts) => api.searchVenuesForSlot(id, slotId, query, opts)
   const setRadius = (id, metres) => api.setRadius(id, metres)
   // Show the food places we could not confirm for the group's dietary needs, or only the ones that fit.
   // Both dietary changes resolve once this page's plan holds the places picked again (a change of the person's own needs picks
@@ -171,5 +175,5 @@ export const usePlannerStore = defineStore('planner', () => {
     if (event.sessionId && plans.value[event.sessionId]) reload(event.sessionId)
   })
 
-  return { plans, loading, errors, conditions, loadPlan, loadConditions, setCondition, setMyPreferences, deleteSlot, restoreSlots, addMore, addOption, swapOption, vote, searchVenues, setRadius, setUnconfirmed, confirmDiet }
+  return { plans, loading, errors, conditions, loadPlan, loadConditions, setCondition, setMyPreferences, deleteSlot, restoreSlots, addMore, addOption, removeOption, swapOption, vote, searchVenues, setRadius, setUnconfirmed, confirmDiet }
 })

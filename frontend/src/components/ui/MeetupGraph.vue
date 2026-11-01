@@ -12,6 +12,8 @@
 // Clicking or tapping a day (or Enter on the day the arrow keys reached) picks it: the graph emits `select` with its date
 // ('yyyy-MM-dd'), and again with null when the same day is picked a second time. The page that holds the graph filters by it
 // and passes the day back as `selected`; when it clears the filter (selected becomes ''), the graph lets the day go too.
+// With `:pickable="false"` (someone else's profile, whose outings are not listed) a day shows its count on hover or tap but is never
+// picked, and the hint does not offer it.
 // Without motion, every change simply happens.
 // The maths lives in lib/skyline.js.
 import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
@@ -29,6 +31,8 @@ const props = defineProps({
   defaultView: { type: String, default: '3d', validator: (v) => ['2d', '3d'].includes(v) },
   // The day the page is filtering by, or ''.
   selected: { type: String, default: '' },
+  // May a day be picked to filter the page below?
+  pickable: { type: Boolean, default: true },
 })
 const emit = defineEmits(['select'])
 
@@ -91,7 +95,10 @@ const corners = computed(() => width.value >= 560)
 const showRow = computed(() => !(scene3d.value && corners.value))
 const bigSize = computed(() => Math.round(Math.max(28, Math.min(48, width.value * 0.058))))
 // No "double-click" here: touch screens have none. The Reset view button does the same.
-const hint = computed(() => (is3d.value ? 'Tap a day to show only that day below · drag to turn' : 'Tap a day to show only that day below · arrow keys to explore'))
+const hint = computed(() => {
+  const pick = props.pickable ? 'Tap a day to show only that day below · ' : ''
+  return is3d.value ? `${pick}${pick ? 'drag' : 'Drag'} to turn` : `${pick}${pick ? 'arrow' : 'Arrow'} keys to explore`
+})
 const label = computed(() => `Meetups per day: ${stats.value.total} ${meetups(stats.value.total)} in the last ${months.value} months, shown as a ${is3d.value ? '3D skyline' : 'heat map'}`)
 const hintId = `sky-hint-${useId()}`
 const keysId = `sky-keys-${useId()}`
@@ -577,7 +584,7 @@ onMounted(() => {
     if (ev.pointerType !== 'mouse') hovered = -1
     refreshActive()
     // A day picks it; the same day again lets it go. A click beside the days leaves the page's filter alone.
-    if (i >= 0) emit('select', again ? null : cells[i].date)
+    if (i >= 0 && props.pickable) emit('select', again ? null : cells[i].date)
   }
   const onCancel = () => {
     drag = null
@@ -597,7 +604,7 @@ onMounted(() => {
     if (!keys.includes(ev.key) || !n) return
     ev.preventDefault()
     if (ev.key === 'Enter' || ev.key === ' ') {
-      if (pinned >= 0) emit('select', cells[pinned].date === props.selected ? null : cells[pinned].date)
+      if (pinned >= 0 && props.pickable) emit('select', cells[pinned].date === props.selected ? null : cells[pinned].date)
       return
     }
     if (ev.key === 'Escape') {

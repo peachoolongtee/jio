@@ -16,6 +16,12 @@ export function waitingFor(session) {
   return (session.activeIds || []).filter((id) => !session.locations?.[id]?.start)
 }
 
+// How many people in a session have shared where they start. Spots are worked out from two on.
+// How to call: startsShared(session) -> 3
+export function startsShared(session) {
+  return (session.activeIds || []).filter((id) => !!session.locations?.[id]?.start).length
+}
+
 export const useEventsStore = defineStore('events', () => {
   const sessions = ref([])
   const byId = ref({})
@@ -219,6 +225,23 @@ export const useEventsStore = defineStore('events', () => {
     } catch (err) {
       if (err?.released) placeFailure.value = { ...placeFailure.value, [id]: err.message || 'The meeting area could not be set.' }
       throw err
+    }
+  }
+  // The host chooses the meeting spot again from everyone's starts, after it was confirmed (Faith, 31 October 2026). Both ways let the meeting
+  // area go (changeMeetingPlace, which clears the votes for places and works out new spots). 'vote' leaves the new spots for the group to vote
+  // on, with the spot they had kept on the list as the host's own suggestion; 'fairest' confirms the planner's first spot straight away.
+  // With fewer than two starts no spot can be worked out: 'fairest' then lets nothing go, and 'vote' leaves the group to share their starts.
+  // How to call: await chooseSpotAgain('s1', 'vote')
+  const chooseSpotAgain = async (id, mode) => {
+    const enough = !byId.value[id] || startsShared(byId.value[id]) >= 2
+    if (mode === 'fairest' && !enough) throw new Error('At least two people need to share where they start before the fairest spot can be worked out.')
+    const had = byId.value[id]?.area?.id || null
+    await changeMeetingPlace(id, { meetBy: 'fairest' })
+    const first = byId.value[id]?.spots?.list?.[0]
+    if (mode === 'fairest') {
+      if (first) await confirmSpot(id, first.areaId)
+    } else if (had && enough) {
+      await suggestMySpot(id, had)
     }
   }
   // How to call: dismissPlaceFailure('s1')
@@ -546,6 +569,6 @@ export const useEventsStore = defineStore('events', () => {
     sessions, byId, itineraries, ledgers, leans, photos, loaded, current, weatherChecks, rainSwaps, invitations, invitationsLoaded, gone,
     loadInvitations, acceptInvitation, declineInvitation, leave, removeGuest, inviteByUsername, revokeInvite, dropSession,
     loadSessions, loadSession, loadItinerary, loadLedger, loadLean, loadPhotos, checkWeather, loadRainSwap, swapStop, dismissRain,
-    confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, changeMeetingPlace, placeFailure, dismissPlaceFailure, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, forgetOrder, addPhoto, deletePhoto, saveReview,
+    confirming, create, startRoam, update, invite, start, setMyLocation, useArea, suggestMySpot, withdrawMySpot, approveMySpot, confirmSpot, setKnownPlace, changeMeetingPlace, chooseSpotAgain, placeFailure, dismissPlaceFailure, cancel, optOut, rejoin, dismissBanner, confirm, respondReplan, replan, endPlan, proposeMyStop, resolveProposal, setTravelMode, deleteStop, replaceChoices, replaceStop, reorderStops, orders, suggestOrder, forgetOrder, addPhoto, deletePhoto, saveReview,
   }
 })

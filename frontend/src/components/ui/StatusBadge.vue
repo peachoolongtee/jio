@@ -4,15 +4,15 @@ const ICON = { turn: 'warning', planning: 'circle-dashed', voting: 'scan-search'
 </script>
 
 <script setup>
-// A status badge (walkthrough, 30 October 2026): a rounded pill tinted in its tone's hue, with a bold icon and bold words in the same
-// hue, darker, so the words stay over 4.5:1 on the tint. Not a control. The tones and their icons:
-//   turn       orange, warning        it is on you
-//   planning   blue, dashed circle    inviting or finding the place
-//   voting     amber, scan            voting
-//   ready      green, circle tick     the plan is confirmed
-//   done       violet, circle tick    the outing is over
-//   cancelled  red, circle cross
-//   waiting    grey, clock            it is on someone else
+// A status badge (walkthrough, 30 October 2026): a rounded pill with a bold icon and bold words, in the app's own colours (Faith, 31 October
+// 2026), each pair over 4.5:1 (tokens.css, --status-*). Not a control. The tones and their icons:
+//   turn       solid deep Rausch, white   warning        it is on you
+//   voting     Rausch tint, dark Rausch   scan           voting
+//   ready      solid ink, white           circle tick    the plan is confirmed
+//   planning   light grey, ink            dashed circle  inviting or finding the place
+//   done       pale grey, muted           circle tick    the outing is over
+//   cancelled  pale grey, error red       circle cross
+//   waiting    pale grey, muted           clock          it is on someone else
 //   <StatusBadge tone="ready">Ready</StatusBadge>
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
@@ -28,13 +28,13 @@ const icon = computed(() => ICON[props.tone])
 </template>
 
 <style scoped>
-.status-badge { --fg: var(--status-waiting-fg); display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 28px; padding: 0 var(--spacing-sm); border-radius: 10px; background: color-mix(in srgb, var(--fg) 10%, var(--canvas)); color: var(--fg); font: var(--text-caption); font-weight: 600; white-space: nowrap; }
+.status-badge { --fg: var(--status-waiting-fg); --bg: var(--status-waiting-bg); display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 28px; padding: 0 var(--spacing-sm); border-radius: 10px; background: var(--bg); color: var(--fg); font: var(--text-caption); font-weight: 600; white-space: nowrap; }
 .status-badge__icon { flex-shrink: 0; stroke-width: 2.25; }
-.status-badge--turn { --fg: var(--status-turn-fg); }
-.status-badge--planning { --fg: var(--status-planning-fg); }
-.status-badge--voting { --fg: var(--status-voting-fg); }
-.status-badge--ready { --fg: var(--status-ready-fg); }
-.status-badge--done { --fg: var(--status-done-fg); }
-.status-badge--cancelled { --fg: var(--status-cancelled-fg); }
-.status-badge--waiting { --fg: var(--status-waiting-fg); }
+.status-badge--turn { --fg: var(--status-turn-fg); --bg: var(--status-turn-bg); }
+.status-badge--planning { --fg: var(--status-planning-fg); --bg: var(--status-planning-bg); }
+.status-badge--voting { --fg: var(--status-voting-fg); --bg: var(--status-voting-bg); }
+.status-badge--ready { --fg: var(--status-ready-fg); --bg: var(--status-ready-bg); }
+.status-badge--done { --fg: var(--status-done-fg); --bg: var(--status-done-bg); }
+.status-badge--cancelled { --fg: var(--status-cancelled-fg); --bg: var(--status-cancelled-bg); }
+.status-badge--waiting { --fg: var(--status-waiting-fg); --bg: var(--status-waiting-bg); }
 </style>

@@ -106,6 +106,31 @@ test('searchVenues: uses the slot rules (duration, category, diet, last stop), a
   assert.deepStrictEqual(strictSlot[0].unfit.sort(), ['category', 'closed', 'diet:halal', 'near_mrt']);
   assert.deepStrictEqual(searchVenues({ ...base, query: '   ' }, only(vs)), []);
 });
+test('searchVenues: says which places take CDC vouchers, and cdcOnly keeps only those, before the limit', () => {
+  const vs = [
+    ...Array.from({ length: 3 }, (_, i) => venue(`Rice Shop ${i}`, { lat: bugis.lat + 0.0001 * i })),
+    venue('Rice Stall CDC', { lat: bugis.lat + 0.004, cdcAccepted: true }),
+  ];
+  const base = { query: 'rice', centre: bugis, dateTime: '2026-10-10T12:30' };
+  const all = searchVenues(base, only(vs));
+  assert.deepStrictEqual(all.map(r => [r.venueId, r.cdcAccepted]), [['Rice Shop 0', false], ['Rice Shop 1', false], ['Rice Shop 2', false], ['Rice Stall CDC', true]]);
+  // With a limit of 2 the CDC place would be cut; asked for alone, it is the answer.
+  assert.deepStrictEqual(searchVenues({ ...base, limit: 2, cdcOnly: true }, only(vs)).map(r => r.venueId), ['Rice Stall CDC']);
+});
+test('searchVenues: with browse and nothing typed, suggests the nearest places that fit, of the asked kinds, CDC only when asked', () => {
+  const vs = [
+    venue('Far', { lat: bugis.lat + 0.05 }),
+    venue('Near', { lat: bugis.lat + 0.001 }),
+    venue('Nearest CDC', { lat: bugis.lat + 0.0005, cdcAccepted: true }),
+    venue('Closed', { openingHours: [['18:00', '22:00']] }),
+    venue('A shop', { category: 'shop' }),
+  ];
+  const base = { query: '', centre: bugis, dateTime: '2026-10-10T12:30', categories: ['eat'], browse: true };
+  assert.deepStrictEqual(searchVenues(base, only(vs)).map(r => r.venueId), ['Nearest CDC', 'Near']);
+  assert.deepStrictEqual(searchVenues({ ...base, cdcOnly: true }, only(vs)).map(r => [r.venueId, r.cdcAccepted, r.fits]), [['Nearest CDC', true, true]]);
+  // Without browse an empty query still finds nothing.
+  assert.deepStrictEqual(searchVenues({ ...base, browse: false }, only(vs)), []);
+});
 
 // ---------------- current options (the ones the group is voting on)
 // 12 venues on top of the meeting point fill the shortlist; 'added' is 1.5 km out, like a place added by search.
