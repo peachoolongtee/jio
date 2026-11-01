@@ -3458,13 +3458,14 @@ export async function confirmDiet(id, dietary, dropped, { confirmed = true } = {
     const body = { mine: cleanDietary(dietary), ...(confirmed ? { checked: true } : {}), ...(Number.isInteger(planVersion) ? { planVersion } : {}) }
     if (dropped !== undefined) {
       // Compared with the list the screen shows (the dropped needs that someone else has, or that are the person's own), not the server's raw
-      // one: a guest sends back the list they were shown, their own dropped need included. A guest may lift a drop of their own need (they
-      // selected it again); any other change to the list is the host's, and a guest who asks for one is refused.
+      // one: a guest sends back the list they were shown, their own dropped need included. A guest may lift a drop of a need that is theirs
+      // alone (it is in their list as the screen read it, and no one else has it: the chip's `droppedMine`); any other change to the list is
+      // the host's, and a guest who asks for one is refused, as the server does.
       const wanted = cleanDietary(dropped)
       const seen = newestPlanRead.get(id)?.diet ?? (await dietaryStateOf(id))
       const shown = shownDropped(seen)
       if (wanted.join() !== shown.join()) {
-        const ownLift = wanted.every((need) => shown.includes(need)) && shown.filter((need) => !wanted.includes(need)).every((need) => body.mine.includes(need))
+        const ownLift = wanted.every((need) => shown.includes(need)) && shown.filter((need) => !wanted.includes(need)).every((need) => (seen?.mine ?? []).includes(need) && !(seen?.others ?? []).includes(need))
         if (!ownLift) {
           const hostId = newestRead.get(id)?.session?.hostId ?? (await getSession(id)).hostId
           if (hostId !== me()) throw new Error(DROP_HOST_ONLY)
@@ -3491,10 +3492,12 @@ export async function confirmDiet(id, dietary, dropped, { confirmed = true } = {
   const wantDropped = dropped === undefined
     ? droppedNeeds(session)
     : cleanDietary(dropped).filter((need) => othersNeeds(session).includes(need) || droppedNeeds(session).includes(need))
-  // Anyone lifts a drop of a need that is their own (they selected it again); adding a drop, or lifting someone else's, is the host's.
+  // Anyone lifts a drop of a need that is theirs alone (they selected it again, and no one else has it); adding a drop, or lifting a need that
+  // someone else has, is the host's.
   const adding = wantDropped.filter((need) => !droppedNeeds(session).includes(need))
   const lifting = droppedNeeds(session).filter((need) => !wantDropped.includes(need))
-  if ((adding.length > 0 || lifting.some((need) => !next.includes(need))) && session.hostId !== me()) throw new Error(DROP_HOST_ONLY)
+  const mineBefore = dietaryOf(me(), session)
+  if ((adding.length > 0 || lifting.some((need) => !mineBefore.includes(need) || othersNeeds(session).includes(need))) && session.hostId !== me()) throw new Error(DROP_HOST_ONLY)
   return !mineChanged && wantDropped.join() === droppedNeeds(session).join()
     ? (() => {
         session.dietChecked = { ...(session.dietChecked || {}), [me()]: true }

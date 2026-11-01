@@ -48,8 +48,10 @@ function standIn(w, apps, profiles, hostId, { joined = 3, refuse = null } = {}) 
       if (refuse && method === 'PUT') return respond(refuse.status, { error: refuse.error, message: 'No.' })
       if (control.fail && method === 'GET') return respond(control.fail.status, { error: control.fail.error, message: 'No.' })
       if (method === 'PUT') {
-        // As the server: a member may lift a drop of a need of their own (kept in `mine`); any other change to the list is the host's.
-        const ownLift = body.dropped && body.dropped.every((n) => outing.dropped.includes(n)) && outing.dropped.filter((n) => !body.dropped.includes(n)).every((n) => (body.mine ?? []).includes(n))
+        // As the server: a member may lift a drop only of a need that is theirs alone (in their list before this request, and no one else has it);
+        // any other change to the list is the host's.
+        const before = answerFor(user)
+        const ownLift = body.dropped && body.dropped.every((n) => outing.dropped.includes(n)) && outing.dropped.filter((n) => !body.dropped.includes(n)).every((n) => before.mine.includes(n) && !before.others.includes(n))
         if (body.dropped && user !== hostId && !ownLift) return respond(403, { error: 'host_only', message: 'Only the host can drop a need.' })
         if (body.mine) outing.mine[user] = body.mine
         if (body.checked) outing.checked[user] = true

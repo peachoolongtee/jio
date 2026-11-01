@@ -115,7 +115,8 @@ import { sessionSchemas } from './session-schemas.js'
 // The answer is not cached anywhere. GET has its own per-person limit (`readLimiter`), so reading never uses up the other routes'; PUT has a tighter one of its own (`dietaryWriteLimiter`, 20 a minute), as a change can rank every slot again.
 // PUT: `mine` and `dropped` are whole lists; at least one of `mine`, `checked`, `dropped`. It works while the session is inviting, locating or
 // voting (409 session_closed once it has ended, 409 wrong_status when confirmed). `dropped` is the host's (403 host_only), needs three joined (409
-// needs_three_people) and may add only a need a member other than the host has (422 need_not_found). Only the host's `dropped` changes a drop. A stale `planVersion` is 409 stale_plan. While voting, a change
+// needs_three_people) and may add only a need a member other than the host has (422 need_not_found). Only the host drops a need or lifts the drop of one that someone
+// else has; a member may lift a drop only of a need that is theirs alone (in their own row before this request, and no other joined member has it), else 403 host_only. A stale `planVersion` is 409 stale_plan. While voting, a change
 // of the group's needs in effect picks the places again (services/sessions.js setDietary): only voted places that still fit stay, the rest are the
 // planner's best, a notice that names nobody is written (`sessions.banner`, `byDiet: true`), and `repicked` is true. The server never writes a vote.
 //   const { data } = await api.get(`/api/sessions/${id}/dietary`)   (lib/plannerApi.js sessionDietary)

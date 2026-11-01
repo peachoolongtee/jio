@@ -1273,10 +1273,12 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
   //   - the caller is joined (403 not_joined); an outing that has ended is 409 session_closed, a confirmed plan 409 wrong_status; a stale `planVersion` 409 stale_plan;
   //   - dropping a need is the host's (403 host_only), needs three joined members (409 needs_three_people) and may only add a need that a member
   //     other than the host has (422 need_not_found): the others' needs are what the host was told, so the refusal tells nothing new;
-  //   - a drop is lifted by the host, or by a member for a need that is their own: they send `dropped` without it and keep the need in `mine`
-  //     (they selected it again, so the places should fit it; Darryl's UAT note of 31 October). Anything else a member sends in `dropped` is
-  //     403 host_only. A member who keeps a dropped need without asking to lift it keeps it dropped. A drop goes by itself when no member
-  //     other than the host has the need any more (db/sessions.js loadOutingDietary), and is never in force under three.
+  //   - a drop is lifted by the host, or by a member for a need that is theirs alone: it is in their own row as it was before this request (a need
+  //     claimed in the same request does not count) and no other joined member, the host included, has it. They send `dropped` without it (they
+  //     selected it again, so the places should fit it; Darryl's UAT note of 31 October). Anything else a member sends in `dropped`, including a
+  //     lift of a need that someone else has, is 403 host_only: only the host drops or restores someone else's need. A member who keeps a dropped
+  //     need without asking to lift it keeps it dropped. A drop goes by itself when no member other than the host has the need any more
+  //     (db/sessions.js loadOutingDietary), and is never in force under three.
   // While the session is voting and the group's needs in effect (everyone's together, without the drops in force) changed, the slots are ranked again in the
   // same run: only voted places that still fit stay, the rest are the planner's best for the new needs, and the notice names nobody (the radius's way:
   // `plan: { rank: 'all', diet: true }`). The server never writes a vote. The answer is the GET's, with `planVersion` and `repicked`.
@@ -1327,10 +1329,13 @@ export function createSessions({ supabase, data, runs, ai = null, now = Date.now
 
           let droppedNext = stored
           if (dropped !== undefined && userId !== hostId) {
-            // Anyone may lift a drop of a need that is their own (they selected it again, so the places should fit it); only the host drops one.
+            // A member may lift a drop only of a need that is theirs alone, as the screen offers it (DietaryChips `droppedMine`: not `shared`). That is
+            // a need in their own row as it was before this request, so one claimed in the same request does not count, and one that no other joined
+            // member holds, the host included. Anything else, and every new drop, is the host's.
             const asked = needsOf([dropped])
             const lifted = without(stored, asked)
-            if (without(asked, stored).length > 0 || lifted.some((need) => !mineNext.includes(need))) requireHost(draft, userId, 'drop a need')
+            const theirsAlone = (need) => mineBefore.includes(need) && !rows.some((r) => lower(r.user_id) !== userId && Array.isArray(r.dietary) && r.dietary.includes(need))
+            if (without(asked, stored).length > 0 || !lifted.every(theirsAlone)) requireHost(draft, userId, 'drop a need')
             droppedNext = asked
           } else if (dropped !== undefined) {
             if (joined < MIN_MEMBERS_FOR_OTHERS) throw refuse(409, 'needs_three_people', 'Needs can be dropped once three people have joined.')
