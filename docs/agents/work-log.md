@@ -1946,3 +1946,25 @@ No database change.
   - the removed "Confirm dietary needs" popup;
   - no known place from Locate;
   - the dark pill.
+- **Results of the two pieces, joined at `5568ad1`:**
+  - **A (tests and server):**
+    - the end-to-end tests moved to the new flow, through `fixtures.js`, with two lines changed in `ian.spec.js` (a long day, because a three-hour session holds three of four kinds of stop, and no "Save plan" link);
+    - a lift of a drop narrowed to the sole holder;
+    - the Google path's dedupe restored;
+    - `nearest` memoised (meeting-area request 15.0 ms to 2.3 ms);
+    - 92 prices flagged;
+    - credits added to `areas.json` and `curated-venues.json`.
+  - **B (screens):**
+    - one confirm for the pin and the footer;
+    - the radius queues its newest value;
+    - overdue outings last;
+    - steps in flow order;
+    - the voucher code stays readable;
+    - "Already out?" and "Added" no longer red;
+    - contrast on grey cards (three `--scale-*` tokens changed);
+    - the person's own minutes beside "This spot is closer to you.";
+    - the search as a combobox;
+    - a caption on the post button, and its shader on idle (213 kB, 64 kB gzip, lazy);
+    - `DESIGN.md` brought up to what ships.
+  - **Measured:** Tampines + Bishan picks Paya Lebar on the area table. In 500 random pairs, 134 had fewer than 3 drink or shop places within 3 km, 12 of them an empty list. In 500 random triples, 125 and 4.
+  - **Not seen in a browser:** the pin's warning and Home's overdue banner (tested only).
