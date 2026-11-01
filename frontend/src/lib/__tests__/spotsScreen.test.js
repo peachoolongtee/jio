@@ -713,6 +713,16 @@ describe('the line about past travel', () => {
     expect(notes(page)).toHaveLength(1)
   })
 
+  // Review of 1 November 2026: the times moved behind "More details", so the claim stood alone. The person's own minutes come first, and
+  // nobody else's are on the line.
+  it('begins with the person\'s own minutes, and names no one else\'s', () => {
+    asked()
+    answer()
+    const page = list(trips(10, 40))
+    expect(page.textOf(notes(page)[0])).toBe(`You: 10 min. ${LINE}`)
+    expect(page.textOf(notes(page)[0])).not.toContain('40')
+  })
+
   it('says the same sentence for each rule the line is shown for, and nothing for a rule it does not know', () => {
     asked()
     answer('balanced')
@@ -779,13 +789,13 @@ describe('the line about past travel', () => {
     expect(list(s, { myId: 'jonathan' }).text()).not.toContain(LINE)
   })
 
-  it('names no one and gives no number, in the page that shows it', () => {
+  it('names no one and gives no number but the person\'s own, in the page that shows it', () => {
     asked()
     answer()
     const page = list(trips(10, 40))
     const [note] = notes(page)
-    expect(page.textOf(note)).toBe(LINE)
-    expect(page.textOf(note)).not.toMatch(/Ian|Jonathan|Faith|\d|travelled|tie|share/)
+    expect(page.textOf(note)).toBe(`You: 10 min. ${LINE}`)
+    expect(page.textOf(note)).not.toMatch(/Ian|Jonathan|Faith|40|travelled|tie|share/)
   })
 
   it('shows nothing when the answer is no, is missing, or names a rule it does not know', () => {

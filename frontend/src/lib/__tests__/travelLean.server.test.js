@@ -51,8 +51,8 @@ describe('the line on the Locate step of a session on the server', () => {
     w.server.owed = new Set([kim.id])
     const { view } = await draw(id)
     await until(() => view.has(LINE))
-    expect(view.text(view.one(LINE))).toBe(leanLine('longest'))
-    expect(view.text(view.one(LINE))).toBe('This spot is closer to you.')
+    expect(view.text(view.one(LINE))).toMatch(new RegExp(`^You: (about )?\\d+ min\\. ${leanLine('longest')}$`))
+    expect(view.text(view.one(LINE))).toContain('This spot is closer to you.')
     expect(leanCalls(w).every((c) => c.as === kim.id)).toBe(true)
     expect(view.text()).not.toMatch(/Sam.{0,40}closer to you/)
     expect(view.errors).toEqual([])
@@ -85,7 +85,7 @@ describe('the line on the Locate step of a session on the server', () => {
     w.server.leanRule = 'balanced'
     const { view } = await draw(id)
     await until(() => view.has(LINE))
-    expect(view.text(view.one(LINE))).toBe('This spot is closer to you.')
+    expect(view.text(view.one(LINE))).toMatch(/^You: (about )?\d+ min\. This spot is closer to you\.$/)
   })
 
   it('shows nothing when the read fails, or the answer names a rule the screen does not know', async () => {
